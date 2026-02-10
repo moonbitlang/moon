@@ -29,28 +29,6 @@ pub struct ExecResult {
     exit_code: u8,
 }
 
-fn moon_bin() -> PathBuf {
-    let current_exe = std::env::current_exe().expect("failed to get current executable path");
-    let current_dir = current_exe
-        .parent()
-        .expect("current executable has no parent");
-    let bin_dir = if current_dir.file_name() == Some(OsStr::new("deps")) {
-        current_dir
-            .parent()
-            .expect("test executable parent has no non-deps directory")
-    } else {
-        current_dir
-    };
-
-    let moon = bin_dir.join(format!("moon{}", std::env::consts::EXE_SUFFIX));
-    assert!(
-        moon.exists(),
-        "moon binary not found at expected path: {}",
-        moon.display()
-    );
-    moon
-}
-
 pub fn moon_home() -> PathBuf {
     if let Ok(moon_home) = std::env::var("MOON_HOME") {
         return PathBuf::from(moon_home);
@@ -68,7 +46,7 @@ pub fn moon_home() -> PathBuf {
     hm
 }
 
-fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
+fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>, moon_bin: &Path) -> String {
     let moon_home = dunce::canonicalize(moon_home()).expect("valid moon home");
     let s = moon_home
         .join("bin")
@@ -97,7 +75,7 @@ fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
     let s = s.replace("\\\\", "\\");
     let s = s.replace(&path_str1, "${WORK_DIR}");
     let s = s.replace(moon_home.to_string_lossy().as_ref(), "$MOON_HOME");
-    let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
+    let s = s.replace(moon_bin.to_string_lossy().as_ref(), "moon");
     let s = ["node.cmd", "node"]
         .iter()
         .map(which::which)
@@ -109,7 +87,7 @@ fn replace_dir(s: &str, dir: &impl AsRef<std::path::Path>) -> String {
 }
 
 impl ExecResult {
-    pub fn normalize(&self, workdir: &Path) -> String {
+    pub fn normalize(&self, workdir: &Path, moon_bin: &Path) -> String {
         let actual = if self.stderr.is_empty() {
             self.stdout.clone()
         } else {
@@ -121,7 +99,7 @@ impl ExecResult {
             actual
         };
 
-        replace_dir(&actual, &workdir)
+        replace_dir(&actual, &workdir, moon_bin)
     }
 }
 
@@ -135,7 +113,9 @@ where
 }
 
 #[derive(Debug)]
-struct MoonExec;
+struct MoonExec {
+    cmd: PathBuf,
+}
 
 impl<I, S, W> Executable<I, S, W> for MoonExec
 where
@@ -144,7 +124,9 @@ where
     W: AsRef<Path>,
 {
     fn execute(&self, args: I, workdir: W) -> ExecResult {
-        let sys = SystemExec { cmd: moon_bin() };
+        let sys = SystemExec {
+            cmd: self.cmd.clone(),
+        };
         sys.execute(args, workdir)
     }
 }
@@ -281,14 +263,19 @@ mod custom_operations {
     }
 }
 
-pub fn construct_executable<'a, I, S, W>(name: &str) -> Box<dyn Executable<I, S, W> + 'a>
+pub fn construct_executable<'a, I, S, W>(
+    name: &str,
+    moon_bin: &Path,
+) -> Box<dyn Executable<I, S, W> + 'a>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr> + 'a,
     W: AsRef<Path> + 'a,
 {
     match name {
-        "moon" => Box::new(MoonExec),
+        "moon" => Box::new(MoonExec {
+            cmd: moon_bin.to_path_buf(),
+        }),
         "xcat" => Box::new(CustomExec {
             func: custom_operations::xcat,
         }),

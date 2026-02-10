@@ -51,7 +51,7 @@ fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn t(file: &Path, update: bool) -> i32 {
+pub fn t(file: &Path, moon_bin: &Path, update: bool) -> i32 {
     let p = dunce::canonicalize(file).unwrap();
     let tmpdir = tempfile::tempdir().unwrap();
     let folder_name = p
@@ -73,9 +73,9 @@ pub fn t(file: &Path, update: bool) -> i32 {
         match item {
             parse::Block::Command { cmd, content: _ } => {
                 let args = cmd.split_whitespace().collect::<Vec<&str>>();
-                let exec = construct_executable(args[0]);
+                let exec = construct_executable(args[0], moon_bin);
                 let ret = exec.execute(&args[1..], &workdir);
-                let actual = ret.normalize(&workdir);
+                let actual = ret.normalize(&workdir, moon_bin);
                 result.push(parse::Block::Command {
                     cmd: cmd.to_string(),
                     content: Some(actual),

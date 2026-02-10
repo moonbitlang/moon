@@ -140,7 +140,7 @@ pub fn run_moon_cmdtest(case_dir: &str) {
         .join("moon.test");
 
     let update = std::env::var_os("UPDATE_EXPECT").is_some();
-    let exit_code = moon_test_util::cmdtest::run::t(&test_path, update);
+    let exit_code = moon_test_util::cmdtest::run::t(&test_path, &moon_bin(), update);
 
     assert_eq!(exit_code, 0, "cmdtest failed for {}", test_path.display());
 }
