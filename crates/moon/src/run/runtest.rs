@@ -498,7 +498,7 @@ pub(crate) fn collect_test_outline(
 /// Gather tests executables from the build metadata.
 #[instrument(level = "trace", skip(build_meta))]
 fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
-    let mut pending = HashMap::new();
+    let mut pending = HashMap::with_capacity(build_meta.artifacts.len());
     let mut results = vec![];
 
     for (node, artifacts) in &build_meta.artifacts {

@@ -98,7 +98,7 @@ impl RegistryList {
     }
 
     pub fn with_registry(registry: Box<dyn Registry>) -> Self {
-        let mut registries = HashMap::new();
+        let mut registries = HashMap::with_capacity(1);
         let default_registry_name = "default";
         registries.insert(default_registry_name.to_owned(), registry);
 

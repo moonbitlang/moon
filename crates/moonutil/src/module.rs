@@ -143,7 +143,9 @@ impl ModuleDB {
                 .chain(pkg.test_imports.iter());
 
             let mut paths = Vec::new();
-            let has_deps = all_deps.clone().count() > 0;
+            let has_deps = !pkg.imports.is_empty()
+                || !pkg.wbtest_imports.is_empty()
+                || !pkg.test_imports.is_empty();
 
             for dep in all_deps {
                 let dep_name = dep.path.make_full_path();

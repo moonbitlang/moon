@@ -419,16 +419,10 @@ fn collect<'a>(
         let json_str = &msg[EXPECT_FAILED.len()..];
         let rep = parse_expect_failed_message(pkg_src, json_str)?;
 
-        match targets.get_mut(&rep.loc.filename) {
-            Some(st) => {
-                st.insert(rep.guess_target()?);
-            }
-            None => {
-                let mut newst = BTreeSet::new();
-                newst.insert(rep.guess_target()?);
-                targets.insert(rep.loc.filename.clone(), newst);
-            }
-        }
+        targets
+            .entry(rep.loc.filename.clone())
+            .or_default()
+            .insert(rep.guess_target()?);
     }
     Ok(targets)
 }

@@ -339,7 +339,7 @@ pub struct ArchiverConfig {
 }
 
 /// Resolve the C compiler to use from global state
-pub fn resolve_cc(cc: CC, user_cc: Option<CC>) -> CC {
+pub fn resolve_cc(cc: &CC, user_cc: Option<&CC>) -> CC {
     if ENV_CC.is_some() && user_cc.is_some() {
         eprintln!(
             "{}: Both MOON_CC environment variable and user-specified CC are provided. \
@@ -347,7 +347,9 @@ pub fn resolve_cc(cc: CC, user_cc: Option<CC>) -> CC {
             "Warning".yellow().bold(),
         );
     }
-    ENV_CC.clone().unwrap_or_else(|| user_cc.unwrap_or(cc))
+    ENV_CC
+        .clone()
+        .unwrap_or_else(|| user_cc.cloned().unwrap_or_else(|| cc.clone()))
 }
 
 // Struct to hold path configuration for commands
@@ -417,7 +419,7 @@ pub fn make_archiver_command<S>(
 where
     S: AsRef<str>,
 {
-    let resolved_cc = resolve_cc(cc, user_cc);
+    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
     make_archiver_command_pure(resolved_cc, config, src, dest)
 }
 
@@ -581,7 +583,7 @@ where
     S: AsRef<str>,
     P: AsRef<Path>,
 {
-    let resolved_cc = resolve_cc(cc, user_cc);
+    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
     let lib_path = &MOON_DIRS.moon_lib_path.display().to_string();
     make_linker_command_pure(
         resolved_cc,
@@ -848,7 +850,7 @@ pub fn make_cc_command<S>(
 where
     S: AsRef<str>,
 {
-    let resolved_cc = resolve_cc(cc, user_cc);
+    let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
     let paths = CompilerPaths::from_moon_dirs();
     make_cc_command_pure(
         resolved_cc,

@@ -701,7 +701,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .expect("runtime dylib should have a parent directory");
 
         // Resolve CC: prefer stub_cc if provided, otherwise use default.
-        let cc = resolve_cc(self.opt.default_cc.clone(), info.stub_cc.clone());
+        let cc = resolve_cc(&self.opt.default_cc, info.stub_cc.as_ref());
 
         // Build linker config: shared lib, no libmoonbitrun, and link shared runtime dir
         let lcfg = LinkerConfigBuilder::<&Path>::default()
@@ -837,7 +837,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
 
         let cc_cmd = make_cc_command_pure(
-            resolve_cc(self.opt.default_cc.clone(), info.cc.clone()), // TODO: no clone
+            resolve_cc(&self.opt.default_cc, info.cc.as_ref()),
             config,
             &c_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             sources.iter().map(|x| x.display().to_string()),
