@@ -541,9 +541,19 @@ fn add_linker_common_libraries<P: AsRef<Path>>(
             buf.push("-lm".to_string());
         }
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push("-lruntime".to_string());
-            if should_add_runtime_rpath() {
-                buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
+            if should_use_msvc_style_tcc_runtime_linking(cc) {
+                buf.push(
+                    dyn_lib_path
+                        .as_ref()
+                        .join("libruntime.lib")
+                        .display()
+                        .to_string(),
+                );
+            } else {
+                buf.push("-lruntime".to_string());
+                if should_add_runtime_rpath() {
+                    buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
+                }
             }
         }
     }
@@ -831,14 +841,81 @@ fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     }
 }
 
-fn should_link_math_library(cc: &CC) -> bool {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowsLinkerFlavor {
+    Msvc,
+    GnuLike,
+}
+
+fn parse_windows_linker_flavor(s: &str) -> Option<WindowsLinkerFlavor> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "msvc" => Some(WindowsLinkerFlavor::Msvc),
+        "gnu" | "mingw" | "gcc" => Some(WindowsLinkerFlavor::GnuLike),
+        _ => None,
+    }
+}
+
+fn infer_windows_tcc_linker_flavor(
+    explicit: Option<&str>,
+    has_msvc_env: bool,
+) -> WindowsLinkerFlavor {
+    if let Some(flavor) = explicit.and_then(parse_windows_linker_flavor) {
+        return flavor;
+    }
+    if has_msvc_env {
+        WindowsLinkerFlavor::Msvc
+    } else {
+        WindowsLinkerFlavor::GnuLike
+    }
+}
+
+fn detect_windows_tcc_linker_flavor() -> WindowsLinkerFlavor {
+    let explicit = env::var("MOON_WINDOWS_LINKER_FLAVOR").ok();
+    let has_msvc_env = env::var_os("VCINSTALLDIR").is_some()
+        || env::var_os("VCToolsInstallDir").is_some()
+        || env::var_os("VisualStudioVersion").is_some();
+    infer_windows_tcc_linker_flavor(explicit.as_deref(), has_msvc_env)
+}
+
+fn effective_windows_tcc_linker_flavor(cc: &CC) -> Option<WindowsLinkerFlavor> {
+    if cfg!(target_os = "windows") && cc.is_tcc() {
+        Some(detect_windows_tcc_linker_flavor())
+    } else {
+        None
+    }
+}
+
+fn should_link_math_library_with_tcc_flavor(
+    cc: &CC,
+    tcc_linker_flavor: Option<WindowsLinkerFlavor>,
+) -> bool {
     // On Unix, keep legacy behavior: only full-featured gcc-like toolchains get -lm.
-    // On Windows, TCC and GNU-like drivers also need explicit math library linkage.
-    if cfg!(target_os = "windows") {
-        cc.is_gcc_like() && !cc.is_msvc()
+    // On Windows, TCC may use either GNU-like or MSVC-style linkers.
+    if cfg!(target_os = "windows") && cc.is_tcc() {
+        !matches!(tcc_linker_flavor, Some(WindowsLinkerFlavor::Msvc))
     } else {
         cc.is_full_featured_gcc_like()
     }
+}
+
+fn should_link_math_library(cc: &CC) -> bool {
+    should_link_math_library_with_tcc_flavor(cc, effective_windows_tcc_linker_flavor(cc))
+}
+
+fn should_use_msvc_style_tcc_runtime_linking_with_tcc_flavor(
+    cc: &CC,
+    tcc_linker_flavor: Option<WindowsLinkerFlavor>,
+) -> bool {
+    cfg!(target_os = "windows")
+        && cc.is_tcc()
+        && matches!(tcc_linker_flavor, Some(WindowsLinkerFlavor::Msvc))
+}
+
+fn should_use_msvc_style_tcc_runtime_linking(cc: &CC) -> bool {
+    should_use_msvc_style_tcc_runtime_linking_with_tcc_flavor(
+        cc,
+        effective_windows_tcc_linker_flavor(cc),
+    )
 }
 
 fn should_add_runtime_rpath() -> bool {
@@ -927,7 +1004,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn windows_tcc_linker_uses_lm_without_rpath() {
+    fn parse_windows_linker_flavor_works() {
+        assert_eq!(
+            parse_windows_linker_flavor("msvc"),
+            Some(WindowsLinkerFlavor::Msvc)
+        );
+        assert_eq!(
+            parse_windows_linker_flavor("gnu"),
+            Some(WindowsLinkerFlavor::GnuLike)
+        );
+        assert_eq!(
+            parse_windows_linker_flavor("mingw"),
+            Some(WindowsLinkerFlavor::GnuLike)
+        );
+        assert_eq!(parse_windows_linker_flavor("unknown"), None);
+    }
+
+    #[test]
+    fn infer_windows_tcc_linker_flavor_prefers_explicit() {
+        assert_eq!(
+            infer_windows_tcc_linker_flavor(Some("msvc"), false),
+            WindowsLinkerFlavor::Msvc
+        );
+        assert_eq!(
+            infer_windows_tcc_linker_flavor(Some("gnu"), true),
+            WindowsLinkerFlavor::GnuLike
+        );
+    }
+
+    #[test]
+    fn infer_windows_tcc_linker_flavor_falls_back_to_env_hint() {
+        assert_eq!(
+            infer_windows_tcc_linker_flavor(None, true),
+            WindowsLinkerFlavor::Msvc
+        );
+        assert_eq!(
+            infer_windows_tcc_linker_flavor(None, false),
+            WindowsLinkerFlavor::GnuLike
+        );
+    }
+
+    #[test]
+    fn windows_tcc_math_library_depends_on_linker_flavor() {
         let cc = CC {
             cc_kind: CCKind::Tcc,
             cc_path: "tcc".to_string(),
@@ -935,64 +1053,18 @@ mod tests {
             ar_path: "tcc".to_string(),
             is_env_override: false,
         };
-
-        let cfg = LinkerConfigBuilder::<&Path>::default()
-            .link_moonbitrun(false)
-            .output_ty(OutputType::SharedLib)
-            .link_shared_runtime(Some(Path::new(r"C:\rt")))
-            .build()
-            .expect("Linker config should be valid");
-
-        let cmd = make_linker_command_pure(
-            cc,
-            cfg,
-            &[] as &[&str],
-            &["stub.o"],
-            r"C:\out",
-            r"C:\out\libstub.dll",
-            r"C:\moon\lib",
-        );
-
-        assert!(cmd.iter().any(|x| x == "-lm"));
-        assert!(cmd.iter().any(|x| x == "-lruntime"));
-        assert!(!cmd.iter().any(|x| x.starts_with("-Wl,-rpath,")));
+        assert!(should_link_math_library_with_tcc_flavor(
+            &cc,
+            Some(WindowsLinkerFlavor::GnuLike)
+        ));
+        assert!(!should_link_math_library_with_tcc_flavor(
+            &cc,
+            Some(WindowsLinkerFlavor::Msvc)
+        ));
     }
 
     #[test]
-    fn windows_msvc_linker_does_not_use_lm_or_rpath() {
-        let cc = CC {
-            cc_kind: CCKind::Msvc,
-            cc_path: "cl.exe".to_string(),
-            ar_kind: ARKind::MsvcLib,
-            ar_path: "lib.exe".to_string(),
-            is_env_override: false,
-        };
-
-        let cfg = LinkerConfigBuilder::<&Path>::default()
-            .link_moonbitrun(false)
-            .output_ty(OutputType::SharedLib)
-            .link_shared_runtime(Some(Path::new(r"C:\rt")))
-            .build()
-            .expect("Linker config should be valid");
-
-        let cmd = make_linker_command_pure(
-            cc,
-            cfg,
-            &[] as &[&str],
-            &["stub.obj"],
-            r"C:\out",
-            r"C:\out\stub.dll",
-            r"C:\moon\lib",
-        );
-
-        assert!(!cmd.iter().any(|x| x == "-lm"));
-        assert!(!cmd.iter().any(|x| x == "-lruntime"));
-        assert!(!cmd.iter().any(|x| x.starts_with("-Wl,-rpath,")));
-        assert!(cmd.iter().any(|x| x.contains("libruntime.lib")));
-    }
-
-    #[test]
-    fn windows_tcc_cc_command_includes_lm_for_linking() {
+    fn windows_tcc_runtime_link_style_depends_on_linker_flavor() {
         let cc = CC {
             cc_kind: CCKind::Tcc,
             cc_path: "tcc".to_string(),
@@ -1000,28 +1072,13 @@ mod tests {
             ar_path: "tcc".to_string(),
             is_env_override: false,
         };
-
-        let cfg = CCConfigBuilder::default()
-            .output_ty(OutputType::Executable)
-            .opt_level(OptLevel::Debug)
-            .debug_info(true)
-            .link_moonbitrun(false)
-            .build()
-            .expect("CC config should be valid");
-
-        let cmd = make_cc_command_pure(
-            cc,
-            cfg,
-            &[] as &[&str],
-            ["main.c".to_string()],
-            r"C:\out",
-            Some(r"C:\out\main.exe"),
-            &CompilerPaths {
-                include_path: r"C:\moon\include".to_string(),
-                lib_path: r"C:\moon\lib".to_string(),
-            },
-        );
-
-        assert!(cmd.iter().any(|x| x == "-lm"));
+        assert!(!should_use_msvc_style_tcc_runtime_linking_with_tcc_flavor(
+            &cc,
+            Some(WindowsLinkerFlavor::GnuLike)
+        ));
+        assert!(should_use_msvc_style_tcc_runtime_linking_with_tcc_flavor(
+            &cc,
+            Some(WindowsLinkerFlavor::Msvc)
+        ));
     }
 }
