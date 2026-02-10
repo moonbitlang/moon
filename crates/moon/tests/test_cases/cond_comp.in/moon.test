@@ -63,14 +63,14 @@
   $ moon check --sort-input
   
   Warning: [0002]
-     ╭─[ ${WORK_DIR}/src/lib/all.mbt:2:7 ]
+     ╭─[ [WORK_DIR]/src/lib/all.mbt:2:7 ]
      │
    2 │   let a = 1
      │       ┬  
      │       ╰── Warning (unused_value): Unused variable 'a'
   ───╯
   Warning: [0029]
-     ╭─[ ${WORK_DIR}/src/main/moon.pkg.json:4:5 ]
+     ╭─[ [WORK_DIR]/src/main/moon.pkg.json:4:5 ]
      │
    4 │     "username/hello/lib"
      │     ──────────┬─────────  
@@ -80,17 +80,17 @@
   
   $ xcat _build/packages.json
   {
-    "source_dir": "${WORK_DIR}",
+    "source_dir": "[WORK_DIR]",
     "name": "username/hello",
     "packages": [
       {
         "is-main": false,
         "is-third-party": false,
-        "root-path": "${WORK_DIR}/src/lib",
+        "root-path": "[WORK_DIR]/src/lib",
         "root": "username/hello",
         "rel": "lib",
         "files": {
-          "${WORK_DIR}/src/lib/all.mbt": {
+          "[WORK_DIR]/src/lib/all.mbt": {
             "backend": [
               "Wasm",
               "WasmGC",
@@ -103,7 +103,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/all_wasm.mbt": {
+          "[WORK_DIR]/src/lib/all_wasm.mbt": {
             "backend": [
               "Wasm",
               "WasmGC"
@@ -113,7 +113,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/js_and_release.mbt": {
+          "[WORK_DIR]/src/lib/js_and_release.mbt": {
             "backend": [
               "Js"
             ],
@@ -121,7 +121,7 @@
               "Release"
             ]
           },
-          "${WORK_DIR}/src/lib/js_or_wasm.mbt": {
+          "[WORK_DIR]/src/lib/js_or_wasm.mbt": {
             "backend": [
               "Wasm",
               "Js"
@@ -131,7 +131,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/native_and_wasm.mbt": {
+          "[WORK_DIR]/src/lib/native_and_wasm.mbt": {
             "backend": [
               "Wasm",
               "Native"
@@ -141,7 +141,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/native_only.mbt": {
+          "[WORK_DIR]/src/lib/native_only.mbt": {
             "backend": [
               "Native"
             ],
@@ -150,7 +150,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/not_js.mbt": {
+          "[WORK_DIR]/src/lib/not_js.mbt": {
             "backend": [
               "Wasm",
               "WasmGC",
@@ -162,7 +162,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/only_debug.mbt": {
+          "[WORK_DIR]/src/lib/only_debug.mbt": {
             "backend": [
               "Wasm",
               "WasmGC",
@@ -174,7 +174,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/only_js.mbt": {
+          "[WORK_DIR]/src/lib/only_js.mbt": {
             "backend": [
               "Js"
             ],
@@ -183,7 +183,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/only_wasm.mbt": {
+          "[WORK_DIR]/src/lib/only_wasm.mbt": {
             "backend": [
               "Wasm"
             ],
@@ -192,7 +192,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/only_wasm_gc.mbt": {
+          "[WORK_DIR]/src/lib/only_wasm_gc.mbt": {
             "backend": [
               "WasmGC"
             ],
@@ -201,7 +201,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/wasm_release_or_js_debug.mbt": {
+          "[WORK_DIR]/src/lib/wasm_release_or_js_debug.mbt": {
             "backend": [
               "Wasm",
               "Js"
@@ -214,7 +214,7 @@
         },
         "wbtest-files": {},
         "test-files": {
-          "${WORK_DIR}/src/lib/hello_test.mbt": {
+          "[WORK_DIR]/src/lib/hello_test.mbt": {
             "backend": [
               "Wasm",
               "WasmGC",
@@ -227,7 +227,7 @@
               "Debug"
             ]
           },
-          "${WORK_DIR}/src/lib/js_only_test.mbt": {
+          "[WORK_DIR]/src/lib/js_only_test.mbt": {
             "backend": [
               "Js"
             ],
@@ -242,33 +242,33 @@
           {
             "path": "moonbitlang/core/prelude",
             "alias": "prelude",
-            "fspath": "$MOON_HOME/lib/core/prelude"
+            "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
         "wbtest-deps": [
           {
             "path": "moonbitlang/core/prelude",
             "alias": "prelude",
-            "fspath": "$MOON_HOME/lib/core/prelude"
+            "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
         "test-deps": [
           {
             "path": "moonbitlang/core/prelude",
             "alias": "prelude",
-            "fspath": "$MOON_HOME/lib/core/prelude"
+            "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
-        "artifact": "${WORK_DIR}/_build/wasm-gc/release/check/lib/lib.mi"
+        "artifact": "[WORK_DIR]/_build/wasm-gc/release/check/lib/lib.mi"
       },
       {
         "is-main": true,
         "is-third-party": false,
-        "root-path": "${WORK_DIR}/src/main",
+        "root-path": "[WORK_DIR]/src/main",
         "root": "username/hello",
         "rel": "main",
         "files": {
-          "${WORK_DIR}/src/main/main.mbt": {
+          "[WORK_DIR]/src/main/main.mbt": {
             "backend": [
               "Wasm",
               "WasmGC",
@@ -289,29 +289,29 @@
           {
             "path": "moonbitlang/core/prelude",
             "alias": "prelude",
-            "fspath": "$MOON_HOME/lib/core/prelude"
+            "fspath": "[MOON_HOME]/lib/core/prelude"
           },
           {
             "path": "username/hello/lib",
             "alias": "lib",
-            "fspath": "${WORK_DIR}/src/lib"
+            "fspath": "[WORK_DIR]/src/lib"
           }
         ],
         "wbtest-deps": [
           {
             "path": "moonbitlang/core/prelude",
             "alias": "prelude",
-            "fspath": "$MOON_HOME/lib/core/prelude"
+            "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
         "test-deps": [
           {
             "path": "moonbitlang/core/prelude",
             "alias": "prelude",
-            "fspath": "$MOON_HOME/lib/core/prelude"
+            "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
-        "artifact": "${WORK_DIR}/_build/wasm-gc/release/check/main/main.mi"
+        "artifact": "[WORK_DIR]/_build/wasm-gc/release/check/main/main.mi"
       }
     ],
     "deps": [],

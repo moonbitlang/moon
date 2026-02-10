@@ -41,15 +41,12 @@ fn moon_home() -> Option<PathBuf> {
     home::home_dir().map(|h| h.join(".moon"))
 }
 
-fn normalize_output(output: &str, workdir: &Path, moon_bin: &Path) -> String {
+fn normalize_output(output: &str, workdir: &Path) -> String {
     let mut redactions = snapbox::Redactions::new();
 
     redactions
         .insert("[WORK_DIR]", canonicalize_or_self(workdir))
         .expect("valid WORK_DIR redaction");
-    redactions
-        .insert("[MOON_BIN]", canonicalize_or_self(moon_bin))
-        .expect("valid MOON_BIN redaction");
 
     if let Some(moon_home) = moon_home() {
         redactions
@@ -57,23 +54,12 @@ fn normalize_output(output: &str, workdir: &Path, moon_bin: &Path) -> String {
             .expect("valid MOON_HOME redaction");
     }
 
-    if let Some(node) = ["node.cmd", "node"]
-        .iter()
-        .find_map(|name| which::which(name).ok())
-    {
-        redactions
-            .insert("[NODE_BIN]", canonicalize_or_self(&node))
-            .expect("valid NODE_BIN redaction");
-    }
+    let normalized = output
+        .replace("\\\\", "\\")
+        .replace("${WORK_DIR}", "[WORK_DIR]")
+        .replace("$MOON_HOME", "[MOON_HOME]");
 
-    // Some diagnostic payloads contain escaped Windows paths; collapse once first.
-    redactions
-        .redact(&output.replace("\\\\", "\\"))
-        .replace("[WORK_DIR]", "${WORK_DIR}")
-        .replace("[MOON_HOME]", "$MOON_HOME")
-        .replace("[MOON_BIN]", "moon")
-        .replace("[NODE_BIN]", "node")
-        .replace("\r\n", "\n")
+    redactions.redact(&normalized).replace("\r\n", "\n")
 }
 
 fn run_process(program: &Path, args: &[&str], workdir: &Path) -> CommandOutput {
@@ -168,5 +154,5 @@ pub(crate) fn execute_command(cmd: &str, args: &[&str], workdir: &Path, moon_bin
         actual
     };
 
-    normalize_output(&actual, workdir, moon_bin)
+    normalize_output(&actual, workdir)
 }

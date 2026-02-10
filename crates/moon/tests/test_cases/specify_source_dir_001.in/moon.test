@@ -1,29 +1,29 @@
   $ moon check --dry-run --sort-input
-  moonc check ./src/lib/hello.mbt -o ./_build/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -workspace-path .
-  moonc check ./src/main/main.mbt -o ./_build/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc -workspace-path .
-  moonc check -doctest-only ./src/main/main.mbt -include-doctests -o ./_build/wasm-gc/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/release/check/lib/lib.mi:lib -i ./_build/wasm-gc/release/check/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./src/main -target wasm-gc -blackbox-test -workspace-path .
-  moonc check ./src/lib/hello_test.mbt -doctest-only ./src/lib/hello.mbt -include-doctests -o ./_build/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc -blackbox-test -workspace-path .
+  moonc check ./src/lib/hello.mbt -o ./_build/wasm-gc/release/check/lib/lib.mi -pkg username/hello/lib -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -workspace-path .
+  moonc check ./src/main/main.mbt -o ./_build/wasm-gc/release/check/main/main.mi -pkg username/hello/main -is-main -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc -workspace-path .
+  moonc check -doctest-only ./src/main/main.mbt -include-doctests -o ./_build/wasm-gc/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/release/check/lib/lib.mi:lib -i ./_build/wasm-gc/release/check/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./src/main -target wasm-gc -blackbox-test -workspace-path .
+  moonc check ./src/lib/hello_test.mbt -doctest-only ./src/lib/hello.mbt -include-doctests -o ./_build/wasm-gc/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc -blackbox-test -workspace-path .
   
   $ moon build --dry-run --sort-input
-  moonc build-package ./src/lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g -O0 -source-map -workspace-path .
-  moonc build-package ./src/main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc -g -O0 -source-map -workspace-path .
-  moonc link-core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./src/main/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -target wasm-gc -g -O0 -source-map
+  moonc build-package ./src/lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g -O0 -source-map -workspace-path .
+  moonc build-package ./src/main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -is-main -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc -g -O0 -source-map -workspace-path .
+  moonc link-core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/abort/abort.core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./src/main/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources moonbitlang/core:[MOON_HOME]/lib/core -target wasm-gc -g -O0 -source-map
   
   $ moon test --dry-run --sort-input
-  moonc build-package ./src/lib/hello.mbt -o ./_build/wasm-gc/debug/test/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g -O0 -source-map -workspace-path .
+  moonc build-package ./src/lib/hello.mbt -o ./_build/wasm-gc/debug/test/lib/lib.core -pkg username/hello/lib -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g -O0 -source-map -workspace-path .
   moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/main/__internal_test_info.json ./src/main/main.mbt --target wasm-gc --pkg-name username/hello/main --driver-kind internal
-  moonc build-package ./src/main/main.mbt ./_build/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt -o ./_build/wasm-gc/debug/test/main/main.internal_test.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path .
-  moonc link-core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/test/lib/lib.core ./_build/wasm-gc/debug/test/main/main.internal_test.core -main username/hello/main -o ./_build/wasm-gc/debug/test/main/main.internal_test.wasm -test-mode -pkg-config-path ./src/main/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
-  moonc build-package ./src/main/main.mbt -o ./_build/wasm-gc/debug/test/main/main.core -pkg username/hello/main -is-main -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc -g -O0 -source-map -workspace-path .
+  moonc build-package ./src/main/main.mbt ./_build/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt -o ./_build/wasm-gc/debug/test/main/main.internal_test.core -pkg username/hello/main -is-main -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path .
+  moonc link-core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/abort/abort.core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/test/lib/lib.core ./_build/wasm-gc/debug/test/main/main.internal_test.core -main username/hello/main -o ./_build/wasm-gc/debug/test/main/main.internal_test.wasm -test-mode -pkg-config-path ./src/main/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources moonbitlang/core:[MOON_HOME]/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
+  moonc build-package ./src/main/main.mbt -o ./_build/wasm-gc/debug/test/main/main.core -pkg username/hello/main -is-main -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target wasm-gc -g -O0 -source-map -workspace-path .
   moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt --output-metadata ./_build/wasm-gc/debug/test/main/__blackbox_test_info.json --doctest-only ./src/main/main.mbt --target wasm-gc --pkg-name username/hello/main --driver-kind blackbox
-  moonc build-package ./_build/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt -doctest-only ./src/main/main.mbt -o ./_build/wasm-gc/debug/test/main/main.blackbox_test.core -pkg username/hello/main_blackbox_test -is-main -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/test/lib/lib.mi:lib -i ./_build/wasm-gc/debug/test/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./src/main -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
-  moonc link-core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/test/lib/lib.core ./_build/wasm-gc/debug/test/main/main.core ./_build/wasm-gc/debug/test/main/main.blackbox_test.core -main username/hello/main_blackbox_test -o ./_build/wasm-gc/debug/test/main/main.blackbox_test.wasm -test-mode -pkg-config-path ./src/main/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources username/hello/main_blackbox_test:./src/main -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
+  moonc build-package ./_build/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt -doctest-only ./src/main/main.mbt -o ./_build/wasm-gc/debug/test/main/main.blackbox_test.core -pkg username/hello/main_blackbox_test -is-main -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/test/lib/lib.mi:lib -i ./_build/wasm-gc/debug/test/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./src/main -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
+  moonc link-core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/abort/abort.core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/test/lib/lib.core ./_build/wasm-gc/debug/test/main/main.core ./_build/wasm-gc/debug/test/main/main.blackbox_test.core -main username/hello/main_blackbox_test -o ./_build/wasm-gc/debug/test/main/main.blackbox_test.wasm -test-mode -pkg-config-path ./src/main/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -pkg-sources username/hello/main_blackbox_test:./src/main -pkg-sources moonbitlang/core:[MOON_HOME]/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
   moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/lib/__internal_test_info.json ./src/lib/hello.mbt --target wasm-gc --pkg-name username/hello/lib --driver-kind internal
-  moonc build-package ./src/lib/hello.mbt ./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./_build/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path .
-  moonc link-core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./_build/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./src/lib/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
+  moonc build-package ./src/lib/hello.mbt ./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt -o ./_build/wasm-gc/debug/test/lib/lib.internal_test.core -pkg username/hello/lib -is-main -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -pkg-sources username/hello/lib:./src/lib -target wasm-gc -g -O0 -source-map -no-mi -test-mode -workspace-path .
+  moonc link-core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/abort/abort.core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/test/lib/lib.internal_test.core -main username/hello/lib -o ./_build/wasm-gc/debug/test/lib/lib.internal_test.wasm -test-mode -pkg-config-path ./src/lib/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources moonbitlang/core:[MOON_HOME]/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
   moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt --output-metadata ./_build/wasm-gc/debug/test/lib/__blackbox_test_info.json ./src/lib/hello_test.mbt --doctest-only ./src/lib/hello.mbt --target wasm-gc --pkg-name username/hello/lib --driver-kind blackbox
-  moonc build-package ./src/lib/hello_test.mbt ./_build/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -doctest-only ./src/lib/hello.mbt -o ./_build/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
-  moonc link-core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/test/lib/lib.core ./_build/wasm-gc/debug/test/lib/lib.blackbox_test.core -main username/hello/lib_blackbox_test -o ./_build/wasm-gc/debug/test/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./src/lib/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -pkg-sources moonbitlang/core:$MOON_HOME/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
+  moonc build-package ./src/lib/hello_test.mbt ./_build/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt -doctest-only ./src/lib/hello.mbt -o ./_build/wasm-gc/debug/test/lib/lib.blackbox_test.core -pkg username/hello/lib_blackbox_test -is-main -std-path [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle -i ./_build/wasm-gc/debug/test/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target wasm-gc -g -O0 -source-map -blackbox-test -include-doctests -no-mi -test-mode -workspace-path .
+  moonc link-core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/abort/abort.core [MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/core.core ./_build/wasm-gc/debug/test/lib/lib.core ./_build/wasm-gc/debug/test/lib/lib.blackbox_test.core -main username/hello/lib_blackbox_test -o ./_build/wasm-gc/debug/test/lib/lib.blackbox_test.wasm -test-mode -pkg-config-path ./src/lib/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -pkg-sources moonbitlang/core:[MOON_HOME]/lib/core -exported_functions moonbit_test_driver_internal_execute,moonbit_test_driver_finish -target wasm-gc -g -O0 -source-map
   
   $ moon check --sort-input
   
@@ -31,17 +31,17 @@
   
   $ xcat _build/packages.json
   {
-    "source_dir": "${WORK_DIR}",
+    "source_dir": "[WORK_DIR]",
     "name": "username/hello",
     "packages": [
       {
         "is-main": false,
         "is-third-party": false,
-        "root-path": "${WORK_DIR}/src/lib",
+        "root-path": "[WORK_DIR]/src/lib",
         "root": "username/hello",
         "rel": "lib",
         "files": {
-          "${WORK_DIR}/src/lib/hello.mbt": {
+          "[WORK_DIR]/src/lib/hello.mbt": {
             "backend": [
               "Wasm",
               "WasmGC",
@@ -57,7 +57,7 @@
         },
         "wbtest-files": {},
         "test-files": {
-          "${WORK_DIR}/src/lib/hello_test.mbt": {
+          "[WORK_DIR]/src/lib/hello_test.mbt": {
             "backend": [
               "Wasm",
               "WasmGC",
@@ -75,16 +75,16 @@
         "deps": [],
         "wbtest-deps": [],
         "test-deps": [],
-        "artifact": "${WORK_DIR}/_build/wasm-gc/release/check/lib/lib.mi"
+        "artifact": "[WORK_DIR]/_build/wasm-gc/release/check/lib/lib.mi"
       },
       {
         "is-main": true,
         "is-third-party": false,
-        "root-path": "${WORK_DIR}/src/main",
+        "root-path": "[WORK_DIR]/src/main",
         "root": "username/hello",
         "rel": "main",
         "files": {
-          "${WORK_DIR}/src/main/main.mbt": {
+          "[WORK_DIR]/src/main/main.mbt": {
             "backend": [
               "Wasm",
               "WasmGC",
@@ -105,12 +105,12 @@
           {
             "path": "username/hello/lib",
             "alias": "lib",
-            "fspath": "${WORK_DIR}/src/lib"
+            "fspath": "[WORK_DIR]/src/lib"
           }
         ],
         "wbtest-deps": [],
         "test-deps": [],
-        "artifact": "${WORK_DIR}/_build/wasm-gc/release/check/main/main.mi"
+        "artifact": "[WORK_DIR]/_build/wasm-gc/release/check/main/main.mi"
       }
     ],
     "deps": [],
