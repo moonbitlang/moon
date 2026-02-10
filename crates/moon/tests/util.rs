@@ -131,3 +131,16 @@ pub fn assert_command_matches(s: impl AsRef<str>, expect: Expect) {
         expect.assert_eq(s.as_ref());
     }
 }
+
+#[track_caller]
+pub fn run_moon_cmdtest(case_dir: &str) {
+    let test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/test_cases")
+        .join(case_dir)
+        .join("moon.test");
+
+    let update = std::env::var_os("UPDATE_EXPECT").is_some();
+    let exit_code = moon_test_util::cmdtest::run::t(&test_path, update);
+
+    assert_eq!(exit_code, 0, "cmdtest failed for {}", test_path.display());
+}

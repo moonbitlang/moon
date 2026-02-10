@@ -1564,6 +1564,7 @@ dependencies = [
  "junction",
  "libc",
  "log",
+ "moon-test-util",
  "moonbuild",
  "moonbuild-debug",
  "moonbuild-rupes-recta",
@@ -1590,6 +1591,19 @@ dependencies = [
  "walkdir",
  "which 6.0.2",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "moon-test-util"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dunce",
+ "home",
+ "ignore",
+ "snapbox",
+ "tempfile",
+ "which 6.0.2",
 ]
 
 [[package]]
@@ -3783,15 +3797,10 @@ dependencies = [
  "anyhow",
  "clap",
  "dunce",
- "home",
- "ignore",
  "serde",
  "serde_json",
- "snapbox",
- "tempfile",
  "toml",
  "walkdir",
- "which 6.0.2",
 ]
 
 [[package]]

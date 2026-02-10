@@ -30,7 +30,25 @@ pub struct ExecResult {
 }
 
 fn moon_bin() -> PathBuf {
-    snapbox::cmd::cargo_bin("moon")
+    let current_exe = std::env::current_exe().expect("failed to get current executable path");
+    let current_dir = current_exe
+        .parent()
+        .expect("current executable has no parent");
+    let bin_dir = if current_dir.file_name() == Some(OsStr::new("deps")) {
+        current_dir
+            .parent()
+            .expect("test executable parent has no non-deps directory")
+    } else {
+        current_dir
+    };
+
+    let moon = bin_dir.join(format!("moon{}", std::env::consts::EXE_SUFFIX));
+    assert!(
+        moon.exists(),
+        "moon binary not found at expected path: {}",
+        moon.display()
+    );
+    moon
 }
 
 pub fn moon_home() -> PathBuf {
@@ -126,8 +144,7 @@ where
     W: AsRef<Path>,
 {
     fn execute(&self, args: I, workdir: W) -> ExecResult {
-        let m = snapbox::cmd::cargo_bin("moon");
-        let sys = SystemExec { cmd: m };
+        let sys = SystemExec { cmd: moon_bin() };
         sys.execute(args, workdir)
     }
 }

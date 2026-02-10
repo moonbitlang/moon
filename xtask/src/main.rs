@@ -16,11 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use clap::{Parser, builder::FalseyValueParser};
+use clap::Parser;
 use std::path::PathBuf;
-
 mod bundle_template;
-mod cmdtest;
 mod sync_docs;
 mod test_rr_parity;
 
@@ -32,9 +30,6 @@ struct Cli {
 
 #[derive(Debug, clap::Parser)]
 enum XSubcommands {
-    #[command(name = "cmdtest")]
-    CmdTest(CmdTest),
-
     #[command(name = "sync-docs")]
     SyncDocs(SyncDocs),
 
@@ -43,19 +38,6 @@ enum XSubcommands {
 
     #[command(name = "bundle-template")]
     BundleTemplate(BundleTemplate),
-}
-
-#[derive(Debug, clap::Parser)]
-struct CmdTest {
-    file: PathBuf,
-
-    #[arg(
-        short,
-        long,
-        env("UPDATE_EXPECT"),
-        value_parser(FalseyValueParser::new())
-    )]
-    update: bool,
 }
 
 #[derive(Debug, clap::Parser)]
@@ -89,7 +71,6 @@ struct BundleTemplate {}
 fn main() {
     let cli = Cli::parse();
     let code = match cli.subcommand {
-        XSubcommands::CmdTest(t) => cmdtest::run::t(&t.file, t.update),
         XSubcommands::SyncDocs(t) => sync_docs::run(&t.moonbit_docs_dir).map_or(1, |_| 0),
         XSubcommands::TestRupesRectaParity(t) => test_rr_parity::parity_test(
             t.compare_baseline.as_deref(),
