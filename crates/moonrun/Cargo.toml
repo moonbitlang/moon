@@ -41,6 +41,7 @@ chrono.workspace = true
 snapbox.workspace = true
 moon-test-util = { path = "../moon-test-util" }
 moonutil.workspace = true
+dunce.workspace = true
 
 [[bin]]
 name = "moonrun"
