@@ -519,6 +519,9 @@ function demangleMangledFunctionName(funcName) {
     if (typeof funcName !== "string" || funcName.length === 0) {
         return funcName;
     }
+    if (typeof __moonbit_backtrace_runtime.demangle_mangled_function_name === "function") {
+        return __moonbit_backtrace_runtime.demangle_mangled_function_name(funcName);
+    }
     let i = 0;
     if (funcName[0] === "$") i = 1;
     if (funcName.length - i < 3) return funcName;
