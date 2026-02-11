@@ -28,7 +28,7 @@ use tokio::process::Command;
 
 /// A guarded command info that removes the temporary file/dir(s) when it gets
 /// out of scope.
-pub struct CommandGuard {
+pub(crate) struct CommandGuard {
     _temp_file: Option<TempDir>, // for destructor
     pub command: Command,
 }
@@ -57,7 +57,7 @@ impl From<Command> for CommandGuard {
 /// ### Note
 ///
 /// Currently there's no support for using `tcc` to execute the target program.
-pub fn command_for(
+pub(crate) fn command_for(
     backend: RunBackend,
     mbt_executable: &Path,
     test: Option<&TestArgs>,

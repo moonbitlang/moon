@@ -104,7 +104,7 @@ fn print_test_outline(entries: &[TestOutlineEntry]) {
 
 /// Test the current package
 #[derive(Debug, clap::Parser, Clone)]
-pub struct TestSubcommand {
+pub(crate) struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -181,7 +181,7 @@ pub struct TestSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
     let result = run_test_impl(&cli, &cmd);
     if crate::run::shutdown_requested() {
         return Ok(130);

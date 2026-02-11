@@ -424,7 +424,7 @@ fn get_error_message(
     ret.set(error.into());
 }
 
-pub fn init_fs<'s>(obj: v8::Local<'s, v8::Object>, scope: &mut v8::HandleScope<'s>) {
+pub(crate) fn init_fs<'s>(obj: v8::Local<'s, v8::Object>, scope: &mut v8::HandleScope<'s>) {
     obj.set_func(scope, "read_file_to_string", read_file_to_string);
     obj.set_func(scope, "write_string_to_file", write_string_to_file);
     obj.set_func(scope, "write_bytes_to_file", write_bytes_to_file);

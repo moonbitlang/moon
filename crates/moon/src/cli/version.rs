@@ -27,7 +27,7 @@ use which::which_global;
 
 /// Print version information and exit
 #[derive(Debug, clap::Parser)]
-pub struct VersionSubcommand {
+pub(crate) struct VersionSubcommand {
     /// Print all version information
     #[clap(long)]
     pub all: bool,
@@ -68,7 +68,7 @@ fn print_unstable_footer(flags: &UniversalFlags) {
     println!("Feature flags enabled: {features}");
 }
 
-pub fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> anyhow::Result<i32> {
     let VersionSubcommand {
         all: all_flag,
         json: json_flag,

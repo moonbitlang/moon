@@ -21,14 +21,14 @@ use moonutil::{cli::UniversalFlags, common::DEP_PATH};
 use super::BuildFlags;
 
 #[derive(Debug, clap::Parser, Clone)]
-pub struct QuerySubcommand {
+pub(crate) struct QuerySubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
     pub mod_name: String,
 }
 
-pub fn run_query(_cli: UniversalFlags, cmd: QuerySubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_query(_cli: UniversalFlags, cmd: QuerySubcommand) -> anyhow::Result<i32> {
     let temp_dir = std::env::temp_dir();
     let moon_repl_dir = temp_dir.join("moon_repl");
 

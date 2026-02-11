@@ -31,7 +31,7 @@ use super::UniversalFlags;
     about = "Download a package to .repos directory (unstable)",
     before_help = "Note: This is an unstable command and may change or be removed in future versions."
 )]
-pub struct FetchSubcommand {
+pub(crate) struct FetchSubcommand {
     /// The package to fetch in the form of <author>/<package_name>[@<version>]
     pub package_path: String,
 
@@ -40,7 +40,7 @@ pub struct FetchSubcommand {
     pub no_update: bool,
 }
 
-pub fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i32> {
     let index_dir = moonutil::moon_dir::index();
     let mut index_updated = false;
 

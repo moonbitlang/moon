@@ -18,7 +18,7 @@
 
 use v8::{FunctionCallback, FunctionCallbackArguments, HandleScope, Local, Object, Value};
 
-pub trait ScopeExt<'s> {
+pub(crate) trait ScopeExt<'s> {
     fn string(&mut self, value: &str) -> Local<'s, v8::String>;
 }
 
@@ -28,7 +28,7 @@ impl<'s> ScopeExt<'s> for HandleScope<'s> {
     }
 }
 
-pub trait ArgsExt {
+pub(crate) trait ArgsExt {
     fn string_lossy(&self, scope: &mut HandleScope, index: i32) -> String;
 }
 
@@ -41,7 +41,7 @@ impl<'s> ArgsExt for FunctionCallbackArguments<'s> {
     }
 }
 
-pub trait ObjectExt<'s> {
+pub(crate) trait ObjectExt<'s> {
     fn set_value(&self, scope: &mut HandleScope<'s>, name: &str, value: Local<'s, Value>);
     fn set_func(
         &self,

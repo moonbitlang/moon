@@ -28,7 +28,7 @@ use moonutil::common::BUILD_DIR;
 use tracing::{info, warn};
 
 /// Ephemeral struct to apply filters on file paths in a single run
-pub struct FileFilterBuilder<'a> {
+pub(crate) struct FileFilterBuilder<'a> {
     /// The root path of the repository
     root_path: &'a Path,
 
@@ -44,7 +44,7 @@ impl<'a> FileFilterBuilder<'a> {
     /// Create a new instance.
     ///
     /// This will always ignore the `_build/` and `.mooncakes/` directories.
-    pub fn new(repo_path: &'a Path) -> Self {
+    pub(crate) fn new(repo_path: &'a Path) -> Self {
         let mut builder = GitignoreBuilder::new(repo_path);
 
         // Always ignore the build directories and .mooncakes
@@ -68,7 +68,7 @@ impl<'a> FileFilterBuilder<'a> {
     /// Add the gitignore file for all parent directories of `file_path`, and
     /// check if it should be ignored. Returns true if the file should be ignored.
     #[tracing::instrument(skip_all)]
-    pub fn check_file(&mut self, file_path: &Path) -> bool {
+    pub(crate) fn check_file(&mut self, file_path: &Path) -> bool {
         // This should not happen, but just in case
         if !file_path.starts_with(self.root_path) {
             warn!(

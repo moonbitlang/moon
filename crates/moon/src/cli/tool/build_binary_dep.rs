@@ -50,7 +50,7 @@ use crate::{
 };
 
 #[derive(clap::Args, Debug)]
-pub struct BuildBinaryDepArgs {
+pub(crate) struct BuildBinaryDepArgs {
     /// The name of the package to build and install, without the module name prefix.
     /// The top-level package can be specified as an empty string.
     pkg_names: Vec<String>,
@@ -64,7 +64,7 @@ pub struct BuildBinaryDepArgs {
     install_path: PathBuf,
 }
 
-pub fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> anyhow::Result<i32> {
+pub(crate) fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

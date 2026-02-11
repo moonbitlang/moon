@@ -34,7 +34,7 @@ use super::BuildFlags;
 /// Bundle the module
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(hide(true))]
-pub struct BundleSubcommand {
+pub(crate) struct BundleSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -47,7 +47,7 @@ pub struct BundleSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -79,7 +79,7 @@ pub fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<
 }
 
 #[instrument(skip_all)]
-pub fn run_bundle_internal(
+pub(crate) fn run_bundle_internal(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     source_dir: &Path,
@@ -90,7 +90,7 @@ pub fn run_bundle_internal(
 }
 
 #[instrument(skip_all)]
-pub fn run_bundle_internal_rr(
+pub(crate) fn run_bundle_internal_rr(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     source_dir: &Path,

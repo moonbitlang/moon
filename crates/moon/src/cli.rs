@@ -16,59 +16,59 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub mod bench;
-pub mod build;
-pub mod build_matrix;
-pub mod bundle;
-pub mod check;
-pub mod clean;
-pub mod coverage;
-pub mod deps;
-pub mod doc;
-pub mod external;
-pub mod fetch;
-pub mod fmt;
-pub mod generate_test_driver;
-pub mod info;
-pub mod install_binary;
-pub mod mooncake_adapter;
-pub mod new;
-pub mod query;
-pub mod run;
-pub mod shell_completion;
-pub mod test;
-pub mod tool;
-pub mod update;
-pub mod upgrade;
-pub mod version;
+pub(crate) mod bench;
+pub(crate) mod build;
+pub(crate) mod build_matrix;
+pub(crate) mod bundle;
+pub(crate) mod check;
+pub(crate) mod clean;
+pub(crate) mod coverage;
+pub(crate) mod deps;
+pub(crate) mod doc;
+pub(crate) mod external;
+pub(crate) mod fetch;
+pub(crate) mod fmt;
+pub(crate) mod generate_test_driver;
+pub(crate) mod info;
+pub(crate) mod install_binary;
+pub(crate) mod mooncake_adapter;
+pub(crate) mod new;
+pub(crate) mod query;
+pub(crate) mod run;
+pub(crate) mod shell_completion;
+pub(crate) mod test;
+pub(crate) mod tool;
+pub(crate) mod update;
+pub(crate) mod upgrade;
+pub(crate) mod version;
 
-pub use bench::*;
-pub use build::*;
-pub use build_matrix::*;
-pub use bundle::*;
-pub use check::*;
-pub use clean::*;
-pub use coverage::*;
-pub use deps::*;
-pub use doc::*;
-pub use external::*;
-pub use fetch::*;
-pub use fmt::*;
-pub use generate_test_driver::*;
-pub use info::*;
+pub(crate) use bench::*;
+pub(crate) use build::*;
+pub(crate) use build_matrix::*;
+pub(crate) use bundle::*;
+pub(crate) use check::*;
+pub(crate) use clean::*;
+pub(crate) use coverage::*;
+pub(crate) use deps::*;
+pub(crate) use doc::*;
+pub(crate) use external::*;
+pub(crate) use fetch::*;
+pub(crate) use fmt::*;
+pub(crate) use generate_test_driver::*;
+pub(crate) use info::*;
 use moonbuild::upgrade::UpgradeSubcommand;
 use mooncake::pkg::{
     add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
 };
-pub use new::*;
-pub use query::*;
-pub use run::*;
-pub use shell_completion::*;
-pub use test::*;
-pub use tool::*;
-pub use update::*;
-pub use upgrade::*;
-pub use version::*;
+pub(crate) use new::*;
+pub(crate) use query::*;
+pub(crate) use run::*;
+pub(crate) use shell_completion::*;
+pub(crate) use test::*;
+pub(crate) use tool::*;
+pub(crate) use update::*;
+pub(crate) use upgrade::*;
+pub(crate) use version::*;
 
 use anyhow::bail;
 use moonutil::{
@@ -83,7 +83,7 @@ use moonutil::{
     name = "moon",
     about = "The build system and package manager for MoonBit."
 )]
-pub struct MoonBuildCli {
+pub(crate) struct MoonBuildCli {
     #[clap(subcommand)]
     pub subcommand: MoonBuildSubcommands,
 
@@ -92,7 +92,7 @@ pub struct MoonBuildCli {
 }
 
 #[derive(Debug, clap::Parser)]
-pub enum MoonBuildSubcommands {
+pub(crate) enum MoonBuildSubcommands {
     New(NewSubcommand),
 
     // Build system

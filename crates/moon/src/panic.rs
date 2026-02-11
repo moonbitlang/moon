@@ -35,7 +35,7 @@ Please report it at:
 ";
 
 /// Set up a hook when `moon` panics, to suggest reporting bugs.
-pub fn setup_panic_hook() {
+pub(crate) fn setup_panic_hook() {
     let default_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         default_panic_hook(info);

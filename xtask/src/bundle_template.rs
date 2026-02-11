@@ -48,7 +48,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-pub fn run() -> anyhow::Result<()> {
+pub(crate) fn run() -> anyhow::Result<()> {
     println!("Bundling template from moon_new_template folder...");
 
     // Define paths

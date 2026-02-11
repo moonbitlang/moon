@@ -28,7 +28,7 @@ use moonutil::{
 };
 use serde::Serialize;
 
-pub fn execute_cli<T: Serialize>(
+pub(crate) fn execute_cli<T: Serialize>(
     cli: UniversalFlags,
     cmd: T,
     args: &[&str],
@@ -58,7 +58,7 @@ pub fn execute_cli<T: Serialize>(
     }
 }
 
-pub fn execute_cli_with_inherit_stdin<T: Serialize>(
+pub(crate) fn execute_cli_with_inherit_stdin<T: Serialize>(
     _cli: UniversalFlags,
     _cmd: T,
     args: &[&str],
@@ -79,15 +79,15 @@ pub fn execute_cli_with_inherit_stdin<T: Serialize>(
     }
 }
 
-pub fn login_cli(cli: UniversalFlags, cmd: LoginSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn login_cli(cli: UniversalFlags, cmd: LoginSubcommand) -> anyhow::Result<i32> {
     execute_cli_with_inherit_stdin(cli, MooncakeSubcommands::Login(cmd), &["login"])
 }
 
-pub fn register_cli(cli: UniversalFlags, cmd: RegisterSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn register_cli(cli: UniversalFlags, cmd: RegisterSubcommand) -> anyhow::Result<i32> {
     execute_cli_with_inherit_stdin(cli, MooncakeSubcommands::Register(cmd), &["register"])
 }
 
-pub fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Result<i32> {
     execute_cli(
         cli,
         MooncakeSubcommands::Publish(cmd),
@@ -95,7 +95,7 @@ pub fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Resul
     )
 }
 
-pub fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow::Result<i32> {
     execute_cli(
         cli,
         MooncakeSubcommands::Package(cmd),

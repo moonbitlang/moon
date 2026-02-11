@@ -38,7 +38,7 @@ use super::BuildFlags;
 
 /// Check the current package, but don't build object files
 #[derive(Debug, clap::Parser, Clone)]
-pub struct CheckSubcommand {
+pub(crate) struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -77,7 +77,7 @@ pub struct CheckSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;

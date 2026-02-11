@@ -55,7 +55,7 @@ fn resolve_source_map_path(
 
 const BACKTRACE_RUNTIME_NAMESPACE: &str = "__moonbit_backtrace_runtime";
 
-pub fn init(scope: &mut v8::HandleScope) {
+pub(crate) fn init(scope: &mut v8::HandleScope) {
     let global_proxy = scope.get_current_context().global(scope);
     let backtrace_obj = global_proxy.child(scope, BACKTRACE_RUNTIME_NAMESPACE);
 

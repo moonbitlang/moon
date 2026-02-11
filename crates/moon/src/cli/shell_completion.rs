@@ -156,13 +156,13 @@ Discussion:
 
     This discussion is taken from `rustup completions` command with some changes.
 "#)]
-pub struct ShellCompSubCommand {
+pub(crate) struct ShellCompSubCommand {
     /// The shell to generate completion for
     #[clap(value_enum, long, ignore_case = true, value_parser = clap::builder::EnumValueParser::<Shell>::new(), default_value_t = Shell::from_env().unwrap_or(Shell::Bash), value_name = "SHELL")]
     pub shell: Shell,
 }
 
-pub fn gen_shellcomp(_cli: &UniversalFlags, cmd: ShellCompSubCommand) -> anyhow::Result<i32> {
+pub(crate) fn gen_shellcomp(_cli: &UniversalFlags, cmd: ShellCompSubCommand) -> anyhow::Result<i32> {
     if _cli.dry_run {
         anyhow::bail!("this command has no side effects, dry run is not needed.")
     }

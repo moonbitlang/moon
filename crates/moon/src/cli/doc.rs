@@ -29,7 +29,7 @@ use crate::rr_build::{self, BuildConfig, preconfig_compile};
 
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
-pub struct DocSubcommand {
+pub(crate) struct DocSubcommand {
     /// Start a web server to serve the documentation
     #[clap(long)]
     pub serve: bool,
@@ -53,7 +53,7 @@ pub struct DocSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     match cmd.symbol {
         None => {
             // generate the docs
@@ -77,7 +77,7 @@ pub fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
 }
 
 #[instrument(skip_all)]
-pub fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let dir = cli.source_tgt_dir.try_into_package_dirs()?;
     let source_dir = dir.source_dir;
     let target_dir = dir.target_dir;

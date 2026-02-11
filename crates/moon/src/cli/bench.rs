@@ -29,7 +29,7 @@ use super::{BuildFlags, UniversalFlags};
 
 /// Run benchmarks in the current package
 #[derive(Debug, clap::Parser, Clone)]
-pub struct BenchSubcommand {
+pub(crate) struct BenchSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -59,7 +59,7 @@ pub struct BenchSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

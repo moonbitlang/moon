@@ -25,7 +25,7 @@ use moonutil::package::MoonPkgGenerate;
 
 /// Generate the list of paths to ignore from pre-build outputs for
 /// [`super::WatchOutput`], in RR backend.
-pub fn rr_get_prebuild_ignored_paths(env: &ResolveOutput) -> Vec<PathBuf> {
+pub(crate) fn rr_get_prebuild_ignored_paths(env: &ResolveOutput) -> Vec<PathBuf> {
     let mut ignored_paths = vec![];
 
     for &m in env.local_modules() {

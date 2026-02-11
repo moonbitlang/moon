@@ -56,7 +56,7 @@ fn get_existing_username() -> Option<String> {
 
 /// Create a new MoonBit module
 #[derive(Debug, clap::Parser)]
-pub struct NewSubcommand {
+pub(crate) struct NewSubcommand {
     /// The path of the new project.
     pub path: String,
 
@@ -69,7 +69,7 @@ pub struct NewSubcommand {
     pub name: Option<String>,
 }
 
-pub fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_new(_cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32> {
     if _cli.dry_run {
         bail!("dry-run is not supported for new")
     }

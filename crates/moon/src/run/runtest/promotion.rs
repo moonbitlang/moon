@@ -31,7 +31,7 @@ use moonutil::common::TestIndexRange;
 /// Perform promotion on all test snapshots and expect tests met. Returns
 /// the total number of tests promoted, along with a filter indicating which
 /// tests needs rerunning.
-pub fn perform_promotion(
+pub(crate) fn perform_promotion(
     pkg_src: &impl PackageSrcResolver,
     results: &ReplaceableTestResults,
 ) -> anyhow::Result<(usize, PackageFilter)> {

@@ -31,7 +31,7 @@ use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
-pub fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf, Option<String>)> {
+pub(crate) fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf, Option<String>)> {
     let input_path = dunce::canonicalize(path).with_context(|| {
         format!(
             "Failed to canonicalize input filter directory `{}`",
@@ -99,7 +99,7 @@ where
 }
 
 /// Perform fuzzy matching over package names and return the matching package IDs.
-pub fn match_packages_by_name_rr(
+pub(crate) fn match_packages_by_name_rr(
     resolve_output: &ResolveOutput,
     main_modules: &[moonutil::mooncakes::ModuleId],
     needle: &str,
@@ -138,7 +138,7 @@ impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {
 ///
 /// When a package cannot be found, returns a descriptive error that can be
 /// reported to the user.
-pub fn filter_pkg_by_dir(resolve_output: &ResolveOutput, dir: &Path) -> anyhow::Result<PackageId> {
+pub(crate) fn filter_pkg_by_dir(resolve_output: &ResolveOutput, dir: &Path) -> anyhow::Result<PackageId> {
     let mut all_local_packages = resolve_output.local_modules().iter().flat_map(|&it| {
         resolve_output
             .pkg_dirs
@@ -165,7 +165,7 @@ pub fn filter_pkg_by_dir(resolve_output: &ResolveOutput, dir: &Path) -> anyhow::
 
 /// Given an invalid input path, report a helpful error message indicating why
 /// no package could be found.
-pub fn report_package_not_found(
+pub(crate) fn report_package_not_found(
     input_path: &Path,
     module_graph: &ResolvedEnv,
     module_dirs: &DirSyncResult,
@@ -233,7 +233,7 @@ pub fn report_package_not_found(
 }
 
 #[derive(Debug, Default)]
-pub struct PackageMatchResult {
+pub(crate) struct PackageMatchResult {
     pub matched: Vec<PackageId>,
     pub missing: Vec<String>,
 }
@@ -243,7 +243,7 @@ pub struct PackageMatchResult {
 /// Candidates are provided as a list of package IDs that belong to the current module. Names are
 /// matched by their fully qualified names, preferring exact matches and falling back to fuzzy
 /// suggestions. Results are deduplicated while preserving the order returned by the matcher.
-pub fn match_packages_with_fuzzy<I, S>(
+pub(crate) fn match_packages_with_fuzzy<I, S>(
     resolve_output: &ResolveOutput,
     candidates: impl IntoIterator<Item = PackageId>,
     names: I,
@@ -298,7 +298,7 @@ where
 ///
 /// This is a simpler version of `filter_pkg_by_dir` for the formatter case, which doesn't
 /// have the full `ResolveOutput` available.
-pub fn filter_pkg_by_dir_for_fmt(
+pub(crate) fn filter_pkg_by_dir_for_fmt(
     resolved: &FmtResolveOutput,
     dir: &Path,
 ) -> anyhow::Result<PackageId> {

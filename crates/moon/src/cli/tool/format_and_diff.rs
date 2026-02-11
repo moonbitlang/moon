@@ -20,7 +20,7 @@ use std::{io::BufRead, path::PathBuf, process::Stdio};
 
 /// Format the code and print the difference
 #[derive(Debug, clap::Parser)]
-pub struct FormatAndDiffSubcommand {
+pub(crate) struct FormatAndDiffSubcommand {
     /// The source path of the code which needs to be formatted
     #[clap(long)]
     old: PathBuf,
@@ -40,7 +40,7 @@ pub struct FormatAndDiffSubcommand {
     pub args: Vec<String>,
 }
 
-pub fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> {
     let mut args = vec![
         "-exit-code",
         cmd.old.to_str().unwrap(),

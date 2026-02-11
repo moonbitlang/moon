@@ -32,7 +32,7 @@ use tracing::error;
 use crate::rr_build::BuildMeta;
 
 /// Promote the given build run's info results to their respective package directories.
-pub fn promote_info_results(meta: &BuildMeta) {
+pub(super) fn promote_info_results(meta: &BuildMeta) {
     for (&node, artifact) in &meta.artifacts {
         let BuildPlanNode::GenerateMbti(target) = node else {
             continue;
@@ -87,7 +87,7 @@ impl<'a> PackageOutputGroup<'a> {
 /// target backend to use as the reference.
 ///
 /// Prints any differences found, and returns `true` if all outputs are identical.
-pub fn compare_info_outputs<'a>(
+pub(super) fn compare_info_outputs<'a>(
     it: impl Iterator<Item = &'a (TargetBackend, BuildMeta)>,
     canonical: TargetBackend,
 ) -> anyhow::Result<bool> {

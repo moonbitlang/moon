@@ -55,7 +55,7 @@ pub(crate) struct FmtSubcommand {
     pub args: Vec<String>,
 }
 
-pub fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
     run_fmt_rr(cli, cmd)
 }
 
