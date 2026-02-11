@@ -1,20 +1,35 @@
 // Unified JS runtime glue for moonrun.
 // Sections: JS helper API, sys API wiring, WASM instantiation.
 
-const __moonbit_fs_unstable =
-    globalThis.__moonbit_fs_unstable ||
-    (globalThis.__moonbit_fs_unstable = {});
-// Provided by Rust in `sys_api::init_env`; fallback keeps interactive tests safe.
-const __moonbit_run_env = globalThis.__moonbit_run_env || {
-    env_vars: new Map(),
-    args: [],
-    stderr_is_tty: false,
-};
-// Provided by Rust in `backtrace_api::init`; fallback keeps interactive tests safe.
-const __moonbit_backtrace_runtime = globalThis.__moonbit_backtrace_runtime || {
-    resolve_source_map_path: (_wasmPath, sourceMapPath) =>
-        typeof sourceMapPath === "string" ? sourceMapPath : "",
-};
+function requireGlobal(name) {
+    const value = globalThis[name];
+    if (value === undefined || value === null) {
+        throw new Error(`moonrun missing global: ${name}`);
+    }
+    return value;
+}
+
+const __moonrun_launch = requireGlobal("__moonrun_launch");
+const BUILTIN_SCRIPT_ORIGIN_PREFIX = __moonrun_launch.BUILTIN_SCRIPT_ORIGIN_PREFIX;
+const module_name = __moonrun_launch.module_name;
+let bytes = __moonrun_launch.bytes;
+const no_stack_trace = !!__moonrun_launch.no_stack_trace;
+const test_mode = !!__moonrun_launch.test_mode;
+const testParams = __moonrun_launch.testParams || [];
+const packageName = __moonrun_launch.packageName || "";
+
+const __moonbit_fs_unstable = requireGlobal("__moonbit_fs_unstable");
+const __moonbit_io_unstable = requireGlobal("__moonbit_io_unstable");
+const __moonbit_rand_unstable = requireGlobal("__moonbit_rand_unstable");
+const __moonbit_sys_unstable = requireGlobal("__moonbit_sys_unstable");
+const __moonbit_time_unstable = requireGlobal("__moonbit_time_unstable");
+const __moonbit_run_env = requireGlobal("__moonbit_run_env");
+const __moonbit_backtrace_runtime = requireGlobal("__moonbit_backtrace_runtime");
+const read_file_to_bytes = requireGlobal("read_file_to_bytes");
+const __moonrun_decode_utf8 = requireGlobal("__moonrun_decode_utf8");
+const console_log = requireGlobal("console_log");
+const console_elog = requireGlobal("console_elog");
+const print = requireGlobal("print");
 
 // JS helper API attached to __moonbit_fs_unstable.
 (function init_js_api(obj) {
@@ -144,6 +159,7 @@ const __moonbit_backtrace_runtime = globalThis.__moonbit_backtrace_runtime || {
 
 delete globalThis.__moonbit_run_env;
 delete globalThis.__moonbit_backtrace_runtime;
+delete globalThis.__moonrun_launch;
 
 function demangleMangledFunctionName(funcName) {
     if (typeof __moonbit_demangle_mangled_function_name === "function") {
@@ -151,7 +167,6 @@ function demangleMangledFunctionName(funcName) {
     }
     return funcName;
 }
-
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const BASE64_INDEX = (() => {
     const map = Object.create(null);
@@ -187,14 +202,7 @@ function decodeVLQSegment(seg) {
 }
 
 function bytesToString(bytes) {
-    if (typeof TextDecoder !== "undefined") {
-        return new TextDecoder("utf-8").decode(bytes);
-    }
-    let s = "";
-    for (let i = 0; i < bytes.length; i++) {
-        s += String.fromCharCode(bytes[i]);
-    }
-    return s;
+    return __moonrun_decode_utf8(bytes);
 }
 
 function readULEB128(buf, start) {
@@ -411,7 +419,7 @@ const ffiBytesMemory = new WebAssembly.Memory({ initial: 1 });
 const spectest = {
     spectest: {
         print_char: (x) => print(x),
-        read_char: () => read_char(),
+        read_char: () => __moonbit_io_unstable.read_char(),
     },
     __moonbit_fs_unstable: __moonbit_fs_unstable,
     __moonbit_rand_unstable: __moonbit_rand_unstable,
@@ -456,7 +464,7 @@ try {
     let module = new WebAssembly.Module(bytes, { builtins: ['js-string'], importedStringConstants: "_" });
     let instance = new WebAssembly.Instance(module, spectest);
     if (test_mode) {
-        for (param of testParams) {
+        for (const param of testParams) {
             try {
                 instance.exports.moonbit_test_driver_internal_execute(param[0], parseInt(param[1]));
             } catch (e) {
