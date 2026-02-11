@@ -35,15 +35,15 @@ use std::path::Path;
 use crate::model::TargetKind;
 use crate::pkg_name::PackageFQN;
 
-pub use self::build_common::*;
-pub use self::build_interface::*;
-pub use self::build_package::*;
-pub use self::bundle_core::*;
-pub use self::check::*;
-pub use self::gen_test_driver::*;
-pub use self::link_core::*;
-pub use self::moondoc::*;
-pub use self::mooninfo::*;
+pub(super) use self::build_common::*;
+pub(super) use self::build_interface::*;
+pub(super) use self::build_package::*;
+pub(super) use self::bundle_core::*;
+pub(super) use self::check::*;
+pub(super) use self::gen_test_driver::*;
+pub(super) use self::link_core::*;
+pub(super) use self::moondoc::*;
+pub(super) use self::mooninfo::*;
 
 /// The format of error reports from `moonc`.
 ///
@@ -51,7 +51,7 @@ pub use self::mooninfo::*;
 /// renders diagnostics to the user.
 #[allow(unused)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ErrorFormat {
+pub(super) enum ErrorFormat {
     /// A semi-structured format with only the location and message.
     Regular,
     /// A fully structured JSON format. `moon` uses this to render diagnostics.
@@ -61,7 +61,7 @@ pub enum ErrorFormat {
 /// Represents a dependency to the `.mi` (module interface) file of another
 /// package.
 #[derive(Clone, Debug)]
-pub struct MiDependency<'a> {
+pub(super) struct MiDependency<'a> {
     /// The path to the `.mi` file of the dependency.
     pub path: Cow<'a, Path>,
     /// An optional alias for the package, to be used when referencing symbols
@@ -70,7 +70,7 @@ pub struct MiDependency<'a> {
 }
 
 impl<'a> MiDependency<'a> {
-    pub fn to_alias_arg(&self) -> String {
+    pub(super) fn to_alias_arg(&self) -> String {
         if let Some(alias) = &self.alias {
             format!("{}:{}", self.path.display(), alias)
         } else {
@@ -78,7 +78,7 @@ impl<'a> MiDependency<'a> {
         }
     }
 
-    pub fn new(path: impl Into<Cow<'a, Path>>, alias: impl Into<Cow<'a, str>>) -> Self {
+    pub(super) fn new(path: impl Into<Cow<'a, Path>>, alias: impl Into<Cow<'a, str>>) -> Self {
         Self {
             path: path.into(),
             alias: Some(alias.into()),
@@ -86,7 +86,7 @@ impl<'a> MiDependency<'a> {
     }
 
     #[allow(unused)]
-    pub fn no_alias(path: impl Into<Cow<'a, Path>>) -> Self {
+    pub(super) fn no_alias(path: impl Into<Cow<'a, Path>>) -> Self {
         Self {
             path: path.into(),
             alias: None,
@@ -101,13 +101,13 @@ impl<'a> MiDependency<'a> {
 /// by the compiler. This suffix is currently only necessary for blackbox test
 /// targets, while the filename need to be deduplicated for every target kind.
 #[derive(Clone, Debug)]
-pub struct CompiledPackageName<'a> {
+pub(super) struct CompiledPackageName<'a> {
     pub fqn: &'a PackageFQN,
     pub kind: TargetKind,
 }
 
 impl<'a> CompiledPackageName<'a> {
-    pub fn new(fqn: &'a PackageFQN, target_kind: TargetKind) -> Self {
+    pub(super) fn new(fqn: &'a PackageFQN, target_kind: TargetKind) -> Self {
         Self {
             fqn,
             kind: target_kind,
@@ -136,7 +136,7 @@ impl<'a> std::fmt::Display for CompiledPackageName<'a> {
 
 /// The mapping from package name to its base directory.
 #[derive(Clone, Debug)]
-pub struct PackageSource<'a> {
+pub(super) struct PackageSource<'a> {
     /// The package name.
     pub package_name: CompiledPackageName<'a>,
     /// The directory containing the package's source files and `moon.pkg.json`.
@@ -144,7 +144,7 @@ pub struct PackageSource<'a> {
 }
 
 impl<'a> PackageSource<'a> {
-    pub fn to_arg(&self) -> String {
+    pub(super) fn to_arg(&self) -> String {
         format!("{}:{}", self.package_name, self.source_dir.display())
     }
 }
@@ -154,7 +154,7 @@ impl<'a> PackageSource<'a> {
 /// Note: The following data is all about the **virtual package** that is being
 /// implemented, not the implementation package itself.
 #[derive(Clone, Debug)]
-pub struct VirtualPackageImplementation<'a> {
+pub(super) struct VirtualPackageImplementation<'a> {
     /// The path to the `.mi` file of the virtual package itself.
     pub mi_path: Cow<'a, Path>,
     /// The name of the virtual package.
@@ -165,7 +165,7 @@ pub struct VirtualPackageImplementation<'a> {
 
 /// Compilation flags that affect code generation.
 #[derive(Clone, Debug)]
-pub struct CompilationFlags {
+pub(super) struct CompilationFlags {
     /// Disable optimization (adds -O0)
     pub no_opt: bool,
     /// Include debug symbols (adds -g)
@@ -191,7 +191,7 @@ pub struct CompilationFlags {
 /// Configuration for either warning or alert
 #[derive(Clone, Debug, Default)]
 #[allow(unused)]
-pub enum WarnAlertConfig<'a> {
+pub(super) enum WarnAlertConfig<'a> {
     /// Use the compiler's default configuration
     #[default]
     Default,
@@ -203,7 +203,7 @@ pub enum WarnAlertConfig<'a> {
 }
 
 /// The trait for building command line arguments for `moonc` commands.
-pub trait CmdlineAbstraction {
+pub(super) trait CmdlineAbstraction {
     /// Convert this structure to command line arguments.
     fn to_args(&self, args: &mut Vec<String>);
 

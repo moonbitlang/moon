@@ -31,7 +31,7 @@ use crate::build_lower::compiler::CmdlineAbstraction;
 /// This struct provides a wrapper around the moondoc command,
 /// moving command generation from `run_doc_rr` into a command abstraction.
 #[derive(Debug)]
-pub struct MoondocCommand<'a> {
+pub(crate) struct MoondocCommand<'a> {
     /// Source directory to generate documentation from
     pub source_dir: Cow<'a, Path>,
     /// Output directory for generated documentation
@@ -46,7 +46,7 @@ pub struct MoondocCommand<'a> {
 
 impl<'a> MoondocCommand<'a> {
     /// Create a new instance with only necessary fields populated, others as default
-    pub fn new(
+    pub(crate) fn new(
         source_dir: impl Into<Cow<'a, Path>>,
         output_dir: impl Into<Cow<'a, Path>>,
         std_path: Option<impl Into<Cow<'a, Path>>>,

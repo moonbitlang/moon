@@ -205,7 +205,7 @@ struct Location {
 }
 
 impl Location {
-    pub fn ahead(&self, other: &Location) -> bool {
+    fn ahead(&self, other: &Location) -> bool {
         (self.line_start, self.col_start, self.line_end, self.col_end)
             < (
                 other.line_start,

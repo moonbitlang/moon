@@ -1080,7 +1080,7 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    pub fn populate_prebuild(&mut self, package: PackageId, index: u32) {
+    fn populate_prebuild(&mut self, package: PackageId, index: u32) {
         if self
             .res
             .prebuild_info

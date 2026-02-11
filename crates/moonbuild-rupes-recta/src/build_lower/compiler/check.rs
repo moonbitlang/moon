@@ -32,7 +32,7 @@ use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, CmdlineA
 /// FIXME: This is a shallow abstraction that still contains some suboptimal
 /// abstractions, which needs to be fixed in the future.
 #[derive(Debug)]
-pub struct MooncCheck<'a> {
+pub(crate) struct MooncCheck<'a> {
     // Common arguments
     pub required: BuildCommonInput<'a>,
     pub defaults: BuildCommonConfig<'a>,

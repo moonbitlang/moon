@@ -31,7 +31,7 @@ use crate::model::TargetKind;
 
 /// Required (non-default) fields shared between different build-like commands of `moonc`
 #[derive(Debug)]
-pub struct BuildCommonInput<'a> {
+pub(crate) struct BuildCommonInput<'a> {
     /// Regular input files, including sources and mbt.md files
     pub mbt_sources: &'a [PathBuf],
     /// Sources that only needs doctest extraction
@@ -56,7 +56,7 @@ pub struct BuildCommonInput<'a> {
 impl<'a> BuildCommonInput<'a> {
     /// Construct the required part from its required params
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub(crate) fn new(
         mbt_sources: &'a [PathBuf],
         doctest_only_sources: &'a [PathBuf],
         mi_deps: &'a [MiDependency<'a>],
@@ -79,33 +79,33 @@ impl<'a> BuildCommonInput<'a> {
     }
 
     /// Add MBT source files as arguments
-    pub fn add_mbt_sources(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_mbt_sources(&self, args: &mut Vec<String>) {
         for mbt_file in self.mbt_sources {
             args.push(mbt_file.display().to_string());
         }
     }
 
     /// Add doctest-only MBT sources as -doctest-only pairs
-    pub fn add_doctest_only_sources(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_doctest_only_sources(&self, args: &mut Vec<String>) {
         for src in self.doctest_only_sources {
             args.extend(["-doctest-only".to_string(), src.display().to_string()]);
         }
     }
 
     /// Add MI dependencies arguments
-    pub fn add_mi_dependencies(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_mi_dependencies(&self, args: &mut Vec<String>) {
         for mi_dep in self.mi_deps {
             args.extend(["-i".to_string(), mi_dep.to_alias_arg()]);
         }
     }
 
     /// Add package configuration arguments
-    pub fn add_package_config(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_package_config(&self, args: &mut Vec<String>) {
         args.extend(["-pkg".to_string(), self.package_name.to_string()]);
     }
 
     /// Add package source definition arguments
-    pub fn add_package_sources(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_package_sources(&self, args: &mut Vec<String>) {
         args.extend([
             "-pkg-sources".to_string(),
             format!("{}:{}", self.package_name, self.package_source.display()),
@@ -113,7 +113,7 @@ impl<'a> BuildCommonInput<'a> {
     }
 
     /// Add target backend arguments
-    pub fn add_target_backend(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_target_backend(&self, args: &mut Vec<String>) {
         args.extend([
             "-target".to_string(),
             self.target_backend.to_flag().to_string(),
@@ -121,7 +121,7 @@ impl<'a> BuildCommonInput<'a> {
     }
 
     /// Add white/black box test arguments
-    pub fn add_test_args(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_test_args(&self, args: &mut Vec<String>) {
         match self.target_kind {
             TargetKind::WhiteboxTest => args.push("-whitebox-test".into()),
             TargetKind::BlackboxTest => {
@@ -132,21 +132,21 @@ impl<'a> BuildCommonInput<'a> {
         }
     }
 
-    pub fn add_test_mode_args(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_test_mode_args(&self, args: &mut Vec<String>) {
         if self.target_kind.is_test() {
             args.push("-test-mode".into())
         }
     }
 
     /// Emit -include-doctests for blackbox
-    pub fn add_include_doctests_if_blackbox(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_include_doctests_if_blackbox(&self, args: &mut Vec<String>) {
         if matches!(self.target_kind, TargetKind::BlackboxTest) {
             args.push("-include-doctests".to_string());
         }
     }
 
     /// Emit test kind flags
-    pub fn add_test_kind_flags(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_test_kind_flags(&self, args: &mut Vec<String>) {
         match self.target_kind {
             TargetKind::WhiteboxTest => args.push("-whitebox-test".to_string()),
             TargetKind::BlackboxTest => args.push("-blackbox-test".to_string()),
@@ -155,7 +155,7 @@ impl<'a> BuildCommonInput<'a> {
     }
 
     /// Emit -all-pkgs argument
-    pub fn add_all_pkgs_json(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_all_pkgs_json(&self, args: &mut Vec<String>) {
         args.extend([
             "-all-pkgs".to_string(),
             self.all_pkgs_json_path.display().to_string(),
@@ -165,7 +165,7 @@ impl<'a> BuildCommonInput<'a> {
 
 /// Defaultable fields shared between different build-like commands of `moonc`
 #[derive(Debug)]
-pub struct BuildCommonConfig<'a> {
+pub(crate) struct BuildCommonConfig<'a> {
     // Basic command structure
     pub error_format: ErrorFormat,
 
@@ -221,14 +221,14 @@ impl<'a> Default for BuildCommonConfig<'a> {
 
 impl<'a> BuildCommonConfig<'a> {
     /// Add error format arguments
-    pub fn add_error_format(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_error_format(&self, args: &mut Vec<String>) {
         if matches!(self.error_format, ErrorFormat::Json) {
             args.extend(["-error-format".to_string(), "json".to_string()]);
         }
     }
 
     /// Add custom warning/alert list arguments
-    pub fn add_custom_warn_alert_lists(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_custom_warn_alert_lists(&self, args: &mut Vec<String>) {
         if let WarnAlertConfig::List(warn_list) = &self.warn_config
             && !warn_list.is_empty()
         {
@@ -242,42 +242,42 @@ impl<'a> BuildCommonConfig<'a> {
     }
 
     /// Add is-main flag if applicable
-    pub fn add_is_main(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_is_main(&self, args: &mut Vec<String>) {
         if self.is_main {
             args.push("-is-main".to_string());
         }
     }
 
     /// Add standard library path arguments
-    pub fn add_stdlib_path(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_stdlib_path(&self, args: &mut Vec<String>) {
         if let Some(stdlib_path) = &self.stdlib_core_file {
             args.extend(["-std-path".to_string(), stdlib_path.display().to_string()]);
         }
     }
 
     /// Add virtual package check arguments
-    pub fn add_virtual_package_check(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_virtual_package_check(&self, args: &mut Vec<String>) {
         if let Some(check_mi_path) = &self.check_mi {
             args.extend(["-check-mi".to_string(), check_mi_path.display().to_string()]);
         }
     }
 
     /// Add warning/alert deny all arguments (combined)
-    pub fn add_deny_all(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_deny_all(&self, args: &mut Vec<String>) {
         if self.deny_warn {
             args.extend(["-w".to_string(), MOONC_DENY_WARNING_SET.to_string()]);
         }
     }
 
     /// Add warning/alert allow all arguments
-    pub fn add_warn_alert_allow_all(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_warn_alert_allow_all(&self, args: &mut Vec<String>) {
         if matches!(self.warn_config, WarnAlertConfig::Suppress) {
             args.extend(["-w".to_string(), MOONC_SUPPRESS_WARNING_SET.into()]);
         }
     }
 
     /// Add virtual package implementation arguments (with different behavior for check vs build-package)
-    pub fn add_virtual_package_implementation_check(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_virtual_package_implementation_check(&self, args: &mut Vec<String>) {
         if let Some(impl_virtual) = &self.virtual_implementation {
             args.extend([
                 "-check-mi".to_string(),
@@ -296,7 +296,7 @@ impl<'a> BuildCommonConfig<'a> {
     /// Note: does NOT emit -no-mi. The caller must control `-no-mi` via
     /// [BuildCommonConfig::no_mi] and let [BuildCommonConfig::add_no_mi] handle
     /// emission.
-    pub fn add_virtual_package_implementation_build(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_virtual_package_implementation_build(&self, args: &mut Vec<String>) {
         if let Some(impl_virtual) = &self.virtual_implementation {
             args.extend([
                 "-check-mi".to_string(),
@@ -313,7 +313,7 @@ impl<'a> BuildCommonConfig<'a> {
     }
 
     /// Add workspace root flag (module directory)
-    pub fn add_workspace_root(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_workspace_root(&self, args: &mut Vec<String>) {
         // Note: -workspace-path is not supported for link-core yet. Builders that
         // emit link-core must not include it. The specific builders decide whether
         // to add this flag; this common helper is only used by check/build-package.
@@ -323,21 +323,21 @@ impl<'a> BuildCommonConfig<'a> {
     }
 
     /// Emit -patch-file
-    pub fn add_patch_file_moonc(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_patch_file_moonc(&self, args: &mut Vec<String>) {
         if let Some(patch) = &self.patch_file {
             args.extend(["-patch-file".to_string(), patch.display().to_string()]);
         }
     }
 
     /// Emit -no-mi if enabled
-    pub fn add_no_mi(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_no_mi(&self, args: &mut Vec<String>) {
         if self.no_mi {
             args.push("-no-mi".to_string());
         }
     }
 
     /// Emit -enable-value-tracing if enabled
-    pub fn add_enable_value_tracing(&self, args: &mut Vec<String>) {
+    pub(crate) fn add_enable_value_tracing(&self, args: &mut Vec<String>) {
         if self.value_tracing {
             args.push("-enable-value-tracing".to_string());
         }

@@ -32,7 +32,7 @@ use crate::build_lower::compiler::{CmdlineAbstraction, CompiledPackageName, MiDe
 /// [`gen_build_interface_command`](crates/moonbuild/src/gen/gen_build.rs:369) and
 /// is used to parametrise interface generation for virtual packages.
 #[derive(Debug)]
-pub struct MooncBuildInterface<'a> {
+pub(crate) struct MooncBuildInterface<'a> {
     /// The source `.mbti` contract.
     pub mbti_input: Cow<'a, Path>,
     /// Destination `.mi` path.
@@ -51,7 +51,7 @@ pub struct MooncBuildInterface<'a> {
 
 impl<'a> MooncBuildInterface<'a> {
     /// Create a new command abstraction with default settings.
-    pub fn new(
+    pub(crate) fn new(
         mbti_input: impl Into<Cow<'a, Path>>,
         mi_output: impl Into<Cow<'a, Path>>,
         mi_deps: &'a [MiDependency<'a>],

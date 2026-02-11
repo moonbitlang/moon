@@ -34,7 +34,7 @@ use crate::build_lower::compiler::{
 /// FIXME: This is a shallow abstraction that still contains some suboptimal
 /// abstractions, which needs to be fixed in the future.
 #[derive(Debug)]
-pub struct MooncBuildPackage<'a> {
+pub(crate) struct MooncBuildPackage<'a> {
     // Common arguments
     pub required: BuildCommonInput<'a>,
     pub defaults: BuildCommonConfig<'a>,

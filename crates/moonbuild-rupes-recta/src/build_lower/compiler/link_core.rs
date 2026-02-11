@@ -32,7 +32,7 @@ use crate::build_lower::compiler::{
 ///
 /// This struct reuses existing structures and keeps a stable argument order.
 #[derive(Debug)]
-pub struct MooncLinkCore<'a> {
+pub(crate) struct MooncLinkCore<'a> {
     // Input/Output configuration
     /// The `.core` file dependencies to link.
     ///
@@ -81,7 +81,7 @@ pub struct MooncLinkCore<'a> {
 
 /// WebAssembly-specific linking configuration
 #[derive(Debug, Default)]
-pub struct WasmConfig<'a> {
+pub(crate) struct WasmConfig<'a> {
     /// The name of the exported WASM memory, if any.
     ///
     /// See: https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#exports%E2%91%A0
@@ -111,7 +111,7 @@ pub struct WasmConfig<'a> {
 
 /// JavaScript-specific linking configuration
 #[derive(Debug)]
-pub struct JsConfig {
+pub(crate) struct JsConfig {
     /// The output format of the script, see [JsFormat].
     pub format: Option<JsFormat>,
     /// Whether to skip generating TypeScript declaration files.

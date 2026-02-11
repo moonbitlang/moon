@@ -30,7 +30,7 @@ use crate::build_lower::compiler::CmdlineAbstraction;
 /// This mirrors the flag order
 /// used by `crates/moon/src/cli/info.rs` when invoking the `mooninfo` binary.
 #[derive(Debug)]
-pub struct Mooninfo<'a> {
+pub(crate) struct Mooninfo<'a> {
     /// Input .mi file
     pub mi_in: Cow<'a, Path>,
     /// Output .mbti file path

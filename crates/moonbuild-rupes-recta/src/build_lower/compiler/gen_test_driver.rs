@@ -34,7 +34,7 @@ use crate::build_lower::compiler::CmdlineAbstraction;
 /// Check `moon::cli::generate_test_driver` for details. This struct is a by-ref
 /// mirror of the original command for process spawning.
 #[derive(Debug)]
-pub struct MoonGenTestDriver<'a> {
+pub(crate) struct MoonGenTestDriver<'a> {
     /// The paths of the source files which need to be included
     pub files: &'a [PathBuf],
 

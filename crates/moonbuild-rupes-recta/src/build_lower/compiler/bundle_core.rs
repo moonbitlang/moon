@@ -31,7 +31,7 @@ use crate::build_lower::compiler::CmdlineAbstraction;
 /// This struct provides a wrapper around the bundle-core command,
 /// moving command generation from `gen_bundle_all` into a command abstraction.
 #[derive(Debug)]
-pub struct MooncBundleCore<'a> {
+pub(crate) struct MooncBundleCore<'a> {
     /// Core dependencies (input .core files) to be bundled
     pub core_deps: &'a [PathBuf],
     /// Output path for the bundled .core file
@@ -42,7 +42,7 @@ pub struct MooncBundleCore<'a> {
 
 impl<'a> MooncBundleCore<'a> {
     /// Create a new instance with only necessary fields populated, others as default
-    pub fn new(core_deps: &'a [PathBuf], output_path: impl Into<Cow<'a, Path>>) -> Self {
+    pub(crate) fn new(core_deps: &'a [PathBuf], output_path: impl Into<Cow<'a, Path>>) -> Self {
         Self {
             core_deps,
             output_path: output_path.into(),
