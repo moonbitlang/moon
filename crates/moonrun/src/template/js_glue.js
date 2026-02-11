@@ -507,10 +507,12 @@ function demangleTagL(s, i) {
     if (j >= s.length || s[j] !== "S") return null;
     j += 1;
     if (j >= s.length || !isDigit(s[j])) return null;
+    const stampStart = j;
     while (j < s.length && isDigit(s[j])) j += 1;
+    const stamp = s.slice(stampStart, j);
 
     const noDollar = ident[0].startsWith("$") ? ident[0].slice(1) : ident[0];
-    return [`@${stripSuffix(noDollar, ".fn")}`, j];
+    return [`${stripSuffix(noDollar, ".fn")}/${stamp}`, j];
 }
 
 function demangleMangledFunctionName(funcName) {

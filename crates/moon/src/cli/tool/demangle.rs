@@ -211,12 +211,14 @@ fn demangle_tag_l(s: &str, i: usize) -> Option<(String, usize)> {
     if !byte_at(s, j).is_some_and(is_digit) {
         return None;
     }
+    let stamp_start = j;
     while byte_at(s, j).is_some_and(is_digit) {
         j += 1;
     }
+    let stamp = &s[stamp_start..j];
 
     let no_dollar = ident.strip_prefix('$').unwrap_or(&ident);
-    let text = format!("@{}", strip_suffix(no_dollar, ".fn"));
+    let text = format!("{}/{}", strip_suffix(no_dollar, ".fn"), stamp);
     Some((text, j))
 }
 
@@ -491,8 +493,8 @@ mod tests {
             demangle_mangled_function_name("_M0TP13pkg4Type"),
             "@pkg.Type"
         );
-        assert_eq!(demangle_mangled_function_name("_M0L3fooS0"), "@foo");
-        assert_eq!(demangle_mangled_function_name("_M0Lm7$foo.fnS12"), "@foo");
+        assert_eq!(demangle_mangled_function_name("_M0L3fooS0"), "foo/0");
+        assert_eq!(demangle_mangled_function_name("_M0Lm7$foo.fnS12"), "foo/12");
     }
 
     #[test]
@@ -516,6 +518,69 @@ mod tests {
     }
 
     #[test]
+    fn demangle_name_mangling_reference_elements() {
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp5outerN5inner"),
+            "@myapp.outer.inner"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp5outerC0"),
+            "@myapp.outer.0 (the 0-th anonymous-function)"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0TP15myapp5outerL5Local"),
+            "@myapp.outer.Local"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0IP05outerL5LocalP311moonbitlang4core7builtin7Default7defaultGiE"),
+            "impl @moonbitlang/core/builtin.Default for @outer.Local[Int] with default"
+        );
+        assert_eq!(demangle_mangled_function_name("_M0L1xS123"), "x/123");
+        assert_eq!(demangle_mangled_function_name("_M0Lm1yS124"), "y/124");
+        assert_eq!(
+            demangle_mangled_function_name("_M0L6_2atmpS9127"),
+            "*tmp/9127"
+        );
+        assert_eq!(demangle_mangled_function_name("_M0FP03foo"), "@foo");
+    }
+
+    #[test]
+    fn demangle_name_mangling_reference_type_args() {
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp3zipGisE"),
+            "@myapp.zip[Int, String]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp8try__mapGiEHRP15myapp7MyError"),
+            "@myapp.try_map[Int] raise @myapp.MyError"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp5applyGWiEsE"),
+            "@myapp.apply[(Int) -> String]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp3runGVWiEsE"),
+            "@myapp.run[async (Int) -> String]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp8try__runGWiEsQRP15myapp7MyErrorE"),
+            "@myapp.try_run[(Int) -> String raise @myapp.MyError]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp7complexGARP311moonbitlang4core4list4ListGiEE"),
+            "@myapp.complex[FixedArray[@moonbitlang/core/list.List[Int]]]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0EP311moonbitlang4core7builtin3IntP15myapp6double"),
+            "@myapp.Int::double"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP28my_2dorg8my_2dlib3foo"),
+            "@my-org/my-lib.foo"
+        );
+    }
+
+    #[test]
     fn keeps_original_for_non_or_invalid_mangled_names() {
         assert_eq!(demangle_mangled_function_name("plain"), "plain");
         assert_eq!(
@@ -529,6 +594,10 @@ mod tests {
         assert_eq!(
             demangle_mangled_function_name("$_M0FP13pkg3foo"),
             "@pkg.foo"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp7try_mapGiE"),
+            "_M0FP15myapp7try_mapGiE"
         );
     }
 }
