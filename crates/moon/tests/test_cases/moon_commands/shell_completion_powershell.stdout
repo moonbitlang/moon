@@ -804,6 +804,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('embed', 'embed', [CompletionResultType]::ParameterValue, 'embed')
             [CompletionResult]::new('write-tcc-rsp-file', 'write-tcc-rsp-file', [CompletionResultType]::ParameterValue, 'write-tcc-rsp-file')
             [CompletionResult]::new('build-binary-dep', 'build-binary-dep', [CompletionResultType]::ParameterValue, 'build-binary-dep')
+            [CompletionResult]::new('demangle', 'demangle', [CompletionResultType]::ParameterValue, 'Demangle MoonBit symbol names')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -877,11 +878,26 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
+        'moon;tool;demangle' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
         'moon;tool;help' {
             [CompletionResult]::new('format-and-diff', 'format-and-diff', [CompletionResultType]::ParameterValue, 'Format the code and print the difference')
             [CompletionResult]::new('embed', 'embed', [CompletionResultType]::ParameterValue, 'embed')
             [CompletionResult]::new('write-tcc-rsp-file', 'write-tcc-rsp-file', [CompletionResultType]::ParameterValue, 'write-tcc-rsp-file')
             [CompletionResult]::new('build-binary-dep', 'build-binary-dep', [CompletionResultType]::ParameterValue, 'build-binary-dep')
+            [CompletionResult]::new('demangle', 'demangle', [CompletionResultType]::ParameterValue, 'Demangle MoonBit symbol names')
             [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
@@ -895,6 +911,9 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;tool;help;build-binary-dep' {
+            break
+        }
+        'moon;tool;help;demangle' {
             break
         }
         'moon;tool;help;help' {
@@ -1112,6 +1131,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('embed', 'embed', [CompletionResultType]::ParameterValue, 'embed')
             [CompletionResult]::new('write-tcc-rsp-file', 'write-tcc-rsp-file', [CompletionResultType]::ParameterValue, 'write-tcc-rsp-file')
             [CompletionResult]::new('build-binary-dep', 'build-binary-dep', [CompletionResultType]::ParameterValue, 'build-binary-dep')
+            [CompletionResult]::new('demangle', 'demangle', [CompletionResultType]::ParameterValue, 'Demangle MoonBit symbol names')
             break
         }
         'moon;help;tool;format-and-diff' {
@@ -1124,6 +1144,9 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;help;tool;build-binary-dep' {
+            break
+        }
+        'moon;help;tool;demangle' {
             break
         }
         'moon;help;ide' {

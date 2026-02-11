@@ -31,6 +31,24 @@ that would be executed under the current subcommand/flag set.
 `--verbose` prints the command lines as they are executed,
 and and also prints the test commands launched by `moon test`.
 
+## Demangling MoonBit symbols
+
+`moonrun` stack traces are demangled automatically, but it is sometimes useful
+to inspect mangled names directly when debugging generated artifacts.
+
+Use the internal tool subcommand:
+
+```bash
+moon tool demangle <name>...
+```
+
+Example:
+
+```bash
+$ moon tool demangle _M0FP38username5hello4lib05hello
+@username/hello/lib0.hello
+```
+
 ## Logging and tracing
 
 Moon uses standard Rust logging conventions. Control verbosity with `RUST_LOG`:

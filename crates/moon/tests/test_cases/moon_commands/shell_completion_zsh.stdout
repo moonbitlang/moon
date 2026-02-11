@@ -930,6 +930,22 @@ _arguments "${_arguments_options[@]}" : /
 '*::pkg_names -- The name of the package to build and install, without the module name prefix. The top-level package can be specified as an empty string:' /
 && ret=0
 ;;
+(demangle)
+_arguments "${_arguments_options[@]}" : /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'*::names -- Mangled names to demangle:' /
+&& ret=0
+;;
 (help)
 _arguments "${_arguments_options[@]}" : /
 ":: :_moon__tool__help_commands" /
@@ -955,6 +971,10 @@ _arguments "${_arguments_options[@]}" : /
 && ret=0
 ;;
 (build-binary-dep)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(demangle)
 _arguments "${_arguments_options[@]}" : /
 && ret=0
 ;;
@@ -1245,6 +1265,10 @@ _arguments "${_arguments_options[@]}" : /
 && ret=0
 ;;
 (build-binary-dep)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(demangle)
 _arguments "${_arguments_options[@]}" : /
 && ret=0
 ;;
@@ -1682,6 +1706,7 @@ _moon__help__tool_commands() {
 'embed:' /
 'write-tcc-rsp-file:' /
 'build-binary-dep:' /
+'demangle:Demangle MoonBit symbol names' /
     )
     _describe -t commands 'moon help tool commands' commands "$@"
 }
@@ -1689,6 +1714,11 @@ _moon__help__tool_commands() {
 _moon__help__tool__build-binary-dep_commands() {
     local commands; commands=()
     _describe -t commands 'moon help tool build-binary-dep commands' commands "$@"
+}
+(( $+functions[_moon__help__tool__demangle_commands] )) ||
+_moon__help__tool__demangle_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help tool demangle commands' commands "$@"
 }
 (( $+functions[_moon__help__tool__embed_commands] )) ||
 _moon__help__tool__embed_commands() {
@@ -1883,6 +1913,7 @@ _moon__tool_commands() {
 'embed:' /
 'write-tcc-rsp-file:' /
 'build-binary-dep:' /
+'demangle:Demangle MoonBit symbol names' /
 'help:Print this message or the help of the given subcommand(s)' /
     )
     _describe -t commands 'moon tool commands' commands "$@"
@@ -1891,6 +1922,11 @@ _moon__tool_commands() {
 _moon__tool__build-binary-dep_commands() {
     local commands; commands=()
     _describe -t commands 'moon tool build-binary-dep commands' commands "$@"
+}
+(( $+functions[_moon__tool__demangle_commands] )) ||
+_moon__tool__demangle_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool demangle commands' commands "$@"
 }
 (( $+functions[_moon__tool__embed_commands] )) ||
 _moon__tool__embed_commands() {
@@ -1909,6 +1945,7 @@ _moon__tool__help_commands() {
 'embed:' /
 'write-tcc-rsp-file:' /
 'build-binary-dep:' /
+'demangle:Demangle MoonBit symbol names' /
 'help:Print this message or the help of the given subcommand(s)' /
     )
     _describe -t commands 'moon tool help commands' commands "$@"
@@ -1917,6 +1954,11 @@ _moon__tool__help_commands() {
 _moon__tool__help__build-binary-dep_commands() {
     local commands; commands=()
     _describe -t commands 'moon tool help build-binary-dep commands' commands "$@"
+}
+(( $+functions[_moon__tool__help__demangle_commands] )) ||
+_moon__tool__help__demangle_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool help demangle commands' commands "$@"
 }
 (( $+functions[_moon__tool__help__embed_commands] )) ||
 _moon__tool__help__embed_commands() {
