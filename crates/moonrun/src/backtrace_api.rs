@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
-use std::io::IsTerminal;
 use std::path::Path;
 
 fn resolve_source_map_path_impl(wasm_path: &str, source_map_path: &str) -> String {
@@ -33,13 +32,6 @@ fn resolve_source_map_path_impl(wasm_path: &str, source_map_path: &str) -> Strin
         .unwrap_or_else(|| Path::new("."));
     let joined = base_dir.join(source_map_path);
     joined.to_string_lossy().into_owned()
-}
-
-fn should_use_stacktrace_color() -> bool {
-    if !std::env::var("NO_COLOR").unwrap_or_default().is_empty() {
-        return false;
-    }
-    std::io::stderr().is_terminal()
 }
 
 fn resolve_source_map_path(
@@ -69,13 +61,6 @@ pub(crate) fn init(scope: &mut v8::HandleScope) {
     let global_proxy = scope.get_current_context().global(scope);
     let backtrace_obj = global_proxy.child(scope, BACKTRACE_RUNTIME_NAMESPACE);
 
-    let stacktrace_color_enabled_key = scope.string("stacktrace_color_enabled").into();
-    let stacktrace_color_enabled = v8::Boolean::new(scope, should_use_stacktrace_color()).into();
-    backtrace_obj.set(
-        scope,
-        stacktrace_color_enabled_key,
-        stacktrace_color_enabled,
-    );
     backtrace_obj.set_func(scope, "resolve_source_map_path", resolve_source_map_path);
     backtrace_obj.set_func(
         scope,
