@@ -18,7 +18,7 @@
 
 //! Handles which runtime to use to run a specific output.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use moonbuild::entry::TestArgs;
 use moonbuild_rupes_recta::model::RunBackend;
@@ -75,15 +75,17 @@ pub(crate) fn command_for(
         }
         RunBackend::Js => {
             if let Some(t) = test {
-                let (dir, driver) = create_js_driver(mbt_executable, t)?;
+                // Also write package.json to the directory of the .js file being required
+                // to prevent node from finding the user's package.json with "type": "module"
+                if let Some(js_parent) = mbt_executable.parent() {
+                    let js_dir_package_json = js_parent.join("package.json");
+                    let _ = std::fs::write(js_dir_package_json, "{}");
+                }
                 let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
                 cmd.arg("--enable-source-maps");
-                cmd.arg(driver);
+                cmd.arg(mbt_executable);
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
-                Ok(CommandGuard {
-                    _temp_file: Some(dir),
-                    command: cmd,
-                })
+                Ok(cmd.into())
             } else {
                 let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
                 cmd.arg(mbt_executable);
@@ -107,44 +109,4 @@ pub(crate) fn command_for(
             Ok(cmd.into())
         }
     }
-}
-
-fn create_js_driver(js_path: &Path, test_args: &TestArgs) -> anyhow::Result<(TempDir, PathBuf)> {
-    let js_driver_text = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../moonbuild/template/test_driver/js_driver.js"
-    ));
-
-    // This replicates the original behavior, needs fixing later
-    let js_driver = js_driver_text
-        .replace(
-            "origin_js_path",
-            &js_path.display().to_string().replace("\\", "/"),
-        )
-        .replace(
-            "let testParams = []",
-            &format!("let testParams = {}", test_args.to_args()),
-        )
-        .replace(
-            "let packageName = \"\"",
-            &format!("let packageName = {:?}", test_args.package),
-        );
-
-    let dir = TempDir::new().expect("Failed to create temporary directory for JS testing script");
-    let js_file = dir.path().join("driver.cjs");
-    std::fs::write(&js_file, js_driver).expect("Failed to write temporary JS test driver script");
-
-    // prevent node use the outer layer package.json with `"type": "module"`
-    let package_json = dir.path().join("package.json");
-    std::fs::write(package_json, "{}")
-        .expect("Failed to write temporary package.json for JS testing script");
-
-    // Also write package.json to the directory of the .js file being required
-    // to prevent node from finding the user's package.json with "type": "module"
-    if let Some(js_parent) = js_path.parent() {
-        let js_dir_package_json = js_parent.join("package.json");
-        let _ = std::fs::write(js_dir_package_json, "{}");
-    }
-
-    Ok((dir, js_file))
 }

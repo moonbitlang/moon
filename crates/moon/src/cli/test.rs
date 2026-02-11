@@ -1025,30 +1025,13 @@ fn collect_test_artifacts_for_build_only(
 
         // For JS backend, create .cjs wrapper file (matching legacy behavior)
         if matches!(build_meta.target_backend, RunBackend::Js) {
-            let wrapper_path = executable_path.with_extension("cjs");
-
-            let js_driver_template = include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../moonbuild/template/test_driver/js_driver.js"
-            ));
-
-            // Create wrapper pointing to the JS file
-            let js_driver = js_driver_template.replace(
-                "origin_js_path",
-                &executable_path.display().to_string().replace('\\', "/"),
-            );
-
-            std::fs::write(&wrapper_path, &js_driver).with_context(|| {
-                format!("Failed to write JS wrapper at {}", wrapper_path.display())
-            })?;
-
             // Write package.json to prevent node from using outer "type": "module"
             let _ = std::fs::write(target_dir.join("package.json"), "{}");
             if let Some(parent) = executable_path.parent() {
                 let _ = std::fs::write(parent.join("package.json"), "{}");
             }
 
-            artifacts_path.push(wrapper_path);
+            artifacts_path.push(executable_path.clone());
         } else {
             artifacts_path.push(executable_path.clone());
         }
