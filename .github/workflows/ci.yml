@@ -413,11 +413,8 @@ jobs:
       - name: Verify windows tcc-run experimental path
         run: cargo test -p moon --test mod test_cases::native_backend::tcc_run::test_native_backend_tcc_run_windows_experimental -- --exact
 
-      - name: Verify windows tcc-run with MOON_CC=tcc (gnu linker flavor)
-        run: cargo test -p moon --test mod test_cases::native_backend::tcc_run::test_native_backend_tcc_run_windows_with_env_tcc_cc_gnu_linker -- --exact
-
-      - name: Verify windows tcc-run with MOON_CC=tcc (msvc linker flavor)
-        run: cargo test -p moon --test mod test_cases::native_backend::tcc_run::test_native_backend_tcc_run_windows_with_env_tcc_cc_msvc_linker -- --exact
+      - name: Verify windows tcc-run with MOON_CC=tcc (msvc runtime)
+        run: cargo test -p moon --test mod test_cases::native_backend::tcc_run::test_native_backend_tcc_run_windows_with_env_tcc_cc_uses_msvc_runtime -- --exact
 
   # coverage:
   #   needs: bleeding-test

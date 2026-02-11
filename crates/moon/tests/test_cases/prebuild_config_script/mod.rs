@@ -35,14 +35,22 @@ fn test_prebuild_config_common(dir: TestDir) {
             assert!(line.contains("-l______this_is_added_by_config_script_______"));
             assert!(line.contains("-lmylib"));
             assert!(line.contains("-L/my-search-path"));
-        } else if line.contains("cl.exe") // cl.exe might be quoted
-            && line.contains("/Fe./_build/native/debug/build/main/main.exe")
-            && cfg!(windows)
-        {
-            found_link_flags.set(()).expect("final linking found twice");
-            assert!(line.contains("-l______this_is_added_by_config_script_______"));
-            assert!(line.contains("mylib"));
-            assert!(line.contains("/LIBPATH:/my-search-path"));
+        } else if cfg!(windows) {
+            let is_msvc_link = line.contains("cl.exe") // cl.exe might be quoted
+                && line.contains("/Fe./_build/native/debug/build/main/main.exe");
+            let is_gnu_link = line.contains("-o ./_build/native/debug/build/main/main.exe")
+                && (line.contains("cc ") || line.contains("cc.exe"));
+            if is_msvc_link || is_gnu_link {
+                found_link_flags.set(()).expect("final linking found twice");
+                assert!(line.contains("-l______this_is_added_by_config_script_______"));
+                if is_msvc_link {
+                    assert!(line.contains("mylib"));
+                    assert!(line.contains("/LIBPATH:/my-search-path"));
+                } else {
+                    assert!(line.contains("-lmylib"));
+                    assert!(line.contains("-L/my-search-path"));
+                }
+            }
         }
     }
     found_c_flags_replacement
