@@ -51,7 +51,8 @@ pub fn add_latest(
     quiet: bool,
     index_updated: bool,
 ) -> anyhow::Result<i32> {
-    if pkg_name.to_string() == MOONBITLANG_CORE {
+    let pkg_name_str = pkg_name.to_string();
+    if pkg_name_str == MOONBITLANG_CORE {
         eprintln!(
             "{}: no need to add `{}` as dependency",
             "Warning".yellow().bold(),
@@ -65,11 +66,11 @@ pub fn add_latest(
         .get_latest_version(pkg_name)
         .ok_or_else(|| {
             if index_updated {
-                anyhow::anyhow!("could not find the latest version of {}", pkg_name.to_string())
+                anyhow::anyhow!("could not find the latest version of {}", pkg_name_str)
             } else {
             anyhow::anyhow!(
                 "could not find the latest version of {}. Please consider running `moon update` to update the index.",
-                pkg_name.to_string()
+                pkg_name_str
             )
             }
         })?
@@ -102,7 +103,8 @@ pub fn add(
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(source_dir)?;
 
-    if pkg_name.to_string() == MOONBITLANG_CORE {
+    let pkg_name_str = pkg_name.to_string();
+    if pkg_name_str == MOONBITLANG_CORE {
         eprintln!(
             "{}: no need to add `{}` as dependency",
             "Warning".yellow().bold(),
@@ -114,7 +116,7 @@ pub fn add(
     if bin {
         let bin_deps = m.bin_deps.get_or_insert_with(indexmap::IndexMap::new);
         bin_deps.insert(
-            pkg_name.to_string(),
+            pkg_name_str,
             BinaryDependencyInfo {
                 common: SourceDependencyInfo {
                     version: moonutil::version::as_caret_version_req(version.clone()),
@@ -125,7 +127,7 @@ pub fn add(
         );
     } else {
         m.deps.insert(
-            pkg_name.to_string(),
+            pkg_name_str,
             SourceDependencyInfo {
                 version: moonutil::version::as_caret_version_req(version.clone()),
                 ..Default::default()

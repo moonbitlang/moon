@@ -141,9 +141,10 @@ impl OnlineRegistry {
         let reader = std::io::BufReader::new(file);
 
         let lines = reader.lines().collect::<std::io::Result<Vec<String>>>()?;
+        let version_str = version.to_string();
         for line in lines.iter().rev() {
             let j: MoonModJSON = serde_json_lenient::from_str(line)?;
-            if j.version.as_ref() == Some(&version.to_string()) {
+            if j.version.as_ref() == Some(&version_str) {
                 if let Some(checksum) = j.checksum {
                     return Ok(checksum);
                 } else {

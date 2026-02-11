@@ -184,9 +184,9 @@ impl PathNormalizer {
         let replace_table = moonutil::BINARIES
             .all_moon_bins()
             .iter()
-            .map(|(name, path)| (path.to_string_lossy().to_string(), name.to_string()))
+            .map(|(name, path)| (path.to_string_lossy().into_owned(), name.to_string()))
             .collect();
-        let moon_home = home().to_string_lossy().to_string();
+        let moon_home = home().to_string_lossy().into_owned();
 
         let canonical = dunce::canonicalize(source_dir).ok();
         PathNormalizer {

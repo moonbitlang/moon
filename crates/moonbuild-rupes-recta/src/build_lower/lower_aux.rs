@@ -159,7 +159,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             }
         };
 
-        let resolved_cc = resolve_cc(CC::default(), None);
+        let resolved_cc = resolve_cc(&CC::default(), None);
         let libbacktrace_path = runtime_c_path
             .parent()
             .expect("runtime_c_path should have a parent")

@@ -209,7 +209,7 @@ pub(super) trait CmdlineAbstraction {
 
     /// Build the full command with executable and arguments.
     fn build_command(&self, executable: impl AsRef<OsStr>) -> Vec<String> {
-        let mut args = vec![executable.as_ref().to_string_lossy().to_string()];
+        let mut args = vec![executable.as_ref().to_string_lossy().into_owned()];
         self.to_args(&mut args);
         args
     }

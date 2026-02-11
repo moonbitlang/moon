@@ -429,26 +429,42 @@ fn scan_one_package(
     }
 
     // append warn_list & alert_list in current moon.pkg.json into the one in moon.mod.json
-    let warn_list = mod_desc
-        .warn_list
-        .as_ref()
-        .map_or(pkg.warn_list.clone(), |x| {
-            Some(x.clone() + &pkg.warn_list.unwrap_or_default())
-        })
-        .map_or(moonc_opt.build_opt.warn_list.clone(), |x| {
-            Some(x.clone() + &moonc_opt.build_opt.warn_list.clone().unwrap_or_default())
-        })
-        .filter(|s| !s.is_empty());
-    let alert_list = mod_desc
-        .alert_list
-        .as_ref()
-        .map_or(pkg.alert_list.clone(), |x| {
-            Some(x.clone() + &pkg.alert_list.unwrap_or_default())
-        })
-        .map_or(moonc_opt.build_opt.alert_list.clone(), |x| {
-            Some(x.clone() + &moonc_opt.build_opt.alert_list.clone().unwrap_or_default())
-        })
-        .filter(|s| !s.is_empty());
+    let warn_list = {
+        let mut parts = Vec::new();
+        if let Some(w) = &mod_desc.warn_list {
+            parts.push(w.as_str());
+        }
+        if let Some(w) = &pkg.warn_list {
+            parts.push(w.as_str());
+        }
+        if let Some(w) = &moonc_opt.build_opt.warn_list {
+            parts.push(w.as_str());
+        }
+        let combined: String = parts.concat();
+        if combined.is_empty() {
+            None
+        } else {
+            Some(combined)
+        }
+    };
+    let alert_list = {
+        let mut parts = Vec::new();
+        if let Some(a) = &mod_desc.alert_list {
+            parts.push(a.as_str());
+        }
+        if let Some(a) = &pkg.alert_list {
+            parts.push(a.as_str());
+        }
+        if let Some(a) = &moonc_opt.build_opt.alert_list {
+            parts.push(a.as_str());
+        }
+        let combined: String = parts.concat();
+        if combined.is_empty() {
+            None
+        } else {
+            Some(combined)
+        }
+    };
 
     let artifact: PathBuf = target_dir.into();
 

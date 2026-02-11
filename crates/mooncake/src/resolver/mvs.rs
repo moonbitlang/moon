@@ -225,16 +225,14 @@ fn mvs_resolve(
     // Do a DFS in the graph
     while let Some((source, module)) = working_list.pop() {
         log::debug!("-- Solving for {}", source);
-        let mut all_deps = module.deps.clone();
-        all_deps.extend(
+        let all_deps = module.deps.iter().chain(
             module
                 .bin_deps
-                .clone()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|(k, v)| (k, v.into())),
+                .iter()
+                .flat_map(|m| m.iter())
+                .map(|(k, v)| (k, &v.common)),
         );
-        for (name, req) in &all_deps {
+        for (name, req) in all_deps {
             let pkg_name = match name.parse() {
                 Ok(v) => v,
                 Err(_) => {

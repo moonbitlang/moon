@@ -58,7 +58,7 @@ pub fn print_build_commands(
 /// Note: This is specifically for stable dry-run output in tests and CI.
 /// Absolute stability across all possible edge cases is not a goal.
 fn create_file_sorting_cache(graph: &Graph) -> HashMap<FileId, (String, usize)> {
-    let mut key_cache = HashMap::new();
+    let mut key_cache = HashMap::with_capacity(graph.files.all_ids().size_hint().0);
     for id in graph.files.all_ids() {
         let name = &graph.file(id).name;
         let normalized = name.replace('\\', "/");
