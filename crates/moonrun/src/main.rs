@@ -571,7 +571,6 @@ fn run_interactive() -> anyhow::Result<()> {
 
 fn initialize_v8() -> anyhow::Result<()> {
     v8::V8::set_flags_from_string("--experimental-wasm-exnref");
-    v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
     let platform = v8::new_default_platform(0, false).make_shared();
     v8::V8::initialize_platform(platform);
     v8::V8::initialize();
