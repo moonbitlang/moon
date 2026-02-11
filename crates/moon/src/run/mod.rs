@@ -26,7 +26,7 @@ pub(crate) use child::run;
 pub(crate) use runtest::{
     TestFilter, TestIndex, TestOutlineEntry, collect_test_outline, perform_promotion, run_tests,
 };
-pub(crate) use runtime::{CommandGuard, command_for};
+pub(crate) use runtime::command_for;
 
 use std::sync::OnceLock;
 
