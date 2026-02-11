@@ -39,7 +39,7 @@ use super::UniversalFlags;
 
 /// Generate public interface (`.mbti`) files for all packages in the module
 #[derive(Debug, Clone, clap::Parser)]
-pub struct InfoSubcommand {
+pub(crate) struct InfoSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -65,7 +65,7 @@ pub struct InfoSubcommand {
     pub path: Option<PathBuf>,
 }
 
-pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
     if cmd.no_alias {
         warn!(
             "`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092"
@@ -78,7 +78,7 @@ pub fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32>
     run_info_rr(cli, cmd)
 }
 
-pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
     // Determine which target to use
     let target = &cmd.target;
     let mut lowered_targets = vec![];
@@ -134,7 +134,7 @@ pub fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i
 /// Run `moon info` for the given target (`None` for default target)
 ///
 /// Returns `(success, build metadata if not dry-run)`.
-pub fn run_info_rr_internal(
+pub(crate) fn run_info_rr_internal(
     cli: &UniversalFlags,
     cmd: &InfoSubcommand,
     target: Option<TargetBackend>,

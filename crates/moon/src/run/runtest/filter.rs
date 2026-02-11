@@ -35,21 +35,21 @@ use crate::run::TestIndex;
 /// numbering sequence, so there's no need to distinguish between regular tests
 /// and doc tests here.
 #[derive(Default, Clone, PartialEq, Eq)]
-pub struct IndexFilter {
+pub(crate) struct IndexFilter {
     singles: BTreeSet<u32>,
     ranges: Vec<Range<u32>>,
 }
 
 impl IndexFilter {
-    pub fn insert_index(&mut self, index: u32) {
+    pub(crate) fn insert_index(&mut self, index: u32) {
         self.singles.insert(index);
     }
 
-    pub fn insert_range(&mut self, range: TestIndexRange) {
+    pub(crate) fn insert_range(&mut self, range: TestIndexRange) {
         self.ranges.push(range.as_range());
     }
 
-    pub fn contains(&self, index: u32) -> bool {
+    pub(crate) fn contains(&self, index: u32) -> bool {
         if self.singles.contains(&index) {
             return true;
         }
@@ -81,7 +81,7 @@ impl std::fmt::Debug for IndexFilter {
 ///   - None => wildcard (all indices allowed in that file).
 ///   - Some(IndexFilter) => only the indices listed are allowed.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct FileFilter(pub IndexMap<String, Option<IndexFilter>>);
+pub(crate) struct FileFilter(pub IndexMap<String, Option<IndexFilter>>);
 
 /// Package-level filter for a module.
 /// - Key: package full name (exact match).
@@ -89,12 +89,12 @@ pub struct FileFilter(pub IndexMap<String, Option<IndexFilter>>);
 ///   - None => wildcard (all files and indices under the package are allowed).
 ///   - Some(FileFilter) => only listed files/indices are allowed.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct PackageFilter(pub IndexMap<BuildTarget, Option<FileFilter>>);
+pub(crate) struct PackageFilter(pub IndexMap<BuildTarget, Option<FileFilter>>);
 
 /// Root filter used by the test runner.
 /// `filter == None` means no restriction (allow everything).
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub struct TestFilter {
+pub(crate) struct TestFilter {
     pub filter: Option<PackageFilter>,
     /// Glob pattern to filter tests by name
     pub name_filter: Option<String>,
@@ -107,7 +107,7 @@ impl TestFilter {
     /// - (pkg, None, _) => package wildcard; discards any file/index subfilters
     /// - (pkg, Some(file), None) => file wildcard; discards any index set for that file
     /// - (pkg, Some(file), Some(index)) => adds that index unless the path is already wildcarded
-    pub fn add_one(
+    pub(crate) fn add_one(
         &mut self,
         pkg: Option<BuildTarget>,
         file: Option<&str>,
@@ -123,7 +123,7 @@ impl TestFilter {
 
     /// Like [`Self::add_one`], but automatically determines which test
     /// target of the package to use based on the file name and index.
-    pub fn add_autodetermine_target(
+    pub(crate) fn add_autodetermine_target(
         &mut self,
         pkg: PackageId,
         file: Option<&str>,
@@ -177,7 +177,7 @@ impl TestFilter {
     /// - Present with None => (true, None) (package wildcard).
     /// - Present with Some(FileFilter) => (true, Some(FileFilter)).
     #[must_use]
-    pub fn check_package(&self, package: BuildTarget) -> (bool, Option<&FileFilter>) {
+    pub(crate) fn check_package(&self, package: BuildTarget) -> (bool, Option<&FileFilter>) {
         match &self.filter {
             None => (true, None),
             Some(pf) => match pf.0.get(&package) {
@@ -191,7 +191,12 @@ impl TestFilter {
 
 /// Package-level helpers for constructing filters.
 impl PackageFilter {
-    pub fn add_one(&mut self, pkg: BuildTarget, file: Option<&str>, index: Option<TestIndexRange>) {
+    pub(crate) fn add_one(
+        &mut self,
+        pkg: BuildTarget,
+        file: Option<&str>,
+        index: Option<TestIndexRange>,
+    ) {
         if let Some(v) = self.0.get_mut(&pkg) {
             match (file, v) {
                 (None, v) => *v = None, // wildcard package, nothing more to do
@@ -212,13 +217,13 @@ impl PackageFilter {
         }
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 }
 
 impl FileFilter {
-    pub fn add_one(&mut self, file: &str, index: Option<TestIndexRange>) {
+    pub(crate) fn add_one(&mut self, file: &str, index: Option<TestIndexRange>) {
         if let Some(v) = self.0.get_mut(file) {
             match (index, v) {
                 (None, v) => *v = None,
@@ -270,7 +275,7 @@ fn all_ranges(
     indices_to_ranges(actual_indices)
 }
 
-pub fn apply_filter(
+pub(super) fn apply_filter(
     file_filt: Option<&FileFilter>,
     meta: &MooncGenTestInfo,
     files_and_index: &mut Vec<(String, Vec<std::ops::Range<u32>>)>,

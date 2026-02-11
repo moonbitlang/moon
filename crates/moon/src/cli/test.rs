@@ -104,7 +104,7 @@ fn print_test_outline(entries: &[TestOutlineEntry]) {
 
 /// Test the current package
 #[derive(Debug, clap::Parser, Clone)]
-pub struct TestSubcommand {
+pub(crate) struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
@@ -181,7 +181,7 @@ pub struct TestSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
     let result = run_test_impl(&cli, &cmd);
     if crate::run::shutdown_requested() {
         return Ok(130);
@@ -288,9 +288,6 @@ fn run_test_internal(
 fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
-    }
-    if cmd.outline && !cli.unstable_feature.rupes_recta {
-        anyhow::bail!("`--outline` is only supported with Rupes Recta (-Z rupes_recta)");
     }
     run_test_in_single_file_rr(cli, cmd)
 }
@@ -513,14 +510,8 @@ pub(crate) fn run_test_or_bench_internal(
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
     }
-    if cmd.outline && !cli.unstable_feature.rupes_recta {
-        anyhow::bail!("`--outline` is only supported with Rupes Recta (-Z rupes_recta)");
-    }
 
-    debug!(
-        rupes_recta = cli.unstable_feature.rupes_recta,
-        "selecting test runner implementation"
-    );
+    debug!("selecting test runner implementation");
     run_test_rr(
         cli,
         &cmd,

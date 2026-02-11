@@ -109,7 +109,7 @@ cargo install --path ./crates/moon --debug --offline
     structural information
   - `src/moon_dir.rs`: gets the `.moon`, `core`, etc. directory
     paths and handles related environment variables
-  - `src/features.rs`: feature flags including `rupes_recta`
+  - `src/features.rs`: unstable feature flags (`rr_*`)
   - `src/build.rs`: for `moon version`
 
 - `crates/moonrun`: runtime for executing WASM MoonBit programs

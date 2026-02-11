@@ -19,7 +19,7 @@
 use std::rc::Rc;
 
 #[allow(unused)]
-pub unsafe fn get_rc<T>(args: &v8::FunctionCallbackArguments) -> Rc<T> {
+pub(crate) unsafe fn get_rc<T>(args: &v8::FunctionCallbackArguments) -> Rc<T> {
     let data = args.data();
     assert!(data.is_external());
     let data: v8::Local<v8::Data> = data.into();
@@ -29,7 +29,7 @@ pub unsafe fn get_rc<T>(args: &v8::FunctionCallbackArguments) -> Rc<T> {
 }
 
 #[allow(unused)]
-pub unsafe fn get_ref<'t, T>(args: &v8::FunctionCallbackArguments<'t>) -> &'t T {
+pub(crate) unsafe fn get_ref<'t, T>(args: &v8::FunctionCallbackArguments<'t>) -> &'t T {
     let data = args.data();
     assert!(data.is_external());
     let data: v8::Local<v8::Data> = data.into();

@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 
 #[derive(Debug, clap::Parser)]
-pub struct Embed {
+pub(crate) struct Embed {
     #[clap(long, conflicts_with = "text")]
     binary: bool,
     #[clap(long, conflicts_with = "binary")]
@@ -36,7 +36,7 @@ pub struct Embed {
     timestamp: bool,
 }
 
-pub fn run_embed_text(cmd: Embed) -> anyhow::Result<i32> {
+pub(crate) fn run_embed_text(cmd: Embed) -> anyhow::Result<i32> {
     let input = std::fs::read_to_string(&cmd.input)?;
     let name = cmd.name.unwrap_or_else(|| "resource".to_string());
     let mut content = format!(
@@ -59,7 +59,7 @@ let {} : String =
     Ok(0)
 }
 
-pub fn run_embed_bin(cmd: Embed) -> anyhow::Result<i32> {
+pub(crate) fn run_embed_bin(cmd: Embed) -> anyhow::Result<i32> {
     let input = std::fs::read(&cmd.input)?;
     let name = cmd.name.unwrap_or_else(|| "resource".to_string());
     let mut content = format!(
@@ -90,7 +90,7 @@ let {} : Bytes = [
     Ok(0)
 }
 
-pub fn run_embed(cmd: Embed) -> anyhow::Result<i32> {
+pub(crate) fn run_embed(cmd: Embed) -> anyhow::Result<i32> {
     if cmd.binary {
         run_embed_bin(cmd)
     } else {

@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use anyhow::Context;
 
 #[derive(Debug, clap::Parser)]
-pub struct WriteTccRspFile {
+pub(crate) struct WriteTccRspFile {
     /// The file path to write the response file to.
     pub output: PathBuf,
 
@@ -32,7 +32,7 @@ pub struct WriteTccRspFile {
     pub args: Vec<String>,
 }
 
-pub fn write_tcc_rsp_file(cmd: WriteTccRspFile) -> anyhow::Result<i32> {
+pub(crate) fn write_tcc_rsp_file(cmd: WriteTccRspFile) -> anyhow::Result<i32> {
     use std::fs::File;
     use std::io::Write;
 

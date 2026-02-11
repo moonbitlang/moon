@@ -21,7 +21,7 @@ use moonbuild::upgrade::UpgradeSubcommand;
 
 use super::UniversalFlags;
 
-pub fn run_upgrade(cli: UniversalFlags, cmd: UpgradeSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_upgrade(cli: UniversalFlags, cmd: UpgradeSubcommand) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for upgrade")
     }

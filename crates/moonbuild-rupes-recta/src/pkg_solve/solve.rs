@@ -36,7 +36,7 @@ struct ResolveEnv<'a> {
     inject_coverage: bool,
 }
 
-pub fn solve_only(
+pub(super) fn solve_only(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
     enable_coverage: bool,

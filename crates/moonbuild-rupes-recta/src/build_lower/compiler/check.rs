@@ -29,11 +29,10 @@ use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, CmdlineA
 /// producing any output `.core` files. It outputs a `.mi` file that contains
 /// the public interface information for downstream consumption.
 ///
-/// FIXME: This is a shallow abstraction that tries to mimic the legacy
-/// behavior as much as possible. It definitely contains some suboptimal
+/// FIXME: This is a shallow abstraction that still contains some suboptimal
 /// abstractions, which needs to be fixed in the future.
 #[derive(Debug)]
-pub struct MooncCheck<'a> {
+pub(crate) struct MooncCheck<'a> {
     // Common arguments
     pub required: BuildCommonInput<'a>,
     pub defaults: BuildCommonConfig<'a>,
@@ -48,10 +47,8 @@ pub struct MooncCheck<'a> {
     pub extra_flags: &'a [String],
 }
 
-impl<'a> MooncCheck<'a> {
-    /// Convert this to list of args. The behavior tries to mimic the legacy
-    /// behavior as much as possible.
-    pub fn to_args_legacy(&self, args: &mut Vec<String>) {
+impl<'a> CmdlineAbstraction for MooncCheck<'a> {
+    fn to_args(&self, args: &mut Vec<String>) {
         args.push("check".into());
 
         // Patch file (first if present)
@@ -125,11 +122,5 @@ impl<'a> MooncCheck<'a> {
         for flag in self.extra_flags.iter() {
             args.push(flag.to_string());
         }
-    }
-}
-
-impl<'a> CmdlineAbstraction for MooncCheck<'a> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        self.to_args_legacy(args);
     }
 }

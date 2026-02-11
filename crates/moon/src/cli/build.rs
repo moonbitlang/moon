@@ -44,7 +44,7 @@ use super::{BuildFlags, UniversalFlags};
 
 /// Build the current package
 #[derive(Debug, clap::Parser, Clone)]
-pub struct BuildSubcommand {
+pub(crate) struct BuildSubcommand {
     /// The path to the package that should be built.
     #[clap(name = "PATH", conflicts_with("package"))]
     pub path: Option<PathBuf>,
@@ -75,7 +75,7 @@ pub struct BuildSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

@@ -40,7 +40,7 @@ use super::model::MultipleError;
 /// This function checks the following:
 /// - No loops (except test imports, which don't currently have a workaround)
 /// - Aliases are unique within one package
-pub fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), SolveError> {
+pub(super) fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), SolveError> {
     debug!("Verifying package dependency graph integrity");
 
     let mut errs = vec![];

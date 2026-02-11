@@ -29,10 +29,9 @@ use crate::build_lower::compiler::CmdlineAbstraction;
 /// interface files, and generates documentation in HTML or other formats.
 ///
 /// This struct provides a wrapper around the moondoc command,
-/// converting from the legacy `run_doc_rr` function implementation
-/// to the new command abstraction pattern.
+/// moving command generation from `run_doc_rr` into a command abstraction.
 #[derive(Debug)]
-pub struct MoondocCommand<'a> {
+pub(crate) struct MoondocCommand<'a> {
     /// Source directory to generate documentation from
     pub source_dir: Cow<'a, Path>,
     /// Output directory for generated documentation
@@ -47,7 +46,7 @@ pub struct MoondocCommand<'a> {
 
 impl<'a> MoondocCommand<'a> {
     /// Create a new instance with only necessary fields populated, others as default
-    pub fn new(
+    pub(crate) fn new(
         source_dir: impl Into<Cow<'a, Path>>,
         output_dir: impl Into<Cow<'a, Path>>,
         std_path: Option<impl Into<Cow<'a, Path>>>,
@@ -62,10 +61,10 @@ impl<'a> MoondocCommand<'a> {
             serve_mode,
         }
     }
+}
 
-    /// Convert this to list of args. The behavior mirrors the legacy
-    /// `run_doc_rr` function's command generation.
-    pub fn to_args_legacy(&self, args: &mut Vec<String>) {
+impl<'a> CmdlineAbstraction for MoondocCommand<'a> {
+    fn to_args(&self, args: &mut Vec<String>) {
         // Source directory (positional argument, first)
         args.push(self.source_dir.display().to_string());
 
@@ -87,11 +86,5 @@ impl<'a> MoondocCommand<'a> {
         if self.serve_mode {
             args.push("-serve-mode".to_string());
         }
-    }
-}
-
-impl<'a> CmdlineAbstraction for MoondocCommand<'a> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        self.to_args_legacy(args);
     }
 }

@@ -24,11 +24,10 @@
 //!
 //! Most, if not all, of the special cases are related to `moonbitlang/core`,
 //! the standard library of MoonBit.
-#![allow(unused)]
 
 use moonutil::package::MoonPkg;
 
-use crate::{ResolveOutput, model::PackageId, pkg_name::PackageFQN};
+use crate::pkg_name::PackageFQN;
 
 // string segments
 const MOONBIT: &str = "moonbitlang";
@@ -36,9 +35,8 @@ const CORE: &str = "core";
 const ABORT: &str = "abort";
 const BUILTIN: &str = "builtin";
 const COVERAGE: &str = "coverage";
-const PRELUDE: &str = "prelude";
-pub const CORE_MODULE: &str = "moonbitlang/core";
-pub const CORE_MODULE_TUPLE: (&str, &str) = (MOONBIT, CORE);
+pub(crate) const CORE_MODULE: &str = "moonbitlang/core";
+pub(crate) const CORE_MODULE_TUPLE: (&str, &str) = (MOONBIT, CORE);
 
 /// Libraries that should not be tested
 const SKIP_TEST_LIBS: &[(&str, &str, &str)] = &[(MOONBIT, CORE, ABORT)];
@@ -48,13 +46,13 @@ const SKIP_COVERAGE_LIBS: &[(&str, &str, &str)] = &[(MOONBIT, CORE, ABORT)];
 const SELF_COVERAGE_LIBS: &[(&str, &str, &str)] =
     &[(MOONBIT, CORE, BUILTIN), (MOONBIT, CORE, COVERAGE)];
 
-pub fn module_name_is_core(name: &str) -> bool {
+pub(crate) fn module_name_is_core(name: &str) -> bool {
     name == CORE_MODULE
 }
 
 /// Core packages require importing `prelude` in test imports, or the test will
 /// not be able to run.
-pub fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
+pub(crate) fn add_prelude_as_import_for_core(mut pkg_json: MoonPkg) -> MoonPkg {
     pkg_json
         .test_imports
         .push(moonutil::package::Import::Alias {
@@ -69,19 +67,19 @@ fn name_matches(package_fqn: &PackageFQN, target: (&str, &str, &str)) -> bool {
     *package_fqn == target
 }
 
-pub fn should_skip_tests(package_fqn: &PackageFQN) -> bool {
+pub(crate) fn should_skip_tests(package_fqn: &PackageFQN) -> bool {
     SKIP_TEST_LIBS
         .iter()
         .any(|&target| name_matches(package_fqn, target))
 }
 
-pub fn should_skip_coverage(package_fqn: &PackageFQN) -> bool {
+pub(crate) fn should_skip_coverage(package_fqn: &PackageFQN) -> bool {
     SKIP_COVERAGE_LIBS
         .iter()
         .any(|&target| name_matches(package_fqn, target))
 }
 
-pub fn is_self_coverage_lib(package_fqn: &PackageFQN) -> bool {
+pub(crate) fn is_self_coverage_lib(package_fqn: &PackageFQN) -> bool {
     SELF_COVERAGE_LIBS
         .iter()
         .any(|&target| name_matches(package_fqn, target))

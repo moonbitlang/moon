@@ -16,8 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub mod filter_files;
-pub mod prebuild_output;
+pub(crate) mod filter_files;
+pub(crate) mod prebuild_output;
 
 use anyhow::Context;
 use colored::*;
@@ -30,7 +30,7 @@ use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 
 /// The output of a watch run
-pub struct WatchOutput {
+pub(crate) struct WatchOutput {
     /// Whether the run was successful
     pub ok: bool,
 
@@ -41,7 +41,7 @@ pub struct WatchOutput {
 /// Run a watcher that watches on `watch_dir`, and calls `run` when a file
 /// changes. The watcher ignores changes in `original_target_dir`, and will
 /// repopulate `target_dir` if it is deleted.
-pub fn watching(
+pub(crate) fn watching(
     run: impl Fn() -> anyhow::Result<WatchOutput>,
     watch_dir: &Path,
     source_dir: &Path,

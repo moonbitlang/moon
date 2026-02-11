@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
-pub fn run(path: &Path) -> anyhow::Result<()> {
+pub(crate) fn run(path: &Path) -> anyhow::Result<()> {
     let moon_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let moon_root = moon_root.parent().context("moon root not found")?;
     let moon_manual_dir = moon_root.join("docs").join("manual").join("src");

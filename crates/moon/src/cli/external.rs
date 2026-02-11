@@ -20,7 +20,7 @@ use anyhow::{Context as _, bail};
 use std::process::{Command, ExitStatus};
 use which::which_global;
 
-pub fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
+pub(crate) fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
     if args.is_empty() {
         bail!("no external subcommand provided");
     };

@@ -24,9 +24,9 @@ use moonutil::{
 
 /// Remove the _build directory
 #[derive(Debug, clap::Parser)]
-pub struct CleanSubcommand {}
+pub(crate) struct CleanSubcommand {}
 
-pub fn run_clean(cli: &UniversalFlags) -> anyhow::Result<i32> {
+pub(crate) fn run_clean(cli: &UniversalFlags) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for clean");
     }

@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 /// Generate tests for a provided package. This is a thin wrapper around
 /// `moonc gen-test-info`, which does the actual parsing and generation.
 #[derive(Debug, clap::Parser)]
-pub struct GenerateTestDriverSubcommand {
+pub(crate) struct GenerateTestDriverSubcommand {
     /// The paths of the source files to be mapped
     files: Vec<PathBuf>,
 
@@ -159,7 +159,7 @@ fn moonc_gen_test_info(
     }
 }
 
-pub fn generate_test_driver(
+pub(crate) fn generate_test_driver(
     cli: UniversalFlags,
     cmd: GenerateTestDriverSubcommand,
 ) -> anyhow::Result<i32> {

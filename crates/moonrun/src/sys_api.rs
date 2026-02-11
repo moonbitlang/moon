@@ -107,7 +107,7 @@ fn get_env_vars(
     ret.set(result.into());
 }
 
-pub fn init_env<'s>(
+pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,

@@ -85,11 +85,11 @@ use tracing::{debug, info, instrument, trace, warn};
 use crate::{rr_build::BuildMeta, run::default_rt};
 use moonutil::common::TestIndexRange;
 
-pub use filter::TestFilter;
-pub use promotion::perform_promotion;
+pub(crate) use filter::TestFilter;
+pub(crate) use promotion::perform_promotion;
 
 #[derive(Debug, Clone)]
-pub struct TestOutlineEntry {
+pub(crate) struct TestOutlineEntry {
     pub package: String,
     pub file: String,
     pub index: u32,
@@ -117,13 +117,13 @@ struct TestCaseResult {
 }
 
 impl TestCaseResult {
-    pub fn passed(&self) -> bool {
+    pub(crate) fn passed(&self) -> bool {
         matches!(self.kind, TestResultKind::Passed)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TestIndex {
+pub(crate) enum TestIndex {
     /// A regular test block, i.e. `test { ... }`
     Regular(TestIndexRange),
     /// A doctest block after `///`
@@ -131,7 +131,7 @@ pub enum TestIndex {
 }
 
 impl TestIndex {
-    pub fn range(self) -> TestIndexRange {
+    pub(crate) fn range(self) -> TestIndexRange {
         match self {
             TestIndex::Regular(v) => v,
             TestIndex::DocTest(v) => v,
@@ -146,7 +146,7 @@ impl TestIndex {
 /// docs](crate::run::runtest) for more information about the workflow.
 #[instrument(level = "debug", skip(build_meta, filter))]
 #[allow(clippy::too_many_arguments)]
-pub fn run_tests(
+pub(crate) fn run_tests(
     build_meta: &BuildMeta,
     source_dir: &Path,
     target_dir: &Path,
@@ -291,7 +291,7 @@ struct TestRunCtx<'a> {
 /// A container of test results corresponding to each test artifact, and
 /// can be replaced by later test runs upon test result updates.
 #[derive(Default, Debug)]
-pub struct ReplaceableTestResults {
+pub(crate) struct ReplaceableTestResults {
     map: IndexMap<BuildTarget, TargetTestResult>,
 }
 
@@ -303,7 +303,7 @@ struct TargetTestResult {
 }
 
 #[derive(Default, Clone, Debug)]
-pub struct TestSummary {
+pub(crate) struct TestSummary {
     pub total: usize,
     pub passed: usize,
 }
@@ -322,7 +322,7 @@ impl ReplaceableTestResults {
     }
 
     #[allow(unused)] // test promotion will use it
-    pub fn merge(&mut self, other: &ReplaceableTestResults) {
+    pub(crate) fn merge(&mut self, other: &ReplaceableTestResults) {
         for (target, result) in &other.map {
             // inefficient but should not be bottleneck
             self.merge_with_target(*target, result.clone());
@@ -330,7 +330,7 @@ impl ReplaceableTestResults {
     }
 
     #[instrument(level = "debug", skip(self, meta))]
-    pub fn print_result(&self, meta: &BuildMeta, verbose: bool, json: bool) {
+    pub(crate) fn print_result(&self, meta: &BuildMeta, verbose: bool, json: bool) {
         debug!(
             target_count = self.map.len(),
             verbose, "printing collected test results"
@@ -359,7 +359,7 @@ impl ReplaceableTestResults {
     }
 
     #[instrument(level = "trace", skip(self))]
-    pub fn summary(&self) -> TestSummary {
+    pub(crate) fn summary(&self) -> TestSummary {
         let mut total = 0;
         let mut passed = 0;
         for result in self.map.values() {
@@ -374,7 +374,7 @@ impl ReplaceableTestResults {
 
 impl TargetTestResult {
     #[instrument(level = "trace", skip(self, result))]
-    pub fn add(&mut self, file: &str, index: u32, result: TestCaseResult) {
+    pub(crate) fn add(&mut self, file: &str, index: u32, result: TestCaseResult) {
         trace!(file = file, index, kind = ?result.kind, "adding test case result");
         match self.map.get_mut(file) {
             Some(v) => {
@@ -420,7 +420,7 @@ fn collect_tests_by_file(
 }
 
 #[instrument(level = "debug", skip(build_meta, filter))]
-pub fn collect_test_outline(
+pub(crate) fn collect_test_outline(
     build_meta: &BuildMeta,
     filter: &TestFilter,
     include_skipped: bool,

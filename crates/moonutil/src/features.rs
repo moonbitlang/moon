@@ -132,7 +132,6 @@ macro_rules! features {
 }
 
 features! {
-    (unstable, rupes_recta, "Use the new Rupes Recta build script generator"),
     (unstable, rr_export_module_graph, "Export the module dependency graph (only with Rupes Recta)"),
     (unstable, rr_export_package_graph, "Export the package dependency graph (only with Rupes Recta)"),
     (unstable, rr_export_build_plan, "Export the build plan graph (only with Rupes Recta)"),
@@ -145,9 +144,6 @@ impl FromStr for FeatureGate {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut this = Self::parse_features_internal(s)?;
-
-        // Legacy build support is removed; always use Rupes Recta.
-        this.rupes_recta = true;
 
         // By default, enable rr_moon_pkg unless NEW_MOON_PKG=0 is set
         this.rr_moon_pkg = true;
@@ -355,20 +351,16 @@ mod integration_test {
     #[test]
     fn test_parse_features_internal_method() {
         let f = FeatureGate::parse_features_internal("").expect("should parse successfully");
-        assert!(!f.rupes_recta, "rupes_recta should be false by default");
-
-        let f =
-            FeatureGate::parse_features_internal("rupes_recta").expect("should parse successfully");
         assert!(
-            f.rupes_recta,
-            "rupes_recta should be enabled when explicitly specified"
+            !f.rr_export_module_graph,
+            "rr_export_module_graph should be false by default"
         );
 
         let f = FeatureGate::parse_features_internal("rr_export_module_graph")
             .expect("should parse successfully");
         assert!(
-            !f.rupes_recta,
-            "rupes_recta should be false when not specified"
+            !f.rr_export_package_graph,
+            "rr_export_package_graph should be false when not specified"
         );
         assert!(
             f.rr_export_module_graph,
@@ -378,8 +370,11 @@ mod integration_test {
 
     #[test]
     fn test_from_str_compatibility() {
-        let f = FeatureGate::from_str("rupes_recta").expect("should parse successfully");
-        assert!(f.rupes_recta, "Explicit rupes_recta should work");
+        let result = FeatureGate::from_str("rupes_recta");
+        assert!(matches!(
+            result,
+            Err(FeatureGateParseError::UnknownFeature(_))
+        ));
 
         let f = FeatureGate::from_str("rr_export_module_graph,rr_export_package_graph")
             .expect("should parse successfully");

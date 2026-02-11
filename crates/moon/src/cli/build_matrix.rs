@@ -24,7 +24,7 @@ use super::UniversalFlags;
 
 /// Generate build matrix for benchmarking (legacy feature)
 #[derive(Debug, clap::Parser)]
-pub struct GenerateBuildMatrix {
+pub(crate) struct GenerateBuildMatrix {
     /// Set all of `drow`, `dcol`, `mrow`, `mcol` to the same value
     #[clap(short = 'n')]
     pub number: Option<u32>,
@@ -50,7 +50,7 @@ pub struct GenerateBuildMatrix {
     pub out_dir: PathBuf,
 }
 
-pub fn generate_build_matrix(
+pub(crate) fn generate_build_matrix(
     _cli: &UniversalFlags,
     cmd: GenerateBuildMatrix,
 ) -> anyhow::Result<i32> {

@@ -30,10 +30,9 @@ use crate::build_lower::compiler::{
 
 /// Abstraction for `moonc link-core`.
 ///
-/// This struct reuses existing structures and mimics the legacy behavior
-/// as much as possible, maintaining EXACT argument order.
+/// This struct reuses existing structures and keeps a stable argument order.
 #[derive(Debug)]
-pub struct MooncLinkCore<'a> {
+pub(crate) struct MooncLinkCore<'a> {
     // Input/Output configuration
     /// The `.core` file dependencies to link.
     ///
@@ -82,7 +81,7 @@ pub struct MooncLinkCore<'a> {
 
 /// WebAssembly-specific linking configuration
 #[derive(Debug, Default)]
-pub struct WasmConfig<'a> {
+pub(crate) struct WasmConfig<'a> {
     /// The name of the exported WASM memory, if any.
     ///
     /// See: https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#exports%E2%91%A0
@@ -112,21 +111,19 @@ pub struct WasmConfig<'a> {
 
 /// JavaScript-specific linking configuration
 #[derive(Debug)]
-pub struct JsConfig {
+pub(crate) struct JsConfig {
     /// The output format of the script, see [JsFormat].
     pub format: Option<JsFormat>,
     /// Whether to skip generating TypeScript declaration files.
     pub no_dts: bool,
 }
 
-impl<'a> MooncLinkCore<'a> {
-    /// Convert this to list of args. The behavior tries to mimic the legacy
-    /// behavior as much as possible, maintaining EXACT argument order.
-    pub fn to_args_legacy(&self, args: &mut Vec<String>) {
+impl CmdlineAbstraction for MooncLinkCore<'_> {
+    fn to_args(&self, args: &mut Vec<String>) {
         // Command name
         args.push("link-core".into());
 
-        // Core dependencies (input files) - first in legacy order
+        // Core dependencies (input files) first
         for core_dep in self.core_deps {
             args.push(core_dep.to_string_lossy().into_owned());
         }
@@ -254,7 +251,7 @@ impl<'a> MooncLinkCore<'a> {
             args.push(opt.to_string());
         }
 
-        // Windows-specific LLVM target workaround (conditional compilation like legacy)
+        // Windows-specific LLVM target workaround
         // FIXME: We should always provide target info for LLVM
         #[cfg(target_os = "windows")]
         if self.target_backend == TargetBackend::LLVM {
@@ -264,11 +261,5 @@ impl<'a> MooncLinkCore<'a> {
                 args.push("x86_64-pc-windows-msvc".to_string());
             }
         }
-    }
-}
-
-impl CmdlineAbstraction for MooncLinkCore<'_> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        self.to_args_legacy(args);
     }
 }

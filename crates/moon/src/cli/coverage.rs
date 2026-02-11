@@ -33,7 +33,7 @@ use super::{TestSubcommand, UniversalFlags, run_test};
     disable_help_flag(true),
     ignore_errors(true)
 )]
-pub struct CoverageReportSubcommand {
+pub(crate) struct CoverageReportSubcommand {
     /// Arguments to pass to the coverage utility
     #[clap(name = "args", allow_hyphen_values(true))]
     pub args: Vec<String>,
@@ -44,7 +44,7 @@ pub struct CoverageReportSubcommand {
 }
 
 #[derive(Debug, clap::Parser)]
-pub enum CoverageSubcommands {
+pub(crate) enum CoverageSubcommands {
     /// Run test with instrumentation and report coverage
     Analyze(CoverageAnalyzeSubcommand),
     /// Generate code coverage report
@@ -55,13 +55,13 @@ pub enum CoverageSubcommands {
 
 /// Code coverage utilities
 #[derive(Debug, clap::Parser)]
-pub struct CoverageSubcommand {
+pub(crate) struct CoverageSubcommand {
     #[clap(subcommand)]
     pub cmd: CoverageSubcommands,
 }
 
 #[derive(Debug, clap::Parser)]
-pub struct CoverageAnalyzeSubcommand {
+pub(crate) struct CoverageAnalyzeSubcommand {
     /// Analyze coverage for a specific package.
     #[clap(short, long)]
     package: Option<String>,
@@ -75,7 +75,7 @@ pub struct CoverageAnalyzeSubcommand {
     extra_flags: Vec<String>,
 }
 
-pub fn run_coverage(cli: UniversalFlags, cmd: CoverageSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_coverage(cli: UniversalFlags, cmd: CoverageSubcommand) -> anyhow::Result<i32> {
     let res = match cmd.cmd {
         CoverageSubcommands::Analyze(args) => run_coverage_analyze(cli, args),
         CoverageSubcommands::Report(args) => run_coverage_report(cli, args),

@@ -29,10 +29,9 @@ use crate::build_lower::compiler::CmdlineAbstraction;
 /// It is currently only used in `moonbitlang/core`.
 ///
 /// This struct provides a wrapper around the bundle-core command,
-/// converting from the legacy `gen_bundle_all` function implementation
-/// to the new command abstraction pattern.
+/// moving command generation from `gen_bundle_all` into a command abstraction.
 #[derive(Debug)]
-pub struct MooncBundleCore<'a> {
+pub(crate) struct MooncBundleCore<'a> {
     /// Core dependencies (input .core files) to be bundled
     pub core_deps: &'a [PathBuf],
     /// Output path for the bundled .core file
@@ -43,17 +42,17 @@ pub struct MooncBundleCore<'a> {
 
 impl<'a> MooncBundleCore<'a> {
     /// Create a new instance with only necessary fields populated, others as default
-    pub fn new(core_deps: &'a [PathBuf], output_path: impl Into<Cow<'a, Path>>) -> Self {
+    pub(crate) fn new(core_deps: &'a [PathBuf], output_path: impl Into<Cow<'a, Path>>) -> Self {
         Self {
             core_deps,
             output_path: output_path.into(),
             extra_args: &[],
         }
     }
+}
 
-    /// Convert this to list of args. The behavior mirrors the legacy
-    /// `gen_bundle_all` function's command generation.
-    pub fn to_args_legacy(&self, args: &mut Vec<String>) {
+impl<'a> CmdlineAbstraction for MooncBundleCore<'a> {
+    fn to_args(&self, args: &mut Vec<String>) {
         // Command name
         args.push("bundle-core".into());
 
@@ -70,11 +69,5 @@ impl<'a> MooncBundleCore<'a> {
         for arg in self.extra_args {
             args.push(arg.to_string());
         }
-    }
-}
-
-impl<'a> CmdlineAbstraction for MooncBundleCore<'a> {
-    fn to_args(&self, args: &mut Vec<String>) {
-        self.to_args_legacy(args);
     }
 }

@@ -39,7 +39,7 @@ use super::{BuildFlags, UniversalFlags};
 
 /// Run a main package
 #[derive(Debug, clap::Parser, Clone)]
-pub struct RunSubcommand {
+pub(crate) struct RunSubcommand {
     /// The package or .mbt file to run
     pub package_or_mbt_file: String,
 
@@ -58,7 +58,7 @@ pub struct RunSubcommand {
 }
 
 #[instrument(skip_all)]
-pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     match cli.source_tgt_dir.try_into_package_dirs() {
         Ok(_) => {
             if cmd.package_or_mbt_file.ends_with(".mbt") {
@@ -93,7 +93,7 @@ pub fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> 
 }
 
 #[instrument(skip_all)]
-pub fn run_run_internal(
+pub(crate) fn run_run_internal(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
     selected_target_backend: Option<TargetBackend>,

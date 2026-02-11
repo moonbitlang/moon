@@ -22,11 +22,11 @@ mod child;
 mod runtest;
 mod runtime;
 
-pub use child::run;
-pub use runtest::{
+pub(crate) use child::run;
+pub(crate) use runtest::{
     TestFilter, TestIndex, TestOutlineEntry, collect_test_outline, perform_promotion, run_tests,
 };
-pub use runtime::{CommandGuard, command_for};
+pub(crate) use runtime::{CommandGuard, command_for};
 
 use std::sync::OnceLock;
 
@@ -79,18 +79,18 @@ fn install_shutdown_handler(rt: &tokio::runtime::Runtime) {
 }
 
 /// Return the shared shutdown token, initializing it lazily on first use.
-pub fn shutdown_token() -> &'static CancellationToken {
+pub(crate) fn shutdown_token() -> &'static CancellationToken {
     SHUTDOWN_TOKEN.get_or_init(CancellationToken::new)
 }
 
 /// Check whether shutdown has been requested via any of the registered signals.
-pub fn shutdown_requested() -> bool {
+pub(crate) fn shutdown_requested() -> bool {
     shutdown_token().is_cancelled()
 }
 
 /// Build the canonical Tokio runtime used by `moon run` facilities and install
 /// the global shutdown handler the first time it is called.
-pub fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
+pub(crate) fn default_rt() -> std::io::Result<tokio::runtime::Runtime> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
