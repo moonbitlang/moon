@@ -64,7 +64,10 @@ pub(crate) struct BuildBinaryDepArgs {
     install_path: PathBuf,
 }
 
-pub(crate) fn run_build_binary_dep(cli: &UniversalFlags, cmd: &BuildBinaryDepArgs) -> anyhow::Result<i32> {
+pub(crate) fn run_build_binary_dep(
+    cli: &UniversalFlags,
+    cmd: &BuildBinaryDepArgs,
+) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,

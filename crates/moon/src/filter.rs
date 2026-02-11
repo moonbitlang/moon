@@ -138,7 +138,10 @@ impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {
 ///
 /// When a package cannot be found, returns a descriptive error that can be
 /// reported to the user.
-pub(crate) fn filter_pkg_by_dir(resolve_output: &ResolveOutput, dir: &Path) -> anyhow::Result<PackageId> {
+pub(crate) fn filter_pkg_by_dir(
+    resolve_output: &ResolveOutput,
+    dir: &Path,
+) -> anyhow::Result<PackageId> {
     let mut all_local_packages = resolve_output.local_modules().iter().flat_map(|&it| {
         resolve_output
             .pkg_dirs

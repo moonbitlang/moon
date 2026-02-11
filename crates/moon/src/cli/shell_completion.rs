@@ -162,7 +162,10 @@ pub(crate) struct ShellCompSubCommand {
     pub shell: Shell,
 }
 
-pub(crate) fn gen_shellcomp(_cli: &UniversalFlags, cmd: ShellCompSubCommand) -> anyhow::Result<i32> {
+pub(crate) fn gen_shellcomp(
+    _cli: &UniversalFlags,
+    cmd: ShellCompSubCommand,
+) -> anyhow::Result<i32> {
     if _cli.dry_run {
         anyhow::bail!("this command has no side effects, dry run is not needed.")
     }

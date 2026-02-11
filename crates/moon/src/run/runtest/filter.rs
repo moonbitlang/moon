@@ -191,7 +191,12 @@ impl TestFilter {
 
 /// Package-level helpers for constructing filters.
 impl PackageFilter {
-    pub(crate) fn add_one(&mut self, pkg: BuildTarget, file: Option<&str>, index: Option<TestIndexRange>) {
+    pub(crate) fn add_one(
+        &mut self,
+        pkg: BuildTarget,
+        file: Option<&str>,
+        index: Option<TestIndexRange>,
+    ) {
         if let Some(v) = self.0.get_mut(&pkg) {
             match (file, v) {
                 (None, v) => *v = None, // wildcard package, nothing more to do
