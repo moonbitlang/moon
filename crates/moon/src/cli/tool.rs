@@ -17,10 +17,12 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 pub(crate) mod build_binary_dep;
+pub(crate) mod demangle;
 pub(crate) mod embed;
 pub(crate) mod format_and_diff;
 pub(crate) mod write_rsp_file;
 
+use demangle::*;
 use embed::*;
 use format_and_diff::*;
 use moonutil::cli::UniversalFlags;
@@ -38,6 +40,7 @@ pub(crate) enum ToolSubcommands {
     Embed(Embed),
     WriteTccRspFile(WriteTccRspFile),
     BuildBinaryDep(build_binary_dep::BuildBinaryDepArgs),
+    Demangle(DemangleSubcommand),
 }
 
 pub(crate) fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Result<i32> {
@@ -48,5 +51,6 @@ pub(crate) fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Res
         ToolSubcommands::BuildBinaryDep(subcmd) => {
             build_binary_dep::run_build_binary_dep(cli, &subcmd)
         }
+        ToolSubcommands::Demangle(subcmd) => run_demangle(subcmd),
     }
 }

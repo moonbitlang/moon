@@ -79,6 +79,28 @@ fn test_moon_help() {
 }
 
 #[test]
+fn test_moon_tool_demangle() {
+    let dir = TestDir::new_empty();
+    check(
+        get_stdout(
+            &dir,
+            [
+                "tool",
+                "demangle",
+                "_M0FP38username5hello4lib05hello",
+                "_M0Lm7$foo.fnS12",
+                "plain",
+            ],
+        ),
+        expect![[r#"
+            @username/hello/lib0.hello
+            @foo
+            plain
+        "#]],
+    );
+}
+
+#[test]
 fn test_shell_completion_bash() {
     let dir = TestDir::new_empty();
     let out = get_stdout(&dir, ["shell-completion", "--shell", "bash"]);

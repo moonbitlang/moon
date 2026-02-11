@@ -544,19 +544,20 @@ complete -c moon -n "__fish_moon_using_subcommand version" -l trace -d 'Trace th
 complete -c moon -n "__fish_moon_using_subcommand version" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand version" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand version" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -l manifest-path -d 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)' -r -F
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -s q -l quiet -d 'Suppress output'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -s v -l verbose -d 'Increase verbosity'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -l trace -d 'Trace the execution of the program'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -l dry-run -d 'Do not actually run the command'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -l build-graph
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -f -a "format-and-diff" -d 'Format the code and print the difference'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -f -a "embed"
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -f -a "write-tcc-rsp-file"
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -f -a "build-binary-dep"
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -l manifest-path -d 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -s q -l quiet -d 'Suppress output'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -s v -l verbose -d 'Increase verbosity'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -l trace -d 'Trace the execution of the program'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -l dry-run -d 'Do not actually run the command'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -l build-graph
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -s h -l help -d 'Print help'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "format-and-diff" -d 'Format the code and print the difference'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "embed"
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "write-tcc-rsp-file"
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "build-binary-dep"
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "demangle" -d 'Demangle MoonBit symbol names'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l old -d 'The source path of the code which needs to be formatted' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l new -d 'The target path of the formatted code' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l manifest-path -d 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)' -r -F
@@ -601,10 +602,19 @@ complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcomma
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from build-binary-dep" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from build-binary-dep" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from build-binary-dep" -s h -l help -d 'Print help'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from demangle" -l manifest-path -d 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from demangle" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from demangle" -s q -l quiet -d 'Suppress output'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from demangle" -s v -l verbose -d 'Increase verbosity'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from demangle" -l trace -d 'Trace the execution of the program'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from demangle" -l dry-run -d 'Do not actually run the command'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from demangle" -l build-graph
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from demangle" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "format-and-diff" -d 'Format the code and print the difference'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "embed"
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "write-tcc-rsp-file"
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "build-binary-dep"
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "demangle" -d 'Demangle MoonBit symbol names'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c moon -n "__fish_moon_using_subcommand ide; and not __fish_seen_subcommand_from peek-def find-references rename hover outline doc help" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand ide; and not __fish_seen_subcommand_from peek-def find-references rename hover outline doc help" -f -a "peek-def" -d 'Peek Definition of a symbol'
@@ -669,6 +679,7 @@ complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcomma
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "embed"
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "write-tcc-rsp-file"
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "build-binary-dep"
+complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "demangle" -d 'Demangle MoonBit symbol names'
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from ide" -f -a "peek-def" -d 'Peek Definition of a symbol'
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from ide" -f -a "find-references" -d 'Find references of a symbol'
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from ide" -f -a "rename" -d 'Rename a symbol'

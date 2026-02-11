@@ -764,6 +764,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand embed 'embed'
             cand write-tcc-rsp-file 'write-tcc-rsp-file'
             cand build-binary-dep 'build-binary-dep'
+            cand demangle 'Demangle MoonBit symbol names'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'moon;tool;format-and-diff'= {
@@ -832,11 +833,25 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
         }
+        &'moon;tool;demangle'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
         &'moon;tool;help'= {
             cand format-and-diff 'Format the code and print the difference'
             cand embed 'embed'
             cand write-tcc-rsp-file 'write-tcc-rsp-file'
             cand build-binary-dep 'build-binary-dep'
+            cand demangle 'Demangle MoonBit symbol names'
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'moon;tool;help;format-and-diff'= {
@@ -846,6 +861,8 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;tool;help;write-tcc-rsp-file'= {
         }
         &'moon;tool;help;build-binary-dep'= {
+        }
+        &'moon;tool;help;demangle'= {
         }
         &'moon;tool;help;help'= {
         }
@@ -1014,6 +1031,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand embed 'embed'
             cand write-tcc-rsp-file 'write-tcc-rsp-file'
             cand build-binary-dep 'build-binary-dep'
+            cand demangle 'Demangle MoonBit symbol names'
         }
         &'moon;help;tool;format-and-diff'= {
         }
@@ -1022,6 +1040,8 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;help;tool;write-tcc-rsp-file'= {
         }
         &'moon;help;tool;build-binary-dep'= {
+        }
+        &'moon;help;tool;demangle'= {
         }
         &'moon;help;ide'= {
             cand peek-def 'Peek Definition of a symbol'
