@@ -49,6 +49,13 @@ pub(crate) trait ObjectExt<'s> {
         name: &str,
         callback: impl v8::MapFnTo<FunctionCallback>,
     );
+    fn set_func_with_data(
+        &self,
+        scope: &mut v8::PinScope<'s, '_>,
+        name: &str,
+        callback: impl v8::MapFnTo<FunctionCallback>,
+        data: Local<'s, Value>,
+    );
     fn child(&self, scope: &mut v8::PinScope<'s, '_>, name: &str) -> Local<'s, Object>;
 }
 
@@ -66,6 +73,20 @@ impl<'s> ObjectExt<'s> for Local<'s, Object> {
     ) {
         let func = v8::FunctionTemplate::new(scope, callback)
             .get_function(scope)
+            .unwrap();
+        self.set_value(scope, name, func.into());
+    }
+
+    fn set_func_with_data(
+        &self,
+        scope: &mut v8::PinScope<'s, '_>,
+        name: &str,
+        callback: impl v8::MapFnTo<FunctionCallback>,
+        data: Local<'s, Value>,
+    ) {
+        let func = v8::Function::builder(callback)
+            .data(data)
+            .build(scope)
             .unwrap();
         self.set_value(scope, name, func.into());
     }
