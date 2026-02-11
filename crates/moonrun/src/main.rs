@@ -42,7 +42,7 @@ struct PrintEnv {
 }
 
 fn now(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -60,7 +60,7 @@ fn now(
 }
 
 fn instant_now(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     mut args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -84,7 +84,7 @@ fn instant_now(
 }
 
 fn instant_elapsed_as_secs_f64(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -96,7 +96,7 @@ fn instant_elapsed_as_secs_f64(
 }
 
 fn print_char(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -138,7 +138,7 @@ fn print_char(
 }
 
 fn console_elog(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -147,7 +147,7 @@ fn console_elog(
 }
 
 fn console_log(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -196,7 +196,7 @@ fn read_utf8_char() -> io::Result<Option<char>> {
 }
 
 fn read_char(
-    _scope: &mut v8::HandleScope,
+    _scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -210,7 +210,7 @@ fn read_char(
 }
 
 fn read_bytes_from_stdin(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -235,7 +235,7 @@ fn read_bytes_from_stdin(
 }
 
 fn read_file_to_bytes(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -252,7 +252,7 @@ fn read_file_to_bytes(
 }
 
 fn write_char(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -267,7 +267,7 @@ fn write_char(
 }
 
 fn flush(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -280,7 +280,7 @@ fn flush(
 }
 
 fn stdrng_seed_from_u64(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     mut args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -305,7 +305,7 @@ fn stdrng_seed_from_u64(
 }
 
 fn stdrng_gen_range(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -319,7 +319,7 @@ fn stdrng_gen_range(
 }
 
 fn exit(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -328,7 +328,7 @@ fn exit(
 }
 
 fn is_windows(
-    _scope: &mut v8::HandleScope,
+    _scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -342,7 +342,7 @@ fn is_windows(
 
 fn init_env(
     dtors: &mut Vec<Box<dyn Any>>,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     wasm_file_name: &str,
     args: &[String],
 ) {
@@ -408,7 +408,7 @@ fn init_env(
     }
 }
 
-fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::ScriptOrigin<'s> {
+fn create_script_origin<'s>(scope: &mut v8::PinScope<'s, '_>, name: &str) -> v8::ScriptOrigin<'s> {
     let name = format!("{BUILTIN_SCRIPT_ORIGIN_PREFIX}{name}");
     let name = scope.string(&name);
     v8::ScriptOrigin::new(
@@ -438,7 +438,8 @@ fn wasm_mode(
     test_args: Option<String>,
 ) -> anyhow::Result<()> {
     let isolate = &mut v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(isolate);
+    let scope = std::pin::pin!(v8::HandleScope::new(isolate));
+    let scope = &mut scope.init();
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
 
