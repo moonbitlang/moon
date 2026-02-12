@@ -351,6 +351,40 @@ fn parse_package(s: &str, mut i: usize) -> Option<(String, usize)> {
     }
     i += 1;
 
+    if byte_at(s, i) == Some(b'B') {
+        return Some(("moonbitlang/core/builtin".to_string(), i + 1));
+    }
+
+    if byte_at(s, i) == Some(b'C') {
+        i += 1;
+        let count_start = i;
+        let (count, j) = parse_u32(s, i)?;
+        if let Some((suffix, end)) = parse_package_segments(s, j, count) {
+            let full = if suffix.is_empty() {
+                "moonbitlang/core".to_string()
+            } else {
+                format!("moonbitlang/core/{suffix}")
+            };
+            return Some((full, end));
+        }
+
+        // Backward-compatible fallback: single-digit package segment count.
+        i = count_start;
+        let digit = byte_at(s, i)?;
+        if !is_digit(digit) {
+            return None;
+        }
+        let count = (digit - b'0') as u32;
+        i += 1;
+        let (suffix, end) = parse_package_segments(s, i, count)?;
+        let full = if suffix.is_empty() {
+            "moonbitlang/core".to_string()
+        } else {
+            format!("moonbitlang/core/{suffix}")
+        };
+        return Some((full, end));
+    }
+
     let count_start = i;
     let (mut count, j) = parse_u32(s, i)?;
     if let Some(pkg) = parse_package_segments(s, j, count) {
@@ -384,29 +418,7 @@ fn parse_identifier(s: &str, i: usize) -> Option<(String, usize)> {
     let end = start.checked_add(n)?;
     let raw = s.as_bytes().get(start..end)?;
 
-    let mut out = String::new();
-    let mut k = 0usize;
-    while k < raw.len() {
-        let c = raw[k];
-        if c != b'_' {
-            out.push(char::from(c));
-            k += 1;
-            continue;
-        }
-
-        let next = *raw.get(k + 1)?;
-        if next == b'_' {
-            out.push('_');
-            k += 2;
-            continue;
-        }
-
-        let hi = hex_value(next)?;
-        let lo = hex_value(*raw.get(k + 2)?)?;
-        out.push(char::from((hi << 4) | lo));
-        k += 3;
-    }
-
+    let out = decode_identifier_bytes(raw)?;
     Some((out, end))
 }
 
@@ -453,6 +465,32 @@ fn is_digit(ch: u8) -> bool {
 
 fn byte_at(s: &str, i: usize) -> Option<u8> {
     s.as_bytes().get(i).copied()
+}
+
+fn decode_identifier_bytes(raw: &[u8]) -> Option<String> {
+    let mut out = String::new();
+    let mut k = 0usize;
+    while k < raw.len() {
+        let c = raw[k];
+        if c != b'_' {
+            out.push(char::from(c));
+            k += 1;
+            continue;
+        }
+
+        let next = *raw.get(k + 1)?;
+        if next == b'_' {
+            out.push('_');
+            k += 2;
+            continue;
+        }
+
+        let hi = hex_value(next)?;
+        let lo = hex_value(*raw.get(k + 2)?)?;
+        out.push(char::from((hi << 4) | lo));
+        k += 3;
+    }
+    Some(out)
 }
 
 #[cfg(test)]
@@ -504,6 +542,14 @@ mod tests {
 
     #[test]
     fn demangle_name_mangling_reference_elements() {
+        assert_eq!(
+            demangle_mangled_function_name("_M0FPB5print"),
+            "@moonbitlang/core/builtin.print"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0TPC14list4List"),
+            "@moonbitlang/core/list.List"
+        );
         assert_eq!(
             demangle_mangled_function_name("_M0FP15myapp5outerN5inner"),
             "@myapp.outer.inner"
@@ -587,6 +633,12 @@ mod tests {
         assert_eq!(
             demangle_mangled_function_name("_M0FP15myapp7try_mapGiE"),
             "_M0FP15myapp7try_mapGiE"
+        );
+        assert_eq!(
+            demangle_mangled_function_name(
+                "_M0FP314d_2dh24moonbit_2dscatter_2dplot14scatter_2dplot28gen__scatter__plot__graphics"
+            ),
+            "_M0FP314d_2dh24moonbit_2dscatter_2dplot14scatter_2dplot28gen__scatter__plot__graphics"
         );
     }
 }
