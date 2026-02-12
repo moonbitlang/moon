@@ -101,17 +101,17 @@ fn parse_mangled_symbol(func_name: &str) -> Option<(DemangledSymbol, usize)> {
     i += 1;
 
     match tag {
-        b'F' => parse_tag_f(func_name, i),
-        b'M' => parse_tag_m(func_name, i),
-        b'I' => parse_tag_i(func_name, i),
-        b'E' => parse_tag_e(func_name, i),
-        b'T' => parse_tag_t(func_name, i),
-        b'L' => parse_tag_l(func_name, i),
+        b'F' => parse_function_symbol(func_name, i),
+        b'M' => parse_method_symbol(func_name, i),
+        b'I' => parse_trait_impl_method_symbol(func_name, i),
+        b'E' => parse_extension_method_symbol(func_name, i),
+        b'T' => parse_type_symbol(func_name, i),
+        b'L' => parse_local_symbol(func_name, i),
         _ => None,
     }
 }
 
-fn parse_tag_f(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
+fn parse_function_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (pkg, pkg_end) = parse_package(s, i)?;
     let (name, mut j) = parse_identifier(s, pkg_end)?;
     let mut nested = Vec::new();
@@ -148,7 +148,7 @@ fn parse_tag_f(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     ))
 }
 
-fn parse_tag_m(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
+fn parse_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (pkg, pkg_end) = parse_package(s, i)?;
     let (type_name, type_end) = parse_identifier(s, pkg_end)?;
     let (method_name, method_end) = parse_identifier(s, type_end)?;
@@ -165,7 +165,7 @@ fn parse_tag_m(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     ))
 }
 
-fn parse_tag_i(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
+fn parse_trait_impl_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (impl_type, impl_end) = parse_type_path(s, i, false)?;
     let (trait_type, trait_end) = parse_type_path(s, impl_end, false)?;
     let (method_name, method_end) = parse_identifier(s, trait_end)?;
@@ -182,7 +182,7 @@ fn parse_tag_i(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     ))
 }
 
-fn parse_tag_e(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
+fn parse_extension_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (type_pkg, type_pkg_end) = parse_package(s, i)?;
     let (type_name, type_name_end) = parse_identifier(s, type_pkg_end)?;
     let (method_pkg, method_pkg_end) = parse_package(s, type_name_end)?;
@@ -201,12 +201,12 @@ fn parse_tag_e(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     ))
 }
 
-fn parse_tag_t(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
+fn parse_type_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (type_path, j) = parse_type_path(s, i, false)?;
     Some((DemangledSymbol::Type { type_path }, j))
 }
 
-fn parse_tag_l(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
+fn parse_local_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let mut j = i;
     if byte_at(s, j) == Some(b'm') {
         j += 1;

@@ -379,7 +379,7 @@ function moonbitParseDigits(s, i) {
 }
 
 /** @param {string} s @param {number} i @returns {FunctionSymbolParseResult} */
-function moonbitParseTagF(s, i) {
+function moonbitParseFunctionSymbol(s, i) {
     const pkgParsed = moonbitParsePackage(s, i);
     const pkg = pkgParsed[0];
     let j = pkgParsed[1];
@@ -410,7 +410,7 @@ function moonbitParseTagF(s, i) {
 }
 
 /** @param {string} s @param {number} i @returns {MethodSymbolParseResult} */
-function moonbitParseTagM(s, i) {
+function moonbitParseMethodSymbol(s, i) {
     const pkgParsed = moonbitParsePackage(s, i);
     const pkg = pkgParsed[0];
     let j = pkgParsed[1];
@@ -431,7 +431,7 @@ function moonbitParseTagM(s, i) {
 }
 
 /** @param {string} s @param {number} i @returns {TraitImplMethodSymbolParseResult} */
-function moonbitParseTagI(s, i) {
+function moonbitParseTraitImplMethodSymbol(s, i) {
     const implParsed = moonbitParseTypePath(s, i, false);
     const implType = implParsed[0];
     let j = implParsed[1];
@@ -452,7 +452,7 @@ function moonbitParseTagI(s, i) {
 }
 
 /** @param {string} s @param {number} i @returns {ExtensionMethodSymbolParseResult} */
-function moonbitParseTagE(s, i) {
+function moonbitParseExtensionMethodSymbol(s, i) {
     const typePkgParsed = moonbitParsePackage(s, i);
     const typePkg = typePkgParsed[0];
     let j = typePkgParsed[1];
@@ -477,13 +477,13 @@ function moonbitParseTagE(s, i) {
 }
 
 /** @param {string} s @param {number} i @returns {TypeSymbolParseResult} */
-function moonbitParseTagT(s, i) {
+function moonbitParseTypeSymbol(s, i) {
     const parsed = moonbitParseTypePath(s, i, false);
     return [{ kind: "Type", typePath: parsed[0] }, parsed[1]];
 }
 
 /** @param {string} s @param {number} i @returns {LocalSymbolParseResult} */
-function moonbitParseTagL(s, i) {
+function moonbitParseLocalSymbol(s, i) {
     let j = i;
     if (s[j] === "m") {
         j += 1;
@@ -521,17 +521,17 @@ function moonbitParseMangledSymbol(funcName) {
     const parsed = (() => {
         switch (tag) {
             case "F":
-                return moonbitParseTagF(funcName, i);
+                return moonbitParseFunctionSymbol(funcName, i);
             case "M":
-                return moonbitParseTagM(funcName, i);
+                return moonbitParseMethodSymbol(funcName, i);
             case "I":
-                return moonbitParseTagI(funcName, i);
+                return moonbitParseTraitImplMethodSymbol(funcName, i);
             case "E":
-                return moonbitParseTagE(funcName, i);
+                return moonbitParseExtensionMethodSymbol(funcName, i);
             case "T":
-                return moonbitParseTagT(funcName, i);
+                return moonbitParseTypeSymbol(funcName, i);
             case "L":
-                return moonbitParseTagL(funcName, i);
+                return moonbitParseLocalSymbol(funcName, i);
             default:
                 throw moonbitDemangleError();
         }
