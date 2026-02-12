@@ -22,16 +22,14 @@ use crate::module::{MoonMod, MoonModJSON};
 use crate::moon_pkg;
 use crate::mooncakes::ModuleName;
 use crate::package::{
-    MoonPkg, MoonPkgJSON, Package, VirtualPkg, convert_pkg_dsl_to_package,
-    convert_pkg_json_to_package,
+    MoonPkg, MoonPkgJSON, convert_pkg_dsl_to_package, convert_pkg_json_to_package,
 };
-use crate::path::PathComponent;
 use anyhow::{Context, bail};
 use clap::ValueEnum;
 use fs4::fs_std::FileExt;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::fs::File;
@@ -514,12 +512,6 @@ pub struct MoonbuildOpt {
     pub render_no_loc: DiagnosticLevel,
 }
 
-impl MoonbuildOpt {
-    pub fn get_package_filter(&self) -> Option<impl Fn(&Package) -> bool + '_> {
-        self.test_opt.as_ref().map(|opt| opt.get_package_filter())
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct BuildOpt {
     pub install_path: Option<PathBuf>,
@@ -627,18 +619,6 @@ pub struct TestOpt {
     pub patch_file: Option<PathBuf>,
     /// Glob pattern to filter tests by name
     pub filter_name: Option<String>,
-}
-
-impl TestOpt {
-    pub fn get_package_filter(&self) -> impl Fn(&Package) -> bool + '_ {
-        move |pkg| {
-            if let Some(ref filter_package) = self.filter_package {
-                filter_package.contains(&pkg.full_name())
-            } else {
-                true
-            }
-        }
-    }
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -1126,75 +1106,6 @@ impl StringExt for str {
     }
 }
 
-pub fn set_native_backend_link_flags(
-    run_mode: RunMode,
-    target_backend: TargetBackend,
-    module: &mut crate::module::ModuleDB,
-) -> anyhow::Result<Vec<String>> {
-    let mut all_stubs = Vec::new();
-    match run_mode {
-        // need link-core for build, test, bench, and run
-        RunMode::Build | RunMode::Test | RunMode::Bench | RunMode::Run => {
-            if matches!(target_backend, TargetBackend::Native | TargetBackend::LLVM) {
-                let mut link_configs = HashMap::new();
-
-                let all_pkgs = module.get_all_packages();
-
-                for (_, pkg) in all_pkgs {
-                    let existing_native = pkg.link.as_ref().and_then(|link| link.native.as_ref());
-
-                    let mut native_config = existing_native.cloned().unwrap_or_default();
-
-                    let mut stub_lib = Vec::new();
-                    module
-                        .get_filtered_packages_and_its_deps_by_pkgname(pkg.full_name().as_str())
-                        .unwrap()
-                        .iter()
-                        .for_each(|(_, pkg)| {
-                            if pkg.stub_lib.is_some() {
-                                stub_lib.push(
-                                    pkg.artifact
-                                        .with_file_name(format!("lib{}.{}", pkg.last_name(), A_EXT))
-                                        .display()
-                                        .to_string(),
-                                );
-                                all_stubs.push(
-                                    pkg.artifact
-                                        .with_file_name(format!(
-                                            "lib{}.{}",
-                                            pkg.last_name(),
-                                            DYN_EXT
-                                        ))
-                                        .display()
-                                        .to_string(),
-                                );
-                            }
-                        });
-
-                    if !stub_lib.is_empty() {
-                        native_config.stub_lib_deps = Some(stub_lib);
-                    }
-
-                    link_configs.insert(
-                        pkg.full_name(),
-                        Some(crate::package::Link {
-                            native: Some(native_config),
-                            ..Default::default()
-                        }),
-                    );
-                }
-
-                for (pkgname, link_config) in link_configs {
-                    module.get_package_by_name_mut_safe(&pkgname).unwrap().link = link_config;
-                }
-            }
-            Ok(all_stubs)
-        }
-        // don't use wildcard here to avoid possible mishandling if we add more modes in the future
-        RunMode::Bundle | RunMode::Check | RunMode::Format => Ok(all_stubs),
-    }
-}
-
 pub enum PrePostBuild {
     PreBuild,
 }
@@ -1244,64 +1155,6 @@ pub fn execute_postadd_script(dir: &Path) -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-
-pub fn gen_moonbitlang_abort_pkg(moonc_opt: &MooncOpt) -> Package {
-    let path_comp = PathComponent {
-        components: vec!["moonbitlang".to_string(), "core".to_string()],
-    };
-
-    let module_root = crate::moon_dir::core();
-    let root_path = module_root.join("abort");
-
-    Package {
-        is_main: false,
-        force_link: false,
-        is_third_party: true,
-        root_path: root_path.clone(),
-        root: path_comp,
-        rel: PathComponent {
-            components: vec!["abort".to_string()],
-        },
-        files: IndexMap::from([(root_path.join("abort.mbt"), CompileCondition::default())]),
-        wbtest_files: IndexMap::new(),
-        test_files: IndexMap::new(),
-        mbt_md_files: IndexMap::new(),
-        files_contain_test_block: vec![],
-        formatter_ignore: IndexSet::new(),
-        with_sub_package: None,
-        is_sub_package: false,
-        imports: vec![],
-        wbtest_imports: vec![],
-        test_imports: vec![],
-        generated_test_drivers: vec![],
-        artifact: crate::moon_dir::core_bundle(moonc_opt.link_opt.target_backend)
-            .join("abort")
-            .join("abort.core"),
-        link: None,
-        warn_list: None,
-        alert_list: None,
-        targets: None,
-        pre_build: None,
-        patch_file: None,
-        no_mi: false,
-        install_path: None,
-        bin_name: None,
-        bin_target: moonc_opt.link_opt.target_backend,
-        enable_value_tracing: false,
-        supported_targets: indexmap::IndexSet::from_iter([moonc_opt.link_opt.target_backend]),
-        stub_lib: None,
-        virtual_pkg: Some(VirtualPkg { has_default: true }),
-        virtual_mbti_file: Some(root_path.join("abort.mbti")),
-        implement: None,
-        overrides: None,
-        link_flags: None,
-        link_libs: vec![],
-        link_search_paths: vec![],
-        module_root: module_root.into(),
-        max_concurrent_tests: None,
-        regex_backend: None,
-    }
 }
 
 #[derive(Debug, serde::Deserialize)]

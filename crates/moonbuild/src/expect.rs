@@ -21,7 +21,6 @@ use base64::Engine;
 use colored::Colorize;
 use core::fmt;
 use moonutil::common::line_col_to_byte_idx;
-use moonutil::module::ModuleDB;
 use similar::DiffOp;
 use similar::DiffTag;
 use similar::TextDiff;
@@ -33,12 +32,6 @@ use std::str::FromStr;
 
 pub trait PackageSrcResolver {
     fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf;
-}
-
-impl PackageSrcResolver for ModuleDB {
-    fn resolve_pkg_src(&self, pkg_path: &str) -> PathBuf {
-        self.get_package_by_name(pkg_path).root_path.clone()
-    }
 }
 
 #[derive(Debug, Default)]

@@ -16,10 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::PathBuf;
 
 use anyhow::bail;
 use colored::Colorize;
@@ -29,138 +26,9 @@ use serde::{Deserialize, Serialize};
 use serde_json_lenient::Value;
 
 use crate::{
-    common::{
-        FileName, GeneratedTestDriver,
-        TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
-    },
-    cond_expr::{CompileCondition, CondExpr, CondExprs},
-    path::{ImportComponent, PathComponent},
+    common::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
+    cond_expr::{CompileCondition, CondExprs},
 };
-
-#[derive(Debug, Clone)]
-pub struct SubPackageInPackage {
-    pub files: IndexMap<PathBuf, CompileCondition>,
-    pub import: Vec<ImportComponent>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Package {
-    pub is_main: bool,
-    pub force_link: bool,
-    pub is_third_party: bool,
-    // Absolute fs path to the root directory of the package, already consider
-    // `source` field in moon.mod.json
-    // e.g. after `moon add moonbitlang/x`
-    // root_path of package `moonbitlang/x/stack` is
-    // $WORKSPACE/.mooncakes/moonbitlang/x/`{source}`
-    pub root_path: PathBuf,
-    /// Canonical absolute path to the moon.mod.json of the owning module
-    pub module_root: Arc<Path>,
-    // moonbitlang/x
-    pub root: PathComponent,
-    // stack
-    pub rel: PathComponent,
-    // *.mbt (exclude the following)
-    pub files: IndexMap<PathBuf, CompileCondition>,
-    //  *_wbtest.mbt
-    pub wbtest_files: IndexMap<PathBuf, CompileCondition>,
-    //  *_test.mbt
-    pub test_files: IndexMap<PathBuf, CompileCondition>,
-    pub mbt_md_files: IndexMap<PathBuf, CompileCondition>,
-    pub files_contain_test_block: Vec<PathBuf>,
-
-    pub formatter_ignore: IndexSet<String>,
-
-    // there is a sub_package definition in this package
-    pub with_sub_package: Option<SubPackageInPackage>,
-    // this package is a sub_package
-    pub is_sub_package: bool,
-
-    pub imports: Vec<ImportComponent>,
-    pub wbtest_imports: Vec<ImportComponent>,
-    pub test_imports: Vec<ImportComponent>,
-    pub generated_test_drivers: Vec<GeneratedTestDriver>,
-    pub artifact: PathBuf,
-
-    pub link: Option<Link>,
-
-    // moon.mod.json + moon.pkg.json + cli passing value
-    pub warn_list: Option<String>,
-    pub alert_list: Option<String>,
-
-    pub targets: Option<IndexMap<FileName, CondExpr>>,
-    pub pre_build: Option<Vec<MoonPkgGenerate>>,
-
-    // for ide moon check
-    pub patch_file: Option<PathBuf>,
-    pub no_mi: bool,
-
-    pub install_path: Option<PathBuf>,
-
-    pub bin_name: Option<String>,
-
-    pub bin_target: TargetBackend,
-
-    pub enable_value_tracing: bool,
-
-    pub supported_targets: IndexSet<TargetBackend>,
-
-    pub stub_lib: Option<Vec<String>>,
-
-    pub virtual_pkg: Option<VirtualPkg>,
-    pub virtual_mbti_file: Option<PathBuf>,
-    pub implement: Option<String>,
-    pub overrides: Option<Vec<String>>,
-
-    pub regex_backend: Option<RegexBackend>,
-
-    /// Additional link flags to pass to all dependents
-    pub link_flags: Option<String>,
-    /// Libraries to link to pass to all dependents
-    pub link_libs: Vec<String>,
-    /// Additional link search paths to pass to all dependents
-    pub link_search_paths: Vec<String>,
-
-    pub max_concurrent_tests: Option<u32>,
-}
-
-impl Package {
-    pub fn full_name(&self) -> String {
-        if self.rel.full_name().is_empty() {
-            self.root.full_name()
-        } else {
-            format!("{}/{}", self.root.full_name(), self.rel.full_name())
-        }
-    }
-
-    pub fn last_name(&self) -> &str {
-        if self.rel.components.is_empty() {
-            self.root.components.last().unwrap()
-        } else {
-            self.rel.components.last().unwrap()
-        }
-    }
-
-    pub fn full_components(&self) -> PathComponent {
-        let mut comps = self.root.components.clone();
-        comps.extend(self.rel.components.iter().cloned());
-        PathComponent { components: comps }
-    }
-
-    pub fn get_all_files(&self) -> Vec<String> {
-        let mut files =
-            Vec::with_capacity(self.files.len() + self.test_files.len() + self.wbtest_files.len());
-        files.extend(
-            self.files
-                .keys()
-                .chain(self.test_files.keys())
-                .chain(self.wbtest_files.keys())
-                .chain(self.mbt_md_files.keys())
-                .map(|x| x.file_name().unwrap().to_str().unwrap().to_string()),
-        );
-        files
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
