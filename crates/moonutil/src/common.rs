@@ -512,7 +512,6 @@ pub struct MoonbuildOpt {
     pub render_no_loc: DiagnosticLevel,
 }
 
-
 #[derive(Debug, Clone, Default)]
 pub struct BuildOpt {
     pub install_path: Option<PathBuf>,
@@ -621,7 +620,6 @@ pub struct TestOpt {
     /// Glob pattern to filter tests by name
     pub filter_name: Option<String>,
 }
-
 
 #[derive(serde::Serialize, Clone)]
 pub struct TestArtifacts {
