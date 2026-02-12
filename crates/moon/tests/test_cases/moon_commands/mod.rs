@@ -94,7 +94,7 @@ fn test_moon_tool_demangle() {
         ),
         expect![[r#"
             @username/hello/lib0.hello
-            @foo
+            foo/12
             plain
         "#]],
     );

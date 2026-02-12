@@ -24,6 +24,7 @@ pub mod cli;
 pub mod common;
 pub mod compiler_flags;
 pub mod cond_expr;
+pub mod demangle;
 pub mod dependency;
 pub mod dirs;
 pub mod doc_test;

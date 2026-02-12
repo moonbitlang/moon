@@ -1733,6 +1733,7 @@ dependencies = [
  "chrono",
  "clap",
  "moon-test-util",
+ "moonutil",
  "rand 0.8.5",
  "serde",
  "serde_json_lenient",
