@@ -74,7 +74,7 @@ fn test_native_abort_trace() {
         expect![[r#"
             Hello
             RUNTIME ERROR: abort() called
-            $MOON_HOME/lib/core/builtin/option.mbt:38 at @moonbitlang/core/option.Option::unwrap[Int]
+            $MOON_HOME/lib/core/builtin/option.mbt:39 at @moonbitlang/core/option.Option::unwrap[Int]
             $ROOT/cmd/main/main.mbt:14 by @username/scratch/cmd/main.g
             $ROOT/cmd/main/main.mbt:9 by @username/scratch/cmd/main.f
             $ROOT/cmd/main/main.mbt:4 by main

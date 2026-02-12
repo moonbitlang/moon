@@ -76,7 +76,7 @@ fn test_moonrun_wasm_stack_trace() {
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[Unit] [..]/abort/abort.mbt:29
-    at @moonbitlang/core/builtin.abort[Unit] [..]/builtin/intrinsics.mbt:70
+    at @moonbitlang/core/builtin.abort[Unit] [..]/builtin/intrinsics.mbt:74
     at @__moonbit_main [..]/main/main.mbt:20
 ...
 "#]]);
