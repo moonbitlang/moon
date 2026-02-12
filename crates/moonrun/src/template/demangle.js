@@ -279,10 +279,7 @@ function moonbitParseOptionalTypeArgsText(s, i) {
 
 /** @param {string} s @param {number} i @returns {StringParseResult} */
 function moonbitParseTypeRefText(s, i) {
-    if (s[i] !== "R") {
-        throw moonbitDemangleError();
-    }
-    const pathParsed = moonbitParseTypePath(s, i + 1, false);
+    const pathParsed = moonbitParseTypePath(s, i, false);
     let text = moonbitRenderTypePath(pathParsed[0]);
     let j = pathParsed[1];
     if (s[j] === "G") {
@@ -293,12 +290,9 @@ function moonbitParseTypeRefText(s, i) {
     return [text, j];
 }
 
-/** @param {string} s @param {number} i @param {boolean} asyncMark @returns {StringParseResult} */
-function moonbitParseFnTypeText(s, i, asyncMark) {
-    if (s[i] !== "W") {
-        throw moonbitDemangleError();
-    }
-    const paramsParsed = moonbitParseTypeTextListUntilE(s, i + 1);
+/** @param {string} s @param {number} i @returns {StringParseResult} */
+function moonbitParseFnTypeText(s, i) {
+    const paramsParsed = moonbitParseTypeTextListUntilE(s, i);
     const params = paramsParsed[0];
     let j = paramsParsed[1];
 
@@ -313,8 +307,7 @@ function moonbitParseFnTypeText(s, i, asyncMark) {
         j = parsed[1];
     }
 
-    const prefix = asyncMark ? "async " : "";
-    return [`${prefix}(${params.join(", ")}) -> ${ret}${raises}`, j];
+    return [`(${params.join(", ")}) -> ${ret}${raises}`, j];
 }
 
 /** @param {string} s @param {number} i @returns {StringParseResult} */
@@ -361,12 +354,17 @@ function moonbitParseTypeText(s, i) {
             const parsed = moonbitParseTypeTextListUntilE(s, i + 1);
             return [`(${parsed[0].join(", ")})`, parsed[1]];
         }
-        case "V":
-            return moonbitParseFnTypeText(s, i + 1, true);
+        case "V": {
+            if (s[i + 1] !== "W") {
+                throw moonbitDemangleError();
+            }
+            const parsed = moonbitParseFnTypeText(s, i + 2);
+            return [`async ${parsed[0]}`, parsed[1]];
+        }
         case "W":
-            return moonbitParseFnTypeText(s, i, false);
+            return moonbitParseFnTypeText(s, i + 1);
         case "R":
-            return moonbitParseTypeRefText(s, i);
+            return moonbitParseTypeRefText(s, i + 1);
         default:
             throw moonbitDemangleError();
     }
@@ -518,24 +516,29 @@ function moonbitParseMangledSymbol(funcName) {
     i += 1;
 
     /** @type {SymbolParseResult} */
-    const parsed = (() => {
-        switch (tag) {
-            case "F":
-                return moonbitParseFunctionSymbol(funcName, i);
-            case "M":
-                return moonbitParseMethodSymbol(funcName, i);
-            case "I":
-                return moonbitParseTraitImplMethodSymbol(funcName, i);
-            case "E":
-                return moonbitParseExtensionMethodSymbol(funcName, i);
-            case "T":
-                return moonbitParseTypeSymbol(funcName, i);
-            case "L":
-                return moonbitParseLocalSymbol(funcName, i);
-            default:
-                throw moonbitDemangleError();
-        }
-    })();
+    let parsed;
+    switch (tag) {
+        case "F":
+            parsed = moonbitParseFunctionSymbol(funcName, i);
+            break;
+        case "M":
+            parsed = moonbitParseMethodSymbol(funcName, i);
+            break;
+        case "I":
+            parsed = moonbitParseTraitImplMethodSymbol(funcName, i);
+            break;
+        case "E":
+            parsed = moonbitParseExtensionMethodSymbol(funcName, i);
+            break;
+        case "T":
+            parsed = moonbitParseTypeSymbol(funcName, i);
+            break;
+        case "L":
+            parsed = moonbitParseLocalSymbol(funcName, i);
+            break;
+        default:
+            throw moonbitDemangleError();
+    }
 
     const symbol = parsed[0];
     const j = parsed[1];
@@ -591,7 +594,7 @@ function moonbitRenderDemangledSymbol(symbol) {
         case "Local": {
             const noDollar = symbol.ident.replace(/^\$/, "");
             const shown = noDollar.replace(/\.fn$/, "");
-            return `${shown}/${symbol.stamp}`;
+            return shown.includes("/") ? `@${shown}/${symbol.stamp}` : `${shown}/${symbol.stamp}`;
         }
         default:
             throw moonbitDemangleError();

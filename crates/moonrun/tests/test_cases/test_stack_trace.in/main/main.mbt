@@ -16,6 +16,51 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+struct CrashBox {
+  value : Int
+}
+
+fn abort_with_tuple(data : (Int, String), opt : Option[Int]) -> Unit {
+  ignore((data, opt))
+  abort("abort_with_tuple")
+}
+
+fn abort_generic[T](value : T) -> T {
+  ignore(value)
+  abort("abort_generic")
+}
+
+fn panic_with_result(res : Result[Int, String]) -> Unit {
+  ignore(res)
+  panic()
+}
+
+fn abort_via_closure(seed : Int) -> Unit {
+  let inner = fn(_x : Int) -> Int { abort("abort_via_closure") }
+  ignore(inner(seed))
+}
+
+fn CrashBox::abort_method(self : CrashBox, flag : UInt16) -> UInt {
+  ignore((self, flag))
+  abort("abort_method")
+}
+
+fn default_abort_chain() -> Unit {
+  abort_with_tuple((1, "stack"), Some(7))
+}
+
 fn main {
-  abort("This is an abort msg")
+  let args = @env.args()
+  if args.length() >= 2 {
+    match args[1] {
+      "abort-generic-int" => ignore(abort_generic(42))
+      "abort-generic-tuple" => ignore(abort_generic((9, "tuple")))
+      "abort-method" => ignore(CrashBox::{ value: 1 }.abort_method(1))
+      "abort-closure" => abort_via_closure(11)
+      "panic-result" => panic_with_result(Ok(3))
+      _ => default_abort_chain()
+    }
+  } else {
+    default_abort_chain()
+  }
 }

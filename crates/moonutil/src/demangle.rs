@@ -250,10 +250,7 @@ fn parse_type_path(s: &str, i: usize, omit_core_prefix: bool) -> Option<(TypePat
 }
 
 fn parse_type_ref_text(s: &str, i: usize) -> Option<(String, usize)> {
-    if byte_at(s, i) != Some(b'R') {
-        return None;
-    }
-    let (path, mut j) = parse_type_path(s, i + 1, false)?;
+    let (path, mut j) = parse_type_path(s, i, false)?;
     let mut text = render_type_path(&path);
     if byte_at(s, j) == Some(b'G') {
         let (args, args_end) = parse_type_args_text(s, j)?;
@@ -273,12 +270,8 @@ fn parse_type_list_until_e(s: &str, mut i: usize) -> Option<(Vec<String>, usize)
     Some((items, i + 1))
 }
 
-fn parse_fn_type_text(s: &str, i: usize, async_mark: bool) -> Option<(String, usize)> {
-    if byte_at(s, i) != Some(b'W') {
-        return None;
-    }
-
-    let (params, mut j) = parse_type_list_until_e(s, i + 1)?;
+fn parse_fn_type_text(s: &str, i: usize) -> Option<(String, usize)> {
+    let (params, mut j) = parse_type_list_until_e(s, i)?;
 
     let (ret, ret_end) = parse_type_text(s, j)?;
     j = ret_end;
@@ -290,11 +283,7 @@ fn parse_fn_type_text(s: &str, i: usize, async_mark: bool) -> Option<(String, us
         j = raised_end;
     }
 
-    let prefix = if async_mark { "async " } else { "" };
-    Some((
-        format!("{prefix}({}) -> {ret}{raises}", params.join(", ")),
-        j,
-    ))
+    Some((format!("({}) -> {ret}{raises}", params.join(", ")), j))
 }
 
 fn parse_type_args_text(s: &str, i: usize) -> Option<(String, usize)> {
@@ -355,9 +344,15 @@ fn parse_type_text(s: &str, i: usize) -> Option<(String, usize)> {
             let (elems, j) = parse_type_list_until_e(s, i + 1)?;
             Some((format!("({})", elems.join(", ")), j))
         }
-        b'V' => parse_fn_type_text(s, i + 1, true),
-        b'W' => parse_fn_type_text(s, i, false),
-        b'R' => parse_type_ref_text(s, i),
+        b'V' => {
+            if byte_at(s, i + 1) != Some(b'W') {
+                return None;
+            }
+            let (text, j) = parse_fn_type_text(s, i + 2)?;
+            Some((format!("async {text}"), j))
+        }
+        b'W' => parse_fn_type_text(s, i + 1),
+        b'R' => parse_type_ref_text(s, i + 1),
         _ => None,
     }
 }
@@ -440,7 +435,11 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
         DemangledSymbol::Local { ident, stamp } => {
             let no_dollar = ident.strip_prefix('$').unwrap_or(ident);
             let shown = strip_suffix(no_dollar, ".fn");
-            format!("{shown}/{stamp}")
+            if shown.contains('/') {
+                format!("@{shown}/{stamp}")
+            } else {
+                format!("{shown}/{stamp}")
+            }
         }
     }
 }
@@ -736,6 +735,12 @@ mod tests {
         assert_eq!(
             demangle_mangled_function_name("_M0L10_2ax__5464S11.$0"),
             "*x_5464/11"
+        );
+        assert_eq!(
+            demangle_mangled_function_name(
+                "_M0L61_24username_2fhello_2fmain_2eabort__via__closure_2einner_2efnS271"
+            ),
+            "@username/hello/main.abort_via_closure.inner/271"
         );
         assert_eq!(
             demangle_mangled_function_name("_M0FPB30output_2eflush__segment_7c4024"),

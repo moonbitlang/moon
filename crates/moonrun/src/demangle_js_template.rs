@@ -79,6 +79,7 @@ mod tests {
             "_M0FP15myapp8try__runGWiEsQRP15myapp7MyErrorE",
             "_M0EP311moonbitlang4core7builtin3IntP15myapp6double",
             "_M0FPB30output_2eflush__segment_7c4024",
+            "_M0L61_24username_2fhello_2fmain_2eabort__via__closure_2einner_2efnS271",
             "_M0FP13pkg3foo$closure.data",
             "_M0FP13pkg3foo@123",
             "_M0FP13pkg3foo.",
