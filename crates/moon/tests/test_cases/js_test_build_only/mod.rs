@@ -7,7 +7,7 @@ fn test_js_test_build_only() {
     check(
         &stdout,
         expect![[r#"
-            {"artifacts_path":["$ROOT/_build/js/debug/test/js_test_build_only.internal_test.cjs"]}
+            {"artifacts_path":["$ROOT/_build/js/debug/test/js_test_build_only.internal_test.js"]}
         "#]],
     );
 

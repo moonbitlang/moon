@@ -10,11 +10,48 @@ fn main {
 }
 
 ///|
-#cfg(not(target="native"))
+#cfg(target="js")
+#test_entry
+fn main {
+  let test_params = moonbit_test_driver_js_parse_args()
+  moonbit_test_driver_internal_execute(test_params)
+  moonbit_test_driver_finish()
+}
+
+///|
+#cfg(any(target="wasm", target="wasm-gc"))
 #test_entry
 fn main {
   ()
 }
+
+///|
+#cfg(target="js")
+extern "js" fn moonbit_test_driver_js_parse_args() -> Array[
+  MoonBitTestDriverInternalTestEntry,
+] =
+  #|() => {
+  #|  try {
+  #|    let testParams = []
+  #|    // check if there is command line argument
+  #|    if (process.argv.length > 2) {
+  #|      const testArgs = JSON.parse(process.argv[2])
+  #|      testParams = testArgs.file_and_index.flatMap(([file, ranges]) => {
+  #|        let arr = []
+  #|        for (let range of ranges) {
+  #|          for (let i = range.start; i < range.end; i++) {
+  #|            arr.push([file, i])
+  #|          }
+  #|        }
+  #|        return arr
+  #|      })
+  #|      return testParams
+  #|    }
+  #|  } catch (error) {
+  #|    console.error('failed to parse args: ', error.message)
+  #|    process.exit(1)
+  #|  }
+  #|}
 
 ///|
 #cfg(target="js")

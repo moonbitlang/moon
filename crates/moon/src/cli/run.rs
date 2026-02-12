@@ -32,7 +32,6 @@ use tracing::{Level, instrument};
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
-use crate::run::CommandGuard;
 use crate::run::default_rt;
 
 use super::{BuildFlags, UniversalFlags};
@@ -149,7 +148,7 @@ fn run_run_rr(
 fn get_run_cmd(
     build_meta: &rr_build::BuildMeta,
     argv: &[String],
-) -> Result<CommandGuard, anyhow::Error> {
+) -> Result<tokio::process::Command, anyhow::Error> {
     let (_, artifact) = build_meta
         .artifacts
         .first()
@@ -159,7 +158,7 @@ fn get_run_cmd(
         .first()
         .expect("Expected exactly one executable as the output of the build node");
     let mut cmd = crate::run::command_for(build_meta.target_backend, executable, None)?;
-    cmd.command.args(argv);
+    cmd.args(argv);
     Ok(cmd)
 }
 
@@ -304,7 +303,7 @@ fn rr_run_from_plan(
         );
 
         let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
-        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir, false);
+        rr_build::dry_print_command(run_cmd.as_std(), source_dir, false);
         return Ok(0);
     }
 
@@ -321,7 +320,7 @@ fn rr_run_from_plan(
     }
     let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
     if cli.verbose {
-        rr_build::dry_print_command(run_cmd.command.as_std(), source_dir, true);
+        rr_build::dry_print_command(run_cmd.as_std(), source_dir, true);
     }
 
     // Release the lock before spawning the subprocess
@@ -346,7 +345,7 @@ fn rr_run_from_plan(
 
     let res = default_rt()
         .context("Failed to create runtime")?
-        .block_on(crate::run::run(&mut [], false, run_cmd.command))
+        .block_on(crate::run::run(&mut [], false, run_cmd))
         .context("failed to run command")?;
 
     if let Some(code) = res.code() {
