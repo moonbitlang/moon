@@ -41,7 +41,6 @@ disallowed-methods = [
     "moonutil::common::write_package_json_to_file",
     "moonutil::common::read_module_desc_file_in_dir",
     "moonutil::common::read_package_desc_file_in_dir",
-    "moonutil::scan::get_mbt_and_test_file_paths",
     "moonutil::dirs::create_moon_db",
     "moonutil::dirs::recreate_moon_db",
     "moonutil::dirs::clean_dir_in_target",

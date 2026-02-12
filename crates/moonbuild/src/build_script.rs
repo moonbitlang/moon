@@ -24,120 +24,15 @@ use std::{
     io::Write,
     path::Path,
     process::{Command, Stdio},
-    str::FromStr,
 };
 
 use anyhow::{Context, anyhow};
 use log::warn;
 use moonutil::{
     build_script::{BuildScriptEnvironment, BuildScriptOutput},
-    module::ModuleDB,
-    mooncakes::{DirSyncResult, ModuleName, result::ResolvedEnv},
-    path::PathComponent,
+    mooncakes::ModuleName,
 };
 use regex::{Captures, Regex};
-
-pub fn run_prebuild_config(
-    dir_sync_result: &DirSyncResult,
-    mods: &ResolvedEnv,
-    mdb: &mut ModuleDB,
-) -> anyhow::Result<()> {
-    // This script currently uses the quickest and dirtiest way to
-    // achieve the goals.
-    // TODO: refactor and make it efficient and cleaner
-
-    let env_vars: HashMap<String, String> = std::env::vars().collect();
-    let mut pkg_outputs = HashMap::<PathComponent, BuildScriptOutput>::new();
-
-    for (id, module) in mods.all_modules_and_id() {
-        let def = mods.module_info(id);
-
-        if let Some(prebuild) = &def.__moonbit_unstable_prebuild {
-            // just run `node {prebuild.js}` and read the output
-            let dir = dir_sync_result.get(id).expect("module not found");
-            let input = make_prebuild_input_from_module(dir, &env_vars);
-
-            let output = run_build_script_for_module(module, dir, input, prebuild)?;
-            pkg_outputs.insert(
-                PathComponent::from_str(&module.name().to_string()).with_context(|| {
-                    format!("Name of module `{}` cannot be parsed", &module.name())
-                })?,
-                output,
-            );
-        }
-    }
-
-    let match_regex = Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").unwrap();
-
-    let pkgs = mdb.get_all_packages_mut();
-    // Iterate over all pkgs and apply the vars
-    for (_name, pkg) in pkgs.iter_mut() {
-        if let Some(output) = pkg_outputs.get(&pkg.root) {
-            run_replace_in_package(pkg, &output.vars, &match_regex).with_context(|| {
-                format!(
-                    "when handling replace in package {} from build script output of {:?}",
-                    _name, &pkg.root
-                )
-            })?;
-        }
-    }
-
-    // Apply link configs to packages
-    for (_mod, output) in pkg_outputs {
-        apply_output(output, mdb);
-    }
-
-    Ok(())
-}
-
-fn apply_output(output: BuildScriptOutput, mdb: &mut ModuleDB) {
-    // Set the link flags and stuff
-    for link_cfg in output.link_configs {
-        // FIXME: We don't check whether the package and outputs match yet. This
-        // means a module might be able to modify some other package's link config.
-        // This is a bug that needs to be address further down the polish.
-        let Some(pkg) = mdb.get_package_by_name_mut_safe(&link_cfg.package) else {
-            continue;
-        };
-        pkg.link_flags = link_cfg.link_flags;
-        pkg.link_libs = link_cfg.link_libs;
-        pkg.link_search_paths = link_cfg.link_search_paths;
-    }
-}
-
-fn run_replace_in_package(
-    pkg: &mut moonutil::package::Package,
-    env_vars: &HashMap<String, String>,
-    regex: &Regex,
-) -> anyhow::Result<()> {
-    if let Some(link) = pkg.link.as_mut()
-        && let Some(native) = link.native.as_mut()
-    {
-        if let Some(cc) = native.cc.as_mut() {
-            string_match_and_replace(cc, env_vars, regex).context("when replacing cc")?;
-        }
-        if let Some(cc_flags) = native.cc_flags.as_mut() {
-            string_match_and_replace(cc_flags, env_vars, regex)
-                .context("when replacing cc_flags")?;
-        }
-        if let Some(cc_link_flags) = native.cc_link_flags.as_mut() {
-            string_match_and_replace(cc_link_flags, env_vars, regex)
-                .context("when replacing cc_link_flags")?;
-        }
-        if let Some(stub_cc) = native.stub_cc.as_mut() {
-            string_match_and_replace(stub_cc, env_vars, regex).context("when replacing stub_cc")?;
-        }
-        if let Some(stub_cc_flags) = native.stub_cc_flags.as_mut() {
-            string_match_and_replace(stub_cc_flags, env_vars, regex)
-                .context("when replacing stub_cc_flags")?;
-        }
-        if let Some(stub_cc_link_flags) = native.stub_cc_link_flags.as_mut() {
-            string_match_and_replace(stub_cc_link_flags, env_vars, regex)
-                .context("when replacing stub_cc_link_flags")?;
-        }
-    }
-    Ok(())
-}
 
 pub fn string_match_and_replace(
     s: &mut String,
