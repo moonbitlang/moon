@@ -101,7 +101,6 @@ RuntimeError: unreachable
     at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("abort-generic-int"), assert.clone())
@@ -113,7 +112,6 @@ RuntimeError: unreachable
     at @moonbitlang/core/builtin.abort[Int] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("abort-generic-tuple"), assert.clone())
@@ -125,7 +123,6 @@ RuntimeError: unreachable
     at @moonbitlang/core/builtin.abort[(Int, String)] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("abort-method"), assert.clone())
@@ -137,7 +134,6 @@ RuntimeError: unreachable
     at @moonbitlang/core/builtin.abort[UInt] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("abort-closure"), assert.clone())
@@ -150,7 +146,6 @@ RuntimeError: unreachable
     at @username/hello/main.abort_via_closure.inner/[..] [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("panic-result"), assert.clone())
