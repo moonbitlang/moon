@@ -24,6 +24,7 @@ use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 use v8::V8::set_flags_from_string;
 
 mod backtrace_api;
+mod demangle_js_template;
 mod fs_api_temp;
 mod sys_api;
 mod util;
@@ -490,6 +491,8 @@ fn wasm_mode(
     }
     script.push_str(&format!("const no_stack_trace = {no_stack_trace};"));
     script.push_str(&format!("const test_mode = {};", test_args.is_some()));
+    script.push_str(demangle_js_template::DEMANGLE_JS_TEMPLATE);
+    script.push('\n');
     let js_glue = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/template/js_glue.js"

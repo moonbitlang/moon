@@ -45,16 +45,6 @@ fn resolve_source_map_path(
     ret.set(scope.string(&resolved).into());
 }
 
-fn demangle_mangled_function_name(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let mangled = args.string_lossy(scope, 0);
-    let demangled = moonutil::demangle::demangle_mangled_function_name(&mangled);
-    ret.set(scope.string(&demangled).into());
-}
-
 const BACKTRACE_RUNTIME_NAMESPACE: &str = "__moonbit_backtrace_runtime";
 
 pub(crate) fn init(scope: &mut v8::HandleScope) {
@@ -62,11 +52,6 @@ pub(crate) fn init(scope: &mut v8::HandleScope) {
     let backtrace_obj = global_proxy.child(scope, BACKTRACE_RUNTIME_NAMESPACE);
 
     backtrace_obj.set_func(scope, "resolve_source_map_path", resolve_source_map_path);
-    backtrace_obj.set_func(
-        scope,
-        "demangle_mangled_function_name",
-        demangle_mangled_function_name,
-    );
 }
 
 #[cfg(test)]

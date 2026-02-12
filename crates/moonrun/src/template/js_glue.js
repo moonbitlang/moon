@@ -146,11 +146,8 @@ delete globalThis.__moonbit_run_env;
 delete globalThis.__moonbit_backtrace_runtime;
 
 function demangleMangledFunctionName(funcName) {
-    if (typeof funcName !== "string" || funcName.length === 0) {
-        return funcName;
-    }
-    if (typeof __moonbit_backtrace_runtime.demangle_mangled_function_name === "function") {
-        return __moonbit_backtrace_runtime.demangle_mangled_function_name(funcName);
+    if (typeof __moonbit_demangle_mangled_function_name === "function") {
+        return __moonbit_demangle_mangled_function_name(funcName);
     }
     return funcName;
 }
