@@ -16,50 +16,13 @@
  * }} TypePathAst
  */
 
-/**
- * Parsed generic/raise suffix section.
- * Example: `[Int, String] raise @my/Error`.
- * @typedef {{
- *   kind: "TypeArgs",
- *   args: TypeExprAst[],
- *   raises: TypeExprAst | null,
- * }} TypeArgsAst
- */
-
-/**
- * Parsed type expression.
- * @typedef {{
- *   kind: "Builtin",
- *   name: string,
- * } | {
- *   kind: "FixedArray",
- *   inner: TypeExprAst,
- * } | {
- *   kind: "Option",
- *   inner: TypeExprAst,
- * } | {
- *   kind: "Tuple",
- *   elems: TypeExprAst[],
- * } | {
- *   kind: "FnType",
- *   asyncMark: boolean,
- *   params: TypeExprAst[],
- *   ret: TypeExprAst,
- *   raises: TypeExprAst | null,
- * } | {
- *   kind: "TypeRef",
- *   path: TypePathAst,
- *   typeArgs: TypeArgsAst | null,
- * }} TypeExprAst
- */
-
 /** @typedef {{
  *   kind: "Function",
  *   pkg: string,
  *   name: string,
  *   nested: string[],
  *   anonIndex: string | null,
- *   typeArgs: TypeArgsAst | null,
+ *   typeArgs: string | null,
  * }} FunctionSymbolAst */
 
 /** @typedef {{
@@ -67,7 +30,7 @@
  *   pkg: string,
  *   typeName: string,
  *   methodName: string,
- *   typeArgs: TypeArgsAst | null,
+ *   typeArgs: string | null,
  * }} MethodSymbolAst */
 
 /** @typedef {{
@@ -75,7 +38,7 @@
  *   implType: TypePathAst,
  *   traitType: TypePathAst,
  *   methodName: string,
- *   typeArgs: TypeArgsAst | null,
+ *   typeArgs: string | null,
  * }} TraitImplMethodSymbolAst */
 
 /** @typedef {{
@@ -84,7 +47,7 @@
  *   typeName: string,
  *   methodPkg: string,
  *   methodName: string,
- *   typeArgs: TypeArgsAst | null,
+ *   typeArgs: string | null,
  * }} ExtensionMethodSymbolAst */
 
 /** @typedef {{
@@ -110,11 +73,9 @@
 
 /** @typedef {[number, number]} U32ParseResult */
 /** @typedef {[string, number]} StringParseResult */
+/** @typedef {[string[], number]} StringListParseResult */
+/** @typedef {[string | null, number]} OptionalStringParseResult */
 /** @typedef {[TypePathAst, number]} TypePathParseResult */
-/** @typedef {[TypeExprAst, number]} TypeExprParseResult */
-/** @typedef {[TypeExprAst[], number]} TypeExprListParseResult */
-/** @typedef {[TypeArgsAst, number]} TypeArgsParseResult */
-/** @typedef {[TypeArgsAst | null, number]} OptionalTypeArgsParseResult */
 /** @typedef {[FunctionSymbolAst, number]} FunctionSymbolParseResult */
 /** @typedef {[MethodSymbolAst, number]} MethodSymbolParseResult */
 /** @typedef {[TraitImplMethodSymbolAst, number]} TraitImplMethodSymbolParseResult */
@@ -276,141 +237,136 @@ function moonbitParseTypePath(s, i, omitCorePrefix) {
     return [{ kind: "TypePath", pkg, typeName }, j];
 }
 
-/** @param {string} s @param {number} i @returns {TypeExprListParseResult} */
-function moonbitParseTypeListUntilE(s, i) {
+/** @param {string} s @param {number} i @returns {StringListParseResult} */
+function moonbitParseTypeTextListUntilE(s, i) {
     const items = [];
     let j = i;
-    while (true) {
-        if (j >= s.length) {
-            throw moonbitDemangleError();
-        }
-        if (s[j] === "E") {
-            return [items, j + 1];
-        }
-        const parsed = moonbitParseTypeExpr(s, j);
+    while (s[j] !== "E") {
+        const parsed = moonbitParseTypeText(s, j);
         items.push(parsed[0]);
         j = parsed[1];
     }
+    return [items, j + 1];
 }
 
-/** @param {string} s @param {number} i @returns {TypeArgsParseResult} */
-function moonbitParseTypeArgs(s, i) {
+/** @param {string} s @param {number} i @returns {StringParseResult} */
+function moonbitParseTypeArgsText(s, i) {
     let j = i;
-    let args = [];
+    let argsPrefix = "";
     if (s[j] === "G") {
-        const parsed = moonbitParseTypeListUntilE(s, j + 1);
-        args = parsed[0];
+        const parsed = moonbitParseTypeTextListUntilE(s, j + 1);
+        argsPrefix = `[${parsed[0].join(", ")}]`;
         j = parsed[1];
     }
 
-    let raises = null;
+    let raiseSuffix = "";
     if (s[j] === "H") {
-        const parsed = moonbitParseTypeExpr(s, j + 1);
-        raises = parsed[0];
+        const parsed = moonbitParseTypeText(s, j + 1);
+        raiseSuffix = ` raise ${parsed[0]}`;
         j = parsed[1];
     }
-
-    return [{ kind: "TypeArgs", args, raises }, j];
+    return [`${argsPrefix}${raiseSuffix}`, j];
 }
 
-/** @param {string} s @param {number} i @returns {OptionalTypeArgsParseResult} */
-function moonbitParseOptionalTypeArgs(s, i) {
+/** @param {string} s @param {number} i @returns {OptionalStringParseResult} */
+function moonbitParseOptionalTypeArgsText(s, i) {
     if (s[i] === "G" || s[i] === "H") {
-        return moonbitParseTypeArgs(s, i);
+        const parsed = moonbitParseTypeArgsText(s, i);
+        return [parsed[0], parsed[1]];
     }
     return [null, i];
 }
 
-/** @param {string} s @param {number} i @returns {TypeExprParseResult} */
-function moonbitParseTypeRef(s, i) {
+/** @param {string} s @param {number} i @returns {StringParseResult} */
+function moonbitParseTypeRefText(s, i) {
     if (s[i] !== "R") {
         throw moonbitDemangleError();
     }
     const pathParsed = moonbitParseTypePath(s, i + 1, false);
-    const path = pathParsed[0];
+    let text = moonbitRenderTypePath(pathParsed[0]);
     let j = pathParsed[1];
-    let typeArgs = null;
     if (s[j] === "G") {
-        const parsed = moonbitParseTypeArgs(s, j);
-        typeArgs = parsed[0];
+        const parsed = moonbitParseTypeArgsText(s, j);
+        text += parsed[0];
         j = parsed[1];
     }
-    return [{ kind: "TypeRef", path, typeArgs }, j];
+    return [text, j];
 }
 
-/** @param {string} s @param {number} i @param {boolean} asyncMark @returns {TypeExprParseResult} */
-function moonbitParseFnType(s, i, asyncMark) {
+/** @param {string} s @param {number} i @param {boolean} asyncMark @returns {StringParseResult} */
+function moonbitParseFnTypeText(s, i, asyncMark) {
     if (s[i] !== "W") {
         throw moonbitDemangleError();
     }
-    const paramsParsed = moonbitParseTypeListUntilE(s, i + 1);
+    const paramsParsed = moonbitParseTypeTextListUntilE(s, i + 1);
     const params = paramsParsed[0];
     let j = paramsParsed[1];
 
-    const retParsed = moonbitParseTypeExpr(s, j);
+    const retParsed = moonbitParseTypeText(s, j);
     const ret = retParsed[0];
     j = retParsed[1];
 
-    let raises = null;
+    let raises = "";
     if (s[j] === "Q") {
-        const parsed = moonbitParseTypeExpr(s, j + 1);
-        raises = parsed[0];
+        const parsed = moonbitParseTypeText(s, j + 1);
+        raises = ` raise ${parsed[0]}`;
         j = parsed[1];
     }
 
-    return [{ kind: "FnType", asyncMark, params, ret, raises }, j];
+    const prefix = asyncMark ? "async " : "";
+    return [`${prefix}(${params.join(", ")}) -> ${ret}${raises}`, j];
 }
 
-/** @param {string} s @param {number} i @returns {TypeExprParseResult} */
-function moonbitParseTypeExpr(s, i) {
+/** @param {string} s @param {number} i @returns {StringParseResult} */
+function moonbitParseTypeText(s, i) {
     const ch = s[i];
     switch (ch) {
         case "i":
-            return [{ kind: "Builtin", name: "Int" }, i + 1];
+            return ["Int", i + 1];
         case "l":
-            return [{ kind: "Builtin", name: "Int64" }, i + 1];
+            return ["Int64", i + 1];
         case "h":
-            return [{ kind: "Builtin", name: "Int16" }, i + 1];
+            return ["Int16", i + 1];
         case "j":
-            return [{ kind: "Builtin", name: "UInt" }, i + 1];
+            return ["UInt", i + 1];
         case "k":
-            return [{ kind: "Builtin", name: "UInt16" }, i + 1];
+            return ["UInt16", i + 1];
         case "m":
-            return [{ kind: "Builtin", name: "UInt64" }, i + 1];
+            return ["UInt64", i + 1];
         case "d":
-            return [{ kind: "Builtin", name: "Double" }, i + 1];
+            return ["Double", i + 1];
         case "f":
-            return [{ kind: "Builtin", name: "Float" }, i + 1];
+            return ["Float", i + 1];
         case "b":
-            return [{ kind: "Builtin", name: "Bool" }, i + 1];
+            return ["Bool", i + 1];
         case "c":
-            return [{ kind: "Builtin", name: "Char" }, i + 1];
+            return ["Char", i + 1];
         case "s":
-            return [{ kind: "Builtin", name: "String" }, i + 1];
+            return ["String", i + 1];
         case "u":
-            return [{ kind: "Builtin", name: "Unit" }, i + 1];
+            return ["Unit", i + 1];
         case "y":
-            return [{ kind: "Builtin", name: "Byte" }, i + 1];
+            return ["Byte", i + 1];
         case "z":
-            return [{ kind: "Builtin", name: "Bytes" }, i + 1];
+            return ["Bytes", i + 1];
         case "A": {
-            const parsed = moonbitParseTypeExpr(s, i + 1);
-            return [{ kind: "FixedArray", inner: parsed[0] }, parsed[1]];
+            const parsed = moonbitParseTypeText(s, i + 1);
+            return [`FixedArray[${parsed[0]}]`, parsed[1]];
         }
         case "O": {
-            const parsed = moonbitParseTypeExpr(s, i + 1);
-            return [{ kind: "Option", inner: parsed[0] }, parsed[1]];
+            const parsed = moonbitParseTypeText(s, i + 1);
+            return [`Option[${parsed[0]}]`, parsed[1]];
         }
         case "U": {
-            const parsed = moonbitParseTypeListUntilE(s, i + 1);
-            return [{ kind: "Tuple", elems: parsed[0] }, parsed[1]];
+            const parsed = moonbitParseTypeTextListUntilE(s, i + 1);
+            return [`(${parsed[0].join(", ")})`, parsed[1]];
         }
         case "V":
-            return moonbitParseFnType(s, i + 1, true);
+            return moonbitParseFnTypeText(s, i + 1, true);
         case "W":
-            return moonbitParseFnType(s, i, false);
+            return moonbitParseFnTypeText(s, i, false);
         case "R":
-            return moonbitParseTypeRef(s, i);
+            return moonbitParseTypeRefText(s, i);
         default:
             throw moonbitDemangleError();
     }
@@ -446,7 +402,7 @@ function moonbitParseTagF(s, i) {
         j = parsed[1];
     }
 
-    const argsParsed = moonbitParseOptionalTypeArgs(s, j);
+    const argsParsed = moonbitParseOptionalTypeArgsText(s, j);
     const typeArgs = argsParsed[0];
     j = argsParsed[1];
 
@@ -467,7 +423,7 @@ function moonbitParseTagM(s, i) {
     const methodName = methodParsed[0];
     j = methodParsed[1];
 
-    const argsParsed = moonbitParseOptionalTypeArgs(s, j);
+    const argsParsed = moonbitParseOptionalTypeArgsText(s, j);
     const typeArgs = argsParsed[0];
     j = argsParsed[1];
 
@@ -488,7 +444,7 @@ function moonbitParseTagI(s, i) {
     const methodName = methodParsed[0];
     j = methodParsed[1];
 
-    const argsParsed = moonbitParseOptionalTypeArgs(s, j);
+    const argsParsed = moonbitParseOptionalTypeArgsText(s, j);
     const typeArgs = argsParsed[0];
     j = argsParsed[1];
 
@@ -513,7 +469,7 @@ function moonbitParseTagE(s, i) {
     const methodName = methodParsed[0];
     j = methodParsed[1];
 
-    const argsParsed = moonbitParseOptionalTypeArgs(s, j);
+    const argsParsed = moonbitParseOptionalTypeArgsText(s, j);
     const typeArgs = argsParsed[0];
     j = argsParsed[1];
 
@@ -597,44 +553,6 @@ function moonbitRenderTypePath(path) {
     return `@${moonbitDotPrefix(path.pkg)}${path.typeName}`;
 }
 
-/** @param {TypeExprAst} ty @returns {string} */
-function moonbitRenderTypeExpr(ty) {
-    switch (ty.kind) {
-        case "Builtin":
-            return ty.name;
-        case "FixedArray":
-            return `FixedArray[${moonbitRenderTypeExpr(ty.inner)}]`;
-        case "Option":
-            return `Option[${moonbitRenderTypeExpr(ty.inner)}]`;
-        case "Tuple":
-            return `(${ty.elems.map(moonbitRenderTypeExpr).join(", ")})`;
-        case "FnType": {
-            const prefix = ty.asyncMark ? "async " : "";
-            const params = ty.params.map(moonbitRenderTypeExpr).join(", ");
-            const raises = ty.raises ? ` raise ${moonbitRenderTypeExpr(ty.raises)}` : "";
-            return `${prefix}(${params}) -> ${moonbitRenderTypeExpr(ty.ret)}${raises}`;
-        }
-        case "TypeRef": {
-            const args = ty.typeArgs ? moonbitRenderTypeArgs(ty.typeArgs) : "";
-            return `${moonbitRenderTypePath(ty.path)}${args}`;
-        }
-        default:
-            throw moonbitDemangleError();
-    }
-}
-
-/** @param {TypeArgsAst} typeArgs @returns {string} */
-function moonbitRenderTypeArgs(typeArgs) {
-    let rendered = "";
-    if (typeArgs.args.length > 0) {
-        rendered = `[${typeArgs.args.map(moonbitRenderTypeExpr).join(", ")}]`;
-    }
-    if (typeArgs.raises) {
-        rendered += ` raise ${moonbitRenderTypeExpr(typeArgs.raises)}`;
-    }
-    return rendered;
-}
-
 /** @param {string} text @returns {string} */
 function moonbitDotPrefix(text) {
     return text.length === 0 ? "" : `${text}.`;
@@ -652,20 +570,20 @@ function moonbitRenderDemangledSymbol(symbol) {
                 symbol.anonIndex === null
                     ? ""
                     : `.${symbol.anonIndex} (the ${symbol.anonIndex}-th anonymous-function)`;
-            const args = symbol.typeArgs ? moonbitRenderTypeArgs(symbol.typeArgs) : "";
+            const args = symbol.typeArgs ? symbol.typeArgs : "";
             return `@${moonbitDotPrefix(symbol.pkg)}${symbol.name}${nested}${anon}${args}`;
         }
         case "Method": {
-            const args = symbol.typeArgs ? moonbitRenderTypeArgs(symbol.typeArgs) : "";
+            const args = symbol.typeArgs ? symbol.typeArgs : "";
             return `@${moonbitDotPrefix(symbol.pkg)}${symbol.typeName}::${symbol.methodName}${args}`;
         }
         case "TraitImplMethod": {
-            const args = symbol.typeArgs ? moonbitRenderTypeArgs(symbol.typeArgs) : "";
+            const args = symbol.typeArgs ? symbol.typeArgs : "";
             return `impl ${moonbitRenderTypePath(symbol.traitType)} for ${moonbitRenderTypePath(symbol.implType)}${args} with ${symbol.methodName}`;
         }
         case "ExtensionMethod": {
             const typePkgUse = moonbitIsCorePackage(symbol.typePkg) ? "" : symbol.typePkg;
-            const args = symbol.typeArgs ? moonbitRenderTypeArgs(symbol.typeArgs) : "";
+            const args = symbol.typeArgs ? symbol.typeArgs : "";
             return `@${moonbitDotPrefix(symbol.methodPkg)}${moonbitDotPrefix(typePkgUse)}${symbol.typeName}::${symbol.methodName}${args}`;
         }
         case "Type":
