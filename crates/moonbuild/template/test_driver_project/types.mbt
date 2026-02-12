@@ -84,10 +84,7 @@ impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl
 priv struct MoonBitTestDriverInternalTestMap[F](
   @moonbitlang/core/prelude.Map[
     String,
-    @moonbitlang/core/prelude.Map[
-      Int,
-      (F, @moonbitlang/core/prelude.Array[String]),
-    ],
+    @moonbitlang/core/prelude.Map[Int, (F, ReadOnlyArray[String])],
   ]
 )
 
