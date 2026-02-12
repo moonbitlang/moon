@@ -20,7 +20,85 @@ pub fn demangle_mangled_function_name(func_name: &str) -> String {
     demangle_mangled_function_name_impl(func_name).unwrap_or_else(|| func_name.to_string())
 }
 
+#[derive(Debug)]
+enum DemangledSymbol {
+    Function {
+        pkg: String,
+        name: String,
+        nested: Vec<String>,
+        anonymous_index: Option<String>,
+        type_args: Option<TypeArgs>,
+    },
+    Method {
+        pkg: String,
+        type_name: String,
+        method_name: String,
+        type_args: Option<TypeArgs>,
+    },
+    TraitImplMethod {
+        impl_type: TypePath,
+        trait_type: TypePath,
+        method_name: String,
+        type_args: Option<TypeArgs>,
+    },
+    ExtensionMethod {
+        type_pkg: String,
+        type_name: String,
+        method_pkg: String,
+        method_name: String,
+        type_args: Option<TypeArgs>,
+    },
+    Type {
+        type_path: TypePath,
+    },
+    Local {
+        ident: String,
+        stamp: String,
+    },
+}
+
+#[derive(Debug)]
+struct TypePath {
+    pkg: String,
+    type_name: String,
+}
+
+#[derive(Debug)]
+struct TypeArgs {
+    args: Vec<TypeExpr>,
+    raises: Option<TypeExpr>,
+}
+
+#[derive(Debug)]
+enum TypeExpr {
+    Builtin(&'static str),
+    FixedArray(Box<TypeExpr>),
+    Option(Box<TypeExpr>),
+    Tuple(Vec<TypeExpr>),
+    Fn {
+        async_mark: bool,
+        params: Vec<TypeExpr>,
+        ret: Box<TypeExpr>,
+        raises: Option<Box<TypeExpr>>,
+    },
+    TypeRef {
+        path: TypePath,
+        type_args: Option<Box<TypeArgs>>,
+    },
+}
+
 fn demangle_mangled_function_name_impl(func_name: &str) -> Option<String> {
+    let (symbol, j) = parse_mangled_symbol(func_name)?;
+    if j < func_name.len() {
+        match byte_at(func_name, j) {
+            Some(b'.' | b'$' | b'@') => {}
+            _ => return None,
+        }
+    }
+    Some(render_symbol(&symbol))
+}
+
+fn parse_mangled_symbol(func_name: &str) -> Option<(DemangledSymbol, usize)> {
     if func_name.is_empty() {
         return None;
     }
@@ -46,41 +124,29 @@ fn demangle_mangled_function_name_impl(func_name: &str) -> Option<String> {
     let tag = byte_at(func_name, i)?;
     i += 1;
 
-    let (text, j) = match tag {
-        b'F' => demangle_tag_f(func_name, i),
-        b'M' => demangle_tag_m(func_name, i),
-        b'I' => demangle_tag_i(func_name, i),
-        b'E' => demangle_tag_e(func_name, i),
-        b'T' => demangle_tag_t(func_name, i),
-        b'L' => demangle_tag_l(func_name, i),
+    match tag {
+        b'F' => parse_tag_f(func_name, i),
+        b'M' => parse_tag_m(func_name, i),
+        b'I' => parse_tag_i(func_name, i),
+        b'E' => parse_tag_e(func_name, i),
+        b'T' => parse_tag_t(func_name, i),
+        b'L' => parse_tag_l(func_name, i),
         _ => None,
-    }?;
-
-    if j < func_name.len() {
-        match byte_at(func_name, j) {
-            Some(b'.' | b'$' | b'@') => {}
-            _ => return None,
-        }
     }
-    Some(text)
 }
 
-fn demangle_tag_f(s: &str, i: usize) -> Option<(String, usize)> {
+fn parse_tag_f(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (pkg, pkg_end) = parse_package(s, i)?;
     let (name, mut j) = parse_identifier(s, pkg_end)?;
-    let mut text = if pkg.is_empty() {
-        format!("@{name}")
-    } else {
-        format!("@{pkg}.{name}")
-    };
+    let mut nested = Vec::new();
 
     while byte_at(s, j) == Some(b'N') {
-        let (nested, nested_end) = parse_identifier(s, j + 1)?;
-        text.push('.');
-        text.push_str(&nested);
+        let (nested_name, nested_end) = parse_identifier(s, j + 1)?;
+        nested.push(nested_name);
         j = nested_end;
     }
 
+    let mut anonymous_index = None;
     if byte_at(s, j) == Some(b'C') {
         j += 1;
         let start = j;
@@ -90,97 +156,81 @@ fn demangle_tag_f(s: &str, i: usize) -> Option<(String, usize)> {
         if start == j {
             return None;
         }
-        let idx = &s[start..j];
-        text.push_str(&format!(".{idx} (the {idx}-th anonymous-function)"));
+        anonymous_index = Some(s[start..j].to_string());
     }
 
-    if matches!(byte_at(s, j), Some(b'G' | b'H')) {
-        let (args, args_end) = parse_type_args(s, j)?;
-        text.push_str(&args);
-        j = args_end;
-    }
-
-    Some((text, j))
+    let (type_args, j) = parse_optional_type_args_ast(s, j)?;
+    Some((
+        DemangledSymbol::Function {
+            pkg,
+            name,
+            nested,
+            anonymous_index,
+            type_args,
+        },
+        j,
+    ))
 }
 
-fn demangle_tag_m(s: &str, i: usize) -> Option<(String, usize)> {
+fn parse_tag_m(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (pkg, pkg_end) = parse_package(s, i)?;
     let (type_name, type_end) = parse_identifier(s, pkg_end)?;
-    let (method, method_end) = parse_identifier(s, type_end)?;
+    let (method_name, method_end) = parse_identifier(s, type_end)?;
+    let (type_args, j) = parse_optional_type_args_ast(s, method_end)?;
 
-    let mut text = if pkg.is_empty() {
-        format!("@{type_name}::{method}")
-    } else {
-        format!("@{pkg}.{type_name}::{method}")
-    };
-    let mut j = method_end;
-
-    if matches!(byte_at(s, j), Some(b'G' | b'H')) {
-        let (args, args_end) = parse_type_args(s, j)?;
-        text.push_str(&args);
-        j = args_end;
-    }
-
-    Some((text, j))
+    Some((
+        DemangledSymbol::Method {
+            pkg,
+            type_name,
+            method_name,
+            type_args,
+        },
+        j,
+    ))
 }
 
-fn demangle_tag_i(s: &str, i: usize) -> Option<(String, usize)> {
-    let (impl_type, impl_end) = append_type_path(s, i, false)?;
-    let (trait_type, trait_end) = append_type_path(s, impl_end, false)?;
-    let (method, method_end) = parse_identifier(s, trait_end)?;
+fn parse_tag_i(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
+    let (impl_type, impl_end) = parse_type_path(s, i, false)?;
+    let (trait_type, trait_end) = parse_type_path(s, impl_end, false)?;
+    let (method_name, method_end) = parse_identifier(s, trait_end)?;
+    let (type_args, j) = parse_optional_type_args_ast(s, method_end)?;
 
-    let mut j = method_end;
-    let mut type_args = String::new();
-    if matches!(byte_at(s, j), Some(b'G' | b'H')) {
-        let (args, args_end) = parse_type_args(s, j)?;
-        type_args = args;
-        j = args_end;
-    }
-
-    let text = format!("impl {trait_type} for {impl_type}{type_args} with {method}");
-    Some((text, j))
+    Some((
+        DemangledSymbol::TraitImplMethod {
+            impl_type,
+            trait_type,
+            method_name,
+            type_args,
+        },
+        j,
+    ))
 }
 
-fn demangle_tag_e(s: &str, i: usize) -> Option<(String, usize)> {
+fn parse_tag_e(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (type_pkg, type_pkg_end) = parse_package(s, i)?;
     let (type_name, type_name_end) = parse_identifier(s, type_pkg_end)?;
     let (method_pkg, method_pkg_end) = parse_package(s, type_name_end)?;
     let (method_name, method_name_end) = parse_identifier(s, method_pkg_end)?;
+    let (type_args, j) = parse_optional_type_args_ast(s, method_name_end)?;
 
-    let type_pkg_use = if is_core_package(&type_pkg) {
-        ""
-    } else {
-        type_pkg.as_str()
-    };
-
-    let mut text = String::from("@");
-    if !method_pkg.is_empty() {
-        text.push_str(&method_pkg);
-        text.push('.');
-    }
-    if !type_pkg_use.is_empty() {
-        text.push_str(type_pkg_use);
-        text.push('.');
-    }
-    text.push_str(&type_name);
-    text.push_str("::");
-    text.push_str(&method_name);
-
-    let mut j = method_name_end;
-    if matches!(byte_at(s, j), Some(b'G' | b'H')) {
-        let (args, args_end) = parse_type_args(s, j)?;
-        text.push_str(&args);
-        j = args_end;
-    }
-
-    Some((text, j))
+    Some((
+        DemangledSymbol::ExtensionMethod {
+            type_pkg,
+            type_name,
+            method_pkg,
+            method_name,
+            type_args,
+        },
+        j,
+    ))
 }
 
-fn demangle_tag_t(s: &str, i: usize) -> Option<(String, usize)> {
-    append_type_path(s, i, false)
+fn parse_tag_t(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
+    let (type_path, j) = parse_type_path(s, i, false)?;
+    Some((DemangledSymbol::Type { type_path }, j))
 }
 
-fn demangle_tag_l(s: &str, i: usize) -> Option<(String, usize)> {
+fn parse_tag_l(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let mut j = i;
     if byte_at(s, j) == Some(b'm') {
         j += 1;
@@ -200,14 +250,12 @@ fn demangle_tag_l(s: &str, i: usize) -> Option<(String, usize)> {
     while byte_at(s, j).is_some_and(is_digit) {
         j += 1;
     }
-    let stamp = &s[stamp_start..j];
+    let stamp = s[stamp_start..j].to_string();
 
-    let no_dollar = ident.strip_prefix('$').unwrap_or(&ident);
-    let text = format!("{}/{}", strip_suffix(no_dollar, ".fn"), stamp);
-    Some((text, j))
+    Some((DemangledSymbol::Local { ident, stamp }, j))
 }
 
-fn append_type_path(s: &str, i: usize, omit_core_prefix: bool) -> Option<(String, usize)> {
+fn parse_type_path(s: &str, i: usize, omit_core_prefix: bool) -> Option<(TypePath, usize)> {
     let (mut pkg, pkg_end) = parse_package(s, i)?;
     let (mut type_name, mut k) = parse_identifier(s, pkg_end)?;
 
@@ -222,28 +270,24 @@ fn append_type_path(s: &str, i: usize, omit_core_prefix: bool) -> Option<(String
         pkg.clear();
     }
 
-    let out = if pkg.is_empty() {
-        format!("@{type_name}")
-    } else {
-        format!("@{pkg}.{type_name}")
-    };
-    Some((out, k))
+    Some((TypePath { pkg, type_name }, k))
 }
 
-fn parse_type_ref(s: &str, i: usize) -> Option<(String, usize)> {
+fn parse_type_ref_ast(s: &str, i: usize) -> Option<(TypeExpr, usize)> {
     if byte_at(s, i) != Some(b'R') {
         return None;
     }
-    let (mut text, mut j) = append_type_path(s, i + 1, false)?;
+    let (path, mut j) = parse_type_path(s, i + 1, false)?;
+    let mut type_args = None;
     if byte_at(s, j) == Some(b'G') {
-        let (args, args_end) = parse_type_args(s, j)?;
-        text.push_str(&args);
+        let (args, args_end) = parse_type_args_ast(s, j)?;
+        type_args = Some(Box::new(args));
         j = args_end;
     }
-    Some((text, j))
+    Some((TypeExpr::TypeRef { path, type_args }, j))
 }
 
-fn parse_fn_type(s: &str, i: usize, async_mark: bool) -> Option<(String, usize)> {
+fn parse_fn_type_ast(s: &str, i: usize, async_mark: bool) -> Option<(TypeExpr, usize)> {
     if byte_at(s, i) != Some(b'W') {
         return None;
     }
@@ -251,97 +295,271 @@ fn parse_fn_type(s: &str, i: usize, async_mark: bool) -> Option<(String, usize)>
     let mut j = i + 1;
     let mut params = Vec::new();
     while byte_at(s, j) != Some(b'E') {
-        let (param, param_end) = parse_type_arg(s, j)?;
+        let (param, param_end) = parse_type_expr_ast(s, j)?;
         params.push(param);
         j = param_end;
     }
     j += 1;
 
-    let (ret, ret_end) = parse_type_arg(s, j)?;
+    let (ret, ret_end) = parse_type_expr_ast(s, j)?;
     j = ret_end;
 
-    let mut raises = String::new();
+    let mut raises = None;
     if byte_at(s, j) == Some(b'Q') {
-        let (raised, raised_end) = parse_type_arg(s, j + 1)?;
-        raises = format!(" raise {raised}");
+        let (raised, raised_end) = parse_type_expr_ast(s, j + 1)?;
+        raises = Some(Box::new(raised));
         j = raised_end;
     }
 
-    let prefix = if async_mark { "async " } else { "" };
     Some((
-        format!("{prefix}({}) -> {ret}{raises}", params.join(", ")),
+        TypeExpr::Fn {
+            async_mark,
+            params,
+            ret: Box::new(ret),
+            raises,
+        },
         j,
     ))
 }
 
-fn parse_type_args(s: &str, i: usize) -> Option<(String, usize)> {
-    if byte_at(s, i) == Some(b'H') {
-        let (raised, raised_end) = parse_type_arg(s, i + 1)?;
-        return Some((format!(" raise {raised}"), raised_end));
-    }
-
-    if byte_at(s, i) != Some(b'G') {
-        return Some((String::new(), i));
-    }
-
-    let mut j = i + 1;
+fn parse_type_args_ast(s: &str, i: usize) -> Option<(TypeArgs, usize)> {
+    let mut j = i;
     let mut args = Vec::new();
-    while byte_at(s, j) != Some(b'E') {
-        let (arg, arg_end) = parse_type_arg(s, j)?;
-        args.push(arg);
-        j = arg_end;
-    }
-    j += 1;
 
-    let mut suffix = String::new();
+    if byte_at(s, j) == Some(b'G') {
+        j += 1;
+        while byte_at(s, j) != Some(b'E') {
+            let (arg, arg_end) = parse_type_expr_ast(s, j)?;
+            args.push(arg);
+            j = arg_end;
+        }
+        j += 1;
+    }
+
+    let mut raises = None;
     if byte_at(s, j) == Some(b'H') {
-        let (raised, raised_end) = parse_type_arg(s, j + 1)?;
-        suffix = format!(" raise {raised}");
+        let (raised, raised_end) = parse_type_expr_ast(s, j + 1)?;
+        raises = Some(raised);
         j = raised_end;
     }
 
-    Some((format!("[{}]{suffix}", args.join(", ")), j))
+    Some((TypeArgs { args, raises }, j))
 }
 
-fn parse_type_arg(s: &str, i: usize) -> Option<(String, usize)> {
+fn parse_optional_type_args_ast(s: &str, i: usize) -> Option<(Option<TypeArgs>, usize)> {
+    if matches!(byte_at(s, i), Some(b'G' | b'H')) {
+        let (args, j) = parse_type_args_ast(s, i)?;
+        Some((Some(args), j))
+    } else {
+        Some((None, i))
+    }
+}
+
+fn parse_type_expr_ast(s: &str, i: usize) -> Option<(TypeExpr, usize)> {
     let c = byte_at(s, i)?;
     match c {
-        b'i' => Some(("Int".to_string(), i + 1)),
-        b'l' => Some(("Int64".to_string(), i + 1)),
-        b'h' => Some(("Int16".to_string(), i + 1)),
-        b'j' => Some(("UInt".to_string(), i + 1)),
-        b'k' => Some(("UInt16".to_string(), i + 1)),
-        b'm' => Some(("UInt64".to_string(), i + 1)),
-        b'd' => Some(("Double".to_string(), i + 1)),
-        b'f' => Some(("Float".to_string(), i + 1)),
-        b'b' => Some(("Bool".to_string(), i + 1)),
-        b'c' => Some(("Char".to_string(), i + 1)),
-        b's' => Some(("String".to_string(), i + 1)),
-        b'u' => Some(("Unit".to_string(), i + 1)),
-        b'y' => Some(("Byte".to_string(), i + 1)),
-        b'z' => Some(("Bytes".to_string(), i + 1)),
+        b'i' => Some((TypeExpr::Builtin("Int"), i + 1)),
+        b'l' => Some((TypeExpr::Builtin("Int64"), i + 1)),
+        b'h' => Some((TypeExpr::Builtin("Int16"), i + 1)),
+        b'j' => Some((TypeExpr::Builtin("UInt"), i + 1)),
+        b'k' => Some((TypeExpr::Builtin("UInt16"), i + 1)),
+        b'm' => Some((TypeExpr::Builtin("UInt64"), i + 1)),
+        b'd' => Some((TypeExpr::Builtin("Double"), i + 1)),
+        b'f' => Some((TypeExpr::Builtin("Float"), i + 1)),
+        b'b' => Some((TypeExpr::Builtin("Bool"), i + 1)),
+        b'c' => Some((TypeExpr::Builtin("Char"), i + 1)),
+        b's' => Some((TypeExpr::Builtin("String"), i + 1)),
+        b'u' => Some((TypeExpr::Builtin("Unit"), i + 1)),
+        b'y' => Some((TypeExpr::Builtin("Byte"), i + 1)),
+        b'z' => Some((TypeExpr::Builtin("Bytes"), i + 1)),
         b'A' => {
-            let (inner, inner_end) = parse_type_arg(s, i + 1)?;
-            Some((format!("FixedArray[{inner}]"), inner_end))
+            let (inner, inner_end) = parse_type_expr_ast(s, i + 1)?;
+            Some((TypeExpr::FixedArray(Box::new(inner)), inner_end))
         }
         b'O' => {
-            let (inner, inner_end) = parse_type_arg(s, i + 1)?;
-            Some((format!("Option[{inner}]"), inner_end))
+            let (inner, inner_end) = parse_type_expr_ast(s, i + 1)?;
+            Some((TypeExpr::Option(Box::new(inner)), inner_end))
         }
         b'U' => {
             let mut j = i + 1;
             let mut elems = Vec::new();
             while byte_at(s, j) != Some(b'E') {
-                let (elem, elem_end) = parse_type_arg(s, j)?;
+                let (elem, elem_end) = parse_type_expr_ast(s, j)?;
                 elems.push(elem);
                 j = elem_end;
             }
-            Some((format!("({})", elems.join(", ")), j + 1))
+            Some((TypeExpr::Tuple(elems), j + 1))
         }
-        b'V' => parse_fn_type(s, i + 1, true),
-        b'W' => parse_fn_type(s, i, false),
-        b'R' => parse_type_ref(s, i),
+        b'V' => parse_fn_type_ast(s, i + 1, true),
+        b'W' => parse_fn_type_ast(s, i, false),
+        b'R' => parse_type_ref_ast(s, i),
         _ => None,
+    }
+}
+
+fn render_symbol(symbol: &DemangledSymbol) -> String {
+    match symbol {
+        DemangledSymbol::Function {
+            pkg,
+            name,
+            nested,
+            anonymous_index,
+            type_args,
+        } => {
+            let mut text = if pkg.is_empty() {
+                format!("@{name}")
+            } else {
+                format!("@{pkg}.{name}")
+            };
+            for nested_name in nested {
+                text.push('.');
+                text.push_str(nested_name);
+            }
+            if let Some(idx) = anonymous_index {
+                text.push_str(&format!(".{idx} (the {idx}-th anonymous-function)"));
+            }
+            if let Some(type_args) = type_args {
+                text.push_str(&render_type_args(type_args));
+            }
+            text
+        }
+        DemangledSymbol::Method {
+            pkg,
+            type_name,
+            method_name,
+            type_args,
+        } => {
+            let mut text = if pkg.is_empty() {
+                format!("@{type_name}::{method_name}")
+            } else {
+                format!("@{pkg}.{type_name}::{method_name}")
+            };
+            if let Some(type_args) = type_args {
+                text.push_str(&render_type_args(type_args));
+            }
+            text
+        }
+        DemangledSymbol::TraitImplMethod {
+            impl_type,
+            trait_type,
+            method_name,
+            type_args,
+        } => {
+            let mut text = format!(
+                "impl {} for {}",
+                render_type_path(trait_type),
+                render_type_path(impl_type)
+            );
+            if let Some(type_args) = type_args {
+                text.push_str(&render_type_args(type_args));
+            }
+            text.push_str(&format!(" with {method_name}"));
+            text
+        }
+        DemangledSymbol::ExtensionMethod {
+            type_pkg,
+            type_name,
+            method_pkg,
+            method_name,
+            type_args,
+        } => {
+            let type_pkg_use = if is_core_package(type_pkg) {
+                ""
+            } else {
+                type_pkg
+            };
+            let method_prefix = if method_pkg.is_empty() {
+                String::new()
+            } else {
+                format!("{method_pkg}.")
+            };
+            let type_prefix = if type_pkg_use.is_empty() {
+                String::new()
+            } else {
+                format!("{type_pkg_use}.")
+            };
+            let mut text = format!("@{method_prefix}{type_prefix}{type_name}::{method_name}");
+            if let Some(type_args) = type_args {
+                text.push_str(&render_type_args(type_args));
+            }
+            text
+        }
+        DemangledSymbol::Type { type_path } => render_type_path(type_path),
+        DemangledSymbol::Local { ident, stamp } => {
+            let no_dollar = ident.strip_prefix('$').unwrap_or(ident);
+            let shown = strip_suffix(no_dollar, ".fn");
+            format!("{shown}/{stamp}")
+        }
+    }
+}
+
+fn render_type_path(path: &TypePath) -> String {
+    if path.pkg.is_empty() {
+        format!("@{}", path.type_name)
+    } else {
+        format!("@{}.{}", path.pkg, path.type_name)
+    }
+}
+
+fn render_type_args(type_args: &TypeArgs) -> String {
+    let mut text = String::new();
+    if !type_args.args.is_empty() {
+        let rendered_args = type_args
+            .args
+            .iter()
+            .map(render_type_expr)
+            .collect::<Vec<_>>()
+            .join(", ");
+        text.push('[');
+        text.push_str(&rendered_args);
+        text.push(']');
+    }
+    if let Some(raises) = &type_args.raises {
+        text.push_str(" raise ");
+        text.push_str(&render_type_expr(raises));
+    }
+    text
+}
+
+fn render_type_expr(ty: &TypeExpr) -> String {
+    match ty {
+        TypeExpr::Builtin(name) => (*name).to_string(),
+        TypeExpr::FixedArray(inner) => format!("FixedArray[{}]", render_type_expr(inner)),
+        TypeExpr::Option(inner) => format!("Option[{}]", render_type_expr(inner)),
+        TypeExpr::Tuple(elems) => format!(
+            "({})",
+            elems
+                .iter()
+                .map(render_type_expr)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        TypeExpr::Fn {
+            async_mark,
+            params,
+            ret,
+            raises,
+        } => {
+            let prefix = if *async_mark { "async " } else { "" };
+            let params = params
+                .iter()
+                .map(render_type_expr)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut text = format!("{prefix}({params}) -> {}", render_type_expr(ret));
+            if let Some(raises) = raises {
+                text.push_str(" raise ");
+                text.push_str(&render_type_expr(raises));
+            }
+            text
+        }
+        TypeExpr::TypeRef { path, type_args } => {
+            let mut text = render_type_path(path);
+            if let Some(type_args) = type_args {
+                text.push_str(&render_type_args(type_args));
+            }
+            text
+        }
     }
 }
 
@@ -356,27 +574,7 @@ fn parse_package(s: &str, mut i: usize) -> Option<(String, usize)> {
     }
 
     if byte_at(s, i) == Some(b'C') {
-        i += 1;
-        let count_start = i;
-        let (count, j) = parse_u32(s, i)?;
-        if let Some((suffix, end)) = parse_package_segments(s, j, count) {
-            let full = if suffix.is_empty() {
-                "moonbitlang/core".to_string()
-            } else {
-                format!("moonbitlang/core/{suffix}")
-            };
-            return Some((full, end));
-        }
-
-        // Backward-compatible fallback: single-digit package segment count.
-        i = count_start;
-        let digit = byte_at(s, i)?;
-        if !is_digit(digit) {
-            return None;
-        }
-        let count = (digit - b'0') as u32;
-        i += 1;
-        let (suffix, end) = parse_package_segments(s, i, count)?;
+        let (suffix, end) = parse_counted_package_segments(s, i + 1)?;
         let full = if suffix.is_empty() {
             "moonbitlang/core".to_string()
         } else {
@@ -385,21 +583,21 @@ fn parse_package(s: &str, mut i: usize) -> Option<(String, usize)> {
         return Some((full, end));
     }
 
-    let count_start = i;
-    let (mut count, j) = parse_u32(s, i)?;
+    parse_counted_package_segments(s, i)
+}
+
+fn parse_counted_package_segments(s: &str, i: usize) -> Option<(String, usize)> {
+    let (count, j) = parse_u32(s, i)?;
     if let Some(pkg) = parse_package_segments(s, j, count) {
         return Some(pkg);
     }
 
     // Backward-compatible fallback: single-digit package segment count.
-    i = count_start;
     let digit = byte_at(s, i)?;
     if !is_digit(digit) {
         return None;
     }
-    count = (digit - b'0') as u32;
-    i += 1;
-    parse_package_segments(s, i, count)
+    parse_package_segments(s, i + 1, (digit - b'0') as u32)
 }
 
 fn parse_package_segments(s: &str, mut i: usize, count: u32) -> Option<(String, usize)> {
@@ -612,6 +810,66 @@ mod tests {
         assert_eq!(
             demangle_mangled_function_name("_M0FP28my_2dorg8my_2dlib3foo"),
             "@my-org/my-lib.foo"
+        );
+    }
+
+    #[test]
+    fn demangle_generated_native_symbol_samples() {
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP29moonbuild20demangle__standalone8demangle"),
+            "@moonbuild/demangle_standalone.demangle"
+        );
+        assert_eq!(
+            demangle_mangled_function_name(
+                "_M0FP29moonbuild36demangle__standalone__blackbox__test57____test__64656d616e676c655f746573742e6d6274__4_2edyncall$closure.data"
+            ),
+            "@moonbuild/demangle_standalone_blackbox_test.__test_64656d616e676c655f746573742e6d6274_4.dyncall"
+        );
+        assert_eq!(
+            demangle_mangled_function_name(
+                "_M0FP0119moonbitlang_2fcore_2fbuiltin_2fStringBuilder_2eas___40moonbitlang_2fcore_2fbuiltin_2eLogger_2estatic__method__table__id$object.data"
+            ),
+            "@moonbitlang/core/builtin/StringBuilder.as_@moonbitlang/core/builtin.Logger.static_method_table_id"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0IPB13StringBuilderPB6Logger13write__string"),
+            "impl @moonbitlang/core/builtin.Logger for @moonbitlang/core/builtin.StringBuilder with write_string"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0L10local__endS895.$1"),
+            "local_end/895"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0L10_2ax__5464S11.$0"),
+            "*x_5464/11"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FPB30output_2eflush__segment_7c4024"),
+            "@moonbitlang/core/builtin.output.flush_segment|4024"
+        );
+    }
+
+    #[test]
+    fn demangle_additional_edge_cases() {
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp3fooHRP15myapp7MyError"),
+            "@myapp.foo raise @myapp.MyError"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0MP04Type3bar"),
+            "@Type::bar"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP13pkg3foo$closure.data"),
+            "@pkg.foo"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP13pkg3foo@123"),
+            "@pkg.foo"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP13pkg3foo."),
+            "@pkg.foo"
         );
     }
 
