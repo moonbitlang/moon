@@ -312,6 +312,10 @@ function loadSourceMapForModule(wasmPath) {
     let parsed = null;
     try {
         const wasmBytes = read_file_to_bytes(wasmPath);
+        if (!wasmBytes) {
+            SOURCE_MAP_CACHE.set(wasmPath, null);
+            return null;
+        }
         let mapPath = null;
         const embedded = extractSourceMapURLFromWasm(wasmBytes);
         if (
@@ -326,6 +330,10 @@ function loadSourceMapForModule(wasmPath) {
             mapPath = `${wasmPath}.map`;
         }
         const mapBytes = read_file_to_bytes(mapPath);
+        if (!mapBytes) {
+            SOURCE_MAP_CACHE.set(wasmPath, null);
+            return null;
+        }
         const rawMap = JSON.parse(bytesToString(mapBytes));
         parsed = parseWasmSourceMap(rawMap);
     } catch (_) {
@@ -441,6 +449,9 @@ const spectest = {
 try {
     if (typeof bytes === 'undefined') {
         bytes = read_file_to_bytes(module_name);
+    }
+    if (!bytes) {
+        throw new Error(`failed to read wasm module: ${module_name}`);
     }
     let module = new WebAssembly.Module(bytes, { builtins: ['js-string'], importedStringConstants: "_" });
     let instance = new WebAssembly.Instance(module, spectest);

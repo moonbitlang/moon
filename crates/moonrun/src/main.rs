@@ -241,9 +241,15 @@ fn read_file_to_bytes(
     mut ret: v8::ReturnValue,
 ) {
     let path = PathBuf::from(args.string_lossy(scope, 0));
-    let bytes = std::fs::read(path).unwrap();
+    let Ok(bytes) = std::fs::read(path) else {
+        ret.set_undefined();
+        return;
+    };
     let buffer = v8::ArrayBuffer::new(scope, bytes.len());
-    let ab = v8::Uint8Array::new(scope, buffer, 0, bytes.len()).unwrap();
+    let Some(ab) = v8::Uint8Array::new(scope, buffer, 0, bytes.len()) else {
+        ret.set_undefined();
+        return;
+    };
 
     unsafe {
         std::ptr::copy(bytes.as_ptr(), get_array_buffer_ptr(buffer), bytes.len());
