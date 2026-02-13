@@ -146,11 +146,8 @@ delete globalThis.__moonbit_run_env;
 delete globalThis.__moonbit_backtrace_runtime;
 
 function demangleMangledFunctionName(funcName) {
-    if (typeof funcName !== "string" || funcName.length === 0) {
-        return funcName;
-    }
-    if (typeof __moonbit_backtrace_runtime.demangle_mangled_function_name === "function") {
-        return __moonbit_backtrace_runtime.demangle_mangled_function_name(funcName);
+    if (typeof __moonbit_demangle_mangled_function_name === "function") {
+        return __moonbit_demangle_mangled_function_name(funcName);
     }
     return funcName;
 }
@@ -315,6 +312,10 @@ function loadSourceMapForModule(wasmPath) {
     let parsed = null;
     try {
         const wasmBytes = read_file_to_bytes(wasmPath);
+        if (!wasmBytes) {
+            SOURCE_MAP_CACHE.set(wasmPath, null);
+            return null;
+        }
         let mapPath = null;
         const embedded = extractSourceMapURLFromWasm(wasmBytes);
         if (
@@ -329,6 +330,10 @@ function loadSourceMapForModule(wasmPath) {
             mapPath = `${wasmPath}.map`;
         }
         const mapBytes = read_file_to_bytes(mapPath);
+        if (!mapBytes) {
+            SOURCE_MAP_CACHE.set(wasmPath, null);
+            return null;
+        }
         const rawMap = JSON.parse(bytesToString(mapBytes));
         parsed = parseWasmSourceMap(rawMap);
     } catch (_) {
@@ -445,6 +450,9 @@ try {
     if (typeof bytes === 'undefined') {
         bytes = read_file_to_bytes(module_name);
     }
+    if (!bytes) {
+        throw new Error(`failed to read wasm module: ${module_name}`);
+    }
     let module = new WebAssembly.Module(bytes, { builtins: ['js-string'], importedStringConstants: "_" });
     let instance = new WebAssembly.Instance(module, spectest);
     if (test_mode) {
@@ -452,8 +460,10 @@ try {
             try {
                 instance.exports.moonbit_test_driver_internal_execute(param[0], parseInt(param[1]));
             } catch (e) {
+                const stack = e && e.stack ? e.stack.toString() : String(e);
+                const formatted = stack.split('\n').map(formatStackLine).join('\n');
                 console.log("----- BEGIN MOON TEST RESULT -----")
-                console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${e.stack.toString().replaceAll("\\", "\\\\").split('\n').join('\\n')}"}`);
+                console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${formatted.replaceAll("\\", "\\\\").split('\n').join('\\n')}"}`);
                 console.log("----- END MOON TEST RESULT -----")
             }
         }

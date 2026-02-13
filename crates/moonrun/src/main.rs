@@ -24,6 +24,7 @@ use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 use v8::V8::set_flags_from_string;
 
 mod backtrace_api;
+mod demangle_js_template;
 mod fs_api_temp;
 mod sys_api;
 mod util;
@@ -240,9 +241,15 @@ fn read_file_to_bytes(
     mut ret: v8::ReturnValue,
 ) {
     let path = PathBuf::from(args.string_lossy(scope, 0));
-    let bytes = std::fs::read(path).unwrap();
+    let Ok(bytes) = std::fs::read(path) else {
+        ret.set_undefined();
+        return;
+    };
     let buffer = v8::ArrayBuffer::new(scope, bytes.len());
-    let ab = v8::Uint8Array::new(scope, buffer, 0, bytes.len()).unwrap();
+    let Some(ab) = v8::Uint8Array::new(scope, buffer, 0, bytes.len()) else {
+        ret.set_undefined();
+        return;
+    };
 
     unsafe {
         std::ptr::copy(bytes.as_ptr(), get_array_buffer_ptr(buffer), bytes.len());
@@ -490,6 +497,8 @@ fn wasm_mode(
     }
     script.push_str(&format!("const no_stack_trace = {no_stack_trace};"));
     script.push_str(&format!("const test_mode = {};", test_args.is_some()));
+    script.push_str(demangle_js_template::DEMANGLE_JS_TEMPLATE);
+    script.push('\n');
     let js_glue = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/template/js_glue.js"

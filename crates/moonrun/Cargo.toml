@@ -28,7 +28,6 @@ anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true
-moonutil.workspace = true
 rand = "0.8.5"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
@@ -41,6 +40,7 @@ chrono.workspace = true
 [dev-dependencies]
 snapbox.workspace = true
 moon-test-util = { path = "../moon-test-util" }
+moonutil.workspace = true
 
 [[bin]]
 name = "moonrun"
