@@ -49,6 +49,22 @@ fn default_abort_chain() -> Unit {
   abort_with_tuple((1, "stack"), Some(7))
 }
 
+test "stacktrace test abort generic tuple" {
+  ignore(abort_generic((9, "tuple-test")))
+}
+
+test "stacktrace test abort method" {
+  ignore(CrashBox::{ value: 2 }.abort_method(2))
+}
+
+test "stacktrace test abort closure" {
+  abort_via_closure(13)
+}
+
+test "stacktrace test panic result" {
+  panic_with_result(Ok(9))
+}
+
 fn main {
   let args = @env.args()
   if args.length() >= 2 {

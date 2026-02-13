@@ -156,6 +156,64 @@ RuntimeError: unreachable
 }
 
 #[test]
+fn test_moonrun_wasm_stack_trace_in_test_blocks() {
+    let dir = TestDir::new("test_stack_trace.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["test", "--target", "wasm-gc", "--build-only"])
+        .assert()
+        .success();
+
+    fn moon_test_case(dir: &TestDir, args: &[&str]) -> snapbox::cmd::Command {
+        moon_cmd()
+            .current_dir(dir)
+            .arg("test")
+            .arg("--target")
+            .arg("wasm-gc")
+            .args(args)
+    }
+
+    moon_test_case(&dir, &["--filter", "stacktrace test abort closure"])
+        .assert()
+        .failure()
+        .stdout_eq(snapbox::str![[r#"
+[username/hello] test main/main.mbt:[..] ("stacktrace test abort closure") failed: Error
+    at throw
+    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:29
+    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:70
+    at @username/hello/main.abort_via_closure.inner/[..] [..]/main/main.mbt:[..]
+    at @username/hello/main.abort_via_closure [..]/main/main.mbt:[..]
+    at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt:[..]
+    at @username/hello/main.__test_6d61696e2e6d6274_2.dyncall
+    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt:[..]
+    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt:[..]
+    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt:[..]
+Total tests: 1, passed: 0, failed: 1.
+
+"#]]);
+
+    moon_test_case(&dir, &["main/main.mbt", "--index", "1"])
+        .assert()
+        .failure()
+        .stdout_eq(snapbox::str![[r#"
+[username/hello] test main/main.mbt:[..] ("stacktrace test abort method") failed: Error
+    at throw
+    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt:29
+    at @moonbitlang/core/builtin.abort[UInt] [..]/builtin/intrinsics.mbt:70
+    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt:[..]
+    at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt:[..]
+    at @username/hello/main.__test_6d61696e2e6d6274_1.dyncall
+    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt:[..]
+    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt:[..]
+    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt:[..]
+    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt:[..]
+Total tests: 1, passed: 0, failed: 1.
+
+"#]]);
+}
+
+#[test]
 fn test_moon_run_with_cli_args() {
     let dir = TestDir::new("test_cli_args.in");
 
