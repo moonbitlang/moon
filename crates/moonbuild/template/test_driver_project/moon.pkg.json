@@ -1,9 +1,0 @@
-{
-    "is-main": true,
-    "import": [
-        "moonbitlang/async",
-        "moonbitlang/core/test",
-        "moonbitlang/core/bench"
-    ],
-    "warn-list": "-unused_package"
-}

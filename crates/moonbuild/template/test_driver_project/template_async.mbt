@@ -11,10 +11,12 @@ impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl with run_async
     @moonbitlang/async.with_task_group(group => {
       let mut i = 0
       for _ in 0..<moonbit_test_driver_internal_max_concurrent_tests {
-        group.spawn_bg(() => while i < tests.length() {
-          let f = tests[i]
-          i += 1
-          f()
+        group.spawn_bg(() => {
+          while i < tests.length() {
+            let f = tests[i]
+            i += 1
+            f()
+          }
         })
       }
     })

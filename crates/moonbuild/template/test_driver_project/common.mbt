@@ -249,10 +249,12 @@ fn moonbit_test_driver_internal_catch_error(
 ) -> Unit {
   moonbit_test_driver_internal_js_catch(
     on_err=err_str => on_err(MoonBitTestDriverInternalJsError(err_str)),
-    () => try f() catch {
-      err => on_err(err)
-    } noraise {
-      _ => on_ok()
+    () => {
+      try f() catch {
+        err => on_err(err)
+      } noraise {
+        _ => on_ok()
+      }
     },
   )
 }

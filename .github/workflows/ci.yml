@@ -192,6 +192,10 @@ jobs:
       - name: Build xtask
         run: cargo build -p xtask
 
+      - name: Check Moon test driver template format
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo run --bin moon -- fmt --check --manifest-path crates/moonbuild/template/test_driver_project/moon.mod.json
+
       - name: Run tests
         run: cargo test
 
