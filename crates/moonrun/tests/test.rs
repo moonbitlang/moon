@@ -86,8 +86,8 @@ fn test_moonrun_wasm_stack_trace() {
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Unit] [..]/abort/abort.mbt:29
-    at @moonbitlang/core/builtin.abort[Unit] [..]/builtin/intrinsics.mbt:70
+    at @moonbitlang/core/abort.abort[Unit] [..]/abort/abort.mbt:[..]
+    at @moonbitlang/core/builtin.abort[Unit] [..]/builtin/intrinsics.mbt:[..]
     at @username/hello/main.abort_with_tuple [..]/main/main.mbt:[..]
     at @username/hello/main.default_abort_chain [..]/main/main.mbt:[..]
     at @__moonbit_main [..]/main/main.mbt:[..]
@@ -98,8 +98,8 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:29
-    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:70
+    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:[..]
+    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:[..]
     at @username/hello/main.abort_generic[Int] [..]/main/main.mbt:[..]
     at @__moonbit_main [..]/main/main.mbt:[..]
 "#]]);
@@ -109,8 +109,8 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[(Int, String)] [..]/abort/abort.mbt:29
-    at @moonbitlang/core/builtin.abort[(Int, String)] [..]/builtin/intrinsics.mbt:70
+    at @moonbitlang/core/abort.abort[(Int, String)] [..]/abort/abort.mbt:[..]
+    at @moonbitlang/core/builtin.abort[(Int, String)] [..]/builtin/intrinsics.mbt:[..]
     at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt:[..]
     at @__moonbit_main [..]/main/main.mbt:[..]
 "#]]);
@@ -120,8 +120,8 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt:29
-    at @moonbitlang/core/builtin.abort[UInt] [..]/builtin/intrinsics.mbt:70
+    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt:[..]
+    at @moonbitlang/core/builtin.abort[UInt] [..]/builtin/intrinsics.mbt:[..]
     at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt:[..]
     at @__moonbit_main [..]/main/main.mbt:[..]
 "#]]);
@@ -131,8 +131,8 @@ RuntimeError: unreachable
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:29
-    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:70
+    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:[..]
+    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:[..]
     at @username/hello/main.abort_via_closure.inner/[..] [..]/main/main.mbt:[..]
     at @username/hello/main.abort_via_closure [..]/main/main.mbt:[..]
     at @__moonbit_main [..]/main/main.mbt:[..]
@@ -180,8 +180,8 @@ fn test_moonrun_wasm_stack_trace_in_test_blocks() {
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort closure") failed: Error
     at throw
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:29
-    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:70
+    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:[..]
+    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:[..]
     at @username/hello/main.abort_via_closure.inner/[..] [..]/main/main.mbt:[..]
     at @username/hello/main.abort_via_closure [..]/main/main.mbt:[..]
     at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt:[..]
@@ -199,8 +199,8 @@ Total tests: 1, passed: 0, failed: 1.
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort method") failed: Error
     at throw
-    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt:29
-    at @moonbitlang/core/builtin.abort[UInt] [..]/builtin/intrinsics.mbt:70
+    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt:[..]
+    at @moonbitlang/core/builtin.abort[UInt] [..]/builtin/intrinsics.mbt:[..]
     at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt:[..]
     at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt:[..]
     at @username/hello/main.__test_6d61696e2e6d6274_1.dyncall
