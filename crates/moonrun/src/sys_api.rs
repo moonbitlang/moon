@@ -22,7 +22,7 @@ use std::io::IsTerminal;
 fn construct_args_list<'s>(
     wasm_file_name: &str,
     args: &[String],
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
 ) -> v8::Local<'s, v8::Array> {
     // argv: [program, ..args]
     let arr = v8::Array::new(scope, (args.len() + 1) as i32);
@@ -36,7 +36,7 @@ fn construct_args_list<'s>(
     arr
 }
 
-fn construct_env_vars<'s>(scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::Map> {
+fn construct_env_vars<'s>(scope: &mut v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Map> {
     let map = v8::Map::new(scope);
     for (k, v) in std::env::vars() {
         let key = scope.string(&k);
@@ -46,7 +46,7 @@ fn construct_env_vars<'s>(scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::
     map
 }
 fn set_env_var(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -60,7 +60,7 @@ fn set_env_var(
 }
 
 fn unset_env_var(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -71,7 +71,7 @@ fn unset_env_var(
 }
 
 fn get_env_var(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -82,7 +82,7 @@ fn get_env_var(
 }
 
 fn get_env_var_exists(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -91,7 +91,7 @@ fn get_env_var_exists(
 }
 
 fn get_env_vars(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -109,7 +109,7 @@ fn get_env_vars(
 
 pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     wasm_file_name: &str,
     args: &[String],
 ) {

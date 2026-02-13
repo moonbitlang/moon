@@ -20,7 +20,12 @@ use clap::Parser;
 use std::any::Any;
 use std::io::{self, Write};
 use std::path::Path;
-use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
+use std::{
+    cell::{Cell, RefCell},
+    io::Read,
+    path::PathBuf,
+    time::Instant,
+};
 use v8::V8::set_flags_from_string;
 
 mod backtrace_api;
@@ -42,8 +47,29 @@ struct PrintEnv {
     dangling_high_half: Cell<Option<u32>>,
 }
 
+#[derive(Default)]
+struct RuntimeAlloc {
+    instants: RefCell<Vec<*mut Instant>>,
+    rngs: RefCell<Vec<*mut StdRng>>,
+}
+
+impl Drop for RuntimeAlloc {
+    fn drop(&mut self) {
+        for ptr in self.instants.get_mut().drain(..) {
+            unsafe {
+                drop(Box::from_raw(ptr));
+            }
+        }
+        for ptr in self.rngs.get_mut().drain(..) {
+            unsafe {
+                drop(Box::from_raw(ptr));
+            }
+        }
+    }
+}
+
 fn now(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -61,31 +87,26 @@ fn now(
 }
 
 fn instant_now(
-    scope: &mut v8::HandleScope,
-    mut args: v8::FunctionCallbackArguments,
+    scope: &mut v8::PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let runtime_alloc = {
+        let data = args.data();
+        assert!(data.is_external());
+        let data: v8::Local<v8::Data> = data.into();
+        let ptr = v8::Local::<v8::External>::try_from(data).unwrap().value();
+        unsafe { &*(ptr as *const RuntimeAlloc) }
+    };
+
     let now = Box::new(Instant::now());
-    let ptr = Box::<Instant>::leak(now) as *mut Instant;
-    let weak_rc = std::rc::Rc::new(std::cell::Cell::new(None));
-    let weak = v8::Weak::with_finalizer(
-        unsafe { args.get_isolate() },
-        v8::External::new(scope, ptr as *mut std::ffi::c_void),
-        Box::new({
-            let weak_rc = weak_rc.clone();
-            move |isolate| unsafe {
-                drop(Box::from_raw(ptr));
-                drop(v8::Weak::from_raw(isolate, weak_rc.get()));
-            }
-        }),
-    );
-    let local = weak.to_local(scope).unwrap();
-    weak_rc.set(weak.into_raw());
-    ret.set(local.into());
+    let ptr = Box::into_raw(now);
+    runtime_alloc.instants.borrow_mut().push(ptr);
+    ret.set(v8::External::new(scope, ptr as *mut std::ffi::c_void).into());
 }
 
 fn instant_elapsed_as_secs_f64(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -97,7 +118,7 @@ fn instant_elapsed_as_secs_f64(
 }
 
 fn print_char(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -139,7 +160,7 @@ fn print_char(
 }
 
 fn console_elog(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -148,7 +169,7 @@ fn console_elog(
 }
 
 fn console_log(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -197,7 +218,7 @@ fn read_utf8_char() -> io::Result<Option<char>> {
 }
 
 fn read_char(
-    _scope: &mut v8::HandleScope,
+    _scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -211,7 +232,7 @@ fn read_char(
 }
 
 fn read_bytes_from_stdin(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -236,7 +257,7 @@ fn read_bytes_from_stdin(
 }
 
 fn read_file_to_bytes(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -259,7 +280,7 @@ fn read_file_to_bytes(
 }
 
 fn write_char(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -274,7 +295,7 @@ fn write_char(
 }
 
 fn flush(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -287,32 +308,27 @@ fn flush(
 }
 
 fn stdrng_seed_from_u64(
-    scope: &mut v8::HandleScope,
-    mut args: v8::FunctionCallbackArguments,
+    scope: &mut v8::PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let runtime_alloc = {
+        let data = args.data();
+        assert!(data.is_external());
+        let data: v8::Local<v8::Data> = data.into();
+        let ptr = v8::Local::<v8::External>::try_from(data).unwrap().value();
+        unsafe { &*(ptr as *const RuntimeAlloc) }
+    };
+
     let seed = args.get(0).int32_value(scope).unwrap_or(0) as u64;
     let rng = Box::new(StdRng::seed_from_u64(seed));
-    let ptr = Box::<StdRng>::leak(rng) as *mut StdRng;
-    let weak_rc = std::rc::Rc::new(std::cell::Cell::new(None));
-    let weak = v8::Weak::with_finalizer(
-        unsafe { args.get_isolate() },
-        v8::External::new(scope, ptr as *mut std::ffi::c_void),
-        Box::new({
-            let weak_rc = weak_rc.clone();
-            move |isolate| unsafe {
-                drop(Box::from_raw(ptr));
-                drop(v8::Weak::from_raw(isolate, weak_rc.get()));
-            }
-        }),
-    );
-    let local = weak.to_local(scope).unwrap();
-    weak_rc.set(weak.into_raw());
-    ret.set(local.into());
+    let ptr = Box::into_raw(rng);
+    runtime_alloc.rngs.borrow_mut().push(ptr);
+    ret.set(v8::External::new(scope, ptr as *mut std::ffi::c_void).into());
 }
 
 fn stdrng_gen_range(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -326,7 +342,7 @@ fn stdrng_gen_range(
 }
 
 fn exit(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -335,7 +351,7 @@ fn exit(
 }
 
 fn is_windows(
-    _scope: &mut v8::HandleScope,
+    _scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -349,11 +365,16 @@ fn is_windows(
 
 fn init_env(
     dtors: &mut Vec<Box<dyn Any>>,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     wasm_file_name: &str,
     args: &[String],
 ) {
     let global_proxy = scope.get_current_context().global(scope);
+
+    let runtime_alloc_box = Box::<RuntimeAlloc>::default();
+    let runtime_alloc_ptr = &*runtime_alloc_box as *const RuntimeAlloc as *mut std::ffi::c_void;
+    let runtime_alloc = v8::External::new(scope, runtime_alloc_ptr);
+    dtors.push(runtime_alloc_box);
 
     let print_env_box = Box::<PrintEnv>::default();
     let identifier = scope.string("print");
@@ -373,7 +394,7 @@ fn init_env(
 
     {
         let time = global_proxy.child(scope, "__moonbit_time_unstable");
-        time.set_func(scope, "instant_now", instant_now);
+        time.set_func_with_data(scope, "instant_now", instant_now, runtime_alloc.into());
         time.set_func(
             scope,
             "instant_elapsed_as_secs_f64",
@@ -404,7 +425,12 @@ fn init_env(
 
     {
         let rand = global_proxy.child(scope, "__moonbit_rand_unstable");
-        rand.set_func(scope, "stdrng_seed_from_u64", stdrng_seed_from_u64);
+        rand.set_func_with_data(
+            scope,
+            "stdrng_seed_from_u64",
+            stdrng_seed_from_u64,
+            runtime_alloc.into(),
+        );
         rand.set_func(scope, "stdrng_gen_range", stdrng_gen_range);
     }
 
@@ -415,7 +441,7 @@ fn init_env(
     }
 }
 
-fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::ScriptOrigin<'s> {
+fn create_script_origin<'s>(scope: &mut v8::PinScope<'s, '_>, name: &str) -> v8::ScriptOrigin<'s> {
     let name = format!("{BUILTIN_SCRIPT_ORIGIN_PREFIX}{name}");
     let name = scope.string(&name);
     v8::ScriptOrigin::new(
@@ -445,7 +471,8 @@ fn wasm_mode(
     test_args: Option<String>,
 ) -> anyhow::Result<()> {
     let isolate = &mut v8::Isolate::new(Default::default());
-    let scope = &mut v8::HandleScope::new(isolate);
+    let scope = std::pin::pin!(v8::HandleScope::new(isolate));
+    let scope = &mut scope.init();
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -579,7 +606,6 @@ fn run_interactive() -> anyhow::Result<()> {
 
 fn initialize_v8() -> anyhow::Result<()> {
     v8::V8::set_flags_from_string("--experimental-wasm-exnref");
-    v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
     let platform = v8::new_default_platform(0, false).make_shared();
     v8::V8::initialize_platform(platform);
     v8::V8::initialize();
