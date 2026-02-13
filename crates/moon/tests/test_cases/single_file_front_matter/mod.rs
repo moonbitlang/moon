@@ -34,3 +34,17 @@ fn test_single_file_front_matter_import_module_root() {
     let stdout = get_stdout(&dir, ["test", "t.mbt.md", "--no-parallelize"]);
     assert!(stdout.contains("Total tests: 2, passed: 2, failed: 0."));
 }
+
+#[test]
+fn test_single_file_mbtx_run() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let stdout = get_stdout(&dir, ["run", "import_ok.mbtx"]);
+    assert!(stdout.contains("hello"));
+}
+
+#[test]
+fn test_single_file_mbtx_run_block_import() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let stdout = get_stdout(&dir, ["run", "import_block_ok.mbtx"]);
+    assert!(stdout.contains("hello"));
+}

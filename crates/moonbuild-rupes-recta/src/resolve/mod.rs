@@ -42,6 +42,8 @@ use moonutil::{
 };
 use tracing::instrument;
 
+use crate::mbtx::{parse_mbtx_imports, prepare_single_file_for_compile};
+
 use crate::discover::special_case::inject_core_coverage_into_builtin;
 use crate::special_cases::CORE_MODULE_TUPLE;
 use crate::{
@@ -344,14 +346,42 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
 /// synthesize a minimal MoonBit project around the given file.
 pub fn resolve_single_file_project(
     cfg: &ResolveConfig,
+    target_dir: &Path,
     file: &Path,
     run_mode: bool,
 ) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
-    // Canonicalize input and parse optional front matter
-    let file = dunce::canonicalize(file)
+    // Canonicalize input and classify by suffix first.
+    let source_file = dunce::canonicalize(file)
         .context("Failed to resolve the file path")
         .map_err(ResolveError::SingleFileParseError)?;
-    let header = parse_front_matter_config(&file).map_err(ResolveError::SingleFileParseError)?;
+    let source_dir = source_file
+        .parent()
+        .expect("File must have a parent directory");
+    let is_mbtx = source_file.extension().is_some_and(|ext| ext == "mbtx");
+    let (header, front_matter_config, compile_input_file) = if is_mbtx {
+        let imports =
+            parse_mbtx_imports(&source_file).map_err(ResolveError::SingleFileParseError)?;
+        let mut config = FrontMatterConfig {
+            deps_to_sync: None,
+            package_imports: None,
+            warn_import_all: false,
+        };
+        if !imports.deps.is_empty() || !imports.imports.is_empty() {
+            config.deps_to_sync = Some(imports.deps);
+            config.package_imports = Some(imports.imports);
+        }
+        // Generate a temporary .mbt file under target_dir,
+        // because moonc doesn't support import declarations in source files yet.
+        let compile_input_file = prepare_single_file_for_compile(&source_file, target_dir)
+            .map_err(ResolveError::SingleFileParseError)?;
+        (None, config, compile_input_file)
+    } else {
+        let header =
+            parse_front_matter_config(&source_file).map_err(ResolveError::SingleFileParseError)?;
+        let config = extract_front_matter_config(header.as_ref())
+            .map_err(ResolveError::SingleFileParseError)?;
+        (header, config, source_file.clone())
+    };
 
     let backend = header
         .as_ref()
@@ -363,10 +393,6 @@ pub fn resolve_single_file_project(
         .context("Unable to parse target backend from front matter")
         .map_err(ResolveError::SingleFileParseError)?;
 
-    let source_dir = file.parent().expect("File must have a parent directory");
-
-    let front_matter_config =
-        extract_front_matter_config(header.as_ref()).map_err(ResolveError::SingleFileParseError)?;
     if front_matter_config.warn_import_all {
         warn!(
             "moonbit.deps without moonbit.import: importing all packages (legacy behavior). \
@@ -387,7 +413,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
 
     // Synthesize the single-file package that imports everything from discovered modules
     crate::discover::synth::build_synth_single_file_package(
-        &file,
+        &compile_input_file,
         &resolved_env,
         &mut discover_result,
         run_mode,

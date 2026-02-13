@@ -187,6 +187,7 @@ fn run_check_for_single_file_rr(
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
+        raw_target_dir.as_path(),
         &single_file_path,
         false,
     )?;
