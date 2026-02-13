@@ -58,26 +58,30 @@ pub(crate) struct RunSubcommand {
 
 #[instrument(skip_all)]
 pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+    let input = cmd.package_or_mbt_file.as_str();
+    let is_mbt = input.ends_with(".mbt");
+    let is_mbtx = input.ends_with(".mbtx");
+
     match cli.source_tgt_dir.try_into_package_dirs() {
         Ok(_) => {
-            if cmd.package_or_mbt_file.ends_with(".mbt") {
+            if is_mbtx {
+                return run_single_file_rr(cli, cmd);
+            }
+            if is_mbt {
                 let moon_pkg_json_exist = std::env::current_dir()?
-                    .join(&cmd.package_or_mbt_file)
+                    .join(input)
                     .parent()
                     .is_some_and(is_moon_pkg_exist);
                 if !moon_pkg_json_exist {
                     return run_single_file_rr(cli, cmd);
                 }
             }
-            // moon should report an error later if the source_dir doesn't
-            // contain moon.pkg.json
         }
         Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
-            if cmd.package_or_mbt_file.ends_with(".mbt") {
+            if is_mbt || is_mbtx {
                 return run_single_file_rr(cli, cmd);
-            } else {
-                return Err(e.into());
             }
+            return Err(e.into());
         }
         Err(e) => return Err(e.into()),
     }
@@ -232,6 +236,7 @@ fn run_single_file_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
+        raw_target_dir.as_path(),
         &input_path,
         true,
     )?;

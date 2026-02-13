@@ -322,6 +322,7 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
+        raw_target_dir.as_path(),
         &single_file_path,
         false,
     )?;

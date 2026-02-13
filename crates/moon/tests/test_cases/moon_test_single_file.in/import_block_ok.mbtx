@@ -1,0 +1,12 @@
+import {
+  "moonbitlang/x@0.4.38/stack" @xstack,
+}
+
+fn use_stack() -> Unit {
+  let _ : @xstack.Stack[Int] = @xstack.Stack::new()
+}
+
+fn main {
+  use_stack()
+  println("hello")
+}
