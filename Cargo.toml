@@ -105,7 +105,7 @@ ariadne = { version = "0.5.1", features = ["auto-color"] }
 clap_complete = { version = "4.5.4" }
 schemars = "0.8"
 nucleo-matcher = "0.3.1"
-regex = { version = "1.10.3", default-features = false, features = ["std"] }
+regex = { version = "1.11.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
 base64 = "0.22.1"
 derive_builder = "0.20.2"
