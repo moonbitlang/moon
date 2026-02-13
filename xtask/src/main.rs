@@ -19,12 +19,13 @@
 use clap::Parser;
 use std::path::PathBuf;
 mod bundle_template;
+mod ci;
 mod sync_docs;
 
 #[derive(Debug, clap::Parser)]
 struct Cli {
     #[clap(subcommand)]
-    pub subcommand: XSubcommands,
+    pub subcommand: Option<XSubcommands>,
 }
 
 #[derive(Debug, clap::Parser)]
@@ -34,6 +35,9 @@ enum XSubcommands {
 
     #[command(name = "bundle-template")]
     BundleTemplate(BundleTemplate),
+
+    #[command(name = "ci")]
+    Ci(Ci),
 }
 
 #[derive(Debug, clap::Parser)]
@@ -45,11 +49,16 @@ struct SyncDocs {
 #[derive(Debug, clap::Parser)]
 struct BundleTemplate {}
 
+#[derive(Debug, Clone, clap::Parser, Default)]
+struct Ci {}
+
 fn main() {
     let cli = Cli::parse();
     let code = match cli.subcommand {
-        XSubcommands::SyncDocs(t) => sync_docs::run(&t.moonbit_docs_dir).map_or(1, |_| 0),
-        XSubcommands::BundleTemplate(_) => bundle_template::run().map_or(1, |_| 0),
+        Some(XSubcommands::SyncDocs(t)) => sync_docs::run(&t.moonbit_docs_dir).map_or(1, |_| 0),
+        Some(XSubcommands::BundleTemplate(_)) => bundle_template::run().map_or(1, |_| 0),
+        Some(XSubcommands::Ci(t)) => ci::run(&t).map_or(1, |_| 0),
+        None => ci::run(&Ci::default()).map_or(1, |_| 0),
     };
     std::process::exit(code);
 }
