@@ -2965,7 +2965,7 @@ fn moon_test_target_js_panic_with_sourcemap() {
             [username/hello] test lib/hello_test.mbt:1 ("hello") failed: Error
                 at $panic ($ROOT/_build/js/debug/test/lib/lib.blackbox_test.js:6:9)
                 at _M0FP38username5hello19lib__blackbox__test41____test__68656c6c6f5f746573742e6d6274__0 ($ROOT/src/lib/hello_test.mbt:3:5)
-                at _M0FP38username5hello19lib__blackbox__test42moonbit__test__driver__internal__js__catch ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:348:15)
+                at _M0FP38username5hello19lib__blackbox__test42moonbit__test__driver__internal__js__catch ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:349:11)
             Total tests: 1, passed: 0, failed: 1."#]],
     );
 }

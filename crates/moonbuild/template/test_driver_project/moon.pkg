@@ -1,0 +1,11 @@
+import {
+  "moonbitlang/async",
+  "moonbitlang/core/test",
+  "moonbitlang/core/bench",
+}
+
+warnings = "-unused_package"
+
+options(
+  "is-main": true,
+)

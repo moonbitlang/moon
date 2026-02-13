@@ -23,6 +23,8 @@ cargo build
 cargo test
 ```
 
+`cargo xtask` runs auxiliary checks (`moon check`, `moon fmt --check` for the test driver template, `cargo fmt -- --check`, and `cargo clippy --all-targets --all-features -- -D warnings`). If checks fail, it prints copy-paste fix commands.
+
 The tests for `moon` depend on
 [expect-test](https://github.com/rust-analyzer/expect-test). If your changes
 affect the output of the tests, you can update the expected output:
@@ -123,10 +125,7 @@ It's recommended to run the following command before you submit a PR, which may
 help discover some potential CI failure ASAP
 
 ```bash
-cargo fmt
-
-cargo clippy --all-targets --all-features -- -D warnings
-
+cargo xtask
 cargo test
 ```
 

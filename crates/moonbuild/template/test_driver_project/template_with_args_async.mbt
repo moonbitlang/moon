@@ -25,11 +25,13 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_With_Args with r
         }
       }
     }
-    async_tests.push(() => try f(@moonbitlang/core/test.new(name)) catch {
-      err if MoonBit_Async_Test_Driver_Impl::is_being_cancelled() => raise err
-      err => handle_result(name, error_to_string(err), false)
-    } noraise {
-      _ => handle_result(name, "", false)
+    async_tests.push(() => {
+      try f(@moonbitlang/core/test.new(name)) catch {
+        err if MoonBit_Async_Test_Driver_Impl::is_being_cancelled() => raise err
+        err => handle_result(name, error_to_string(err), false)
+      } noraise {
+        _ => handle_result(name, "", false)
+      }
     })
     true
   } else {
