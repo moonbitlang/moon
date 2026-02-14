@@ -58,7 +58,12 @@ fn test_moonrun_version() {
         .arg("--version")
         .assert()
         .success()
-        .stdout_eq("moonrun [..]\n");
+        .stdout_eq(format!(
+            "moonrun {} ({} {})\n",
+            env!("CARGO_PKG_VERSION"),
+            env!("VERGEN_GIT_SHA"),
+            env!("VERGEN_BUILD_DATE")
+        ));
 }
 
 #[test]
@@ -68,12 +73,17 @@ fn test_moonrun_wasm_stack_trace() {
     moon_cmd().current_dir(&dir).arg("build").assert().success();
 
     let main_wasm = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    let redactions = moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref());
+    let assert = snapbox::Assert::new().redact_with(redactions);
 
     fn moonrun_stack_trace_case(
         main_wasm: &std::path::Path,
         mode: Option<&str>,
+        assert: snapbox::Assert,
     ) -> snapbox::cmd::Command {
-        let cmd = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun")).arg(main_wasm);
+        let cmd = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+            .with_assert(assert)
+            .arg(main_wasm);
         if let Some(mode) = mode {
             cmd.arg("--").arg(mode)
         } else {
@@ -81,70 +91,76 @@ fn test_moonrun_wasm_stack_trace() {
         }
     }
 
-    moonrun_stack_trace_case(&main_wasm, None)
+    moonrun_stack_trace_case(&main_wasm, None, assert.clone())
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Unit] [..]/abort/abort.mbt:[..]
-    at @moonbitlang/core/builtin.abort[Unit] [..]/builtin/intrinsics.mbt:[..]
-    at @username/hello/main.abort_with_tuple [..]/main/main.mbt:[..]
-    at @username/hello/main.default_abort_chain [..]/main/main.mbt:[..]
-    at @__moonbit_main [..]/main/main.mbt:[..]
+    at @moonbitlang/core/abort.abort[Unit] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
+    at @moonbitlang/core/builtin.abort[Unit] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER]
+    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+
 "#]]);
 
-    moonrun_stack_trace_case(&main_wasm, Some("abort-generic-int"))
+    moonrun_stack_trace_case(&main_wasm, Some("abort-generic-int"), assert.clone())
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:[..]
-    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:[..]
-    at @username/hello/main.abort_generic[Int] [..]/main/main.mbt:[..]
-    at @__moonbit_main [..]/main/main.mbt:[..]
+    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
+    at @moonbitlang/core/builtin.abort[Int] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER]
+    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+
 "#]]);
 
-    moonrun_stack_trace_case(&main_wasm, Some("abort-generic-tuple"))
+    moonrun_stack_trace_case(&main_wasm, Some("abort-generic-tuple"), assert.clone())
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[(Int, String)] [..]/abort/abort.mbt:[..]
-    at @moonbitlang/core/builtin.abort[(Int, String)] [..]/builtin/intrinsics.mbt:[..]
-    at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt:[..]
-    at @__moonbit_main [..]/main/main.mbt:[..]
+    at @moonbitlang/core/abort.abort[(Int, String)] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
+    at @moonbitlang/core/builtin.abort[(Int, String)] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER]
+    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+
 "#]]);
 
-    moonrun_stack_trace_case(&main_wasm, Some("abort-method"))
+    moonrun_stack_trace_case(&main_wasm, Some("abort-method"), assert.clone())
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt:[..]
-    at @moonbitlang/core/builtin.abort[UInt] [..]/builtin/intrinsics.mbt:[..]
-    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt:[..]
-    at @__moonbit_main [..]/main/main.mbt:[..]
+    at @moonbitlang/core/abort.abort[UInt] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
+    at @moonbitlang/core/builtin.abort[UInt] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
+    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
+    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+
 "#]]);
 
-    moonrun_stack_trace_case(&main_wasm, Some("abort-closure"))
+    moonrun_stack_trace_case(&main_wasm, Some("abort-closure"), assert.clone())
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:[..]
-    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:[..]
-    at @username/hello/main.abort_via_closure.inner/[..] [..]/main/main.mbt:[..]
-    at @username/hello/main.abort_via_closure [..]/main/main.mbt:[..]
-    at @__moonbit_main [..]/main/main.mbt:[..]
+    at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
+    at @moonbitlang/core/builtin.abort[Int] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_via_closure.inner/[..] [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
+    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+
 "#]]);
 
-    moonrun_stack_trace_case(&main_wasm, Some("panic-result"))
+    moonrun_stack_trace_case(&main_wasm, Some("panic-result"), assert.clone())
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
-    at @username/hello/main.panic_with_result [..]/main/main.mbt:[..]
-    at @__moonbit_main [..]/main/main.mbt:[..]
+    at @username/hello/main.panic_with_result [..]/main/main.mbt[LINE_NUMBER]
+    at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
+
 "#]]);
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
@@ -220,12 +236,16 @@ fn test_moon_run_with_cli_args() {
     moon_cmd().current_dir(&dir).arg("build").assert().success();
 
     let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    let assert = snapbox::Assert::new().redact_with(
+        moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref()),
+    );
 
     // `argv` passed to CLI is:
     // <wasm_file> <...rest argv to moonrun>
 
     // Assert it has the WASM file as argv[0]
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .with_assert(assert.clone())
         .arg(&wasm_file)
         .assert()
         .success()
@@ -233,6 +253,7 @@ fn test_moon_run_with_cli_args() {
 
     // Assert it passes the rest verbatim
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .with_assert(assert.clone())
         .arg(&wasm_file)
         .arg("--")
         .args(["中文", "😄👍", "hello", "1242"])
@@ -241,13 +262,16 @@ fn test_moon_run_with_cli_args() {
         .stdout_eq("[\"[..]/_build/wasm-gc/debug/build/main/main.wasm\", \"中文\", \"😄👍\", \"hello\", \"1242\"]\n");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .with_assert(assert)
         .arg(&wasm_file)
         .arg("--no-stack-trace") // this ia an arg accepted by moonrun
         .arg("--")
         .args(["--arg1", "--arg2", "arg3"])
         .assert()
         .success()
-        .stdout_eq("[\"[..]/_build/wasm-gc/debug/build/main/main.wasm\", \"--arg1\", \"--arg2\", \"arg3\"]\n");
+        .stdout_eq(
+            "[\"[..]/_build/wasm-gc/debug/build/main/main.wasm\", \"--arg1\", \"--arg2\", \"arg3\"]\n",
+        );
 }
 
 #[test]

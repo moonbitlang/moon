@@ -3,81 +3,45 @@ use super::*;
 #[cfg(unix)]
 #[test]
 fn test_native_abort_trace() {
+    const ANSI_LINE_NUMBER_REGEX: &str = r"(?<redacted>:[0-9]+)(?:(?:\x1b\[[0-9;]*m)|(?:\[ANSI_[A-Z]+\]))*(?:[ \t]+(?:(?:\x1b\[[0-9;]*m)|(?:\[ANSI_[A-Z]+\]))*(?:at|by)|\n|$)";
     let dir = TestDir::new("native_abort_trace/native_abort_trace.in");
-
-    fn strip_ansi(input: &str) -> String {
-        let mut out = String::with_capacity(input.len());
-        let mut chars = input.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c == '\x1b' {
-                if chars.peek() == Some(&'[') {
-                    chars.next();
-                    for c2 in chars.by_ref() {
-                        if c2 == 'm' {
-                            break;
-                        }
-                    }
-                }
-                continue;
-            }
-            out.push(c);
-        }
-        out
-    }
-
-    fn normalize_line_numbers(input: &str) -> String {
-        let mut out = String::with_capacity(input.len());
-        for line in input.lines() {
-            let Some(pos) = line.find("main.c:") else {
-                out.push_str(line);
-                out.push('\n');
-                continue;
-            };
-            let prefix = &line[..pos];
-            let rest = &line[pos + "main.c:".len()..];
-            let mut digits_len = 0;
-            for ch in rest.chars() {
-                if ch.is_ascii_digit() {
-                    digits_len += ch.len_utf8();
-                } else {
-                    break;
-                }
-            }
-            if digits_len == 0 {
-                out.push_str(line);
-                out.push('\n');
-                continue;
-            }
-            let suffix = &rest[digits_len..];
-            out.push_str(prefix);
-            out.push_str("main.c:<line>");
-            out.push_str(suffix);
-            out.push('\n');
-        }
-        out
-    }
-
-    let output = snapbox::cmd::Command::new(moon_bin())
+    let mut redactions = moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref());
+    redactions
+        .insert("[ANSI_RED]", "\u{1b}[31m")
+        .expect("valid ANSI red redaction");
+    redactions
+        .insert("[ANSI_GRAY]", "\u{1b}[90m")
+        .expect("valid ANSI gray redaction");
+    redactions
+        .insert("[ANSI_CYAN]", "\u{1b}[36m")
+        .expect("valid ANSI cyan redaction");
+    redactions
+        .insert("[ANSI_BOLD]", "\u{1b}[1m")
+        .expect("valid ANSI bold redaction");
+    redactions
+        .insert("[ANSI_RESET]", "\u{1b}[0m")
+        .expect("valid ANSI reset redaction");
+    redactions
+        .insert(
+            "[LINE_NUMBER]",
+            moon_test_util::stack_trace::redaction_regex(ANSI_LINE_NUMBER_REGEX),
+        )
+        .expect("valid ANSI stack trace line number redaction");
+    snapbox::cmd::Command::new(moon_bin())
+        .with_assert(snapbox::Assert::new().redact_with(redactions))
         .current_dir(&dir)
+        .env("NO_COLOR", "1")
+        .env("CLICOLOR", "0")
         .args(["run", "--target", "native", "cmd/main"])
         .assert()
         .success()
-        .get_output()
-        .to_owned();
+        .stdout_eq("Hello\n")
+        .stderr_eq(snapbox::str![[r#"
+[ANSI_RED]RUNTIME ERROR: abort() called[ANSI_RESET]
+[ANSI_GRAY][CORE_PATH]/builtin/option.mbt[LINE_NUMBER][ANSI_RESET] [ANSI_CYAN]at[ANSI_RESET] [ANSI_BOLD]@moonbitlang/core/option.Option::unwrap[Int][ANSI_RESET]
+[ANSI_GRAY][..]/cmd/main/main.mbt[LINE_NUMBER][ANSI_RESET] [ANSI_CYAN]by[ANSI_RESET] [ANSI_BOLD]@username/scratch/cmd/main.g[ANSI_RESET]
+[ANSI_GRAY][..]/cmd/main/main.mbt[LINE_NUMBER][ANSI_RESET] [ANSI_CYAN]by[ANSI_RESET] [ANSI_BOLD]@username/scratch/cmd/main.f[ANSI_RESET]
+[ANSI_GRAY][..]/cmd/main/main.mbt[LINE_NUMBER][ANSI_RESET] [ANSI_CYAN]by[ANSI_RESET] [ANSI_BOLD]main[ANSI_RESET]
 
-    let mut out = String::from_utf8_lossy(&output.stdout).to_string();
-    out.push_str(&String::from_utf8_lossy(&output.stderr));
-    let out = replace_dir(&normalize_line_numbers(&strip_ansi(&out)), &dir);
-
-    check(
-        &out,
-        expect![[r#"
-            Hello
-            RUNTIME ERROR: abort() called
-            $MOON_HOME/lib/core/builtin/option.mbt:39 at @moonbitlang/core/option.Option::unwrap[Int]
-            $ROOT/cmd/main/main.mbt:14 by @username/scratch/cmd/main.g
-            $ROOT/cmd/main/main.mbt:9 by @username/scratch/cmd/main.f
-            $ROOT/cmd/main/main.mbt:4 by main
-        "#]],
-    );
+"#]]);
 }
