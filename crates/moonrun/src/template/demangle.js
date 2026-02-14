@@ -617,3 +617,11 @@ function __moonbit_demangle_mangled_function_name(funcName) {
         return funcName;
     }
 }
+
+if (typeof globalThis !== "undefined") {
+    globalThis.__moonbit_demangle_mangled_function_name = __moonbit_demangle_mangled_function_name;
+}
+
+if (typeof module !== "undefined" && module.exports) {
+    module.exports.__moonbit_demangle_mangled_function_name = __moonbit_demangle_mangled_function_name;
+}

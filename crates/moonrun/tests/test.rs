@@ -30,6 +30,30 @@ fn moon_cmd() -> snapbox::cmd::Command {
         .arg("--")
 }
 
+fn node_test_skip_reason() -> Option<&'static str> {
+    if std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return Some("node is unavailable");
+    }
+    None
+}
+
+fn skip_node_test(test_name: &str) -> bool {
+    if let Some(reason) = node_test_skip_reason() {
+        eprintln!("skip {test_name}: {reason}");
+        return true;
+    }
+    false
+}
+
+fn moonrun_js_cmd() -> snapbox::cmd::Command {
+    let moonrun_js = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/template/moonrun.js");
+    snapbox::cmd::Command::new("node").arg(moonrun_js)
+}
+
 struct TestDir(moon_test_util::test_dir::TestDir);
 
 impl TestDir {
@@ -101,7 +125,6 @@ RuntimeError: unreachable
     at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("abort-generic-int"), assert.clone())
@@ -113,7 +136,6 @@ RuntimeError: unreachable
     at @moonbitlang/core/builtin.abort[Int] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("abort-generic-tuple"), assert.clone())
@@ -125,7 +147,6 @@ RuntimeError: unreachable
     at @moonbitlang/core/builtin.abort[(Int, String)] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("abort-method"), assert.clone())
@@ -137,7 +158,6 @@ RuntimeError: unreachable
     at @moonbitlang/core/builtin.abort[UInt] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("abort-closure"), assert.clone())
@@ -150,7 +170,6 @@ RuntimeError: unreachable
     at @username/hello/main.abort_via_closure.inner/[..] [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
-
 "#]]);
 
     moonrun_stack_trace_case(&main_wasm, Some("panic-result"), assert.clone())
@@ -275,6 +294,167 @@ fn test_moon_run_with_cli_args() {
 }
 
 #[test]
+fn test_moonrun_js_node_with_cli_args() {
+    if skip_node_test("test_moonrun_js_node_with_cli_args") {
+        return;
+    }
+
+    let dir = TestDir::new("test_cli_args.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+
+    moonrun_js_cmd()
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("[\"[..]/_build/wasm-gc/debug/build/main/main.wasm\"]\n");
+
+    moonrun_js_cmd()
+        .arg(&wasm_file)
+        .arg("--")
+        .args(["中文", "😄👍", "hello", "1242"])
+        .assert()
+        .success()
+        .stdout_eq("[\"[..]/_build/wasm-gc/debug/build/main/main.wasm\", \"中文\", \"😄👍\", \"hello\", \"1242\"]\n");
+}
+
+#[test]
+fn test_moonrun_js_node_no_stack_trace() {
+    if skip_node_test("test_moonrun_js_node_no_stack_trace") {
+        return;
+    }
+
+    let dir = TestDir::new("test_stack_trace.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+
+    moonrun_js_cmd()
+        .arg(&wasm_file)
+        .arg("--no-stack-trace")
+        .assert()
+        .failure()
+        .stderr_eq("RuntimeError: unreachable\n");
+}
+
+#[test]
+fn test_moonrun_js_node_stack_trace() {
+    if skip_node_test("test_moonrun_js_node_stack_trace") {
+        return;
+    }
+
+    let dir = TestDir::new("test_stack_trace.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    let mut redactions = snapbox::Redactions::new();
+    let test_root = dir.as_ref().to_path_buf();
+    redactions.insert("[TEST_ROOT]", test_root.clone()).unwrap();
+    if let Ok(canonical_test_root) = dunce::canonicalize(dir.as_ref()) {
+        redactions
+            .insert("[TEST_ROOT]", canonical_test_root)
+            .unwrap();
+    }
+
+    moonrun_js_cmd()
+        .arg(&wasm_file)
+        .assert()
+        .with_assert(snapbox::Assert::new().redact_with(redactions))
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+RuntimeError: unreachable
+    at @moonbitlang/core/abort.abort[Unit] [..]/core/abort/abort.mbt:29
+    at @moonbitlang/core/builtin.abort[Unit] [..]/core/builtin/intrinsics.mbt:70
+    at @username/hello/main.abort_with_tuple [TEST_ROOT]/main/main.mbt:25
+...
+"#]]);
+}
+
+#[test]
+fn test_moonrun_js_node_write_char_surrogate_pairs() {
+    if skip_node_test("test_moonrun_js_node_write_char_surrogate_pairs") {
+        return;
+    }
+
+    let dir = TestDir::new("test_write_char_surrogates.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+
+    moonrun_js_cmd()
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("😄👍\n");
+}
+
+#[test]
+fn test_moonrun_js_node_read_bytes_from_stdin_consumed() {
+    if skip_node_test("test_moonrun_js_node_read_bytes_from_stdin_consumed") {
+        return;
+    }
+
+    let dir = TestDir::new("test_read_bytes_consumed.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+
+    moonrun_js_cmd()
+        .arg(&wasm_file)
+        .stdin("中文😄👍hello1242")
+        .assert()
+        .success()
+        .stdout_eq(format!("{}\n0\n", "中文😄👍hello1242".len()));
+}
+
+#[test]
+fn test_moonrun_js_node_remove_dir_new_rejects_file_path() {
+    if skip_node_test("test_moonrun_js_node_remove_dir_new_rejects_file_path") {
+        return;
+    }
+
+    let dir = TestDir::new("test_remove_dir_new_file_path.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    std::fs::write(dir.join("file.txt"), "data").expect("write file.txt");
+
+    moonrun_js_cmd()
+        .current_dir(&dir)
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("ok\n");
+}
+
+#[test]
+fn test_moonrun_js_node_remove_dir_rejects_file_path() {
+    if skip_node_test("test_moonrun_js_node_remove_dir_rejects_file_path") {
+        return;
+    }
+
+    let dir = TestDir::new("test_remove_dir_file_path.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    std::fs::write(dir.join("file.txt"), "data").expect("write file.txt");
+
+    moonrun_js_cmd()
+        .current_dir(&dir)
+        .arg(&wasm_file)
+        .assert()
+        .failure();
+}
+
+#[test]
 fn test_moon_run_with_read_bytes_from_stdin() {
     let dir = TestDir::new("test_read_bytes.in");
 
@@ -295,6 +475,55 @@ fn test_moon_run_with_read_bytes_from_stdin() {
         .assert()
         .success()
         .stdout_eq("0\n");
+}
+
+#[test]
+fn test_moon_run_with_read_bytes_from_stdin_consumed() {
+    let dir = TestDir::new("test_read_bytes_consumed.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_file)
+        .stdin("中文😄👍hello1242")
+        .assert()
+        .success()
+        .stdout_eq(format!("{}\n0\n", "中文😄👍hello1242".len()));
+}
+
+#[test]
+fn test_moon_run_remove_dir_new_rejects_file_path() {
+    let dir = TestDir::new("test_remove_dir_new_file_path.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    std::fs::write(dir.join("file.txt"), "data").expect("write file.txt");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(&dir)
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("ok\n");
+}
+
+#[test]
+fn test_moon_run_remove_dir_rejects_file_path() {
+    let dir = TestDir::new("test_remove_dir_file_path.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    std::fs::write(dir.join("file.txt"), "data").expect("write file.txt");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(&dir)
+        .arg(&wasm_file)
+        .assert()
+        .failure();
 }
 
 #[test]

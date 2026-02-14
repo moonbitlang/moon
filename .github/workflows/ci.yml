@@ -192,6 +192,20 @@ jobs:
       - name: Build xtask
         run: cargo build -p xtask
 
+      - name: Check Moon test driver template format
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo run --bin moon -- fmt --check --manifest-path crates/moonbuild/template/test_driver_project/moon.mod.json
+
+      - name: Setup Node.js
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check demangler JS with TypeScript
+        if: matrix.os == 'ubuntu-latest'
+        run: npx --yes -p typescript@5.8.2 tsc --noEmit --allowJs --checkJs --target ES2015 --lib ES2015 crates/moonrun/src/template/demangle.js
+
       - name: Run tests
         run: cargo test
 
