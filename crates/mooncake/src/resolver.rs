@@ -53,10 +53,43 @@ pub enum ResolverError {
     /// Multiple versions of a package are required, but the build system cannot handle this.
     #[error("Multiple conflicting versions were found for module {0}: {1:?}")]
     ConflictingVersions(ModuleName, Vec<Version>),
+    /// Multiple versions of a package are required with detailed information about dependents
+    #[error("{}", format_conflicting_versions_detailed(.0, .1))]
+    ConflictingVersionsDetailed(ModuleName, Vec<(Version, Vec<ModuleName>)>),
     #[error("Cannot inject the standard library `moonbitlang/core`")]
     CannotInjectCore(#[source] anyhow::Error),
     #[error("Error during resolution: {0}")]
     Other(anyhow::Error),
+}
+
+fn format_conflicting_versions_detailed(
+    module: &ModuleName,
+    conflicts: &[(Version, Vec<ModuleName>)],
+) -> String {
+    use std::fmt::Write;
+    
+    let mut msg = format!("Multiple conflicting versions were found for module {module}:\n");
+    for (version, dependents) in conflicts {
+        let _ = writeln!(msg, "  - Version {version} required by:");
+        for dep in dependents {
+            let _ = writeln!(msg, "      * {dep}");
+        }
+    }
+    
+    if conflicts.len() == 2 {
+        let packages: Vec<_> = conflicts
+            .iter()
+            .flat_map(|(_, deps)| deps.iter())
+            .map(|d| d.to_string())
+            .collect();
+        let _ = write!(
+            msg,
+            "\nHint: You can try upgrading all affected packages together:\n  moon add {}",
+            packages.join(" ")
+        );
+    }
+    
+    msg
 }
 
 #[derive(Debug)]
@@ -95,20 +128,61 @@ pub trait Resolver {
 /// this function will return an error if any duplicate module names with different versions
 /// (implying incompatible versions of the same module are resolved) are found.
 fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), ResolverErrors> {
+    use std::collections::HashMap;
+    
+    // First, collect all modules and their versions
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
+    
     for it in result.all_modules() {
         module_name_versions
             .entry(it.name())
             .or_default()
             .push(it.version());
     }
+    
+    // For modules with multiple versions, find out which modules depend on each version
+    let mut module_versions_to_sources: HashMap<(&ModuleName, &Version), Vec<ModuleName>> = HashMap::new();
+    
+    for (name, versions) in &module_name_versions {
+        if versions.len() > 1 {
+            // Find the dependents of each conflicting version
+            for (module_id, module_source) in result.all_modules_and_id() {
+                for (dep_id, _edge) in result.deps_keyed(module_id) {
+                    let dep_source = result.mod_name_from_id(dep_id);
+                    if dep_source.name() == *name {
+                        module_versions_to_sources
+                            .entry((name, dep_source.version()))
+                            .or_default()
+                            .push(module_source.name().clone());
+                    }
+                }
+            }
+        }
+    }
+    
     let mut errs = vec![];
     for (name, versions) in module_name_versions {
         if versions.len() > 1 {
-            let err = ResolverError::ConflictingVersions(
-                name.clone(),
-                versions.iter().cloned().cloned().collect(),
-            );
+            // Build detailed conflict information
+            let mut version_dependents: Vec<(Version, Vec<ModuleName>)> = Vec::new();
+            let mut seen_versions = std::collections::HashSet::new();
+            
+            for version in versions {
+                // Clone before insert to reuse for the lookup
+                let version_clone = version.clone();
+                if seen_versions.insert(version) {
+                    let dependents = module_versions_to_sources
+                        .get(&(name, &version_clone))
+                        .cloned()
+                        .unwrap_or_default();
+                    version_dependents.push((version_clone, dependents));
+                }
+            }
+            
+            // Sort by version for consistent output
+            version_dependents.sort_by(|a, b| a.0.cmp(&b.0));
+            
+            let err = ResolverError::ConflictingVersionsDetailed(name.clone(), version_dependents);
             errs.push(err);
         }
     }
@@ -177,4 +251,77 @@ pub fn resolve_single_root_with_defaults(
     root_module: Arc<MoonMod>,
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
     resolve_with_default_env_and_resolver(config, &[(root_source, root_module)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry::mock::{create_mock_module, MockRegistry};
+    use crate::registry::RegistryList;
+    
+    fn create_mock_registry() -> RegistryList {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("dep/one", "0.1.0", [])
+            .add_module_full("dep/one", "0.1.1", [])
+            .add_module_full("dep/one", "0.1.2", [])
+            .add_module_full("dep/one", "0.1.3", [])
+            .add_module_full("dep/one", "0.2.0", [])
+            .add_module_full("dep/one", "0.2.1", []);
+        
+        registry
+            .add_module_full("dep/two", "0.1.0", [("dep/one", "0.1.1")])
+            .add_module_full("dep/two", "0.1.1", [("dep/one", "0.1.3")])
+            .add_module_full("dep/two", "0.2.0", [("dep/one", "0.2.0")]);
+        
+        registry
+            .add_module_full("dep/three", "0.1.0", [("dep/two", "0.1.0")])
+            .add_module_full("dep/three", "0.2.0", [("dep/two", "0.2.0")]);
+        
+        let reg = Box::new(registry);
+        RegistryList::with_registry(reg)
+    }
+    
+    #[test]
+    fn test_conflicting_versions_error_message() {
+        let registry = create_mock_registry();
+        let config = ResolveConfig {
+            registries: registry,
+            inject_std: false,
+        };
+        
+        // Create two root modules that depend on incompatible versions of dep/one
+        // root/module1 depends on dep/one@0.2.1
+        // root/module2 depends on dep/two@0.1.1, which depends on dep/one@0.1.3
+        let root1 = create_mock_module("root/module1", "0.1.0", [("dep/one", "0.2.1")]);
+        let root2 = create_mock_module("root/module2", "0.1.0", [("dep/two", "0.1.1")]);
+        
+        let root1_src = moonutil::mooncakes::ModuleSource::from_version(
+            "root/module1".parse().unwrap(),
+            semver::Version::new(0, 1, 0),
+        );
+        let root2_src = moonutil::mooncakes::ModuleSource::from_version(
+            "root/module2".parse().unwrap(),
+            semver::Version::new(0, 1, 0),
+        );
+        
+        let result = resolve_with_default_env_and_resolver(
+            &config,
+            &[(root1_src, Arc::new(root1)), (root2_src, Arc::new(root2))],
+        );
+        
+        assert!(result.is_err(), "Should have conflicting versions error");
+        let err = result.unwrap_err();
+        let err_msg = format!("{}", err);
+        
+        // Print the error message to verify it's helpful
+        eprintln!("\n=== Error message ===\n{}\n=== End error message ===\n", err_msg);
+        
+        // Check that the error message contains helpful information
+        assert!(err_msg.contains("dep/one"), "Error should mention dep/one");
+        assert!(err_msg.contains("Version"), "Error should show versions");
+        assert!(err_msg.contains("required by"), "Error should show who requires each version");
+        assert!(err_msg.contains("Hint:"), "Error should provide a hint");
+        assert!(err_msg.contains("moon add"), "Error should suggest batch add");
+    }
 }
