@@ -1,4 +1,4 @@
-use crate::{TestDir, get_stdout};
+use crate::{get_stdout, TestDir};
 
 #[test]
 fn test_skip_included() {

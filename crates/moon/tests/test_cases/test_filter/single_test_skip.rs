@@ -1,4 +1,4 @@
-use crate::{TestDir, get_stdout};
+use crate::{get_stdout, TestDir};
 
 #[test]
 fn test_single_test_skip() {
@@ -10,7 +10,7 @@ fn test_single_test_skip() {
             "--verbose",
             "-p",
             "username/hello",
-            "-f",
+            "--file",
             "hello.mbt",
             "-i",
             "0",
@@ -28,7 +28,7 @@ fn test_single_test_skip() {
             "--verbose",
             "-p",
             "username/hello",
-            "-f",
+            "--file",
             "hello.mbt",
             "-i",
             "1",
@@ -46,7 +46,7 @@ fn test_single_test_skip() {
             "--verbose",
             "-p",
             "username/hello",
-            "-f",
+            "--file",
             "hello.mbt",
             "-i",
             "2",
@@ -63,7 +63,7 @@ fn test_single_test_skip() {
             "--verbose",
             "-p",
             "username/hello",
-            "-f",
+            "--file",
             "hello.mbt",
             "-i",
             "3",

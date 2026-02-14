@@ -1100,7 +1100,7 @@ fn test_js() {
             "test",
             "-p",
             "username/hello/lib",
-            "-f",
+            "--file",
             "hello_wbtest.mbt",
             "-i",
             "1",
@@ -2867,7 +2867,7 @@ fn merge_doc_test_and_md_test() {
     check(
         get_stdout(
             &dir,
-            ["test", "-p", "lib", "-f", "hello.mbt", "--sort-input"],
+            ["test", "--file", "hello.mbt", "--sort-input"],
         )
         .split("\n")
         .collect::<Vec<&str>>()
@@ -2879,7 +2879,7 @@ fn merge_doc_test_and_md_test() {
     );
     // -i should run internal test only
     check(
-        get_stdout(&dir, ["test", "-p", "lib", "-f", "hello.mbt", "-i", "0"]),
+        get_stdout(&dir, ["test", "--file", "hello.mbt", "-i", "0"]),
         expect![[r#"
             internal test 1
             Total tests: 1, passed: 1, failed: 0.
@@ -2889,7 +2889,7 @@ fn merge_doc_test_and_md_test() {
     check(
         get_stdout(
             &dir,
-            ["test", "-p", "lib", "-f", "hello.mbt", "--doc-index", "0"],
+            ["test", "--file", "hello.mbt", "--doc-index", "0"],
         ),
         expect![[r#"
             doc test 1
@@ -2900,7 +2900,7 @@ fn merge_doc_test_and_md_test() {
     check(
         get_stdout(
             &dir,
-            ["test", "-p", "lib", "-f", "hello_test.mbt", "-i", "0"],
+            ["test", "--file", "hello_test.mbt", "-i", "0"],
         ),
         expect![[r#"
             blackbox test 1
@@ -2916,7 +2916,7 @@ fn merge_doc_test_and_md_test() {
                     "test",
                     "-p",
                     "lib",
-                    "-f",
+                    "--file",
                     "hello_test.mbt",
                     "--doc-index",
                     "0",
@@ -2933,7 +2933,7 @@ fn merge_doc_test_and_md_test() {
                     "test",
                     "-p",
                     "lib",
-                    "-f",
+                    "--file",
                     "README.mbt.md",
                     "--doc-index",
                     "0",
