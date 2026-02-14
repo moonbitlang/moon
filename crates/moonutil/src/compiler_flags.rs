@@ -539,12 +539,24 @@ fn add_linker_common_libraries<P: AsRef<Path>>(
     config: &LinkerConfig<P>,
 ) {
     if cc.is_gcc_like() {
-        if cc.is_full_featured_gcc_like() {
+        if should_link_math_library(cc) {
             buf.push("-lm".to_string());
         }
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push("-lruntime".to_string());
-            buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
+            if should_use_msvc_style_tcc_runtime_linking(cc) {
+                buf.push(
+                    dyn_lib_path
+                        .as_ref()
+                        .join("libruntime.lib")
+                        .display()
+                        .to_string(),
+                );
+            } else {
+                buf.push("-lruntime".to_string());
+                if should_add_runtime_rpath() {
+                    buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
+                }
+            }
         }
     }
 }
@@ -826,9 +838,27 @@ fn add_cc_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config: &CCCo
 }
 
 fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.is_full_featured_gcc_like() && config.output_ty != OutputType::Object {
+    if should_link_math_library(cc) && config.output_ty != OutputType::Object {
         buf.push("-lm".to_string());
     }
+}
+
+fn should_link_math_library(cc: &CC) -> bool {
+    if cfg!(target_os = "windows") && cc.is_tcc() {
+        // Windows tcc path is modeled as MSVC-style linking only.
+        false
+    } else {
+        cc.is_full_featured_gcc_like()
+    }
+}
+
+fn should_use_msvc_style_tcc_runtime_linking(cc: &CC) -> bool {
+    cfg!(target_os = "windows") && cc.is_tcc()
+}
+
+fn should_add_runtime_rpath() -> bool {
+    // PE/COFF loaders do not use ELF rpath semantics.
+    !cfg!(target_os = "windows")
 }
 
 fn add_cc_msvc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
@@ -905,4 +935,33 @@ where
     add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
 
     buf
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_tcc_does_not_link_math_library() {
+        let cc = CC {
+            cc_kind: CCKind::Tcc,
+            cc_path: "tcc".to_string(),
+            ar_kind: ARKind::TccAr,
+            ar_path: "tcc".to_string(),
+            is_env_override: false,
+        };
+        assert!(!should_link_math_library(&cc));
+    }
+
+    #[test]
+    fn windows_tcc_runtime_link_style_is_msvc() {
+        let cc = CC {
+            cc_kind: CCKind::Tcc,
+            cc_path: "tcc".to_string(),
+            ar_kind: ARKind::TccAr,
+            ar_path: "tcc".to_string(),
+            is_env_override: false,
+        };
+        assert!(should_use_msvc_style_tcc_runtime_linking(&cc));
+    }
 }

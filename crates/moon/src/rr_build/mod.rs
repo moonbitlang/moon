@@ -530,8 +530,20 @@ fn check_tcc_availability(
         return false;
     }
 
-    // Check platform availability
-    if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
+    // Check platform availability.
+    //
+    // On Windows this is currently experimental and opt-in only, so we can
+    // collect first-round test signals before enabling it by default.
+    if cfg!(target_os = "windows") {
+        let enabled = std::env::var("MOON_ENABLE_WINDOWS_TCC_RUN")
+            .is_ok_and(|x| matches!(x.as_str(), "1" | "true" | "TRUE" | "yes" | "on"));
+        if !enabled {
+            info!(
+                "Disabling `tcc -run`: Windows support is experimental (set MOON_ENABLE_WINDOWS_TCC_RUN=1 to enable)"
+            );
+            return false;
+        }
+    } else if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
         info!("`tcc -run` is only supported on Linux and macOS");
         return false;
     }
