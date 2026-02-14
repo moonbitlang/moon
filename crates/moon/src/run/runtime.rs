@@ -57,23 +57,21 @@ pub(crate) fn command_for(
             Ok(cmd)
         }
         RunBackend::Js => {
-            if let Some(t) = test {
+            if test.is_some() {
                 // Also write package.json to the directory of the .js file being required
                 // to prevent node from finding the user's package.json with "type": "module"
                 if let Some(js_parent) = mbt_executable.parent() {
                     let js_dir_package_json = js_parent.join("package.json");
                     let _ = std::fs::write(js_dir_package_json, "{}");
                 }
-                let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
-                cmd.arg("--enable-source-maps");
-                cmd.arg(mbt_executable);
-                cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
-                Ok(cmd)
-            } else {
-                let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
-                cmd.arg(mbt_executable);
-                Ok(cmd)
             }
+            let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
+            cmd.arg("--enable-source-maps");
+            cmd.arg(mbt_executable);
+            if let Some(t) = test {
+                cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
+            }
+            Ok(cmd)
         }
         RunBackend::Native | RunBackend::Llvm => {
             let mut cmd = Command::new(mbt_executable);
