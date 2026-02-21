@@ -242,10 +242,10 @@ struct Replace {
 }
 
 impl Replace {
-    fn guess_target(&self) -> anyhow::Result<Target> {
+    fn guess_target(&self) -> Target {
         // trivial case where content is provided, we can get precise location
         if let Some(loc) = &self.expect_loc {
-            Ok(Target {
+            Target {
                 left_border_line_start: self.loc.line_start,
                 left_border_col_start: self.loc.col_start,
                 line_start: loc.line_start,
@@ -256,11 +256,11 @@ impl Replace {
                 expect: self.expect.clone(),
                 actual: self.actual.clone(),
                 mode: self.mode.clone(),
-            })
+            }
         } else {
             let is_pipe = self.actual_loc.ahead(&self.loc);
             if is_pipe {
-                Ok(Target {
+                Target {
                     left_border_line_start: self.loc.line_start,
                     left_border_col_start: self.loc.col_start,
                     line_start: self.loc.line_end,
@@ -271,10 +271,10 @@ impl Replace {
                     expect: self.expect.clone(),
                     actual: self.actual.clone(),
                     mode: self.mode.clone(),
-                })
+                }
             } else {
                 // TODO: find comma
-                Ok(Target {
+                Target {
                     left_border_line_start: self.actual_loc.line_end,
                     left_border_col_start: self.actual_loc.col_end,
 
@@ -286,7 +286,7 @@ impl Replace {
                     expect: self.expect.clone(),
                     actual: self.actual.clone(),
                     mode: self.mode.clone(),
-                })
+                }
             }
         }
     }
@@ -415,7 +415,7 @@ fn collect<'a>(
         targets
             .entry(rep.loc.filename.clone())
             .or_default()
-            .insert(rep.guess_target()?);
+            .insert(rep.guess_target());
     }
     Ok(targets)
 }

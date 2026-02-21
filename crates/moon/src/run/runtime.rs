@@ -44,7 +44,7 @@ pub(crate) fn command_for(
     backend: RunBackend,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
-) -> anyhow::Result<Command> {
+) -> Command {
     match backend {
         RunBackend::Wasm | RunBackend::WasmGC => {
             let mut cmd = Command::new(&*moonutil::BINARIES.moonrun);
@@ -54,7 +54,7 @@ pub(crate) fn command_for(
             }
             cmd.arg(mbt_executable);
             cmd.arg("--");
-            Ok(cmd)
+            cmd
         }
         RunBackend::Js => {
             if let Some(t) = test {
@@ -68,11 +68,11 @@ pub(crate) fn command_for(
                 cmd.arg("--enable-source-maps");
                 cmd.arg(mbt_executable);
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
-                Ok(cmd)
+                cmd
             } else {
                 let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
                 cmd.arg(mbt_executable);
-                Ok(cmd)
+                cmd
             }
         }
         RunBackend::Native | RunBackend::Llvm => {
@@ -80,7 +80,7 @@ pub(crate) fn command_for(
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }
-            Ok(cmd)
+            cmd
         }
         RunBackend::NativeTccRun => {
             let tcc = CC::internal_tcc().expect("TCC must be available for TCC run backend");
@@ -89,7 +89,7 @@ pub(crate) fn command_for(
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }
-            Ok(cmd)
+            cmd
         }
     }
 }

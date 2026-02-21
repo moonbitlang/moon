@@ -24,12 +24,12 @@ pub(crate) struct DemangleSubcommand {
     names: Vec<String>,
 }
 
-pub(crate) fn run_demangle(cmd: DemangleSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_demangle(cmd: DemangleSubcommand) -> i32 {
     for name in cmd.names {
         println!(
             "{}",
             moonutil::demangle::demangle_mangled_function_name(&name)
         );
     }
-    Ok(0)
+    0
 }

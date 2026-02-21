@@ -318,7 +318,7 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
     };
     if cfg.enable_coverage && main_is_core {
         // Gate coverage bundling (coverage -> builtin) behind both flag and main-module check
-        inject_core_coverage_into_builtin(&resolved_env, &mut discover_result)?;
+        inject_core_coverage_into_builtin(&resolved_env, &mut discover_result);
     }
 
     info!(
