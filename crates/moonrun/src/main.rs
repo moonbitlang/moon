@@ -577,13 +577,12 @@ fn run_interactive() -> anyhow::Result<()> {
     }
 }
 
-fn initialize_v8() -> anyhow::Result<()> {
+fn initialize_v8() {
     v8::V8::set_flags_from_string("--experimental-wasm-exnref");
     v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
     let platform = v8::new_default_platform(0, false).make_shared();
     v8::V8::initialize_platform(platform);
     v8::V8::initialize();
-    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -595,7 +594,7 @@ fn main() -> anyhow::Result<()> {
     let matches = Commandline::parse();
 
     if matches.interactive {
-        initialize_v8()?;
+        initialize_v8();
         run_interactive()
     } else {
         let file = matches.path.as_ref().unwrap();
@@ -610,7 +609,7 @@ fn main() -> anyhow::Result<()> {
 
         match file.extension().unwrap().to_str() {
             Some("wasm") => {
-                initialize_v8()?;
+                initialize_v8();
                 wasm_mode(
                     Source::File(file),
                     &matches.args,

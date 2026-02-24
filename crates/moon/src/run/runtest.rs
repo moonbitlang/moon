@@ -591,7 +591,7 @@ fn run_one_test_executable(
         ctx.build_meta.target_backend,
         test.executable,
         Some(&test_args),
-    )?;
+    );
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if ctx.verbose {

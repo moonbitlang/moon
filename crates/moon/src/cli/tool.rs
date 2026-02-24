@@ -51,6 +51,6 @@ pub(crate) fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Res
         ToolSubcommands::BuildBinaryDep(subcmd) => {
             build_binary_dep::run_build_binary_dep(cli, &subcmd)
         }
-        ToolSubcommands::Demangle(subcmd) => run_demangle(subcmd),
+        ToolSubcommands::Demangle(subcmd) => Ok(run_demangle(subcmd)),
     }
 }

@@ -20,10 +20,7 @@ use crate::special_cases::CORE_MODULE_TUPLE;
 use moonutil::mooncakes::result::ResolvedEnv;
 use tracing::{info, instrument, warn};
 
-use crate::{
-    discover::{DiscoverError, DiscoverResult},
-    pkg_name::PackagePath,
-};
+use crate::{discover::DiscoverResult, pkg_name::PackagePath};
 
 /// Inject `moonbitlang/core/coverage` contents into `moonbitlang/core/builtin`
 /// so builtin is effectively augmented with coverage sources during discovery.
@@ -32,10 +29,7 @@ use crate::{
 /// downstream compilation/linking sees coverage alongside builtin without
 /// additional per-target import wiring.
 #[instrument(skip_all)]
-pub fn inject_core_coverage_into_builtin(
-    env: &ResolvedEnv,
-    res: &mut DiscoverResult,
-) -> Result<(), DiscoverError> {
+pub fn inject_core_coverage_into_builtin(env: &ResolvedEnv, res: &mut DiscoverResult) {
     // Only proceed if we have a stdlib module locally
     let Some(&stdlib) = env
         .input_module_ids()
@@ -45,13 +39,13 @@ pub fn inject_core_coverage_into_builtin(
         info!(
             "No standard library injected and no local core module found, skipping coverage->builtin injection"
         );
-        return Ok(());
+        return;
     };
 
     // Resolve coverage and builtin package ids within stdlib module
     let Some(map) = res.packages_for_module(stdlib) else {
         // No packages for stdlib; nothing to do
-        return Ok(());
+        return;
     };
 
     let builtin_path = PackagePath::new("builtin").expect("builtin is a valid package path");
@@ -59,11 +53,11 @@ pub fn inject_core_coverage_into_builtin(
 
     let Some(&builtin_id) = map.get(&builtin_path) else {
         warn!("No builtin package found in core module, skipping coverage->builtin injection");
-        return Ok(());
+        return;
     };
     let Some(&coverage_id) = map.get(&coverage_path) else {
         warn!("No coverage package found in core module, skipping coverage->builtin injection");
-        return Ok(());
+        return;
     };
 
     // Clone coverage source files into builtin
@@ -73,6 +67,4 @@ pub fn inject_core_coverage_into_builtin(
     // Merge .mbt source files
     builtin.source_files.extend(coverage_files);
     builtin.source_files.sort();
-
-    Ok(())
 }

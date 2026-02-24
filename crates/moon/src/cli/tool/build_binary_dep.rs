@@ -103,7 +103,7 @@ pub(crate) fn run_build_binary_dep(
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-        get_linkable_pkgs_for_bin_dep(&resolve_output, packages.values().cloned(), default_backend)?
+        get_linkable_pkgs_for_bin_dep(&resolve_output, packages.values().cloned(), default_backend)
     } else {
         let mut result_pkgs = vec![];
         for pkg_name in cmd.pkg_names.iter() {
@@ -165,7 +165,7 @@ fn get_linkable_pkgs_for_bin_dep(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     packages: impl Iterator<Item = PackageId>,
     default_backend: TargetBackend,
-) -> anyhow::Result<Vec<(PackageId, TargetBackend)>> {
+) -> Vec<(PackageId, TargetBackend)> {
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
@@ -173,7 +173,7 @@ fn get_linkable_pkgs_for_bin_dep(
 
         add_bin_dep(&mut linkable_pkgs, pkg_id, pkg, pkg_bin_target);
     }
-    Ok(linkable_pkgs)
+    linkable_pkgs
 }
 
 fn add_bin_dep(
@@ -213,7 +213,7 @@ fn install_build_rr(
         .context("RR build should yield exactly one artifact file")?;
 
     // Build command using existing runtime mapping, then shlex-join
-    let guard = crate::run::command_for(meta.target_backend, artifact, None)?;
+    let guard = crate::run::command_for(meta.target_backend, artifact, None);
     let parts = std::iter::once(guard.as_std().get_program())
         .chain(guard.as_std().get_args())
         .map(|x| x.to_string_lossy().to_string())
