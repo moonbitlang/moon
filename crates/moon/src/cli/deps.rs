@@ -30,10 +30,16 @@ use moonutil::{
 use super::UniversalFlags;
 use super::install_binary::{
     GitRef, install_binary, install_from_git, install_from_local, is_git_url, is_local_path,
-    parse_package_spec,
+    list_installed_binaries, parse_package_spec,
 };
 
 pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
+    let install_dir = cmd.bin.clone().unwrap_or_else(moon_dir::bin);
+
+    if cmd.list {
+        return list_installed_binaries(&install_dir, cli.quiet);
+    }
+
     // If no package path and no local path, use legacy behavior
     if cmd.package_path.is_none() && cmd.path.is_none() {
         eprintln!(
@@ -54,7 +60,6 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         );
     }
 
-    let install_dir = cmd.bin.unwrap_or_else(moon_dir::bin);
     let has_git_ref = cmd.rev.is_some() || cmd.branch.is_some() || cmd.tag.is_some();
 
     // Explicit --path takes priority

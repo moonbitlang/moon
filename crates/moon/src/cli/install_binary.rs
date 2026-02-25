@@ -27,10 +27,16 @@ use mooncake::registry::{OnlineRegistry, Registry};
 use moonutil::{
     cli::UniversalFlags,
     common::{FileLock, RunMode, TargetBackend},
-    mooncakes::{ModuleName, RegistryConfig},
+    mooncakes::{DEFAULT_VERSION, ModuleName, RegistryConfig},
 };
 use semver::Version;
-use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs::File,
+    io::{BufReader, BufWriter, Write},
+    path::{Path, PathBuf},
+};
 
 use crate::{
     cli::BuildFlags,
@@ -57,6 +63,58 @@ enum PackageFilter {
 }
 
 const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
+const INSTALL_RECEIPTS_FILE: &str = ".moon-install-receipts.json";
+const INSTALL_RECEIPTS_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone)]
+struct InstallMetadata {
+    module_name: ModuleName,
+    module_version: Version,
+    source_kind: InstallSourceKind,
+    source_ref: Option<String>,
+    git_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum InstallSourceKind {
+    Registry,
+    Local,
+    Git,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct InstallReceiptEntry {
+    /// Logical command name shown to users (no platform suffix).
+    binary_name: String,
+    /// On-disk executable filename used for overwrite/upsert identity.
+    /// On Windows this includes `.exe`, while `binary_name` does not.
+    executable_name: String,
+    module_name: String,
+    module_version: String,
+    package_path: String,
+    source_kind: InstallSourceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    git_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct InstallReceiptFile {
+    schema_version: u32,
+    #[serde(default)]
+    entries: Vec<InstallReceiptEntry>,
+}
+
+impl Default for InstallReceiptFile {
+    fn default() -> Self {
+        Self {
+            schema_version: INSTALL_RECEIPTS_SCHEMA_VERSION,
+            entries: Vec::new(),
+        }
+    }
+}
 
 /// Check if a string looks like a git URL.
 pub(super) fn is_git_url(s: &str) -> bool {
@@ -119,6 +177,116 @@ pub(super) fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
         version,
         is_wildcard,
     })
+}
+
+fn install_receipts_path(install_dir: &Path) -> PathBuf {
+    install_dir.join(INSTALL_RECEIPTS_FILE)
+}
+
+fn load_install_receipts(install_dir: &Path) -> anyhow::Result<InstallReceiptFile> {
+    let receipts_path = install_receipts_path(install_dir);
+    if !receipts_path.exists() {
+        return Ok(InstallReceiptFile::default());
+    }
+
+    let reader = BufReader::new(
+        File::open(&receipts_path)
+            .with_context(|| format!("Failed to open `{}`", receipts_path.display()))?,
+    );
+    let receipts: InstallReceiptFile = serde_json_lenient::from_reader(reader)
+        .with_context(|| format!("Failed to parse `{}`", receipts_path.display()))?;
+
+    if receipts.schema_version != INSTALL_RECEIPTS_SCHEMA_VERSION {
+        bail!(
+            "Unsupported install receipt schema version {} in `{}`",
+            receipts.schema_version,
+            receipts_path.display()
+        );
+    }
+
+    Ok(receipts)
+}
+
+fn save_install_receipts(install_dir: &Path, receipts: &InstallReceiptFile) -> anyhow::Result<()> {
+    std::fs::create_dir_all(install_dir).with_context(|| {
+        format!(
+            "Failed to create install directory `{}`",
+            install_dir.display()
+        )
+    })?;
+
+    let receipts_path = install_receipts_path(install_dir);
+    let file = File::create(&receipts_path)
+        .with_context(|| format!("Failed to create `{}`", receipts_path.display()))?;
+    let mut writer = BufWriter::new(file);
+    serde_json_lenient::to_writer_pretty(&mut writer, receipts)
+        .with_context(|| format!("Failed to write `{}`", receipts_path.display()))?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
+    Ok(())
+}
+
+fn record_install_entry(install_dir: &Path, entry: InstallReceiptEntry) -> anyhow::Result<()> {
+    let mut receipts = load_install_receipts(install_dir)?;
+    // Upsert by on-disk filename because that is what can be overwritten.
+    if let Some(existing) = receipts
+        .entries
+        .iter_mut()
+        .find(|existing| existing.executable_name == entry.executable_name)
+    {
+        *existing = entry;
+    } else {
+        receipts.entries.push(entry);
+    }
+    save_install_receipts(install_dir, &receipts)
+}
+
+fn format_receipt_header(entry: &InstallReceiptEntry) -> String {
+    let base = format!("{} v{}", entry.module_name, entry.module_version);
+    match entry.source_kind {
+        InstallSourceKind::Registry => base,
+        InstallSourceKind::Local => match &entry.source_ref {
+            Some(source_ref) => format!("{base} ({source_ref})"),
+            None => base,
+        },
+        InstallSourceKind::Git => match (&entry.source_ref, &entry.git_ref) {
+            (Some(source_ref), Some(git_ref)) => format!("{base} ({source_ref}#{git_ref})"),
+            (Some(source_ref), None) => format!("{base} ({source_ref})"),
+            (None, Some(git_ref)) => format!("{base} ({git_ref})"),
+            (None, None) => base,
+        },
+    }
+}
+
+fn format_install_receipt_list(receipts: &InstallReceiptFile) -> String {
+    let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for entry in &receipts.entries {
+        groups
+            .entry(format_receipt_header(entry))
+            .or_default()
+            .insert(entry.binary_name.clone());
+    }
+
+    let mut out = String::new();
+    for (header, binaries) in groups {
+        out.push_str(&header);
+        out.push_str(":\n");
+        for binary in binaries {
+            out.push_str("    ");
+            out.push_str(&binary);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+pub(super) fn list_installed_binaries(install_dir: &Path, quiet: bool) -> anyhow::Result<i32> {
+    let receipts = load_install_receipts(install_dir)?;
+    let out = format_install_receipt_list(&receipts);
+    if !quiet && !out.is_empty() {
+        print!("{out}");
+    }
+    Ok(0)
 }
 
 /// Install a binary package from the registry.
@@ -190,7 +358,15 @@ pub(super) fn install_binary(
         PackageFilter::ByPackagePath(spec.package_path.clone().unwrap_or_default())
     };
 
-    build_and_install_packages(cli, &spec.module_name, module_dir, install_dir, filter)
+    let metadata = InstallMetadata {
+        module_name: spec.module_name.clone(),
+        module_version: version,
+        source_kind: InstallSourceKind::Registry,
+        source_ref: Some(registry_config.registry),
+        git_ref: None,
+    };
+
+    build_and_install_packages(cli, module_dir, install_dir, filter, &metadata)
 }
 
 /// Install from a local path.
@@ -216,6 +392,10 @@ pub(super) fn install_from_local(
 
     let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let module_version = module
+        .version
+        .clone()
+        .unwrap_or_else(|| DEFAULT_VERSION.clone());
 
     let filter = if input_path == module_root {
         PackageFilter::Wildcard {
@@ -225,10 +405,19 @@ pub(super) fn install_from_local(
         PackageFilter::ByPath(input_path)
     };
 
-    build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
+    let metadata = InstallMetadata {
+        module_name,
+        module_version,
+        source_kind: InstallSourceKind::Local,
+        source_ref: Some(module_root.display().to_string()),
+        git_ref: None,
+    };
+
+    build_and_install_packages(cli, &module_root, install_dir, filter, &metadata)
 }
 
 /// Git reference type for checkout.
+#[derive(Clone, Copy)]
 pub(super) enum GitRef<'a> {
     /// Checkout a specific revision (commit hash)
     Rev(&'a str),
@@ -238,6 +427,17 @@ pub(super) enum GitRef<'a> {
     Tag(&'a str),
     /// Use default branch
     Default,
+}
+
+impl<'a> GitRef<'a> {
+    fn as_receipt_ref(self) -> Option<String> {
+        match self {
+            GitRef::Rev(rev) => Some(format!("rev:{rev}")),
+            GitRef::Branch(branch) => Some(format!("branch:{branch}")),
+            GitRef::Tag(tag) => Some(format!("tag:{tag}")),
+            GitRef::Default => Some("default".to_string()),
+        }
+    }
 }
 
 /// Install from a git repository.
@@ -324,6 +524,10 @@ pub(super) fn install_from_git(
 
     let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let module_version = module
+        .version
+        .clone()
+        .unwrap_or_else(|| DEFAULT_VERSION.clone());
 
     let is_module_root = target_path == module_root;
     let is_wildcard = package_path
@@ -346,16 +550,24 @@ pub(super) fn install_from_git(
         )
     };
 
-    build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
+    let metadata = InstallMetadata {
+        module_name,
+        module_version,
+        source_kind: InstallSourceKind::Git,
+        source_ref: Some(git_url.to_string()),
+        git_ref: git_ref.as_receipt_ref(),
+    };
+
+    build_and_install_packages(cli, &module_root, install_dir, filter, &metadata)
 }
 
 /// Build matching packages and install binaries using RR build engine.
 fn build_and_install_packages(
     cli: &UniversalFlags,
-    module_name: &ModuleName,
     module_dir: &Path,
     install_dir: &Path,
     filter: PackageFilter,
+    metadata: &InstallMetadata,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
 
@@ -409,20 +621,23 @@ fn build_and_install_packages(
             }
             PackageFilter::Wildcard { prefix } => {
                 if prefix.is_empty() {
-                    bail!("No main packages found in module `{}`", module_name);
+                    bail!(
+                        "No main packages found in module `{}`",
+                        metadata.module_name
+                    );
                 } else {
                     bail!(
                         "No main packages found matching pattern `{}/{}/...`",
-                        module_name,
+                        metadata.module_name,
                         prefix
                     );
                 }
             }
             PackageFilter::ByPackagePath(target) => {
                 let full_name = if target.is_empty() {
-                    module_name.to_string()
+                    metadata.module_name.to_string()
                 } else {
-                    format!("{}/{}", module_name, target)
+                    format!("{}/{}", metadata.module_name, target)
                 };
                 bail!(
                     "Package `{}` not found or is not a main package (is-main: true required)",
@@ -441,7 +656,7 @@ fn build_and_install_packages(
             .rsplit('/')
             .next()
             .filter(|s| !s.is_empty())
-            .unwrap_or(&module_name.unqual)
+            .unwrap_or(&metadata.module_name.unqual)
             .to_string();
 
         // Check if binary name would overwrite a reserved toolchain binary
@@ -455,9 +670,9 @@ fn build_and_install_packages(
         }
 
         let full_pkg_name = if pkg_path.is_empty() {
-            module_name.to_string()
+            metadata.module_name.to_string()
         } else {
-            format!("{}/{}", module_name, pkg_path)
+            format!("{}/{}", metadata.module_name, pkg_path)
         };
 
         if !quiet {
@@ -512,7 +727,7 @@ fn build_and_install_packages(
         } else {
             binary_name.clone()
         };
-        let binary_dst = install_dir.join(dst_name);
+        let binary_dst = install_dir.join(&dst_name);
 
         std::fs::copy(&binary_src, &binary_dst).with_context(|| {
             format!(
@@ -529,6 +744,20 @@ fn build_and_install_packages(
             perms.set_mode(0o755);
             std::fs::set_permissions(&binary_dst, perms)?;
         }
+
+        record_install_entry(
+            install_dir,
+            InstallReceiptEntry {
+                binary_name: binary_name.clone(),
+                executable_name: dst_name,
+                module_name: metadata.module_name.to_string(),
+                module_version: metadata.module_version.to_string(),
+                package_path: pkg_path.clone(),
+                source_kind: metadata.source_kind.clone(),
+                source_ref: metadata.source_ref.clone(),
+                git_ref: metadata.git_ref.clone(),
+            },
+        )?;
 
         if !quiet {
             eprintln!(
@@ -660,5 +889,84 @@ mod tests {
 
         // Invalid version
         assert!(parse_package_spec("user/module@invalid").is_err());
+    }
+
+    #[test]
+    fn test_record_install_entry_upserts_by_executable_name() {
+        let install_dir = tempfile::tempdir().unwrap();
+        let install_dir = install_dir.path();
+
+        let old_entry = InstallReceiptEntry {
+            binary_name: "hello".to_string(),
+            executable_name: "hello".to_string(),
+            module_name: "author/pkg".to_string(),
+            module_version: "0.1.0".to_string(),
+            package_path: "main".to_string(),
+            source_kind: InstallSourceKind::Registry,
+            source_ref: Some("https://mooncakes.io".to_string()),
+            git_ref: None,
+        };
+        record_install_entry(install_dir, old_entry).unwrap();
+
+        let new_entry = InstallReceiptEntry {
+            binary_name: "hello".to_string(),
+            executable_name: "hello".to_string(),
+            module_name: "author/pkg".to_string(),
+            module_version: "0.2.0".to_string(),
+            package_path: "main".to_string(),
+            source_kind: InstallSourceKind::Registry,
+            source_ref: Some("https://mooncakes.io".to_string()),
+            git_ref: None,
+        };
+        record_install_entry(install_dir, new_entry).unwrap();
+
+        let receipts = load_install_receipts(install_dir).unwrap();
+        assert_eq!(receipts.entries.len(), 1);
+        assert_eq!(receipts.entries[0].module_version, "0.2.0");
+    }
+
+    #[test]
+    fn test_format_install_receipt_list_groups_and_sorts() {
+        let receipts = InstallReceiptFile {
+            schema_version: INSTALL_RECEIPTS_SCHEMA_VERSION,
+            entries: vec![
+                InstallReceiptEntry {
+                    binary_name: "main-js".to_string(),
+                    executable_name: "main-js".to_string(),
+                    module_name: "zed/mod".to_string(),
+                    module_version: "1.2.3".to_string(),
+                    package_path: "main-js".to_string(),
+                    source_kind: InstallSourceKind::Local,
+                    source_ref: Some("/tmp/zed".to_string()),
+                    git_ref: None,
+                },
+                InstallReceiptEntry {
+                    binary_name: "main-native".to_string(),
+                    executable_name: "main-native".to_string(),
+                    module_name: "zed/mod".to_string(),
+                    module_version: "1.2.3".to_string(),
+                    package_path: "main-native".to_string(),
+                    source_kind: InstallSourceKind::Local,
+                    source_ref: Some("/tmp/zed".to_string()),
+                    git_ref: None,
+                },
+                InstallReceiptEntry {
+                    binary_name: "tool".to_string(),
+                    executable_name: "tool".to_string(),
+                    module_name: "abc/pkg".to_string(),
+                    module_version: "0.1.0".to_string(),
+                    package_path: "tool".to_string(),
+                    source_kind: InstallSourceKind::Git,
+                    source_ref: Some("https://example.com/repo.git".to_string()),
+                    git_ref: Some("branch:main".to_string()),
+                },
+            ],
+        };
+
+        let out = format_install_receipt_list(&receipts);
+        assert_eq!(
+            out,
+            "abc/pkg v0.1.0 (https://example.com/repo.git#branch:main):\n    tool\nzed/mod v1.2.3 (/tmp/zed):\n    main-js\n    main-native\n"
+        );
     }
 }
