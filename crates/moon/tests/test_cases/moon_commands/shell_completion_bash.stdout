@@ -1931,7 +1931,7 @@ _moon() {
             return 0
             ;;
         moon__install)
-            opts="-q -v -h --bin --path --rev --branch --tag --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PACKAGE_PATH] [PACKAGE_PATH_IN_REPO]"
+            opts="-q -v -h --bin --list --path --rev --branch --tag --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PACKAGE_PATH] [PACKAGE_PATH_IN_REPO]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

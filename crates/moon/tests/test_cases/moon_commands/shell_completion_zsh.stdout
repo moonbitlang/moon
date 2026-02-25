@@ -482,6 +482,7 @@ _arguments "${_arguments_options[@]}" : /
 '--tag=[Git tag to checkout (requires git URL)]:TAG: ' /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
 '--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
+'(--path --rev --branch --tag)--list[List globally installed binaries recorded by /`moon install/`]' /
 '-q[Suppress output]' /
 '--quiet[Suppress output]' /
 '-v[Increase verbosity]' /

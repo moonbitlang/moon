@@ -363,6 +363,7 @@ complete -c moon -n "__fish_moon_using_subcommand install" -l branch -d 'Git bra
 complete -c moon -n "__fish_moon_using_subcommand install" -l tag -d 'Git tag to checkout (requires git URL)' -r
 complete -c moon -n "__fish_moon_using_subcommand install" -l manifest-path -d 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand install" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
+complete -c moon -n "__fish_moon_using_subcommand install" -l list -d 'List globally installed binaries recorded by `moon install`'
 complete -c moon -n "__fish_moon_using_subcommand install" -s q -l quiet -d 'Suppress output'
 complete -c moon -n "__fish_moon_using_subcommand install" -s v -l verbose -d 'Increase verbosity'
 complete -c moon -n "__fish_moon_using_subcommand install" -l trace -d 'Trace the execution of the program'
