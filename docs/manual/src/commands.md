@@ -436,6 +436,7 @@ Install a binary package globally or install project dependencies (deprecated wi
 ###### **Options:**
 
 * `--bin <BIN>` — Specify installation directory (default: ~/.moon/bin/)
+* `--list` — List globally installed binaries recorded by `moon install`
 * `--path <PATH>` — Install from local path instead of registry
 * `--rev <REV>` — Git revision to checkout (commit hash, requires git URL)
 * `--branch <BRANCH>` — Git branch to checkout (requires git URL)
