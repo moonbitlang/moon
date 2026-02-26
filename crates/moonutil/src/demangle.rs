@@ -25,20 +25,23 @@ enum DemangledSymbol {
     Function {
         pkg: String,
         name: String,
-        nested: Vec<String>,
-        anonymous_index: Option<String>,
+        suffix_before: String,
         type_args: Option<String>,
+        suffix_after: String,
     },
     Method {
         pkg: String,
         type_name: String,
         method_name: String,
+        suffix_before: String,
         type_args: Option<String>,
+        suffix_after: String,
     },
     TraitImplMethod {
         impl_type: TypePath,
         trait_type: TypePath,
         method_name: String,
+        fn_suffix: String,
         type_args: Option<String>,
     },
     ExtensionMethod {
@@ -46,7 +49,9 @@ enum DemangledSymbol {
         type_name: String,
         method_pkg: String,
         method_name: String,
+        suffix_before: String,
         type_args: Option<String>,
+        suffix_after: String,
     },
     Type {
         type_path: TypePath,
@@ -113,36 +118,17 @@ fn parse_mangled_symbol(func_name: &str) -> Option<(DemangledSymbol, usize)> {
 
 fn parse_function_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (pkg, pkg_end) = parse_package(s, i)?;
-    let (name, mut j) = parse_identifier(s, pkg_end)?;
-    let mut nested = Vec::new();
-
-    while byte_at(s, j) == Some(b'N') {
-        let (nested_name, nested_end) = parse_identifier(s, j + 1)?;
-        nested.push(nested_name);
-        j = nested_end;
-    }
-
-    let mut anonymous_index = None;
-    if byte_at(s, j) == Some(b'C') {
-        j += 1;
-        let start = j;
-        while byte_at(s, j).is_some_and(is_digit) {
-            j += 1;
-        }
-        if start == j {
-            return None;
-        }
-        anonymous_index = Some(s[start..j].to_string());
-    }
-
+    let (name, j) = parse_identifier(s, pkg_end)?;
+    let (suffix_before, j) = parse_fn_suffix_text(s, j)?;
     let (type_args, j) = parse_optional_type_args_text(s, j)?;
+    let (suffix_after, j) = parse_fn_suffix_text(s, j)?;
     Some((
         DemangledSymbol::Function {
             pkg,
             name,
-            nested,
-            anonymous_index,
+            suffix_before,
             type_args,
+            suffix_after,
         },
         j,
     ))
@@ -152,14 +138,18 @@ fn parse_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let (pkg, pkg_end) = parse_package(s, i)?;
     let (type_name, type_end) = parse_identifier(s, pkg_end)?;
     let (method_name, method_end) = parse_identifier(s, type_end)?;
-    let (type_args, j) = parse_optional_type_args_text(s, method_end)?;
+    let (suffix_before, j) = parse_fn_suffix_text(s, method_end)?;
+    let (type_args, j) = parse_optional_type_args_text(s, j)?;
+    let (suffix_after, j) = parse_fn_suffix_text(s, j)?;
 
     Some((
         DemangledSymbol::Method {
             pkg,
             type_name,
             method_name,
+            suffix_before,
             type_args,
+            suffix_after,
         },
         j,
     ))
@@ -169,13 +159,18 @@ fn parse_trait_impl_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol,
     let (impl_type, impl_end) = parse_type_path(s, i, false)?;
     let (trait_type, trait_end) = parse_type_path(s, impl_end, false)?;
     let (method_name, method_end) = parse_identifier(s, trait_end)?;
-    let (type_args, j) = parse_optional_type_args_text(s, method_end)?;
+    let (suffix_before, j) = parse_fn_suffix_text(s, method_end)?;
+    let (type_args, j) = parse_optional_type_args_text(s, j)?;
+    let (suffix_after, j) = parse_fn_suffix_text(s, j)?;
+    let mut fn_suffix = suffix_before;
+    fn_suffix.push_str(&suffix_after);
 
     Some((
         DemangledSymbol::TraitImplMethod {
             impl_type,
             trait_type,
             method_name,
+            fn_suffix,
             type_args,
         },
         j,
@@ -187,7 +182,9 @@ fn parse_extension_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, 
     let (type_name, type_name_end) = parse_identifier(s, type_pkg_end)?;
     let (method_pkg, method_pkg_end) = parse_package(s, type_name_end)?;
     let (method_name, method_name_end) = parse_identifier(s, method_pkg_end)?;
-    let (type_args, j) = parse_optional_type_args_text(s, method_name_end)?;
+    let (suffix_before, j) = parse_fn_suffix_text(s, method_name_end)?;
+    let (type_args, j) = parse_optional_type_args_text(s, j)?;
+    let (suffix_after, j) = parse_fn_suffix_text(s, j)?;
 
     Some((
         DemangledSymbol::ExtensionMethod {
@@ -195,7 +192,9 @@ fn parse_extension_method_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, 
             type_name,
             method_pkg,
             method_name,
+            suffix_before,
             type_args,
+            suffix_after,
         },
         j,
     ))
@@ -229,6 +228,65 @@ fn parse_local_symbol(s: &str, i: usize) -> Option<(DemangledSymbol, usize)> {
     let stamp = s[stamp_start..j].to_string();
 
     Some((DemangledSymbol::Local { ident, stamp }, j))
+}
+
+fn parse_fn_suffix_text(s: &str, mut i: usize) -> Option<(String, usize)> {
+    let mut suffix = String::new();
+
+    while byte_at(s, i) == Some(b'N') {
+        let (nested_name, nested_end) = parse_identifier(s, i + 1)?;
+        suffix.push('.');
+        suffix.push_str(&nested_name);
+        i = nested_end;
+
+        if byte_at(s, i) != Some(b'S') {
+            return None;
+        }
+        i += 1;
+        if !byte_at(s, i).is_some_and(is_digit) {
+            return None;
+        }
+        let stamp_start = i;
+        while byte_at(s, i).is_some_and(is_digit) {
+            i += 1;
+        }
+        suffix.push_str("[stamp=");
+        suffix.push_str(&s[stamp_start..i]);
+        suffix.push(']');
+    }
+
+    if byte_at(s, i) == Some(b'C') {
+        i += 1;
+
+        if !byte_at(s, i).is_some_and(is_digit) {
+            return None;
+        }
+        let uuid_start = i;
+        while byte_at(s, i).is_some_and(is_digit) {
+            i += 1;
+        }
+
+        suffix.push_str(".anonymous[uuid=");
+        suffix.push_str(&s[uuid_start..i]);
+
+        // New schema carries optional line info as `l<line>`.
+        if byte_at(s, i) == Some(b'l') {
+            i += 1;
+            let line_start = i;
+            if !byte_at(s, i).is_some_and(is_digit) {
+                return None;
+            }
+            while byte_at(s, i).is_some_and(is_digit) {
+                i += 1;
+            }
+
+            suffix.push_str(",line=");
+            suffix.push_str(&s[line_start..i]);
+        }
+        suffix.push(']');
+    }
+
+    Some((suffix, i))
 }
 
 fn parse_type_path(s: &str, i: usize, omit_core_prefix: bool) -> Option<(TypePath, usize)> {
@@ -362,39 +420,41 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
         DemangledSymbol::Function {
             pkg,
             name,
-            nested,
-            anonymous_index,
+            suffix_before,
             type_args,
+            suffix_after,
         } => {
-            let mut text = format!("@{}{}", dot_prefix(pkg), name);
-            for nested_name in nested {
-                text.push('.');
-                text.push_str(nested_name);
-            }
-            if let Some(idx) = anonymous_index {
-                text.push_str(&format!(".{idx} (the {idx}-th anonymous-function)"));
-            }
+            let mut text = format!("@{}{}{suffix_before}", dot_prefix(pkg), name);
             if let Some(type_args) = type_args {
                 text.push_str(type_args);
             }
+            text.push_str(suffix_after);
             text
         }
         DemangledSymbol::Method {
             pkg,
             type_name,
             method_name,
+            suffix_before,
             type_args,
+            suffix_after,
         } => {
-            let mut text = format!("@{}{}::{method_name}", dot_prefix(pkg), type_name);
+            let mut text = format!(
+                "@{}{}::{method_name}{suffix_before}",
+                dot_prefix(pkg),
+                type_name
+            );
             if let Some(type_args) = type_args {
                 text.push_str(type_args);
             }
+            text.push_str(suffix_after);
             text
         }
         DemangledSymbol::TraitImplMethod {
             impl_type,
             trait_type,
             method_name,
+            fn_suffix,
             type_args,
         } => {
             let mut text = format!(
@@ -405,7 +465,7 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
             if let Some(type_args) = type_args {
                 text.push_str(type_args);
             }
-            text.push_str(&format!(" with {method_name}"));
+            text.push_str(&format!(" with {method_name}{fn_suffix}"));
             text
         }
         DemangledSymbol::ExtensionMethod {
@@ -413,7 +473,9 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
             type_name,
             method_pkg,
             method_name,
+            suffix_before,
             type_args,
+            suffix_after,
         } => {
             let type_pkg_use = if is_core_package(type_pkg) {
                 ""
@@ -421,7 +483,7 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
                 type_pkg
             };
             let mut text = format!(
-                "@{}{}{}::{method_name}",
+                "@{}{}{}::{method_name}{suffix_before}",
                 dot_prefix(method_pkg),
                 dot_prefix(type_pkg_use),
                 type_name
@@ -429,6 +491,7 @@ fn render_symbol(symbol: &DemangledSymbol) -> String {
             if let Some(type_args) = type_args {
                 text.push_str(type_args);
             }
+            text.push_str(suffix_after);
             text
         }
         DemangledSymbol::Type { type_path } => render_type_path(type_path),
@@ -643,11 +706,19 @@ mod tests {
         );
         assert_eq!(
             demangle_mangled_function_name("_M0FP15myapp5outerN5inner"),
-            "@myapp.outer.inner"
+            "_M0FP15myapp5outerN5inner"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp5outerN5innerS42"),
+            "@myapp.outer.inner[stamp=42]"
         );
         assert_eq!(
             demangle_mangled_function_name("_M0FP15myapp5outerC0"),
-            "@myapp.outer.0 (the 0-th anonymous-function)"
+            "@myapp.outer.anonymous[uuid=0]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp5outerC245l10"),
+            "@myapp.outer.anonymous[uuid=245,line=10]"
         );
         assert_eq!(
             demangle_mangled_function_name("_M0TP15myapp5outerL5Local"),
@@ -759,6 +830,14 @@ mod tests {
             "@Type::bar"
         );
         assert_eq!(
+            demangle_mangled_function_name("_M0MP04Type3barN5innerS7"),
+            "@Type::bar.inner[stamp=7]"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP13pkg3fooN5innerS1GiEC2"),
+            "@pkg.foo.inner[stamp=1][Int].anonymous[uuid=2]"
+        );
+        assert_eq!(
             demangle_mangled_function_name("_M0FP13pkg3foo$closure.data"),
             "@pkg.foo"
         );
@@ -790,6 +869,14 @@ mod tests {
         assert_eq!(
             demangle_mangled_function_name("_M0FP15myapp7try_mapGiE"),
             "_M0FP15myapp7try_mapGiE"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp5outerCu245"),
+            "_M0FP15myapp5outerCu245"
+        );
+        assert_eq!(
+            demangle_mangled_function_name("_M0FP15myapp5outerC245l10c1_l10c2"),
+            "_M0FP15myapp5outerC245l10c1_l10c2"
         );
         assert_eq!(
             demangle_mangled_function_name(

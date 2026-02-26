@@ -147,7 +147,7 @@ RuntimeError: unreachable
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
     at @moonbitlang/core/builtin.abort[Int] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
-    at @username/hello/main.abort_via_closure.inner/[..] [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
@@ -198,7 +198,7 @@ fn test_moonrun_wasm_stack_trace_in_test_blocks() {
     at throw
     at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:[..]
     at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:[..]
-    at @username/hello/main.abort_via_closure.inner/[..] [..]/main/main.mbt:[..]
+    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt:[..]
     at @username/hello/main.abort_via_closure [..]/main/main.mbt:[..]
     at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt:[..]
     at @username/hello/main.__test_6d61696e2e6d6274_2.dyncall

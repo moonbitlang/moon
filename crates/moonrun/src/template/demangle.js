@@ -20,9 +20,9 @@
  *   kind: "Function",
  *   pkg: string,
  *   name: string,
- *   nested: string[],
- *   anonIndex: string | null,
+ *   suffixBefore: string,
  *   typeArgs: string | null,
+ *   suffixAfter: string,
  * }} FunctionSymbolAst */
 
 /** @typedef {{
@@ -30,7 +30,9 @@
  *   pkg: string,
  *   typeName: string,
  *   methodName: string,
+ *   suffixBefore: string,
  *   typeArgs: string | null,
+ *   suffixAfter: string,
  * }} MethodSymbolAst */
 
 /** @typedef {{
@@ -38,6 +40,7 @@
  *   implType: TypePathAst,
  *   traitType: TypePathAst,
  *   methodName: string,
+ *   fnSuffix: string,
  *   typeArgs: string | null,
  * }} TraitImplMethodSymbolAst */
 
@@ -47,7 +50,9 @@
  *   typeName: string,
  *   methodPkg: string,
  *   methodName: string,
+ *   suffixBefore: string,
  *   typeArgs: string | null,
+ *   suffixAfter: string,
  * }} ExtensionMethodSymbolAst */
 
 /** @typedef {{
@@ -376,6 +381,41 @@ function moonbitParseDigits(s, i) {
     return [digits, i + digits.length];
 }
 
+/** @param {string} s @param {number} i @returns {StringParseResult} */
+function moonbitParseFnSuffixText(s, i) {
+    let j = i;
+    let suffix = "";
+
+    while (s[j] === "N") {
+        const nestedParsed = moonbitParseIdentifier(s, j + 1);
+        suffix += `.${nestedParsed[0]}`;
+        j = nestedParsed[1];
+
+        if (s[j] !== "S") {
+            throw moonbitDemangleError();
+        }
+        const stampParsed = moonbitParseDigits(s, j + 1);
+        suffix += `[stamp=${stampParsed[0]}]`;
+        j = stampParsed[1];
+    }
+
+    if (s[j] === "C") {
+        j += 1;
+        const uuidParsed = moonbitParseDigits(s, j);
+        j = uuidParsed[1];
+        suffix += `.anonymous[uuid=${uuidParsed[0]}`;
+
+        if (s[j] === "l") {
+            const lineParsed = moonbitParseDigits(s, j + 1);
+            suffix += `,line=${lineParsed[0]}`;
+            j = lineParsed[1];
+        }
+        suffix += "]";
+    }
+
+    return [suffix, j];
+}
+
 /** @param {string} s @param {number} i @returns {FunctionSymbolParseResult} */
 function moonbitParseFunctionSymbol(s, i) {
     const pkgParsed = moonbitParsePackage(s, i);
@@ -386,25 +426,17 @@ function moonbitParseFunctionSymbol(s, i) {
     const name = nameParsed[0];
     j = nameParsed[1];
 
-    const nested = [];
-    while (s[j] === "N") {
-        const parsed = moonbitParseIdentifier(s, j + 1);
-        nested.push(parsed[0]);
-        j = parsed[1];
-    }
-
-    let anonIndex = null;
-    if (s[j] === "C") {
-        const parsed = moonbitParseDigits(s, j + 1);
-        anonIndex = parsed[0];
-        j = parsed[1];
-    }
-
+    const suffixBeforeParsed = moonbitParseFnSuffixText(s, j);
+    const suffixBefore = suffixBeforeParsed[0];
+    j = suffixBeforeParsed[1];
     const argsParsed = moonbitParseOptionalTypeArgsText(s, j);
     const typeArgs = argsParsed[0];
     j = argsParsed[1];
+    const suffixAfterParsed = moonbitParseFnSuffixText(s, j);
+    const suffixAfter = suffixAfterParsed[0];
+    j = suffixAfterParsed[1];
 
-    return [{ kind: "Function", pkg, name, nested, anonIndex, typeArgs }, j];
+    return [{ kind: "Function", pkg, name, suffixBefore, typeArgs, suffixAfter }, j];
 }
 
 /** @param {string} s @param {number} i @returns {MethodSymbolParseResult} */
@@ -421,11 +453,17 @@ function moonbitParseMethodSymbol(s, i) {
     const methodName = methodParsed[0];
     j = methodParsed[1];
 
+    const suffixBeforeParsed = moonbitParseFnSuffixText(s, j);
+    const suffixBefore = suffixBeforeParsed[0];
+    j = suffixBeforeParsed[1];
     const argsParsed = moonbitParseOptionalTypeArgsText(s, j);
     const typeArgs = argsParsed[0];
     j = argsParsed[1];
+    const suffixAfterParsed = moonbitParseFnSuffixText(s, j);
+    const suffixAfter = suffixAfterParsed[0];
+    j = suffixAfterParsed[1];
 
-    return [{ kind: "Method", pkg, typeName, methodName, typeArgs }, j];
+    return [{ kind: "Method", pkg, typeName, methodName, suffixBefore, typeArgs, suffixAfter }, j];
 }
 
 /** @param {string} s @param {number} i @returns {TraitImplMethodSymbolParseResult} */
@@ -442,11 +480,18 @@ function moonbitParseTraitImplMethodSymbol(s, i) {
     const methodName = methodParsed[0];
     j = methodParsed[1];
 
+    const suffixBeforeParsed = moonbitParseFnSuffixText(s, j);
+    const suffixBefore = suffixBeforeParsed[0];
+    j = suffixBeforeParsed[1];
     const argsParsed = moonbitParseOptionalTypeArgsText(s, j);
     const typeArgs = argsParsed[0];
     j = argsParsed[1];
+    const suffixAfterParsed = moonbitParseFnSuffixText(s, j);
+    const suffixAfter = suffixAfterParsed[0];
+    j = suffixAfterParsed[1];
+    const fnSuffix = `${suffixBefore}${suffixAfter}`;
 
-    return [{ kind: "TraitImplMethod", implType, traitType, methodName, typeArgs }, j];
+    return [{ kind: "TraitImplMethod", implType, traitType, methodName, fnSuffix, typeArgs }, j];
 }
 
 /** @param {string} s @param {number} i @returns {ExtensionMethodSymbolParseResult} */
@@ -467,11 +512,20 @@ function moonbitParseExtensionMethodSymbol(s, i) {
     const methodName = methodParsed[0];
     j = methodParsed[1];
 
+    const suffixBeforeParsed = moonbitParseFnSuffixText(s, j);
+    const suffixBefore = suffixBeforeParsed[0];
+    j = suffixBeforeParsed[1];
     const argsParsed = moonbitParseOptionalTypeArgsText(s, j);
     const typeArgs = argsParsed[0];
     j = argsParsed[1];
+    const suffixAfterParsed = moonbitParseFnSuffixText(s, j);
+    const suffixAfter = suffixAfterParsed[0];
+    j = suffixAfterParsed[1];
 
-    return [{ kind: "ExtensionMethod", typePkg, typeName, methodPkg, methodName, typeArgs }, j];
+    return [
+        { kind: "ExtensionMethod", typePkg, typeName, methodPkg, methodName, suffixBefore, typeArgs, suffixAfter },
+        j,
+    ];
 }
 
 /** @param {string} s @param {number} i @returns {TypeSymbolParseResult} */
@@ -568,26 +622,21 @@ function moonbitDotPrefix(text) {
 function moonbitRenderDemangledSymbol(symbol) {
     switch (symbol.kind) {
         case "Function": {
-            const nested = symbol.nested.length === 0 ? "" : `.${symbol.nested.join(".")}`;
-            const anon =
-                symbol.anonIndex === null
-                    ? ""
-                    : `.${symbol.anonIndex} (the ${symbol.anonIndex}-th anonymous-function)`;
             const args = symbol.typeArgs ? symbol.typeArgs : "";
-            return `@${moonbitDotPrefix(symbol.pkg)}${symbol.name}${nested}${anon}${args}`;
+            return `@${moonbitDotPrefix(symbol.pkg)}${symbol.name}${symbol.suffixBefore}${args}${symbol.suffixAfter}`;
         }
         case "Method": {
             const args = symbol.typeArgs ? symbol.typeArgs : "";
-            return `@${moonbitDotPrefix(symbol.pkg)}${symbol.typeName}::${symbol.methodName}${args}`;
+            return `@${moonbitDotPrefix(symbol.pkg)}${symbol.typeName}::${symbol.methodName}${symbol.suffixBefore}${args}${symbol.suffixAfter}`;
         }
         case "TraitImplMethod": {
             const args = symbol.typeArgs ? symbol.typeArgs : "";
-            return `impl ${moonbitRenderTypePath(symbol.traitType)} for ${moonbitRenderTypePath(symbol.implType)}${args} with ${symbol.methodName}`;
+            return `impl ${moonbitRenderTypePath(symbol.traitType)} for ${moonbitRenderTypePath(symbol.implType)}${args} with ${symbol.methodName}${symbol.fnSuffix}`;
         }
         case "ExtensionMethod": {
             const typePkgUse = moonbitIsCorePackage(symbol.typePkg) ? "" : symbol.typePkg;
             const args = symbol.typeArgs ? symbol.typeArgs : "";
-            return `@${moonbitDotPrefix(symbol.methodPkg)}${moonbitDotPrefix(typePkgUse)}${symbol.typeName}::${symbol.methodName}${args}`;
+            return `@${moonbitDotPrefix(symbol.methodPkg)}${moonbitDotPrefix(typePkgUse)}${symbol.typeName}::${symbol.methodName}${symbol.suffixBefore}${args}${symbol.suffixAfter}`;
         }
         case "Type":
             return moonbitRenderTypePath(symbol.typePath);
