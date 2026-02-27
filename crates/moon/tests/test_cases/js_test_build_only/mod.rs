@@ -7,7 +7,7 @@ fn test_js_test_build_only() {
     check(
         &stdout,
         expect![[r#"
-            {"artifacts_path":["$ROOT/_build/js/debug/test/js_test_build_only.internal_test.js"]}
+            {"artifacts_path":["$ROOT/_build/js/debug/test/js_test_build_only.internal_test.js"],"test_filter_args":["{/"package/":/"js_test_build_only/",/"file_and_index/":[[/"src.mbt/",[{/"start/":0,/"end/":1}]],[/"src.mbt/",[]],[/"src.mbt/",[]],[/"src.mbt/",[]]]}"]}
         "#]],
     );
 
