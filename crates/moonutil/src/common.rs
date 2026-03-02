@@ -624,6 +624,8 @@ pub struct TestOpt {
 #[derive(serde::Serialize, Clone)]
 pub struct TestArtifacts {
     pub artifacts_path: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub test_filter_args: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, ValueEnum)]

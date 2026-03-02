@@ -419,6 +419,43 @@ fn collect_tests_by_file(
     out
 }
 
+/// Build test invocation args for one target based on metadata and CLI filter.
+///
+/// Returns `None` when the target is excluded by package-level filtering.
+pub(crate) fn build_test_args_for_target(
+    build_meta: &BuildMeta,
+    filter: &TestFilter,
+    target: BuildTarget,
+    meta: &MooncGenTestInfo,
+    include_skipped: bool,
+    bench: bool,
+) -> Option<TestArgs> {
+    let (included, file_filt) = filter.check_package(target);
+    if !included {
+        return None;
+    }
+
+    let mut test_args = TestArgs {
+        package: build_meta
+            .resolve_output
+            .pkg_dirs
+            .fqn(target.package)
+            .to_string(),
+        file_and_index: vec![],
+    };
+
+    filter::apply_filter(
+        file_filt,
+        meta,
+        &mut test_args.file_and_index,
+        include_skipped,
+        bench,
+        filter.name_filter.as_deref(),
+    );
+
+    Some(test_args)
+}
+
 #[instrument(level = "debug", skip(build_meta, filter))]
 pub(crate) fn collect_test_outline(
     build_meta: &BuildMeta,
@@ -549,18 +586,11 @@ fn run_one_test_executable(
     ctx: &TestRunCtx<'_>,
     test: &TestExecutableToRun,
 ) -> Result<TargetTestResult, anyhow::Error> {
-    let (included, file_filt) = ctx.filter.check_package(test.target);
-    if !included {
-        debug!(target = ?test.target, "skipping test executable due to filter");
-        return Ok(TargetTestResult::default());
-    }
-
     let fqn = ctx
         .build_meta
         .resolve_output
         .pkg_dirs
         .fqn(test.target.package);
-    let pkgname = fqn.to_string();
 
     // Parse test metadata
     let meta_bytes = std::fs::read(test.meta)
@@ -569,19 +599,17 @@ fn run_one_test_executable(
         .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
     trace!(path = %test.meta.display(), "loaded test metadata");
 
-    let mut test_args = TestArgs {
-        package: pkgname,
-        file_and_index: vec![],
-    };
-
-    filter::apply_filter(
-        file_filt,
+    let Some(test_args) = build_test_args_for_target(
+        ctx.build_meta,
+        ctx.filter,
+        test.target,
         &meta,
-        &mut test_args.file_and_index,
         ctx.include_skipped,
         ctx.bench,
-        ctx.filter.name_filter.as_deref(),
-    );
+    ) else {
+        debug!(target = ?test.target, "skipping test executable due to filter");
+        return Ok(TargetTestResult::default());
+    };
     trace!(
         filter_entries = test_args.file_and_index.len(),
         "applied test filter"

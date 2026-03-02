@@ -848,7 +848,13 @@ fn rr_test_from_plan(
 
     if cmd.build_only {
         // Match legacy behavior: create JS wrappers and print test artifacts as JSON
-        let test_artifacts = collect_test_artifacts_for_build_only(build_meta, target_dir)?;
+        let test_artifacts = collect_test_artifacts_for_build_only(
+            build_meta,
+            target_dir,
+            &filter,
+            cmd.include_skipped,
+            cmd.run_mode == RunMode::Bench,
+        )?;
         println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
         return Ok(0);
     }
@@ -983,11 +989,15 @@ fn rr_test_from_plan(
 fn collect_test_artifacts_for_build_only(
     build_meta: &rr_build::BuildMeta,
     target_dir: &Path,
+    filter: &TestFilter,
+    include_skipped: bool,
+    bench: bool,
 ) -> anyhow::Result<TestArtifacts> {
     use moonbuild_rupes_recta::model::RunBackend;
     use moonutil::common::MooncGenTestInfo;
 
     let mut artifacts_path = vec![];
+    let mut test_filter_args = vec![];
 
     // Gather test executables (only MakeExecutable nodes)
     for (node, node_artifacts) in &build_meta.artifacts {
@@ -1032,11 +1042,28 @@ fn collect_test_artifacts_for_build_only(
                 let _ = std::fs::write(parent.join("package.json"), "{}");
             }
 
+            let Some(test_args) = crate::run::build_test_args_for_target(
+                build_meta,
+                filter,
+                target,
+                &meta,
+                include_skipped,
+                bench,
+            ) else {
+                continue;
+            };
+            let filter_arg = serde_json::to_string(&test_args)
+                .context("failed to serialize JS test filter args")?;
+
             artifacts_path.push(executable_path.clone());
+            test_filter_args.push(filter_arg);
         } else {
             artifacts_path.push(executable_path.clone());
         }
     }
 
-    Ok(TestArtifacts { artifacts_path })
+    Ok(TestArtifacts {
+        artifacts_path,
+        test_filter_args,
+    })
 }

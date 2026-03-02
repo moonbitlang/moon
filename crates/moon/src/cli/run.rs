@@ -340,6 +340,7 @@ fn rr_run_from_plan(
             .expect("Expected exactly one executable");
         let test_artifacts = TestArtifacts {
             artifacts_path: vec![executable.clone()],
+            test_filter_args: vec![],
         };
         println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
         return Ok(0);
