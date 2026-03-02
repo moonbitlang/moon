@@ -869,6 +869,7 @@ fn rr_test_from_plan(
         cli.verbose,
         cmd.no_parallelize,
         cmd.build_flags.jobs,
+        cmd.build_flags.disable_source_maps,
     )?;
     let _initial_summary = test_result.summary();
 
@@ -962,6 +963,7 @@ fn rr_test_from_plan(
                 cli.verbose,
                 cmd.no_parallelize,
                 cmd.build_flags.jobs,
+                cmd.build_flags.disable_source_maps,
             )?;
             let _rerun_summary = new_test_result.summary();
 

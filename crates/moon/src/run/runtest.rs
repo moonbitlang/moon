@@ -156,6 +156,7 @@ pub(crate) fn run_tests(
     verbose: bool,
     no_parallelize: bool,
     parallelism: Option<usize>,
+    disable_source_maps: bool,
 ) -> anyhow::Result<ReplaceableTestResults> {
     // Gathering artifacts
     let executables = gather_tests(build_meta);
@@ -183,6 +184,7 @@ pub(crate) fn run_tests(
             include_skipped,
             bench,
             verbose,
+            disable_source_maps,
         };
         for r in executables {
             debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
@@ -222,6 +224,7 @@ pub(crate) fn run_tests(
                         include_skipped,
                         bench,
                         verbose,
+                        disable_source_maps,
                     };
 
                     loop {
@@ -286,6 +289,8 @@ struct TestRunCtx<'a> {
     bench: bool,
     /// Enable verbose printing
     verbose: bool,
+    /// Disable source maps in Node.js runtime
+    disable_source_maps: bool,
 }
 
 /// A container of test results corresponding to each test artifact, and
@@ -619,6 +624,7 @@ fn run_one_test_executable(
         ctx.build_meta.target_backend,
         test.executable,
         Some(&test_args),
+        !ctx.disable_source_maps,
     );
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
