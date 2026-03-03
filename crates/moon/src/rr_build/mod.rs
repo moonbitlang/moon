@@ -884,10 +884,10 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
             Ok(d) => {
                 // errors/warnings in test driver should be in rare case and
                 // are not expected in normal builds, so we skip rendering them
-                if d.location.path.contains("__generated_driver_for_") {
+                if d.path.contains("__generated_driver_for_") {
                     unprocessed.push(content.clone());
                 } else {
-                    let file_key = d.location.path.clone();
+                    let file_key = d.path.clone();
                     by_file
                         .entry(file_key)
                         .or_default()

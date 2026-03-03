@@ -16,11 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use ariadne::{Fmt, ReportKind};
 use clap::ValueEnum;
 use log::{error, warn};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -28,20 +32,86 @@ use crate::{
     error_code_docs::get_error_code_doc,
 };
 
-#[derive(Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MooncDiagnostic {
+    pub path: String,
+    pub loc: Loc,
     pub level: String,
-    #[serde(alias = "loc")]
-    pub location: Location,
     pub message: String,
     pub error_code: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<MooncDiagnostic>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Location {
-    pub start: Position,
-    pub end: Position,
-    pub path: String,
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Loc {
+    NoLocation,
+    Range { start: Position, end: Position },
+}
+
+impl Loc {
+    fn parse_span(text: &str) -> Option<(Position, Position)> {
+        static LOC_RE: OnceLock<Regex> = OnceLock::new();
+        let loc_re = LOC_RE.get_or_init(|| {
+            Regex::new(
+                r"^(?P<line_start>[0-9]+):(?P<col_start>[0-9]+)-(?P<line_end>[0-9]+):(?P<col_end>[0-9]+)$",
+            )
+            .expect("diagnostic location regex must be valid")
+        });
+        let caps = loc_re.captures(text)?;
+        let parse_part = |name: &str| -> Option<usize> {
+            let value = caps.name(name)?.as_str().parse::<usize>().ok()?;
+            (value > 0).then_some(value)
+        };
+
+        Some((
+            Position {
+                line: parse_part("line_start")?,
+                col: parse_part("col_start")?,
+            },
+            Position {
+                line: parse_part("line_end")?,
+                col: parse_part("col_end")?,
+            },
+        ))
+    }
+
+    fn as_range(&self) -> Option<(&Position, &Position)> {
+        match self {
+            Self::NoLocation => None,
+            Self::Range { start, end } => Some((start, end)),
+        }
+    }
+}
+
+impl Serialize for Loc {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::NoLocation => serializer.serialize_str(""),
+            Self::Range { start, end } => serializer.serialize_str(&format!(
+                "{}:{}-{}:{}",
+                start.line, start.col, end.line, end.col
+            )),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Loc {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let text = String::deserialize(deserializer)?;
+        if text.is_empty() {
+            return Ok(Self::NoLocation);
+        }
+        let (start, end) = Self::parse_span(&text)
+            .ok_or_else(|| serde::de::Error::custom(format!("invalid location: {text}")))?;
+        Ok(Self::Range { start, end })
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
@@ -122,7 +192,7 @@ impl MooncDiagnostic {
         let (kind, color) = diagnostic.get_level_and_color();
 
         // for no-location diagnostic, like Missing main function in the main package(4067)
-        if diagnostic.location.path.is_empty() {
+        if diagnostic.path.is_empty() {
             // Check if this diagnostic level should be rendered based on the threshold
             if DiagnosticLevel::from_str(&diagnostic.level, true)
                 .is_ok_and(|l| l >= render_no_loc_level)
@@ -141,7 +211,7 @@ impl MooncDiagnostic {
             return Some(kind);
         }
 
-        let source_file_path = diagnostic.location.path.clone();
+        let source_file_path = diagnostic.path.clone();
         let (source_file_content, display_filename) =
             match std::fs::read_to_string(&source_file_path) {
                 Ok(content) => (content, source_file_path.clone()),
@@ -150,7 +220,7 @@ impl MooncDiagnostic {
                     match check_patch_file.and_then(|f| {
                         Self::get_content_and_filename_from_diagnostic_patch_file(
                             &f,
-                            &diagnostic.location.path,
+                            &diagnostic.path,
                         )
                     }) {
                         Some((content, filename)) => (content, filename),
@@ -168,20 +238,20 @@ impl MooncDiagnostic {
                 }
             };
 
-        let Some(start_offset) = diagnostic
-            .location
-            .start
-            .calculate_offset(&source_file_content)
-        else {
+        let Some((start_position, end_position)) = diagnostic.loc.as_range() else {
+            error!(
+                "missing source range for file diagnostic: path={}",
+                diagnostic.path
+            );
+            bail_print_original()?;
+            return None;
+        };
+        let Some(start_offset) = start_position.calculate_offset(&source_file_content) else {
             error!("failed to calculate start offset for diagnostic");
             bail_print_original()?;
             return None;
         };
-        let Some(end_offset) = diagnostic
-            .location
-            .end
-            .calculate_offset(&source_file_content)
-        else {
+        let Some(end_offset) = end_position.calculate_offset(&source_file_content) else {
             error!("failed to calculate end offset for diagnostic");
             bail_print_original()?;
             return None;
@@ -274,7 +344,7 @@ impl MooncDiagnostic {
 
         // a workaround for rendering the diagnostaic and error in generated test driver file correctly
         'fail_to_get_source: {
-            if diagnostic.location.path.contains("__generated_driver_for_") {
+            if diagnostic.path.contains("__generated_driver_for_") {
                 let Ok(file) = crate::common::read_module_desc_file_in_dir(source_dir) else {
                     error!(
                         "when working around driver file path issue, failed to read module.desc file in source dir: {}",
@@ -296,7 +366,7 @@ impl MooncDiagnostic {
                     );
                     break 'fail_to_get_source;
                 };
-                let diag_path: &Path = diagnostic.location.path.as_ref();
+                let diag_path: &Path = diagnostic.path.as_ref();
                 let Ok(rel_path) = diag_path.strip_prefix(&source_code_dir) else {
                     warn!(
                         "when working around driver file path issue, failed to strip prefix {} from {}",
@@ -307,7 +377,7 @@ impl MooncDiagnostic {
                 };
 
                 let mbt_file_path = target_dir.join(rel_path);
-                diagnostic.location.path = mbt_file_path.display().to_string();
+                diagnostic.path = mbt_file_path.display().to_string();
             }
         }
 
