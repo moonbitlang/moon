@@ -18,6 +18,7 @@ This is a reference documentation of the current MoonBuild behavior.
 - [Virtual packages](./virtual-pkg.md)
 - [`tcc -run` mode](./tcc-run.md)
 - [`moon bundle`](./bundle.md)
+- [`moon install` binary installer behavior](./moon-install-binary.md)
 - [Rupes Recta special cases](./rr-special-cases.md)
 - [`moon test` execution flow](./tests.md)
 - TODO: Single-file mode

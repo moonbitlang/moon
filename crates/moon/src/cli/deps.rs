@@ -26,6 +26,7 @@ use moonutil::{
     moon_dir,
     mooncakes::{ModuleName, RegistryConfig},
 };
+use std::path::Path;
 
 use super::UniversalFlags;
 use super::install_binary::{
@@ -34,8 +35,12 @@ use super::install_binary::{
 };
 
 pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
+    fn wildcard_base(s: &str) -> Option<&str> {
+        s.strip_suffix("/...").or_else(|| s.strip_suffix("..."))
+    }
+
     // If no package path and no local path, use legacy behavior
-    if cmd.package_path.is_none() && cmd.path.is_none() {
+    if cmd.source.is_none() && cmd.path.is_none() {
         eprintln!(
             "{}: `moon install` without arguments is deprecated and will be removed in a future version. \
              Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
@@ -59,26 +64,36 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
 
     // Explicit --path takes priority
     if let Some(local_path) = cmd.path {
-        return install_from_local(&cli, &local_path, &install_dir);
+        return install_from_local(&cli, &local_path, &install_dir, false);
     }
 
-    let package_path = cmd.package_path.unwrap();
+    let source = cmd.source.unwrap();
 
     // Local path install
-    // These checks can't be done in clap because we need to inspect the value of package_path
+    // These checks can't be done in clap because we need to inspect the value of source
     // to determine whether it's a local path, git URL, or registry path.
-    if is_local_path(&package_path) {
+    if is_local_path(&source) {
         if has_git_ref {
             anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
         }
-        if cmd.package_path_in_repo.is_some() {
-            anyhow::bail!("Package path in repo can only be used with git URLs");
+        if cmd.path_in_repo.is_some() {
+            anyhow::bail!("Path in repo can only be used with git URLs");
         }
-        return install_from_local(&cli, package_path.as_ref(), &install_dir);
+        let (local_path, install_all) = if let Some(base) = wildcard_base(&source) {
+            let base = if base.is_empty() { "." } else { base };
+            (base, true)
+        } else {
+            (source.as_str(), false)
+        };
+        return install_from_local(&cli, Path::new(local_path), &install_dir, install_all);
     }
 
     // Git URL install
-    if is_git_url(&package_path) {
+    if is_git_url(&source) {
+        let install_all = cmd
+            .path_in_repo
+            .as_deref()
+            .is_some_and(|s| wildcard_base(s).is_some());
         let git_ref = if let Some(rev) = cmd.rev.as_deref() {
             GitRef::Rev(rev)
         } else if let Some(branch) = cmd.branch.as_deref() {
@@ -90,10 +105,11 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         };
         return install_from_git(
             &cli,
-            &package_path,
+            &source,
             git_ref,
-            cmd.package_path_in_repo.as_deref(),
+            cmd.path_in_repo.as_deref(),
             &install_dir,
+            install_all,
         );
     }
 
@@ -101,11 +117,12 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
     if has_git_ref {
         anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
     }
-    if cmd.package_path_in_repo.is_some() {
-        anyhow::bail!("Package path in repo can only be used with git URLs");
+    if cmd.path_in_repo.is_some() {
+        anyhow::bail!("Path in repo can only be used with git URLs");
     }
-    let spec = parse_package_spec(&package_path)?;
-    install_binary(&cli, &spec, &install_dir)
+    let spec = parse_package_spec(&source)?;
+    let install_all = spec.is_wildcard;
+    install_binary(&cli, &spec, &install_dir, install_all)
 }
 
 pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
