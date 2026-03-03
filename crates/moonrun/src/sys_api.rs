@@ -124,7 +124,7 @@ pub(crate) fn init_env<'s>(
     let stderr_is_tty = v8::Boolean::new(scope, std::io::stderr().is_terminal()).into();
     env_obj.set(scope, stderr_is_tty_key, stderr_is_tty);
 
-    // Expose the run env for the unified JS glue in `template/js_glue.js`.
+    // Expose the run env for the unified JS glue in `template/js_glue_core.js`.
     let global_proxy = scope.get_current_context().global(scope);
     let run_env_key = scope.string("__moonbit_run_env");
     global_proxy.set(scope, run_env_key.into(), env_obj.into());
