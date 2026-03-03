@@ -26,7 +26,7 @@ use moonutil::{
     moon_dir,
     mooncakes::{ModuleName, RegistryConfig},
 };
-use std::path::Path;
+use std::{borrow::Cow, path::Path};
 
 use super::UniversalFlags;
 use super::install_binary::{
@@ -34,11 +34,27 @@ use super::install_binary::{
     parse_package_spec,
 };
 
-pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
-    fn wildcard_base(s: &str) -> Option<&str> {
-        s.strip_suffix("/...").or_else(|| s.strip_suffix("..."))
-    }
+fn wildcard_base(s: &str) -> Option<&str> {
+    s.strip_suffix("/...").or_else(|| s.strip_suffix("..."))
+}
 
+fn wildcard_local_base(source: &str) -> Option<Cow<'_, str>> {
+    let base = wildcard_base(source)?;
+    if base.is_empty() {
+        if source.starts_with('/') {
+            Some(Cow::Borrowed("/"))
+        } else {
+            Some(Cow::Borrowed("."))
+        }
+    } else if base.ends_with(':') && source.ends_with("/...") {
+        // `C:/...` should resolve to `C:/` instead of drive-relative `C:`.
+        Some(Cow::Owned(format!("{base}/")))
+    } else {
+        Some(Cow::Borrowed(base))
+    }
+}
+
+pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
     // If no package path and no local path, use legacy behavior
     if cmd.source.is_none() && cmd.path.is_none() {
         eprintln!(
@@ -79,13 +95,17 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         if cmd.path_in_repo.is_some() {
             anyhow::bail!("Path in repo can only be used with git URLs");
         }
-        let (local_path, install_all) = if let Some(base) = wildcard_base(&source) {
-            let base = if base.is_empty() { "." } else { base };
+        let (local_path, install_all) = if let Some(base) = wildcard_local_base(&source) {
             (base, true)
         } else {
-            (source.as_str(), false)
+            (Cow::Borrowed(source.as_str()), false)
         };
-        return install_from_local(&cli, Path::new(local_path), &install_dir, install_all);
+        return install_from_local(
+            &cli,
+            Path::new(local_path.as_ref()),
+            &install_dir,
+            install_all,
+        );
     }
 
     // Git URL install
@@ -123,6 +143,29 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
     let spec = parse_package_spec(&source)?;
     let install_all = spec.is_wildcard;
     install_binary(&cli, &spec, &install_dir, install_all)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wildcard_local_base_unix_root() {
+        let got = wildcard_local_base("/...").unwrap();
+        assert_eq!(got, "/");
+    }
+
+    #[test]
+    fn test_wildcard_local_base_relative_current() {
+        let got = wildcard_local_base("./...").unwrap();
+        assert_eq!(got, ".");
+    }
+
+    #[test]
+    fn test_wildcard_local_base_windows_drive_root() {
+        let got = wildcard_local_base("C:/...").unwrap();
+        assert_eq!(got, "C:/");
+    }
 }
 
 pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
