@@ -430,12 +430,22 @@ Install a binary package globally or install project dependencies (deprecated wi
 
 ###### **Arguments:**
 
-* `<SOURCE>` — Package path, local path, or git URL
-* `<PATH_IN_REPO>` — Filesystem path inside git repository (git SOURCE only). Supports /... suffix for wildcard matching
+* `<SOURCE>` — Install source.
+
+   Interpretation order:
+     1. local path (`./`, `../`, `/`, Windows drive)
+     2. git URL
+     3. registry package path (`user/module/pkg[@version]`)
+
+   Use `/...` suffix to install all matching main packages.
+* `<PATH_IN_REPO>` — Filesystem path inside the cloned git repository.
+   Used only when SOURCE is a git URL.
+
+   Use `/...` suffix to install all matching main packages under this path prefix.
 
 ###### **Options:**
 
-* `--bin <BIN>` — Specify installation directory (default: ~/.moon/bin/)
+* `--bin <DIR>` — Specify installation directory (default: ~/.moon/bin/)
 * `--path <PATH>` — Install from local path instead of registry
 * `--rev <REV>` — Git revision to checkout (commit hash, requires git URL)
 * `--branch <BRANCH>` — Git branch to checkout (requires git URL)
