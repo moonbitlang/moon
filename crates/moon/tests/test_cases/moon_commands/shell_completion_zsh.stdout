@@ -475,7 +475,7 @@ _arguments "${_arguments_options[@]}" : /
 ;;
 (install)
 _arguments "${_arguments_options[@]}" : /
-'--bin=[Specify installation directory (default/: ~/.moon/bin/)]:BIN:_files' /
+'--bin=[Specify installation directory (default/: ~/.moon/bin/)]:DIR:_files' /
 '(--rev --branch --tag)--path=[Install from local path instead of registry]:PATH:_files' /
 '--rev=[Git revision to checkout (commit hash, requires git URL)]:REV: ' /
 '--branch=[Git branch to checkout (requires git URL)]:BRANCH: ' /
@@ -489,10 +489,10 @@ _arguments "${_arguments_options[@]}" : /
 '--trace[Trace the execution of the program]' /
 '--dry-run[Do not actually run the command]' /
 '(--dry-run)--build-graph[]' /
-'-h[Print help]' /
-'--help[Print help]' /
-'::package_path -- Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) Git URLs are auto-detected (any URL format git supports) Local paths are auto-detected/: ./, ../, / (Unix), or drive letter (Windows) If not provided, falls back to legacy behavior (install project dependencies):' /
-'::package_path_in_repo -- Package path within a git repository (e.g., src/main or cmd/...) Only used with git URLs. Supports /... suffix for wildcard matching:' /
+'-h[Print help (see more with '/''--help'/'')]' /
+'--help[Print help (see more with '/''--help'/'')]' /
+'::source -- Package path, local path, or git URL:' /
+'::path_in_repo -- Filesystem path inside git repo (git SOURCE only):' /
 && ret=0
 ;;
 (tree)

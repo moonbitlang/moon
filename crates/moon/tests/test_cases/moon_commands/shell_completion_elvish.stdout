@@ -473,8 +473,8 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --trace 'Trace the execution of the program'
             cand --dry-run 'Do not actually run the command'
             cand --build-graph 'build-graph'
-            cand -h 'Print help'
-            cand --help 'Print help'
+            cand -h 'Print help (see more with ''--help'')'
+            cand --help 'Print help (see more with ''--help'')'
         }
         &'moon;tree'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
