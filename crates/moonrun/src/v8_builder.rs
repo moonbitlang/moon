@@ -16,24 +16,24 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use v8::{FunctionCallback, FunctionCallbackArguments, HandleScope, Local, Object, Value};
+use v8::{FunctionCallback, FunctionCallbackArguments, Local, Object, Value};
 
 pub(crate) trait ScopeExt<'s> {
     fn string(&mut self, value: &str) -> Local<'s, v8::String>;
 }
 
-impl<'s> ScopeExt<'s> for HandleScope<'s> {
+impl<'s, 'i> ScopeExt<'s> for v8::PinScope<'s, 'i> {
     fn string(&mut self, value: &str) -> Local<'s, v8::String> {
         v8::String::new(self, value).unwrap()
     }
 }
 
 pub(crate) trait ArgsExt {
-    fn string_lossy(&self, scope: &mut HandleScope, index: i32) -> String;
+    fn string_lossy(&self, scope: &mut v8::PinScope<'_, '_>, index: i32) -> String;
 }
 
 impl<'s> ArgsExt for FunctionCallbackArguments<'s> {
-    fn string_lossy(&self, scope: &mut HandleScope, index: i32) -> String {
+    fn string_lossy(&self, scope: &mut v8::PinScope<'_, '_>, index: i32) -> String {
         self.get(index)
             .to_string(scope)
             .unwrap()
@@ -42,25 +42,32 @@ impl<'s> ArgsExt for FunctionCallbackArguments<'s> {
 }
 
 pub(crate) trait ObjectExt<'s> {
-    fn set_value(&self, scope: &mut HandleScope<'s>, name: &str, value: Local<'s, Value>);
+    fn set_value(&self, scope: &mut v8::PinScope<'s, '_>, name: &str, value: Local<'s, Value>);
     fn set_func(
         &self,
-        scope: &mut HandleScope<'s>,
+        scope: &mut v8::PinScope<'s, '_>,
         name: &str,
         callback: impl v8::MapFnTo<FunctionCallback>,
     );
-    fn child(&self, scope: &mut HandleScope<'s>, name: &str) -> Local<'s, Object>;
+    fn set_func_with_data(
+        &self,
+        scope: &mut v8::PinScope<'s, '_>,
+        name: &str,
+        callback: impl v8::MapFnTo<FunctionCallback>,
+        data: Local<'s, Value>,
+    );
+    fn child(&self, scope: &mut v8::PinScope<'s, '_>, name: &str) -> Local<'s, Object>;
 }
 
 impl<'s> ObjectExt<'s> for Local<'s, Object> {
-    fn set_value(&self, scope: &mut HandleScope<'s>, name: &str, value: Local<'s, Value>) {
+    fn set_value(&self, scope: &mut v8::PinScope<'s, '_>, name: &str, value: Local<'s, Value>) {
         let key = scope.string(name);
         self.set(scope, key.into(), value);
     }
 
     fn set_func(
         &self,
-        scope: &mut HandleScope<'s>,
+        scope: &mut v8::PinScope<'s, '_>,
         name: &str,
         callback: impl v8::MapFnTo<FunctionCallback>,
     ) {
@@ -70,7 +77,21 @@ impl<'s> ObjectExt<'s> for Local<'s, Object> {
         self.set_value(scope, name, func.into());
     }
 
-    fn child(&self, scope: &mut HandleScope<'s>, name: &str) -> Local<'s, Object> {
+    fn set_func_with_data(
+        &self,
+        scope: &mut v8::PinScope<'s, '_>,
+        name: &str,
+        callback: impl v8::MapFnTo<FunctionCallback>,
+        data: Local<'s, Value>,
+    ) {
+        let func = v8::Function::builder(callback)
+            .data(data)
+            .build(scope)
+            .unwrap();
+        self.set_value(scope, name, func.into());
+    }
+
+    fn child(&self, scope: &mut v8::PinScope<'s, '_>, name: &str) -> Local<'s, Object> {
         let child = v8::Object::new(scope);
         self.set_value(scope, name, child.into());
         child
