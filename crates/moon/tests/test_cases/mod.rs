@@ -3019,13 +3019,14 @@ fn test_moon_install_global_local_path() {
 }
 
 #[test]
-fn test_moon_install_global_git_url() {
-    // Test installing from git URL
+fn test_moon_install_global_git_url_default_root_package() {
+    // Test installing from git URL without PATH_IN_REPO.
+    // Default behavior installs the module root package only.
     let install_dir = tempfile::tempdir().unwrap();
     let install_path = install_dir.path();
     let work_dir = tempfile::tempdir().unwrap();
 
-    // Install all packages from git repo
+    // Install root package only
     get_stdout(
         &work_dir,
         [
@@ -3036,20 +3037,20 @@ fn test_moon_install_global_git_url() {
         ],
     );
 
-    // Check that all 4 binaries were created
+    // Check that only root package binary was created
     #[cfg(unix)]
     {
         assert!(install_path.join("install-test").exists());
-        assert!(install_path.join("hello").exists());
-        assert!(install_path.join("tool1").exists());
-        assert!(install_path.join("tool2").exists());
+        assert!(!install_path.join("hello").exists());
+        assert!(!install_path.join("tool1").exists());
+        assert!(!install_path.join("tool2").exists());
     }
     #[cfg(target_os = "windows")]
     {
         assert!(install_path.join("install-test.exe").exists());
-        assert!(install_path.join("hello.exe").exists());
-        assert!(install_path.join("tool1.exe").exists());
-        assert!(install_path.join("tool2.exe").exists());
+        assert!(!install_path.join("hello.exe").exists());
+        assert!(!install_path.join("tool1.exe").exists());
+        assert!(!install_path.join("tool2.exe").exists());
     }
 }
 
@@ -3122,5 +3123,39 @@ fn test_moon_install_global_git_url_wildcard() {
         assert!(install_path.join("tool2.exe").exists());
         assert!(!install_path.join("hello.exe").exists());
         assert!(!install_path.join("install-test.exe").exists());
+    }
+}
+
+#[test]
+fn test_moon_install_global_git_url_root_wildcard() {
+    // Test installing all packages from git URL using /...
+    let install_dir = tempfile::tempdir().unwrap();
+    let install_path = install_dir.path();
+    let work_dir = tempfile::tempdir().unwrap();
+
+    get_stdout(
+        &work_dir,
+        [
+            "install",
+            "https://github.com/moonbitlang/moon-install-git-test-cases.git",
+            "/...",
+            "--bin",
+            install_path.to_str().unwrap(),
+        ],
+    );
+
+    #[cfg(unix)]
+    {
+        assert!(install_path.join("install-test").exists());
+        assert!(install_path.join("hello").exists());
+        assert!(install_path.join("tool1").exists());
+        assert!(install_path.join("tool2").exists());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        assert!(install_path.join("install-test.exe").exists());
+        assert!(install_path.join("hello.exe").exists());
+        assert!(install_path.join("tool1.exe").exists());
+        assert!(install_path.join("tool2.exe").exists());
     }
 }
