@@ -33,6 +33,7 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, RunBackend},
     pkg_solve::DepRelationship,
 };
+use moonutil::BINARIES;
 
 use super::{
     BuildOptions, LoweringError,
@@ -161,6 +162,10 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.append_artifact_of(n, edge, &mut ins);
         }
         ins.extend(cmd.extra_inputs);
+        // Track tool binary dependencies so that n2 detects when compilers
+        // or other toolchain binaries change (e.g. after a toolchain update)
+        // and triggers a rebuild.
+        ins.extend(Self::tool_deps_of(node));
         ins.sort(); // make sure the order is deterministic
         let ins = build_ins(&mut self.graph, ins);
 
@@ -192,6 +197,30 @@ impl<'a> BuildPlanLowerContext<'a> {
             node,
             source: e,
         })
+    }
+
+    /// Returns the tool binary paths that should be tracked as input
+    /// dependencies for the given build node. When any of these binaries
+    /// change (e.g. after a toolchain update), n2 will re-execute the
+    /// corresponding build step.
+    ///
+    /// Only absolute paths are returned, since relative/bare names (from PATH
+    /// fallback) cannot be meaningfully tracked by n2's timestamp-based
+    /// invalidation.
+    fn tool_deps_of(node: BuildPlanNode) -> Vec<PathBuf> {
+        let dominated_by_moonc = matches!(
+            node,
+            BuildPlanNode::Check(_)
+                | BuildPlanNode::BuildCore(_)
+                | BuildPlanNode::LinkCore(_)
+                | BuildPlanNode::BuildVirtual(_)
+                | BuildPlanNode::Bundle(_)
+        );
+        if dominated_by_moonc {
+            vec![BINARIES.moonc.clone()]
+        } else {
+            vec![]
+        }
     }
 
     /// Append the output artifacts of the given node to the provided vector.
