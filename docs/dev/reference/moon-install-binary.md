@@ -133,6 +133,30 @@ These rules apply in all binary installer modes:
 - Name collisions between selected packages are allowed; later installs overwrite earlier files.
 - `--dry-run` does not write binaries; it prints what would be built/installed.
 
+## Cross-tool structural reference (verified 2026-03-04)
+
+This table compares how `moon install` (binary mode), `go install`, and `cargo install`
+identify source, intent, and target.
+
+| Dimension | `moon install` (binary mode) | `go install` | `cargo install` |
+| --- | --- | --- | --- |
+| Source identification | Resolution order: `--path` local override, then local-path-looking `SOURCE` (`./`, `../`, `/`, drive), then git URL, else registry package path. | Package args are import paths/patterns by default. Rooted paths or args beginning with `.`/`..` are interpreted as filesystem paths. With `@version`, args must be package paths/patterns (not relative/absolute paths). | Default source is crates.io. Source is switched explicitly via `--git`, `--path`, `--registry`, or `--index`. |
+| Intent identification | Default intent: exact package install. Wildcard intent: `/...` suffix means install all matching `is-main: true` packages under prefix. | Default intent: exact package/import path(s). Wildcard intent: `...` package patterns expand to all matches; `x/...` includes `x` and descendants because wildcard can match empty string. | Exact crate install (no package-pattern wildcard like `...`). For a selected crate package, Cargo installs all binary targets by default (`--bins` behavior), or one via `--bin <name>`. |
+| Target identification | Registry mode matches logical package path. Local/git mode matches filesystem path, then maps discovered package(s) under the module. | Target is package/import path (or package in a directory when filesystem path form is used). | Target is crate identity. If source contains multiple crates (registry/git), crate argument disambiguates. `--path` points to a local crate directory. |
+| Relative path handling | Bare `foo/bar` is treated as registry package path. Use `./foo/bar` / `../foo/bar` for local filesystem semantics. | Rooted / `.` / `..`-prefixed args are filesystem paths; otherwise import-path semantics. | Relative filesystem path is only interpreted through `--path`; positional args are crate names. |
+| Version / revision selection | Registry: `user/module/pkg@version`. Git: `--rev`, `--branch`, `--tag`. | `pkg@version` installs in module-aware mode and ignores current-module `go.mod` (subject to `go install` constraints). | Registry versions via `crate@version` or `--version`; git refs via `--branch`, `--tag`, `--rev`. |
+| Build argument surface | Installer does not expose a broad package-manager-level build argument passthrough; it builds/installs selected native executables (with shared command flags like `--dry-run` and verbosity controls). | Accepts shared Go build flags: `go install [build flags] [packages]`. | Rich install/build controls: features (`--features`, `--all-features`, `--no-default-features`), target/profile (`--target`, `--profile`), jobs, lock/offline, etc. |
+| Collision / overwrite behavior | Name collisions between selected packages are allowed; later installs overwrite (reserved Moon tool names are blocked). | Official help does not document a dedicated collision guard in install destination; binaries are installed by command name in one bin directory (inference). | Overwrite protection by default; `--force` is required to overwrite existing crates/binaries. |
+| Dry-run / preview | `--dry-run` prints plan and does not write binaries. | `-n` (shared build flag) prints commands without executing. | `--dry-run` exists but is unstable. |
+| Interactive prompting | No interactive package/binary selection prompt. | No interactive package selection prompt. | No interactive package/binary selection prompt. If source has multiple packages and target is ambiguous, Cargo errors and requires explicit package selection. |
+| Install destination | `~/.moon/bin` by default, override with `--bin`. | `GOBIN`, else `$GOPATH/bin` (or `$HOME/go/bin` when `GOPATH` unset). | Install root `bin` directory; precedence: `--root`, `CARGO_INSTALL_ROOT`, config, `CARGO_HOME`, `$HOME/.cargo`. |
+
+References:
+
+- Go command docs (`install`, package lists/patterns): <https://pkg.go.dev/cmd/go>
+- Go module reference (`go install pkg@version`): <https://go.dev/ref/mod#go-install>
+- Cargo install reference: <https://doc.rust-lang.org/cargo/commands/cargo-install.html>
+
 ## Historical behavior before this clarification
 
 The implementation previously had several surprising behaviors that caused confusion:
