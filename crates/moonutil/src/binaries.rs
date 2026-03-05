@@ -47,6 +47,12 @@ fn moon_bin(binary_name: &str, env_var: &str) -> PathBuf {
         return in_moon_home;
     }
 
+    // Try to resolve from PATH. This gives graph inputs a stable absolute path
+    // when we need to track tool binaries as dependencies.
+    if let Ok(in_path) = which::which(binary_name) {
+        return in_path;
+    }
+
     // Fallback: just rely on PATH
     PathBuf::from(binary_name)
 }
