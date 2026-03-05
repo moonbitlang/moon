@@ -31,7 +31,7 @@ use std::{borrow::Cow, path::Path};
 use super::UniversalFlags;
 use super::install_binary::{
     GitRef, install_binary, install_from_git, install_from_local, is_git_url, is_local_path,
-    parse_package_spec,
+    parse_hosted_git_tree_source, parse_package_spec,
 };
 
 fn wildcard_base(s: &str) -> Option<&str> {
@@ -110,24 +110,46 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
 
     // Git URL install
     if is_git_url(&source) {
-        let install_all = cmd
-            .path_in_repo
-            .as_deref()
-            .is_some_and(|s| wildcard_base(s).is_some());
+        let hosted_tree_source = parse_hosted_git_tree_source(&source);
+        if cmd.path_in_repo.is_some()
+            && hosted_tree_source
+                .as_ref()
+                .and_then(|s| s.path_in_repo.as_deref())
+                .is_some()
+        {
+            anyhow::bail!(
+                "PATH_IN_REPO must not be used when SOURCE already contains a /tree/... path"
+            );
+        }
+        let effective_git_url = hosted_tree_source
+            .as_ref()
+            .map(|s| s.git_url.as_str())
+            .unwrap_or(source.as_str());
+        let effective_path_in_repo = cmd.path_in_repo.as_deref().or_else(|| {
+            hosted_tree_source
+                .as_ref()
+                .and_then(|s| s.path_in_repo.as_deref())
+        });
+        let install_all = effective_path_in_repo.is_some_and(|s| wildcard_base(s).is_some());
         let git_ref = if let Some(rev) = cmd.rev.as_deref() {
             GitRef::Rev(rev)
         } else if let Some(branch) = cmd.branch.as_deref() {
             GitRef::Branch(branch)
         } else if let Some(tag) = cmd.tag.as_deref() {
             GitRef::Tag(tag)
+        } else if let Some(branch) = hosted_tree_source
+            .as_ref()
+            .and_then(|s| s.branch.as_deref())
+        {
+            GitRef::Branch(branch)
         } else {
             GitRef::Default
         };
         return install_from_git(
             &cli,
-            &source,
+            effective_git_url,
             git_ref,
-            cmd.path_in_repo.as_deref(),
+            effective_path_in_repo,
             &install_dir,
             install_all,
         );

@@ -77,9 +77,76 @@ fn package_matches_filter(
 
 const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct HostedGitTreeSource {
+    pub git_url: String,
+    pub branch: Option<String>,
+    pub path_in_repo: Option<String>,
+}
+
 /// Check if a string looks like a git URL.
 pub(super) fn is_git_url(s: &str) -> bool {
     GIT_URL_PREFIXES.iter().any(|p| s.starts_with(p))
+}
+
+fn strip_url_query_fragment(s: &str) -> &str {
+    let end = s.find(['?', '#']).unwrap_or(s.len());
+    &s[..end]
+}
+
+/// Parse browser tree URLs for well-known hosts into git source components.
+///
+/// Supported forms:
+/// - github.com: /<owner>/<repo>/tree/<ref>[/<path...>]
+/// - gitcode.com: /<owner>/<repo>/tree/<ref>[/<path...>]
+/// - gitcode.com: /<owner>/<repo>/-/tree/<ref>[/<path...>]
+pub(super) fn parse_hosted_git_tree_source(source: &str) -> Option<HostedGitTreeSource> {
+    let (scheme, rest) = source.split_once("://")?;
+    if scheme != "https" && scheme != "http" {
+        return None;
+    }
+
+    let (host_raw, path_raw) = rest.split_once('/').unwrap_or((rest, ""));
+    let host = host_raw.to_ascii_lowercase();
+    if host != "github.com" && host != "gitcode.com" {
+        return None;
+    }
+
+    let path = strip_url_query_fragment(path_raw);
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if segments.len() < 4 {
+        return None;
+    }
+
+    let owner = segments[0];
+    let repo = segments[1];
+    let tree_index = if segments.get(2) == Some(&"tree") {
+        2
+    } else if segments.get(2) == Some(&"-") && segments.get(3) == Some(&"tree") {
+        3
+    } else {
+        return None;
+    };
+
+    let after_tree = segments.get(tree_index + 1..)?;
+    if after_tree.is_empty() {
+        return None;
+    }
+
+    let (branch, path_in_repo) = if after_tree.len() == 1 {
+        (Some(after_tree[0].to_string()), None)
+    } else {
+        (
+            Some(after_tree[0].to_string()),
+            Some(after_tree[1..].join("/")),
+        )
+    };
+
+    Some(HostedGitTreeSource {
+        git_url: format!("{scheme}://{host}/{owner}/{repo}"),
+        branch,
+        path_in_repo,
+    })
 }
 
 /// Check if a string looks like a local filesystem path.
@@ -748,6 +815,63 @@ mod tests {
 
         // Invalid version
         assert!(parse_package_spec("user/module@invalid").is_err());
+    }
+
+    #[test]
+    fn test_parse_hosted_git_tree_source_github() {
+        let parsed = parse_hosted_git_tree_source(
+            "https://github.com/moonbit-community/selene/tree/main/examples/native/pixeladventure",
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            HostedGitTreeSource {
+                git_url: "https://github.com/moonbit-community/selene".to_string(),
+                branch: Some("main".to_string()),
+                path_in_repo: Some("examples/native/pixeladventure".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_hosted_git_tree_source_gitcode_gitlab_style() {
+        let parsed = parse_hosted_git_tree_source(
+            "https://gitcode.com/moonbit-community/selene/-/tree/main/examples/native/pixeladventure",
+        )
+        .unwrap();
+        assert_eq!(
+            parsed,
+            HostedGitTreeSource {
+                git_url: "https://gitcode.com/moonbit-community/selene".to_string(),
+                branch: Some("main".to_string()),
+                path_in_repo: Some("examples/native/pixeladventure".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_hosted_git_tree_source_branch_only() {
+        let parsed =
+            parse_hosted_git_tree_source("https://github.com/moonbit-community/selene/tree/main")
+                .unwrap();
+        assert_eq!(
+            parsed,
+            HostedGitTreeSource {
+                git_url: "https://github.com/moonbit-community/selene".to_string(),
+                branch: Some("main".to_string()),
+                path_in_repo: None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_hosted_git_tree_source_non_tree() {
+        assert!(
+            parse_hosted_git_tree_source("https://github.com/moonbit-community/selene").is_none()
+        );
+        assert!(
+            parse_hosted_git_tree_source("https://gitcode.com/moonbit-community/selene").is_none()
+        );
     }
 
     #[test]
