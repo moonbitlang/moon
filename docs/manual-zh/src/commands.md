@@ -426,16 +426,26 @@ Remove a dependency
 
 Install a binary package globally or install project dependencies (deprecated without args)
 
-**Usage:** `moon install [OPTIONS] [PACKAGE_PATH] [PACKAGE_PATH_IN_REPO]`
+**Usage:** `moon install [OPTIONS] [SOURCE] [PATH_IN_REPO]`
 
 ###### **Arguments:**
 
-* `<PACKAGE_PATH>` — Package path to install (e.g., user/pkg/main or user/pkg/cmd/...) Supports @version suffix (e.g., user/pkg/main@1.0.0) Git URLs are auto-detected (any URL format git supports) Local paths are auto-detected: ./, ../, / (Unix), or drive letter (Windows) If not provided, falls back to legacy behavior (install project dependencies)
-* `<PACKAGE_PATH_IN_REPO>` — Package path within a git repository (e.g., src/main or cmd/...) Only used with git URLs. Supports /... suffix for wildcard matching
+* `<SOURCE>` — Install source.
+
+   Interpretation order:
+     1. local path (`./`, `../`, `/`, Windows drive)
+     2. git URL
+     3. registry package path (`user/module/pkg[@version]`)
+
+   Use `/...` suffix to install all matching main packages.
+* `<PATH_IN_REPO>` — Filesystem path inside the cloned git repository.
+   Used only when SOURCE is a git URL.
+
+   Use `/...` suffix to install all matching main packages under this path prefix.
 
 ###### **Options:**
 
-* `--bin <BIN>` — Specify installation directory (default: ~/.moon/bin/)
+* `--bin <DIR>` — Specify installation directory (default: ~/.moon/bin/)
 * `--path <PATH>` — Install from local path instead of registry
 * `--rev <REV>` — Git revision to checkout (commit hash, requires git URL)
 * `--branch <BRANCH>` — Git branch to checkout (requires git URL)
