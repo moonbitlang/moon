@@ -380,23 +380,56 @@ fn test_supported_targets_empty_list_is_never_selected() {
 fn test_module_supported_targets_intersects_package_supported_targets() {
     let dir = TestDir::new("supported_targets_module_intersection.in");
 
-    let check_js = get_stdout(
+    let check_wasm_gc = get_stdout(
         &dir,
-        ["check", "--target", "js", "--dry-run", "--sort-input"],
+        [
+            "check",
+            "lib",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--sort-input",
+        ],
     );
-    assert_contains_and_absent(&check_js, &["./main/main.mbt", "./lib/lib.mbt"], &[]);
+    assert_contains_and_absent(&check_wasm_gc, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 
     let check_native = get_stdout(
         &dir,
-        ["check", "--target", "native", "--dry-run", "--sort-input"],
+        [
+            "check",
+            "lib",
+            "--target",
+            "native",
+            "--dry-run",
+            "--sort-input",
+        ],
     );
-    assert_contains_and_absent(&check_native, &[], &["./main/main.mbt", "./lib/lib.mbt"]);
+    assert_contains_and_absent(&check_native, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 
-    let explicit_err = get_err_stderr(&dir, ["check", "main", "--target", "native", "--dry-run"]);
-    assert!(explicit_err.contains(
-        "Package 'supported/mod-intersection/main' does not support target backend 'native'"
+    let check_llvm = get_stdout(
+        &dir,
+        [
+            "check",
+            "lib",
+            "--target",
+            "llvm",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert_contains_and_absent(&check_llvm, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+
+    let js_err = get_err_stderr(&dir, ["check", "lib", "--target", "js", "--dry-run"]);
+    assert!(
+        js_err.contains(
+            "Package 'supported/mod-intersection/lib' does not support target backend 'js'"
+        )
+    );
+
+    let wasm_err = get_err_stderr(&dir, ["check", "lib", "--target", "wasm", "--dry-run"]);
+    assert!(wasm_err.contains(
+        "Package 'supported/mod-intersection/lib' does not support target backend 'wasm'"
     ));
-    assert!(explicit_err.contains("Supported backends: [js]"));
 }
 
 #[test]

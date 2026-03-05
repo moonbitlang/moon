@@ -1,5 +1,4 @@
 {
   "name": "supported/mod-intersection",
-  "supported-targets": "js"
+  "supported-targets": "+all-js"
 }
-
