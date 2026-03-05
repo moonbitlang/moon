@@ -110,6 +110,21 @@ pub struct SubPackageInMoonPkgJSON {
     pub import: Option<PkgJSONImport>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum SupportedTargetsConfig {
+    Expr(String),
+    LegacyArray(Vec<String>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SupportedTargetsDeclKind {
+    #[default]
+    Omitted,
+    Expr,
+    LegacyArray,
+}
+
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[schemars(
     title = "JSON schema for MoonBit moon.pkg.json files",
@@ -207,7 +222,7 @@ pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "supported-targets")]
     #[schemars(rename = "supported-targets")]
-    pub supported_targets: Option<Vec<String>>,
+    pub supported_targets: Option<SupportedTargetsConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "native-stub")]
@@ -704,6 +719,12 @@ impl Import {
 
 /// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
 pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
+    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(json)?.0)
+}
+
+pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
+    json: Value,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     // It will validate the top-level keys and merge `options` into the root level.
     // Might be removed in the future, after we remove the moon.pkg.json and have an
     // AST to represent moon.pkg files.
@@ -745,7 +766,7 @@ pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
         _ => json,
     };
     let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
-    convert_pkg_json_to_package(pkg_json)
+    convert_pkg_json_to_package_with_supported_targets_decl(pkg_json)
 }
 
 pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
@@ -804,6 +825,12 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
 }
 
 pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
+    Ok(convert_pkg_json_to_package_with_supported_targets_decl(j)?.0)
+}
+
+pub fn convert_pkg_json_to_package_with_supported_targets_decl(
+    j: MoonPkgJSON,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let get_imports =
         |source: Option<PkgJSONImport>| -> Vec<Import> { pkg_json_imports_to_imports(source) };
 
@@ -842,15 +869,8 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         .map(|s| TargetBackend::str_to_backend(s))
         .transpose()?;
 
-    let mut supported_backends = IndexSet::new();
-    if let Some(ref b) = j.supported_targets {
-        for backend in b.iter() {
-            supported_backends.insert(TargetBackend::str_to_backend(backend)?);
-        }
-    } else {
-        // if supported_backends in moon.pkg.json is not set, then set it to all backends
-        supported_backends.extend(TargetBackend::all());
-    };
+    let (supported_backends, supported_targets_decl_kind) =
+        resolve_supported_targets(j.supported_targets.as_ref())?;
 
     #[allow(deprecated)]
     let result = MoonPkg {
@@ -881,7 +901,139 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         max_concurrent_tests: j.max_concurrent_tests,
         regex_backend: j.regex_backend,
     };
-    Ok(result)
+    Ok((result, supported_targets_decl_kind))
+}
+
+fn resolve_supported_targets(
+    supported_targets: Option<&SupportedTargetsConfig>,
+) -> anyhow::Result<(IndexSet<TargetBackend>, SupportedTargetsDeclKind)> {
+    match supported_targets {
+        None => Ok((
+            TargetBackend::all().iter().copied().collect(),
+            SupportedTargetsDeclKind::Omitted,
+        )),
+        Some(SupportedTargetsConfig::LegacyArray(list)) => {
+            let mut supported_backends = IndexSet::new();
+            for backend in list {
+                supported_backends.insert(TargetBackend::str_to_backend(backend)?);
+            }
+            Ok((supported_backends, SupportedTargetsDeclKind::LegacyArray))
+        }
+        Some(SupportedTargetsConfig::Expr(expr)) => Ok((
+            parse_supported_targets_expr(expr)?,
+            SupportedTargetsDeclKind::Expr,
+        )),
+    }
+}
+
+fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBackend>> {
+    const EXPR_HINT: &str = "Valid examples: `-all+js` or `-js`.";
+    const SUPPORTED_TARGET_TOKENS: [&str; 6] = ["wasm-gc", "native", "wasm", "llvm", "all", "js"];
+    let expr = expr.trim();
+    if expr.is_empty() {
+        bail!(
+            "invalid `supported-targets` expression: expression cannot be empty. {}",
+            EXPR_HINT
+        );
+    }
+
+    let bytes = expr.as_bytes();
+    let mut i = 0;
+    let mut selected: IndexSet<TargetBackend> = TargetBackend::all().iter().copied().collect();
+
+    while i < bytes.len() {
+        let op = bytes[i] as char;
+        if op != '+' && op != '-' {
+            bail!(
+                "invalid `supported-targets` expression `{}`: expected `+` or `-` at position {}. {}",
+                expr,
+                i,
+                EXPR_HINT
+            );
+        }
+        i += 1;
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let token_start = i;
+        if token_start >= bytes.len() {
+            bail!(
+                "invalid `supported-targets` expression `{}`: missing token after `{}` at position {}. {}",
+                expr,
+                op,
+                token_start.saturating_sub(1),
+                EXPR_HINT
+            );
+        }
+
+        let mut token = None;
+        for candidate in SUPPORTED_TARGET_TOKENS {
+            if !expr[token_start..].starts_with(candidate) {
+                continue;
+            }
+            let token_end = token_start + candidate.len();
+            let is_boundary = token_end >= bytes.len()
+                || matches!(bytes[token_end] as char, '+' | '-')
+                || bytes[token_end].is_ascii_whitespace();
+            if is_boundary {
+                token = Some(candidate);
+                i = token_end;
+                break;
+            }
+        }
+
+        let token = if let Some(token) = token {
+            token
+        } else {
+            let mut token_end = token_start;
+            while token_end < bytes.len() {
+                let c = bytes[token_end] as char;
+                if c == '+' || c == '-' {
+                    break;
+                }
+                token_end += 1;
+            }
+            let token = expr[token_start..token_end].trim();
+            if token.is_empty() {
+                bail!(
+                    "invalid `supported-targets` expression `{}`: empty token at position {}. {}",
+                    expr,
+                    token_start,
+                    EXPR_HINT
+                );
+            }
+            token
+        };
+
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+
+        if token == "all" {
+            if op == '+' {
+                selected.extend(TargetBackend::all().iter().copied());
+            } else {
+                selected.clear();
+            }
+            continue;
+        }
+
+        let backend = TargetBackend::str_to_backend(token).map_err(|_| {
+            anyhow::anyhow!(
+                "invalid `supported-targets` expression `{}`: unknown token `{}`. {}",
+                expr,
+                token,
+                EXPR_HINT
+            )
+        })?;
+        if op == '+' {
+            selected.insert(backend);
+        } else {
+            selected.shift_remove(&backend);
+        }
+    }
+
+    Ok(selected)
 }
 
 #[test]

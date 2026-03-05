@@ -132,13 +132,14 @@
       ]
     },
     "supported-targets": {
-      "type": [
-        "array",
-        "null"
-      ],
-      "items": {
-        "type": "string"
-      }
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SupportedTargetsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "targets": {
       "description": "Conditional compilation targets",
@@ -481,6 +482,19 @@
           ]
         }
       }
+    },
+    "SupportedTargetsConfig": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
     },
     "VirtualPkg": {
       "type": "object",
