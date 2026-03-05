@@ -118,7 +118,6 @@ cargo install --path ./crates/moon --debug --offline
 
 - `crates/moonbuild-debug`: debugging utilities for dry-run printing and snapshotting
 
-
 ## Before PR
 
 It's recommended to run the following command before you submit a PR, which may

@@ -20,6 +20,7 @@ This is a reference documentation of the current MoonBuild behavior.
 - [`moon bundle`](./bundle.md)
 - [Rupes Recta special cases](./rr-special-cases.md)
 - [`moon test` execution flow](./tests.md)
+- [`supported-targets` behavior](./supported-targets.md)
 - TODO: Single-file mode
 - TODO: Markdown checks and tests
 - [Dry-run behavior (UB)](./dry-run.md)
