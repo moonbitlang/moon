@@ -7,13 +7,14 @@ compatibility checks for selected roots.
 
 ## Field definition
 
-`supported-targets` is an optional package field in `moon.pkg.json`.
+`supported-targets` is an optional field in both `moon.pkg.json` and
+`moon.mod.json`.
 
 Preferred syntax (expression string):
 
 ```json
 {
-  "supported-targets": "-all+js"
+  "supported-targets": "js"
 }
 ```
 
@@ -36,21 +37,27 @@ Terms:
 
 Value semantics:
 
-- omitted field: package supports all backends,
-- expression string: apply operations left-to-right (`+` add, `-` remove),
-- legacy array: package supports exactly the listed backends (deprecated).
+- omitted field: supports all backends,
+- expression string: start from empty set, then apply operations left-to-right
+  (`+` add, `-` remove); the first term may omit `+`,
+- legacy array: supports exactly the listed backends (deprecated).
 
 Expression examples:
 
-- `-all+js`: support only `js`,
-- `-js`: support all except `js`.
+- `js`: support only `js`,
+- `all-js`: support all except `js`.
 
 ## Support rule
 
 For selected backend `B`, package `P` is supported when:
 
 1. `P.supported-targets` is omitted, or
-2. `P.supported-targets` includes `B` after expression/list evaluation.
+2. `P.supported-targets` includes `B` after expression/list evaluation,
+3. and `M.supported-targets` (from containing module `M`) also includes `B`.
+
+Effective package support is:
+
+- `effective(P) = pkg_supported(P) ∩ mod_supported(M)`
 
 Note: file-level conditional compilation `targets` (map keyed by filename) is a
 separate feature and unchanged.

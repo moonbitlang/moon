@@ -199,7 +199,7 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput) {
                 let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
                 if pkg.supported_targets_decl == SupportedTargetsDeclKind::LegacyArray {
                     warn!(
-                        "Package `{}` uses legacy array syntax for `supported-targets`; use expression syntax like `-all+<backend>` instead",
+                        "Package `{}` uses legacy array syntax for `supported-targets`; use expression syntax like `<backend>` instead",
                         pkg.fqn
                     );
                 }

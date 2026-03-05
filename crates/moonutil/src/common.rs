@@ -167,6 +167,8 @@ pub enum MoonModJSONFormatErrorKind {
     Version(#[from] semver::Error),
     #[error("`preferred-backend` is not a valid backend")]
     PreferredBackend(anyhow::Error),
+    #[error("`supported-targets` bad format")]
+    SupportedTargets(anyhow::Error),
 }
 
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {

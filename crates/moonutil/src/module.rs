@@ -20,7 +20,7 @@ use crate::common::{MoonModJSONFormatErrorKind, NameError, TargetBackend};
 use crate::dependency::{
     BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
 };
-use crate::package::PackageJSON;
+use crate::package::{PackageJSON, SupportedTargetsConfig, resolve_supported_targets};
 use indexmap::map::IndexMap;
 use schemars::JsonSchema;
 use semver::Version;
@@ -66,6 +66,7 @@ pub struct MoonMod {
     pub exclude: Option<Vec<String>>,
 
     pub preferred_target: Option<TargetBackend>,
+    pub supported_targets: Option<SupportedTargetsConfig>,
 
     pub scripts: Option<IndexMap<String, String>>,
     pub __moonbit_unstable_prebuild: Option<String>,
@@ -172,6 +173,14 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preferred_target: Option<String>,
 
+    /// Supported backend set for all packages in this module.
+    ///
+    /// This uses the same expression/list grammar as `moon.pkg.json`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "supported-targets")]
+    #[schemars(rename = "supported-targets")]
+    pub supported_targets: Option<SupportedTargetsConfig>,
+
     /// **Experimental:** A relative path to the pre-build configuration script.
     ///
     /// The script should be a **JavaScript or Python** file that is able to be
@@ -210,6 +219,8 @@ impl TryFrom<MoonModJSON> for MoonMod {
             .map(|x| TargetBackend::str_to_backend(&x))
             .transpose()
             .map_err(MoonModJSONFormatErrorKind::PreferredBackend)?;
+        resolve_supported_targets(j.supported_targets.as_ref())
+            .map_err(MoonModJSONFormatErrorKind::SupportedTargets)?;
 
         #[allow(deprecated)]
         Ok(MoonMod {
@@ -237,6 +248,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
 
             scripts: j.scripts,
             preferred_target,
+            supported_targets: j.supported_targets,
 
             __moonbit_unstable_prebuild: j.__moonbit_unstable_prebuild,
         })
@@ -273,6 +285,7 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         scripts: m.scripts,
 
         preferred_target: m.preferred_target.map(|x| x.to_flag().to_owned()),
+        supported_targets: m.supported_targets,
 
         __moonbit_unstable_prebuild: m.__moonbit_unstable_prebuild,
     }

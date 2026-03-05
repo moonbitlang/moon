@@ -904,7 +904,7 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
     Ok((result, supported_targets_decl_kind))
 }
 
-fn resolve_supported_targets(
+pub fn resolve_supported_targets(
     supported_targets: Option<&SupportedTargetsConfig>,
 ) -> anyhow::Result<(IndexSet<TargetBackend>, SupportedTargetsDeclKind)> {
     match supported_targets {
@@ -927,7 +927,7 @@ fn resolve_supported_targets(
 }
 
 fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBackend>> {
-    const EXPR_HINT: &str = "Valid examples: `-all+js` or `-js`.";
+    const EXPR_HINT: &str = "Valid examples: `js` or `all-js+wasm-gc`.";
     const SUPPORTED_TARGET_TOKENS: [&str; 6] = ["wasm-gc", "native", "wasm", "llvm", "all", "js"];
     let expr = expr.trim();
     if expr.is_empty() {
@@ -939,19 +939,33 @@ fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBac
 
     let bytes = expr.as_bytes();
     let mut i = 0;
-    let mut selected: IndexSet<TargetBackend> = TargetBackend::all().iter().copied().collect();
+    let mut selected = IndexSet::new();
+    let mut first_term = true;
 
     while i < bytes.len() {
-        let op = bytes[i] as char;
-        if op != '+' && op != '-' {
-            bail!(
-                "invalid `supported-targets` expression `{}`: expected `+` or `-` at position {}. {}",
-                expr,
-                i,
-                EXPR_HINT
-            );
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
         }
-        i += 1;
+        if i >= bytes.len() {
+            break;
+        }
+
+        let op = match bytes[i] as char {
+            '+' | '-' => {
+                let op = bytes[i] as char;
+                i += 1;
+                op
+            }
+            _ if first_term => '+',
+            _ => {
+                bail!(
+                    "invalid `supported-targets` expression `{}`: expected `+` or `-` at position {}. {}",
+                    expr,
+                    i,
+                    EXPR_HINT
+                );
+            }
+        };
         while i < bytes.len() && bytes[i].is_ascii_whitespace() {
             i += 1;
         }
@@ -1015,6 +1029,7 @@ fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBac
             } else {
                 selected.clear();
             }
+            first_term = false;
             continue;
         }
 
@@ -1031,6 +1046,7 @@ fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBac
         } else {
             selected.shift_remove(&backend);
         }
+        first_term = false;
     }
 
     Ok(selected)

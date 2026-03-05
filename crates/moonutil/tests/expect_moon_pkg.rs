@@ -243,7 +243,7 @@ fn expect_supported_targets() {
 fn expect_supported_targets_expr() {
     let actual = run(r#"
       options(
-        "supported-targets": "-all+js"
+        "supported-targets": "js"
       )
     "#);
     expect_test::expect![[r#"
@@ -282,7 +282,7 @@ fn expect_supported_targets_expr() {
 fn expect_supported_targets_expr_with_wasm_gc() {
     let actual = run(r#"
       options(
-        "supported-targets": "-all+wasm-gc"
+        "supported-targets": "wasm-gc"
       )
     "#);
     expect_test::expect![[r#"
@@ -340,12 +340,7 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
-            supported_targets: {
-                Wasm,
-                Js,
-                Native,
-                LLVM,
-            },
+            supported_targets: {},
             native_stub: None,
             virtual_pkg: None,
             implement: None,

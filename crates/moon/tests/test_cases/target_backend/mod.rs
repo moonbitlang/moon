@@ -131,10 +131,7 @@ fn test_mixed_backend_default_selection_is_target_aware() {
     assert_contains_and_absent(
         &test_js,
         &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
-        &[
-            "./server/server_wbtest.mbt",
-            "./deps/nativedep/lib/lib.mbt",
-        ],
+        &["./server/server_wbtest.mbt", "./deps/nativedep/lib/lib.mbt"],
     );
 
     let check_native = get_stdout(
@@ -175,10 +172,7 @@ fn test_mixed_backend_default_selection_is_target_aware() {
     );
     assert_contains_and_absent(
         &test_native,
-        &[
-            "./server/server_wbtest.mbt",
-            "./deps/nativedep/lib/lib.mbt",
-        ],
+        &["./server/server_wbtest.mbt", "./deps/nativedep/lib/lib.mbt"],
         &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 }
@@ -194,10 +188,7 @@ fn test_mixed_backend_bench_is_target_aware() {
     assert_contains_and_absent(
         &bench_js,
         &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
-        &[
-            "./server/server_wbtest.mbt",
-            "./deps/nativedep/lib/lib.mbt",
-        ],
+        &["./server/server_wbtest.mbt", "./deps/nativedep/lib/lib.mbt"],
     );
 
     let bench_native = get_stdout(
@@ -206,10 +197,7 @@ fn test_mixed_backend_bench_is_target_aware() {
     );
     assert_contains_and_absent(
         &bench_native,
-        &[
-            "./server/server_wbtest.mbt",
-            "./deps/nativedep/lib/lib.mbt",
-        ],
+        &["./server/server_wbtest.mbt", "./deps/nativedep/lib/lib.mbt"],
         &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 }
@@ -257,14 +245,7 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
 
     let run_js = get_stdout(
         &dir,
-        [
-            "run",
-            "web",
-            "--target",
-            "js",
-            "--dry-run",
-            "--sort-input",
-        ],
+        ["run", "web", "--target", "js", "--dry-run", "--sort-input"],
     );
     assert_contains_and_absent(
         &run_js,
@@ -393,6 +374,29 @@ fn test_supported_targets_empty_list_is_never_selected() {
             .contains("Package 'supported/empty/never' does not support target backend 'js'")
     );
     assert!(explicit_err.contains("Supported backends: []"));
+}
+
+#[test]
+fn test_module_supported_targets_intersects_package_supported_targets() {
+    let dir = TestDir::new("supported_targets_module_intersection.in");
+
+    let check_js = get_stdout(
+        &dir,
+        ["check", "--target", "js", "--dry-run", "--sort-input"],
+    );
+    assert_contains_and_absent(&check_js, &["./main/main.mbt", "./lib/lib.mbt"], &[]);
+
+    let check_native = get_stdout(
+        &dir,
+        ["check", "--target", "native", "--dry-run", "--sort-input"],
+    );
+    assert_contains_and_absent(&check_native, &[], &["./main/main.mbt", "./lib/lib.mbt"]);
+
+    let explicit_err = get_err_stderr(&dir, ["check", "main", "--target", "native", "--dry-run"]);
+    assert!(explicit_err.contains(
+        "Package 'supported/mod-intersection/main' does not support target backend 'native'"
+    ));
+    assert!(explicit_err.contains("Supported backends: [js]"));
 }
 
 #[test]

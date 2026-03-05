@@ -162,6 +162,7 @@ pub fn write(config: &Config, base_dir: &Path) {
 
         scripts: None,
         preferred_target: None,
+        supported_targets: None,
 
         __moonbit_unstable_prebuild: None,
     };
