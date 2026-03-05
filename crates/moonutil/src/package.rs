@@ -220,6 +220,10 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "bin-target")]
     pub bin_target: Option<String>,
 
+    /// Supported backend set for this package.
+    ///
+    /// This accepts either expression syntax (for example: `"js"` or
+    /// `"all-js+wasm-gc"`) or legacy array syntax.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "supported-targets")]
     #[schemars(rename = "supported-targets")]

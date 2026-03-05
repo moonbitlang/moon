@@ -223,7 +223,9 @@ mod tests {
 
     #[test]
     fn parse_invalid_token() {
-        let err = parse_supported_targets_expr("+foo").unwrap_err().to_string();
+        let err = parse_supported_targets_expr("+foo")
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("unknown token `foo`"));
     }
 }
