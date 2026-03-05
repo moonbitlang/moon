@@ -26,7 +26,7 @@ use std::{
 use moonbuild::expect::PackageSrcResolver;
 use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend};
 use moonutil::mooncakes::{ModuleId, ModuleSource};
-use moonutil::package::MoonPkg;
+use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
 use slotmap::{SecondaryMap, SlotMap};
 
 use crate::{
@@ -53,6 +53,8 @@ pub struct DiscoveredPackage {
 
     /// The raw `moon.pkg.json` of this package.
     pub raw: Box<MoonPkg>,
+    /// How backend `supported-targets` was declared in package config.
+    pub supported_targets_decl: SupportedTargetsDeclKind,
 
     /// `.mbt` files contained by this package. This list contains absolute
     /// paths of the files. The same applies to all other file lists below.

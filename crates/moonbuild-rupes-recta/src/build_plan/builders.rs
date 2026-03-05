@@ -874,8 +874,18 @@ impl<'a> BuildPlanConstructor<'a> {
         // Bundling a module gathers the build result of all its non-virtual packages, in topo order
         let topo_sorted_pkgs = self.topo_sort_module_packages(module_id);
         let mut bundle_targets = Vec::new();
+        let target_backend: moonutil::common::TargetBackend = self.build_env.target_backend.into();
         for target in topo_sorted_pkgs.into_iter() {
             let pkg = self.input.pkg_dirs.get_package(target.package);
+            if !pkg.raw.supported_targets.contains(&target_backend) {
+                trace!(
+                    ?module_id,
+                    ?target,
+                    ?target_backend,
+                    "skipping bundle target that does not support backend"
+                );
+                continue;
+            }
             if !pkg.has_implementation() {
                 trace!(
                     ?module_id,

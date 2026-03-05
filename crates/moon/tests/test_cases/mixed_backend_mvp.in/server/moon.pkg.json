@@ -1,0 +1,10 @@
+{
+  "import": [
+    "mixed/mvp/shared",
+    "moonbitlang/async",
+    "moonbitlang/async/http",
+    "moonbitlang/async/socket"
+  ],
+  "is-main": true,
+  "supported-targets": ["native"]
+}

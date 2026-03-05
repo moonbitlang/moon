@@ -1,0 +1,9 @@
+{
+  "import": [
+    "mixed/mvp/shared",
+    "moonbit-community/rabbita",
+    "moonbit-community/rabbita/html"
+  ],
+  "is-main": true,
+  "supported-targets": ["js"]
+}

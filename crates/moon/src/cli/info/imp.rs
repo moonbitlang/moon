@@ -18,7 +18,7 @@
 
 //! Actual implementation of `moon info` command.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use colored::Colorize;
@@ -66,14 +66,16 @@ pub(super) fn promote_info_results(meta: &BuildMeta) {
 
 struct PackageOutputGroup<'a> {
     pkg_name: String,
+    dest_path: PathBuf,
     backend_files: IndexMap<TargetBackend, &'a Path>,
 }
 
 impl<'a> PackageOutputGroup<'a> {
-    fn new_from_fqn(pkg_name: &'a PackageFQN) -> Self {
+    fn new_from_fqn(pkg_name: &'a PackageFQN, dest_path: PathBuf) -> Self {
         let pkg_name = pkg_name.to_string();
         Self {
             pkg_name,
+            dest_path,
             backend_files: IndexMap::new(),
         }
     }
@@ -106,8 +108,8 @@ pub(super) fn compare_info_outputs<'a>(
             transposed
                 .entry(target.package)
                 .or_insert_with(|| {
-                    let fqn = &meta.resolve_output.pkg_dirs.get_package(target.package).fqn;
-                    PackageOutputGroup::new_from_fqn(fqn)
+                    let pkg = meta.resolve_output.pkg_dirs.get_package(target.package);
+                    PackageOutputGroup::new_from_fqn(&pkg.fqn, pkg.root_path.join(MBTI_GENERATED))
                 })
                 .insert(*backend, mbti_path);
         }
@@ -131,6 +133,56 @@ pub(super) fn compare_info_outputs<'a>(
     }
 
     Ok(identical)
+}
+
+/// Promote multi-target `moon info` outputs.
+///
+/// For each package, prefer canonical backend output if available, otherwise
+/// promote the first available backend output.
+pub(super) fn promote_info_results_multi_target<'a>(
+    it: impl Iterator<Item = &'a (TargetBackend, BuildMeta)>,
+    canonical: TargetBackend,
+) {
+    let mut transposed = IndexMap::<_, PackageOutputGroup>::new();
+    for (backend, meta) in it {
+        for (&node, artifact) in &meta.artifacts {
+            let BuildPlanNode::GenerateMbti(target) = node else {
+                continue;
+            };
+            assert!(
+                artifact.artifacts.len() == 1,
+                "mbti generation should only produce one artifact"
+            );
+            let mbti_path = artifact.artifacts.first().unwrap();
+            transposed
+                .entry(target.package)
+                .or_insert_with(|| {
+                    let pkg = meta.resolve_output.pkg_dirs.get_package(target.package);
+                    PackageOutputGroup::new_from_fqn(&pkg.fqn, pkg.root_path.join(MBTI_GENERATED))
+                })
+                .insert(*backend, mbti_path);
+        }
+    }
+
+    for (_package, group) in transposed {
+        let source_path = group
+            .backend_files
+            .get(&canonical)
+            .copied()
+            .or_else(|| group.backend_files.values().next().copied())
+            .expect("No backend files found");
+        match std::fs::copy(source_path, &group.dest_path) {
+            Ok(_) => {}
+            Err(e) => {
+                error!(
+                    "Failed to copy generated mbti file from {} to {}: {}",
+                    source_path.display(),
+                    group.dest_path.display(),
+                    e
+                );
+            }
+        }
+    }
 }
 
 struct MbtiOutput<'a> {

@@ -14,7 +14,7 @@ fn test_third_party() {
 
     let actual = get_stderr(&dir, ["check"]);
     expect![[r#"
-        Finished. moon: ran 6 tasks, now up to date
+        Finished. moon: ran 5 tasks, now up to date
     "#]]
     .assert_eq(&actual);
 

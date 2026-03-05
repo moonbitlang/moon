@@ -1,0 +1,16 @@
+{
+  "name": "mixed/localdep",
+  "version": "0.1.0",
+  "source": "src",
+  "deps": {
+    "local/jsdep": {
+      "path": "./deps/jsdep"
+    },
+    "local/unuseddep": {
+      "path": "./deps/unuseddep"
+    },
+    "local/nativedep": {
+      "path": "./deps/nativedep"
+    }
+  }
+}

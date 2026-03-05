@@ -31,7 +31,10 @@ use tracing::warn;
 
 use crate::{
     cli::BuildFlags,
-    filter::{canonicalize_with_filename, filter_pkg_by_dir, match_packages_with_fuzzy},
+    filter::{
+        canonicalize_with_filename, filter_packages_by_backend, filter_pkg_by_dir,
+        match_packages_with_fuzzy, package_supports_backend,
+    },
     rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
 };
 
@@ -119,14 +122,9 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
     }
 
     let identical = imp::compare_info_outputs(all_meta.iter(), canonical_target)?;
-
-    // Always promote the canonical backend's outputs to package directories
-    let canonical_meta = &all_meta
-        .iter()
-        .find(|(t, _)| *t == canonical_target)
-        .expect("canonical backend metadata should exist")
-        .1;
-    imp::promote_info_results(canonical_meta);
+    if identical {
+        imp::promote_info_results_multi_target(all_meta.iter(), canonical_target);
+    }
 
     if identical { Ok(0) } else { Ok(1) }
 }
@@ -165,6 +163,7 @@ pub(crate) fn run_info_rr_internal(
                 package_filter.as_deref(),
                 path_filter.as_deref(),
                 resolve_output,
+                _tb,
             )
         }),
     )?;
@@ -184,6 +183,7 @@ fn calc_user_intent(
     package_filter: Option<&str>,
     path_filter: Option<&Path>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let &[main_module_id] = resolve_output.local_modules() else {
         panic!("No multiple main modules are supported");
@@ -199,7 +199,16 @@ fn calc_user_intent(
         // Path filter: resolve a specific file/directory to its containing package
         let (dir, _) = canonicalize_with_filename(path)?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
-        vec![UserIntent::Info(pkg)]
+        if package_supports_backend(resolve_output, pkg, target_backend) {
+            vec![UserIntent::Info(pkg)]
+        } else {
+            warn!(
+                "Skipping package `{}` for `moon info`: it does not support target backend `{}`",
+                resolve_output.pkg_dirs.get_package(pkg).fqn,
+                target_backend
+            );
+            Vec::new()
+        }
     } else if let Some(filter) = package_filter {
         let matches = match_packages_with_fuzzy(
             resolve_output,
@@ -219,13 +228,23 @@ fn calc_user_intent(
             }
         }
 
-        matches
-            .matched
+        let filtered = filter_packages_by_backend(resolve_output, matches.matched, target_backend);
+        if filtered.is_empty() {
+            warn!(
+                "No selected package supports target backend `{}` for `moon info`",
+                target_backend
+            );
+        }
+
+        filtered
             .into_iter()
             .map(UserIntent::Info)
             .collect::<Vec<_>>()
     } else {
-        package_ids.into_iter().map(UserIntent::Info).collect()
+        filter_packages_by_backend(resolve_output, package_ids, target_backend)
+            .into_iter()
+            .map(UserIntent::Info)
+            .collect()
     };
 
     Ok(intents.into())

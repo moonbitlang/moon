@@ -1,0 +1,8 @@
+{
+  "import": [
+    "mixed/localdep/shared",
+    "local/nativedep/lib"
+  ],
+  "is-main": true,
+  "supported-targets": ["native"]
+}

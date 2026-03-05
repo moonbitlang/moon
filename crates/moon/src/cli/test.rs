@@ -17,6 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::filter::canonicalize_with_filename;
+use crate::filter::ensure_package_supports_backend;
+use crate::filter::ensure_packages_support_backend;
+use crate::filter::filter_packages_by_backend;
 use crate::filter::filter_pkg_by_dir;
 use crate::filter::match_packages_with_fuzzy;
 use crate::rr_build;
@@ -608,11 +611,13 @@ fn apply_explicit_file_filter(
     out_filter: &mut TestFilter,
     file_filter: &Path,
     test_index: Option<TestIndex>,
+    target_backend: TargetBackend,
 ) -> Result<(), anyhow::Error> {
     let (dir, filename) = canonicalize_with_filename(file_filter)?;
     debug!(dir = %dir.display(), filename = ?filename, "resolved explicit file filter path");
 
     let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+    ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
     debug!(package = ?pkg, file = filename.as_deref(), "resolved explicit filter target");
 
     out_filter.add_autodetermine_target(pkg, filename.as_deref(), test_index);
@@ -631,6 +636,7 @@ fn apply_list_of_filters(
     doc_index_filter: Option<u32>,
     patch_file: Option<&Path>,
     value_tracing: bool,
+    target_backend: TargetBackend,
     out_filter: &mut TestFilter,
 ) -> Result<InputDirective, anyhow::Error> {
     let package_matches = match_packages_with_fuzzy(
@@ -638,7 +644,8 @@ fn apply_list_of_filters(
         affected_packages.iter().copied(),
         package_filter,
     );
-    let filtered_package_ids = package_matches.matched;
+    let filtered_package_ids =
+        ensure_packages_support_backend(resolve_output, package_matches.matched, target_backend)?;
     trace!(
         filtered_packages = filtered_package_ids.len(),
         "package filters resolved"
@@ -735,7 +742,12 @@ fn calc_user_intent(
         package_count = packages.len(),
         "calculating user intent for module"
     );
-    let affected_packages: Vec<_> = packages.values().copied().collect();
+    let all_affected_packages: Vec<_> = packages.values().copied().collect();
+    let backend_affected_packages = filter_packages_by_backend(
+        resolve_output,
+        all_affected_packages.iter().copied(),
+        target_backend,
+    );
 
     let directive = if let Some(file_filter) = cmd.explicit_file_filter {
         let test_index = if let Some(index) = cmd.index {
@@ -745,13 +757,19 @@ fn calc_user_intent(
         } else {
             None
         };
-        apply_explicit_file_filter(resolve_output, out_filter, file_filter, test_index)?;
+        apply_explicit_file_filter(
+            resolve_output,
+            out_filter,
+            file_filter,
+            test_index,
+            target_backend,
+        )?;
         trace!("explicit file filter applied");
         Default::default()
     } else if let Some(package_filter) = cmd.package {
         let value_tracing = cmd.build_flags.enable_value_tracing;
         apply_list_of_filters(
-            &affected_packages,
+            &all_affected_packages,
             resolve_output,
             package_filter.as_slice(),
             cmd.file.as_deref(),
@@ -759,11 +777,12 @@ fn calc_user_intent(
             *cmd.doc_index,
             cmd.patch_file.as_deref(),
             value_tracing,
+            target_backend,
             out_filter,
         )?
     } else {
         // No filter: emit one intent per package (Test/Bench)
-        let intents: Vec<_> = affected_packages
+        let intents: Vec<_> = backend_affected_packages
             .iter()
             .copied()
             .map(UserIntent::Test)

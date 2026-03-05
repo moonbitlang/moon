@@ -41,7 +41,7 @@ use moonutil::package::MoonPkg;
 use moonutil::{
     common::{
         IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, MOONBITLANG_ABORT,
-        read_module_desc_file_in_dir, read_package_desc_file_in_dir,
+        read_module_desc_file_in_dir, read_package_desc_file_in_dir_with_supported_targets_decl,
     },
     mooncakes::ModuleSourceKind,
 };
@@ -224,12 +224,14 @@ fn discover_one_package(
     let fqn = PackageFQN::new(m.clone(), pkg_path);
 
     // Discover the package config
-    let pkg_json =
-        read_package_desc_file_in_dir(abs).map_err(|e| DiscoverError::CantReadPackageFile {
-            module: m.clone(),
-            package: fqn.package().clone(),
-            path: abs.to_path_buf(),
-            inner: e,
+    let (pkg_json, supported_targets_decl) =
+        read_package_desc_file_in_dir_with_supported_targets_decl(abs).map_err(|e| {
+            DiscoverError::CantReadPackageFile {
+                module: m.clone(),
+                package: fqn.package().clone(),
+                path: abs.to_path_buf(),
+                inner: e,
+            }
         })?;
     let pkg_json = if is_core {
         add_prelude_as_import_for_core(pkg_json)
@@ -326,6 +328,7 @@ fn discover_one_package(
         fqn,
         is_single_file: false,
         raw: Box::new(pkg_json),
+        supported_targets_decl,
         source_files,
         mbt_lex_files,
         mbt_yacc_files,

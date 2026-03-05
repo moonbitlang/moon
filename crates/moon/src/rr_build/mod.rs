@@ -29,7 +29,7 @@
 
 use core::panic;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     vec,
@@ -58,6 +58,7 @@ use moonutil::{
     cond_expr::OptLevel as BuildProfile,
     features::FeatureGate,
     mooncakes::sync::AutoSyncFlags,
+    package::SupportedTargetsDeclKind,
     render::MooncDiagnostic,
 };
 use tracing::{Level, info, instrument, warn};
@@ -109,6 +110,179 @@ impl From<(Vec<UserIntent>, InputDirective)> for CalcUserIntentOutput {
     fn from((intents, directive): (Vec<UserIntent>, InputDirective)) -> Self {
         Self { intents, directive }
     }
+}
+
+fn format_supported_backends_for_pkg(resolve_output: &ResolveOutput, pkg: PackageId) -> String {
+    let mut targets = resolve_output
+        .pkg_dirs
+        .get_package(pkg)
+        .raw
+        .supported_targets
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    targets.sort();
+    format!("[{}]", targets.join(", "))
+}
+
+fn build_target_chain_to(
+    mut node: moonbuild_rupes_recta::model::BuildTarget,
+    parent: &BTreeMap<
+        moonbuild_rupes_recta::model::BuildTarget,
+        moonbuild_rupes_recta::model::BuildTarget,
+    >,
+) -> Vec<moonbuild_rupes_recta::model::BuildTarget> {
+    let mut chain = vec![node];
+    while let Some(prev) = parent.get(&node).copied() {
+        chain.push(prev);
+        node = prev;
+    }
+    chain.reverse();
+    chain
+}
+
+#[derive(Default)]
+struct BackendGraphScanResult {
+    incompatible_path: Option<Vec<moonbuild_rupes_recta::model::BuildTarget>>,
+    first_declared_dependency: Option<PackageId>,
+}
+
+fn scan_backend_dependency_graph(
+    resolve_output: &ResolveOutput,
+    start: moonbuild_rupes_recta::model::BuildTarget,
+    target_backend: TargetBackend,
+) -> BackendGraphScanResult {
+    let mut queue = VecDeque::new();
+    let mut visited = BTreeSet::new();
+    let mut parent = BTreeMap::new();
+    let mut scan = BackendGraphScanResult::default();
+
+    queue.push_back(start);
+    visited.insert(start);
+
+    while let Some(node) = queue.pop_front() {
+        let pkg = resolve_output.pkg_dirs.get_package(node.package);
+        if scan.first_declared_dependency.is_none()
+            && node.package != start.package
+            && pkg.supported_targets_decl != SupportedTargetsDeclKind::Omitted
+        {
+            scan.first_declared_dependency = Some(node.package);
+        }
+        if scan.incompatible_path.is_none() && !pkg.raw.supported_targets.contains(&target_backend)
+        {
+            scan.incompatible_path = Some(build_target_chain_to(node, &parent));
+        }
+
+        for dep in resolve_output
+            .pkg_rel
+            .dep_graph
+            .neighbors_directed(node, petgraph::Direction::Outgoing)
+        {
+            if visited.insert(dep) {
+                parent.insert(dep, node);
+                queue.push_back(dep);
+            }
+        }
+    }
+
+    scan
+}
+
+fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput) {
+    let mut warned = BTreeSet::new();
+    for &module_id in resolve_output.local_modules() {
+        if let Some(pkgs) = resolve_output.pkg_dirs.packages_for_module(module_id) {
+            for &pkg_id in pkgs.values() {
+                if !warned.insert(pkg_id) {
+                    continue;
+                }
+                let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                if pkg.supported_targets_decl == SupportedTargetsDeclKind::LegacyArray {
+                    warn!(
+                        "Package `{}` uses legacy array syntax for `supported-targets`; use expression syntax like `-all+<backend>` instead",
+                        pkg.fqn
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn ensure_dependency_graph_backend_compatibility(
+    resolve_output: &ResolveOutput,
+    intents: &[UserIntent],
+    input_nodes: &[BuildPlanNode],
+    target_backend: TargetBackend,
+) -> anyhow::Result<()> {
+    let mut roots = BTreeSet::new();
+
+    // Most roots are represented as target-carrying nodes.
+    for &node in input_nodes {
+        if let Some(target) = node.extract_target() {
+            roots.insert(target);
+            continue;
+        }
+        // BuildVirtual has package-level shape; treat it as a Source root for dependency checking.
+        if let BuildPlanNode::BuildVirtual(pkg_id) = node {
+            roots.insert(pkg_id.build_target(TargetKind::Source));
+        }
+    }
+
+    // Bundle roots are module-level and don't carry explicit package targets.
+    for &intent in intents {
+        if let UserIntent::Bundle(module_id) = intent
+            && let Some(pkgs) = resolve_output.pkg_dirs.packages_for_module(module_id)
+        {
+            for &pkg_id in pkgs.values() {
+                let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                if pkg.raw.supported_targets.contains(&target_backend) {
+                    roots.insert(pkg_id.build_target(TargetKind::Source));
+                }
+            }
+        }
+    }
+
+    for root in roots {
+        let root_pkg = resolve_output.pkg_dirs.get_package(root.package);
+        let scan = scan_backend_dependency_graph(resolve_output, root, target_backend);
+        if root_pkg.supported_targets_decl == SupportedTargetsDeclKind::Omitted
+            && let Some(dep_pkg_id) = scan.first_declared_dependency
+        {
+            let dep_pkg = resolve_output.pkg_dirs.get_package(dep_pkg_id);
+            warn!(
+                "Package `{}` does not declare `supported-targets`, but depends on `{}` which declares it. Consider declaring `supported-targets` explicitly",
+                root_pkg.fqn, dep_pkg.fqn
+            );
+        }
+
+        if let Some(path) = scan.incompatible_path {
+            let root_target = path.first().copied().expect("path should not be empty");
+            let bad_target = path.last().copied().expect("path should not be empty");
+            let root_pkg = resolve_output.pkg_dirs.get_package(root_target.package);
+            let bad_pkg = resolve_output.pkg_dirs.get_package(bad_target.package);
+            let path_str = path
+                .iter()
+                .map(|target| {
+                    let pkg = resolve_output.pkg_dirs.get_package(target.package);
+                    pkg.fqn.to_string()
+                })
+                .collect::<Vec<_>>()
+                .join(" -> ");
+
+            anyhow::bail!(
+                "Selected backend '{}' is incompatible with the dependency graph. \
+                 '{}' requires '{}' which supports {}. \
+                 Dependency path: {}",
+                target_backend,
+                root_pkg.fqn,
+                bad_pkg.fqn,
+                format_supported_backends_for_pkg(resolve_output, bad_target.package),
+                path_str
+            );
+        }
+    }
+
+    Ok(())
 }
 
 /// Convenient function to build a directive based on input kind
@@ -431,6 +605,7 @@ pub fn plan_build_from_resolved<'a>(
             "Warning".yellow()
         );
     }
+    warn_local_legacy_supported_targets(&resolve_output);
 
     info!("Calculating user intent");
     let intent = calc_user_intent(&resolve_output, target_backend)?;
@@ -451,6 +626,12 @@ pub fn plan_build_from_resolved<'a>(
     for i in &intent.intents {
         i.append_nodes(&resolve_output, &mut input_nodes, &intent.directive);
     }
+    ensure_dependency_graph_backend_compatibility(
+        &resolve_output,
+        &intent.intents,
+        &input_nodes,
+        target_backend,
+    )?;
 
     let cx = preconfig.into_compile_config(target_backend, is_core, &resolve_output, &input_nodes);
     info!("Begin lowering to build graph");
