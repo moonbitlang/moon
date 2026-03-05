@@ -47,16 +47,124 @@ pub(super) struct PackageSpec {
 }
 
 /// How to filter packages for installation.
-enum PackageFilter {
-    /// Match by filesystem path (for local/git install pointing to specific package)
-    ByPath(PathBuf),
-    /// Match all main packages, optionally with a prefix (for wildcard patterns)
-    Wildcard { prefix: String },
-    /// Match by package path string (for registry install)
-    ByPackagePath(String),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MatchKind {
+    /// Match only the selected target.
+    Exact,
+    /// Match the selected target and all descendants under that target.
+    Prefix,
+}
+
+/// The namespace where a package selector is interpreted.
+#[derive(Debug, Clone)]
+enum FilterTarget {
+    /// Physical package root path on disk (local/git modes).
+    FileSystem(PathBuf),
+    /// Logical package path relative to module source root (registry mode).
+    PackagePath(String),
+}
+
+/// Package selection rule used by binary installation.
+///
+/// The filter is intentionally split into target namespace (`FilterTarget`)
+/// and matching strategy (`MatchKind`) so callers can compose selectors
+/// explicitly instead of relying on ad-hoc enum variants.
+#[derive(Debug, Clone)]
+struct PackageFilter {
+    target: FilterTarget,
+    kind: MatchKind,
+}
+
+impl PackageFilter {
+    /// Build a filesystem-based filter.
+    fn filesystem(path: PathBuf, install_all: bool) -> Self {
+        Self {
+            target: FilterTarget::FileSystem(path),
+            kind: if install_all {
+                MatchKind::Prefix
+            } else {
+                MatchKind::Exact
+            },
+        }
+    }
+
+    /// Build a logical package-path filter.
+    fn package_path(path: String, install_all: bool) -> Self {
+        Self {
+            target: FilterTarget::PackagePath(path),
+            kind: if install_all {
+                MatchKind::Prefix
+            } else {
+                MatchKind::Exact
+            },
+        }
+    }
+
+    /// Returns true if a discovered package matches this filter.
+    fn matches(&self, pkg_root_path: &Path, pkg_path_str: &str) -> bool {
+        match (&self.target, self.kind) {
+            (FilterTarget::FileSystem(path), MatchKind::Exact) => pkg_root_path == *path,
+            (FilterTarget::FileSystem(prefix_path), MatchKind::Prefix) => {
+                pkg_root_path.starts_with(prefix_path)
+            }
+            (FilterTarget::PackagePath(target), MatchKind::Exact) => pkg_path_str == *target,
+            (FilterTarget::PackagePath(prefix), MatchKind::Prefix) => {
+                prefix.is_empty()
+                    || pkg_path_str.starts_with(&format!("{}/", prefix))
+                    || pkg_path_str == *prefix
+            }
+        }
+    }
+
+    /// Build a mode-appropriate "no package selected" error.
+    fn no_match_error(&self, module_name: &ModuleName, module_dir: &Path) -> anyhow::Error {
+        match (&self.target, self.kind) {
+            (FilterTarget::FileSystem(path), MatchKind::Exact) => anyhow::anyhow!(
+                "Path `{}` is not a main package (is-main: true required)",
+                path.display()
+            ),
+            (FilterTarget::FileSystem(prefix_path), MatchKind::Prefix) => {
+                if prefix_path == module_dir {
+                    anyhow::anyhow!("No main packages found in module `{}`", module_name)
+                } else {
+                    anyhow::anyhow!(
+                        "No main packages found under path `{}`",
+                        prefix_path.display()
+                    )
+                }
+            }
+            (FilterTarget::PackagePath(prefix), MatchKind::Prefix) => {
+                if prefix.is_empty() {
+                    anyhow::anyhow!("No main packages found in module `{}`", module_name)
+                } else {
+                    anyhow::anyhow!(
+                        "No main packages found matching pattern `{}/{}/...`",
+                        module_name,
+                        prefix
+                    )
+                }
+            }
+            (FilterTarget::PackagePath(target), MatchKind::Exact) => {
+                let full_name = if target.is_empty() {
+                    module_name.to_string()
+                } else {
+                    format!("{}/{}", module_name, target)
+                };
+                anyhow::anyhow!(
+                    "Package `{}` not found or is not a main package (is-main: true required)",
+                    full_name
+                )
+            }
+        }
+    }
 }
 
 const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
+
+/// Returns the non-wildcard prefix for inputs ending with `/...` or `...`.
+pub(super) fn strip_wildcard_suffix(s: &str) -> Option<&str> {
+    s.strip_suffix("...").map(|base| base.trim_end_matches('/'))
+}
 
 /// Check if a string looks like a git URL.
 pub(super) fn is_git_url(s: &str) -> bool {
@@ -84,9 +192,7 @@ pub(super) fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
         (input, None)
     };
 
-    let (path_part, is_wildcard) = if let Some(stripped) = path_part.strip_suffix("/...") {
-        (stripped, true)
-    } else if let Some(stripped) = path_part.strip_suffix("...") {
+    let (path_part, is_wildcard) = if let Some(stripped) = strip_wildcard_suffix(path_part) {
         (stripped, true)
     } else {
         (path_part, false)
@@ -126,6 +232,7 @@ pub(super) fn install_binary(
     cli: &UniversalFlags,
     spec: &PackageSpec,
     install_dir: &Path,
+    install_all: bool,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
 
@@ -182,13 +289,8 @@ pub(super) fn install_binary(
 
     registry.install_to(&spec.module_name, &version, module_dir, quiet)?;
 
-    let filter = if spec.is_wildcard {
-        PackageFilter::Wildcard {
-            prefix: spec.package_path.clone().unwrap_or_default(),
-        }
-    } else {
-        PackageFilter::ByPackagePath(spec.package_path.clone().unwrap_or_default())
-    };
+    let filter =
+        PackageFilter::package_path(spec.package_path.clone().unwrap_or_default(), install_all);
 
     build_and_install_packages(cli, &spec.module_name, module_dir, install_dir, filter)
 }
@@ -198,6 +300,7 @@ pub(super) fn install_from_local(
     cli: &UniversalFlags,
     local_path: &Path,
     install_dir: &Path,
+    install_all: bool,
 ) -> anyhow::Result<i32> {
     let input_path = dunce::canonicalize(local_path).with_context(|| {
         format!(
@@ -216,14 +319,7 @@ pub(super) fn install_from_local(
 
     let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    let filter = if input_path == module_root {
-        PackageFilter::Wildcard {
-            prefix: String::new(),
-        }
-    } else {
-        PackageFilter::ByPath(input_path)
-    };
+    let filter = PackageFilter::filesystem(input_path, install_all);
 
     build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
 }
@@ -245,8 +341,9 @@ pub(super) fn install_from_git(
     cli: &UniversalFlags,
     git_url: &str,
     git_ref: GitRef<'_>,
-    package_path: Option<&str>,
+    path_in_repo: Option<&str>,
     install_dir: &Path,
+    install_all: bool,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
 
@@ -298,12 +395,13 @@ pub(super) fn install_from_git(
     }
 
     // Determine the target path within the cloned repo
-    let target_path = if let Some(pkg_path) = package_path {
-        let pkg_path = pkg_path.trim_matches('/');
-        if pkg_path.is_empty() {
+    let target_path = if let Some(repo_path) = path_in_repo {
+        let repo_path = repo_path.trim_matches('/');
+        let repo_path = repo_path.trim_end_matches("/...").trim_end_matches("...");
+        if repo_path.is_empty() {
             clone_dir.to_path_buf()
         } else {
-            clone_dir.join(pkg_path.trim_end_matches("/..."))
+            clone_dir.join(repo_path)
         }
     } else {
         clone_dir.to_path_buf()
@@ -313,7 +411,22 @@ pub(super) fn install_from_git(
     if !target_path.exists() {
         bail!(
             "Path `{}` does not exist in the repository",
-            package_path.unwrap_or("")
+            path_in_repo.unwrap_or("")
+        );
+    }
+
+    let target_path = dunce::canonicalize(&target_path).with_context(|| {
+        format!(
+            "Path `{}` cannot be resolved in the repository",
+            path_in_repo.unwrap_or("")
+        )
+    })?;
+    let clone_dir =
+        dunce::canonicalize(clone_dir).context("Failed to resolve cloned repository")?;
+    if !target_path.starts_with(&clone_dir) {
+        bail!(
+            "Path `{}` escapes repository root",
+            path_in_repo.unwrap_or("")
         );
     }
 
@@ -324,27 +437,7 @@ pub(super) fn install_from_git(
 
     let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    let is_module_root = target_path == module_root;
-    let is_wildcard = package_path
-        .map(|p| p.ends_with("/...") || p == "...")
-        .unwrap_or(is_module_root);
-
-    let filter = if is_wildcard || is_module_root {
-        PackageFilter::Wildcard {
-            prefix: package_path
-                .map(|p| p.trim_end_matches("/...").trim_end_matches("..."))
-                .unwrap_or("")
-                .to_string(),
-        }
-    } else {
-        // Use ByPackagePath for git install (string comparison, not filesystem path)
-        PackageFilter::ByPackagePath(
-            package_path
-                .map(|p| p.trim_matches('/').to_string())
-                .unwrap_or_default(),
-        )
-    };
+    let filter = PackageFilter::filesystem(target_path, install_all);
 
     build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
 }
@@ -359,13 +452,6 @@ fn build_and_install_packages(
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
 
-    std::fs::create_dir_all(install_dir).with_context(|| {
-        format!(
-            "Failed to create install directory `{}`",
-            install_dir.display()
-        )
-    })?;
-
     let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, module_dir)?;
 
@@ -377,7 +463,13 @@ fn build_and_install_packages(
         );
     };
 
-    let mut packages_to_build: Vec<(PackageId, String)> = Vec::new();
+    struct SelectedPackage {
+        pkg_id: PackageId,
+        full_pkg_name: String,
+        binary_name: String,
+    }
+
+    let mut selected_packages: Vec<SelectedPackage> = Vec::new();
 
     for (pkg_path, &pkg_id) in all_pkgs {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
@@ -387,84 +479,88 @@ fn build_and_install_packages(
 
         let pkg_path_str = pkg_path.to_string();
 
-        let matched = match &filter {
-            PackageFilter::ByPath(path) => pkg.root_path == *path,
-            PackageFilter::Wildcard { prefix } => {
-                prefix.is_empty()
-                    || pkg_path_str.starts_with(&format!("{}/", prefix))
-                    || pkg_path_str == *prefix
-            }
-            PackageFilter::ByPackagePath(target) => pkg_path_str == *target,
-        };
+        let matched = filter.matches(&pkg.root_path, &pkg_path_str);
 
         if matched {
-            packages_to_build.push((pkg_id, pkg_path_str));
+            let binary_name = pkg_path_str
+                .rsplit('/')
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&module_name.unqual)
+                .to_string();
+            let full_pkg_name = if pkg_path_str.is_empty() {
+                module_name.to_string()
+            } else {
+                format!("{}/{}", module_name, pkg_path_str)
+            };
+            selected_packages.push(SelectedPackage {
+                pkg_id,
+                full_pkg_name,
+                binary_name,
+            });
         }
     }
 
-    if packages_to_build.is_empty() {
-        match &filter {
-            PackageFilter::ByPath(path) => {
-                bail!(
-                    "Path `{}` is not a main package (is-main: true required)",
-                    path.display()
-                );
-            }
-            PackageFilter::Wildcard { prefix } => {
-                if prefix.is_empty() {
-                    bail!("No main packages found in module `{}`", module_name);
-                } else {
-                    bail!(
-                        "No main packages found matching pattern `{}/{}/...`",
-                        module_name,
-                        prefix
-                    );
-                }
-            }
-            PackageFilter::ByPackagePath(target) => {
-                let full_name = if target.is_empty() {
-                    module_name.to_string()
-                } else {
-                    format!("{}/{}", module_name, target)
-                };
-                bail!(
-                    "Package `{}` not found or is not a main package (is-main: true required)",
-                    full_name
-                );
-            }
-        }
+    if selected_packages.is_empty() {
+        return Err(filter.no_match_error(module_name, module_dir));
     }
+
+    if cli.dry_run {
+        let mut dry_run_count = 0;
+        for pkg in &selected_packages {
+            if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
+                eprintln!(
+                    "{}: Cannot install `{}` - name conflicts with MoonBit toolchain binary",
+                    "Error".red().bold(),
+                    pkg.binary_name
+                );
+                continue;
+            }
+            let dst_name = if cfg!(windows) {
+                format!("{}.exe", pkg.binary_name)
+            } else {
+                pkg.binary_name.clone()
+            };
+            let binary_dst = install_dir.join(dst_name);
+            eprintln!("{}: Would build `{}`", "Dry-run".cyan(), pkg.full_pkg_name);
+            eprintln!(
+                "{}: Would install `{}` to `{}`",
+                "Dry-run".cyan(),
+                pkg.binary_name,
+                binary_dst.display()
+            );
+            dry_run_count += 1;
+        }
+        if dry_run_count == 0 {
+            bail!("No packages would be installed");
+        }
+        return Ok(0);
+    }
+
+    std::fs::create_dir_all(install_dir).with_context(|| {
+        format!(
+            "Failed to create install directory `{}`",
+            install_dir.display()
+        )
+    })?;
 
     let target_dir = module_dir.join(moonutil::common::BUILD_DIR);
     std::fs::create_dir_all(&target_dir).context("Failed to create build directory")?;
     let mut installed_count = 0;
 
-    for (pkg_id, pkg_path) in packages_to_build {
-        let binary_name = pkg_path
-            .rsplit('/')
-            .next()
-            .filter(|s| !s.is_empty())
-            .unwrap_or(&module_name.unqual)
-            .to_string();
-
+    for pkg in selected_packages {
         // Check if binary name would overwrite a reserved toolchain binary
-        if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&binary_name.as_str()) {
+        if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
             eprintln!(
                 "{}: Cannot install `{}` - name conflicts with MoonBit toolchain binary",
                 "Error".red().bold(),
-                binary_name
+                pkg.binary_name
             );
             continue;
         }
 
-        let full_pkg_name = if pkg_path.is_empty() {
-            module_name.to_string()
-        } else {
-            format!("{}/{}", module_name, pkg_path)
-        };
-
         if !quiet {
-            eprintln!("{}: Building `{}`...", "Info".cyan(), full_pkg_name);
+            eprintln!("{}: Building `{}`...", "Info".cyan(), pkg.full_pkg_name);
         }
 
         let build_flags = BuildFlags {
@@ -485,7 +581,7 @@ fn build_and_install_packages(
             preconfig,
             &cli.unstable_feature,
             &target_dir,
-            Box::new(move |_, _| Ok(vec![UserIntent::Build(pkg_id)].into())),
+            Box::new(move |_, _| Ok(vec![UserIntent::Build(pkg.pkg_id)].into())),
             resolve_output.clone(),
         )?;
 
@@ -498,22 +594,22 @@ fn build_and_install_packages(
             eprintln!(
                 "{}: Failed to build `{}`",
                 "Error".red().bold(),
-                full_pkg_name
+                pkg.full_pkg_name
             );
             continue;
         }
         result.print_info(quiet, "building").ok();
 
         let target = BuildTarget {
-            package: pkg_id,
+            package: pkg.pkg_id,
             kind: TargetKind::Source,
         };
         let binary_src =
             build_meta.artifacts[&BuildPlanNode::MakeExecutable(target)].artifacts[0].clone();
         let dst_name = if cfg!(windows) {
-            format!("{}.exe", binary_name)
+            format!("{}.exe", pkg.binary_name)
         } else {
-            binary_name.clone()
+            pkg.binary_name.clone()
         };
         let binary_dst = install_dir.join(dst_name);
 
@@ -537,7 +633,7 @@ fn build_and_install_packages(
             eprintln!(
                 "{}: Installed `{}` to `{}`",
                 "Success".green().bold(),
-                binary_name,
+                pkg.binary_name,
                 binary_dst.display()
             );
         }
@@ -555,6 +651,14 @@ fn build_and_install_packages(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_path(parts: &[&str]) -> PathBuf {
+        let mut path = PathBuf::new();
+        for part in parts {
+            path.push(part);
+        }
+        path
+    }
 
     #[test]
     fn test_is_git_url() {
@@ -663,5 +767,42 @@ mod tests {
 
         // Invalid version
         assert!(parse_package_spec("user/module@invalid").is_err());
+    }
+
+    #[test]
+    fn test_package_filter_matches_by_path() {
+        let path = test_path(&["repo", "examples", "native", "pixeladventure"]);
+        let filter = PackageFilter::filesystem(path.clone(), false);
+
+        assert!(filter.matches(&path, "native/pixeladventure"));
+        assert!(!filter.matches(
+            &test_path(&["repo", "examples", "native", "cards"]),
+            "native/cards"
+        ));
+    }
+
+    #[test]
+    fn test_package_filter_matches_by_path_prefix() {
+        let filter = PackageFilter::filesystem(test_path(&["repo", "examples", "native"]), true);
+
+        assert!(filter.matches(
+            &test_path(&["repo", "examples", "native", "pixeladventure"]),
+            "native/pixeladventure",
+        ));
+        assert!(filter.matches(
+            &test_path(&["repo", "examples", "native", "cards"]),
+            "native/cards",
+        ));
+        assert!(!filter.matches(&test_path(&["repo", "examples", "web", "demo"]), "web/demo"));
+    }
+
+    #[test]
+    fn test_package_filter_matches_by_package_prefix() {
+        let filter = PackageFilter::package_path("native".to_string(), true);
+        assert!(filter.matches(
+            &test_path(&["repo", "examples", "native", "pixeladventure"]),
+            "native/pixeladventure",
+        ));
+        assert!(!filter.matches(&test_path(&["repo", "examples", "web", "demo"]), "web/demo",));
     }
 }
