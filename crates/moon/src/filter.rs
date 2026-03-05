@@ -261,20 +261,6 @@ pub(crate) fn package_supports_backend(
         .contains(&target_backend)
 }
 
-pub(crate) fn filter_packages_by_backend<I>(
-    resolve_output: &ResolveOutput,
-    packages: I,
-    target_backend: TargetBackend,
-) -> Vec<PackageId>
-where
-    I: IntoIterator<Item = PackageId>,
-{
-    packages
-        .into_iter()
-        .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
-        .collect()
-}
-
 pub(crate) fn ensure_package_supports_backend(
     resolve_output: &ResolveOutput,
     pkg_id: PackageId,
@@ -297,23 +283,20 @@ pub(crate) fn ensure_packages_support_backend<I>(
     resolve_output: &ResolveOutput,
     packages: I,
     target_backend: TargetBackend,
-) -> anyhow::Result<Vec<PackageId>>
+) -> anyhow::Result<()>
 where
     I: IntoIterator<Item = PackageId>,
 {
-    let mut supported = Vec::new();
     let mut unsupported = Vec::new();
 
     for pkg_id in packages {
-        if package_supports_backend(resolve_output, pkg_id, target_backend) {
-            supported.push(pkg_id);
-        } else {
+        if !package_supports_backend(resolve_output, pkg_id, target_backend) {
             unsupported.push(pkg_id);
         }
     }
 
     if unsupported.is_empty() {
-        return Ok(supported);
+        return Ok(());
     }
 
     let details = unsupported

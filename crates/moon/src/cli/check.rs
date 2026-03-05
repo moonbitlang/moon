@@ -30,8 +30,8 @@ use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    canonicalize_with_filename, ensure_package_supports_backend, filter_packages_by_backend,
-    filter_pkg_by_dir,
+    canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
+    package_supports_backend,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::watch::prebuild_output::rr_get_prebuild_ignored_paths;
@@ -129,18 +129,6 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
 
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
-
-    if targets.len() == 1 {
-        return run_check_internal(
-            cli,
-            cmd,
-            &source_dir,
-            &target_dir,
-            single_file,
-            Some(targets[0]),
-        );
-    }
-
     let mut ret_value = 0;
     for t in targets {
         let x = run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, Some(t))
@@ -445,11 +433,12 @@ fn calc_user_intent(
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-        let intents: Vec<_> =
-            filter_packages_by_backend(resolve_output, packages.values().copied(), target_backend)
-                .into_iter()
-                .map(UserIntent::Check)
-                .collect();
+        let intents: Vec<_> = packages
+            .values()
+            .copied()
+            .filter(|&pkg| package_supports_backend(resolve_output, pkg, target_backend))
+            .map(UserIntent::Check)
+            .collect();
         Ok(intents.into())
     }
 }

@@ -99,14 +99,14 @@ fn test_mixed_backend_default_selection_is_target_aware() {
     assert_contains_and_absent(
         &check_js,
         &[
-            "./src/shared/shared.mbt",
-            "./src/web/main.mbt",
-            "./deps/jsdep/src/lib/lib.mbt",
+            "./shared/shared.mbt",
+            "./web/main.mbt",
+            "./deps/jsdep/lib/lib.mbt",
         ],
         &[
-            "./src/server/main.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
-            "./deps/unuseddep/src/lib/lib.mbt",
+            "./server/main.mbt",
+            "./deps/nativedep/lib/lib.mbt",
+            "./deps/unuseddep/lib/lib.mbt",
         ],
     );
 
@@ -117,11 +117,11 @@ fn test_mixed_backend_default_selection_is_target_aware() {
     assert_contains_and_absent(
         &build_js,
         &[
-            "./src/shared/shared.mbt",
-            "./src/web/main.mbt",
-            "./deps/jsdep/src/lib/lib.mbt",
+            "./shared/shared.mbt",
+            "./web/main.mbt",
+            "./deps/jsdep/lib/lib.mbt",
         ],
-        &["./src/server/main.mbt", "./deps/nativedep/src/lib/lib.mbt"],
+        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
     );
 
     let test_js = get_stdout(
@@ -130,10 +130,10 @@ fn test_mixed_backend_default_selection_is_target_aware() {
     );
     assert_contains_and_absent(
         &test_js,
-        &["./src/web/web_wbtest.mbt", "./deps/jsdep/src/lib/lib.mbt"],
+        &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
         &[
-            "./src/server/server_wbtest.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
+            "./server/server_wbtest.mbt",
+            "./deps/nativedep/lib/lib.mbt",
         ],
     );
 
@@ -144,14 +144,14 @@ fn test_mixed_backend_default_selection_is_target_aware() {
     assert_contains_and_absent(
         &check_native,
         &[
-            "./src/shared/shared.mbt",
-            "./src/server/main.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
+            "./shared/shared.mbt",
+            "./server/main.mbt",
+            "./deps/nativedep/lib/lib.mbt",
         ],
         &[
-            "./src/web/main.mbt",
-            "./deps/jsdep/src/lib/lib.mbt",
-            "./deps/unuseddep/src/lib/lib.mbt",
+            "./web/main.mbt",
+            "./deps/jsdep/lib/lib.mbt",
+            "./deps/unuseddep/lib/lib.mbt",
         ],
     );
 
@@ -162,11 +162,11 @@ fn test_mixed_backend_default_selection_is_target_aware() {
     assert_contains_and_absent(
         &build_native,
         &[
-            "./src/shared/shared.mbt",
-            "./src/server/main.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
+            "./shared/shared.mbt",
+            "./server/main.mbt",
+            "./deps/nativedep/lib/lib.mbt",
         ],
-        &["./src/web/main.mbt", "./deps/jsdep/src/lib/lib.mbt"],
+        &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 
     let test_native = get_stdout(
@@ -176,10 +176,10 @@ fn test_mixed_backend_default_selection_is_target_aware() {
     assert_contains_and_absent(
         &test_native,
         &[
-            "./src/server/server_wbtest.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
+            "./server/server_wbtest.mbt",
+            "./deps/nativedep/lib/lib.mbt",
         ],
-        &["./src/web/web_wbtest.mbt", "./deps/jsdep/src/lib/lib.mbt"],
+        &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 }
 
@@ -193,10 +193,10 @@ fn test_mixed_backend_bench_is_target_aware() {
     );
     assert_contains_and_absent(
         &bench_js,
-        &["./src/web/web_wbtest.mbt", "./deps/jsdep/src/lib/lib.mbt"],
+        &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
         &[
-            "./src/server/server_wbtest.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
+            "./server/server_wbtest.mbt",
+            "./deps/nativedep/lib/lib.mbt",
         ],
     );
 
@@ -207,10 +207,10 @@ fn test_mixed_backend_bench_is_target_aware() {
     assert_contains_and_absent(
         &bench_native,
         &[
-            "./src/server/server_wbtest.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
+            "./server/server_wbtest.mbt",
+            "./deps/nativedep/lib/lib.mbt",
         ],
-        &["./src/web/web_wbtest.mbt", "./deps/jsdep/src/lib/lib.mbt"],
+        &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 }
 
@@ -218,13 +218,13 @@ fn test_mixed_backend_bench_is_target_aware() {
 fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
-    let check_err = get_err_stderr(&dir, ["check", "src/server", "--target", "js", "--dry-run"]);
+    let check_err = get_err_stderr(&dir, ["check", "server", "--target", "js", "--dry-run"]);
     assert!(
         check_err.contains("Package 'mixed/localdep/server' does not support target backend 'js'")
     );
     assert!(check_err.contains("Supported backends: [native]"));
 
-    let build_err = get_err_stderr(&dir, ["build", "src/server", "--target", "js", "--dry-run"]);
+    let build_err = get_err_stderr(&dir, ["build", "server", "--target", "js", "--dry-run"]);
     assert!(
         build_err.contains("Package 'mixed/localdep/server' does not support target backend 'js'")
     );
@@ -244,7 +244,7 @@ fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
     assert!(test_err.contains("Selected package(s) do not support target backend 'js'"));
     assert!(test_err.contains("mixed/localdep/server ([native])"));
 
-    let run_err = get_err_stderr(&dir, ["run", "src/server", "--target", "js", "--dry-run"]);
+    let run_err = get_err_stderr(&dir, ["run", "server", "--target", "js", "--dry-run"]);
     assert!(
         run_err.contains("Package 'mixed/localdep/server' does not support target backend 'js'")
     );
@@ -259,7 +259,7 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
         &dir,
         [
             "run",
-            "src/web",
+            "web",
             "--target",
             "js",
             "--dry-run",
@@ -269,18 +269,18 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     assert_contains_and_absent(
         &run_js,
         &[
-            "./src/shared/shared.mbt",
-            "./src/web/main.mbt",
-            "./deps/jsdep/src/lib/lib.mbt",
+            "./shared/shared.mbt",
+            "./web/main.mbt",
+            "./deps/jsdep/lib/lib.mbt",
         ],
-        &["./src/server/main.mbt", "./deps/nativedep/src/lib/lib.mbt"],
+        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
     );
 
     let run_native = get_stdout(
         &dir,
         [
             "run",
-            "src/server",
+            "server",
             "--target",
             "native",
             "--dry-run",
@@ -290,19 +290,19 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     assert_contains_and_absent(
         &run_native,
         &[
-            "./src/shared/shared.mbt",
-            "./src/server/main.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
+            "./shared/shared.mbt",
+            "./server/main.mbt",
+            "./deps/nativedep/lib/lib.mbt",
         ],
-        &["./src/web/main.mbt", "./deps/jsdep/src/lib/lib.mbt"],
+        &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
 
     get_stdout(&dir, ["info", "--target", "js"]);
-    assert!(dir.join("src/shared").join(MBTI_GENERATED).exists());
-    assert!(dir.join("src/web").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("src/server").join(MBTI_GENERATED).exists());
+    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
 
-    for pkg in ["src/shared", "src/web", "src/server"] {
+    for pkg in ["shared", "web", "server"] {
         let path = dir.join(pkg).join(MBTI_GENERATED);
         if path.exists() {
             std::fs::remove_file(path).unwrap();
@@ -310,11 +310,11 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     }
 
     get_stdout(&dir, ["info", "--target", "native"]);
-    assert!(dir.join("src/shared").join(MBTI_GENERATED).exists());
-    assert!(dir.join("src/server").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("src/web").join(MBTI_GENERATED).exists());
+    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("web").join(MBTI_GENERATED).exists());
 
-    for pkg in ["src/shared", "src/web", "src/server"] {
+    for pkg in ["shared", "web", "server"] {
         let path = dir.join(pkg).join(MBTI_GENERATED);
         if path.exists() {
             std::fs::remove_file(path).unwrap();
@@ -322,9 +322,9 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     }
 
     get_stdout(&dir, ["info", "--target", "js,native"]);
-    assert!(dir.join("src/shared").join(MBTI_GENERATED).exists());
-    assert!(dir.join("src/web").join(MBTI_GENERATED).exists());
-    assert!(dir.join("src/server").join(MBTI_GENERATED).exists());
+    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(dir.join("server").join(MBTI_GENERATED).exists());
 
     let bundle_js = get_stdout(
         &dir,
@@ -333,14 +333,14 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     assert_contains_and_absent(
         &bundle_js,
         &[
-            "./src/shared/shared.mbt",
-            "./src/web/main.mbt",
-            "./deps/jsdep/src/lib/lib.mbt",
+            "./shared/shared.mbt",
+            "./web/main.mbt",
+            "./deps/jsdep/lib/lib.mbt",
         ],
         &[
-            "./src/server/main.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
-            "./deps/unuseddep/src/lib/lib.mbt",
+            "./server/main.mbt",
+            "./deps/nativedep/lib/lib.mbt",
+            "./deps/unuseddep/lib/lib.mbt",
         ],
     );
 
@@ -351,14 +351,14 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     assert_contains_and_absent(
         &bundle_native,
         &[
-            "./src/shared/shared.mbt",
-            "./src/server/main.mbt",
-            "./deps/nativedep/src/lib/lib.mbt",
+            "./shared/shared.mbt",
+            "./server/main.mbt",
+            "./deps/nativedep/lib/lib.mbt",
         ],
         &[
-            "./src/web/main.mbt",
-            "./deps/jsdep/src/lib/lib.mbt",
-            "./deps/unuseddep/src/lib/lib.mbt",
+            "./web/main.mbt",
+            "./deps/jsdep/lib/lib.mbt",
+            "./deps/unuseddep/lib/lib.mbt",
         ],
     );
 }
@@ -373,8 +373,8 @@ fn test_supported_targets_empty_list_is_never_selected() {
     );
     assert_contains_and_absent(
         &check_js,
-        &["./src/main/main.mbt", "./src/lib/lib.mbt"],
-        &["./src/never/never.mbt"],
+        &["./main/main.mbt", "./lib/lib.mbt"],
+        &["./never/never.mbt"],
     );
 
     let check_native = get_stdout(
@@ -383,11 +383,11 @@ fn test_supported_targets_empty_list_is_never_selected() {
     );
     assert_contains_and_absent(
         &check_native,
-        &["./src/main/main.mbt", "./src/lib/lib.mbt"],
-        &["./src/never/never.mbt"],
+        &["./main/main.mbt", "./lib/lib.mbt"],
+        &["./never/never.mbt"],
     );
 
-    let explicit_err = get_err_stderr(&dir, ["check", "src/never", "--target", "js", "--dry-run"]);
+    let explicit_err = get_err_stderr(&dir, ["check", "never", "--target", "js", "--dry-run"]);
     assert!(
         explicit_err
             .contains("Package 'supported/empty/never' does not support target backend 'js'")
@@ -401,7 +401,7 @@ fn test_supported_targets_transitive_mismatch_fails_fast() {
 
     let check_err = get_err_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
     assert!(check_err.contains("Failed to calculate build plan"));
-    assert!(!check_err.contains("failed to run check for target"));
+    assert!(check_err.contains("failed to run check for target"));
     assert!(check_err.contains("incompatible with the dependency graph"));
     assert!(check_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(check_err.contains("requires 'supported/mismatch/lib'"));
@@ -413,7 +413,7 @@ fn test_supported_targets_transitive_mismatch_fails_fast() {
     assert!(build_err.contains("requires 'supported/mismatch/lib'"));
     assert!(build_err.contains("supports [native]"));
 
-    let run_err = get_err_stderr(&dir, ["run", "src/main", "--target", "js", "--dry-run"]);
+    let run_err = get_err_stderr(&dir, ["run", "main", "--target", "js", "--dry-run"]);
     assert!(run_err.contains("incompatible with the dependency graph"));
     assert!(run_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(run_err.contains("requires 'supported/mismatch/lib'"));

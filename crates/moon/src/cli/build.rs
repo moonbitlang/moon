@@ -32,7 +32,7 @@ use tracing::{Level, instrument};
 
 use crate::filter::{
     canonicalize_with_filename, ensure_package_supports_backend, ensure_packages_support_backend,
-    filter_packages_by_backend, filter_pkg_by_dir, match_packages_by_name_rr,
+    filter_pkg_by_dir, match_packages_by_name_rr, package_supports_backend,
 };
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
@@ -215,8 +215,8 @@ fn calc_user_intent(
             resolve_output.local_modules(),
             package_filter,
         );
-        let supported_pkgs = ensure_packages_support_backend(resolve_output, pkgs, target_backend)?;
-        Ok(supported_pkgs
+        ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
+        Ok(pkgs
             .into_iter()
             .map(UserIntent::Build)
             .collect::<Vec<_>>()
@@ -230,8 +230,11 @@ fn calc_user_intent(
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
-        let supported_packages =
-            filter_packages_by_backend(resolve_output, packages.values().copied(), target_backend);
+        let supported_packages = packages
+            .values()
+            .copied()
+            .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
+            .collect::<Vec<_>>();
         let linkable_pkgs = get_linkable_pkgs(
             resolve_output,
             target_backend,
@@ -263,9 +266,6 @@ fn get_linkable_pkgs(
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-        if !pkg.raw.supported_targets.contains(&target_backend) {
-            continue;
-        }
         if pkg.raw.force_link
             || pkg
                 .raw

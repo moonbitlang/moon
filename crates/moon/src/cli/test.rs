@@ -19,9 +19,9 @@
 use crate::filter::canonicalize_with_filename;
 use crate::filter::ensure_package_supports_backend;
 use crate::filter::ensure_packages_support_backend;
-use crate::filter::filter_packages_by_backend;
 use crate::filter::filter_pkg_by_dir;
 use crate::filter::match_packages_with_fuzzy;
+use crate::filter::package_supports_backend;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
@@ -644,8 +644,12 @@ fn apply_list_of_filters(
         affected_packages.iter().copied(),
         package_filter,
     );
-    let filtered_package_ids =
-        ensure_packages_support_backend(resolve_output, package_matches.matched, target_backend)?;
+    let filtered_package_ids = package_matches.matched;
+    ensure_packages_support_backend(
+        resolve_output,
+        filtered_package_ids.iter().copied(),
+        target_backend,
+    )?;
     trace!(
         filtered_packages = filtered_package_ids.len(),
         "package filters resolved"
@@ -743,11 +747,11 @@ fn calc_user_intent(
         "calculating user intent for module"
     );
     let all_affected_packages: Vec<_> = packages.values().copied().collect();
-    let backend_affected_packages = filter_packages_by_backend(
-        resolve_output,
-        all_affected_packages.iter().copied(),
-        target_backend,
-    );
+    let backend_affected_packages = all_affected_packages
+        .iter()
+        .copied()
+        .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
+        .collect::<Vec<_>>();
 
     let directive = if let Some(file_filter) = cmd.explicit_file_filter {
         let test_index = if let Some(index) = cmd.index {

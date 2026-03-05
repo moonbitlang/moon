@@ -32,8 +32,8 @@ use tracing::warn;
 use crate::{
     cli::BuildFlags,
     filter::{
-        canonicalize_with_filename, filter_packages_by_backend, filter_pkg_by_dir,
-        match_packages_with_fuzzy, package_supports_backend,
+        canonicalize_with_filename, filter_pkg_by_dir, match_packages_with_fuzzy,
+        package_supports_backend,
     },
     rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
 };
@@ -158,12 +158,12 @@ pub(crate) fn run_info_rr_internal(
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(move |resolve_output, _tb| {
+        Box::new(move |resolve_output, tb| {
             calc_user_intent(
                 package_filter.as_deref(),
                 path_filter.as_deref(),
                 resolve_output,
-                _tb,
+                tb,
             )
         }),
     )?;
@@ -228,7 +228,11 @@ fn calc_user_intent(
             }
         }
 
-        let filtered = filter_packages_by_backend(resolve_output, matches.matched, target_backend);
+        let filtered = matches
+            .matched
+            .into_iter()
+            .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
+            .collect::<Vec<_>>();
         if filtered.is_empty() {
             warn!(
                 "No selected package supports target backend `{}` for `moon info`",
@@ -241,8 +245,9 @@ fn calc_user_intent(
             .map(UserIntent::Info)
             .collect::<Vec<_>>()
     } else {
-        filter_packages_by_backend(resolve_output, package_ids, target_backend)
+        package_ids
             .into_iter()
+            .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
             .map(UserIntent::Info)
             .collect()
     };
