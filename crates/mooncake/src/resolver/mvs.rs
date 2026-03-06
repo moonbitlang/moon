@@ -25,6 +25,7 @@ use std::{
 use anyhow::anyhow;
 use colored::Colorize;
 use moonutil::{
+    common::MOON_MOD_JSON,
     dependency::SourceDependencyInfo,
     module::MoonMod,
     mooncakes::{
@@ -399,9 +400,36 @@ fn resolve_pkg(
             root.display()
         );
         let dep_path = root.join(path);
-        let dep_path =
-            dunce::canonicalize(dep_path).map_err(|err| ResolverError::Other(err.into()))?;
-        let res = env.resolve_local_module(&dep_path)?;
+        let dep_path = dunce::canonicalize(&dep_path).map_err(|err| {
+            ResolverError::Other(anyhow!(
+                "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
+                pkg_name,
+                dependant.name(),
+                dep_path.display(),
+                err
+            ))
+        })?;
+        if !dep_path.join(MOON_MOD_JSON).exists() {
+            return Err(ResolverError::Other(anyhow!(
+                "Failed to find `{}` for local dependency `{}` of module `{}` at path `{}`",
+                MOON_MOD_JSON,
+                pkg_name,
+                dependant.name(),
+                dep_path.display()
+            )));
+        }
+        let res = env
+            .resolve_local_module(&dep_path)
+            .map_err(|err| match err {
+                ResolverError::Other(err) => ResolverError::Other(anyhow!(
+                    "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
+                    pkg_name,
+                    dependant.name(),
+                    dep_path.display(),
+                    err
+                )),
+                err => err,
+            })?;
         let ms = ModuleSource::new_full(
             pkg_name.clone(),
             res.version.clone().expect("Expected version in module"),
@@ -411,10 +439,12 @@ fn resolve_pkg(
         if let Some(v) = &res.version
             && !req.version.matches(v)
         {
-            return Err(ResolverError::LocalDepVersionMismatch(
-                Box::new(ms),
-                req.version.clone(),
-            ));
+            return Err(ResolverError::LocalDepVersionMismatch {
+                dependant: dependant.name().clone(),
+                dependency: pkg_name.clone(),
+                actual: v.clone(),
+                required: req.version.clone(),
+            });
         }
         return Ok((ms, res));
     }
@@ -426,7 +456,22 @@ fn resolve_pkg(
     // If neither git nor local dependencies can be resolved (either because the user
     // didn't specify it at all, or because the repo comes from a registry), we fallback
     // to resolving from a registry.
-    let (version, module) = select_min_version_satisfying_in_env(env, pkg_name, req)?;
+    let (version, module) = select_min_version_satisfying_in_env(env, pkg_name, req).map_err(
+        |err| match err {
+            ResolverError::ModuleMissing(_) => ResolverError::Other(anyhow!(
+                "Failed to resolve registry dependency `{}` for module `{}`: module was not found in the registry",
+                pkg_name,
+                dependant.name()
+            )),
+            ResolverError::NoSatisfiedVersion(_, version_req) => ResolverError::Other(anyhow!(
+                "Failed to resolve registry dependency `{}` for module `{}`: no version satisfies requirement `{}`",
+                pkg_name,
+                dependant.name(),
+                version_req
+            )),
+            err => err,
+        },
+    )?;
     log::debug!(
         "---- Dependency {}, required {:?}, selected {}",
         pkg_name,

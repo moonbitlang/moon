@@ -371,7 +371,10 @@ fn build_and_install_packages(
 
     let main_module_id = resolve_output.local_modules()[0];
     let Some(all_pkgs) = resolve_output.pkg_dirs.packages_for_module(main_module_id) else {
-        bail!("No packages found in module");
+        bail!(
+            "No packages found in module at path `{}`",
+            module_dir.display()
+        );
     };
 
     let mut packages_to_build: Vec<(PackageId, String)> = Vec::new();
