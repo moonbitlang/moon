@@ -55,7 +55,8 @@ impl Resolver for MvsSolver {
 }
 
 fn select_min_version_satisfying<'a>(
-    name: &ModuleName,
+    dependency: &ModuleName,
+    dependant: &ModuleName,
     req: &SourceDependencyInfo,
     versions: impl Iterator<Item = &'a Version> + 'a,
 ) -> Result<Version, ResolverError> {
@@ -81,28 +82,34 @@ fn select_min_version_satisfying<'a>(
         "{}: you may need to run `moon update` to update the registry",
         "Hint".yellow()
     );
-    Err(ResolverError::NoSatisfiedVersion(
-        name.clone(),
-        req.version.clone(),
-    ))
+    Err(ResolverError::NoSatisfiedVersion {
+        dependency: dependency.clone(),
+        dependant: dependant.clone(),
+        required: req.version.clone(),
+    })
 }
 
 fn select_min_version_satisfying_in_env(
     env: &mut ResolverEnv,
-    name: &ModuleName,
+    dependency: &ModuleName,
+    dependant: &ModuleName,
     req: &SourceDependencyInfo,
 ) -> Result<(Version, Arc<MoonMod>), ResolverError> {
     let all_versions = env
-        .all_versions_of(name, None) // todo: registry
+        .all_versions_of(dependency, None) // todo: registry
         .ok_or_else(|| {
             eprintln!(
                 "{}: you may need to run `moon update` to update the registry",
                 "Hint".yellow()
             );
-            ResolverError::ModuleMissing(name.clone())
+            ResolverError::ModuleMissing {
+                dependency: dependency.clone(),
+                dependant: dependant.clone(),
+            }
         })?;
 
-    let min_version_satisfying = select_min_version_satisfying(name, req, all_versions.keys());
+    let min_version_satisfying =
+        select_min_version_satisfying(dependency, dependant, req, all_versions.keys());
     match min_version_satisfying {
         Ok(version) => {
             let module = Arc::clone(&all_versions[&version]);
@@ -456,22 +463,8 @@ fn resolve_pkg(
     // If neither git nor local dependencies can be resolved (either because the user
     // didn't specify it at all, or because the repo comes from a registry), we fallback
     // to resolving from a registry.
-    let (version, module) = select_min_version_satisfying_in_env(env, pkg_name, req).map_err(
-        |err| match err {
-            ResolverError::ModuleMissing(_) => ResolverError::Other(anyhow!(
-                "Failed to resolve registry dependency `{}` for module `{}`: module was not found in the registry",
-                pkg_name,
-                dependant.name()
-            )),
-            ResolverError::NoSatisfiedVersion(_, version_req) => ResolverError::Other(anyhow!(
-                "Failed to resolve registry dependency `{}` for module `{}`: no version satisfies requirement `{}`",
-                pkg_name,
-                dependant.name(),
-                version_req
-            )),
-            err => err,
-        },
-    )?;
+    let (version, module) =
+        select_min_version_satisfying_in_env(env, pkg_name, dependant.name(), req)?;
     log::debug!(
         "---- Dependency {}, required {:?}, selected {}",
         pkg_name,
