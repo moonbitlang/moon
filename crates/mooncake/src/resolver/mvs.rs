@@ -533,6 +533,7 @@ mod test {
                 include: None,
                 exclude: None,
                 preferred_target: None,
+                supported_targets: None,
                 scripts: None,
                 __moonbit_unstable_prebuild: None,
             }

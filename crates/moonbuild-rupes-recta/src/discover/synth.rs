@@ -33,7 +33,7 @@ use std::path::Path;
 use indexmap::IndexSet;
 use moonutil::common::TargetBackend;
 use moonutil::mooncakes::result::ResolvedEnv;
-use moonutil::package::{Import, MoonPkg, MoonPkgFormatter};
+use moonutil::package::{Import, MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind};
 
 use crate::discover::{DiscoverError, DiscoverResult, DiscoveredPackage};
 use crate::model::PackageId;
@@ -155,6 +155,7 @@ pub fn build_synth_single_file_package(
         fqn: PackageFQN::new(module_src, pkg_path.clone()),
         is_single_file: true,
         raw: Box::new(moon_pkg),
+        supported_targets_decl: SupportedTargetsDeclKind::Omitted,
         source_files,
         mbt_lex_files: Vec::new(),
         mbt_yacc_files: Vec::new(),

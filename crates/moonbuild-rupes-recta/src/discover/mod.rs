@@ -35,15 +35,18 @@ use moonutil::common::is_moon_pkg_exist;
 
 use std::path::{Path, PathBuf};
 
+use indexmap::IndexSet;
 use log::{debug, info, trace};
+use moonutil::common::TargetBackend;
 use moonutil::mooncakes::{DirSyncResult, ModuleId, ModuleSource, result::ResolvedEnv};
 use moonutil::package::MoonPkg;
 use moonutil::{
     common::{
         IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, MOONBITLANG_ABORT,
-        read_module_desc_file_in_dir, read_package_desc_file_in_dir,
+        read_module_desc_file_in_dir, read_package_desc_file_in_dir_with_supported_targets_decl,
     },
     mooncakes::ModuleSourceKind,
+    package::resolve_supported_targets,
 };
 use relative_path::{PathExt, RelativePath};
 use tracing::{Level, instrument, warn};
@@ -134,6 +137,12 @@ pub(crate) fn discover_packages_for_mod(
         })?
     };
     let is_core = module_name_is_core(&m.name);
+    let (module_supported_targets, _) = resolve_supported_targets(m.supported_targets.as_ref())
+        .map_err(|e| DiscoverError::CantReadModuleFile {
+            module: module_source.clone(),
+            path: dir.to_owned(),
+            inner: e,
+        })?;
 
     // Recursively walk through the module's directories
     let mut walkdir = WalkDir::new(&scan_source_root)
@@ -196,6 +205,7 @@ pub(crate) fn discover_packages_for_mod(
             &rel_path,
             is_core,
             is_stdlib_pkg,
+            &module_supported_targets,
         )?;
         debug!(
             "Found package: {} with {} source files",
@@ -218,24 +228,30 @@ fn discover_one_package(
     rel: &RelativePath,
     is_core: bool, // We have a couple of special cases for core packages. is_core is true when building the core module.
     pkg_is_stdlib: bool, // Whether the package being discovered is inside the stdlib (core) module.
+    module_supported_targets: &IndexSet<TargetBackend>,
 ) -> Result<DiscoveredPackage, DiscoverError> {
     let pkg_path = PackagePath::new_from_rel_path(rel)
         .expect("Generation of package path from relative path should not error");
     let fqn = PackageFQN::new(m.clone(), pkg_path);
 
     // Discover the package config
-    let pkg_json =
-        read_package_desc_file_in_dir(abs).map_err(|e| DiscoverError::CantReadPackageFile {
-            module: m.clone(),
-            package: fqn.package().clone(),
-            path: abs.to_path_buf(),
-            inner: e,
+    let (pkg_json, supported_targets_decl) =
+        read_package_desc_file_in_dir_with_supported_targets_decl(abs).map_err(|e| {
+            DiscoverError::CantReadPackageFile {
+                module: m.clone(),
+                package: fqn.package().clone(),
+                path: abs.to_path_buf(),
+                inner: e,
+            }
         })?;
-    let pkg_json = if is_core {
+    let mut pkg_json = if is_core {
         add_prelude_as_import_for_core(pkg_json)
     } else {
         pkg_json
     };
+    pkg_json
+        .supported_targets
+        .retain(|t| module_supported_targets.contains(t));
 
     // Discover source files within the package
     let mut source_files = Vec::new();
@@ -326,6 +342,7 @@ fn discover_one_package(
         fqn,
         is_single_file: false,
         raw: Box::new(pkg_json),
+        supported_targets_decl,
         source_files,
         mbt_lex_files,
         mbt_yacc_files,

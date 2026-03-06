@@ -166,6 +166,17 @@
         "null"
       ]
     },
+    "supported-targets": {
+      "description": "Supported backend set for all packages in this module.\n\nThis uses the same expression/list grammar as `moon.pkg.json`.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SupportedTargetsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "version": {
       "description": "version of the module",
       "type": [
@@ -283,6 +294,19 @@
               "$ref": "#/definitions/SourceDependencyInfo"
             }
           ]
+        }
+      ]
+    },
+    "SupportedTargetsConfig": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       ]
     }

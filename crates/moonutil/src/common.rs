@@ -22,7 +22,9 @@ use crate::module::{MoonMod, MoonModJSON};
 use crate::moon_pkg;
 use crate::mooncakes::ModuleName;
 use crate::package::{
-    MoonPkg, MoonPkgJSON, convert_pkg_dsl_to_package, convert_pkg_json_to_package,
+    MoonPkg, MoonPkgJSON, SupportedTargetsDeclKind,
+    convert_pkg_dsl_to_package_with_supported_targets_decl,
+    convert_pkg_json_to_package_with_supported_targets_decl,
 };
 use anyhow::{Context, bail};
 use clap::ValueEnum;
@@ -165,6 +167,8 @@ pub enum MoonModJSONFormatErrorKind {
     Version(#[from] semver::Error),
     #[error("`preferred-backend` is not a valid backend")]
     PreferredBackend(anyhow::Error),
+    #[error("`supported-targets` bad format")]
+    SupportedTargets(anyhow::Error),
 }
 
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {
@@ -197,20 +201,24 @@ pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatEr
     })
 }
 
-fn read_package_from_json(path: &Path) -> anyhow::Result<MoonPkg> {
+fn read_package_from_json_with_supported_targets_decl(
+    path: &Path,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let j = serde_json_lenient::from_reader(reader).context(format!("Failed to parse {path:?}"))?;
-    convert_pkg_json_to_package(j)
+    convert_pkg_json_to_package_with_supported_targets_decl(j)
 }
 
 /// Reads a moon.pkg from the given path.
-fn read_package_from_dsl(path: &Path) -> anyhow::Result<MoonPkg> {
+fn read_package_from_dsl_with_supported_targets_decl(
+    path: &Path,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let file = File::open(path)?;
     let str = std::io::read_to_string(file)?;
     let json = moon_pkg::parse(&str)?;
     let j = serde_json_lenient::from_value(json)?;
-    convert_pkg_dsl_to_package(j)
+    convert_pkg_dsl_to_package_with_supported_targets_decl(j)
 }
 
 pub fn write_module_json_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::Result<()> {
@@ -236,10 +244,16 @@ pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
 }
 
 pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
+    Ok(read_package_desc_file_in_dir_with_supported_targets_decl(dir)?.0)
+}
+
+pub fn read_package_desc_file_in_dir_with_supported_targets_decl(
+    dir: &Path,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     if dir.join(MOON_PKG).exists() {
-        read_package_from_dsl(&dir.join(MOON_PKG))
+        read_package_from_dsl_with_supported_targets_decl(&dir.join(MOON_PKG))
     } else if dir.join(MOON_PKG_JSON).exists() {
-        read_package_from_json(&dir.join(MOON_PKG_JSON))
+        read_package_from_json_with_supported_targets_decl(&dir.join(MOON_PKG_JSON))
             .context(format!("Failed to load {:?}", dir.join(MOON_PKG_JSON)))
     } else {
         bail!("`{:?}` does not exist", dir.join(MOON_PKG_JSON));

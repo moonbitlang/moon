@@ -2389,13 +2389,13 @@ fn test_no_warn_deps() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-            Finished. moon: ran 6 tasks, now up to date
+            Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(
         get_stderr(&dir, ["check", "--deny-warn"]),
         expect![[r#"
-            Finished. moon: ran 6 tasks, now up to date
+            Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(

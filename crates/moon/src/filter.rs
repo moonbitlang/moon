@@ -27,6 +27,7 @@ use std::{
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
+use moonutil::common::TargetBackend;
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
@@ -233,6 +234,89 @@ pub(crate) fn report_package_not_found(
         input_path.display(),
         hint
     )
+}
+
+fn format_supported_backends(resolve_output: &ResolveOutput, pkg_id: PackageId) -> String {
+    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+    let mut targets = pkg
+        .raw
+        .supported_targets
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    targets.sort();
+    format!("[{}]", targets.join(", "))
+}
+
+pub(crate) fn package_supports_backend(
+    resolve_output: &ResolveOutput,
+    pkg_id: PackageId,
+    target_backend: TargetBackend,
+) -> bool {
+    resolve_output
+        .pkg_dirs
+        .get_package(pkg_id)
+        .raw
+        .supported_targets
+        .contains(&target_backend)
+}
+
+pub(crate) fn ensure_package_supports_backend(
+    resolve_output: &ResolveOutput,
+    pkg_id: PackageId,
+    target_backend: TargetBackend,
+) -> anyhow::Result<()> {
+    if package_supports_backend(resolve_output, pkg_id, target_backend) {
+        return Ok(());
+    }
+
+    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+    anyhow::bail!(
+        "Package '{}' does not support target backend '{}'. Supported backends: {}",
+        pkg.fqn,
+        target_backend,
+        format_supported_backends(resolve_output, pkg_id),
+    );
+}
+
+pub(crate) fn ensure_packages_support_backend<I>(
+    resolve_output: &ResolveOutput,
+    packages: I,
+    target_backend: TargetBackend,
+) -> anyhow::Result<()>
+where
+    I: IntoIterator<Item = PackageId>,
+{
+    let mut unsupported = Vec::new();
+
+    for pkg_id in packages {
+        if !package_supports_backend(resolve_output, pkg_id, target_backend) {
+            unsupported.push(pkg_id);
+        }
+    }
+
+    if unsupported.is_empty() {
+        return Ok(());
+    }
+
+    let details = unsupported
+        .iter()
+        .map(|&pkg_id| {
+            let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+            format!(
+                "{} ({})",
+                pkg.fqn,
+                format_supported_backends(resolve_output, pkg_id)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    anyhow::bail!(
+        "Selected package(s) do not support target backend '{}': {}",
+        target_backend,
+        details
+    );
 }
 
 #[derive(Debug, Default)]

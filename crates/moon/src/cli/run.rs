@@ -29,6 +29,7 @@ use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use tracing::{Level, instrument};
 
+use crate::filter::ensure_package_supports_backend;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
@@ -136,7 +137,7 @@ fn run_run_rr(
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        Box::new(|r, _tb| calc_user_intent(&input_path, &source_dir, r, value_tracing)),
+        Box::new(|r, tb| calc_user_intent(&input_path, &source_dir, r, value_tracing, tb)),
     )?;
     rr_run_from_plan(
         cli,
@@ -169,6 +170,7 @@ fn calc_user_intent(
     source_dir: &Path,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     value_tracing: bool,
+    target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     // The legacy impl says the input path is based on `source_dir`, while
     // if we want to match the behavior of other commands we need it to be based
@@ -197,6 +199,7 @@ fn calc_user_intent(
     if !resolve_output.pkg_dirs.get_package(pkg).raw.is_main {
         bail!("`{}` is not a main package", input_path);
     }
+    ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
 
     if value_tracing {
         Ok((

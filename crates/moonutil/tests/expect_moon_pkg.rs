@@ -240,6 +240,118 @@ fn expect_supported_targets() {
 }
 
 #[test]
+fn expect_supported_targets_expr() {
+    let actual = run(r#"
+      options(
+        "supported-targets": "js"
+      )
+    "#);
+    expect_test::expect![[r#"
+        MoonPkg {
+            name: None,
+            is_main: false,
+            force_link: false,
+            sub_package: None,
+            imports: [],
+            wbtest_imports: [],
+            test_imports: [],
+            formatter: MoonPkgFormatter {
+                ignore: {},
+            },
+            link: None,
+            warn_list: None,
+            alert_list: None,
+            targets: None,
+            pre_build: None,
+            bin_name: None,
+            bin_target: None,
+            supported_targets: {
+                Js,
+            },
+            native_stub: None,
+            virtual_pkg: None,
+            implement: None,
+            overrides: None,
+            max_concurrent_tests: None,
+            regex_backend: None,
+        }"#]]
+    .assert_eq(&actual);
+}
+
+#[test]
+fn expect_supported_targets_expr_with_wasm_gc() {
+    let actual = run(r#"
+      options(
+        "supported-targets": "wasm-gc"
+      )
+    "#);
+    expect_test::expect![[r#"
+        MoonPkg {
+            name: None,
+            is_main: false,
+            force_link: false,
+            sub_package: None,
+            imports: [],
+            wbtest_imports: [],
+            test_imports: [],
+            formatter: MoonPkgFormatter {
+                ignore: {},
+            },
+            link: None,
+            warn_list: None,
+            alert_list: None,
+            targets: None,
+            pre_build: None,
+            bin_name: None,
+            bin_target: None,
+            supported_targets: {
+                WasmGC,
+            },
+            native_stub: None,
+            virtual_pkg: None,
+            implement: None,
+            overrides: None,
+            max_concurrent_tests: None,
+            regex_backend: None,
+        }"#]]
+    .assert_eq(&actual);
+
+    let actual = run(r#"
+      options(
+        "supported-targets": "-wasm-gc"
+      )
+    "#);
+    expect_test::expect![[r#"
+        MoonPkg {
+            name: None,
+            is_main: false,
+            force_link: false,
+            sub_package: None,
+            imports: [],
+            wbtest_imports: [],
+            test_imports: [],
+            formatter: MoonPkgFormatter {
+                ignore: {},
+            },
+            link: None,
+            warn_list: None,
+            alert_list: None,
+            targets: None,
+            pre_build: None,
+            bin_name: None,
+            bin_target: None,
+            supported_targets: {},
+            native_stub: None,
+            virtual_pkg: None,
+            implement: None,
+            overrides: None,
+            max_concurrent_tests: None,
+            regex_backend: None,
+        }"#]]
+    .assert_eq(&actual);
+}
+
+#[test]
 fn expect_build() {
     let actual = run(r#"
     options(

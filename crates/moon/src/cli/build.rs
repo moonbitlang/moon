@@ -30,8 +30,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use tracing::{Level, instrument};
 
-use crate::filter::match_packages_by_name_rr;
-use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir};
+use crate::filter::{
+    canonicalize_with_filename, ensure_package_supports_backend, ensure_packages_support_backend,
+    filter_pkg_by_dir, match_packages_by_name_rr, package_supports_backend,
+};
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
@@ -205,14 +207,16 @@ fn calc_user_intent(
     if let Some(path) = path_filter {
         let (dir, _) = canonicalize_with_filename(path)?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+        ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
         Ok(vec![UserIntent::Build(pkg)].into())
     } else if let Some(package_filter) = package_filter {
-        let pkg = match_packages_by_name_rr(
+        let pkgs = match_packages_by_name_rr(
             resolve_output,
             resolve_output.local_modules(),
             package_filter,
         );
-        Ok(pkg
+        ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
+        Ok(pkgs
             .into_iter()
             .map(UserIntent::Build)
             .collect::<Vec<_>>()
@@ -226,18 +230,26 @@ fn calc_user_intent(
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
-        let linkable_pkgs =
-            get_linkable_pkgs(resolve_output, target_backend, packages.values().cloned());
+        let supported_packages = packages
+            .values()
+            .copied()
+            .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
+            .collect::<Vec<_>>();
+        let linkable_pkgs = get_linkable_pkgs(
+            resolve_output,
+            target_backend,
+            supported_packages.iter().copied(),
+        );
         let intents: Vec<_> = if linkable_pkgs.is_empty() {
-            packages
-                .iter()
-                .filter(|&(_, &pkg_id)| {
-                    // Skip building stdlib packages
-                    // because we should use prebuilt stdlib artifacts instead
+            supported_packages
+                .into_iter()
+                .filter(|&pkg_id| {
+                    // Skip building stdlib packages because we should use prebuilt
+                    // stdlib artifacts instead.
                     let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
                     !pkg.is_stdlib
                 })
-                .map(|(_, &pkg_id)| UserIntent::Build(pkg_id))
+                .map(UserIntent::Build)
                 .collect()
         } else {
             linkable_pkgs.into_iter().map(UserIntent::Build).collect()

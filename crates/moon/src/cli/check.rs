@@ -29,7 +29,10 @@ use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
-use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir};
+use crate::filter::{
+    canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
+    package_supports_backend,
+};
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::watch::prebuild_output::rr_get_prebuild_ignored_paths;
 use crate::watch::{WatchOutput, watching};
@@ -126,7 +129,6 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
 
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
-
     let mut ret_value = 0;
     for t in targets {
         let x = run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, Some(t))
@@ -211,7 +213,8 @@ fn run_check_for_single_file_rr(
         &raw_target_dir,
         Box::new(get_user_intents_single_file),
         resolved,
-    )?;
+    )
+    .context("Failed to calculate build plan")?;
 
     if cli.dry_run {
         rr_build::print_dry_run(
@@ -327,12 +330,13 @@ fn run_check_normal_internal_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
-        Box::new(|r, _tb| {
+        Box::new(|r, tb| {
             calc_user_intent(
                 r,
                 source_dir,
                 cmd.package_path.as_deref(),
                 cmd.path.as_deref(),
+                tb,
                 cmd.no_mi,
                 cmd.patch_file.as_deref(),
             )
@@ -390,10 +394,11 @@ fn calc_user_intent(
     source_dir: &Path,
     package_path: Option<&Path>,
     path: Option<&Path>,
+    target_backend: TargetBackend,
     no_mi: bool,
     patch_file: Option<&Path>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[_main_module_id] = resolve_output.local_modules() else {
+    let &[main_module_id] = resolve_output.local_modules() else {
         panic!("No multiple main modules are supported");
     };
 
@@ -406,6 +411,7 @@ fn calc_user_intent(
     if let Some(filter_path) = package_path {
         let (dir, _) = canonicalize_with_filename(&source_dir.join(filter_path))?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+        ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
 
         // Apply --no-mi and --patch-file to specific packages
         let directive =
@@ -415,6 +421,7 @@ fn calc_user_intent(
     } else if let Some(check_path) = path {
         let (dir, _) = canonicalize_with_filename(check_path)?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+        ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
 
         // Apply --no-mi and --patch-file to specific packages
         let directive =
@@ -422,10 +429,15 @@ fn calc_user_intent(
 
         Ok((vec![UserIntent::Check(pkg)], directive).into())
     } else {
-        let intents: Vec<_> = resolve_output
+        let packages = resolve_output
             .pkg_dirs
-            .all_packages(true)
-            .map(|(id, _)| UserIntent::Check(id))
+            .packages_for_module(main_module_id)
+            .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
+        let intents: Vec<_> = packages
+            .values()
+            .copied()
+            .filter(|&pkg| package_supports_backend(resolve_output, pkg, target_backend))
+            .map(UserIntent::Check)
             .collect();
         Ok(intents.into())
     }

@@ -1,0 +1,9 @@
+{
+  "is-main": true,
+  "import": [
+    "supported/mismatch/lib"
+  ],
+  "supported-targets": [
+    "js"
+  ]
+}

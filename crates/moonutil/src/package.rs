@@ -25,6 +25,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json_lenient::Value;
 
+pub use crate::supported_targets::resolve_supported_targets;
 use crate::{
     common::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     cond_expr::{CompileCondition, CondExprs},
@@ -108,6 +109,21 @@ pub enum BoolOrLink {
 pub struct SubPackageInMoonPkgJSON {
     pub files: Vec<String>,
     pub import: Option<PkgJSONImport>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+#[serde(untagged)]
+pub enum SupportedTargetsConfig {
+    Expr(String),
+    LegacyArray(Vec<String>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SupportedTargetsDeclKind {
+    #[default]
+    Omitted,
+    Expr,
+    LegacyArray,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -204,10 +220,14 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "bin-target")]
     pub bin_target: Option<String>,
 
+    /// Supported backend set for this package.
+    ///
+    /// This accepts either expression syntax (for example: `"js"` or
+    /// `"all-js+wasm-gc"`) or legacy array syntax.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "supported-targets")]
     #[schemars(rename = "supported-targets")]
-    pub supported_targets: Option<Vec<String>>,
+    pub supported_targets: Option<SupportedTargetsConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "native-stub")]
@@ -704,6 +724,12 @@ impl Import {
 
 /// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
 pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
+    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(json)?.0)
+}
+
+pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
+    json: Value,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     // It will validate the top-level keys and merge `options` into the root level.
     // Might be removed in the future, after we remove the moon.pkg.json and have an
     // AST to represent moon.pkg files.
@@ -745,7 +771,7 @@ pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
         _ => json,
     };
     let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
-    convert_pkg_json_to_package(pkg_json)
+    convert_pkg_json_to_package_with_supported_targets_decl(pkg_json)
 }
 
 pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
@@ -804,6 +830,12 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
 }
 
 pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
+    Ok(convert_pkg_json_to_package_with_supported_targets_decl(j)?.0)
+}
+
+pub fn convert_pkg_json_to_package_with_supported_targets_decl(
+    j: MoonPkgJSON,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let get_imports =
         |source: Option<PkgJSONImport>| -> Vec<Import> { pkg_json_imports_to_imports(source) };
 
@@ -842,15 +874,8 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         .map(|s| TargetBackend::str_to_backend(s))
         .transpose()?;
 
-    let mut supported_backends = IndexSet::new();
-    if let Some(ref b) = j.supported_targets {
-        for backend in b.iter() {
-            supported_backends.insert(TargetBackend::str_to_backend(backend)?);
-        }
-    } else {
-        // if supported_backends in moon.pkg.json is not set, then set it to all backends
-        supported_backends.extend(TargetBackend::all());
-    };
+    let (supported_backends, supported_targets_decl_kind) =
+        resolve_supported_targets(j.supported_targets.as_ref())?;
 
     #[allow(deprecated)]
     let result = MoonPkg {
@@ -881,7 +906,7 @@ pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
         max_concurrent_tests: j.max_concurrent_tests,
         regex_backend: j.regex_backend,
     };
-    Ok(result)
+    Ok((result, supported_targets_decl_kind))
 }
 
 #[test]
