@@ -36,7 +36,11 @@ pub(crate) fn run_clean(cli: &UniversalFlags) -> anyhow::Result<i32> {
     let _lock = FileLock::lock(&src_tgt.target_dir)?;
 
     if !moonutil::common::check_moon_mod_exists(&src_tgt.source_dir) {
-        bail!("could not find `{}`", MOON_MOD_JSON);
+        bail!(
+            "could not find `{}` in module directory `{}`",
+            MOON_MOD_JSON,
+            src_tgt.source_dir.display()
+        );
     }
 
     if src_tgt.target_dir.is_dir() {

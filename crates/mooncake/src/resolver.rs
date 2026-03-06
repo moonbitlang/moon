@@ -16,13 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use anyhow::Context;
 use moonutil::common::read_module_desc_file_in_dir;
 use moonutil::module::MoonMod;
 use moonutil::moon_dir;
+use moonutil::mooncakes::ModuleId;
 use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::mooncakes::{ModuleName, ModuleSource, result};
 use semver::{Version, VersionReq};
@@ -47,12 +48,17 @@ pub enum ResolverError {
     #[error("No version of module {0} satisfies the requirement {1}")]
     NoSatisfiedVersion(ModuleName, VersionReq),
     #[error(
-        "When resolving local/git dependencies, the version of module {0} did not match the required version {1}"
+        "Failed to resolve local dependency `{dependency}` for module `{dependant}`: local module version `{actual}` does not satisfy requirement `{required}`"
     )]
-    LocalDepVersionMismatch(Box<ModuleSource>, VersionReq),
+    LocalDepVersionMismatch {
+        dependant: ModuleName,
+        dependency: ModuleName,
+        actual: Version,
+        required: VersionReq,
+    },
     /// Multiple versions of a package are required, but the build system cannot handle this.
-    #[error("Multiple conflicting versions were found for module {0}: {1:?}")]
-    ConflictingVersions(ModuleName, Vec<Version>),
+    #[error("{message}")]
+    ConflictingVersions { message: String },
     #[error("Cannot inject the standard library `moonbitlang/core`")]
     CannotInjectCore(#[source] anyhow::Error),
     #[error("Error during resolution: {0}")]
@@ -96,19 +102,18 @@ pub trait Resolver {
 /// (implying incompatible versions of the same module are resolved) are found.
 fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), ResolverErrors> {
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
-    for it in result.all_modules() {
+    for (id, it) in result.all_modules_and_id() {
         module_name_versions
-            .entry(it.name())
+            .entry(it.name().clone())
             .or_default()
-            .push(it.version());
+            .push((id, it.clone()));
     }
     let mut errs = vec![];
     for (name, versions) in module_name_versions {
         if versions.len() > 1 {
-            let err = ResolverError::ConflictingVersions(
-                name.clone(),
-                versions.iter().cloned().cloned().collect(),
-            );
+            let err = ResolverError::ConflictingVersions {
+                message: describe_version_conflict(&name, &versions, result),
+            };
             errs.push(err);
         }
     }
@@ -117,6 +122,85 @@ fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), 
     } else {
         Err(ResolverErrors(errs))
     }
+}
+
+fn describe_version_conflict(
+    name: &ModuleName,
+    versions: &[(ModuleId, ModuleSource)],
+    result: &ResolvedEnv,
+) -> String {
+    let mut versions = versions.to_vec();
+    versions.sort_by(|a, b| {
+        a.1.version()
+            .cmp(b.1.version())
+            .then_with(|| a.1.source().cmp(b.1.source()))
+    });
+
+    let version_list = versions
+        .iter()
+        .map(|(_, source)| source.version().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut lines = vec![format!(
+        "Multiple conflicting versions were found for module `{}`: {}",
+        name, version_list
+    )];
+
+    for (id, source) in versions {
+        match describe_dependency_chain(result, id) {
+            Some(chain) => lines.push(format!("  - `{}` is selected via {}", source, chain)),
+            None => lines.push(format!("  - `{}` was selected during resolution", source)),
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn describe_dependency_chain(result: &ResolvedEnv, target: ModuleId) -> Option<String> {
+    let mut queue = VecDeque::new();
+    let mut prev = HashMap::<ModuleId, ModuleId>::new();
+
+    for &root in result.input_module_ids() {
+        queue.push_back(root);
+        prev.insert(root, root);
+    }
+
+    while let Some(current) = queue.pop_front() {
+        if current == target {
+            break;
+        }
+
+        for dep in result.deps(current) {
+            if prev.contains_key(&dep) {
+                continue;
+            }
+            prev.insert(dep, current);
+            queue.push_back(dep);
+        }
+    }
+
+    if !prev.contains_key(&target) {
+        return None;
+    }
+
+    let mut path = vec![target];
+    let mut current = target;
+    while let Some(parent) = prev.get(&current).copied() {
+        if parent == current {
+            break;
+        }
+        path.push(parent);
+        current = parent;
+    }
+    path.reverse();
+
+    Some(
+        path.into_iter()
+            .map(|id| format!("`{}`", result.mod_name_from_id(id)))
+            .collect::<Vec<_>>()
+            .join(" -> "),
+    )
 }
 
 pub struct ResolveConfig {
