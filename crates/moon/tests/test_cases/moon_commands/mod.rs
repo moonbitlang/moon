@@ -94,7 +94,7 @@ fn test_moon_stdin_without_args_fails() {
         .get_output()
         .stderr
         .to_owned();
-    let stderr = String::from_utf8_lossy(&out);
+    let stderr = String::from_utf8_lossy(&out).replace("moon.exe", "moon");
     assert!(stderr.contains("Usage: moon [OPTIONS] <COMMAND>"));
 }
 
