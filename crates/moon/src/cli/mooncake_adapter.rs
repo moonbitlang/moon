@@ -32,6 +32,7 @@ pub(crate) fn execute_cli<T: Serialize>(
     cli: UniversalFlags,
     cmd: T,
     args: &[&str],
+    display_name: &str,
 ) -> anyhow::Result<i32> {
     let mut child = Command::new(&*moonutil::BINARIES.mooncake)
         .args(args)
@@ -54,7 +55,7 @@ pub(crate) fn execute_cli<T: Serialize>(
     if status.success() {
         Ok(0)
     } else {
-        bail!("failed to run")
+        bail!("`moon {}` failed", display_name)
     }
 }
 
@@ -62,6 +63,7 @@ pub(crate) fn execute_cli_with_inherit_stdin<T: Serialize>(
     _cli: UniversalFlags,
     _cmd: T,
     args: &[&str],
+    display_name: &str,
 ) -> anyhow::Result<i32> {
     let mut child = Command::new(&*moonutil::BINARIES.mooncake)
         .args(args)
@@ -75,16 +77,21 @@ pub(crate) fn execute_cli_with_inherit_stdin<T: Serialize>(
     if status.success() {
         Ok(0)
     } else {
-        bail!("failed to run `moon {}`", args.join(" "))
+        bail!("`moon {}` failed", display_name)
     }
 }
 
 pub(crate) fn login_cli(cli: UniversalFlags, cmd: LoginSubcommand) -> anyhow::Result<i32> {
-    execute_cli_with_inherit_stdin(cli, MooncakeSubcommands::Login(cmd), &["login"])
+    execute_cli_with_inherit_stdin(cli, MooncakeSubcommands::Login(cmd), &["login"], "login")
 }
 
 pub(crate) fn register_cli(cli: UniversalFlags, cmd: RegisterSubcommand) -> anyhow::Result<i32> {
-    execute_cli_with_inherit_stdin(cli, MooncakeSubcommands::Register(cmd), &["register"])
+    execute_cli_with_inherit_stdin(
+        cli,
+        MooncakeSubcommands::Register(cmd),
+        &["register"],
+        "register",
+    )
 }
 
 pub(crate) fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Result<i32> {
@@ -92,6 +99,7 @@ pub(crate) fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow
         cli,
         MooncakeSubcommands::Publish(cmd),
         &["--read-args-from-stdin"],
+        "publish",
     )
 }
 
@@ -100,5 +108,6 @@ pub(crate) fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow
         cli,
         MooncakeSubcommands::Package(cmd),
         &["--read-args-from-stdin"],
+        "package",
     )
 }

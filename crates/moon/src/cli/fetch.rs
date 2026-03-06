@@ -86,10 +86,12 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
             .get_latest_version(&pkg_name)
             .ok_or_else(|| {
                 if index_updated {
-                    anyhow::anyhow!("could not find the latest version of {pkg_name}")
+                    anyhow::anyhow!(
+                        "Could not find the latest published version of `{pkg_name}` in the registry"
+                    )
                 } else {
                     anyhow::anyhow!(
-                        "could not find the latest version of {pkg_name}. Please consider running `moon update` to update the index."
+                        "Could not find the latest published version of `{pkg_name}` in the registry. Please consider running `moon update` to update the index."
                     )
                 }
             })?

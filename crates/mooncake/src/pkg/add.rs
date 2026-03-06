@@ -66,12 +66,15 @@ pub fn add_latest(
         .get_latest_version(pkg_name)
         .ok_or_else(|| {
             if index_updated {
-                anyhow::anyhow!("could not find the latest version of {}", pkg_name_str)
+                anyhow::anyhow!(
+                    "Could not find the latest published version of `{}` in the registry",
+                    pkg_name_str
+                )
             } else {
-            anyhow::anyhow!(
-                "could not find the latest version of {}. Please consider running `moon update` to update the index.",
-                pkg_name_str
-            )
+                anyhow::anyhow!(
+                    "Could not find the latest published version of `{}` in the registry. Please consider running `moon update` to update the index.",
+                    pkg_name_str
+                )
             }
         })?
         .version
