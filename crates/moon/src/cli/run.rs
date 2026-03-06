@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::Path;
+use std::{io::Read, path::Path};
 
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::build_plan::InputDirective;
@@ -40,7 +40,7 @@ use super::{BuildFlags, UniversalFlags};
 /// Run a main package
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct RunSubcommand {
-    /// The package or .mbt file to run
+    /// The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
     pub package_or_mbt_file: String,
 
     #[clap(flatten)]
@@ -57,9 +57,50 @@ pub(crate) struct RunSubcommand {
     pub build_only: bool,
 }
 
+fn run_stdin_source_as_single_file(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+) -> anyhow::Result<i32> {
+    let mut source = String::new();
+    std::io::stdin()
+        .read_to_string(&mut source)
+        .context("failed to read `.mbtx` source from stdin")?;
+
+    let temp_dir =
+        tempfile::TempDir::new().context("failed to create temporary directory for stdin run")?;
+    let input_path = temp_dir.path().join("stdin.mbtx");
+    std::fs::write(&input_path, source).with_context(|| {
+        format!(
+            "failed to write temporary stdin source file: {}",
+            input_path.display()
+        )
+    })?;
+
+    let RunSubcommand {
+        build_flags,
+        args,
+        auto_sync_flags,
+        build_only,
+        ..
+    } = cmd;
+    let cmd = RunSubcommand {
+        package_or_mbt_file: input_path.to_string_lossy().into_owned(),
+        build_flags,
+        args,
+        auto_sync_flags,
+        build_only,
+    };
+    let result = run_single_file_rr(cli, cmd);
+    drop(temp_dir);
+    result
+}
+
 #[instrument(skip_all)]
 pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     let input = cmd.package_or_mbt_file.as_str();
+    if input == "-" {
+        return run_stdin_source_as_single_file(cli, cmd);
+    }
     let is_mbt = input.ends_with(".mbt");
     let is_mbtx = input.ends_with(".mbtx");
 
