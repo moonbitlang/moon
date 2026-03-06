@@ -224,7 +224,7 @@ _arguments "${_arguments_options[@]}" : /
 '(--dry-run)--build-graph[]' /
 '-h[Print help]' /
 '--help[Print help]' /
-':package_or_mbt_file -- The package or .mbt file to run:' /
+':package_or_mbt_file -- The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin:' /
 '*::args -- The arguments provided to the program to be run:' /
 && ret=0
 ;;

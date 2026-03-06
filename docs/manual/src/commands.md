@@ -182,7 +182,7 @@ Run a main package
 
 ###### **Arguments:**
 
-* `<PACKAGE_OR_MBT_FILE>` — The package or .mbt file to run
+* `<PACKAGE_OR_MBT_FILE>` — The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
 * `<ARGS>` — The arguments provided to the program to be run
 
 ###### **Options:**

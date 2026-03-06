@@ -79,6 +79,163 @@ fn test_moon_help() {
 }
 
 #[test]
+fn test_moon_stdin_without_args_fails() {
+    let dir = TestDir::new_empty();
+    let out = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .stdin(
+            r#"fn main {
+  println("hello from piped stdin")
+}
+"#,
+        )
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .to_owned();
+    let stderr = String::from_utf8_lossy(&out);
+    assert!(stderr.contains("Usage: moon [OPTIONS] <COMMAND>"));
+}
+
+#[test]
+fn test_moon_dash_shows_run_stdin_guidance() {
+    let dir = TestDir::new_empty();
+    let out = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("-")
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .to_owned();
+    let stderr = String::from_utf8_lossy(&out);
+    assert!(stderr.contains("moon run -"));
+    assert!(stderr.contains(".mbtx"));
+}
+
+#[test]
+fn test_moon_run_dash_reads_stdin() {
+    let dir = TestDir::new_empty();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("run")
+        .arg("-")
+        .stdin(
+            r#"fn main {
+  println("hello from run dash stdin")
+}
+"#,
+        )
+        .assert()
+        .success()
+        .stdout_eq("hello from run dash stdin\n");
+}
+
+#[test]
+fn test_moon_run_dash_reads_stdin_with_common_flags() {
+    let dir = TestDir::new_empty();
+    let subdir = dir.join("subdir");
+    std::fs::create_dir_all(&subdir).unwrap();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("-C")
+        .arg(&subdir)
+        .arg("run")
+        .arg("-")
+        .stdin(
+            r#"fn main {
+  println("hello from run dash with -C")
+}
+"#,
+        )
+        .assert()
+        .success()
+        .stdout_eq("hello from run dash with -C\n");
+}
+
+#[test]
+fn test_moon_run_dash_reads_stdin_with_build_flags() {
+    let dir = TestDir::new_empty();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("run")
+        .arg("--release")
+        .arg("-")
+        .stdin(
+            r#"fn main {
+  println("hello from run dash with --release")
+}
+"#,
+        )
+        .assert()
+        .success()
+        .stdout_eq("hello from run dash with --release\n");
+}
+
+#[cfg(unix)]
+#[test]
+fn test_moon_run_dash_with_heredoc() {
+    let dir = TestDir::new_empty();
+    let moon = moon_bin().to_string_lossy().replace('\'', "'\\''");
+    let script = format!(
+        r#"MOON_BIN='{moon}'
+"$MOON_BIN" run - <<'EOF'
+fn main {{
+  println("hello from run heredoc")
+}}
+EOF
+"#
+    );
+    let output = std::process::Command::new("sh")
+        .current_dir(&dir)
+        .arg("-c")
+        .arg(script)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "status: {:?}, stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("hello from run heredoc"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_moon_run_pipe_input() {
+    let dir = TestDir::new_empty();
+    let moon = moon_bin().to_string_lossy().replace('\'', "'\\''");
+    let script = format!(
+        r#"MOON_BIN='{moon}'
+echo 'import {{
+  "moonbitlang/core/list",
+}}
+fn main {{
+  let xs : @list.List[Int] = @list.of([1, 2, 3])
+  println("hello from run pipe \{{xs}}")
+}}' | "$MOON_BIN" run -
+"#
+    );
+    let output = std::process::Command::new("sh")
+        .current_dir(&dir)
+        .arg("-c")
+        .arg(script)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "status: {:?}, stderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("hello from run pipe"));
+}
+
+#[test]
 fn test_moon_tool_demangle() {
     let dir = TestDir::new_empty();
     check(

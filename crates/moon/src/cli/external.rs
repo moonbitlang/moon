@@ -25,6 +25,12 @@ pub(crate) fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
         bail!("no external subcommand provided");
     };
     let subcmd = args.remove(0);
+    if subcmd == "-" {
+        bail!(
+            "`-` is only supported in `moon run -`, which reads `.mbtx` source from stdin.\n\
+             Try: `moon run -`"
+        );
+    }
     let bin = &format!("moon-{subcmd}");
     let resolved = which_global(bin).context(anyhow::format_err!(
         "no such subcommand: `{subcmd}`, is `{bin}` a valid executable accessible via your `PATH`?"
