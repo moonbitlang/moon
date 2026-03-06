@@ -17,14 +17,22 @@ fn test_prebuild_link_config_self() {
             assert!(line.contains("-l__prebuild_self_link_flag__"));
             assert!(line.contains("-lprebuildselflib"));
             assert!(line.contains("-L/prebuild-self-path"));
-        } else if line.contains("cl.exe")
-            && line.contains("/Fe./_build/native/debug/build/main/main.exe")
-            && cfg!(windows)
-        {
-            found_final_link.set(()).expect("final linking found twice");
-            assert!(line.contains("-l__prebuild_self_link_flag__"));
-            assert!(line.contains("prebuildselflib"));
-            assert!(line.contains("/LIBPATH:/prebuild-self-path"));
+        } else if cfg!(windows) {
+            let is_msvc_link = line.contains("cl.exe")
+                && line.contains("/Fe./_build/native/debug/build/main/main.exe");
+            let is_gnu_link = line.contains("-o ./_build/native/debug/build/main/main.exe")
+                && (line.contains("cc ") || line.contains("cc.exe"));
+            if is_msvc_link || is_gnu_link {
+                found_final_link.set(()).expect("final linking found twice");
+                assert!(line.contains("-l__prebuild_self_link_flag__"));
+                if is_msvc_link {
+                    assert!(line.contains("prebuildselflib"));
+                    assert!(line.contains("/LIBPATH:/prebuild-self-path"));
+                } else {
+                    assert!(line.contains("-lprebuildselflib"));
+                    assert!(line.contains("-L/prebuild-self-path"));
+                }
+            }
         }
     }
 
