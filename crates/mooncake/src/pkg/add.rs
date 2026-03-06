@@ -31,8 +31,8 @@ use crate::registry::{self, Registry};
 /// Add a dependency
 #[derive(Debug, clap::Parser)]
 pub struct AddSubcommand {
-    /// The package path to add
-    pub package_path: String,
+    /// The package path(s) to add
+    pub package_paths: Vec<String>,
 
     /// Whether to add the dependency as a binary
     #[clap(long)]
@@ -85,6 +85,60 @@ pub fn add_latest(
         &latest_version,
         quiet,
     )
+}
+
+/// Add multiple packages at once
+pub fn add_batch(
+    source_dir: &Path,
+    _target_dir: &Path,
+    packages: &[(ModuleName, Version)],
+    bin: bool,
+    quiet: bool,
+) -> anyhow::Result<i32> {
+    let mut m = read_module_desc_file_in_dir(source_dir)?;
+
+    for (pkg_name, version) in packages {
+        if pkg_name.to_string() == MOONBITLANG_CORE {
+            eprintln!(
+                "{}: no need to add `{}` as dependency",
+                "Warning".yellow().bold(),
+                MOONBITLANG_CORE
+            );
+            continue;
+        }
+
+        if bin {
+            let bin_deps = m.bin_deps.get_or_insert_with(indexmap::IndexMap::new);
+            bin_deps.insert(
+                pkg_name.to_string(),
+                BinaryDependencyInfo {
+                    common: SourceDependencyInfo {
+                        version: moonutil::version::as_caret_version_req(version.clone()),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+        } else {
+            m.deps.insert(
+                pkg_name.to_string(),
+                SourceDependencyInfo {
+                    version: moonutil::version::as_caret_version_req(version.clone()),
+                    ..Default::default()
+                },
+            );
+        }
+    }
+
+    let m = Arc::new(m);
+    let ms = moonutil::mooncakes::ModuleSource::from_local_module(&m, source_dir)
+        .expect("Malformed module manifest");
+    install_impl(source_dir, Arc::clone(&m), ms, quiet, false, false, true)?;
+
+    let new_j = convert_module_to_mod_json(Arc::into_inner(m).unwrap());
+    write_module_json_to_file(&new_j, source_dir)?;
+
+    Ok(0)
 }
 
 #[test]
