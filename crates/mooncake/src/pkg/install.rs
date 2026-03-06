@@ -37,42 +37,48 @@ use std::{
 
 /// Install a binary package globally or install project dependencies (deprecated without args)
 #[derive(Debug, clap::Parser)]
-#[clap(group = clap::ArgGroup::new("git_ref").multiple(false))]
+#[clap(
+    group = clap::ArgGroup::new("git_ref").multiple(false),
+    verbatim_doc_comment
+)]
 pub struct InstallSubcommand {
-    /// Package path to install (e.g., user/pkg/main or user/pkg/cmd/...)
-    /// Supports @version suffix (e.g., user/pkg/main@1.0.0)
-    /// Git URLs are auto-detected (any URL format git supports)
-    /// Local paths are auto-detected: ./, ../, / (Unix), or drive letter (Windows)
-    /// If not provided, falls back to legacy behavior (install project dependencies)
-    pub package_path: Option<String>,
+    #[clap(
+        value_name = "SOURCE",
+        help = "Package path, local path, or git URL",
+        long_help = "Install source.\n\nInterpretation order:\n  1. local path (`./`, `../`, `/`, Windows drive)\n  2. git URL\n  3. registry package path (`user/module/pkg[@version]`)\n\nUse `/...` suffix to install all matching main packages."
+    )]
+    pub source: Option<String>,
 
-    /// Package path within a git repository (e.g., src/main or cmd/...)
-    /// Only used with git URLs. Supports /... suffix for wildcard matching.
-    pub package_path_in_repo: Option<String>,
+    #[clap(
+        value_name = "PATH_IN_REPO",
+        help = "Filesystem path inside git repo (git SOURCE only)",
+        long_help = "Filesystem path inside the cloned git repository.\nUsed only when SOURCE is a git URL.\n\nUse `/...` suffix to install all matching main packages under this path prefix."
+    )]
+    pub path_in_repo: Option<String>,
 
     /// Specify installation directory (default: ~/.moon/bin/)
-    #[clap(long)]
+    #[clap(long, value_name = "DIR")]
     pub bin: Option<PathBuf>,
 
     /// Install from local path instead of registry
     #[clap(
         long,
-        conflicts_with = "package_path",
+        conflicts_with = "source",
         conflicts_with = "git_ref",
-        conflicts_with = "package_path_in_repo"
+        conflicts_with = "path_in_repo"
     )]
     pub path: Option<PathBuf>,
 
     /// Git revision to checkout (commit hash, requires git URL)
-    #[clap(long, group = "git_ref", requires = "package_path")]
+    #[clap(long, group = "git_ref", requires = "source")]
     pub rev: Option<String>,
 
     /// Git branch to checkout (requires git URL)
-    #[clap(long, group = "git_ref", requires = "package_path")]
+    #[clap(long, group = "git_ref", requires = "source")]
     pub branch: Option<String>,
 
     /// Git tag to checkout (requires git URL)
-    #[clap(long, group = "git_ref", requires = "package_path")]
+    #[clap(long, group = "git_ref", requires = "source")]
     pub tag: Option<String>,
 }
 

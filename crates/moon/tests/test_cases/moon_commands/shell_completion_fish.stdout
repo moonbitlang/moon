@@ -368,7 +368,7 @@ complete -c moon -n "__fish_moon_using_subcommand install" -s v -l verbose -d 'I
 complete -c moon -n "__fish_moon_using_subcommand install" -l trace -d 'Trace the execution of the program'
 complete -c moon -n "__fish_moon_using_subcommand install" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand install" -l build-graph
-complete -c moon -n "__fish_moon_using_subcommand install" -s h -l help -d 'Print help'
+complete -c moon -n "__fish_moon_using_subcommand install" -s h -l help -d 'Print help (see more with /'--help/')'
 complete -c moon -n "__fish_moon_using_subcommand tree" -l manifest-path -d 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tree" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tree" -s q -l quiet -d 'Suppress output'
