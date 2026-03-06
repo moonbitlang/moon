@@ -8,7 +8,7 @@ fn test_dedup_diag() {
     check(
         out,
         expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","path":"$ROOT/test.mbt","loc":"3:7-3:8","message":"Warning (unused_value): Unused variable 'a'","error_code":2}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/test.mbt","loc":"3:7-3:8","message":"Warning (unused_value): Unused variable 'a'"}
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     )

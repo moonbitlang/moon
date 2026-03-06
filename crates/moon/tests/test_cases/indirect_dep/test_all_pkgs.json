@@ -7,6 +7,11 @@
     },
     {
       "root": "moonbitlang/core",
+      "rel": "argparse",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/argparse/argparse.mi"
+    },
+    {
+      "root": "moonbitlang/core",
       "rel": "array",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/array/array.mi"
     },
