@@ -54,6 +54,16 @@ pub struct InstallSubcommand {
     #[clap(long)]
     pub bin: Option<PathBuf>,
 
+    /// List globally installed binaries recorded by `moon install`
+    #[clap(
+        long,
+        conflicts_with = "package_path",
+        conflicts_with = "package_path_in_repo",
+        conflicts_with = "path",
+        conflicts_with = "git_ref"
+    )]
+    pub list: bool,
+
     /// Install from local path instead of registry
     #[clap(
         long,

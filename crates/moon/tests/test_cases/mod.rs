@@ -1929,6 +1929,45 @@ fn test_moon_install_bin() {
 }
 
 #[test]
+fn test_moon_install_list() {
+    use std::ffi::OsString;
+
+    let top_dir = TestDir::new("moon_install_bin.in");
+    let author1 = top_dir.join("author1.in");
+    let install_dir = top_dir.join("moon_bin");
+    let install_dir_os = install_dir.into_os_string();
+
+    get_stdout(
+        &author1,
+        vec![
+            OsString::from("install"),
+            OsString::from("--path"),
+            OsString::from("./src/main-js"),
+            OsString::from("--bin"),
+            install_dir_os.clone(),
+        ],
+    );
+
+    let out = get_stdout(
+        &author1,
+        vec![
+            OsString::from("install"),
+            OsString::from("--list"),
+            OsString::from("--bin"),
+            install_dir_os,
+        ],
+    );
+
+    check(
+        out,
+        expect![[r#"
+            username/flash v0.1.0 ($ROOT):
+                main-js
+        "#]],
+    );
+}
+
+#[test]
 #[ignore = "platform-dependent behavior"]
 fn test_strip_debug() {
     let dir = TestDir::new("strip_debug.in");

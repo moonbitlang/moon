@@ -466,6 +466,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --tag 'Git tag to checkout (requires git URL)'
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand --list 'List globally installed binaries recorded by `moon install`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
