@@ -238,7 +238,11 @@ pub fn write_package_json_to_file(pkg: &MoonPkgJSON, path: &Path) -> anyhow::Res
 
 pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
     if !dir.join(MOON_MOD_JSON).exists() {
-        bail!("`{:?}` does not exist", dir.join(MOON_MOD_JSON));
+        bail!(
+            "Failed to find `{}` for module at path `{}`",
+            MOON_MOD_JSON,
+            dir.display()
+        );
     }
     Ok(read_module_from_json(&dir.join(MOON_MOD_JSON))?)
 }
@@ -256,7 +260,12 @@ pub fn read_package_desc_file_in_dir_with_supported_targets_decl(
         read_package_from_json_with_supported_targets_decl(&dir.join(MOON_PKG_JSON))
             .context(format!("Failed to load {:?}", dir.join(MOON_PKG_JSON)))
     } else {
-        bail!("`{:?}` does not exist", dir.join(MOON_PKG_JSON));
+        bail!(
+            "Failed to find `{}` or `{}` for package at path `{}`",
+            MOON_PKG,
+            MOON_PKG_JSON,
+            dir.display()
+        );
     }
 }
 

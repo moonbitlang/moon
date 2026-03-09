@@ -25,6 +25,7 @@ use std::{
 use anyhow::anyhow;
 use colored::Colorize;
 use moonutil::{
+    common::MOON_MOD_JSON,
     dependency::SourceDependencyInfo,
     module::MoonMod,
     mooncakes::{
@@ -54,7 +55,8 @@ impl Resolver for MvsSolver {
 }
 
 fn select_min_version_satisfying<'a>(
-    name: &ModuleName,
+    dependency: &ModuleName,
+    dependant: &ModuleName,
     req: &SourceDependencyInfo,
     versions: impl Iterator<Item = &'a Version> + 'a,
 ) -> Result<Version, ResolverError> {
@@ -80,28 +82,34 @@ fn select_min_version_satisfying<'a>(
         "{}: you may need to run `moon update` to update the registry",
         "Hint".yellow()
     );
-    Err(ResolverError::NoSatisfiedVersion(
-        name.clone(),
-        req.version.clone(),
-    ))
+    Err(ResolverError::NoSatisfiedVersion {
+        dependency: dependency.clone(),
+        dependant: dependant.clone(),
+        required: req.version.clone(),
+    })
 }
 
 fn select_min_version_satisfying_in_env(
     env: &mut ResolverEnv,
-    name: &ModuleName,
+    dependency: &ModuleName,
+    dependant: &ModuleName,
     req: &SourceDependencyInfo,
 ) -> Result<(Version, Arc<MoonMod>), ResolverError> {
     let all_versions = env
-        .all_versions_of(name, None) // todo: registry
+        .all_versions_of(dependency, None) // todo: registry
         .ok_or_else(|| {
             eprintln!(
                 "{}: you may need to run `moon update` to update the registry",
                 "Hint".yellow()
             );
-            ResolverError::ModuleMissing(name.clone())
+            ResolverError::ModuleMissing {
+                dependency: dependency.clone(),
+                dependant: dependant.clone(),
+            }
         })?;
 
-    let min_version_satisfying = select_min_version_satisfying(name, req, all_versions.keys());
+    let min_version_satisfying =
+        select_min_version_satisfying(dependency, dependant, req, all_versions.keys());
     match min_version_satisfying {
         Ok(version) => {
             let module = Arc::clone(&all_versions[&version]);
@@ -399,9 +407,36 @@ fn resolve_pkg(
             root.display()
         );
         let dep_path = root.join(path);
-        let dep_path =
-            dunce::canonicalize(dep_path).map_err(|err| ResolverError::Other(err.into()))?;
-        let res = env.resolve_local_module(&dep_path)?;
+        let dep_path = dunce::canonicalize(&dep_path).map_err(|err| {
+            ResolverError::Other(anyhow!(
+                "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
+                pkg_name,
+                dependant.name(),
+                dep_path.display(),
+                err
+            ))
+        })?;
+        if !dep_path.join(MOON_MOD_JSON).exists() {
+            return Err(ResolverError::Other(anyhow!(
+                "Failed to find `{}` for local dependency `{}` of module `{}` at path `{}`",
+                MOON_MOD_JSON,
+                pkg_name,
+                dependant.name(),
+                dep_path.display()
+            )));
+        }
+        let res = env
+            .resolve_local_module(&dep_path)
+            .map_err(|err| match err {
+                ResolverError::Other(err) => ResolverError::Other(anyhow!(
+                    "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
+                    pkg_name,
+                    dependant.name(),
+                    dep_path.display(),
+                    err
+                )),
+                err => err,
+            })?;
         let ms = ModuleSource::new_full(
             pkg_name.clone(),
             res.version.clone().expect("Expected version in module"),
@@ -411,10 +446,12 @@ fn resolve_pkg(
         if let Some(v) = &res.version
             && !req.version.matches(v)
         {
-            return Err(ResolverError::LocalDepVersionMismatch(
-                Box::new(ms),
-                req.version.clone(),
-            ));
+            return Err(ResolverError::LocalDepVersionMismatch {
+                dependant: dependant.name().clone(),
+                dependency: pkg_name.clone(),
+                actual: v.clone(),
+                required: req.version.clone(),
+            });
         }
         return Ok((ms, res));
     }
@@ -426,7 +463,8 @@ fn resolve_pkg(
     // If neither git nor local dependencies can be resolved (either because the user
     // didn't specify it at all, or because the repo comes from a registry), we fallback
     // to resolving from a registry.
-    let (version, module) = select_min_version_satisfying_in_env(env, pkg_name, req)?;
+    let (version, module) =
+        select_min_version_satisfying_in_env(env, pkg_name, dependant.name(), req)?;
     log::debug!(
         "---- Dependency {}, required {:?}, selected {}",
         pkg_name,

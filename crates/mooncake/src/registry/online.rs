@@ -190,7 +190,7 @@ impl OnlineRegistry {
             return Ok(bytes::Bytes::from(data));
         }
         if !quiet {
-            println!("Downloading {name}");
+            println!("Downloading {name}@{version}");
         }
         let filepath = form_urlencoded::Serializer::new(String::new())
             .append_key_only(&format!("{}/{}/{}", name.username, name.unqual, version))
