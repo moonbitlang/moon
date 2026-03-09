@@ -68,7 +68,7 @@ pub trait Registry {
         allow_explicit_version: bool,
     ) -> Option<(ModuleName, String, String)> {
         let contains_at = path.contains('@');
-        if path.starts_with(MOONBITLANG_CORE) {
+        if path == MOONBITLANG_CORE || path.starts_with(&format!("{MOONBITLANG_CORE}/")) {
             if contains_at {
                 return None;
             } else {
@@ -237,12 +237,31 @@ mod tests {
     #[test]
     fn resolve_path_returns_default_version_for_core() {
         let registry = MockRegistry::new();
+        let (root_name, root_version, root_full_path) = registry
+            .resolve_path("moonbitlang/core", true)
+            .expect("core root path should resolve");
+        assert_eq!(root_name.to_string(), MOONBITLANG_CORE);
+        assert_eq!(root_version, DEFAULT_VERSION.to_string());
+        assert_eq!(root_full_path, "moonbitlang/core");
+
         let (name, version, full_path) = registry
             .resolve_path("moonbitlang/core/list", true)
             .expect("core path should resolve");
         assert_eq!(name.to_string(), MOONBITLANG_CORE);
         assert_eq!(version, DEFAULT_VERSION.to_string());
         assert_eq!(full_path, "moonbitlang/core/list");
+    }
+
+    #[test]
+    fn resolve_path_does_not_treat_corexx_as_core() {
+        let mut registry = MockRegistry::new();
+        registry.add_module_full("moonbitlang/corexx", "0.1.0", []);
+        let (name, version, full_path) = registry
+            .resolve_path("moonbitlang/corexx/list", true)
+            .expect("corexx path should resolve as a normal module");
+        assert_eq!(name.to_string(), "moonbitlang/corexx");
+        assert_eq!(version, "0.1.0");
+        assert_eq!(full_path, "moonbitlang/corexx/list");
     }
 
     #[test]
