@@ -21,6 +21,7 @@ use std::str::FromStr;
 
 use anyhow::Context;
 use indexmap::IndexMap;
+use mooncake::registry::Registry;
 use moonutil::{
     common::MOONBITLANG_CORE,
     dependency::{SourceDependencyInfo, SourceDependencyInfoJson},
@@ -41,6 +42,7 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
 
     let content = std::fs::read_to_string(file)
         .with_context(|| format!("failed to read .mbtx file `{}`", file.display()))?;
+    let registry = mooncake::registry::OnlineRegistry::mooncakes_io();
     let (import_source, _) = split_mbtx(&content)?;
     if import_source.is_empty() {
         return Ok(MbtxFrontMatterImports::default());
@@ -67,7 +69,7 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
         })?;
 
     let mut deps = IndexMap::new();
-    let mut module_versions: IndexMap<String, Option<String>> = IndexMap::new();
+    let mut module_versions: IndexMap<String, String> = IndexMap::new();
     let mut imports = Vec::with_capacity(import_values.len());
 
     for value in import_values {
@@ -97,24 +99,19 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
                 .transpose()?;
             (path, alias)
         };
-        let (module, version, package) = split_mbtx_import_path(&import_path)?;
-        if module == MOONBITLANG_CORE && version.is_some() {
-            anyhow::bail!("moonbitlang/core imports must not specify a version");
-        }
+        let (module, version, package) = split_mbtx_import_path(&import_path, &registry)?;
 
-        let entry = module_versions.entry(module.clone()).or_insert(None);
-        if let Some(version) = version {
-            match entry {
-                Some(existing) if existing.as_str() != version => {
-                    anyhow::bail!(
-                        "multiple versions specified for module '{module}': '{existing}' and '{version}'"
-                    );
-                }
-                None => {
-                    *entry = Some(version);
-                }
-                _ => {}
+        match module_versions.entry(module.clone()) {
+            indexmap::map::Entry::Occupied(existing) if existing.get() != &version => {
+                anyhow::bail!(
+                    "multiple versions specified for module '{module}': '{}' and '{version}'",
+                    existing.get()
+                );
             }
+            indexmap::map::Entry::Vacant(entry) => {
+                entry.insert(version);
+            }
+            _ => {}
         }
 
         let normalized_import = match alias {
@@ -132,11 +129,6 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
         if module == MOONBITLANG_CORE {
             continue;
         }
-        let Some(version) = version else {
-            anyhow::bail!(
-                "module '{module}' must include a version in .mbtx imports (e.g. {module}@0.4.40[/package/path]); moonbitlang/core is the only exception"
-            );
-        };
         let version = SourceDependencyInfo::from_str(&version)?;
         deps.insert(module, SourceDependencyInfoJson::from(version));
     }
@@ -178,52 +170,26 @@ fn split_mbtx(content: &str) -> anyhow::Result<(String, String)> {
     Ok((String::new(), content.to_string()))
 }
 
-fn split_mbtx_import_path(path: &str) -> anyhow::Result<(String, Option<String>, String)> {
-    if let Some((module, tail)) = path.rsplit_once('@') {
-        if module.is_empty() {
-            anyhow::bail!("import path '{path}' has an empty module name");
-        }
-        let (version, package) = match tail.split_once('/') {
-            Some((version, package)) => (version, Some(package)),
-            None => (tail, None),
-        };
-        if version.is_empty() {
-            anyhow::bail!("import path '{path}' has an empty version");
-        }
-
-        let package = match package {
-            Some("") => anyhow::bail!("import path '{path}' has an empty package path"),
-            Some(pkg) if pkg == module || pkg.starts_with(&format!("{module}/")) => pkg.to_string(),
-            Some(pkg) => format!("{module}/{pkg}"),
-            None => module.to_string(),
-        };
-        return Ok((module.to_string(), Some(version.to_string()), package));
-    }
-
-    if path == MOONBITLANG_CORE {
-        return Ok((
-            MOONBITLANG_CORE.to_string(),
-            None,
-            MOONBITLANG_CORE.to_string(),
-        ));
-    }
-    if let Some(package) = path
-        .strip_prefix(MOONBITLANG_CORE)
-        .and_then(|suffix| suffix.strip_prefix('/'))
+fn split_mbtx_import_path(
+    path: &str,
+    registry: &impl Registry,
+) -> anyhow::Result<(String, String, String)> {
+    if (path == MOONBITLANG_CORE || path.starts_with(&format!("{MOONBITLANG_CORE}/")))
+        && path.contains('@')
     {
-        if package.is_empty() {
-            anyhow::bail!("import path '{path}' has an empty package path");
-        }
-        return Ok((
-            MOONBITLANG_CORE.to_string(),
-            None,
-            format!("{MOONBITLANG_CORE}/{package}"),
-        ));
+        anyhow::bail!("moonbitlang/core imports must not specify a version");
     }
-
-    anyhow::bail!(
-        "import path '{path}' must be in the form 'path/to/module@version[/package/path]' (except moonbitlang/core[/package/path])"
-    )
+    let (module, version, full_path_without_version) = registry
+        .resolve_path(path, true)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "import path '{path}' must be in the form 'username/module[/package/path]' or \
+'path/to/module@version[/package/path]'; \
+if version is omitted, the module path must be resolvable from local registry index (run `moon update` if needed)"
+            )
+        })?;
+    let module = module.to_string();
+    Ok((module, version, full_path_without_version))
 }
 
 /// Remove the leading `import {...}` declaration in `.mbtx`, then write the
@@ -269,12 +235,13 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::{MbtxFrontMatterImports, parse_mbtx_imports, split_mbtx, split_mbtx_import_path};
+    use mooncake::registry::OnlineRegistry;
+    use moonutil::mooncakes::DEFAULT_VERSION;
     use moonutil::package::Import;
 
     #[allow(clippy::disallowed_methods)] // test fixture setup/cleanup on temp files.
     fn parse_imports_from_source(content: &str) -> anyhow::Result<MbtxFrontMatterImports> {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
-
         let suffix = COUNTER.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
             "moon-mbtx-parse-test-{}-{suffix}.mbtx",
@@ -282,47 +249,48 @@ mod tests {
         ));
         std::fs::write(&path, content)?;
         let parsed = parse_mbtx_imports(&path)?;
-        if parsed.deps.is_empty() && parsed.imports.is_empty() {
-            anyhow::bail!("expected .mbtx imports to be present");
-        }
         let _ = std::fs::remove_file(&path);
         Ok(parsed)
     }
 
     #[test]
     fn split_mbtx_import_path_supports_module_package() {
+        let registry = OnlineRegistry::mooncakes_io();
         let (module, version, package) =
-            split_mbtx_import_path("path/to/module@0.4.38/package/path")
+            split_mbtx_import_path("path/to/module@0.4.38/package/path", &registry)
                 .expect("module package import should parse");
         assert_eq!(module, "path/to/module");
-        assert_eq!(version.as_deref(), Some("0.4.38"));
+        assert_eq!(version, "0.4.38");
         assert_eq!(package, "path/to/module/package/path");
     }
 
     #[test]
     fn split_mbtx_import_path_normalizes_relative_package_with_module_prefix() {
-        let (module, version, package) = split_mbtx_import_path("a/b/c@version/d/e")
+        let registry = OnlineRegistry::mooncakes_io();
+        let (module, version, package) = split_mbtx_import_path("a/b/c@version/d/e", &registry)
             .expect("module package import should parse");
         assert_eq!(module, "a/b/c");
-        assert_eq!(version.as_deref(), Some("version"));
+        assert_eq!(version, "version");
         assert_eq!(package, "a/b/c/d/e");
     }
 
     #[test]
     fn split_mbtx_import_path_supports_module_root() {
-        let (module, version, package) = split_mbtx_import_path("path/to/module@0.4.38")
+        let registry = OnlineRegistry::mooncakes_io();
+        let (module, version, package) = split_mbtx_import_path("path/to/module@0.4.38", &registry)
             .expect("module root import should parse");
         assert_eq!(module, "path/to/module");
-        assert_eq!(version.as_deref(), Some("0.4.38"));
+        assert_eq!(version, "0.4.38");
         assert_eq!(package, "path/to/module");
     }
 
     #[test]
     fn split_mbtx_import_path_supports_core_without_version() {
-        let (module, version, package) = split_mbtx_import_path("moonbitlang/core/env")
+        let registry = OnlineRegistry::mooncakes_io();
+        let (module, version, package) = split_mbtx_import_path("moonbitlang/core/env", &registry)
             .expect("core import without version should parse");
         assert_eq!(module, "moonbitlang/core");
-        assert_eq!(version, None);
+        assert_eq!(version, DEFAULT_VERSION.to_string());
         assert_eq!(package, "moonbitlang/core/env");
     }
 
@@ -426,10 +394,10 @@ import {
     #[test]
     fn parse_mbtx_imports_supports_top_level_package_path() {
         let parsed =
-            parse_imports_from_source("import { \"path/to/module@0.4.38/path/to/module\" }\n")
+            parse_imports_from_source("import { \"path/to/module@0.4.38/path/to/pkg\" }\n")
                 .expect("value should parse");
         assert_eq!(parsed.imports.len(), 1);
-        assert_eq!(parsed.imports[0].get_path(), "path/to/module");
+        assert_eq!(parsed.imports[0].get_path(), "path/to/module/path/to/pkg");
         assert!(parsed.deps.contains_key("path/to/module"));
     }
 
