@@ -26,16 +26,34 @@ use moonutil::{
     moon_dir,
     mooncakes::{ModuleName, RegistryConfig},
 };
+use std::path::{Path, PathBuf};
 
 use super::UniversalFlags;
 use super::install_binary::{
     GitRef, install_binary, install_from_git, install_from_local, is_git_url, is_local_path,
-    parse_package_spec,
+    parse_package_spec, strip_wildcard_suffix,
 };
+
+/// Returns the local filesystem path used for wildcard local install.
+fn local_wildcard_path(source: &str) -> Option<PathBuf> {
+    let base = strip_wildcard_suffix(source)?;
+    if base.is_empty() {
+        if source.starts_with('/') {
+            Some(PathBuf::from("/"))
+        } else {
+            Some(PathBuf::from("."))
+        }
+    } else if base.ends_with(':') && source.ends_with("/...") {
+        // `C:/...` should resolve to `C:/` instead of drive-relative `C:`.
+        Some(PathBuf::from(format!("{base}/")))
+    } else {
+        Some(PathBuf::from(base))
+    }
+}
 
 pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
     // If no package path and no local path, use legacy behavior
-    if cmd.package_path.is_none() && cmd.path.is_none() {
+    if cmd.source.is_none() && cmd.path.is_none() {
         eprintln!(
             "{}: `moon install` without arguments is deprecated and will be removed in a future version. \
              Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
@@ -59,26 +77,44 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
 
     // Explicit --path takes priority
     if let Some(local_path) = cmd.path {
-        return install_from_local(&cli, &local_path, &install_dir);
+        let local_path_str = local_path.to_string_lossy();
+        if strip_wildcard_suffix(local_path_str.as_ref()).is_some() {
+            eprintln!(
+                "{}: `--path` does not support wildcard selectors like `{}`",
+                "Warning".yellow().bold(),
+                local_path_str
+            );
+            anyhow::bail!(
+                "Use positional SOURCE for wildcard install: `moon install {}`",
+                local_path_str
+            );
+        }
+        return install_from_local(&cli, &local_path, &install_dir, false);
     }
 
-    let package_path = cmd.package_path.unwrap();
+    let source = cmd.source.unwrap();
 
     // Local path install
-    // These checks can't be done in clap because we need to inspect the value of package_path
+    // These checks can't be done in clap because we need to inspect the value of source
     // to determine whether it's a local path, git URL, or registry path.
-    if is_local_path(&package_path) {
+    if is_local_path(&source) {
         if has_git_ref {
             anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
         }
-        if cmd.package_path_in_repo.is_some() {
-            anyhow::bail!("Package path in repo can only be used with git URLs");
+        if cmd.path_in_repo.is_some() {
+            anyhow::bail!("Path in repo can only be used with git URLs");
         }
-        return install_from_local(&cli, package_path.as_ref(), &install_dir);
+        let (local_path, install_all) = local_wildcard_path(&source)
+            .map_or((PathBuf::from(source.as_str()), false), |base| (base, true));
+        return install_from_local(&cli, Path::new(&local_path), &install_dir, install_all);
     }
 
     // Git URL install
-    if is_git_url(&package_path) {
+    if is_git_url(&source) {
+        let install_all = cmd
+            .path_in_repo
+            .as_deref()
+            .is_some_and(|s| strip_wildcard_suffix(s).is_some());
         let git_ref = if let Some(rev) = cmd.rev.as_deref() {
             GitRef::Rev(rev)
         } else if let Some(branch) = cmd.branch.as_deref() {
@@ -90,10 +126,11 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         };
         return install_from_git(
             &cli,
-            &package_path,
+            &source,
             git_ref,
-            cmd.package_path_in_repo.as_deref(),
+            cmd.path_in_repo.as_deref(),
             &install_dir,
+            install_all,
         );
     }
 
@@ -101,11 +138,12 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
     if has_git_ref {
         anyhow::bail!("--rev, --branch, and --tag can only be used with git URLs");
     }
-    if cmd.package_path_in_repo.is_some() {
-        anyhow::bail!("Package path in repo can only be used with git URLs");
+    if cmd.path_in_repo.is_some() {
+        anyhow::bail!("Path in repo can only be used with git URLs");
     }
-    let spec = parse_package_spec(&package_path)?;
-    install_binary(&cli, &spec, &install_dir)
+    let spec = parse_package_spec(&source)?;
+    let install_all = spec.is_wildcard;
+    install_binary(&cli, &spec, &install_dir, install_all)
 }
 
 pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
@@ -204,4 +242,27 @@ pub(crate) fn tree_cli(cli: UniversalFlags, _cmd: TreeSubcommand) -> anyhow::Res
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
     mooncake::pkg::tree::tree(&source_dir, &target_dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_local_wildcard_path_unix_root() {
+        let got = local_wildcard_path("/...").unwrap();
+        assert_eq!(got, PathBuf::from("/"));
+    }
+
+    #[test]
+    fn test_local_wildcard_path_relative_current() {
+        let got = local_wildcard_path("./...").unwrap();
+        assert_eq!(got, PathBuf::from("."));
+    }
+
+    #[test]
+    fn test_local_wildcard_path_windows_drive_root() {
+        let got = local_wildcard_path("C:/...").unwrap();
+        assert_eq!(got, PathBuf::from("C:/"));
+    }
 }
