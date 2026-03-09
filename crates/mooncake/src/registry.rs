@@ -20,7 +20,6 @@
 pub mod mock;
 pub mod online;
 
-use core::panic;
 use std::{
     collections::{BTreeMap, HashMap},
     path::Path,
@@ -32,7 +31,6 @@ use moonutil::module::MoonMod;
 use moonutil::mooncakes::{DEFAULT_VERSION, ModuleName};
 pub use online::*;
 use semver::Version;
-use sha2::digest::consts::True;
 
 pub trait Registry {
     /// Get all versions of a module.
@@ -104,13 +102,13 @@ pub trait Registry {
                         "" => module_name_str,
                         pkg => format!("{module_name_str}/{pkg}"),
                     };
-                    return Some((module_name, version.to_string(), full_path_without_version));
+                    Some((module_name, version.to_string(), full_path_without_version))
                 } else {
                     panic!("unreachable: contains_at is true but no '@' found");
                 }
             }
             // reject explicit version case when disallowed
-            (false, true) => return None,
+            (false, true) => None,
             // handle unversioned path case, try longest-prefix match to find the module and its latest version
             // "a/b/c/d" -> prefer "a/b/c" over "a/b"
             (_, false) => {
@@ -197,6 +195,7 @@ pub struct RegistryList {
     registries: HashMap<String, Box<dyn Registry>>,
 }
 
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::Registry;
