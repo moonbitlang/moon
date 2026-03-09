@@ -27,6 +27,7 @@ use moonutil::mooncakes::ModuleId;
 use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::mooncakes::{ModuleName, ModuleSource, result};
 use semver::{Version, VersionReq};
+use thiserror::Error;
 
 use crate::registry::RegistryList;
 
@@ -38,30 +39,43 @@ pub use mvs::MvsSolver;
 use self::env::ResolverEnv;
 
 /// Any error that may occur during dependency resolution.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ResolverError {
+    #[error("Malformed module name found in dependency {0}: {1}")]
     MalformedModuleName(ModuleName, String),
+    #[error(
+        "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: module was not found in the registry"
+    )]
     ModuleMissing {
         dependency: ModuleName,
         dependant: ModuleName,
     },
+    #[error(
+        "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: no version satisfies requirement `{required}`"
+    )]
     NoSatisfiedVersion {
         dependency: ModuleName,
         dependant: ModuleName,
         required: VersionReq,
     },
+    #[error(
+        "Failed to resolve local dependency `{dependency}` for module `{dependant}`: local module version `{actual}` does not satisfy requirement `{required}`"
+    )]
     LocalDepVersionMismatch {
         dependant: ModuleName,
         dependency: ModuleName,
         actual: Version,
         required: VersionReq,
     },
+    #[error("{}", format_version_conflict(.module, .conflicts))]
     ConflictingVersions {
         module: ModuleName,
         conflicts: Vec<VersionConflict>,
     },
-    CannotInjectCore(anyhow::Error),
-    Other(anyhow::Error),
+    #[error("Cannot inject the standard library `moonbitlang/core`: {0}")]
+    CannotInjectCore(#[source] anyhow::Error),
+    #[error("Error during resolution: {0}")]
+    Other(#[source] anyhow::Error),
 }
 
 #[derive(Debug)]
@@ -70,78 +84,9 @@ pub struct VersionConflict {
     pub chain: Option<Vec<ModuleSource>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("{}", format_resolver_errors(.0))]
 pub struct ResolverErrors(pub Vec<ResolverError>);
-
-impl std::fmt::Display for ResolverErrors {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for error in &self.0 {
-            writeln!(f, "{error}")?;
-        }
-        Ok(())
-    }
-}
-
-impl std::error::Error for ResolverErrors {}
-
-impl std::fmt::Display for ResolverError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ResolverError::MalformedModuleName(module, dependency) => {
-                write!(
-                    f,
-                    "Malformed module name found in dependency {module}: {dependency}"
-                )
-            }
-            ResolverError::ModuleMissing {
-                dependency,
-                dependant,
-            } => write!(
-                f,
-                "Failed to resolve registry dependency `{}` for module `{}`: module was not found in the registry",
-                dependency, dependant
-            ),
-            ResolverError::NoSatisfiedVersion {
-                dependency,
-                dependant,
-                required,
-            } => write!(
-                f,
-                "Failed to resolve registry dependency `{}` for module `{}`: no version satisfies requirement `{}`",
-                dependency, dependant, required
-            ),
-            ResolverError::LocalDepVersionMismatch {
-                dependant,
-                dependency,
-                actual,
-                required,
-            } => write!(
-                f,
-                "Failed to resolve local dependency `{}` for module `{}`: local module version `{}` does not satisfy requirement `{}`",
-                dependency, dependant, actual, required
-            ),
-            ResolverError::ConflictingVersions { module, conflicts } => {
-                write!(f, "{}", format_version_conflict(module, conflicts))
-            }
-            ResolverError::CannotInjectCore(err) => {
-                write!(
-                    f,
-                    "Cannot inject the standard library `moonbitlang/core`: {err}"
-                )
-            }
-            ResolverError::Other(err) => write!(f, "Error during resolution: {err}"),
-        }
-    }
-}
-
-impl std::error::Error for ResolverError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            ResolverError::CannotInjectCore(err) | ResolverError::Other(err) => Some(err.as_ref()),
-            _ => None,
-        }
-    }
-}
 
 /// The dependency resolver.
 pub trait Resolver {
@@ -285,6 +230,14 @@ fn format_version_conflict(module: &ModuleName, conflicts: &[VersionConflict]) -
     }
 
     lines.join("\n")
+}
+
+fn format_resolver_errors(errors: &[ResolverError]) -> String {
+    errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub struct ResolveConfig {
