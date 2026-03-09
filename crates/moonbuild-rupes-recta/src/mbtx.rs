@@ -174,7 +174,9 @@ fn split_mbtx_import_path(
     path: &str,
     registry: &impl Registry,
 ) -> anyhow::Result<(String, String, String)> {
-    if path.starts_with(MOONBITLANG_CORE) && path.contains('@') {
+    if (path == MOONBITLANG_CORE || path.starts_with(&format!("{MOONBITLANG_CORE}/")))
+        && path.contains('@')
+    {
         anyhow::bail!("moonbitlang/core imports must not specify a version");
     }
     let (module, version, full_path_without_version) = registry
