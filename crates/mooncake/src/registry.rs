@@ -68,16 +68,23 @@ pub trait Registry {
         allow_explicit_version: bool,
     ) -> Option<(ModuleName, String, String)> {
         let contains_at = path.contains('@');
-        if path == MOONBITLANG_CORE || path.starts_with(&format!("{MOONBITLANG_CORE}/")) {
-            if contains_at {
-                return None;
-            } else {
-                return Some((
-                    MOD_NAME_STDLIB.clone(),
-                    DEFAULT_VERSION.to_string(),
-                    path.to_string(),
-                ));
-            }
+
+        // reject paths like `moonbitlang/core@version` and `moonbitlang/core/path@version`
+        if path.starts_with(&format!("{MOONBITLANG_CORE}@"))
+            || contains_at && path.starts_with(&format!("{MOONBITLANG_CORE}/"))
+        {
+            return None;
+        }
+
+        // handle `moonbitlang/core` and `moonbitlang/core/path` (no @ in path) special case
+        if path == MOONBITLANG_CORE
+            || !contains_at && path.starts_with(&format!("{MOONBITLANG_CORE}/"))
+        {
+            return Some((
+                MOD_NAME_STDLIB.clone(),
+                DEFAULT_VERSION.to_string(),
+                path.to_string(),
+            ));
         }
 
         match (allow_explicit_version, contains_at) {

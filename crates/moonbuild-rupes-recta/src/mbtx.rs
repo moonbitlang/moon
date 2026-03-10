@@ -174,9 +174,7 @@ fn split_mbtx_import_path(
     path: &str,
     registry: &impl Registry,
 ) -> anyhow::Result<(String, String, String)> {
-    if (path == MOONBITLANG_CORE || path.starts_with(&format!("{MOONBITLANG_CORE}/")))
-        && path.contains('@')
-    {
+    if path.starts_with(&format!("{MOONBITLANG_CORE}@")) {
         anyhow::bail!("moonbitlang/core imports must not specify a version");
     }
     let (module, version, full_path_without_version) = registry
@@ -420,5 +418,14 @@ import {
             err.to_string()
                 .contains("moonbitlang/core imports must not specify a version")
         );
+    }
+
+    #[test]
+    fn parse_mbtx_imports_allow_corexx_with_version() {
+        let parsed = parse_imports_from_source("import { \"moonbitlang/corexx@0.1.0/env\" }\n")
+            .expect("corexx import with version should parse");
+        assert_eq!(parsed.imports.len(), 1);
+        assert_eq!(parsed.imports[0].get_path(), "moonbitlang/corexx/env");
+        assert!(parsed.deps.contains_key("moonbitlang/corexx"));
     }
 }
