@@ -23,10 +23,6 @@ fn stack_trace_line_number_regex() -> regex::Regex {
         .expect("valid stack trace line number regex")
 }
 
-pub fn redaction_regex(pattern: &str) -> regex::Regex {
-    regex::Regex::new(pattern).expect("valid redaction regex")
-}
-
 pub fn stack_trace_redactions(_src_dir: &Path) -> snapbox::Redactions {
     let mut redactions = snapbox::Redactions::new();
     redactions

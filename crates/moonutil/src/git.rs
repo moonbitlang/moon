@@ -121,7 +121,7 @@ pub fn git_init_repo(path: &Path) -> Result<(), GitCommandError> {
 
 #[test]
 fn test_bad_git_command() {
-    pub fn fake_git_command(
+    fn fake_git_command(
         args: &[&str],
         stdios: Stdios,
     ) -> Result<std::process::Child, GitCommandError> {

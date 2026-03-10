@@ -188,7 +188,7 @@ pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
     Ok(0)
 }
 
-pub fn do_upgrade(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
+fn do_upgrade(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     #[cfg(unix)]
     do_upgrade_unix(cmd, root)?;
 
@@ -198,7 +198,7 @@ pub fn do_upgrade(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     Ok(0)
 }
 
-pub fn do_upgrade_unix(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
+fn do_upgrade_unix(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     let exe = "sh";
     let args = [
         "-c".to_string(),
@@ -224,7 +224,7 @@ pub fn do_upgrade_unix(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     }
 }
 
-pub fn upgrade_dialoguer_ctrlc_handler() {
+fn upgrade_dialoguer_ctrlc_handler() {
     #[cfg(windows)]
     windows::copy_moon_back();
 
@@ -237,13 +237,13 @@ mod windows {
     pub static MOON_EXE_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
     pub static TEMP_EXE_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
-    pub fn copy_moon_back() {
+    pub(super) fn copy_moon_back() {
         if TEMP_EXE_PATH.get().is_some() && MOON_EXE_PATH.get().is_some() {
             let _ = std::fs::copy(TEMP_EXE_PATH.get().unwrap(), MOON_EXE_PATH.get().unwrap());
         }
     }
 
-    pub fn do_upgrade_windows(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
+    pub(super) fn do_upgrade_windows(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
         let tmp_dir = tempfile::tempdir().context("failed to create temp dir")?;
         match _do_upgrade_windows(cmd, root, tmp_dir.path()) {
             Ok(0) => Ok(0),
@@ -254,7 +254,7 @@ mod windows {
         }
     }
 
-    pub fn _do_upgrade_windows(
+    fn _do_upgrade_windows(
         cmd: &UpgradeSubcommand,
         root: &str,
         tmp_dir: &std::path::Path,

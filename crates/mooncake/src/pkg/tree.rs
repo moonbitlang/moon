@@ -29,7 +29,7 @@ use moonutil::common::{
 #[derive(Debug, clap::Parser)]
 pub struct TreeSubcommand {}
 
-pub fn bold(top: &HashSet<String>, item: &str) -> ColoredString {
+fn bold(top: &HashSet<String>, item: &str) -> ColoredString {
     if top.contains(item) {
         item.bold()
     } else {

@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::io::BufRead;
-
 use tokio::io::{AsyncBufRead, AsyncWriteExt};
 
 pub struct SectionCapture<'a> {
@@ -48,7 +46,7 @@ impl<'a> SectionCapture<'a> {
     }
 
     /// Feed a line into the capture buffer. The line should contain the newline character.
-    pub fn feed_line(&mut self, line: &str) -> Option<LineCaptured> {
+    fn feed_line(&mut self, line: &str) -> Option<LineCaptured> {
         if line.trim_end().ends_with(self.begin_delimiter) {
             self.found_begin = true;
             self.found_end = false;
@@ -92,8 +90,9 @@ impl<'a> SectionCapture<'a> {
 /// If any of the captures captures a line, the line will not be printed to stdout.
 /// The captures are processed in order: a line is captured by the first capture that captures it.
 /// The program should not print overlapping sections, as the captures are not aware of each other.
-pub fn handle_stdout<P: FnMut(&str)>(
-    stdout: &mut impl BufRead,
+#[cfg(test)]
+fn handle_stdout<P: FnMut(&str)>(
+    stdout: &mut impl std::io::BufRead,
     captures: &mut [&mut SectionCapture],
     mut print: P,
 ) -> anyhow::Result<()> {
