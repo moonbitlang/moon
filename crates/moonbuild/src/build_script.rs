@@ -32,33 +32,6 @@ use moonutil::{
     build_script::{BuildScriptEnvironment, BuildScriptOutput},
     mooncakes::ModuleName,
 };
-use regex::{Captures, Regex};
-
-pub fn string_match_and_replace(
-    s: &mut String,
-    env_vars: &HashMap<String, String>,
-    regex: &Regex,
-) -> anyhow::Result<()> {
-    let mut err = None;
-    let out = regex.replace_all(s, |cap: &Captures| {
-        let name = cap.get(1).expect("failed to get capture group");
-        let name = name.as_str();
-        let Some(value) = env_vars.get(name) else {
-            err = Some(anyhow::anyhow!("Unable to find env var `{}`", name));
-            return "";
-        };
-        value
-    });
-    match out {
-        std::borrow::Cow::Borrowed(_) => {
-            // s is not changed
-        }
-        std::borrow::Cow::Owned(new_s) => {
-            *s = new_s;
-        }
-    }
-    Ok(())
-}
 
 fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> {
     if prebuild.ends_with(".js") || prebuild.ends_with(".cjs") || prebuild.ends_with(".mjs") {

@@ -47,6 +47,8 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         .to_str()
         .unwrap()
         .to_string();
+    // for something like "{...\"loc\":{\"path\":\"C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\.tmpP0u4VZ\\\\main\\\\main.mbt\"...\r\n" on windows
+    // https://github.com/moonbitlang/moon/actions/runs/10092428950/job/27906057649#step:13:149
     let s = s.replace(&path_str1, "$ROOT");
     let s = s.replace(
         dunce::canonicalize(moonutil::moon_dir::home())
@@ -77,6 +79,9 @@ pub(crate) fn read<P: AsRef<Path>>(p: P) -> String {
     std::fs::read_to_string(p).unwrap().replace_crlf_to_lf()
 }
 
+/// Asserts the `shlex`'d result of the given string is equal to the expected
+/// string. However, still updates if `UPDATE_EXPECT` is set, just like the
+/// original [`Expect`] functionality.
 pub(crate) fn assert_command_matches(s: impl AsRef<str>, expect: Expect) {
     let actual_lines = s.as_ref().trim().lines().collect::<Vec<_>>();
     let expected_lines = expect.data().trim().lines().collect::<Vec<_>>();
