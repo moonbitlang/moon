@@ -16,14 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod build_graph;
-mod dry_run_utils;
+mod support;
 mod test_cases;
-mod util;
 
 use moonbuild_debug::graph::ENV_VAR;
 use std::path::{Path, PathBuf};
 use util::*;
+
+pub(crate) use support::{build_graph, dry_run_utils, util};
 
 pub(crate) struct TestDir(moon_test_util::test_dir::TestDir);
 
