@@ -285,7 +285,7 @@ pub enum DiscoverError {
     },
 
     #[error(
-        "Unable to read `moon.pkg.json` for module '{module}' package '{package}' \
+        "Unable to read `moon.pkg` for module '{module}' package '{package}' \
         at path '{path}', error: {inner}"
     )]
     CantReadPackageFile {
