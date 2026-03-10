@@ -49,7 +49,7 @@ The detailed semantics of tests are in [the corresponding section](#building-tes
 
 ### Imports
 
-The imported packages are specified in the `imports` field in `moon.mod.json`,
+The imported packages are specified in the `import` field in `moon.pkg.json`,
 and are available to all three build targets.
 Test targets (whitebox and blackbox) can also have imports that are not used in regular targets,
 specified in an additional import field named `wbtest-import` and `test-import`.

@@ -213,6 +213,11 @@ fn mvs_resolve(
     res: &mut ResolvedEnv,
     root: &[(ModuleSource, Arc<MoonMod>)],
 ) -> bool {
+    let root_sources = root
+        .iter()
+        .map(|(source, _)| source.clone())
+        .collect::<HashSet<_>>();
+
     // Ordered set used to ensure they are iterated in order later.
     let mut gathered_versions = HashMap::<ModuleName, BTreeSet<ModuleSourceOrdWrapper>>::new();
 
@@ -233,13 +238,14 @@ fn mvs_resolve(
     // Do a DFS in the graph
     while let Some((source, module)) = working_list.pop() {
         log::debug!("-- Solving for {}", source);
-        let all_deps = module.deps.iter().chain(
+        let bin_deps = root_sources.contains(&source).then(|| {
             module
                 .bin_deps
                 .iter()
                 .flat_map(|m| m.iter())
-                .map(|(k, v)| (k, &v.common)),
-        );
+                .map(|(k, v)| (k, &v.common))
+        });
+        let all_deps = module.deps.iter().chain(bin_deps.into_iter().flatten());
         for (name, req) in all_deps {
             let pkg_name = match name.parse() {
                 Ok(v) => v,
@@ -343,12 +349,14 @@ fn mvs_resolve(
             .iter()
             .map(|(k, v)| (k, v, DependencyKind::Regular));
 
-        let bin_deps = module.bin_deps.iter().flat_map(|map| {
-            map.iter()
-                .map(|(k, v)| (k, &v.common, DependencyKind::Binary))
+        let bin_deps = root_sources.contains(&pkg).then(|| {
+            module.bin_deps.iter().flat_map(|map| {
+                map.iter()
+                    .map(|(k, v)| (k, &v.common, DependencyKind::Binary))
+            })
         });
 
-        let all_deps = regular_deps.chain(bin_deps);
+        let all_deps = regular_deps.chain(bin_deps.into_iter().flatten());
         for (dep_name, req, kind) in all_deps {
             let dep_name = dep_name.parse().unwrap();
             // If any malformed name, it should be reported in the previous round
@@ -481,6 +489,7 @@ mod test {
     use moonutil::mooncakes::ModuleId;
     use moonutil::mooncakes::result::DependencyEdge;
     use petgraph::dot::{Config, Dot};
+    use semver::VersionReq;
     use test_log::test;
 
     use super::*;
@@ -711,6 +720,47 @@ mod test {
         assert!(status, "Resolve failed");
         let result = result_env;
         assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.1");
+    }
+
+    #[test]
+    fn test_bin_deps_are_not_transitive() {
+        let mut registry = MockRegistry::new();
+        registry.add_module_full("dep/bin", "0.1.0", []);
+
+        let mut dep = create_mock_module("dep/regular", "0.1.0", []);
+        dep.bin_deps = Some(
+            [(
+                "dep/bin".to_string(),
+                moonutil::dependency::BinaryDependencyInfo {
+                    common: moonutil::dependency::SourceDependencyInfo {
+                        version: VersionReq::parse("0.1.0").unwrap(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into_iter()
+            .collect(),
+        );
+        registry.add_module(dep);
+
+        let registry = RegistryList::with_registry(Box::new(registry));
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let root = create_mock_module("root/module", "0.1.0", [("dep/regular", "0.1.0")]);
+        let roots = create_mock_root(root);
+        let mut result_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        assert!(status, "Resolve failed");
+        let result = result_env;
+
+        assert_depends_on(&result, "root/module@0.1.0", "dep/regular@0.1.0");
+        assert_no_depends_on(&result, "dep/regular@0.1.0", "dep/bin@0.1.0");
+        assert_no_depends_on(&result, "root/module@0.1.0", "dep/bin@0.1.0");
+        assert!(
+            id_from_mod_name(&result, &"dep/bin@0.1.0".parse().unwrap()).is_none(),
+            "transitive bin-dep should not be resolved at all"
+        );
     }
 
     #[test]

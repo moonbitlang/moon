@@ -2,8 +2,8 @@
 
 Prebuild tasks let a package generate source files (typically `.mbt`) from other assets before compilation, via declarative rules in `moon.pkg.json`.
 
-- Scope: Applies only to non-third-party packages in the current module.
-- Bypass: If `MOON_IGNORE_PREBUILD` is set in the environment, prebuild tasks are skipped.
+- Scope: Applies only to packages in the input module being built.
+  Third-party dependencies are expected to already contain their generated outputs.
 
 ## Package Configuration
 
@@ -29,7 +29,8 @@ Notes:
 
 - `input`/`output` paths are package-relative in config and expand to absolute paths inside the command.
 - When arrays are used, placeholders expand to space-separated lists in declaration order.
-- Generated outputs are treated as regular package sources in the current build and categorized by filename rules.
+- All declared outputs are tracked as build outputs.
+- Only `.mbt` and `.mbt.md` outputs are added back to the package's MoonBit source set.
 
 ## Path Resolution
 
@@ -37,6 +38,8 @@ Notes:
 - `$input`/`$output` expand to absolute file paths.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
 - `$mooncake_bin` expands to `<module-root>/.mooncakes/__moonbin__`.
+  This directory contains launchers installed for the current module's direct
+  `bin-deps`.
 
 ## Placeholder Substitution
 
@@ -56,6 +59,8 @@ Only the `command` field is substituted. The following placeholders are recogniz
 
 - `$mooncake_bin`  
   Expands to the absolute path `<module-root>/.mooncakes/__moonbin__`.
+  This currently refers to launchers installed from the current module's direct
+  `bin-deps`.
 
 Substitution semantics:
 
@@ -66,7 +71,9 @@ Substitution semantics:
 
 ## :embed Shorthand
 
-If the command starts with `:embed` (no leading whitespace), it denotes the built-in embed tool. Conceptually this is equivalent to invoking the Moon tool "embed" subcommand with the remaining arguments and substituted placeholders.
+If the command starts with the exact prefix `:embed `, it denotes the built-in embed tool.
+Conceptually this is equivalent to invoking the Moon tool `embed` subcommand with
+the remaining arguments and substituted placeholders.
 
 - Form: `:embed [FLAGS...] -i $input -o $output [--name IDENT]`
 - Purpose: Generate output file(s) that embed the content of input file(s) as MoonBit code.
@@ -84,8 +91,13 @@ Behavior:
 
 ## Ordering and Inclusion
 
-- Tasks are processed in the order they appear in `pre-build`.
-- All declared outputs are expected to be produced. Outputs are included as regular sources and categorized by filename.
+- Each `pre-build` entry becomes its own prebuild node in the build graph.
+- There is no explicit build-graph edge between two prebuild tasks solely because one is
+  written earlier in `pre-build`.
+- If one prebuild task consumes another task's declared output, the dependency is currently
+  expected to be handled by the underlying file-level tracking in `n2`.
+- Only declared outputs ending in `.mbt` or `.mbt.md` are included as MoonBit sources for
+  compilation, and only when they live in the package directory itself.
 
 ## Failure Conditions
 
@@ -97,9 +109,13 @@ A task is considered failed (for the build) if any of the following holds after 
 
 ## Compatibility and Caveats
 
-- `:embed` detection is prefix-based and requires `:embed` as the first token.
+- `:embed` detection is prefix-based and requires the literal prefix `:embed `.
 - Substitution does not add quoting. Quote `$input`, `$output`, or directories inside `command` if paths may contain spaces.
 - Using arrays for `output` expands to a space-separated list; ensure your tool’s CLI accepts the intended arity.
+- On Unix-like platforms, the final prebuild command string is executed through `sh -c`.
+- On Windows, the final prebuild command string is passed directly to `CreateProcessA`.
+- On Unix-like platforms, if the first word of the command looks like a relative path,
+  it is currently resolved against the module root directory.
 - Windows (PowerShell):  
   On Windows only, if the first word of the `command` (before any spaces) corresponds to a `.ps1` file that exists in the module root directory, the command is rewritten to execute that script via PowerShell using its absolute path. Example: if the command is `generate-assets $input $output` and `generate-assets.ps1` exists in the module root, the effective command becomes `powershell <absolute-path-to-module-root>/generate-assets.ps1 $input $output`. Detection examines the first word before placeholder substitution.
 
