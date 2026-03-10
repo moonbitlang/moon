@@ -190,7 +190,7 @@ impl<'a> CompactTestFormatter<'a> {
         }
     }
 
-    pub fn write_test_identifier<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
+    fn write_test_identifier<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
         if let Some(info) = self.test_info {
             if let Some(name) = info.name.as_ref().filter(|n| !n.is_empty()) {
                 write!(w, "{:?}", name)
@@ -204,7 +204,7 @@ impl<'a> CompactTestFormatter<'a> {
         }
     }
 
-    pub fn write_common_prefix<W: Write>(&self, is_bench: bool, w: &mut W) -> std::io::Result<()> {
+    fn write_common_prefix<W: Write>(&self, is_bench: bool, w: &mut W) -> std::io::Result<()> {
         // Try to strip the module prefix from the package name for brevity of output
         let stripped = self
             .stats

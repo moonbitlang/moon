@@ -16,26 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::Path;
-
-fn stack_trace_line_number_regex() -> regex::Regex {
-    regex::Regex::new(r"(?<redacted>:[0-9]+)(?:[ \t]+(?:at|by)|\n|$)")
-        .expect("valid stack trace line number regex")
-}
-
-pub fn stack_trace_redactions(_src_dir: &Path) -> snapbox::Redactions {
-    let mut redactions = snapbox::Redactions::new();
-    redactions
-        .insert("[LINE_NUMBER]", stack_trace_line_number_regex())
-        .expect("valid stack trace line number redaction");
-    redactions
-        .insert(
-            "[CORE_PATH]",
-            regex::Regex::new(
-                r"(?<redacted>(?:\$MOON_HOME|(?:[A-Za-z]:)?/[^ \t\r\n]*\.moon)/lib/core)",
-            )
-            .expect("valid moon core path regex"),
-        )
-        .expect("valid moon core path redaction");
-    redactions
-}
+pub(crate) mod build_graph;
+pub(crate) mod dry_run_utils;
+pub(crate) mod util;

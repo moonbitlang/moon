@@ -33,7 +33,7 @@ const ALGORITHM: similar::Algorithm = similar::Algorithm::Patience;
 
 /// Trait for various snapshot types, since we have both [`expect_test::Expect`]
 /// and [`expect_test::ExpectFile`] to handle.
-pub trait IExpect {
+pub(crate) trait IExpect {
     /// The data of the snapshot
     fn data(&self) -> Cow<'_, str>;
     /// If we feed new data, can we update the snapshot?
@@ -78,7 +78,7 @@ fn expect_test_update() -> bool {
 /// `expected`. Updates `expected` when the corresponding environment var
 /// (usually `UPDATE_EXPECT`) is set from the actual graph.
 #[track_caller]
-pub fn compare_graphs(actual: &Path, expected: impl IExpect) {
+pub(crate) fn compare_graphs(actual: &Path, expected: impl IExpect) {
     compare_graphs_with_replacements(actual, expected, |_| {});
 }
 
@@ -87,7 +87,7 @@ pub fn compare_graphs(actual: &Path, expected: impl IExpect) {
 /// `transform` will be called on all files and commandlines to further
 /// normalize the output of the graph.
 #[track_caller]
-pub fn compare_graphs_with_replacements(
+pub(crate) fn compare_graphs_with_replacements(
     actual: &Path,
     expected: impl IExpect,
     transform: impl Fn(&mut String),

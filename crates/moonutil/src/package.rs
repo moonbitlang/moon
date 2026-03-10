@@ -382,51 +382,6 @@ impl LinkDepItem {
         }
     }
 
-    pub fn native_cc(&self, b: TargetBackend) -> Option<&str> {
-        match b {
-            Native => self.link.as_ref()?.native.as_ref()?.cc.as_deref(),
-            _ => None,
-        }
-    }
-
-    pub fn native_cc_flags(&self, b: TargetBackend) -> Option<&str> {
-        match b {
-            Native => self.link.as_ref()?.native.as_ref()?.cc_flags.as_deref(),
-            _ => None,
-        }
-    }
-
-    pub fn native_cc_link_flags(&self, b: TargetBackend) -> Option<&str> {
-        match b {
-            Native => self.link.as_ref()?.native.as_ref()?.cc_link_flags.as_deref(),
-            _ => None,
-        }
-    }
-
-    pub fn native_stub_cc(&self, b: TargetBackend) -> Option<&str> {
-        match b {
-            Native => self.link.as_ref()?.native.as_ref()?.stub_cc.as_deref(),
-            _ => None,
-        }
-    }
-
-    pub fn native_stub_cc_flags(&self, b: TargetBackend) -> Option<&str> {
-        match b {
-            Native => self.link.as_ref()?.native.as_ref()?.stub_cc_flags.as_deref(),
-            _ => None,
-        }
-    }
-
-    pub fn native_stub_cc_link_flags(&self, b: TargetBackend) -> Option<&str> {
-        match b {
-            Native => self.link.as_ref()?.native.as_ref()?.stub_cc_link_flags.as_deref(),
-            _ => None,
-        }
-    }   
-
-    pub fn native_stub_deps(&self) -> Option<&[String]> {
-        self.link.as_ref()?.native.as_ref()?.stub_lib_deps.as_deref()
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -827,10 +782,6 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
         }
     };
     imports
-}
-
-pub fn convert_pkg_json_to_package(j: MoonPkgJSON) -> anyhow::Result<MoonPkg> {
-    Ok(convert_pkg_json_to_package_with_supported_targets_decl(j)?.0)
 }
 
 pub fn convert_pkg_json_to_package_with_supported_targets_decl(

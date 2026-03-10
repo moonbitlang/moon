@@ -21,22 +21,22 @@ use std::path::{Path, PathBuf};
 use expect_test::Expect;
 use moonutil::{common::StringExt, compiler_flags::CC};
 
-pub fn check<S: AsRef<str>>(actual: S, expect: Expect) {
+pub(crate) fn check<S: AsRef<str>>(actual: S, expect: Expect) {
     expect.assert_eq(actual.as_ref())
 }
 
-pub fn moon_bin() -> PathBuf {
+pub(crate) fn moon_bin() -> PathBuf {
     snapbox::cargo_bin!("moon").to_owned()
 }
 
-pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
+pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace("\\\\", "\\");
     let s = moonutil::BINARIES
         .all_moon_bins()
         .iter()
         .fold(s.to_string(), |s, (name, path)| {
             let path = match *name {
-                #[allow(deprecated)] // No replacements for now
+                #[allow(deprecated)]
                 "moon" | "moonrun" => snapbox::cmd::cargo_bin(name),
                 _ => path.clone(),
             };
@@ -70,19 +70,19 @@ pub fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 
-pub fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
+pub(crate) fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
     moon_test_util::test_dir::copy_tree(src, dest, true)
 }
 
 #[track_caller]
-pub fn read<P: AsRef<Path>>(p: P) -> String {
+pub(crate) fn read<P: AsRef<Path>>(p: P) -> String {
     std::fs::read_to_string(p).unwrap().replace_crlf_to_lf()
 }
 
 /// Asserts the `shlex`'d result of the given string is equal to the expected
 /// string. However, still updates if `UPDATE_EXPECT` is set, just like the
 /// original [`Expect`] functionality.
-pub fn assert_command_matches(s: impl AsRef<str>, expect: Expect) {
+pub(crate) fn assert_command_matches(s: impl AsRef<str>, expect: Expect) {
     let actual_lines = s.as_ref().trim().lines().collect::<Vec<_>>();
     let expected_lines = expect.data().trim().lines().collect::<Vec<_>>();
 
@@ -107,7 +107,7 @@ pub fn assert_command_matches(s: impl AsRef<str>, expect: Expect) {
 }
 
 #[track_caller]
-pub fn run_moon_cmdtest(case_dir: &str) {
+pub(crate) fn run_moon_cmdtest(case_dir: &str) {
     let test_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/test_cases")
         .join(case_dir)

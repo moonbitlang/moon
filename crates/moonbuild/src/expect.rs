@@ -147,7 +147,7 @@ impl std::str::FromStr for ExpectFailedRaw {
     }
 }
 
-pub fn expect_failed_to_snapshot_result(
+fn expect_failed_to_snapshot_result(
     pkg_src: &impl PackageSrcResolver,
     efr: ExpectFailedRaw,
 ) -> SnapshotResult {
