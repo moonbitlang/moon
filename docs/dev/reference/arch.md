@@ -162,7 +162,12 @@ There are two types of dependencies in a module.
 
 - A regular dependency is a dependency that can be accessed from code.
 - A **binary dependency** (bin-dep) is a dependency that is used for its executable.
-  The implementation of binary dependencies is complex. Please check (TBD) for details.
+  Bin-deps are declared in `moon.mod.json` under `bin-deps`.
+  They are resolved only for the input/root module itself: bin-deps of regular
+  dependencies are not propagated transitively.
+  After dependency sync, direct bin-deps of the input module are built and
+  installed by invoking `moon tool build-binary-dep` inside the dependency
+  module.
 
 There are two kinds of sources that dependencies come from:
 
