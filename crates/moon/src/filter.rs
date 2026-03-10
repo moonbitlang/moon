@@ -27,7 +27,7 @@ use std::{
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
-use moonutil::common::TargetBackend;
+use moonutil::common::{MOON_PKG, TargetBackend};
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
@@ -404,8 +404,9 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Cannot find package to format at path `{}`.\n\
-                 Hint: Make sure the path points to a package directory containing moon.pkg.json.",
-                dir.display()
+                 Hint: Make sure the path points to a package directory containing `{}`.",
+                dir.display(),
+                MOON_PKG
             )
         })
 }

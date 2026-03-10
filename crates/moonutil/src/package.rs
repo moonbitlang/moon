@@ -858,7 +858,7 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         is_main = true;
         eprintln!(
                 "{}",
-                "Warning: The `name` field in `moon.pkg.json` is now deprecated. For the main package, please use `\"is-main\": true` instead. Refer to the latest documentation at https://www.moonbitlang.com/docs/build-system-tutorial for more information.".yellow()
+                "Warning: The `name` field in `moon.pkg` is now deprecated. For the main package, please use `\"is-main\": true` instead. Refer to the latest documentation at https://www.moonbitlang.com/docs/build-system-tutorial for more information.".yellow()
                     .bold()
             );
     }
