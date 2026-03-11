@@ -736,7 +736,6 @@ mod test {
         );
         registry.add_module(dep);
 
-        let registry = RegistryList::with_registry(Box::new(registry));
         let mut env = ResolverEnv::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/regular", "0.1.0")]);
