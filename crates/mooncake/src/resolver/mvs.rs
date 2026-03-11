@@ -41,7 +41,7 @@ use super::{Resolver, ResolverError, env::ResolverEnv};
 /// A dependency solver that follows the MVS (minimal version selection) algorithm,
 /// which is the same as that Go uses.
 /// See https://research.swtch.com/vgo-mvs for more information.
-pub struct MvsSolver;
+pub(crate) struct MvsSolver;
 
 impl Resolver for MvsSolver {
     fn resolve(
@@ -95,18 +95,16 @@ fn select_min_version_satisfying_in_env(
     dependant: &ModuleName,
     req: &SourceDependencyInfo,
 ) -> Result<(Version, Arc<MoonMod>), ResolverError> {
-    let all_versions = env
-        .all_versions_of(dependency, None) // todo: registry
-        .ok_or_else(|| {
-            eprintln!(
-                "{}: you may need to run `moon update` to update the registry",
-                "Hint".yellow()
-            );
-            ResolverError::ModuleMissing {
-                dependency: dependency.clone(),
-                dependant: dependant.clone(),
-            }
-        })?;
+    let all_versions = env.all_versions_of(dependency).ok_or_else(|| {
+        eprintln!(
+            "{}: you may need to run `moon update` to update the registry",
+            "Hint".yellow()
+        );
+        ResolverError::ModuleMissing {
+            dependency: dependency.clone(),
+            dependant: dependant.clone(),
+        }
+    })?;
 
     let min_version_satisfying =
         select_min_version_satisfying(dependency, dependant, req, all_versions.keys());
@@ -122,7 +120,7 @@ fn select_min_version_satisfying_in_env(
 /// Checks whether resolving local dependency is allowed for the dependant package
 fn local_dep_allowed(dependant: &ModuleSource) -> bool {
     match dependant.source() {
-        ModuleSourceKind::Registry(_) => false,
+        ModuleSourceKind::Registry => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
         ModuleSourceKind::Stdlib(_) => true,
@@ -133,7 +131,7 @@ fn local_dep_allowed(dependant: &ModuleSource) -> bool {
 /// Checks whether resolving git dependency is allowed for the dependant package
 fn git_dep_allowed(dependant: &ModuleSource) -> bool {
     match dependant.source() {
-        ModuleSourceKind::Registry(_) => false,
+        ModuleSourceKind::Registry => false,
         ModuleSourceKind::Local(_) => true,
         ModuleSourceKind::Git(_) => true,
         ModuleSourceKind::Stdlib(_) => true,
@@ -145,7 +143,7 @@ fn git_dep_allowed(dependant: &ModuleSource) -> bool {
 /// Panics if [`local_dep_allowed(dependant)`] is false.
 fn root_path_of(dependant: &ModuleSource) -> PathBuf {
     match dependant.source() {
-        ModuleSourceKind::Registry(_) => {
+        ModuleSourceKind::Registry => {
             panic!("Registry dependencies don't have a local root path!")
         }
         ModuleSourceKind::Local(path) => path.clone(),
@@ -479,7 +477,7 @@ fn resolve_pkg(
         req,
         version
     );
-    let ms = ModuleSource::new_full(pkg_name.clone(), version, ModuleSourceKind::Registry(None));
+    let ms = ModuleSource::new_full(pkg_name.clone(), version, ModuleSourceKind::Registry);
     Ok((ms, module))
 }
 
@@ -493,12 +491,12 @@ mod test {
     use test_log::test;
 
     use super::*;
-    use crate::registry::RegistryList;
+    use crate::registry::Registry;
     use crate::registry::mock::{MockRegistry, create_mock_module};
     use crate::resolver::ResolverErrors;
     use crate::resolver::env::ResolverEnv;
 
-    fn create_mock_registry() -> RegistryList {
+    fn create_mock_registry() -> Box<dyn Registry> {
         let mut registry = MockRegistry::new();
         registry
             .add_module_full("dep/one", "0.1.1", [])
@@ -517,8 +515,7 @@ mod test {
                 "0.2.0",
                 [("dep/one", "0.2.0"), ("dep/two", "0.2.0")],
             );
-        let reg = Box::new(registry);
-        RegistryList::with_registry(reg)
+        Box::new(registry)
     }
 
     #[test]
@@ -529,13 +526,9 @@ mod test {
         let module_name: ModuleName = "dep/three".parse().unwrap();
         let version: Version = "0.1.0".parse().unwrap();
         let root_ms = ModuleSource::from_version(module_name.clone(), version.clone());
-        let root = registry
-            .get_registry(None)
-            .unwrap()
-            .get_module_version(&module_name, &version)
-            .unwrap();
+        let root = registry.get_module_version(&module_name, &version).unwrap();
         let roots = vec![(root_ms.clone(), root)];
-        let mut env = ResolverEnv::new(&registry);
+        let mut env = ResolverEnv::new(registry.as_ref());
         let mut result_env = ResolvedEnv::new();
         let status = resolver.resolve(&mut env, &mut result_env, &roots);
         assert!(status, "Resolve failed");
@@ -704,8 +697,7 @@ mod test {
     fn create_mock_root(root: impl Into<Arc<MoonMod>>) -> Vec<(ModuleSource, Arc<MoonMod>)> {
         let root = root.into();
         let root_src = create_mock_local_source(&root);
-        let roots = vec![(root_src, root)];
-        roots
+        vec![(root_src, root)]
     }
 
     #[test]
@@ -744,7 +736,6 @@ mod test {
         );
         registry.add_module(dep);
 
-        let registry = RegistryList::with_registry(Box::new(registry));
         let mut env = ResolverEnv::new(&registry);
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/regular", "0.1.0")]);
@@ -844,7 +835,7 @@ mod test {
         assert_no_depends_on(&result, "root/module@0.1.0", "dep/two@0.2.0");
     }
 
-    fn resolve(registry: &RegistryList, root: Arc<MoonMod>) -> Vec<ModuleSource> {
+    fn resolve(registry: &dyn Registry, root: Arc<MoonMod>) -> Vec<ModuleSource> {
         let mut resolver = MvsSolver;
         let mut env = ResolverEnv::new(registry);
         let roots = create_mock_root(root);
@@ -858,7 +849,7 @@ mod test {
         }
     }
 
-    fn check_resolve_result(reg: &RegistryList, root: Arc<MoonMod>, expected: expect_test::Expect) {
+    fn check_resolve_result(reg: &dyn Registry, root: Arc<MoonMod>, expected: expect_test::Expect) {
         expected.assert_debug_eq(&resolve(reg, root));
     }
 
@@ -902,7 +893,7 @@ mod test {
 
         let root1 = registry.get_module("t/A", "0.1.0");
         let root2 = registry.get_module("t/A", "0.1.2");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root1,
@@ -951,7 +942,7 @@ mod test {
             vec![("B", 2)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -983,7 +974,7 @@ mod test {
             vec![("D", 2), ("E", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1018,7 +1009,7 @@ mod test {
             vec![("D", 2), ("E", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1055,7 +1046,7 @@ mod test {
             vec![("D", 2), ("E", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1089,7 +1080,7 @@ mod test {
             vec![("D", 2), ("E", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1122,7 +1113,7 @@ mod test {
             vec![("D", 2), ("E", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1154,7 +1145,7 @@ mod test {
             vec![("D", 2), ("E", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1187,7 +1178,7 @@ mod test {
             vec![("D", 2), ("E", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1218,7 +1209,7 @@ mod test {
             vec![("D", 2), ("E", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1256,7 +1247,7 @@ mod test {
 
         let root = registry.get_module("t/A", "0.1.1");
         let root2 = registry.get_module("t/A", "0.1.2");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1301,7 +1292,7 @@ mod test {
         ]);
 
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1329,7 +1320,7 @@ mod test {
             vec![("D", 2), ("E", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1361,7 +1352,7 @@ mod test {
             vec![("E", 1), ("D", 2)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1395,7 +1386,7 @@ mod test {
             vec![("X", 2)],
         ]);
         let root = registry.get_module("t/M", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1428,7 +1419,7 @@ mod test {
             vec![("D", 2)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1459,7 +1450,7 @@ mod test {
             vec![("C", 2)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1520,7 +1511,7 @@ mod test {
             vec![("B", 2), ("C", 2)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1563,7 +1554,7 @@ mod test {
             vec![("F", 1)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1602,7 +1593,7 @@ mod test {
             vec![("D", 2)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1637,7 +1628,7 @@ mod test {
             vec![("D", 2)],
         ]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1662,7 +1653,7 @@ mod test {
         let mut registry = MockRegistry::new();
         registry.parse(vec![vec![("A", 0), ("B", 2)], vec![("B", 2), ("A", 0)]]);
         let root = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,
@@ -1767,7 +1758,7 @@ mod test {
         let root_initial = registry.get_module("t/A", "0.1.0");
         let root_upgrade_b2 = registry.get_module("t/A", "0.1.0");
         let root_upgrade_star = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root_initial,
@@ -1818,7 +1809,7 @@ mod test {
         ]);
         let root_initial = registry.get_module("t/A", "0.1.0");
         let root_upgrade_star = registry.get_module("t/A", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root_initial,
@@ -1870,7 +1861,7 @@ mod test {
             vec![("C", 2), ("B", 2)],
         ]);
         let root = registry.get_module("t/M", "0.1.0");
-        let rl = RegistryList::with_registry(Box::new(registry));
+        let rl = Box::new(registry);
         check_resolve_result(
             &rl,
             root,

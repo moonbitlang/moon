@@ -32,7 +32,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::registry::RegistryList;
+use crate::registry::Registry;
 
 fn dep_dir_of(source_dir: &Path) -> PathBuf {
     source_dir.join(DEP_PATH)
@@ -51,23 +51,23 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 /// dependencies directory for ease of scanning. Instead, we replace all slashes
 /// in the `pkgname` part with plus `+` sign. For example, a package
 /// `foo/bar/baz` will be stored in the directory `foo/bar+baz`.
-pub struct DepDir {
+pub(crate) struct DepDir {
     path: PathBuf,
 }
 
 impl DepDir {
-    pub fn of_source(source_dir: &Path) -> Self {
+    pub(crate) fn of_source(source_dir: &Path) -> Self {
         DepDir {
             path: dep_dir_of(source_dir),
         }
     }
 
-    pub fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 
     /// Returns a list of currently installed packages.
-    pub fn get_current_state(&self) -> std::io::Result<DepDirState> {
+    pub(crate) fn get_current_state(&self) -> std::io::Result<DepDirState> {
         let it = self.path().read_dir()?;
         let mut user_list = HashMap::new();
         for entry in it {
@@ -105,7 +105,7 @@ fn pkg_list_to_dep_dir_state<'a>(
     let mut user_list = HashMap::new();
     for pkg in pkg_list {
         match pkg.source() {
-            ModuleSourceKind::Registry(_) => {}
+            ModuleSourceKind::Registry => {}
             ModuleSourceKind::Local(_) => continue,
             ModuleSourceKind::Git(_) => continue, // TODO: git registries are resolved differently
             ModuleSourceKind::Stdlib(_) => continue,
@@ -201,9 +201,9 @@ fn diff_dep_dir_state<'a>(
 /// If `frozen` is true, the function will not change anything in the current
 /// dependency directory. If the desired dependency list cannot be created
 /// from the current directory, this function will return an error.
-pub fn sync_deps(
+pub(crate) fn sync_deps(
     dep_dir: &DepDir,
-    registries: &RegistryList,
+    registry: &dyn Registry,
     pkg_list: &ResolvedEnv,
     quiet: bool,
     frozen: bool,
@@ -265,13 +265,10 @@ pub fn sync_deps(
                 &version,
                 pkg_path.display()
             );
-            let ModuleSourceKind::Registry(registry) = version.source() else {
+            let ModuleSourceKind::Registry = version.source() else {
                 unreachable!()
             };
-            registries
-                .get_registry(registry.as_deref())
-                .expect("Registry not found")
-                .install_to(version.name(), version.version(), &pkg_path, quiet)?;
+            registry.install_to(version.name(), version.version(), &pkg_path, quiet)?;
             // TODO: parallelize this
         }
     }
@@ -293,7 +290,7 @@ fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
 /// The result of a directory sync.
 fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
     match module.source() {
-        ModuleSourceKind::Registry(_) => {
+        ModuleSourceKind::Registry => {
             pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual)
         }
         ModuleSourceKind::Local(path) => path.clone(),
@@ -309,7 +306,7 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
 ///
 /// Assumes [`sync_deps`] is already called. Otherwise, modules might point to
 /// directories that don't exist yet because they are not synced yet.
-pub fn resolve_dep_dirs(dep_dir: &DepDir, pkg_list: &ResolvedEnv) -> DirSyncResult {
+pub(crate) fn resolve_dep_dirs(dep_dir: &DepDir, pkg_list: &ResolvedEnv) -> DirSyncResult {
     let mut res = DirSyncResult::default();
     for (id, module) in pkg_list.all_modules_and_id() {
         res.insert(id, map_source_to_dir(dep_dir, module));
@@ -361,7 +358,7 @@ mod test {
                                 unqual: module.clone(),
                             },
                             version,
-                            ModuleSourceKind::Registry(None),
+                            ModuleSourceKind::Registry,
                         );
                         let leaked = Box::leak(Box::new(res));
                         (module, &*leaked)
@@ -388,7 +385,7 @@ mod test {
                                 unqual: pkg.into(),
                             },
                             version,
-                            ModuleSourceKind::Registry(None),
+                            ModuleSourceKind::Registry,
                         );
                         let leaked = Box::leak(Box::new(res));
                         (pkg.into(), &*leaked)

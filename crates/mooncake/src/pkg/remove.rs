@@ -25,7 +25,10 @@ use moonutil::{
     mooncakes::{ModuleSource, RegistryConfig},
 };
 
-use crate::resolver::{ResolveConfig, resolve_single_root_with_defaults};
+use crate::{
+    registry,
+    resolver::{ResolveConfig, resolve_single_root_with_defaults},
+};
 
 /// Remove a dependency
 #[derive(Debug, clap::Parser)]
@@ -54,9 +57,8 @@ pub fn remove(
     let m = Arc::new(m);
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
 
-    let registry = crate::registry::RegistryList::with_default_registry();
     let resolve_cfg = ResolveConfig {
-        registries: registry,
+        registry: registry::default_registry(),
         inject_std: false, // no need to inject
     };
     let res = resolve_single_root_with_defaults(&resolve_cfg, ms, Arc::clone(&m))?;

@@ -54,7 +54,7 @@
     The rough steps (with Rupes Recta) of building a MoonBit program are:
 
     1. Read the `mooncakes.io` registry and resolve the *module* dependency
-       graph ([`mooncake::resolver`]).
+       graph (via `mooncake`'s internal resolver).
     2. Download the required dependency to local cache folders
        ([`mooncake::pkg::install`]).
     3. Discover packages within modules ([`crate::discover`]). This is different

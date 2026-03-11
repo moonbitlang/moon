@@ -29,18 +29,18 @@ use moonutil::mooncakes::{ModuleName, ModuleSource, result};
 use semver::{Version, VersionReq};
 use thiserror::Error;
 
-use crate::registry::RegistryList;
+use crate::registry::Registry;
 
-pub mod env;
-pub mod mvs;
+pub(crate) mod env;
+pub(crate) mod mvs;
 
-pub use mvs::MvsSolver;
+pub(crate) use mvs::MvsSolver;
 
 use self::env::ResolverEnv;
 
 /// Any error that may occur during dependency resolution.
 #[derive(Debug, Error)]
-pub enum ResolverError {
+pub(crate) enum ResolverError {
     #[error("Malformed module name found in dependency {0}: {1}")]
     MalformedModuleName(ModuleName, String),
     #[error(
@@ -79,17 +79,17 @@ pub enum ResolverError {
 }
 
 #[derive(Debug)]
-pub struct VersionConflict {
+pub(crate) struct VersionConflict {
     pub selected: ModuleSource,
     pub chain: Option<Vec<ModuleSource>>,
 }
 
 #[derive(Debug, Error)]
 #[error("{}", format_resolver_errors(.0))]
-pub struct ResolverErrors(pub Vec<ResolverError>);
+pub(crate) struct ResolverErrors(pub(crate) Vec<ResolverError>);
 
 /// The dependency resolver.
-pub trait Resolver {
+pub(crate) trait Resolver {
     /// Resolves the dependencies of a package using the given environment. The
     /// function should write its results on `res`, which may be initialized
     /// with other existing data earlier.
@@ -240,17 +240,17 @@ fn format_resolver_errors(errors: &[ResolverError]) -> String {
         .join("\n")
 }
 
-pub struct ResolveConfig {
-    pub registries: RegistryList,
-    pub inject_std: bool,
+pub(crate) struct ResolveConfig {
+    pub(crate) registry: Box<dyn Registry>,
+    pub(crate) inject_std: bool,
 }
 
-pub fn resolve_with_default_env(
+pub(crate) fn resolve_with_default_env(
     config: &ResolveConfig,
     resolver: &mut dyn Resolver,
     root: &[(ModuleSource, Arc<MoonMod>)],
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
-    let mut env = env::ResolverEnv::new(&config.registries);
+    let mut env = env::ResolverEnv::new(config.registry.as_ref());
     let mut res = ResolvedEnv::new();
 
     if config.inject_std {
@@ -284,7 +284,7 @@ fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn resolve_with_default_env_and_resolver(
+pub(crate) fn resolve_with_default_env_and_resolver(
     config: &ResolveConfig,
     root: &[(ModuleSource, Arc<MoonMod>)],
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
@@ -292,7 +292,7 @@ pub fn resolve_with_default_env_and_resolver(
     resolve_with_default_env(config, &mut resolver, root)
 }
 
-pub fn resolve_single_root_with_defaults(
+pub(crate) fn resolve_single_root_with_defaults(
     config: &ResolveConfig,
     root_source: ModuleSource,
     root_module: Arc<MoonMod>,

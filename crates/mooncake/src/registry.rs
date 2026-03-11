@@ -17,14 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[cfg(test)]
-pub mod mock;
-pub mod online;
+pub(crate) mod mock;
+pub(crate) mod online;
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use moonutil::common::{MOD_NAME_STDLIB, MOONBITLANG_CORE};
 use moonutil::module::MoonMod;
@@ -197,9 +193,46 @@ where
     }
 }
 
-pub struct RegistryList {
-    default_registry: String,
-    registries: HashMap<String, Box<dyn Registry>>,
+impl<R> Registry for Box<R>
+where
+    R: Registry + ?Sized,
+{
+    fn all_versions_of(
+        &self,
+        name: &ModuleName,
+    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
+        (**self).all_versions_of(name)
+    }
+
+    fn install_to(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        to: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()> {
+        (**self).install_to(name, version, to, quiet)
+    }
+
+    fn get_module_version(&self, name: &ModuleName, version: &Version) -> Option<Arc<MoonMod>> {
+        (**self).get_module_version(name, version)
+    }
+
+    fn get_latest_version(&self, name: &ModuleName) -> Option<Arc<MoonMod>> {
+        (**self).get_latest_version(name)
+    }
+
+    fn resolve_path(
+        &self,
+        path: &str,
+        allow_explicit_version: bool,
+    ) -> Option<(ModuleName, String, String)> {
+        (**self).resolve_path(path, allow_explicit_version)
+    }
+}
+
+pub(crate) fn default_registry() -> Box<dyn Registry> {
+    Box::new(OnlineRegistry::mooncakes_io())
 }
 
 #[allow(clippy::items_after_test_module)]
@@ -293,28 +326,5 @@ mod tests {
                 .resolve_path("moonbitlang/x/fs@0.4.39/path", false)
                 .is_none()
         );
-    }
-}
-
-impl RegistryList {
-    pub fn with_default_registry() -> Self {
-        Self::with_registry(Box::new(OnlineRegistry::mooncakes_io()))
-    }
-
-    pub fn with_registry(registry: Box<dyn Registry>) -> Self {
-        let mut registries = HashMap::with_capacity(1);
-        let default_registry_name = "default";
-        registries.insert(default_registry_name.to_owned(), registry);
-
-        Self {
-            registries,
-            default_registry: default_registry_name.into(),
-        }
-    }
-
-    pub fn get_registry(&self, name: Option<&str>) -> Option<&dyn Registry> {
-        self.registries
-            .get(name.unwrap_or(&self.default_registry))
-            .map(|refbox| &**refbox)
     }
 }

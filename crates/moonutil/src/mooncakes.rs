@@ -40,7 +40,7 @@ pub type DirSyncResult = SecondaryMap<ModuleId, PathBuf>;
 /// The name of a module.
 ///
 /// This type is cheaply clonable.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleName {
     /// The username part of the module name
     pub username: ArcStr,
@@ -112,11 +112,11 @@ impl PartialEq<(&str, &str)> for ModuleName {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ModuleSourceKind {
-    /// Module comes from some registry. If param is `None`, it comes from the default
-    /// registry. Otherwise it comes from a specific registry (unused for now).
-    Registry(Option<String>), // Registry ID?
+    /// Module comes from the registry.
+    #[default]
+    Registry,
     /// Module comes from a git repository.
     // TODO: add branch/commit
     Git(String),
@@ -138,23 +138,16 @@ pub enum ModuleSourceKind {
     SingleFile(PathBuf),
 }
 
-impl Default for ModuleSourceKind {
-    fn default() -> Self {
-        ModuleSourceKind::Registry(None)
-    }
-}
-
 impl ModuleSourceKind {
     pub fn is_default(&self) -> bool {
-        matches!(self, ModuleSourceKind::Registry(None))
+        matches!(self, ModuleSourceKind::Registry)
     }
 }
 
 impl std::fmt::Display for ModuleSourceKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModuleSourceKind::Registry(None) => write!(f, "default registry"),
-            ModuleSourceKind::Registry(Some(name)) => write!(f, "registry {name}"),
+            ModuleSourceKind::Registry => write!(f, "registry"),
             ModuleSourceKind::Local(path) => write!(f, "local {}", path.display()),
             ModuleSourceKind::Git(url) => write!(f, "git {url}"),
             ModuleSourceKind::Stdlib(_) => write!(f, "stdlib"),
@@ -166,15 +159,13 @@ impl std::fmt::Display for ModuleSourceKind {
 /// Represents the information that fully-qualifies a module.
 ///
 /// This type is cheaply clonable.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleSource {
-    // Note: Serialization & deserialization of `Arc` does not retain identity.
-    // This is generally not an issue, but I'm writing it here to prevent confusion.
     /// The inner representation of the module source.
     inner: Arc<ModuleSourceInner>,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct ModuleSourceInner {
     name: ModuleName,
     version: Version,
@@ -278,7 +269,7 @@ pub static CORE_MODULE: LazyLock<ModuleSource> = LazyLock::new(|| {
             unqual: "core".into(),
         },
         Version::new(0, 0, 0),
-        ModuleSourceKind::Registry(None),
+        ModuleSourceKind::Registry,
     )
 });
 
@@ -549,7 +540,7 @@ pub struct Credentials {
     pub username: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct RegistryConfig {
     pub registry: String,
     pub index: String,
