@@ -113,6 +113,7 @@ fn test_zombie_child_process() {
     let lock_file = dir.join("test_lock_file.txt");
 
     // Spawn moon test in background
+    let process_start = Instant::now();
     let mut moon_child = std::process::Command::new(moon_bin())
         .current_dir(&dir)
         .args(["test", "--target", "js", "--no-parallelize"])
@@ -137,6 +138,8 @@ fn test_zombie_child_process() {
 
     // Terminate the moon process (simulating the scenario in example/script.js)
     terminate_child(&mut moon_child);
+    moon_child.wait().expect("Failed to wait moon process");
+    moon_test_util::perf::record_moon_process(process_start.elapsed());
 
     // When moon is killed, all child processes (moonrun/node) should also be terminated.
     // This is verified by checking that the lock file eventually stops
@@ -147,9 +150,6 @@ fn test_zombie_child_process() {
     // processes survive after termination.
     let quiescent = wait_for_lock_quiescent(&lock_file, initial_counter);
     if !quiescent {
-        // Clean up moon child process (if still alive)
-        moon_child.kill().expect("Failed to terminate moon process");
-        moon_child.wait().expect("Failed to wait moon process");
         panic!(
             "Child processes (moonrun/node) are not terminated when moon is killed. \
         The lock file continues to be updated until timeout, indicating that spawned test processes remain running as zombies. \
@@ -251,11 +251,13 @@ fn test_moon_test_with_local_dep() {
         "#]],
     );
     // Run moon info
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["info", "--frozen"])
-        .assert()
-        .success();
+    measure_process(|| {
+        snapbox::cmd::Command::new(moon_bin())
+            .current_dir(&dir)
+            .args(["info", "--frozen"])
+            .assert()
+            .success();
+    });
     // Check directory structure by listing all files
     let root_dir = dir.as_ref().to_owned();
     let dir = WalkDir::new(&dir)
@@ -424,14 +426,16 @@ fn test_pkg_source_in() {
 fn test_moon_test_no_entry_warning() {
     let dir = TestDir::new("moon_test/no_entry_warning");
 
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["test"])
-        .assert()
-        .success()
-        .get_output()
-        .stderr
-        .to_owned();
+    let out = measure_process(|| {
+        snapbox::cmd::Command::new(moon_bin())
+            .current_dir(&dir)
+            .args(["test"])
+            .assert()
+            .success()
+            .get_output()
+            .stderr
+            .to_owned()
+    });
 
     check(
         std::str::from_utf8(&out).unwrap(),

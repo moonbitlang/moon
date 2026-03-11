@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use util::*;
 
 fn measure_process<T>(f: impl FnOnce() -> T) -> T {
-    moon_test_util::perf::measure_process(f)
+    moon_test_util::perf::measure_moon_process(f)
 }
 
 pub(crate) use support::{build_graph, dry_run_utils, util};

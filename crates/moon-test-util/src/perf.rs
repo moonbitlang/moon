@@ -31,6 +31,10 @@ struct PerfCounters {
     copy_tree_ns: AtomicU64,
     process_ops: AtomicU64,
     process_ns: AtomicU64,
+    moon_process_ops: AtomicU64,
+    moon_process_ns: AtomicU64,
+    other_process_ops: AtomicU64,
+    other_process_ns: AtomicU64,
     normalize_output_ops: AtomicU64,
     normalize_output_ns: AtomicU64,
 }
@@ -43,6 +47,10 @@ impl PerfCounters {
             copy_tree_ns: AtomicU64::new(0),
             process_ops: AtomicU64::new(0),
             process_ns: AtomicU64::new(0),
+            moon_process_ops: AtomicU64::new(0),
+            moon_process_ns: AtomicU64::new(0),
+            other_process_ops: AtomicU64::new(0),
+            other_process_ns: AtomicU64::new(0),
             normalize_output_ops: AtomicU64::new(0),
             normalize_output_ns: AtomicU64::new(0),
         }
@@ -56,6 +64,10 @@ struct Snapshot {
     copy_tree_ns: u64,
     process_ops: u64,
     process_ns: u64,
+    moon_process_ops: u64,
+    moon_process_ns: u64,
+    other_process_ops: u64,
+    other_process_ns: u64,
     normalize_output_ops: u64,
     normalize_output_ns: u64,
 }
@@ -125,6 +137,10 @@ fn snapshot() -> Snapshot {
         copy_tree_ns: counters.copy_tree_ns.load(Ordering::Relaxed),
         process_ops: counters.process_ops.load(Ordering::Relaxed),
         process_ns: counters.process_ns.load(Ordering::Relaxed),
+        moon_process_ops: counters.moon_process_ops.load(Ordering::Relaxed),
+        moon_process_ns: counters.moon_process_ns.load(Ordering::Relaxed),
+        other_process_ops: counters.other_process_ops.load(Ordering::Relaxed),
+        other_process_ns: counters.other_process_ns.load(Ordering::Relaxed),
         normalize_output_ops: counters.normalize_output_ops.load(Ordering::Relaxed),
         normalize_output_ns: counters.normalize_output_ns.load(Ordering::Relaxed),
     }
@@ -158,6 +174,12 @@ fn write_summary() {
             "process_ops: {}\n",
             "process_total_ms: {:.3}\n",
             "process_avg_ms: {:.3}\n",
+            "moon_process_ops: {}\n",
+            "moon_process_total_ms: {:.3}\n",
+            "moon_process_avg_ms: {:.3}\n",
+            "other_process_ops: {}\n",
+            "other_process_total_ms: {:.3}\n",
+            "other_process_avg_ms: {:.3}\n",
             "normalize_output_ops: {}\n",
             "normalize_output_total_ms: {:.3}\n",
             "normalize_output_avg_ms: {:.3}\n"
@@ -173,6 +195,12 @@ fn write_summary() {
         snapshot.process_ops,
         total_ms(snapshot.process_ns),
         avg_ms(snapshot.process_ns, snapshot.process_ops),
+        snapshot.moon_process_ops,
+        total_ms(snapshot.moon_process_ns),
+        avg_ms(snapshot.moon_process_ns, snapshot.moon_process_ops),
+        snapshot.other_process_ops,
+        total_ms(snapshot.other_process_ns),
+        avg_ms(snapshot.other_process_ns, snapshot.other_process_ops),
         snapshot.normalize_output_ops,
         total_ms(snapshot.normalize_output_ns),
         avg_ms(snapshot.normalize_output_ns, snapshot.normalize_output_ops),
@@ -194,7 +222,7 @@ pub fn record_copy_tree(duration: Duration, files: u64) {
     write_summary();
 }
 
-pub fn record_process(duration: Duration) {
+fn record_process(duration: Duration, is_moon: bool) {
     if !enabled() {
         return;
     }
@@ -204,7 +232,26 @@ pub fn record_process(duration: Duration) {
     counters
         .process_ns
         .fetch_add(duration_ns(duration), Ordering::Relaxed);
+    if is_moon {
+        counters.moon_process_ops.fetch_add(1, Ordering::Relaxed);
+        counters
+            .moon_process_ns
+            .fetch_add(duration_ns(duration), Ordering::Relaxed);
+    } else {
+        counters.other_process_ops.fetch_add(1, Ordering::Relaxed);
+        counters
+            .other_process_ns
+            .fetch_add(duration_ns(duration), Ordering::Relaxed);
+    }
     write_summary();
+}
+
+pub fn record_moon_process(duration: Duration) {
+    record_process(duration, true);
+}
+
+pub fn record_other_process(duration: Duration) {
+    record_process(duration, false);
 }
 
 pub fn record_normalize_output(duration: Duration) {
@@ -222,13 +269,13 @@ pub fn record_normalize_output(duration: Duration) {
     write_summary();
 }
 
-pub fn measure_process<T>(f: impl FnOnce() -> T) -> T {
+pub fn measure_moon_process<T>(f: impl FnOnce() -> T) -> T {
     if !enabled() {
         return f();
     }
 
     let start = Instant::now();
     let result = f();
-    record_process(start.elapsed());
+    record_moon_process(start.elapsed());
     result
 }

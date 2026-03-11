@@ -202,64 +202,188 @@ jobs:
         env:
           MOON_TEST_PERF: 1
           MOON_TEST_PERF_FILE: ${{ runner.temp }}/moon-test-perf.txt
-        run: cargo test -p moon --tests
+          MOON_TEST_CHILD_PERF_FILE: ${{ runner.temp }}/moon-child-perf.txt
+        run: cargo test -p moon --test mod test_cases::moon_test::
 
       - name: Probe moon test harness perf (Windows)
         if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os == 'windows-latest' }}
         env:
           MOON_TEST_PERF: 1
           MOON_TEST_PERF_FILE: ${{ runner.temp }}\moon-test-perf.txt
-        run: cargo test -p moon --tests
+          MOON_TEST_CHILD_PERF_FILE: ${{ runner.temp }}\moon-child-perf.txt
+        run: cargo test -p moon --test mod test_cases::moon_test::
 
       - name: Report moon test harness perf (Unix)
         if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os != 'windows-latest' }}
         env:
           MATRIX_OS: ${{ matrix.os }}
           MOON_TEST_PERF_DIR: ${{ runner.temp }}
+          PERF_TARGET: cargo test -p moon --test mod test_cases::moon_test::
         run: |
           shopt -s nullglob
-          files=("$MOON_TEST_PERF_DIR"/moon-test-perf-*.txt)
-          if [ ${#files[@]} -eq 0 ]; then
+          parent_files=("$MOON_TEST_PERF_DIR"/moon-test-perf-*.txt)
+          child_files=("$MOON_TEST_PERF_DIR"/moon-child-perf-*.txt)
+          if [ ${#parent_files[@]} -eq 0 ]; then
             echo "No MOON_TEST_PERF reports found"
             exit 1
           fi
+          if [ ${#child_files[@]} -eq 0 ]; then
+            echo "No MOON_TEST_CHILD_PERF reports found"
+            exit 1
+          fi
+          parent_summary=$(awk '
+            /^copy_tree_ops:/ { copy_tree_ops += $2 }
+            /^copy_tree_files:/ { copy_tree_files += $2 }
+            /^copy_tree_total_ms:/ { copy_tree_total_ms += $2 }
+            /^process_ops:/ { process_ops += $2 }
+            /^process_total_ms:/ { process_total_ms += $2 }
+            /^moon_process_ops:/ { moon_process_ops += $2 }
+            /^moon_process_total_ms:/ { moon_process_total_ms += $2 }
+            /^other_process_ops:/ { other_process_ops += $2 }
+            /^other_process_total_ms:/ { other_process_total_ms += $2 }
+            /^normalize_output_ops:/ { normalize_output_ops += $2 }
+            /^normalize_output_total_ms:/ { normalize_output_total_ms += $2 }
+            END {
+              printf("copy_tree_ops: %d\n", copy_tree_ops)
+              printf("copy_tree_files: %d\n", copy_tree_files)
+              printf("copy_tree_total_ms: %.3f\n", copy_tree_total_ms)
+              printf("process_ops: %d\n", process_ops)
+              printf("process_total_ms: %.3f\n", process_total_ms)
+              printf("moon_process_ops: %d\n", moon_process_ops)
+              printf("moon_process_total_ms: %.3f\n", moon_process_total_ms)
+              printf("other_process_ops: %d\n", other_process_ops)
+              printf("other_process_total_ms: %.3f\n", other_process_total_ms)
+              printf("normalize_output_ops: %d\n", normalize_output_ops)
+              printf("normalize_output_total_ms: %.3f\n", normalize_output_total_ms)
+            }
+          ' "${parent_files[@]}")
+          child_summary=$(awk -v child_process_reports="${#child_files[@]}" '
+            /^main_total_ms:/ { main_total_ms += $2 }
+            /^setup_total_ms:/ { setup_total_ms += $2 }
+            /^command_total_ms:/ { command_total_ms += $2 }
+            /^post_command_total_ms:/ { post_command_total_ms += $2 }
+            END {
+              printf("child_process_reports: %d\n", child_process_reports)
+              printf("child_main_total_ms: %.3f\n", main_total_ms)
+              printf("child_setup_total_ms: %.3f\n", setup_total_ms)
+              printf("child_command_total_ms: %.3f\n", command_total_ms)
+              printf("child_post_command_total_ms: %.3f\n", post_command_total_ms)
+            }
+          ' "${child_files[@]}")
+          moon_process_total_ms=$(awk '/^moon_process_total_ms:/ { sum += $2 } END { printf "%.3f", sum }' "${parent_files[@]}")
+          child_main_total_ms=$(awk '/^main_total_ms:/ { sum += $2 } END { printf "%.3f", sum }' "${child_files[@]}")
+          inferred_spawn_to_main_total_ms=$(awk -v moon_process_total_ms="$moon_process_total_ms" -v child_main_total_ms="$child_main_total_ms" 'BEGIN { printf "%.3f", moon_process_total_ms - child_main_total_ms }')
           {
             echo "### moon test harness perf ($MATRIX_OS)"
             echo
+            echo "probe_command: $PERF_TARGET"
+            echo
+            echo "parent_harness:"
+            echo '```text'
+            printf "%s\n" "$parent_summary"
+            echo '```'
+            echo
+            echo "child_moon:"
+            echo '```text'
+            printf "%s\n" "$child_summary"
+            printf "inferred_spawn_to_main_total_ms: %s\n" "$inferred_spawn_to_main_total_ms"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          for file in "${files[@]}"; do
-            echo "== $file =="
-            cat "$file"
-            {
-              echo "== $file =="
-              cat "$file"
-              echo
-            } >> "$GITHUB_STEP_SUMMARY"
-          done
 
       - name: Report moon test harness perf (Windows)
         if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os == 'windows-latest' }}
         env:
           MATRIX_OS: ${{ matrix.os }}
           MOON_TEST_PERF_DIR: ${{ runner.temp }}
+          PERF_TARGET: cargo test -p moon --test mod test_cases::moon_test::
         run: |
-          $files = Get-ChildItem -Path $env:MOON_TEST_PERF_DIR -Filter 'moon-test-perf-*.txt' | Sort-Object Name
-          if ($files.Count -eq 0) {
+          $parentFiles = Get-ChildItem -Path $env:MOON_TEST_PERF_DIR -Filter 'moon-test-perf-*.txt' | Sort-Object Name
+          $childFiles = Get-ChildItem -Path $env:MOON_TEST_PERF_DIR -Filter 'moon-child-perf-*.txt' | Sort-Object Name
+          if ($parentFiles.Count -eq 0) {
             throw "No MOON_TEST_PERF reports found"
           }
-          Add-Content $env:GITHUB_STEP_SUMMARY "### moon test harness perf ($env:MATRIX_OS)`n"
-          foreach ($file in $files) {
-            "== $($file.FullName) ==" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            Get-Content $file.FullName | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
-            "" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          if ($childFiles.Count -eq 0) {
+            throw "No MOON_TEST_CHILD_PERF reports found"
           }
+
+          $parent = [ordered]@{
+            copy_tree_ops = 0
+            copy_tree_files = 0
+            copy_tree_total_ms = 0.0
+            process_ops = 0
+            process_total_ms = 0.0
+            moon_process_ops = 0
+            moon_process_total_ms = 0.0
+            other_process_ops = 0
+            other_process_total_ms = 0.0
+            normalize_output_ops = 0
+            normalize_output_total_ms = 0.0
+          }
+          foreach ($file in $parentFiles) {
+            switch -Regex -File $file.FullName {
+              '^copy_tree_ops: (.+)$' { $parent.copy_tree_ops += [int]$Matches[1] }
+              '^copy_tree_files: (.+)$' { $parent.copy_tree_files += [int]$Matches[1] }
+              '^copy_tree_total_ms: (.+)$' { $parent.copy_tree_total_ms += [double]$Matches[1] }
+              '^process_ops: (.+)$' { $parent.process_ops += [int]$Matches[1] }
+              '^process_total_ms: (.+)$' { $parent.process_total_ms += [double]$Matches[1] }
+              '^moon_process_ops: (.+)$' { $parent.moon_process_ops += [int]$Matches[1] }
+              '^moon_process_total_ms: (.+)$' { $parent.moon_process_total_ms += [double]$Matches[1] }
+              '^other_process_ops: (.+)$' { $parent.other_process_ops += [int]$Matches[1] }
+              '^other_process_total_ms: (.+)$' { $parent.other_process_total_ms += [double]$Matches[1] }
+              '^normalize_output_ops: (.+)$' { $parent.normalize_output_ops += [int]$Matches[1] }
+              '^normalize_output_total_ms: (.+)$' { $parent.normalize_output_total_ms += [double]$Matches[1] }
+            }
+          }
+
+          $child = [ordered]@{
+            child_process_reports = $childFiles.Count
+            child_main_total_ms = 0.0
+            child_setup_total_ms = 0.0
+            child_command_total_ms = 0.0
+            child_post_command_total_ms = 0.0
+          }
+          foreach ($file in $childFiles) {
+            switch -Regex -File $file.FullName {
+              '^main_total_ms: (.+)$' { $child.child_main_total_ms += [double]$Matches[1] }
+              '^setup_total_ms: (.+)$' { $child.child_setup_total_ms += [double]$Matches[1] }
+              '^command_total_ms: (.+)$' { $child.child_command_total_ms += [double]$Matches[1] }
+              '^post_command_total_ms: (.+)$' { $child.child_post_command_total_ms += [double]$Matches[1] }
+            }
+          }
+
+          Add-Content $env:GITHUB_STEP_SUMMARY "### moon test harness perf ($env:MATRIX_OS)`n"
+          Add-Content $env:GITHUB_STEP_SUMMARY "probe_command: $env:PERF_TARGET`n"
+          Add-Content $env:GITHUB_STEP_SUMMARY "parent_harness:`n```text"
+          Add-Content $env:GITHUB_STEP_SUMMARY "copy_tree_ops: $($parent.copy_tree_ops)"
+          Add-Content $env:GITHUB_STEP_SUMMARY "copy_tree_files: $($parent.copy_tree_files)"
+          Add-Content $env:GITHUB_STEP_SUMMARY ('copy_tree_total_ms: {0:N3}' -f $parent.copy_tree_total_ms)
+          Add-Content $env:GITHUB_STEP_SUMMARY "process_ops: $($parent.process_ops)"
+          Add-Content $env:GITHUB_STEP_SUMMARY ('process_total_ms: {0:N3}' -f $parent.process_total_ms)
+          Add-Content $env:GITHUB_STEP_SUMMARY "moon_process_ops: $($parent.moon_process_ops)"
+          Add-Content $env:GITHUB_STEP_SUMMARY ('moon_process_total_ms: {0:N3}' -f $parent.moon_process_total_ms)
+          Add-Content $env:GITHUB_STEP_SUMMARY "other_process_ops: $($parent.other_process_ops)"
+          Add-Content $env:GITHUB_STEP_SUMMARY ('other_process_total_ms: {0:N3}' -f $parent.other_process_total_ms)
+          Add-Content $env:GITHUB_STEP_SUMMARY "normalize_output_ops: $($parent.normalize_output_ops)"
+          Add-Content $env:GITHUB_STEP_SUMMARY ('normalize_output_total_ms: {0:N3}' -f $parent.normalize_output_total_ms)
+          Add-Content $env:GITHUB_STEP_SUMMARY "```"
+          Add-Content $env:GITHUB_STEP_SUMMARY ""
+          Add-Content $env:GITHUB_STEP_SUMMARY "child_moon:`n```text"
+          Add-Content $env:GITHUB_STEP_SUMMARY "child_process_reports: $($child.child_process_reports)"
+          Add-Content $env:GITHUB_STEP_SUMMARY ('child_main_total_ms: {0:N3}' -f $child.child_main_total_ms)
+          Add-Content $env:GITHUB_STEP_SUMMARY ('child_setup_total_ms: {0:N3}' -f $child.child_setup_total_ms)
+          Add-Content $env:GITHUB_STEP_SUMMARY ('child_command_total_ms: {0:N3}' -f $child.child_command_total_ms)
+          Add-Content $env:GITHUB_STEP_SUMMARY ('child_post_command_total_ms: {0:N3}' -f $child.child_post_command_total_ms)
+          Add-Content $env:GITHUB_STEP_SUMMARY ('inferred_spawn_to_main_total_ms: {0:N3}' -f ($parent.moon_process_total_ms - $child.child_main_total_ms))
+          Add-Content $env:GITHUB_STEP_SUMMARY "```"
 
       - name: Upload moon test harness perf artifact
         if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) }}
         uses: actions/upload-artifact@v4
         with:
           name: moon-test-perf-${{ matrix.os }}
-          path: ${{ runner.temp }}/moon-test-perf-*.txt
+          path: |
+            ${{ runner.temp }}/moon-test-perf-*.txt
+            ${{ runner.temp }}/moon-child-perf-*.txt
           if-no-files-found: error
 
       - name: Auxiliary checks

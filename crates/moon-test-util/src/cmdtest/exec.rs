@@ -66,7 +66,7 @@ fn normalize_output(output: &str, workdir: &Path) -> String {
     normalized
 }
 
-fn run_process(program: &Path, args: &[&str], workdir: &Path) -> CommandOutput {
+fn run_process(program: &Path, args: &[&str], workdir: &Path, is_moon: bool) -> CommandOutput {
     let start = Instant::now();
     match Command::new(program)
         .args(args)
@@ -74,7 +74,11 @@ fn run_process(program: &Path, args: &[&str], workdir: &Path) -> CommandOutput {
         .output()
     {
         Ok(output) => {
-            crate::perf::record_process(start.elapsed());
+            if is_moon {
+                crate::perf::record_moon_process(start.elapsed());
+            } else {
+                crate::perf::record_other_process(start.elapsed());
+            }
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let mut stderr = String::from_utf8_lossy(&output.stderr).into_owned();
             stderr = stderr
@@ -90,7 +94,11 @@ fn run_process(program: &Path, args: &[&str], workdir: &Path) -> CommandOutput {
             }
         }
         Err(err) => {
-            crate::perf::record_process(start.elapsed());
+            if is_moon {
+                crate::perf::record_moon_process(start.elapsed());
+            } else {
+                crate::perf::record_other_process(start.elapsed());
+            }
             CommandOutput {
                 stdout: String::new(),
                 stderr: err.to_string(),
@@ -146,10 +154,10 @@ fn run_xls(args: &[&str], workdir: &Path) -> CommandOutput {
 
 pub(crate) fn execute_command(cmd: &str, args: &[&str], workdir: &Path, moon_bin: &Path) -> String {
     let output = match cmd {
-        "moon" => run_process(moon_bin, args, workdir),
+        "moon" => run_process(moon_bin, args, workdir, true),
         "xcat" => run_xcat(args, workdir),
         "xls" => run_xls(args, workdir),
-        _ => run_process(Path::new(cmd), args, workdir),
+        _ => run_process(Path::new(cmd), args, workdir, false),
     };
 
     let actual = if output.stderr.is_empty() {
