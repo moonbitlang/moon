@@ -105,6 +105,9 @@ _moon() {
             moon,version)
                 cmd="moon__version"
                 ;;
+            moon,whoami)
+                cmd="moon__whoami"
+                ;;
             moon__coverage,analyze)
                 cmd="moon__coverage__analyze"
                 ;;
@@ -221,6 +224,9 @@ _moon() {
                 ;;
             moon__help,version)
                 cmd="moon__help__version"
+                ;;
+            moon__help,whoami)
+                cmd="moon__help__whoami"
                 ;;
             moon__help__coverage,analyze)
                 cmd="moon__help__coverage__analyze"
@@ -349,7 +355,7 @@ _moon() {
 
     case "${cmd}" in
         moon)
-            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
+            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1027,7 +1033,7 @@ _moon() {
             return 0
             ;;
         moon__help)
-            opts="new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
+            opts="new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1657,6 +1663,20 @@ _moon() {
             return 0
             ;;
         moon__help__version)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__whoami)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2658,6 +2678,28 @@ _moon() {
             ;;
         moon__version)
             opts="-q -v -h --all --json --no-path --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --manifest-path)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --target-dir)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__whoami)
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

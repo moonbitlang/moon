@@ -542,6 +542,21 @@ _arguments "${_arguments_options[@]}" : /
 '--help[Print help]' /
 && ret=0
 ;;
+(whoami)
+_arguments "${_arguments_options[@]}" : /
+'--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
 (register)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
@@ -1176,6 +1191,10 @@ _arguments "${_arguments_options[@]}" : /
 _arguments "${_arguments_options[@]}" : /
 && ret=0
 ;;
+(whoami)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
 (register)
 _arguments "${_arguments_options[@]}" : /
 && ret=0
@@ -1350,6 +1369,7 @@ _moon_commands() {
 'tree:Display the dependency tree' /
 'fetch:Download a package to .repos directory (unstable)' /
 'login:Log in to your account' /
+'whoami:Show login status and username' /
 'register:Register an account at mooncakes.io' /
 'publish:Publish the current module' /
 'package:Package the current module' /
@@ -1497,6 +1517,7 @@ _moon__help_commands() {
 'tree:Display the dependency tree' /
 'fetch:Download a package to .repos directory (unstable)' /
 'login:Log in to your account' /
+'whoami:Show login status and username' /
 'register:Register an account at mooncakes.io' /
 'publish:Publish the current module' /
 'package:Package the current module' /
@@ -1755,6 +1776,11 @@ _moon__help__version_commands() {
     local commands; commands=()
     _describe -t commands 'moon help version commands' commands "$@"
 }
+(( $+functions[_moon__help__whoami_commands] )) ||
+_moon__help__whoami_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help whoami commands' commands "$@"
+}
 (( $+functions[_moon__ide_commands] )) ||
 _moon__ide_commands() {
     local commands; commands=(
@@ -2004,6 +2030,11 @@ _moon__upgrade_commands() {
 _moon__version_commands() {
     local commands; commands=()
     _describe -t commands 'moon version commands' commands "$@"
+}
+(( $+functions[_moon__whoami_commands] )) ||
+_moon__whoami_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon whoami commands' commands "$@"
 }
 
 if [ "$funcstack[1]" = "_moon" ]; then
