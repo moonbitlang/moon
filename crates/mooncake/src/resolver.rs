@@ -29,7 +29,7 @@ use moonutil::mooncakes::{ModuleName, ModuleSource, result};
 use semver::{Version, VersionReq};
 use thiserror::Error;
 
-use crate::registry::RegistryList;
+use crate::registry::Registry;
 
 pub mod env;
 pub mod mvs;
@@ -241,7 +241,7 @@ fn format_resolver_errors(errors: &[ResolverError]) -> String {
 }
 
 pub struct ResolveConfig {
-    pub registries: RegistryList,
+    pub registry: Box<dyn Registry>,
     pub inject_std: bool,
 }
 
@@ -250,7 +250,7 @@ pub fn resolve_with_default_env(
     resolver: &mut dyn Resolver,
     root: &[(ModuleSource, Arc<MoonMod>)],
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
-    let mut env = env::ResolverEnv::new(&config.registries);
+    let mut env = env::ResolverEnv::new(config.registry.as_ref());
     let mut res = ResolvedEnv::new();
 
     if config.inject_std {

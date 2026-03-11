@@ -32,7 +32,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::registry::RegistryList;
+use crate::registry::Registry;
 
 fn dep_dir_of(source_dir: &Path) -> PathBuf {
     source_dir.join(DEP_PATH)
@@ -105,7 +105,7 @@ fn pkg_list_to_dep_dir_state<'a>(
     let mut user_list = HashMap::new();
     for pkg in pkg_list {
         match pkg.source() {
-            ModuleSourceKind::Registry(_) => {}
+            ModuleSourceKind::Registry => {}
             ModuleSourceKind::Local(_) => continue,
             ModuleSourceKind::Git(_) => continue, // TODO: git registries are resolved differently
             ModuleSourceKind::Stdlib(_) => continue,
@@ -203,7 +203,7 @@ fn diff_dep_dir_state<'a>(
 /// from the current directory, this function will return an error.
 pub fn sync_deps(
     dep_dir: &DepDir,
-    registries: &RegistryList,
+    registry: &dyn Registry,
     pkg_list: &ResolvedEnv,
     quiet: bool,
     frozen: bool,
@@ -265,13 +265,10 @@ pub fn sync_deps(
                 &version,
                 pkg_path.display()
             );
-            let ModuleSourceKind::Registry(registry) = version.source() else {
+            let ModuleSourceKind::Registry = version.source() else {
                 unreachable!()
             };
-            registries
-                .get_registry(registry.as_deref())
-                .expect("Registry not found")
-                .install_to(version.name(), version.version(), &pkg_path, quiet)?;
+            registry.install_to(version.name(), version.version(), &pkg_path, quiet)?;
             // TODO: parallelize this
         }
     }
@@ -293,7 +290,7 @@ fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
 /// The result of a directory sync.
 fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
     match module.source() {
-        ModuleSourceKind::Registry(_) => {
+        ModuleSourceKind::Registry => {
             pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual)
         }
         ModuleSourceKind::Local(path) => path.clone(),
@@ -361,7 +358,7 @@ mod test {
                                 unqual: module.clone(),
                             },
                             version,
-                            ModuleSourceKind::Registry(None),
+                            ModuleSourceKind::Registry,
                         );
                         let leaked = Box::leak(Box::new(res));
                         (module, &*leaked)
@@ -388,7 +385,7 @@ mod test {
                                 unqual: pkg.into(),
                             },
                             version,
-                            ModuleSourceKind::Registry(None),
+                            ModuleSourceKind::Registry,
                         );
                         let leaked = Box::leak(Box::new(res));
                         (pkg.into(), &*leaked)

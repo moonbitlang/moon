@@ -112,11 +112,11 @@ impl PartialEq<(&str, &str)> for ModuleName {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ModuleSourceKind {
-    /// Module comes from some registry. If param is `None`, it comes from the default
-    /// registry. Otherwise it comes from a specific registry (unused for now).
-    Registry(Option<String>), // Registry ID?
+    /// Module comes from the registry.
+    #[default]
+    Registry,
     /// Module comes from a git repository.
     // TODO: add branch/commit
     Git(String),
@@ -138,23 +138,16 @@ pub enum ModuleSourceKind {
     SingleFile(PathBuf),
 }
 
-impl Default for ModuleSourceKind {
-    fn default() -> Self {
-        ModuleSourceKind::Registry(None)
-    }
-}
-
 impl ModuleSourceKind {
     pub fn is_default(&self) -> bool {
-        matches!(self, ModuleSourceKind::Registry(None))
+        matches!(self, ModuleSourceKind::Registry)
     }
 }
 
 impl std::fmt::Display for ModuleSourceKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModuleSourceKind::Registry(None) => write!(f, "default registry"),
-            ModuleSourceKind::Registry(Some(name)) => write!(f, "registry {name}"),
+            ModuleSourceKind::Registry => write!(f, "registry"),
             ModuleSourceKind::Local(path) => write!(f, "local {}", path.display()),
             ModuleSourceKind::Git(url) => write!(f, "git {url}"),
             ModuleSourceKind::Stdlib(_) => write!(f, "stdlib"),
@@ -278,7 +271,7 @@ pub static CORE_MODULE: LazyLock<ModuleSource> = LazyLock::new(|| {
             unqual: "core".into(),
         },
         Version::new(0, 0, 0),
-        ModuleSourceKind::Registry(None),
+        ModuleSourceKind::Registry,
     )
 });
 

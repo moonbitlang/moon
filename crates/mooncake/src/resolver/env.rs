@@ -29,21 +29,21 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::registry::RegistryList;
+use crate::registry::Registry;
 
 use super::ResolverError;
 
 pub struct ResolverEnv<'a> {
-    registries: &'a RegistryList,
+    registry: &'a dyn Registry,
     errors: Vec<super::ResolverError>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
     stdlib: Option<Arc<MoonMod>>,
 }
 
 impl<'a> ResolverEnv<'a> {
-    pub fn new(registries: &'a RegistryList) -> Self {
+    pub fn new(registry: &'a dyn Registry) -> Self {
         ResolverEnv {
-            registries,
+            registry,
             errors: Vec::new(),
             local_module_cache: HashMap::new(),
             stdlib: None,
@@ -65,30 +65,21 @@ impl<'a> ResolverEnv<'a> {
     pub fn all_versions_of(
         &mut self,
         name: &ModuleName,
-        registry: Option<&str>,
     ) -> Option<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
-        self.registries
-            .get_registry(registry)?
-            .all_versions_of(name)
-            .ok()
+        self.registry.all_versions_of(name).ok()
     }
 
     pub fn get_module_version(
         &mut self,
         name: &ModuleName,
         version: &Version,
-        registry: Option<&str>,
     ) -> Option<Arc<MoonMod>> {
-        self.registries
-            .get_registry(registry)?
-            .get_module_version(name, version)
+        self.registry.get_module_version(name, version)
     }
 
     pub fn get(&mut self, ms: &ModuleSource) -> Option<Arc<MoonMod>> {
         match ms.source() {
-            ModuleSourceKind::Registry(reg) => {
-                self.get_module_version(ms.name(), ms.version(), reg.as_deref())
-            }
+            ModuleSourceKind::Registry => self.get_module_version(ms.name(), ms.version()),
             ModuleSourceKind::Git(_) => todo!("Resolve git module"),
             ModuleSourceKind::Local(path) => self.resolve_local_module(path).ok(),
             ModuleSourceKind::Stdlib(_) => self.stdlib.clone(),

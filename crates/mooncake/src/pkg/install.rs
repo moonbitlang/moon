@@ -18,6 +18,7 @@
 
 use crate::{
     dep_dir::resolve_dep_dirs,
+    registry,
     resolver::{ResolveConfig, resolve_single_root_with_defaults},
 };
 
@@ -104,20 +105,24 @@ pub(crate) fn install_impl(
     dont_sync: bool,
     no_std: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
-    let registry = crate::registry::RegistryList::with_default_registry();
-
     let is_stdlib = m.name == MOONBITLANG_CORE;
 
     let resolve_config = ResolveConfig {
-        registries: registry,
+        registry: registry::default_registry(),
         inject_std: !is_stdlib && !no_std,
     };
 
     let res = resolve_single_root_with_defaults(&resolve_config, ms, Arc::clone(&m))?;
     let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
 
-    crate::dep_dir::sync_deps(&dep_dir, &resolve_config.registries, &res, quiet, dont_sync)
-        .context("When installing packages")?;
+    crate::dep_dir::sync_deps(
+        &dep_dir,
+        resolve_config.registry.as_ref(),
+        &res,
+        quiet,
+        dont_sync,
+    )
+    .context("When installing packages")?;
 
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
 

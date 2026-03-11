@@ -84,7 +84,7 @@ pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::
         // Color-code based on module type
         let color = match src.source() {
             moonutil::mooncakes::ModuleSourceKind::Local(_) => "lightgreen",
-            moonutil::mooncakes::ModuleSourceKind::Registry(_) => "lightblue",
+            moonutil::mooncakes::ModuleSourceKind::Registry => "lightblue",
             moonutil::mooncakes::ModuleSourceKind::Git(_) => "lightyellow",
             moonutil::mooncakes::ModuleSourceKind::Stdlib(_) => "lightgray",
             moonutil::mooncakes::ModuleSourceKind::SingleFile(_) => "orange",

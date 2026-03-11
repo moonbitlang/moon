@@ -247,9 +247,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             .expect("Currently only one module in the workspace is supported.");
         let path = match main_module.source() {
             ModuleSourceKind::Local(p) => p,
-            ModuleSourceKind::Registry(_)
-            | ModuleSourceKind::Git(_)
-            | ModuleSourceKind::Stdlib(_) => {
+            ModuleSourceKind::Registry | ModuleSourceKind::Git(_) | ModuleSourceKind::Stdlib(_) => {
                 panic!("Remote modules for docs are not supported")
             }
             ModuleSourceKind::SingleFile(_) => {
