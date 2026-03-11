@@ -41,6 +41,7 @@ pub(crate) mod tool;
 pub(crate) mod update;
 pub(crate) mod upgrade;
 pub(crate) mod version;
+pub(crate) mod whoami;
 
 pub(crate) use bench::*;
 pub(crate) use build::*;
@@ -69,6 +70,7 @@ pub(crate) use tool::*;
 pub(crate) use update::*;
 pub(crate) use upgrade::*;
 pub(crate) use version::*;
+pub(crate) use whoami::*;
 
 use anyhow::bail;
 use moonutil::{
@@ -118,6 +120,7 @@ pub(crate) enum MoonBuildSubcommands {
 
     // Mooncake
     Login(LoginSubcommand),
+    Whoami(WhoamiSubcommand),
     Register(RegisterSubcommand),
     Publish(PublishSubcommand),
     Package(PackageSubcommand),

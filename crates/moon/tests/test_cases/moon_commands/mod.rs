@@ -43,6 +43,7 @@ fn test_moon_help() {
               tree                   Display the dependency tree
               fetch                  Download a package to .repos directory (unstable)
               login                  Log in to your account
+              whoami                 Show login status and username
               register               Register an account at mooncakes.io
               publish                Publish the current module
               package                Package the current module
@@ -74,6 +75,49 @@ fn test_moon_help() {
                       Do not actually run the command
               -Z, --unstable-feature <UNSTABLE_FEATURE>
                       Unstable flags to MoonBuild [env: MOON_UNSTABLE=] [default: ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_whoami_not_logged_in() {
+    let dir = TestDir::new_empty();
+    let moon_home = dir.join("moon_home");
+    std::fs::create_dir_all(&moon_home).unwrap();
+    check(
+        get_stdout_with_envs(
+            &dir,
+            ["whoami"],
+            [("MOON_HOME", moon_home.to_string_lossy().into_owned())],
+        ),
+        expect![[r#"
+            Not logged in
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_whoami_logged_in() {
+    let dir = TestDir::new_empty();
+    let moon_home = dir.join("moon_home");
+    std::fs::create_dir_all(&moon_home).unwrap();
+    std::fs::write(
+        moon_home.join("credentials.json"),
+        r#"{
+  "token": "test-token",
+  "username": "moonbit-user"
+}
+"#,
+    )
+    .unwrap();
+    check(
+        get_stdout_with_envs(
+            &dir,
+            ["whoami"],
+            [("MOON_HOME", moon_home.to_string_lossy().into_owned())],
+        ),
+        expect![[r#"
+            Logged in as moonbit-user
         "#]],
     );
 }
