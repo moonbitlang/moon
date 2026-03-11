@@ -41,7 +41,7 @@ use super::{Resolver, ResolverError, env::ResolverEnv};
 /// A dependency solver that follows the MVS (minimal version selection) algorithm,
 /// which is the same as that Go uses.
 /// See https://research.swtch.com/vgo-mvs for more information.
-pub struct MvsSolver;
+pub(crate) struct MvsSolver;
 
 impl Resolver for MvsSolver {
     fn resolve(

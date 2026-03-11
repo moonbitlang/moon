@@ -33,7 +33,7 @@ use crate::registry::Registry;
 
 use super::ResolverError;
 
-pub struct ResolverEnv<'a> {
+pub(crate) struct ResolverEnv<'a> {
     registry: &'a dyn Registry,
     errors: Vec<super::ResolverError>,
     local_module_cache: HashMap<PathBuf, Arc<MoonMod>>,
@@ -41,7 +41,7 @@ pub struct ResolverEnv<'a> {
 }
 
 impl<'a> ResolverEnv<'a> {
-    pub fn new(registry: &'a dyn Registry) -> Self {
+    pub(crate) fn new(registry: &'a dyn Registry) -> Self {
         ResolverEnv {
             registry,
             errors: Vec::new(),
@@ -50,26 +50,26 @@ impl<'a> ResolverEnv<'a> {
         }
     }
 
-    pub fn into_errors(self) -> Vec<super::ResolverError> {
+    pub(crate) fn into_errors(self) -> Vec<super::ResolverError> {
         self.errors
     }
 
-    pub fn report_error(&mut self, error: super::ResolverError) {
+    pub(crate) fn report_error(&mut self, error: super::ResolverError) {
         self.errors.push(error);
     }
 
-    pub fn any_errors(&self) -> bool {
+    pub(crate) fn any_errors(&self) -> bool {
         !self.errors.is_empty()
     }
 
-    pub fn all_versions_of(
+    pub(crate) fn all_versions_of(
         &mut self,
         name: &ModuleName,
     ) -> Option<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
         self.registry.all_versions_of(name).ok()
     }
 
-    pub fn get_module_version(
+    pub(crate) fn get_module_version(
         &mut self,
         name: &ModuleName,
         version: &Version,
@@ -77,7 +77,7 @@ impl<'a> ResolverEnv<'a> {
         self.registry.get_module_version(name, version)
     }
 
-    pub fn get(&mut self, ms: &ModuleSource) -> Option<Arc<MoonMod>> {
+    pub(crate) fn get(&mut self, ms: &ModuleSource) -> Option<Arc<MoonMod>> {
         match ms.source() {
             ModuleSourceKind::Registry => self.get_module_version(ms.name(), ms.version()),
             ModuleSourceKind::Git(_) => todo!("Resolve git module"),
@@ -91,7 +91,10 @@ impl<'a> ResolverEnv<'a> {
     }
 
     /// Resolve a local module from its **canonical** path.
-    pub fn resolve_local_module(&mut self, path: &Path) -> Result<Arc<MoonMod>, ResolverError> {
+    pub(crate) fn resolve_local_module(
+        &mut self,
+        path: &Path,
+    ) -> Result<Arc<MoonMod>, ResolverError> {
         if let Some(module) = self.local_module_cache.get(path) {
             return Ok(Arc::clone(module));
         }

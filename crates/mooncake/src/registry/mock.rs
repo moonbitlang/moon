@@ -123,7 +123,7 @@ impl MockRegistry {
     }
 }
 
-pub fn create_mock_module<'a>(
+pub(crate) fn create_mock_module<'a>(
     name: &'a str,
     version: &'a str,
     deps: impl IntoIterator<Item = (&'a str, &'a str)>,

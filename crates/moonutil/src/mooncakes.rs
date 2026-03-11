@@ -40,7 +40,7 @@ pub type DirSyncResult = SecondaryMap<ModuleId, PathBuf>;
 /// The name of a module.
 ///
 /// This type is cheaply clonable.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleName {
     /// The username part of the module name
     pub username: ArcStr,
@@ -112,7 +112,7 @@ impl PartialEq<(&str, &str)> for ModuleName {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ModuleSourceKind {
     /// Module comes from the registry.
     #[default]
@@ -159,15 +159,13 @@ impl std::fmt::Display for ModuleSourceKind {
 /// Represents the information that fully-qualifies a module.
 ///
 /// This type is cheaply clonable.
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ModuleSource {
-    // Note: Serialization & deserialization of `Arc` does not retain identity.
-    // This is generally not an issue, but I'm writing it here to prevent confusion.
     /// The inner representation of the module source.
     inner: Arc<ModuleSourceInner>,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct ModuleSourceInner {
     name: ModuleName,
     version: Version,
@@ -542,7 +540,7 @@ pub struct Credentials {
     pub username: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct RegistryConfig {
     pub registry: String,
     pub index: String,

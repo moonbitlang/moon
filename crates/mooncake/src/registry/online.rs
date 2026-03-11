@@ -108,7 +108,7 @@ impl super::Registry for OnlineRegistry {
     }
 }
 
-pub fn calc_sha2(p: &Path) -> anyhow::Result<String> {
+fn calc_sha2(p: &Path) -> anyhow::Result<String> {
     use sha2::{Digest, Sha256};
     use std::fs::File;
     use std::io::prelude::*;

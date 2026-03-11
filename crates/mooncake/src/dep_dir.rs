@@ -51,23 +51,23 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 /// dependencies directory for ease of scanning. Instead, we replace all slashes
 /// in the `pkgname` part with plus `+` sign. For example, a package
 /// `foo/bar/baz` will be stored in the directory `foo/bar+baz`.
-pub struct DepDir {
+pub(crate) struct DepDir {
     path: PathBuf,
 }
 
 impl DepDir {
-    pub fn of_source(source_dir: &Path) -> Self {
+    pub(crate) fn of_source(source_dir: &Path) -> Self {
         DepDir {
             path: dep_dir_of(source_dir),
         }
     }
 
-    pub fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.path
     }
 
     /// Returns a list of currently installed packages.
-    pub fn get_current_state(&self) -> std::io::Result<DepDirState> {
+    pub(crate) fn get_current_state(&self) -> std::io::Result<DepDirState> {
         let it = self.path().read_dir()?;
         let mut user_list = HashMap::new();
         for entry in it {
@@ -201,7 +201,7 @@ fn diff_dep_dir_state<'a>(
 /// If `frozen` is true, the function will not change anything in the current
 /// dependency directory. If the desired dependency list cannot be created
 /// from the current directory, this function will return an error.
-pub fn sync_deps(
+pub(crate) fn sync_deps(
     dep_dir: &DepDir,
     registry: &dyn Registry,
     pkg_list: &ResolvedEnv,
@@ -306,7 +306,7 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
 ///
 /// Assumes [`sync_deps`] is already called. Otherwise, modules might point to
 /// directories that don't exist yet because they are not synced yet.
-pub fn resolve_dep_dirs(dep_dir: &DepDir, pkg_list: &ResolvedEnv) -> DirSyncResult {
+pub(crate) fn resolve_dep_dirs(dep_dir: &DepDir, pkg_list: &ResolvedEnv) -> DirSyncResult {
     let mut res = DirSyncResult::default();
     for (id, module) in pkg_list.all_modules_and_id() {
         res.insert(id, map_source_to_dir(dep_dir, module));

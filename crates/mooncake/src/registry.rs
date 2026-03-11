@@ -17,8 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 #[cfg(test)]
-pub mod mock;
-pub mod online;
+pub(crate) mod mock;
+pub(crate) mod online;
 
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
@@ -231,7 +231,7 @@ where
     }
 }
 
-pub fn default_registry() -> Box<dyn Registry> {
+pub(crate) fn default_registry() -> Box<dyn Registry> {
     Box::new(OnlineRegistry::mooncakes_io())
 }
 
