@@ -203,7 +203,7 @@ jobs:
           MOON_TEST_PERF: 1
           MOON_TEST_PERF_FILE: ${{ runner.temp }}/moon-test-perf.txt
           MOON_TEST_CHILD_PERF_FILE: ${{ runner.temp }}/moon-child-perf.txt
-        run: cargo test -p moon --test mod test_cases::moon_test::
+        run: 'cargo test -p moon --test mod test_cases::moon_test::'
 
       - name: Probe moon test harness perf (Windows)
         if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os == 'windows-latest' }}
@@ -211,14 +211,14 @@ jobs:
           MOON_TEST_PERF: 1
           MOON_TEST_PERF_FILE: ${{ runner.temp }}\moon-test-perf.txt
           MOON_TEST_CHILD_PERF_FILE: ${{ runner.temp }}\moon-child-perf.txt
-        run: cargo test -p moon --test mod test_cases::moon_test::
+        run: 'cargo test -p moon --test mod test_cases::moon_test::'
 
       - name: Report moon test harness perf (Unix)
         if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os != 'windows-latest' }}
         env:
           MATRIX_OS: ${{ matrix.os }}
           MOON_TEST_PERF_DIR: ${{ runner.temp }}
-          PERF_TARGET: cargo test -p moon --test mod test_cases::moon_test::
+          PERF_TARGET: 'cargo test -p moon --test mod test_cases::moon_test::'
         run: |
           shopt -s nullglob
           parent_files=("$MOON_TEST_PERF_DIR"/moon-test-perf-*.txt)
@@ -292,10 +292,11 @@ jobs:
 
       - name: Report moon test harness perf (Windows)
         if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os == 'windows-latest' }}
+        shell: pwsh
         env:
           MATRIX_OS: ${{ matrix.os }}
           MOON_TEST_PERF_DIR: ${{ runner.temp }}
-          PERF_TARGET: cargo test -p moon --test mod test_cases::moon_test::
+          PERF_TARGET: 'cargo test -p moon --test mod test_cases::moon_test::'
         run: |
           $parentFiles = Get-ChildItem -Path $env:MOON_TEST_PERF_DIR -Filter 'moon-test-perf-*.txt' | Sort-Object Name
           $childFiles = Get-ChildItem -Path $env:MOON_TEST_PERF_DIR -Filter 'moon-child-perf-*.txt' | Sort-Object Name
