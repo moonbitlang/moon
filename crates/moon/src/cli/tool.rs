@@ -20,14 +20,12 @@ pub(crate) mod build_binary_dep;
 pub(crate) mod demangle;
 pub(crate) mod embed;
 pub(crate) mod format_and_diff;
-pub(crate) mod test_server;
 pub(crate) mod write_rsp_file;
 
 use demangle::*;
 use embed::*;
 use format_and_diff::*;
 use moonutil::cli::UniversalFlags;
-use test_server::*;
 use write_rsp_file::*;
 
 #[derive(Debug, clap::Parser)]
@@ -43,8 +41,6 @@ pub(crate) enum ToolSubcommands {
     WriteTccRspFile(WriteTccRspFile),
     BuildBinaryDep(build_binary_dep::BuildBinaryDepArgs),
     Demangle(DemangleSubcommand),
-    #[clap(hide = true, name = "test-server")]
-    TestServer(TestServerSubcommand),
 }
 
 pub(crate) fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Result<i32> {
@@ -56,6 +52,5 @@ pub(crate) fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Res
             build_binary_dep::run_build_binary_dep(cli, &subcmd)
         }
         ToolSubcommands::Demangle(subcmd) => Ok(run_demangle(subcmd)),
-        ToolSubcommands::TestServer(subcmd) => run_test_server(subcmd),
     }
 }

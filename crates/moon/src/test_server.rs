@@ -28,8 +28,7 @@ use clap::Parser;
 use colored::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, clap::Parser)]
-pub(crate) struct TestServerSubcommand {}
+pub(crate) const ENV_VAR: &str = "MOON_INTERNAL_TEST_SERVER";
 
 #[derive(Debug, Deserialize)]
 struct TestServerRequest {
@@ -46,7 +45,7 @@ struct TestServerResponse {
     stderr: String,
 }
 
-pub(crate) fn run_test_server(_: TestServerSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_test_server() -> anyhow::Result<i32> {
     let stdin = std::io::stdin();
     let mut reader = std::io::BufReader::new(stdin.lock());
     let mut line = String::new();

@@ -29,6 +29,7 @@ mod filter;
 mod panic;
 pub mod rr_build;
 mod run;
+mod test_server;
 mod watch;
 
 use colored::*;
@@ -194,6 +195,20 @@ pub(crate) fn run_parsed_cli(cli: cli::MoonBuildCli, tracing_mode: TracingMode) 
 
 pub fn main() {
     panic::setup_panic_hook();
+
+    if std::env::var_os(test_server::ENV_VAR).is_some() {
+        // Keep this mode out of the clap command tree so it can't leak into
+        // help text or generated shell completions.
+        unsafe { std::env::remove_var(test_server::ENV_VAR) };
+        let exit_code = match test_server::run_test_server() {
+            Ok(code) => code,
+            Err(err) => {
+                eprintln!("{}: {:?}", "error".red().bold(), err);
+                -1
+            }
+        };
+        std::process::exit(exit_code);
+    }
 
     let cli = cli::MoonBuildCli::parse();
     std::process::exit(run_parsed_cli(cli, TracingMode::Initialize));

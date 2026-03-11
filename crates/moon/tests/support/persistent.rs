@@ -36,6 +36,7 @@ thread_local! {
 }
 
 static RESPONSE_ID: AtomicUsize = AtomicUsize::new(0);
+const TEST_SERVER_ENV_VAR: &str = "MOON_INTERNAL_TEST_SERVER";
 
 #[derive(Debug)]
 pub(crate) struct PersistentMoonOutput {
@@ -134,12 +135,12 @@ struct PersistentMoonSession {
 impl PersistentMoonSession {
     fn spawn() -> Result<Self, String> {
         let mut child = Command::new(moon_bin())
-            .args(["tool", "test-server"])
+            .env(TEST_SERVER_ENV_VAR, "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|err| format!("failed to spawn `moon tool test-server`: {err}"))?;
+            .map_err(|err| format!("failed to spawn persistent moon test-server: {err}"))?;
         let stdin = child
             .stdin
             .take()
