@@ -41,10 +41,10 @@ impl ChildPerf {
             }
         }
 
-        if let Some(path) = &path {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
+        if let Some(path) = &path
+            && let Some(parent) = path.parent()
+        {
+            let _ = std::fs::create_dir_all(parent);
         }
 
         Self {

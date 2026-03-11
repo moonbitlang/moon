@@ -354,7 +354,8 @@ jobs:
 
           Add-Content $env:GITHUB_STEP_SUMMARY "### moon test harness perf ($env:MATRIX_OS)`n"
           Add-Content $env:GITHUB_STEP_SUMMARY "probe_command: $env:PERF_TARGET`n"
-          Add-Content $env:GITHUB_STEP_SUMMARY "parent_harness:`n```text"
+          Add-Content $env:GITHUB_STEP_SUMMARY "parent_harness:"
+          Add-Content $env:GITHUB_STEP_SUMMARY '```text'
           Add-Content $env:GITHUB_STEP_SUMMARY "copy_tree_ops: $($parent.copy_tree_ops)"
           Add-Content $env:GITHUB_STEP_SUMMARY "copy_tree_files: $($parent.copy_tree_files)"
           Add-Content $env:GITHUB_STEP_SUMMARY ('copy_tree_total_ms: {0:N3}' -f $parent.copy_tree_total_ms)
@@ -366,16 +367,17 @@ jobs:
           Add-Content $env:GITHUB_STEP_SUMMARY ('other_process_total_ms: {0:N3}' -f $parent.other_process_total_ms)
           Add-Content $env:GITHUB_STEP_SUMMARY "normalize_output_ops: $($parent.normalize_output_ops)"
           Add-Content $env:GITHUB_STEP_SUMMARY ('normalize_output_total_ms: {0:N3}' -f $parent.normalize_output_total_ms)
-          Add-Content $env:GITHUB_STEP_SUMMARY "```"
+          Add-Content $env:GITHUB_STEP_SUMMARY '```'
           Add-Content $env:GITHUB_STEP_SUMMARY ""
-          Add-Content $env:GITHUB_STEP_SUMMARY "child_moon:`n```text"
+          Add-Content $env:GITHUB_STEP_SUMMARY "child_moon:"
+          Add-Content $env:GITHUB_STEP_SUMMARY '```text'
           Add-Content $env:GITHUB_STEP_SUMMARY "child_process_reports: $($child.child_process_reports)"
           Add-Content $env:GITHUB_STEP_SUMMARY ('child_main_total_ms: {0:N3}' -f $child.child_main_total_ms)
           Add-Content $env:GITHUB_STEP_SUMMARY ('child_setup_total_ms: {0:N3}' -f $child.child_setup_total_ms)
           Add-Content $env:GITHUB_STEP_SUMMARY ('child_command_total_ms: {0:N3}' -f $child.child_command_total_ms)
           Add-Content $env:GITHUB_STEP_SUMMARY ('child_post_command_total_ms: {0:N3}' -f $child.child_post_command_total_ms)
           Add-Content $env:GITHUB_STEP_SUMMARY ('inferred_spawn_to_main_total_ms: {0:N3}' -f ($parent.moon_process_total_ms - $child.child_main_total_ms))
-          Add-Content $env:GITHUB_STEP_SUMMARY "```"
+          Add-Content $env:GITHUB_STEP_SUMMARY '```'
 
       - name: Upload moon test harness perf artifact
         if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) }}
