@@ -16,13 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 pub fn copy_tree(src: &Path, dest: &Path, exclude_target: bool) -> anyhow::Result<()> {
+    let start = Instant::now();
+    let mut copied_files = 0u64;
     if src.is_dir() {
-        if !dest.exists() {
-            std::fs::create_dir_all(dest)?;
-        }
+        std::fs::create_dir_all(dest)?;
         let mut walker = ignore::WalkBuilder::new(src);
         walker.hidden(false);
         walker.git_global(false);
@@ -35,16 +38,17 @@ pub fn copy_tree(src: &Path, dest: &Path, exclude_target: bool) -> anyhow::Resul
             let relative_path = path.strip_prefix(src)?;
             let dest_path = dest.join(relative_path);
             if path.is_dir() {
-                if !dest_path.exists() {
-                    std::fs::create_dir_all(dest_path)?;
-                }
+                std::fs::create_dir_all(dest_path)?;
             } else {
                 std::fs::copy(path, dest_path)?;
+                copied_files += 1;
             }
         }
     } else {
         std::fs::copy(src, dest)?;
+        copied_files = 1;
     }
+    crate::perf::record_copy_tree(start.elapsed(), copied_files);
     Ok(())
 }
 

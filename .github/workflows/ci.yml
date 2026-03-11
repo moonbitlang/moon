@@ -19,9 +19,11 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
+      - zihang/improve-perf
   pull_request:
     branches:
       - main
@@ -194,6 +196,71 @@ jobs:
 
       - name: Run tests
         run: cargo test
+
+      - name: Probe moon test harness perf (Unix)
+        if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os != 'windows-latest' }}
+        env:
+          MOON_TEST_PERF: 1
+          MOON_TEST_PERF_FILE: ${{ runner.temp }}/moon-test-perf.txt
+        run: cargo test -p moon --tests
+
+      - name: Probe moon test harness perf (Windows)
+        if: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os == 'windows-latest' }}
+        env:
+          MOON_TEST_PERF: 1
+          MOON_TEST_PERF_FILE: ${{ runner.temp }}\moon-test-perf.txt
+        run: cargo test -p moon --tests
+
+      - name: Report moon test harness perf (Unix)
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os != 'windows-latest' }}
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          MOON_TEST_PERF_DIR: ${{ runner.temp }}
+        run: |
+          shopt -s nullglob
+          files=("$MOON_TEST_PERF_DIR"/moon-test-perf-*.txt)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No MOON_TEST_PERF reports found"
+            exit 1
+          fi
+          {
+            echo "### moon test harness perf ($MATRIX_OS)"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for file in "${files[@]}"; do
+            echo "== $file =="
+            cat "$file"
+            {
+              echo "== $file =="
+              cat "$file"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Report moon test harness perf (Windows)
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) && matrix.os == 'windows-latest' }}
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          MOON_TEST_PERF_DIR: ${{ runner.temp }}
+        run: |
+          $files = Get-ChildItem -Path $env:MOON_TEST_PERF_DIR -Filter 'moon-test-perf-*.txt' | Sort-Object Name
+          if ($files.Count -eq 0) {
+            throw "No MOON_TEST_PERF reports found"
+          }
+          Add-Content $env:GITHUB_STEP_SUMMARY "### moon test harness perf ($env:MATRIX_OS)`n"
+          foreach ($file in $files) {
+            "== $($file.FullName) ==" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            Get-Content $file.FullName | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            "" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
+
+      - name: Upload moon test harness perf artifact
+        if: ${{ always() && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'push' && github.ref_name == 'zihang/improve-perf')) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: moon-test-perf-${{ matrix.os }}
+          path: ${{ runner.temp }}/moon-test-perf-*.txt
+          if-no-files-found: error
 
       - name: Auxiliary checks
         if: matrix.os == 'ubuntu-latest'

@@ -16,7 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+    time::Instant,
+};
 
 use expect_test::Expect;
 use moonutil::{common::StringExt, compiler_flags::CC};
@@ -25,23 +29,66 @@ pub(crate) fn check<S: AsRef<str>>(actual: S, expect: Expect) {
     expect.assert_eq(actual.as_ref())
 }
 
-pub(crate) fn moon_bin() -> PathBuf {
-    snapbox::cargo_bin!("moon").to_owned()
+struct ReplaceDirCache {
+    moon_bin: String,
+    moon_home: String,
+    cc_path: String,
+    cc_name: String,
+    ar_path: String,
+    ar_name: String,
+    node: Option<String>,
+    moon_binaries: Vec<(String, String)>,
+}
+
+pub(crate) fn moon_bin() -> &'static PathBuf {
+    static MOON_BIN: OnceLock<PathBuf> = OnceLock::new();
+    MOON_BIN.get_or_init(|| snapbox::cargo_bin!("moon").to_owned())
+}
+
+fn replace_dir_cache() -> &'static ReplaceDirCache {
+    static CACHE: OnceLock<ReplaceDirCache> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let cc = CC::default();
+        let moon_binaries = moonutil::BINARIES
+            .all_moon_bins()
+            .iter()
+            .map(|(name, path)| {
+                let path = match *name {
+                    #[allow(deprecated)]
+                    "moon" | "moonrun" => snapbox::cmd::cargo_bin(name),
+                    _ => path.clone(),
+                };
+                (path.to_string_lossy().into_owned(), (*name).to_string())
+            })
+            .collect();
+
+        ReplaceDirCache {
+            moon_bin: moon_bin().to_string_lossy().into_owned(),
+            moon_home: dunce::canonicalize(moonutil::moon_dir::home())
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            cc_path: cc.cc_path.clone(),
+            cc_name: cc.cc_name().to_string(),
+            ar_path: cc.ar_path.clone(),
+            ar_name: cc.ar_name().to_string(),
+            node: moonutil::BINARIES
+                .node
+                .as_ref()
+                .map(|node| node.to_string_lossy().into_owned()),
+            moon_binaries,
+        }
+    })
 }
 
 pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
+    let start = Instant::now();
+    let cache = replace_dir_cache();
     let s = s.replace("\\\\", "\\");
-    let s = moonutil::BINARIES
-        .all_moon_bins()
+    let s = cache
+        .moon_binaries
         .iter()
-        .fold(s.to_string(), |s, (name, path)| {
-            let path = match *name {
-                #[allow(deprecated)]
-                "moon" | "moonrun" => snapbox::cmd::cargo_bin(name),
-                _ => path.clone(),
-            };
-            s.replace(path.to_string_lossy().as_ref(), name)
-        });
+        .fold(s.to_string(), |s, (path, name)| s.replace(path, name));
     let path_str1 = dunce::canonicalize(dir)
         .unwrap()
         .to_str()
@@ -50,24 +97,18 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     // for something like "{...\"loc\":{\"path\":\"C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\.tmpP0u4VZ\\\\main\\\\main.mbt\"...\r\n" on windows
     // https://github.com/moonbitlang/moon/actions/runs/10092428950/job/27906057649#step:13:149
     let s = s.replace(&path_str1, "$ROOT");
-    let s = s.replace(
-        dunce::canonicalize(moonutil::moon_dir::home())
-            .unwrap()
-            .to_str()
-            .unwrap(),
-        "$MOON_HOME",
-    );
-    let cc_path = CC::default().cc_path;
-    let ar_path = CC::default().ar_path;
-    let s = s.replace(&ar_path, CC::default().ar_name());
-    let s = s.replace(&cc_path, CC::default().cc_name());
-    let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
-    let s = moonutil::BINARIES
+    let s = s.replace(&cache.moon_home, "$MOON_HOME");
+    let s = s.replace(&cache.ar_path, &cache.ar_name);
+    let s = s.replace(&cache.cc_path, &cache.cc_name);
+    let s = s.replace(&cache.moon_bin, "moon");
+    let s = cache
         .node
         .as_ref()
-        .map(|node| s.replace(node.to_string_lossy().as_ref(), "node"))
+        .map(|node| s.replace(node, "node"))
         .unwrap_or(s);
-    s.replace("\r\n", "\n").replace('\\', "/")
+    let normalized = s.replace("\r\n", "\n").replace('\\', "/");
+    moon_test_util::perf::record_normalize_output(start.elapsed());
+    normalized
 }
 
 pub(crate) fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
@@ -114,7 +155,7 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
         .join("moon.test");
 
     let update = std::env::var_os("UPDATE_EXPECT").is_some();
-    let exit_code = moon_test_util::cmdtest::run::t(&test_path, &moon_bin(), update);
+    let exit_code = moon_test_util::cmdtest::run::t(&test_path, moon_bin(), update);
 
     assert_eq!(exit_code, 0, "cmdtest failed for {}", test_path.display());
 }

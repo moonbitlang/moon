@@ -23,6 +23,10 @@ use moonbuild_debug::graph::ENV_VAR;
 use std::path::{Path, PathBuf};
 use util::*;
 
+fn measure_process<T>(f: impl FnOnce() -> T) -> T {
+    moon_test_util::perf::measure_process(f)
+}
+
 pub(crate) use support::{build_graph, dry_run_utils, util};
 
 pub(crate) struct TestDir(moon_test_util::test_dir::TestDir);
@@ -58,15 +62,17 @@ fn get_stdout_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .envs(envs)
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .to_owned();
+    let out = measure_process(|| {
+        snapbox::cmd::Command::new(moon_bin())
+            .envs(envs)
+            .current_dir(dir)
+            .args(args)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .to_owned()
+    });
 
     std::str::from_utf8(&out).unwrap().to_string()
 }
@@ -77,15 +83,17 @@ fn get_stderr_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .envs(envs)
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .success()
-        .get_output()
-        .stderr
-        .to_owned();
+    let out = measure_process(|| {
+        snapbox::cmd::Command::new(moon_bin())
+            .envs(envs)
+            .current_dir(dir)
+            .args(args)
+            .assert()
+            .success()
+            .get_output()
+            .stderr
+            .to_owned()
+    });
 
     std::str::from_utf8(&out).unwrap().to_string()
 }
@@ -96,15 +104,17 @@ fn get_err_stdout_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .envs(envs)
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .to_owned();
+    let out = measure_process(|| {
+        snapbox::cmd::Command::new(moon_bin())
+            .envs(envs)
+            .current_dir(dir)
+            .args(args)
+            .assert()
+            .failure()
+            .get_output()
+            .stdout
+            .to_owned()
+    });
 
     std::str::from_utf8(&out).unwrap().to_string()
 }
@@ -115,15 +125,17 @@ fn get_err_stderr_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .envs(envs)
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .to_owned();
+    let out = measure_process(|| {
+        snapbox::cmd::Command::new(moon_bin())
+            .envs(envs)
+            .current_dir(dir)
+            .args(args)
+            .assert()
+            .failure()
+            .get_output()
+            .stderr
+            .to_owned()
+    });
 
     std::str::from_utf8(&out).unwrap().to_string()
 }

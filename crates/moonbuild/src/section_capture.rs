@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::io::IsTerminal;
+
 use tokio::io::{AsyncBufRead, AsyncWriteExt};
 
 pub struct SectionCapture<'a> {
@@ -124,6 +126,7 @@ pub async fn handle_stdout_async<'a>(
 ) -> anyhow::Result<()> {
     use tokio::io::AsyncBufReadExt;
     let mut buf = String::new();
+    let flush_each_write = std::io::stdout().is_terminal();
 
     tokio::pin!(proc);
     let mut stdout = tokio::io::stdout();
@@ -140,18 +143,27 @@ pub async fn handle_stdout_async<'a>(
         match capture_status {
             None => {
                 stdout.write_all(buf.as_bytes()).await?;
-                stdout.flush().await?;
+                if flush_each_write {
+                    stdout.flush().await?;
+                }
             }
             Some(LineCaptured::All) => {}
             Some(LineCaptured::Prefix(start_index)) => {
                 stdout.write_all(&buf.as_bytes()[start_index..]).await?;
-                stdout.flush().await?;
+                if flush_each_write {
+                    stdout.flush().await?;
+                }
             }
             Some(LineCaptured::Suffix(end_index)) => {
                 stdout.write_all(&buf.as_bytes()[..end_index]).await?;
-                stdout.flush().await?;
+                if flush_each_write {
+                    stdout.flush().await?;
+                }
             }
         }
+    }
+    if !flush_each_write {
+        stdout.flush().await?;
     }
     Ok(())
 }

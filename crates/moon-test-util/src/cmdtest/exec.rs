@@ -20,6 +20,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    time::Instant,
 };
 
 #[derive(Debug)]
@@ -42,6 +43,7 @@ fn moon_home() -> Option<PathBuf> {
 }
 
 fn normalize_output(output: &str, workdir: &Path) -> String {
+    let start = Instant::now();
     let mut redactions = snapbox::Redactions::new();
 
     redactions
@@ -59,16 +61,20 @@ fn normalize_output(output: &str, workdir: &Path) -> String {
         .replace("${WORK_DIR}", "[WORK_DIR]")
         .replace("$MOON_HOME", "[MOON_HOME]");
 
-    redactions.redact(&normalized).replace("\r\n", "\n")
+    let normalized = redactions.redact(&normalized).replace("\r\n", "\n");
+    crate::perf::record_normalize_output(start.elapsed());
+    normalized
 }
 
 fn run_process(program: &Path, args: &[&str], workdir: &Path) -> CommandOutput {
+    let start = Instant::now();
     match Command::new(program)
         .args(args)
         .current_dir(workdir)
         .output()
     {
         Ok(output) => {
+            crate::perf::record_process(start.elapsed());
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let mut stderr = String::from_utf8_lossy(&output.stderr).into_owned();
             stderr = stderr
@@ -83,11 +89,14 @@ fn run_process(program: &Path, args: &[&str], workdir: &Path) -> CommandOutput {
                 exit_code: output.status.code().map_or(255, |code| code as u8),
             }
         }
-        Err(err) => CommandOutput {
-            stdout: String::new(),
-            stderr: err.to_string(),
-            exit_code: err.raw_os_error().map_or(255, |code| code as u8),
-        },
+        Err(err) => {
+            crate::perf::record_process(start.elapsed());
+            CommandOutput {
+                stdout: String::new(),
+                stderr: err.to_string(),
+                exit_code: err.raw_os_error().map_or(255, |code| code as u8),
+            }
+        }
     }
 }
 
