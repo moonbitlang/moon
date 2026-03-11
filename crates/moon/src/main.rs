@@ -22,6 +22,7 @@ use std::{any::Any, io::IsTerminal};
 
 use clap::Parser;
 use cli::MoonBuildSubcommands;
+use moonutil::cli::UniversalFlags;
 
 mod cli;
 mod filter;
@@ -102,12 +103,16 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     Box::new(chrome_guard)
 }
 
-pub fn main() {
-    panic::setup_panic_hook();
+#[derive(Clone, Copy)]
+pub(crate) enum TracingMode {
+    Initialize,
+    Skip,
+}
 
-    let cli = cli::MoonBuildCli::parse();
-    let flags = cli.flags;
-
+fn prepare_process(
+    flags: &UniversalFlags,
+    tracing_mode: TracingMode,
+) -> Result<Option<Box<dyn Any>>, i32> {
     if let Some(dir) = &flags.source_tgt_dir.cwd {
         // `-C` changes the process working directory early.
         if let Err(err) = std::env::set_current_dir(dir) {
@@ -117,17 +122,25 @@ pub fn main() {
                 dir.display(),
                 err
             );
-            std::process::exit(-1);
+            return Err(-1);
         }
     }
 
-    let _trace_guard = init_tracing(flags.trace);
+    let trace_guard = match tracing_mode {
+        TracingMode::Initialize => Some(init_tracing(flags.trace)),
+        TracingMode::Skip => None,
+    };
 
     // Check for deprecated flags and emit warnings (after tracing is initialized)
     flags.check_deprecations();
 
+    Ok(trace_guard)
+}
+
+fn dispatch_cli(cli: cli::MoonBuildCli) -> anyhow::Result<i32> {
+    let cli::MoonBuildCli { subcommand, flags } = cli;
     use MoonBuildSubcommands::*;
-    let res = match cli.subcommand {
+    match subcommand {
         Add(a) => cli::add_cli(flags, a),
         Bench(b) => cli::run_bench(flags, b),
         Build(b) => cli::run_build(&flags, b),
@@ -158,15 +171,30 @@ pub fn main() {
         Version(v) => cli::run_version(&flags, v),
         Tool(v) => cli::run_tool(&flags, v),
         External(args) => cli::run_external(args),
+    }
+}
+
+pub(crate) fn run_parsed_cli(cli: cli::MoonBuildCli, tracing_mode: TracingMode) -> i32 {
+    let trace_guard = match prepare_process(&cli.flags, tracing_mode) {
+        Ok(trace_guard) => trace_guard,
+        Err(code) => return code,
     };
 
-    drop(_trace_guard);
+    let res = dispatch_cli(cli);
+    drop(trace_guard);
 
     match res {
-        Ok(code) => std::process::exit(code),
+        Ok(code) => code,
         Err(e) => {
             eprintln!("{}: {:?}", "error".red().bold(), e);
-            std::process::exit(-1);
+            -1
         }
     }
+}
+
+pub fn main() {
+    panic::setup_panic_hook();
+
+    let cli = cli::MoonBuildCli::parse();
+    std::process::exit(run_parsed_cli(cli, TracingMode::Initialize));
 }

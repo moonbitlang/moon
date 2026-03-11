@@ -52,23 +52,89 @@ impl AsRef<Path> for TestDir {
     }
 }
 
+struct MoonTestOutput {
+    exit_code: i32,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+#[track_caller]
+fn run_moon_command(
+    dir: &Path,
+    args: &[std::ffi::OsString],
+    envs: &[(std::ffi::OsString, std::ffi::OsString)],
+) -> MoonTestOutput {
+    if let Some(output) = support::persistent::maybe_run_moon(dir, args, envs) {
+        return MoonTestOutput {
+            exit_code: output.exit_code,
+            stdout: output.stdout,
+            stderr: output.stderr,
+        };
+    }
+
+    let output = std::process::Command::new(moon_bin())
+        .envs(envs.iter().map(|(name, value)| (name, value)))
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap_or_else(|err| {
+            panic!(
+                "failed to run `moon {}` in {}: {err}",
+                args.iter()
+                    .map(|arg| arg.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                dir.display()
+            )
+        });
+
+    MoonTestOutput {
+        exit_code: output.status.code().unwrap_or(-1),
+        stdout: output.stdout,
+        stderr: output.stderr,
+    }
+}
+
+#[track_caller]
+fn assert_exit_code(
+    output: &MoonTestOutput,
+    expected: i32,
+    dir: &Path,
+    args: &[std::ffi::OsString],
+) {
+    assert_eq!(
+        output.exit_code,
+        expected,
+        "unexpected exit code for `moon {}` in {}\nstdout:\n{}\nstderr:\n{}",
+        args.iter()
+            .map(|arg| arg.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" "),
+        dir.display(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 #[track_caller]
 fn get_stdout_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .envs(envs)
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .to_owned();
+    let dir = dir.as_ref();
+    let args = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_os_string())
+        .collect::<Vec<_>>();
+    let envs = envs
+        .into_iter()
+        .map(|(name, value)| (name.as_ref().to_os_string(), value.as_ref().to_os_string()))
+        .collect::<Vec<_>>();
+    let out = run_moon_command(dir, &args, &envs);
+    assert_exit_code(&out, 0, dir, &args);
 
-    std::str::from_utf8(&out).unwrap().to_string()
+    std::str::from_utf8(&out.stdout).unwrap().to_string()
 }
 
 #[track_caller]
@@ -77,17 +143,19 @@ fn get_stderr_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .envs(envs)
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .success()
-        .get_output()
-        .stderr
-        .to_owned();
+    let dir = dir.as_ref();
+    let args = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_os_string())
+        .collect::<Vec<_>>();
+    let envs = envs
+        .into_iter()
+        .map(|(name, value)| (name.as_ref().to_os_string(), value.as_ref().to_os_string()))
+        .collect::<Vec<_>>();
+    let out = run_moon_command(dir, &args, &envs);
+    assert_exit_code(&out, 0, dir, &args);
 
-    std::str::from_utf8(&out).unwrap().to_string()
+    std::str::from_utf8(&out.stderr).unwrap().to_string()
 }
 
 #[track_caller]
@@ -96,17 +164,30 @@ fn get_err_stdout_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .envs(envs)
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .to_owned();
+    let dir = dir.as_ref();
+    let args = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_os_string())
+        .collect::<Vec<_>>();
+    let envs = envs
+        .into_iter()
+        .map(|(name, value)| (name.as_ref().to_os_string(), value.as_ref().to_os_string()))
+        .collect::<Vec<_>>();
+    let out = run_moon_command(dir, &args, &envs);
+    assert_ne!(
+        out.exit_code,
+        0,
+        "expected failure for `moon {}` in {}\nstdout:\n{}\nstderr:\n{}",
+        args.iter()
+            .map(|arg| arg.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" "),
+        dir.display(),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
 
-    std::str::from_utf8(&out).unwrap().to_string()
+    std::str::from_utf8(&out.stdout).unwrap().to_string()
 }
 
 #[track_caller]
@@ -115,17 +196,30 @@ fn get_err_stderr_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .envs(envs)
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .to_owned();
+    let dir = dir.as_ref();
+    let args = args
+        .into_iter()
+        .map(|arg| arg.as_ref().to_os_string())
+        .collect::<Vec<_>>();
+    let envs = envs
+        .into_iter()
+        .map(|(name, value)| (name.as_ref().to_os_string(), value.as_ref().to_os_string()))
+        .collect::<Vec<_>>();
+    let out = run_moon_command(dir, &args, &envs);
+    assert_ne!(
+        out.exit_code,
+        0,
+        "expected failure for `moon {}` in {}\nstdout:\n{}\nstderr:\n{}",
+        args.iter()
+            .map(|arg| arg.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join(" "),
+        dir.display(),
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
 
-    std::str::from_utf8(&out).unwrap().to_string()
+    std::str::from_utf8(&out.stderr).unwrap().to_string()
 }
 
 #[track_caller]
