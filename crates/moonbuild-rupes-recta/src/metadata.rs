@@ -18,6 +18,7 @@
 
 //! Legacy metadata JSON (`package.json`) conversion for IDE & tools usage.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use indexmap::IndexMap;
@@ -47,15 +48,34 @@ pub fn gen_metadata_json(
     backend: TargetBackend,
     mode: RunMode,
 ) -> ModuleDBJSON {
-    // Get the main module info
-    let &[main_module_id] = ctx.local_modules() else {
-        panic!("Currently only one local module is supported");
+    let (main_module, name, deps, source) = match ctx.local_modules() {
+        &[main_module_id] => {
+            let main_module = ctx.module_rel.mod_name_from_id(main_module_id);
+            let main_module_json = ctx.module_rel.module_info(main_module_id);
+            (
+                Some(main_module.clone()),
+                main_module.name().to_string(),
+                main_module_json.deps.keys().cloned().collect(),
+                main_module_json.source.clone(),
+            )
+        }
+        _ => {
+            // `packages.json` is still a single-module-shaped format, so for
+            // multi-root workspaces we keep package entries accurate and use a
+            // synthetic top-level header.
+            let deps = ctx
+                .local_modules()
+                .iter()
+                .flat_map(|&module_id| ctx.module_rel.module_info(module_id).deps.keys().cloned())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            (None, "workspace".to_string(), deps, None)
+        }
     };
-    let main_module = ctx.module_rel.mod_name_from_id(main_module_id);
-    let main_module_json = ctx.module_rel.module_info(main_module_id);
 
     let layout = LegacyLayoutBuilder::default()
-        .main_module(Some(main_module.clone()))
+        .main_module(main_module)
         .opt_level(opt_level)
         .stdlib_dir(Some(core()))
         .run_mode(mode)
@@ -73,11 +93,11 @@ pub fn gen_metadata_json(
     ModuleDBJSON {
         source_dir: source_dir.to_string_lossy().into_owned(),
         packages,
-        name: main_module.name().to_string(),
-        deps: main_module_json.deps.keys().cloned().collect(),
+        name,
+        deps,
         backend: backend.to_string(),
         opt_level: format!("{:?}", opt_level).to_lowercase(),
-        source: main_module_json.source.clone(),
+        source,
     }
 }
 

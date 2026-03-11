@@ -65,6 +65,10 @@ pub struct ResolveOutput {
 }
 
 impl ResolveOutput {
+    /// Returns the input/root modules of the current resolve.
+    ///
+    /// This is a role in the current resolution graph, not a check of
+    /// `ModuleSourceKind::Local`.
     pub fn local_modules(&self) -> &[ModuleId] {
         self.module_rel.input_module_ids()
     }

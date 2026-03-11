@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
-use anyhow::anyhow;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::common::FileLock;
@@ -222,17 +221,7 @@ fn calc_user_intent(
             .collect::<Vec<_>>()
             .into())
     } else {
-        let &[main_module_id] = resolve_output.local_modules() else {
-            panic!("No multiple main modules are supported");
-        };
-
-        let packages = resolve_output
-            .pkg_dirs
-            .packages_for_module(main_module_id)
-            .ok_or_else(|| anyhow!("Cannot find the local module!"))?;
-        let supported_packages = packages
-            .values()
-            .copied()
+        let supported_packages = rr_build::local_packages(resolve_output)
             .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
             .collect::<Vec<_>>();
         let linkable_pkgs = get_linkable_pkgs(
