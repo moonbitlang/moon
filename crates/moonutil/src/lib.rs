@@ -27,7 +27,6 @@ pub mod cond_expr;
 pub mod demangle;
 pub mod dependency;
 pub mod dirs;
-pub mod doc_test;
 pub mod error_code_docs;
 pub mod features;
 pub mod fuzzy_match;
