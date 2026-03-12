@@ -433,6 +433,34 @@ fn test_module_supported_targets_intersects_package_supported_targets() {
 }
 
 #[test]
+fn test_packages_json_contains_computed_supported_targets() {
+    let dir = TestDir::new("supported_targets_module_intersection.in");
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["check", "--sort-input"])
+        .assert()
+        .success();
+
+    let packages_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
+            .unwrap();
+    let packages = packages_json["packages"].as_array().unwrap();
+
+    let lib = packages.iter().find(|pkg| pkg["rel"] == "lib").unwrap();
+    assert_eq!(
+        lib["supported-targets"],
+        serde_json::json!(["WasmGC", "Native", "LLVM"])
+    );
+
+    let main = packages.iter().find(|pkg| pkg["rel"] == "main").unwrap();
+    assert_eq!(
+        main["supported-targets"],
+        serde_json::json!(["Wasm", "WasmGC", "Native", "LLVM"])
+    );
+}
+
+#[test]
 fn test_supported_targets_transitive_mismatch_fails_fast() {
     let dir = TestDir::new("supported_targets_transitive_mismatch.in");
 
