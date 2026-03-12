@@ -42,7 +42,7 @@ pub struct PrebuildOutput {
 }
 
 /// A module's prebuild output
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ModulePrebuildOutput {
     /// Conditions that might trigger rerun. Currently have no effect (always rerun).
     pub rerun_if: Vec<RerunIfKind>,

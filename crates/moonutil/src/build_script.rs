@@ -23,14 +23,13 @@ use serde::{Deserialize, Serialize};
 use crate::common::TargetBackend;
 
 /// Represents the environment a build script receives
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct BuildScriptEnvironment {
     // pub build: BuildInfo,
     pub env: HashMap<String, String>,
     pub paths: Paths,
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct BuildInfo {
     // /// The profile we're building with, e.g. `debug`, `release`.
     // pub profile: String,
@@ -40,7 +39,6 @@ pub struct BuildInfo {
     pub target: TargetInfo,
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct TargetInfo {
     // this is mostly useless now unless we're using the native backends, but
     // this will buy us some wiggle room in the future when very cross-y cross
@@ -67,7 +65,7 @@ pub struct TargetInfo {
     pub triplet: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct Paths {
     /// The directory containing the current module, i.e. the parent directory
     /// of `moon.mod.json`.
@@ -77,7 +75,7 @@ pub struct Paths {
     pub out_dir: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct BuildScriptOutput {
     /// Rerun conditions. **DOES NOT WORK NOW**
     #[serde(default)]
@@ -93,7 +91,7 @@ pub struct BuildScriptOutput {
     pub link_configs: Vec<LinkConfig>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub enum RerunIfKind {
     /// Rerun if the file at the given path changes.
     File(String),
@@ -103,7 +101,7 @@ pub enum RerunIfKind {
     Env(String),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct LinkConfig {
     pub package: String,
     // TODO: these are merely a POC, more polishing needed

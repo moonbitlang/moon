@@ -41,7 +41,7 @@ use crate::{
 use super::UniversalFlags;
 
 /// Generate public interface (`.mbti`) files for all packages in the module
-#[derive(Debug, Clone, clap::Parser)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct InfoSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,

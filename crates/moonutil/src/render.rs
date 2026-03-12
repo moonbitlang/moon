@@ -114,7 +114,7 @@ impl<'de> Deserialize<'de> for Loc {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Position {
     pub line: usize,
     pub col: usize,

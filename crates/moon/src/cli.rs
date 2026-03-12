@@ -276,7 +276,7 @@ impl BuildFlags {
 }
 
 /// The style to render diagnostics in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutputStyle {
     /// The human-readable raw format directly from `moonc`
     Raw,

@@ -27,7 +27,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ModuleDBJSON {
     pub source_dir: String,
     pub name: String,

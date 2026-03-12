@@ -107,13 +107,13 @@ pub fn is_moon_pkg(filename: &str) -> bool {
     filename == MOON_PKG || filename == MOON_PKG_JSON
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct PatchJSON {
     pub drops: Vec<String>,
     pub patches: Vec<PatchItem>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct PatchItem {
     pub name: String,
     pub content: String,
@@ -269,7 +269,7 @@ pub fn read_package_desc_file_in_dir_with_supported_targets_decl(
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Default)]
+#[derive(Debug, Clone, Copy, ValueEnum, Default)]
 #[repr(u8)]
 pub enum OutputFormat {
     #[default]
@@ -292,12 +292,9 @@ impl OutputFormat {
     }
 }
 
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Default,
-)]
+#[derive(Debug, Copy, Clone, PartialEq, ValueEnum)]
 pub enum SurfaceTarget {
     Wasm,
-    #[default]
     WasmGC,
     Js,
     Native,
@@ -462,7 +459,7 @@ impl TargetBackend {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct BuildPackageFlags {
     pub debug_flag: bool,
     pub strip_flag: bool,
@@ -492,7 +489,13 @@ impl BuildPackageFlags {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+impl Default for BuildPackageFlags {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct LinkCoreFlags {
     pub debug_flag: bool,
     pub source_map: bool,
@@ -508,6 +511,12 @@ impl LinkCoreFlags {
             output_format: OutputFormat::Wasm,
             target_backend: TargetBackend::default(),
         }
+    }
+}
+
+impl Default for LinkCoreFlags {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -535,14 +544,14 @@ pub struct MoonbuildOpt {
     pub render_no_loc: DiagnosticLevel,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct BuildOpt {
     pub install_path: Option<PathBuf>,
 
     pub filter_package: Option<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CheckOpt {
     pub package_name_filter: Option<String>,
     pub patch_file: Option<PathBuf>,
@@ -550,7 +559,7 @@ pub struct CheckOpt {
     pub explain: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub struct TestIndexRange {
     pub start: u32,
     pub end: u32,
@@ -573,7 +582,7 @@ impl TestIndexRange {
     }
 }
 
-#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, Clone)]
 pub enum TestIndexRangeParseError {
     #[error("index is empty")]
     Empty,
@@ -630,7 +639,7 @@ fn parse_index_bound(
         .map_err(|_| TestIndexRangeParseError::InvalidNumber(s.to_string()))
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TestOpt {
     pub filter_package: Option<HashSet<String>>,
     pub filter_file: Option<String>,
@@ -664,7 +673,7 @@ impl BlockStyle {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct FmtOpt {
     pub check: bool,
     pub block_style: BlockStyle,
@@ -757,10 +766,9 @@ impl CargoPathExt for Path {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Default)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum RunMode {
     Bench,
-    #[default]
     Build,
     Check,
     Run,
@@ -989,7 +997,7 @@ pub enum GeneratedTestDriver {
     BlackboxTest(PathBuf),
 }
 
-#[derive(Debug, ValueEnum, Clone, Hash, Eq, PartialEq, Copy, Ord, PartialOrd)]
+#[derive(Debug, ValueEnum, Clone, Copy)]
 pub enum DriverKind {
     Internal,
     Whitebox,
@@ -1007,7 +1015,7 @@ impl std::fmt::Display for DriverKind {
     }
 }
 
-#[derive(Debug, Default, ValueEnum, Clone, Hash, Eq, PartialEq, Copy, Ord, PartialOrd)]
+#[derive(Debug, Default, ValueEnum, Clone, PartialEq, Copy, PartialOrd)]
 pub enum DiagnosticLevel {
     Info,
     #[value(alias = "warning")]
@@ -1032,7 +1040,7 @@ pub type FileName = String;
 pub type TestName = String;
 pub type TestBlockIndex = u32;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct MbtTestInfo {
     /// The index of the test block in the file, starting from 0.
     pub index: TestBlockIndex,
@@ -1048,7 +1056,7 @@ pub struct MbtTestInfo {
     pub attrs: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct MooncGenTestInfo {
     pub no_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,
     pub with_args_tests: IndexMap<FileName, Vec<MbtTestInfo>>,

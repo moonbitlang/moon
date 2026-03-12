@@ -33,7 +33,7 @@ static DRY_RUN_TEST_OUTPUT: LazyLock<Option<String>> =
     LazyLock::new(|| std::env::var(ENV_VAR).ok());
 
 /// The in-memory format for dumping a `n2` build graph
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug)]
 pub struct BuildGraphDump {
     pub nodes: Vec<BuildNode>,
 }

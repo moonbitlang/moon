@@ -50,7 +50,7 @@ impl PackagePatch {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 #[allow(dead_code)]
 pub struct BufferExpect {
     range: line_index::TextRange,
@@ -82,15 +82,14 @@ pub const FAILED: &str = "FAILED";
 pub const EXPECT_FAILED: &str = "@EXPECT_FAILED ";
 pub const SNAPSHOT_TESTING: &str = "@SNAPSHOT_TESTING ";
 
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TargetKind {
-    #[default]
     Trivial,
     Pipe,
     Call,
 }
 
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Target {
     left_border_line_start: u32,
     left_border_col_start: u32,
@@ -106,7 +105,7 @@ pub struct Target {
     mode: Option<String>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 pub struct LocationJson {
     pkg: String,
     filename: String,
@@ -116,7 +115,7 @@ pub struct LocationJson {
     end_column: u32,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 pub struct ExpectFailedRaw {
     pub loc: LocationJson,
     pub args_loc: Vec<Option<LocationJson>>,
@@ -178,7 +177,7 @@ fn expect_failed_to_snapshot_result(
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug)]
 pub struct SnapshotResult {
     pub loc: LocationJson,
     pub args_loc: Vec<Option<LocationJson>>,

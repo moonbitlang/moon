@@ -47,7 +47,7 @@ pub(super) struct PackageSpec {
 }
 
 /// How to filter packages for installation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 enum MatchKind {
     /// Match only the selected target.
     Exact,

@@ -119,10 +119,9 @@ pub struct BuildPlan {
 /// A more generic solution might be involving creating associated types for
 /// each node kind, specifying their output file list and order, and then
 /// use a bitmap or index list to specify which files are being depended on.
-#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub enum FileDependencyKind {
     /// Depending on all files available
-    #[default]
     AllFiles,
 
     /// Depending on specific files of a `BuildCore` node.

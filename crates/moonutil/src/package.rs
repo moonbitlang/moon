@@ -31,7 +31,7 @@ use crate::{
     cond_expr::{CompileCondition, CondExprs},
 };
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct PackageJSON {
     pub is_main: bool,
@@ -52,21 +52,21 @@ pub struct PackageJSON {
     pub artifact: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AliasJSON {
     pub path: String,
     pub alias: String,
     pub fspath: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
 pub struct MoonPkgFormatterJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<std::collections::HashSet<String>>")]
     pub ignore: Option<IndexSet<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MoonPkgFormatter {
     pub ignore: IndexSet<String>,
 }
@@ -118,9 +118,8 @@ pub enum SupportedTargetsConfig {
     LegacyArray(Vec<String>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SupportedTargetsDeclKind {
-    #[default]
     Omitted,
     Expr,
     LegacyArray,
@@ -418,7 +417,7 @@ pub struct WasmLinkConfig {
 /// Controls how C stub files and main executables are compiled and linked.
 /// The build system uses these flags differently depending on compilation mode:
 /// normal mode creates static libraries, while TCC mode creates dynamic libraries.
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct NativeLinkConfig {
     // FIXME: We have no way to force link a native library when not `is_main`
@@ -495,9 +494,7 @@ pub struct JsLinkConfig {
     pub format: Option<JsFormat>,
 }
 
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema,
-)]
+#[derive(Debug, Copy, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[repr(u8)]
 pub enum JsFormat {
     #[default]
@@ -519,12 +516,9 @@ impl JsFormat {
     }
 }
 
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema,
-)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum RegexBackend {
-    #[default]
     Auto,
     Block,
     Table,
@@ -542,7 +536,7 @@ impl RegexBackend {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct Link {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wasm: Option<WasmLinkConfig>,
