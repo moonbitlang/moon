@@ -642,7 +642,8 @@ mod tests {
 
     fn module(name: &str) -> ModuleSource {
         ModuleSource::local_path(
-            name.parse::<ModuleName>().unwrap(),
+            name.parse::<ModuleName>()
+                .expect("test module name should parse"),
             PathBuf::from(format!("/tmp/{name}")),
             DEFAULT_VERSION.clone(),
         )
@@ -659,10 +660,20 @@ mod tests {
             .opt_level(OptLevel::Debug)
             .run_mode(RunMode::Build)
             .build()
-            .unwrap();
+            .expect("test layout should build");
 
-        let main_pkg = PackageFQN::new(main_module, "lib".parse::<PackagePath>().unwrap());
-        let dep_pkg = PackageFQN::new(dep_module, "lib".parse::<PackagePath>().unwrap());
+        let main_pkg = PackageFQN::new(
+            main_module,
+            "lib"
+                .parse::<PackagePath>()
+                .expect("test package path should parse"),
+        );
+        let dep_pkg = PackageFQN::new(
+            dep_module,
+            "lib"
+                .parse::<PackagePath>()
+                .expect("test package path should parse"),
+        );
 
         assert_eq!(
             layout.package_dir(&main_pkg, TargetBackend::WasmGC),
@@ -685,10 +696,20 @@ mod tests {
             .opt_level(OptLevel::Debug)
             .run_mode(RunMode::Build)
             .build()
-            .unwrap();
+            .expect("test layout should build");
 
-        let root_pkg = PackageFQN::new(root_module, "lib".parse::<PackagePath>().unwrap());
-        let dep_pkg = PackageFQN::new(dep_module, "lib".parse::<PackagePath>().unwrap());
+        let root_pkg = PackageFQN::new(
+            root_module,
+            "lib"
+                .parse::<PackagePath>()
+                .expect("test package path should parse"),
+        );
+        let dep_pkg = PackageFQN::new(
+            dep_module,
+            "lib"
+                .parse::<PackagePath>()
+                .expect("test package path should parse"),
+        );
 
         assert_eq!(
             layout.package_dir(&root_pkg, TargetBackend::WasmGC),
