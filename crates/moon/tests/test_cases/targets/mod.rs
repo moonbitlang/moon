@@ -112,7 +112,7 @@ fn test_many_targets() {
             "--sort-input",
             "-p",
             "username/hello/lib",
-            "-f",
+            "--file",
             "hello.mbt",
             "-i",
             "0",
