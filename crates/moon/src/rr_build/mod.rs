@@ -223,6 +223,10 @@ pub(crate) fn local_packages(
 }
 
 fn workspace_preferred_target(resolve_output: &ResolveOutput) -> Option<TargetBackend> {
+    if let Some(preferred_target) = resolve_output.workspace_preferred_target {
+        return Some(preferred_target);
+    }
+
     let preferred = resolve_output
         .local_modules()
         .iter()
@@ -622,12 +626,12 @@ pub fn plan_build_from_resolved<'a>(
         &[module_id] => Some(resolve_output.module_rel.module_info(module_id)),
         _ => None,
     };
-    let preferred_backend = workspace_preferred_target(&resolve_output);
-    info!("Preferred backend: {:?}", preferred_backend);
+    let preferred_target = workspace_preferred_target(&resolve_output);
+    info!("Preferred backend: {:?}", preferred_target);
 
     let target_backend = preconfig
         .target_backend
-        .or(preferred_backend)
+        .or(preferred_target)
         .unwrap_or_default();
 
     // TODO: remove this once LLVM backend is well supported
