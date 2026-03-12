@@ -26,7 +26,6 @@ use cli::MoonBuildSubcommands;
 mod cli;
 mod filter;
 mod panic;
-mod perf;
 pub mod rr_build;
 mod run;
 mod watch;
@@ -103,49 +102,10 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     Box::new(chrome_guard)
 }
 
-fn subcommand_name(subcommand: &MoonBuildSubcommands) -> &'static str {
-    use MoonBuildSubcommands::*;
-
-    match subcommand {
-        Add(_) => "add",
-        Bench(_) => "bench",
-        Build(_) => "build",
-        Bundle(_) => "bundle",
-        Check(_) => "check",
-        Clean(_) => "clean",
-        Coverage(_) => "coverage",
-        Doc(_) => "doc",
-        Fetch(_) => "fetch",
-        Fmt(_) => "fmt",
-        GenerateBuildMatrix(_) => "generate-build-matrix",
-        GenerateTestDriver(_) => "generate-test-driver",
-        Info(_) => "info",
-        Install(_) => "install",
-        Login(_) => "login",
-        New(_) => "new",
-        Publish(_) => "publish",
-        Package(_) => "package",
-        Query(_) => "query",
-        Register(_) => "register",
-        Remove(_) => "remove",
-        Run(_) => "run",
-        Test(_) => "test",
-        Tree(_) => "tree",
-        Update(_) => "update",
-        Upgrade(_) => "upgrade",
-        ShellCompletion(_) => "shell-completion",
-        Version(_) => "version",
-        Tool(_) => "tool",
-        External(_) => "external",
-    }
-}
-
 pub fn main() {
     panic::setup_panic_hook();
-    let perf = perf::ChildPerf::start();
 
     let cli = cli::MoonBuildCli::parse();
-    let command_name = subcommand_name(&cli.subcommand);
     let flags = cli.flags;
 
     if let Some(dir) = &flags.source_tgt_dir.cwd {
@@ -167,8 +127,6 @@ pub fn main() {
     flags.check_deprecations();
 
     use MoonBuildSubcommands::*;
-    let setup_duration = perf.elapsed();
-    let dispatch_start = std::time::Instant::now();
     let res = match cli.subcommand {
         Add(a) => cli::add_cli(flags, a),
         Bench(b) => cli::run_bench(flags, b),
@@ -201,17 +159,14 @@ pub fn main() {
         Tool(v) => cli::run_tool(&flags, v),
         External(args) => cli::run_external(args),
     };
-    let command_duration = dispatch_start.elapsed();
 
     drop(_trace_guard);
 
-    let exit_code = match res {
-        Ok(code) => code,
+    match res {
+        Ok(code) => std::process::exit(code),
         Err(e) => {
             eprintln!("{}: {:?}", "error".red().bold(), e);
-            -1
+            std::process::exit(-1);
         }
-    };
-    perf.write_summary(command_name, setup_duration, command_duration);
-    std::process::exit(exit_code)
+    }
 }

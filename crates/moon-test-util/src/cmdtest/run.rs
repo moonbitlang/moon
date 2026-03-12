@@ -19,10 +19,37 @@
 use std::path::Path;
 
 use crate::cmdtest::exec::execute_command;
-use crate::test_dir::copy_tree;
 use snapbox::assert::Action;
 
 use super::parse;
+
+fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
+    if src.is_dir() {
+        if !dest.exists() {
+            std::fs::create_dir_all(dest)?;
+        }
+        let mut builder = ignore::WalkBuilder::new(src);
+        builder.hidden(false);
+        builder.git_global(false);
+        for entry in builder.build() {
+            let entry = entry?;
+            let path = entry.path();
+            let relative_path = path.strip_prefix(src)?;
+            let dest_path = dest.join(relative_path);
+
+            if path.is_dir() {
+                if !dest_path.exists() {
+                    std::fs::create_dir_all(dest_path)?;
+                }
+            } else {
+                std::fs::copy(path, dest_path)?;
+            }
+        }
+    } else {
+        std::fs::copy(src, dest)?;
+    }
+    Ok(())
+}
 
 pub fn t(file: &Path, moon_bin: &Path, update: bool) -> i32 {
     let p = dunce::canonicalize(file).unwrap();
@@ -36,12 +63,7 @@ pub fn t(file: &Path, moon_bin: &Path, update: bool) -> i32 {
         .peek()
         .unwrap()
         .as_os_str();
-    copy_tree(
-        file.parent().unwrap(),
-        &tmpdir.path().join(folder_name),
-        false,
-    )
-    .unwrap();
+    copy(file.parent().unwrap(), &tmpdir.path().join(folder_name)).unwrap();
     let workdir = dunce::canonicalize(tmpdir.path().join(folder_name)).unwrap();
 
     let items = parse::parse(file);
