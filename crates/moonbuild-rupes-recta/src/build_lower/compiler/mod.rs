@@ -50,7 +50,7 @@ pub(super) use self::mooninfo::*;
 /// Note that rendering of diagnostics is done in `moon`. `moonc` never directly
 /// renders diagnostics to the user.
 #[allow(unused)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub(super) enum ErrorFormat {
     /// A semi-structured format with only the location and message.
     Regular,

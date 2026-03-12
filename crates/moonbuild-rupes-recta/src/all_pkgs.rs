@@ -28,13 +28,13 @@
 //! analysis.
 
 use moonutil::common::TargetBackend;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::{ResolveOutput, model::TargetKind};
 
 pub const ALL_PKGS_JSON: &str = "all_pkgs.json";
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize)]
 struct PackageArtifactJSON {
     root: String,
     rel: String,
@@ -44,7 +44,7 @@ struct PackageArtifactJSON {
 /// The build system generates a `all_pkgs.json` file in the target directory
 /// which contains all the packages with their `mi`` files (the artifact). This
 /// is used by `moonc` to analyze the indirect dependency.
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize)]
 pub struct AllPkgsJSON {
     packages: Vec<PackageArtifactJSON>,
 }

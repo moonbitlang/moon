@@ -20,7 +20,7 @@ use moonutil::{cli::UniversalFlags, common::DEP_PATH};
 
 use super::BuildFlags;
 
-#[derive(Debug, clap::Parser, Clone)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct QuerySubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,

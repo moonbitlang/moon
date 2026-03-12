@@ -110,7 +110,7 @@ impl CondExpr {
 }
 
 // in packages.json, for ide usage
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileCondition {
     pub backend: Vec<TargetBackend>,
     pub optlevel: Vec<OptLevel>,

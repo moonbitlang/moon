@@ -32,7 +32,7 @@ use crate::rr_build::{self, BuildConfig};
 use super::BuildFlags;
 
 /// Bundle the module
-#[derive(Debug, clap::Parser, Clone)]
+#[derive(Debug, clap::Parser)]
 #[clap(hide(true))]
 pub(crate) struct BundleSubcommand {
     #[clap(flatten)]

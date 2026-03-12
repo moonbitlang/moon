@@ -40,7 +40,7 @@ use crate::watch::{WatchOutput, watching};
 use super::BuildFlags;
 
 /// Check the current package, but don't build object files
-#[derive(Debug, clap::Parser, Clone)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,

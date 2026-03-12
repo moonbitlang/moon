@@ -38,7 +38,7 @@ use crate::run::default_rt;
 use super::{BuildFlags, UniversalFlags};
 
 /// Run a main package
-#[derive(Debug, clap::Parser, Clone)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct RunSubcommand {
     /// The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
     pub package_or_mbt_file: String,

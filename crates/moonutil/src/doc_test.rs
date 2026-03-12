@@ -26,7 +26,6 @@ pub struct DocTest {
     pub line_count: usize,
 }
 
-#[derive(Default)]
 pub struct DocTestExtractor {}
 
 impl DocTestExtractor {}

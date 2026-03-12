@@ -137,7 +137,7 @@ pub fn write_package_fqn_to<W: std::fmt::Write>(
 
 /// A wrapper around [`PackageFQN`] that displays the module source and version
 /// information instead of just the module name when formatted.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub struct PackageFQNWithSource {
     fqn: PackageFQN,
 }
@@ -174,7 +174,7 @@ impl From<PackageFQN> for PackageFQNWithSource {
 }
 
 /// An optional wrapper around [`PackageFQNWithSource`] that displays "unknown" when None.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub struct OptionalPackageFQNWithSource {
     inner: Option<PackageFQNWithSource>,
 }
