@@ -51,7 +51,7 @@ pub(crate) fn run_whoami(_cli: &UniversalFlags, _cmd: WhoamiSubcommand) -> anyho
     } else if let Some(username) = credentials.username.filter(|u| !u.trim().is_empty()) {
         println!("Logged in as {username}");
     } else {
-        println!("Logged in (username unavailable)");
+        println!("Logged in, but username is unavailable. Please run `moon login` again.");
     }
 
     Ok(0)
