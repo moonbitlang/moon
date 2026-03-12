@@ -21,6 +21,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon tree`↴](#moon-tree)
 * [`moon fetch`↴](#moon-fetch)
 * [`moon login`↴](#moon-login)
+* [`moon whoami`↴](#moon-whoami)
 * [`moon register`↴](#moon-register)
 * [`moon publish`↴](#moon-publish)
 * [`moon package`↴](#moon-package)
@@ -56,6 +57,7 @@ This document contains the help content for the `moon` command-line program.
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
 * `login` — Log in to your account
+* `whoami` — Show login status and username
 * `register` — Register an account at mooncakes.io
 * `publish` — Publish the current module
 * `package` — Package the current module
@@ -484,6 +486,14 @@ Note: This is an unstable command and may change or be removed in future version
 Log in to your account
 
 **Usage:** `moon login`
+
+
+
+## `moon whoami`
+
+Show login status and username
+
+**Usage:** `moon whoami`
 
 
 

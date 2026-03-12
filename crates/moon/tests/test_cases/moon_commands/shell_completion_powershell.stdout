@@ -53,6 +53,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('tree', 'tree', [CompletionResultType]::ParameterValue, 'Display the dependency tree')
             [CompletionResult]::new('fetch', 'fetch', [CompletionResultType]::ParameterValue, 'Download a package to .repos directory (unstable)')
             [CompletionResult]::new('login', 'login', [CompletionResultType]::ParameterValue, 'Log in to your account')
+            [CompletionResult]::new('whoami', 'whoami', [CompletionResultType]::ParameterValue, 'Show login status and username')
             [CompletionResult]::new('register', 'register', [CompletionResultType]::ParameterValue, 'Register an account at mooncakes.io')
             [CompletionResult]::new('publish', 'publish', [CompletionResultType]::ParameterValue, 'Publish the current module')
             [CompletionResult]::new('package', 'package', [CompletionResultType]::ParameterValue, 'Package the current module')
@@ -525,6 +526,20 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;login' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;whoami' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -1015,6 +1030,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('tree', 'tree', [CompletionResultType]::ParameterValue, 'Display the dependency tree')
             [CompletionResult]::new('fetch', 'fetch', [CompletionResultType]::ParameterValue, 'Download a package to .repos directory (unstable)')
             [CompletionResult]::new('login', 'login', [CompletionResultType]::ParameterValue, 'Log in to your account')
+            [CompletionResult]::new('whoami', 'whoami', [CompletionResultType]::ParameterValue, 'Show login status and username')
             [CompletionResult]::new('register', 'register', [CompletionResultType]::ParameterValue, 'Register an account at mooncakes.io')
             [CompletionResult]::new('publish', 'publish', [CompletionResultType]::ParameterValue, 'Publish the current module')
             [CompletionResult]::new('package', 'package', [CompletionResultType]::ParameterValue, 'Package the current module')
@@ -1082,6 +1098,9 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;help;login' {
+            break
+        }
+        'moon;help;whoami' {
             break
         }
         'moon;help;register' {

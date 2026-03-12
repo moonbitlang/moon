@@ -143,6 +143,7 @@ pub fn main() {
         Info(i) => cli::run_info(flags, i),
         Install(i) => cli::install_cli(flags, i),
         Login(l) => cli::mooncake_adapter::login_cli(flags, l),
+        Whoami(w) => cli::run_whoami(&flags, w),
         New(n) => cli::run_new(&flags, n),
         Publish(p) => cli::mooncake_adapter::publish_cli(flags, p),
         Package(p) => cli::mooncake_adapter::package_cli(flags, p),

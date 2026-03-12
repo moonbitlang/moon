@@ -50,6 +50,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand tree 'Display the dependency tree'
             cand fetch 'Download a package to .repos directory (unstable)'
             cand login 'Log in to your account'
+            cand whoami 'Show login status and username'
             cand register 'Register an account at mooncakes.io'
             cand publish 'Publish the current module'
             cand package 'Package the current module'
@@ -516,6 +517,19 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
         }
+        &'moon;whoami'= {
+            cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
         &'moon;register'= {
             cand --manifest-path 'Path to `moon.mod.json` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
@@ -947,6 +961,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand tree 'Display the dependency tree'
             cand fetch 'Download a package to .repos directory (unstable)'
             cand login 'Log in to your account'
+            cand whoami 'Show login status and username'
             cand register 'Register an account at mooncakes.io'
             cand publish 'Publish the current module'
             cand package 'Package the current module'
@@ -996,6 +1011,8 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;help;fetch'= {
         }
         &'moon;help;login'= {
+        }
+        &'moon;help;whoami'= {
         }
         &'moon;help;register'= {
         }
