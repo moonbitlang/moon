@@ -24,7 +24,7 @@ use moonutil::common::read_module_desc_file_in_dir;
 use moonutil::module::MoonMod;
 use moonutil::moon_dir;
 use moonutil::mooncakes::ModuleId;
-use moonutil::mooncakes::result::ResolvedEnv;
+use moonutil::mooncakes::result::{ResolvedEnv, ResolvedModule, ResolvedRootModules};
 use moonutil::mooncakes::{ModuleName, ModuleSource, result};
 use semver::{Version, VersionReq};
 use thiserror::Error;
@@ -96,12 +96,7 @@ pub(crate) trait Resolver {
     ///
     /// If the dependencies cannot be resolved, this function should return
     /// `false`. The errors should be emitted in `env`.
-    fn resolve(
-        &mut self,
-        env: &mut ResolverEnv,
-        res: &mut ResolvedEnv,
-        root: &[(ModuleSource, Arc<MoonMod>)],
-    ) -> bool;
+    fn resolve(&mut self, env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool;
 }
 
 /// Goes through the resolved environment and checks for any duplicate module names.
@@ -248,17 +243,17 @@ pub(crate) struct ResolveConfig {
 pub(crate) fn resolve_with_default_env(
     config: &ResolveConfig,
     resolver: &mut dyn Resolver,
-    root: &[(ModuleSource, Arc<MoonMod>)],
+    root: ResolvedRootModules,
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
     let mut env = env::ResolverEnv::new(config.registry.as_ref());
-    let mut res = ResolvedEnv::new();
+    let mut res = ResolvedEnv::from_root_modules(root);
 
     if config.inject_std {
         inject_std(&mut res)
             .map_err(|e| ResolverErrors(vec![ResolverError::CannotInjectCore(e)]))?;
     }
 
-    let status = resolver.resolve(&mut env, &mut res, root);
+    let status = resolver.resolve(&mut env, &mut res);
     if env.any_errors() {
         Err(ResolverErrors(env.into_errors()))
     } else {
@@ -286,7 +281,7 @@ fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
 
 pub(crate) fn resolve_with_default_env_and_resolver(
     config: &ResolveConfig,
-    root: &[(ModuleSource, Arc<MoonMod>)],
+    root: ResolvedRootModules,
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
     let mut resolver = MvsSolver;
     resolve_with_default_env(config, &mut resolver, root)
@@ -297,5 +292,6 @@ pub(crate) fn resolve_single_root_with_defaults(
     root_source: ModuleSource,
     root_module: Arc<MoonMod>,
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
-    resolve_with_default_env_and_resolver(config, &[(root_source, root_module)])
+    let (root, _) = ResolvedModule::only_one_module(root_source, root_module);
+    resolve_with_default_env_and_resolver(config, root)
 }

@@ -46,13 +46,8 @@ type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 pub(crate) struct MvsSolver;
 
 impl Resolver for MvsSolver {
-    fn resolve(
-        &mut self,
-        env: &mut ResolverEnv,
-        res: &mut ResolvedEnv,
-        root: &[(ModuleSource, Arc<MoonMod>)],
-    ) -> bool {
-        mvs_resolve(env, res, root)
+    fn resolve(&mut self, env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
+        mvs_resolve(env, res)
     }
 }
 
@@ -208,18 +203,21 @@ fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
     }
 }
 
-fn mvs_resolve(
-    env: &mut ResolverEnv,
-    res: &mut ResolvedEnv,
-    root: &[(ModuleSource, Arc<MoonMod>)],
-) -> bool {
-    let workspace_roots = root
+fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
+    let workspace_roots = res
+        .input_module_ids()
         .iter()
-        .map(|(source, module)| (source.name().clone(), (source.clone(), Arc::clone(module))))
+        .map(|&id| {
+            (
+                res.mod_name_from_id(id).name().clone(),
+                (res.mod_name_from_id(id).clone(), Arc::clone(res.module_info(id))),
+            )
+        })
         .collect::<WorkspaceRoots>();
-    let root_sources = root
+    let root_sources = res
+        .input_module_ids()
         .iter()
-        .map(|(source, _)| source.clone())
+        .map(|&id| res.mod_name_from_id(id).clone())
         .collect::<HashSet<_>>();
 
     // Ordered set used to ensure they are iterated in order later.
@@ -231,11 +229,16 @@ fn mvs_resolve(
 
     log::debug!("Begin MVS solving");
 
-    working_list.extend_from_slice(root);
+    working_list.extend(res.input_module_ids().iter().map(|&id| {
+        (
+            res.mod_name_from_id(id).clone(),
+            Arc::clone(res.module_info(id)),
+        )
+    }));
     if log::log_enabled!(log::Level::Debug) {
-        for (source, _) in root {
-            log::debug!("MVS root item: {}", source);
-            visited.insert(source.clone());
+        for &id in res.input_module_ids() {
+            log::debug!("MVS root item: {}", res.mod_name_from_id(id));
+            visited.insert(res.mod_name_from_id(id).clone());
         }
     }
 
@@ -327,20 +330,23 @@ fn mvs_resolve(
     log::debug!("Building result dependency graph");
 
     // And finally, build the dependency graph
-    let mut working_list = vec![];
-    // id is inserted on first see;
-    // may contain items still in working list instead of fully resolved
-    let mut visited = HashMap::new();
-
-    log::debug!("-- Inserting root modules");
-    // Insert ID for root modules
-    for (ms, module) in root {
-        let id = res.add_module(ms.clone(), Arc::clone(module));
-        log::debug!("---- {} -> {:?}", ms, id);
-        working_list.push((Arc::clone(module), ms.clone()));
-        visited.insert(ms, id);
-        res.push_root_module(id);
-    }
+    log::debug!("-- Reusing root modules");
+    let mut working_list = res
+        .input_module_ids()
+        .iter()
+        .map(|&id| {
+            log::debug!("---- {} -> {:?}", res.mod_name_from_id(id), id);
+            (
+                Arc::clone(res.module_info(id)),
+                res.mod_name_from_id(id).clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut visited = res
+        .input_module_ids()
+        .iter()
+        .map(|&id| (res.mod_name_from_id(id).clone(), id))
+        .collect::<HashMap<_, _>>();
 
     log::debug!("-- Inserting dependencies");
     while let Some((module, module_source)) = working_list.pop() {
@@ -384,7 +390,7 @@ fn mvs_resolve(
                 let dep_module = env.get(resolved).unwrap();
                 let id = res.add_module(resolved.clone(), Arc::clone(&dep_module));
                 log::debug!("---- {} -> {:?}", resolved, id);
-                visited.insert(resolved, id);
+                visited.insert(resolved.clone(), id);
                 working_list.push((dep_module, resolved.clone()));
                 id
             };
@@ -507,7 +513,7 @@ fn resolve_pkg(
 mod test {
     use expect_test::expect;
     use moonutil::mooncakes::ModuleId;
-    use moonutil::mooncakes::result::DependencyEdge;
+    use moonutil::mooncakes::result::{DependencyEdge, ResolvedModule, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
     use semver::VersionReq;
     use test_log::test;
@@ -549,10 +555,10 @@ mod test {
         let version: Version = "0.1.0".parse().unwrap();
         let root_ms = ModuleSource::from_version(module_name.clone(), version.clone());
         let root = registry.get_module_version(&module_name, &version).unwrap();
-        let roots = vec![(root_ms.clone(), root)];
+        let (roots, _) = ResolvedModule::only_one_module(root_ms.clone(), root);
         let mut env = ResolverEnv::new(registry.as_ref());
-        let mut result_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -732,19 +738,21 @@ mod test {
         )
     }
 
-    fn create_mock_root(root: impl Into<Arc<MoonMod>>) -> Vec<(ModuleSource, Arc<MoonMod>)> {
+    fn create_mock_root(root: impl Into<Arc<MoonMod>>) -> ResolvedRootModules {
         let root = root.into();
         let root_src = create_mock_local_source(&root);
-        vec![(root_src, root)]
+        ResolvedModule::only_one_module(root_src, root).0
     }
 
     fn create_mock_workspace_roots<const N: usize>(
         roots: [(&str, Arc<MoonMod>); N],
-    ) -> Vec<(ModuleSource, Arc<MoonMod>)> {
-        roots
-            .into_iter()
-            .map(|(path, root)| (create_mock_workspace_source(&root, path), root))
-            .collect()
+    ) -> ResolvedRootModules {
+        let mut resolved_roots = ResolvedRootModules::with_key();
+        for (path, root) in roots {
+            let source = create_mock_workspace_source(&root, path);
+            resolved_roots.insert(ResolvedModule::new(source, root));
+        }
+        resolved_roots
     }
 
     #[test]
@@ -754,8 +762,8 @@ mod test {
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.1")]);
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
         assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.1");
@@ -787,8 +795,8 @@ mod test {
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/regular", "0.1.0")]);
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -812,8 +820,8 @@ mod test {
             [("dep/one", "0.1.1"), ("dep/two", "0.1.1")],
         );
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -835,8 +843,8 @@ mod test {
             [("dep/one", "0.2.1"), ("dep/two", "0.1.1")],
         );
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -859,8 +867,8 @@ mod test {
             [("dep/one", "0.1.1"), ("dep/nonexistant", "0.1.1")],
         );
         let roots = create_mock_root(root);
-        let mut res_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut res_env, &roots);
+        let mut res_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut res_env);
         assert!(!status);
     }
 
@@ -871,8 +879,8 @@ mod test {
         let mut resolver = MvsSolver;
         let root = create_mock_module("root/module", "0.1.0", [("dep/three", "0.2.0")]);
         let roots = create_mock_root(root);
-        let mut result_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -901,8 +909,8 @@ mod test {
             ("/workspace/app", Arc::clone(&app)),
             ("/workspace/shared", Arc::clone(&shared)),
         ]);
-        let mut result_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
@@ -930,8 +938,8 @@ mod test {
             ("/workspace/app", Arc::clone(&app)),
             ("/workspace/shared", Arc::clone(&shared)),
         ]);
-        let mut result_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
@@ -945,8 +953,8 @@ mod test {
         let mut resolver = MvsSolver;
         let mut env = ResolverEnv::new(registry);
         let roots = create_mock_root(root);
-        let mut res_env = ResolvedEnv::new();
-        let status = resolver.resolve(&mut env, &mut res_env, &roots);
+        let mut res_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut res_env);
         if status {
             res_env.all_modules().cloned().collect::<Vec<_>>()
         } else {

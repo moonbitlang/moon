@@ -35,10 +35,14 @@ use std::{collections::HashSet, path::Path, sync::Arc};
 
 use moonutil::{
     common::{MOON_PKG, MOON_PKG_JSON, read_module_desc_file_in_dir},
-    mooncakes::{ModuleId, ModuleSource, result::ResolvedEnv},
+    mooncakes::{
+        ModuleId, ModuleSource,
+        result::{ResolvedModule, ResolvedRootModules},
+    },
     workspace::{canonical_workspace_module_dirs, read_workspace},
 };
 use n2::graph::Build;
+use slotmap::SlotMap;
 
 use crate::{
     build_lower::{
@@ -51,7 +55,7 @@ use crate::{
 };
 
 pub struct FmtResolveOutput {
-    pub module_rel: ResolvedEnv,
+    pub root_modules: ResolvedRootModules,
     pub pkg_dirs: DiscoverResult,
     pub root_module_ids: Vec<ModuleId>,
 }
@@ -74,7 +78,7 @@ pub fn resolve_for_fmt(source_dir: &Path) -> Result<FmtResolveOutput, ResolveErr
         vec![source_dir.to_path_buf()]
     };
 
-    let mut modules = ResolvedEnv::new();
+    let mut root_modules = SlotMap::with_key();
     let mut discover_res = DiscoverResult::default();
     let mut root_module_ids = Vec::with_capacity(module_dirs.len());
 
@@ -82,20 +86,19 @@ pub fn resolve_for_fmt(source_dir: &Path) -> Result<FmtResolveOutput, ResolveErr
         #[allow(clippy::disallowed_methods)] // we are not using the `resolve` module
         let module =
             read_module_desc_file_in_dir(&module_dir).map_err(ResolveError::SyncModulesError)?;
-        let module_source =
-            ModuleSource::from_local_module(&module, &module_dir).ok_or_else(|| {
-                ResolveError::SyncModulesError(anyhow::anyhow!("Malformed module manifest"))
-            })?;
-        let id = modules.add_module(module_source, Arc::new(module));
-        modules.push_root_module(id);
+        let module = Arc::new(module);
+        let module_source = ModuleSource::from_local_module(&module, &module_dir).ok_or_else(|| {
+            ResolveError::SyncModulesError(anyhow::anyhow!("Malformed module manifest"))
+        })?;
+        let id = root_modules.insert(ResolvedModule::new(module_source, module));
         root_module_ids.push(id);
 
-        let module_source = modules.mod_name_from_id(id).clone();
         debug!(
             "Resolved formatter root id = {:?}, name = {}",
-            id, module_source
+            id,
+            root_modules[id].source()
         );
-        discover_packages_for_mod(&mut discover_res, &modules, &module_dir, id, &module_source)?;
+        discover_packages_for_mod(&mut discover_res, &module_dir, id, &root_modules[id])?;
     }
 
     info!(
@@ -104,7 +107,7 @@ pub fn resolve_for_fmt(source_dir: &Path) -> Result<FmtResolveOutput, ResolveErr
     );
 
     Ok(FmtResolveOutput {
-        module_rel: modules,
+        root_modules,
         pkg_dirs: discover_res,
         root_module_ids,
     })
@@ -145,7 +148,7 @@ pub fn build_graph_for_fmt(
     let layout = LegacyLayoutBuilder::default()
         .target_base_dir(target_dir.into())
         .main_module(match resolved.root_module_ids.as_slice() {
-            &[module_id] => Some(resolved.module_rel.mod_name_from_id(module_id).clone()),
+            &[module_id] => Some(resolved.root_modules[module_id].source().clone()),
             [_, ..] => None,
             [] => anyhow::bail!("No root modules found to format"),
         })

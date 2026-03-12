@@ -38,7 +38,10 @@ use std::path::{Path, PathBuf};
 use indexmap::IndexSet;
 use log::{debug, info, trace};
 use moonutil::common::TargetBackend;
-use moonutil::mooncakes::{DirSyncResult, ModuleId, ModuleSource, result::ResolvedEnv};
+use moonutil::mooncakes::{
+    DirSyncResult, ModuleId, ModuleSource,
+    result::{ResolvedEnv, ResolvedModule},
+};
 use moonutil::package::MoonPkg;
 use moonutil::{
     common::{
@@ -78,7 +81,7 @@ pub fn discover_packages(
         };
 
         let dir = dirs.get(id).expect("Bad module ID to get directory");
-        discover_packages_for_mod(&mut res, env, dir, id, m)?;
+        discover_packages_for_mod(&mut res, dir, id, env.resolved_module(id))?;
     }
 
     if let Some(id) = res.get_package_id_by_name(MOONBITLANG_ABORT) {
@@ -95,17 +98,17 @@ pub fn discover_packages(
 }
 
 /// Discover packages within the given module directory
-#[instrument(level = Level::DEBUG, skip(res, env, dir, module_source))]
+#[instrument(level = Level::DEBUG, skip(res, dir, module))]
 pub(crate) fn discover_packages_for_mod(
     res: &mut DiscoverResult,
-    env: &ResolvedEnv,
     dir: &Path,
     id: ModuleId,
-    module_source: &ModuleSource,
+    module: &ResolvedModule,
 ) -> Result<(), DiscoverError> {
     // This information is the one we get from the registry. We will read again
     // from the resolved directory
-    let m_registry = env.module_info(id);
+    let module_source = module.source();
+    let m_registry = module.module_info();
 
     info!(
         "Begin discovering packages for {} at {}",

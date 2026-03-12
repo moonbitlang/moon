@@ -355,9 +355,34 @@ pub mod result {
     }
 
     #[derive(Debug, Clone)]
-    struct ResolvedModule {
+    pub struct ResolvedModule {
         source: ModuleSource,
         value: Arc<MoonMod>,
+    }
+
+    pub type ResolvedRootModules = SlotMap<ModuleId, ResolvedModule>;
+
+    impl ResolvedModule {
+        pub fn new(source: ModuleSource, value: Arc<MoonMod>) -> Self {
+            Self { source, value }
+        }
+
+        pub fn source(&self) -> &ModuleSource {
+            &self.source
+        }
+
+        pub fn module_info(&self) -> &Arc<MoonMod> {
+            &self.value
+        }
+
+        pub fn only_one_module(
+            source: ModuleSource,
+            module: Arc<MoonMod>,
+        ) -> (ResolvedRootModules, ModuleId) {
+            let mut roots = SlotMap::with_key();
+            let id = roots.insert(Self::new(source, module));
+            (roots, id)
+        }
     }
 
     /// The result of a dependency resolution.
@@ -376,7 +401,7 @@ pub mod result {
         /// Note that once we're out of the resolver, reverse-finding the ID
         /// from [`ModuleSource`]s is no longer needed, so this mapping is
         /// unidirectional (even though `ModuleSource`s are unique).
-        mapping: SlotMap<ModuleId, ResolvedModule>,
+        mapping: ResolvedRootModules,
 
         /// The real dependency graph. Edges are labelled with the key of the dependency.
         ///
@@ -389,12 +414,16 @@ pub mod result {
             &self.input_module_ids
         }
 
+        pub fn resolved_module(&self, id: ModuleId) -> &ResolvedModule {
+            &self.mapping[id]
+        }
+
         pub fn mod_name_from_id(&self, id: ModuleId) -> &ModuleSource {
-            &self.mapping[id].source
+            self.resolved_module(id).source()
         }
 
         pub fn module_info(&self, id: ModuleId) -> &Arc<MoonMod> {
-            &self.mapping[id].value
+            self.resolved_module(id).module_info()
         }
 
         pub fn graph(&self) -> &DiGraphMap<ModuleId, DependencyEdge> {
@@ -444,13 +473,28 @@ pub mod result {
         }
 
         pub fn only_one_module(ms: ModuleSource, module: MoonMod) -> (ResolvedEnv, ModuleId) {
-            let mut builder = Self::new();
-            let id = builder.add_module(ms, Arc::new(module));
-            (builder, id)
+            let (roots, id) = ResolvedModule::only_one_module(ms, Arc::new(module));
+            (Self::from_root_modules(roots), id)
         }
 
         pub fn module_count(&self) -> usize {
             self.mapping.len()
+        }
+
+        pub fn from_root_modules(root_modules: ResolvedRootModules) -> Self {
+            let input_module_ids = root_modules.iter().map(|(id, _)| id).collect();
+            let rev_map = root_modules
+                .iter()
+                .map(|(id, module)| (module.source().clone(), id))
+                .collect();
+
+            Self {
+                input_module_ids,
+                stdlib: None,
+                mapping: root_modules,
+                dep_graph: DiGraphMap::new(),
+                rev_map,
+            }
         }
 
         pub fn new() -> Self {
@@ -463,14 +507,23 @@ pub mod result {
             }
         }
 
-        pub fn push_root_module(&mut self, id: ModuleId) {
-            self.input_module_ids.push(id);
-        }
-
         /// Set the given module ID as the standard library. All modules
         /// inserted afterwards will automatically depend on this module.
         pub fn set_stdlib(&mut self, stdlib: ModuleId) {
-            self.stdlib = Some(stdlib)
+            self.stdlib = Some(stdlib);
+            for id in self.mapping.keys() {
+                if id == stdlib {
+                    continue;
+                }
+                self.dep_graph.add_edge(
+                    id,
+                    stdlib,
+                    DependencyEdge {
+                        name: MOD_NAME_STDLIB.clone(),
+                        kind: DependencyKind::Regular,
+                    },
+                );
+            }
         }
 
         pub fn add_module(&mut self, mod_source: ModuleSource, module: Arc<MoonMod>) -> ModuleId {
@@ -479,10 +532,7 @@ pub mod result {
                 *id
             } else {
                 // Add module definition
-                let val = ResolvedModule {
-                    source: mod_source.clone(),
-                    value: module,
-                };
+                let val = ResolvedModule::new(mod_source.clone(), module);
                 let id = self.mapping.insert(val);
                 self.rev_map.insert(mod_source, id);
 
