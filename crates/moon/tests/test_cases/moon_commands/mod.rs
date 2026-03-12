@@ -35,7 +35,7 @@ fn test_moon_help() {
               clean                  Remove the _build directory
               fmt                    Format source code
               doc                    Generate documentation or searching documentation for a symbol
-              info                   Generate public interface (`.mbti`) files for all packages in the module
+              info                   Generate public interface (`.mbti`) files for all packages in the module or workspace
               bench                  Run benchmarks in the current package
               add                    Add a dependency
               remove                 Remove a dependency

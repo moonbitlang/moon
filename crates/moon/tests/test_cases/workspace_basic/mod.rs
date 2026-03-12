@@ -120,7 +120,7 @@ fn test_workspace_commands() {
     assert_eq!(metadata["name"], "workspace");
     assert_eq!(metadata["deps"], serde_json::json!(["alice/liba"]));
     assert_eq!(metadata["backend"], "wasm-gc");
-    assert_eq!(metadata["opt_level"], "release");
+    assert_eq!(metadata["opt_level"], "debug");
     assert_eq!(metadata["source"], serde_json::Value::Null);
     assert_eq!(metadata.get("workspace"), None);
 
@@ -137,10 +137,10 @@ fn test_workspace_commands() {
 
     assert_eq!(
         artifact_for("alice/app", "main"),
-        "$ROOT/_build/wasm-gc/release/check/alice/app/main/main.mi"
+        "$ROOT/_build/wasm-gc/debug/check/alice/app/main/main.mi"
     );
     assert_eq!(
         artifact_for("alice/liba", "lib"),
-        "$ROOT/_build/wasm-gc/release/check/alice/liba/lib/lib.mi"
+        "$ROOT/_build/wasm-gc/debug/check/alice/liba/lib/lib.mi"
     );
 }
