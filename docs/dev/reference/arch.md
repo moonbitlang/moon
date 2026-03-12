@@ -127,8 +127,9 @@ For single-module commands, the input module is the module that contains the wor
 In other words, it is the module represented by the closest ancestor directory (including CWD)
 that contains a `moon.mod.json` file.
 
-`moon build` and `moon check` additionally support an explicit workspace root via `moon.work.json`,
-following the same discovery precedence as Go workspaces:
+`moon build`, `moon check`, `moon test`, and `moon fmt` additionally support an
+explicit workspace root via `moon.work.json`, following the same discovery
+precedence as Go workspaces:
 
 - Search the current directory and its ancestors for `moon.work.json`.
 - If one is found, the workspace roots are the modules listed by its `use` directives.
@@ -146,9 +147,9 @@ It currently supports one JSON object with:
     The dependency resolver is designed around a set of input/root modules.
     In Go terms, these are the "main modules"; in this document we usually call
     them "workspace roots" to avoid confusion with executable `main` packages.
-    Much of the CLI still assumes there is only one such root, but `moon build`
-    and `moon check` now handle multiple workspace roots when they come from
-    `moon.work.json`.
+    Much of the CLI still assumes there is only one such root, but `moon build`,
+    `moon check`, `moon test`, and `moon fmt` now handle multiple workspace roots
+    when they come from `moon.work.json`.
 
 The packages to work with are specified through the command-line arguments.
 The accepted formats slightly varies between subcommands due to historical reasons,

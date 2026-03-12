@@ -389,18 +389,20 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
     resolved: &FmtResolveOutput,
     dir: &Path,
 ) -> anyhow::Result<PackageId> {
-    let all_packages = resolved
-        .pkg_dirs
-        .packages_for_module(resolved.main_module_id)
-        .expect("Main module should have packages");
-
-    all_packages
-        .values()
-        .find(|&&pkg_id| {
+    resolved
+        .root_module_ids
+        .iter()
+        .flat_map(|&module_id| {
+            resolved
+                .pkg_dirs
+                .packages_for_module(module_id)
+                .into_iter()
+                .flat_map(|packages| packages.values().copied())
+        })
+        .find(|&pkg_id| {
             let pkg = resolved.pkg_dirs.get_package(pkg_id);
             pkg.root_path == dir
         })
-        .copied()
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Cannot find package to format at path `{}`.\n\
