@@ -1,7 +1,8 @@
 use super::*;
+use moonutil::common::MBTI_GENERATED;
 
 #[test]
-fn test_workspace_build_and_check() {
+fn test_workspace_commands() {
     let dir = TestDir::new("workspace_basic.in");
 
     check(
@@ -69,6 +70,47 @@ fn test_workspace_build_and_check() {
 
     let stderr = get_stderr(&dir, ["check", "--sort-input"]);
     assert!(stderr.contains("Finished. moon: ran "));
+
+    check(get_stdout(&dir, ["info"]), expect![[r#""#]]);
+
+    let lib_mi_out =
+        std::fs::read_to_string(dir.join("liba/src/lib").join(MBTI_GENERATED)).unwrap();
+    expect![[r#"
+        // Generated using `moon info`, DON'T EDIT IT
+        package "alice/liba/lib"
+
+        // Values
+        pub fn hello() -> String
+
+        // Errors
+
+        // Types and methods
+
+        // Type aliases
+
+        // Traits
+
+    "#]]
+    .assert_eq(&lib_mi_out);
+
+    let main_mi_out =
+        std::fs::read_to_string(dir.join("app/src/main").join(MBTI_GENERATED)).unwrap();
+    expect![[r#"
+        // Generated using `moon info`, DON'T EDIT IT
+        package "alice/app/main"
+
+        // Values
+
+        // Errors
+
+        // Types and methods
+
+        // Type aliases
+
+        // Traits
+
+    "#]]
+    .assert_eq(&main_mi_out);
 
     let metadata = std::fs::read_to_string(dir.join("_build/packages.json")).unwrap();
     let metadata = replace_dir(&metadata, &dir);

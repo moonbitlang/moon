@@ -40,7 +40,7 @@ use crate::{
 
 use super::UniversalFlags;
 
-/// Generate public interface (`.mbti`) files for all packages in the module
+/// Generate public interface (`.mbti`) files for all packages in the module or workspace
 #[derive(Debug, clap::Parser)]
 pub(crate) struct InfoSubcommand {
     #[clap(flatten)]
@@ -185,15 +185,17 @@ fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[main_module_id] = resolve_output.local_modules() else {
-        panic!("No multiple main modules are supported");
-    };
-
-    let packages = resolve_output
-        .pkg_dirs
-        .packages_for_module(main_module_id)
-        .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-    let package_ids: Vec<_> = packages.values().copied().collect();
+    let package_ids: Vec<_> = resolve_output
+        .local_modules()
+        .iter()
+        .flat_map(|&module_id| {
+            resolve_output
+                .pkg_dirs
+                .packages_for_module(module_id)
+                .into_iter()
+                .flat_map(|packages| packages.values().copied())
+        })
+        .collect();
 
     let intents = if let Some(path) = path_filter {
         // Path filter: resolve a specific file/directory to its containing package
