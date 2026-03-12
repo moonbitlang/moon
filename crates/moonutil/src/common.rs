@@ -489,6 +489,12 @@ impl BuildPackageFlags {
     }
 }
 
+impl Default for BuildPackageFlags {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct LinkCoreFlags {
     pub debug_flag: bool,
@@ -505,6 +511,12 @@ impl LinkCoreFlags {
             output_format: OutputFormat::Wasm,
             target_backend: TargetBackend::default(),
         }
+    }
+}
+
+impl Default for LinkCoreFlags {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

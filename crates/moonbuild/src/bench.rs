@@ -43,6 +43,12 @@ impl Config {
     }
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn write_directory(config: &Config, base_dir: &Path, dr: u32, dc: u32) {
     let dir_name = base_dir.join(format!("dir_{dr}_{dc}"));
     fs::create_dir_all(&dir_name).unwrap();
