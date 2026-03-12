@@ -40,7 +40,7 @@ fn test_all_pkgs() {
         Finished. moon: ran 10 tasks, now up to date
     "#]],
     );
-    let all_pkgs_path = dir.join("_build/wasm-gc/release/check/all_pkgs.json");
+    let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["check_all_pkgs.json"].assert_eq(&all_pkgs_json);
 
@@ -89,7 +89,7 @@ fn test_all_pkgs() {
             Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
-    let all_pkgs_path = dir.join("_build/wasm-gc/release/check/all_pkgs.json");
+    let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
     expect_file!["info_all_pkgs.json"].assert_eq(&all_pkgs_json);
 }

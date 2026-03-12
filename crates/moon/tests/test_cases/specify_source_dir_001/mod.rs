@@ -89,7 +89,7 @@ fn test_specify_source_dir_001() {
                           "fspath": "$MOON_HOME/lib/core/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/_build/wasm-gc/release/check/lib/lib.mi"
+                      "artifact": "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi"
                     },
                     {
                       "is-main": true,
@@ -141,12 +141,12 @@ fn test_specify_source_dir_001() {
                           "fspath": "$MOON_HOME/lib/core/prelude"
                         }
                       ],
-                      "artifact": "$ROOT/_build/wasm-gc/release/check/main/main.mi"
+                      "artifact": "$ROOT/_build/wasm-gc/debug/check/main/main.mi"
                     }
                   ],
                   "deps": [],
                   "backend": "wasm-gc",
-                  "opt_level": "release",
+                  "opt_level": "debug",
                   "source": "src"
                 }"#]],
         )

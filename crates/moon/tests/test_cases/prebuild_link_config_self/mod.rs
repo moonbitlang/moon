@@ -35,17 +35,20 @@ fn test_prebuild_link_config_self() {
         println!("{}", &test_stdout);
         let lines = test_stdout.lines().collect::<Vec<_>>();
 
-        let found_stub_link = OnceCell::<()>::new();
+        let mut found_test_links = 0;
         for line in lines {
-            let is_stub_link = line.contains("libmain") && line.contains("-shared");
-            if is_stub_link {
-                found_stub_link.set(()).expect("c stub linking found twice");
+            let is_test_link = line.contains("cc -o ./_build/native/debug/test/main/")
+                && (line.contains(".exe")
+                    || line.contains("libmain.so")
+                    || line.contains("libmain.dylib"));
+            if is_test_link {
+                found_test_links += 1;
                 assert!(line.contains("-l__prebuild_self_link_flag__"));
                 assert!(line.contains("-lprebuildselflib"));
                 assert!(line.contains("-L/prebuild-self-path"));
             }
         }
 
-        found_stub_link.get().expect("c stub linking not found");
+        assert!(found_test_links >= 1, "test executable linking not found");
     }
 }

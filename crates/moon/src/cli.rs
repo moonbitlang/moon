@@ -329,10 +329,12 @@ impl BuildFlags {
             BuildProfile::Release
         } else {
             match run_mode {
-                RunMode::Bench | RunMode::Check | RunMode::Bundle => BuildProfile::Release,
-                RunMode::Build | RunMode::Run | RunMode::Test | RunMode::Format => {
-                    BuildProfile::Debug
-                }
+                RunMode::Bench | RunMode::Bundle => BuildProfile::Release,
+                RunMode::Build
+                | RunMode::Run
+                | RunMode::Test
+                | RunMode::Check
+                | RunMode::Format => BuildProfile::Debug,
             }
         }
     }
