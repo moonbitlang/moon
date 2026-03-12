@@ -50,6 +50,7 @@ pub struct PackageJSON {
     pub wbtest_deps: Vec<AliasJSON>,
     pub test_deps: Vec<AliasJSON>,
     pub artifact: String,
+    pub supported_targets: Vec<TargetBackend>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

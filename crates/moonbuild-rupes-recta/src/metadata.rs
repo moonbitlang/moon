@@ -168,6 +168,7 @@ fn gen_package_json(
             )
             .to_string_lossy()
             .into_owned(),
+        supported_targets: pkg.raw.supported_targets.iter().copied().collect(),
     }
 }
 

@@ -90,7 +90,14 @@
           "fspath": "$ROOT/C"
         }
       ],
-      "artifact": "$ROOT/_build/wasm-gc/debug/check/A/A.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/check/A/A.mi",
+      "supported-targets": [
+        "Wasm",
+        "WasmGC",
+        "Js",
+        "Native",
+        "LLVM"
+      ]
     },
     {
       "is-main": false,
@@ -137,7 +144,14 @@
           "fspath": "$MOON_HOME/lib/core/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/wasm-gc/debug/check/B/B.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/check/B/B.mi",
+      "supported-targets": [
+        "Wasm",
+        "WasmGC",
+        "Js",
+        "Native",
+        "LLVM"
+      ]
     },
     {
       "is-main": false,
@@ -184,7 +198,14 @@
           "fspath": "$MOON_HOME/lib/core/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/wasm-gc/debug/check/C/C.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/check/C/C.mi",
+      "supported-targets": [
+        "Wasm",
+        "WasmGC",
+        "Js",
+        "Native",
+        "LLVM"
+      ]
     },
     {
       "is-main": false,
@@ -231,7 +252,14 @@
           "fspath": "$MOON_HOME/lib/core/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/wasm-gc/debug/check/D/D.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/check/D/D.mi",
+      "supported-targets": [
+        "Wasm",
+        "WasmGC",
+        "Js",
+        "Native",
+        "LLVM"
+      ]
     },
     {
       "is-main": true,
@@ -278,7 +306,14 @@
           "fspath": "$MOON_HOME/lib/core/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/wasm-gc/debug/check/main/main.mi"
+      "artifact": "$ROOT/_build/wasm-gc/debug/check/main/main.mi",
+      "supported-targets": [
+        "Wasm",
+        "WasmGC",
+        "Js",
+        "Native",
+        "LLVM"
+      ]
     }
   ],
   "deps": [],
