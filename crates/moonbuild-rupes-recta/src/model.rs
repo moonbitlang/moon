@@ -35,7 +35,7 @@ slotmap::new_key_type! {
 /// Note: This is different from [`TargetBackend`]. That enum is a high-level
 /// abstraction of the user's choice and what kind of output format `moonc`
 /// produces, but this also cares about what toolchains are used, etc.
-#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub enum RunBackend {
     WasmGC,
     Wasm,
@@ -443,7 +443,7 @@ pub struct Artifacts {
 }
 
 /// Supported operating systems for artifact generation
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OperatingSystem {
     Windows,
     Linux,

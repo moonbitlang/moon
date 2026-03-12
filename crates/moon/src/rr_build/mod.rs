@@ -336,7 +336,7 @@ pub struct BuildMeta {
 }
 
 /// Represents the result of the build process
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum BuildResult {
     /// The build succeeded with the given number of tasks executed.
     Succeeded(usize),

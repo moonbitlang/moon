@@ -106,7 +106,7 @@ fn print_test_outline(entries: &[TestOutlineEntry]) {
 }
 
 /// Test the current package
-#[derive(Debug, clap::Parser, Clone)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,

@@ -28,7 +28,7 @@ use tracing::{Level, instrument};
 use super::{BuildFlags, UniversalFlags};
 
 /// Run benchmarks in the current package
-#[derive(Debug, clap::Parser, Clone)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct BenchSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,

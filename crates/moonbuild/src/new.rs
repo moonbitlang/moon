@@ -27,13 +27,13 @@ use handlebars::Handlebars;
 use moonutil::git::{git_init_repo, is_in_git_repo};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct Template {
     #[serde(default)]
     files: Vec<TemplateFile>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 enum TemplateFile {
     PlainFile {
@@ -48,7 +48,7 @@ enum TemplateFile {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 struct TemplateEnv {
     username: String,
     module: String,

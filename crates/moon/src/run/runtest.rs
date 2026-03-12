@@ -97,7 +97,7 @@ pub(crate) struct TestOutlineEntry {
     pub line_number: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 enum TestResultKind {
     Passed,
     ExpectTestFailed,
@@ -122,7 +122,7 @@ impl TestCaseResult {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum TestIndex {
     /// A regular test block, i.e. `test { ... }`
     Regular(TestIndexRange),
@@ -302,7 +302,7 @@ struct TargetTestResult {
     map: IndexMap<String, IndexMap<u32, TestCaseResult>>,
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct TestSummary {
     pub total: usize,
     pub passed: usize,

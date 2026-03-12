@@ -78,10 +78,9 @@ pub struct BuildOptions {
     pub default_cc: CC,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WarningCondition {
     /// The default behavior: warnings are shown.
-    #[default]
     Default,
     /// Deny all warnings: treat warnings as errors.
     Deny,

@@ -29,7 +29,7 @@ use std::{
 const ENV_MOON_CC: &str = "MOON_CC";
 const ENV_MOON_AR: &str = "MOON_AR";
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone)]
 pub enum CCKind {
     Msvc,     // cl.exe
     SystemCC, // cc
@@ -38,7 +38,7 @@ pub enum CCKind {
     Tcc,      // tcc
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone)]
 pub enum ARKind {
     MsvcLib, // lib.exe
     GnuAr,   // ar
@@ -46,7 +46,7 @@ pub enum ARKind {
     TccAr,   // tcc -ar
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct CC {
     pub cc_kind: CCKind,
     pub cc_path: String,
@@ -277,14 +277,14 @@ pub fn NATIVE_CC() -> &'static CC {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum OutputType {
     Object,     // .o or .obj
     SharedLib,  // .so or .dll or .dylib
     Executable, // .exe or no extension
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum OptLevel {
     Speed,
     Size,
@@ -292,7 +292,7 @@ pub enum OptLevel {
     None,
 }
 
-#[derive(Clone, PartialEq, Eq, Builder)]
+#[derive(Clone, Builder)]
 #[builder(setter(into))]
 pub struct CCConfig {
     #[builder(default = false)]
@@ -319,7 +319,7 @@ pub struct CCConfig {
     pub define_use_shared_runtime_macro: bool,
 }
 
-#[derive(Clone, PartialEq, Eq, Builder)]
+#[derive(Clone, Builder)]
 #[builder(setter(into))]
 pub struct LinkerConfig<P: AsRef<Path>> {
     #[builder(default = false)]
@@ -331,7 +331,7 @@ pub struct LinkerConfig<P: AsRef<Path>> {
     pub link_shared_runtime: Option<P>,
 }
 
-#[derive(Clone, PartialEq, Eq, Builder)]
+#[derive(Clone, Builder)]
 #[builder(setter(into))]
 pub struct ArchiverConfig {
     #[builder(default = false)]

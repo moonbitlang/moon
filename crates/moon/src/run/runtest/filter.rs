@@ -34,7 +34,7 @@ use crate::run::TestIndex;
 /// [`PackageFilter`], and files within a single kind of test have only one
 /// numbering sequence, so there's no need to distinguish between regular tests
 /// and doc tests here.
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Default, Clone)]
 pub(crate) struct IndexFilter {
     singles: BTreeSet<u32>,
     ranges: Vec<Range<u32>>,
@@ -80,7 +80,7 @@ impl std::fmt::Debug for IndexFilter {
 /// - Value:
 ///   - None => wildcard (all indices allowed in that file).
 ///   - Some(IndexFilter) => only the indices listed are allowed.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone)]
 pub(crate) struct FileFilter(pub IndexMap<String, Option<IndexFilter>>);
 
 /// Package-level filter for a module.
@@ -88,12 +88,12 @@ pub(crate) struct FileFilter(pub IndexMap<String, Option<IndexFilter>>);
 /// - Value:
 ///   - None => wildcard (all files and indices under the package are allowed).
 ///   - Some(FileFilter) => only listed files/indices are allowed.
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone)]
 pub(crate) struct PackageFilter(pub IndexMap<BuildTarget, Option<FileFilter>>);
 
 /// Root filter used by the test runner.
 /// `filter == None` means no restriction (allow everything).
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Clone)]
 pub(crate) struct TestFilter {
     pub filter: Option<PackageFilter>,
     /// Glob pattern to filter tests by name

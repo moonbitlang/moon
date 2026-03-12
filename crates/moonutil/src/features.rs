@@ -26,7 +26,7 @@ pub enum FeatureGateParseError {
 
 /// Allowed stability value tokens (either `stable` or `unstable`)
 #[allow(non_camel_case_types, unused)]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 enum Stability {
     unstable,
     stable,

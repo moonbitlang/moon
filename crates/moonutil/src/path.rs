@@ -25,7 +25,7 @@ use std::{
 
 use crate::common::SUB_PKG_POSTFIX;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Hash)]
 pub struct PathComponent {
     pub components: Vec<String>,
 }

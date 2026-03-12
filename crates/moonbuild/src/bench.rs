@@ -23,7 +23,6 @@ use moonutil::package::{MoonPkgJSON, PkgJSONImport};
 use std::fs;
 use std::path::Path;
 
-#[derive(Default)]
 pub struct Config {
     pub dir_rows: u32,
     pub dir_cols: u32,
@@ -41,6 +40,12 @@ impl Config {
             mod_cols: 1,
             comment_size: 5000,
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

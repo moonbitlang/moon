@@ -45,7 +45,7 @@ use crate::watch::watching;
 use super::{BuildFlags, UniversalFlags};
 
 /// Build the current package
-#[derive(Debug, clap::Parser, Clone)]
+#[derive(Debug, clap::Parser)]
 pub(crate) struct BuildSubcommand {
     /// The path to the package that should be built.
     #[clap(name = "PATH", conflicts_with("package"))]

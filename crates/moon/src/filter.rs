@@ -319,7 +319,7 @@ where
     );
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct PackageMatchResult {
     pub matched: Vec<PackageId>,
     pub missing: Vec<String>,
