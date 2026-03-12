@@ -34,10 +34,10 @@
   moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main username/hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./src/main/moon.pkg.json -pkg-sources username/hello/lib:./src/lib -pkg-sources username/hello/main:./src/main -target js -g -O0 -source-map
   
   $ moon check --dry-run --target js --sort-input --nostd
-  moonc check ./src/lib/all.mbt ./src/lib/js_and_release.mbt ./src/lib/js_or_wasm.mbt ./src/lib/only_js.mbt -o ./_build/js/release/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./src/lib -target js -workspace-path . -all-pkgs ./_build/js/release/check/all_pkgs.json
-  moonc check ./src/main/main.mbt -o ./_build/js/release/check/main/main.mi -pkg username/hello/main -is-main -i ./_build/js/release/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target js -workspace-path . -all-pkgs ./_build/js/release/check/all_pkgs.json
-  moonc check -doctest-only ./src/main/main.mbt -include-doctests -o ./_build/js/release/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -i ./_build/js/release/check/lib/lib.mi:lib -i ./_build/js/release/check/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./src/main -target js -blackbox-test -workspace-path . -all-pkgs ./_build/js/release/check/all_pkgs.json
-  moonc check ./src/lib/hello_test.mbt ./src/lib/js_only_test.mbt -doctest-only ./src/lib/all.mbt -doctest-only ./src/lib/js_and_release.mbt -doctest-only ./src/lib/js_or_wasm.mbt -doctest-only ./src/lib/only_js.mbt -include-doctests -o ./_build/js/release/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -i ./_build/js/release/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target js -blackbox-test -workspace-path . -all-pkgs ./_build/js/release/check/all_pkgs.json
+  moonc check ./src/lib/all.mbt ./src/lib/js_or_wasm.mbt ./src/lib/only_debug.mbt ./src/lib/only_js.mbt ./src/lib/wasm_release_or_js_debug.mbt -o ./_build/js/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-sources username/hello/lib:./src/lib -target js -workspace-path . -all-pkgs ./_build/js/debug/check/all_pkgs.json
+  moonc check ./src/main/main.mbt -o ./_build/js/debug/check/main/main.mi -pkg username/hello/main -is-main -i ./_build/js/debug/check/lib/lib.mi:lib -pkg-sources username/hello/main:./src/main -target js -workspace-path . -all-pkgs ./_build/js/debug/check/all_pkgs.json
+  moonc check -doctest-only ./src/main/main.mbt -include-doctests -o ./_build/js/debug/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -i ./_build/js/debug/check/lib/lib.mi:lib -i ./_build/js/debug/check/main/main.mi:main -pkg-sources username/hello/main_blackbox_test:./src/main -target js -blackbox-test -workspace-path . -all-pkgs ./_build/js/debug/check/all_pkgs.json
+  moonc check ./src/lib/hello_test.mbt ./src/lib/js_only_test.mbt -doctest-only ./src/lib/all.mbt -doctest-only ./src/lib/js_or_wasm.mbt -doctest-only ./src/lib/only_debug.mbt -doctest-only ./src/lib/only_js.mbt -doctest-only ./src/lib/wasm_release_or_js_debug.mbt -include-doctests -o ./_build/js/debug/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -i ./_build/js/debug/check/lib/lib.mi:lib -pkg-sources username/hello/lib_blackbox_test:./src/lib -target js -blackbox-test -workspace-path . -all-pkgs ./_build/js/debug/check/all_pkgs.json
   
   $ moon test --dry-run --target js --sort-input --nostd
   moonc build-package ./src/lib/all.mbt ./src/lib/js_or_wasm.mbt ./src/lib/only_debug.mbt ./src/lib/only_js.mbt ./src/lib/wasm_release_or_js_debug.mbt -o ./_build/js/debug/test/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./src/lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/test/all_pkgs.json
@@ -63,7 +63,7 @@
   $ moon check --sort-input
   
   Warning: [0002]
-     ╭─[ [WORK_DIR]/src/lib/all.mbt:2:7 ]
+     ╭─[ [WORK_DIR]/src/lib/only_debug.mbt:2:7 ]
      │
    2 │   let a = 1
      │       ┬  
@@ -259,7 +259,7 @@
             "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
-        "artifact": "[WORK_DIR]/_build/wasm-gc/release/check/lib/lib.mi"
+        "artifact": "[WORK_DIR]/_build/wasm-gc/debug/check/lib/lib.mi"
       },
       {
         "is-main": true,
@@ -311,11 +311,11 @@
             "fspath": "[MOON_HOME]/lib/core/prelude"
           }
         ],
-        "artifact": "[WORK_DIR]/_build/wasm-gc/release/check/main/main.mi"
+        "artifact": "[WORK_DIR]/_build/wasm-gc/debug/check/main/main.mi"
       }
     ],
     "deps": [],
     "backend": "wasm-gc",
-    "opt_level": "release",
+    "opt_level": "debug",
     "source": "src"
   }

@@ -475,7 +475,8 @@ impl CompilePreConfig {
 /// - `selected_target_backend`: The backend selected for this invocation, if explicit.
 /// - `target_dir`: The target directory for the build.
 /// - `action`: The run mode (build, test, bench, etc.). This also affects the
-///   default build profile (bench/check/bundle default to release; others default to debug).
+///   default build profile (`moon build`/`run`/`test`/`fmt`/`check` default to
+///   debug; `moon bench`/`bundle` default to release).
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn preconfig_compile(
     auto_sync_flags: &AutoSyncFlags,

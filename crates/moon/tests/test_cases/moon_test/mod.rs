@@ -301,6 +301,25 @@ fn test_moon_test_with_local_dep() {
             _build/wasm-gc/debug/build/main/main.mi
             _build/wasm-gc/debug/build/main/main.wasm
             _build/wasm-gc/debug/build/main/main.wasm.map
+            _build/wasm-gc/debug/check
+            _build/wasm-gc/debug/check/.mooncakes
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/lib
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/lib/lib.mi
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/mooncake.mi
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/lib
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/lib/lib.mi
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/mooncake2.mi
+            _build/wasm-gc/debug/check/all_pkgs.json
+            _build/wasm-gc/debug/check/check.moon_db
+            _build/wasm-gc/debug/check/lib
+            _build/wasm-gc/debug/check/lib/lib.mbti
+            _build/wasm-gc/debug/check/lib/lib.mi
+            _build/wasm-gc/debug/check/main
+            _build/wasm-gc/debug/check/main/main.mbti
+            _build/wasm-gc/debug/check/main/main.mi
             _build/wasm-gc/debug/test
             _build/wasm-gc/debug/test/.mooncakes
             _build/wasm-gc/debug/test/.mooncakes/lijunchen
@@ -349,26 +368,6 @@ fn test_moon_test_with_local_dep() {
             _build/wasm-gc/debug/test/main/main.internal_test.wasm.map
             _build/wasm-gc/debug/test/main/main.mi
             _build/wasm-gc/debug/test/test.moon_db
-            _build/wasm-gc/release
-            _build/wasm-gc/release/check
-            _build/wasm-gc/release/check/.mooncakes
-            _build/wasm-gc/release/check/.mooncakes/lijunchen
-            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake
-            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake/lib
-            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake/lib/lib.mi
-            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake/mooncake.mi
-            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake2
-            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake2/lib
-            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake2/lib/lib.mi
-            _build/wasm-gc/release/check/.mooncakes/lijunchen/mooncake2/mooncake2.mi
-            _build/wasm-gc/release/check/all_pkgs.json
-            _build/wasm-gc/release/check/check.moon_db
-            _build/wasm-gc/release/check/lib
-            _build/wasm-gc/release/check/lib/lib.mbti
-            _build/wasm-gc/release/check/lib/lib.mi
-            _build/wasm-gc/release/check/main
-            _build/wasm-gc/release/check/main/main.mbti
-            _build/wasm-gc/release/check/main/main.mi
             lib
             lib/hello.mbt
             lib/hello_wbtest.mbt

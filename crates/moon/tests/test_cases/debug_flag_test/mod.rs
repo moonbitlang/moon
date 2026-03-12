@@ -19,25 +19,25 @@ fn debug_flag_test() {
         .assert()
         .success();
 
-    let check_release = get_stdout(&dir, ["check", "--dry-run", "--nostd"]);
+    let check_default = get_stdout(&dir, ["check", "--dry-run", "--nostd"]);
     let check_debug = get_stdout(&dir, ["check", "--dry-run", "--debug", "--nostd"]);
-    // Release dry-run `check` keeps release artifact layout.
+    // Default `check` uses debug artifacts without adding codegen flags.
     assert_moonc_line(
-        &check_release,
+        &check_default,
         "moonc check",
         &["./lib/hello.mbt"],
-        true,
-        None,
+        false,
+        Some(false),
     );
-    // Release dry-run `check` for the binary still uses release artifacts.
+    // Same expectation for the main package check invocation.
     assert_moonc_line(
-        &check_release,
+        &check_default,
         "moonc check",
         &["./main/main.mbt"],
-        true,
-        None,
+        false,
+        Some(false),
     );
-    // Debug flag switches check artifacts to the debug directory without adding compiler flags.
+    // Explicit debug keeps the same debug-only check behavior.
     assert_moonc_line(
         &check_debug,
         "moonc check",
@@ -57,7 +57,7 @@ fn debug_flag_test() {
     let build_default = get_stdout(&dir, ["build", "--dry-run", "--nostd"]);
     let build_release = get_stdout(&dir, ["build", "--dry-run", "--release", "--nostd"]);
     let build_debug = get_stdout(&dir, ["build", "--dry-run", "--debug", "--nostd"]);
-    // Default build uses debug artifact paths for the library.
+    // Default build uses debug artifacts for the library.
     assert_moonc_line(
         &build_default,
         "moonc build-package",
@@ -133,7 +133,7 @@ fn debug_flag_test() {
     let run_default = get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]);
     let run_release = get_stdout(&dir, ["run", "main", "--dry-run", "--release", "--nostd"]);
     let run_debug = get_stdout(&dir, ["run", "main", "--dry-run", "--debug", "--nostd"]);
-    // Default run recompiles the library in debug mode with flags.
+    // Default run recompiles the library in debug mode.
     assert_moonc_line(
         &run_default,
         "moonc build-package",
@@ -141,7 +141,7 @@ fn debug_flag_test() {
         false,
         None,
     );
-    // Default run recompiles the main package in debug mode with flags.
+    // Default run recompiles the main package in debug mode.
     assert_moonc_line(
         &run_default,
         "moonc build-package",
@@ -149,7 +149,7 @@ fn debug_flag_test() {
         false,
         None,
     );
-    // Default run links debug artifacts with flags.
+    // Default run links debug artifacts.
     assert_moonc_line(
         &run_default,
         "moonc link-core",

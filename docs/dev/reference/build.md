@@ -69,6 +69,19 @@ both working on the source code of a **single** package (more precisely, a build
   is used for typecheck source files without compiling.
   It only outputs the package interface, not the CoreIR.
 
+### Default CLI profiles
+
+Unless the user explicitly passes `--debug` or `--release`, Moon resolves the
+default optimization profile by subcommand:
+
+- `moon build`, `moon run`, `moon test`, `moon fmt`, and `moon check` use the
+  debug profile.
+- `moon bench` and `moon bundle` use the release profile.
+
+This policy is centralized in `BuildFlags::effective_profile()` in
+`crates/moon/src/cli.rs`. Individual commands may still layer additional
+symbol or strip behavior on top of that default profile.
+
 When actually building a package, the pipeline has 2 or 3 steps depending on the backend to use:
 
 1. **Build** each individual package, via `moonc build-package` / `BuildPackage` node, into CoreIR.

@@ -103,7 +103,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/js/release/check/0/0.mi"
+      "artifact": "$ROOT/_build/js/debug/check/0/0.mi"
     },
     {
       "is-main": false,
@@ -175,7 +175,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/js/release/check/1/1.mi"
+      "artifact": "$ROOT/_build/js/debug/check/1/1.mi"
     },
     {
       "is-main": false,
@@ -216,7 +216,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/js/release/check/2/2.mi"
+      "artifact": "$ROOT/_build/js/debug/check/2/2.mi"
     },
     {
       "is-main": false,
@@ -243,7 +243,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/js/release/check/char/char.mi"
+      "artifact": "$ROOT/_build/js/debug/check/char/char.mi"
     },
     {
       "is-main": false,
@@ -264,7 +264,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/js/release/check/coverage/coverage.mi"
+      "artifact": "$ROOT/_build/js/debug/check/coverage/coverage.mi"
     },
     {
       "is-main": false,
@@ -297,7 +297,7 @@
           "fspath": "$ROOT/prelude"
         }
       ],
-      "artifact": "$ROOT/_build/js/release/check/iter/iter.mi"
+      "artifact": "$ROOT/_build/js/debug/check/iter/iter.mi"
     },
     {
       "is-main": false,
@@ -312,11 +312,11 @@
       "deps": [],
       "wbtest-deps": [],
       "test-deps": [],
-      "artifact": "$ROOT/_build/js/release/check/prelude/prelude.mi"
+      "artifact": "$ROOT/_build/js/debug/check/prelude/prelude.mi"
     }
   ],
   "deps": [],
   "backend": "js",
-  "opt_level": "release",
+  "opt_level": "debug",
   "source": null
 }
