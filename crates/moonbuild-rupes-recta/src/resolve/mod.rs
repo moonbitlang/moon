@@ -62,9 +62,15 @@ pub struct ResolveOutput {
     pub pkg_dirs: DiscoverResult,
     /// Package dependency relationship
     pub pkg_rel: DepRelationship,
+    /// Explicit preferred target from `moon.work.json`, if any.
+    pub workspace_preferred_target: Option<TargetBackend>,
 }
 
 impl ResolveOutput {
+    /// Returns the input/root modules of the current resolve.
+    ///
+    /// This is a role in the current resolution graph, not a check of
+    /// `ModuleSourceKind::Local`.
     pub fn local_modules(&self) -> &[ModuleId] {
         self.module_rel.input_module_ids()
     }
@@ -299,7 +305,7 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
-    let (resolved_env, dir_sync_result) = auto_sync(
+    let (resolved_env, dir_sync_result, workspace) = auto_sync(
         source_dir,
         &cfg.sync_flags,
         &cfg.registry_config,
@@ -339,6 +345,7 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
+        workspace_preferred_target: workspace.and_then(|workspace| workspace.preferred_target),
     })
 }
 
@@ -428,6 +435,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
+        workspace_preferred_target: None,
     };
     Ok((res, backend))
 }

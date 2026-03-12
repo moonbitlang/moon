@@ -116,6 +116,7 @@ mod virtual_pkg_test;
 mod warns;
 mod wbtest_coverage;
 mod whitespace_test;
+mod workspace_basic;
 
 #[test]
 fn test_moon_pkg() {

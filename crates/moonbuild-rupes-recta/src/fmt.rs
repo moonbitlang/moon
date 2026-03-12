@@ -31,11 +31,12 @@
 //! module into a more generic one, probably named "source utility" or similar.
 
 use log::*;
-use std::{collections::HashSet, path::Path};
+use std::{collections::HashSet, path::Path, sync::Arc};
 
 use moonutil::{
-    common::{MOON_PKG, MOON_PKG_JSON},
+    common::{MOON_PKG, MOON_PKG_JSON, read_module_desc_file_in_dir},
     mooncakes::{ModuleId, ModuleSource, result::ResolvedEnv},
+    workspace::{canonical_workspace_module_dirs, read_workspace},
 };
 use n2::graph::Build;
 
@@ -52,37 +53,60 @@ use crate::{
 pub struct FmtResolveOutput {
     pub module_rel: ResolvedEnv,
     pub pkg_dirs: DiscoverResult,
-    pub main_module_id: ModuleId,
+    pub root_module_ids: Vec<ModuleId>,
 }
 
-/// Perform a barebones, faked resolving process for `moon fmt`
+/// Perform a barebones, faked resolving process for `moon fmt`.
+///
+/// This supports either a single module rooted at `source_dir` or a workspace
+/// rooted there via `moon.work.json`.
 pub fn resolve_for_fmt(source_dir: &Path) -> Result<FmtResolveOutput, ResolveError> {
     info!(
         "Resolving formatter environment for {}",
         source_dir.display()
     );
 
-    // Generate a barebones ResolvedEnv with just the local module
-    // This is not the normal resolving process, but we don't care here ;)
-    #[allow(clippy::disallowed_methods)] // we are not using the `resolve` module
-    let m = moonutil::common::read_module_desc_file_in_dir(source_dir)
-        .map_err(ResolveError::SyncModulesError)?;
-    let ms = ModuleSource::from_local_module(&m, source_dir).ok_or_else(|| {
-        ResolveError::SyncModulesError(anyhow::anyhow!("Malformed module manifest"))
-    })?;
-    let (modules, id) = ResolvedEnv::only_one_module(ms, m);
-    let ms = modules.mod_name_from_id(id);
-    debug!("Resolved main module id = {:?}, name = {}", id, ms);
+    let workspace = read_workspace(source_dir).map_err(ResolveError::SyncModulesError)?;
+    let module_dirs = if let Some(workspace) = workspace.as_ref() {
+        canonical_workspace_module_dirs(source_dir, workspace)
+            .map_err(ResolveError::SyncModulesError)?
+    } else {
+        vec![source_dir.to_path_buf()]
+    };
 
-    // Find packages
+    let mut modules = ResolvedEnv::new();
     let mut discover_res = DiscoverResult::default();
-    discover_packages_for_mod(&mut discover_res, &modules, source_dir, id, ms)?;
-    info!("Package discovery completed for module {}", ms);
+    let mut root_module_ids = Vec::with_capacity(module_dirs.len());
+
+    for module_dir in module_dirs {
+        #[allow(clippy::disallowed_methods)] // we are not using the `resolve` module
+        let module =
+            read_module_desc_file_in_dir(&module_dir).map_err(ResolveError::SyncModulesError)?;
+        let module_source =
+            ModuleSource::from_local_module(&module, &module_dir).ok_or_else(|| {
+                ResolveError::SyncModulesError(anyhow::anyhow!("Malformed module manifest"))
+            })?;
+        let id = modules.add_module(module_source, Arc::new(module));
+        modules.push_root_module(id);
+        root_module_ids.push(id);
+
+        let module_source = modules.mod_name_from_id(id).clone();
+        debug!(
+            "Resolved formatter root id = {:?}, name = {}",
+            id, module_source
+        );
+        discover_packages_for_mod(&mut discover_res, &modules, &module_dir, id, &module_source)?;
+    }
+
+    info!(
+        "Package discovery completed for {} formatter root modules",
+        root_module_ids.len()
+    );
 
     Ok(FmtResolveOutput {
         module_rel: modules,
         pkg_dirs: discover_res,
-        main_module_id: id,
+        root_module_ids,
     })
 }
 
@@ -106,49 +130,57 @@ pub struct FmtConfig {
 /// Generate the necessary build graph for the formatter operation.
 ///
 /// If `package_filter` is `Some`, only the specified package will be formatted.
-/// Otherwise, all packages in the module will be formatted.
+/// Otherwise, all packages in the current module or workspace will be formatted.
 pub fn build_graph_for_fmt(
     resolved: &FmtResolveOutput,
     cfg: &FmtConfig,
     target_dir: &Path,
     package_filter: Option<PackageId>,
 ) -> anyhow::Result<n2::graph::Graph> {
-    let ms = resolved
-        .module_rel
-        .mod_name_from_id(resolved.main_module_id);
-    info!("Building format graph for module {}", ms);
+    info!(
+        "Building format graph for {} root modules",
+        resolved.root_module_ids.len()
+    );
 
     let layout = LegacyLayoutBuilder::default()
         .target_base_dir(target_dir.into())
-        .main_module(Some(ms.clone()))
+        .main_module(match resolved.root_module_ids.as_slice() {
+            &[module_id] => Some(resolved.module_rel.mod_name_from_id(module_id).clone()),
+            [_, ..] => None,
+            [] => anyhow::bail!("No root modules found to format"),
+        })
         .stdlib_dir(None)
         .opt_level(moonutil::cond_expr::OptLevel::Release) // we don't care
         .run_mode(moonutil::common::RunMode::Format) // this too
         .build()
         .expect("Should be valid layout");
 
-    debug!("Layout built for formatting (module={})", ms);
+    debug!("Layout built for formatting");
 
     let mut graph = n2::graph::Graph::default();
+    let mut package_count = 0;
 
-    let Some(all_packages) = resolved
-        .pkg_dirs
-        .packages_for_module(resolved.main_module_id)
-    else {
-        anyhow::bail!("No packages found in module to format");
-    };
-
-    for &id in all_packages.values() {
-        // Skip packages that don't match the filter
-        if let Some(filter_id) = package_filter
-            && id != filter_id
-        {
+    for &module_id in &resolved.root_module_ids {
+        let Some(packages) = resolved.pkg_dirs.packages_for_module(module_id) else {
             continue;
-        }
+        };
 
-        let pkg = resolved.pkg_dirs.get_package(id);
-        info!("Processing package {}", pkg.fqn);
-        build_for_package(&mut graph, cfg, &layout, pkg)?;
+        for &id in packages.values() {
+            if let Some(filter_id) = package_filter
+                && id != filter_id
+            {
+                continue;
+            }
+
+            let pkg = resolved.pkg_dirs.get_package(id);
+            info!("Processing package {}", pkg.fqn);
+            build_for_package(&mut graph, cfg, &layout, pkg)?;
+            package_count += 1;
+        }
+    }
+
+    if package_count == 0 {
+        anyhow::bail!("No packages found in workspace to format");
     }
 
     Ok(graph)

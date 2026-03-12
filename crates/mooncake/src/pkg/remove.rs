@@ -61,11 +61,9 @@ pub fn remove(
         registry: registry::default_registry(),
         inject_std: false, // no need to inject
     };
-    let res = resolve_single_root_with_defaults(&resolve_cfg, ms, Arc::clone(&m))?;
+    resolve_single_root_with_defaults(&resolve_cfg, ms, Arc::clone(&m))?;
 
-    drop(res);
-
-    let new_j = convert_module_to_mod_json(Arc::into_inner(m).unwrap());
+    let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
     write_module_json_to_file(&new_j, source_dir)?;
     Ok(0)
 }

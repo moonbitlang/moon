@@ -49,7 +49,7 @@ This document contains the help content for the `moon` command-line program.
 * `clean` — Remove the _build directory
 * `fmt` — Format source code
 * `doc` — Generate documentation or searching documentation for a symbol
-* `info` — Generate public interface (`.mbti`) files for all packages in the module
+* `info` — Generate public interface (`.mbti`) files for all packages in the module or workspace
 * `bench` — Run benchmarks in the current package
 * `add` — Add a dependency
 * `remove` — Remove a dependency
@@ -332,7 +332,7 @@ Generate documentation or searching documentation for a symbol
 
 ## `moon info`
 
-Generate public interface (`.mbti`) files for all packages in the module
+Generate public interface (`.mbti`) files for all packages in the module or workspace
 
 **Usage:** `moon info [OPTIONS] [PATH]`
 

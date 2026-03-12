@@ -22,11 +22,13 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::common::{BUILD_DIR, MOON_MOD_JSON};
+use crate::common::{BUILD_DIR, MOON_MOD_JSON, MOON_WORK};
 
 #[derive(Debug, Error)]
 pub enum PackageDirsError {
-    #[error("not in a Moon project (no moon.mod.json found starting from {0} or its ancestors)")]
+    #[error(
+        "not in a Moon project (no moon.mod.json or moon.work.json found starting from {0} or its ancestors)"
+    )]
     NotInProject(PathBuf),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
@@ -54,7 +56,7 @@ pub struct SourceTargetDirs {
 
 impl SourceTargetDirs {
     pub fn try_into_package_dirs(&self) -> Result<PackageDirs, PackageDirsError> {
-        PackageDirs::try_from(self)
+        get_src_dst_dir(self)
     }
 }
 
@@ -67,10 +69,21 @@ pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
     source_dir.join(MOON_MOD_JSON).exists()
 }
 
+pub fn check_moon_work_exists(source_dir: &Path) -> bool {
+    source_dir.join(MOON_WORK).exists()
+}
+
 pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
     source_dir
         .ancestors()
         .find(|dir| check_moon_mod_exists(dir))
+        .map(|p| p.to_path_buf())
+}
+
+pub fn find_ancestor_with_work(source_dir: &Path) -> Option<PathBuf> {
+    source_dir
+        .ancestors()
+        .find(|dir| check_moon_work_exists(dir))
         .map(|p| p.to_path_buf())
 }
 
@@ -95,10 +108,13 @@ fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDir
         }
 
         let file_name = manifest_path.file_name().and_then(|s| s.to_str());
-        if file_name != Some(MOON_MOD_JSON) {
+        let is_module_manifest = file_name == Some(MOON_MOD_JSON);
+        let is_workspace_manifest = file_name == Some(MOON_WORK);
+        if !is_module_manifest && !is_workspace_manifest {
             return Err(anyhow::anyhow!(
-                "`--manifest-path` must point to `{}` (got `{}`)",
+                "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
                 MOON_MOD_JSON,
+                MOON_WORK,
                 manifest_path.display()
             )
             .into());
@@ -116,8 +132,9 @@ fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDir
         let start_dir = dunce::canonicalize(start_dir)
             .context("failed to resolve current directory")
             .map_err(PackageDirsError::from)?;
-        find_ancestor_with_mod(&start_dir)
-            .ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?
+        let project_root =
+            find_ancestor_with_work(&start_dir).or_else(|| find_ancestor_with_mod(&start_dir));
+        project_root.ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?
     };
 
     let target_dir = matches
@@ -137,12 +154,4 @@ fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDir
         source_dir: project_root,
         target_dir,
     })
-}
-
-impl TryFrom<&SourceTargetDirs> for PackageDirs {
-    type Error = PackageDirsError;
-
-    fn try_from(matches: &SourceTargetDirs) -> Result<Self, Self::Error> {
-        get_src_dst_dir(matches)
-    }
 }

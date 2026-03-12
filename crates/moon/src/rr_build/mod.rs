@@ -27,7 +27,6 @@
 //! - If you want to insert dry-running, your compilation process is split in
 //!   two parts: [``]
 
-use core::panic;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     path::{Path, PathBuf},
@@ -205,6 +204,47 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput) {
                 }
             }
         }
+    }
+}
+
+pub(crate) fn local_packages(
+    resolve_output: &ResolveOutput,
+) -> impl Iterator<Item = PackageId> + '_ {
+    resolve_output
+        .local_modules()
+        .iter()
+        .flat_map(|&module_id| {
+            resolve_output
+                .pkg_dirs
+                .packages_for_module(module_id)
+                .into_iter()
+                .flat_map(|packages| packages.values().copied())
+        })
+}
+
+fn workspace_preferred_target(resolve_output: &ResolveOutput) -> Option<TargetBackend> {
+    if let Some(preferred_target) = resolve_output.workspace_preferred_target {
+        return Some(preferred_target);
+    }
+
+    let preferred = resolve_output
+        .local_modules()
+        .iter()
+        .filter_map(|&module_id| {
+            resolve_output
+                .module_rel
+                .module_info(module_id)
+                .preferred_target
+        })
+        .collect::<BTreeSet<_>>();
+
+    if preferred.len() > 1 {
+        warn!(
+            "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly"
+        );
+        None
+    } else {
+        preferred.into_iter().next()
     }
 }
 
@@ -580,23 +620,18 @@ pub fn plan_build_from_resolved<'a>(
         )?;
     }
 
-    info!("Checking main module and backend");
-    assert_eq!(
-        resolve_output.local_modules().len(),
-        1,
-        "There should be exactly one main local module, got {:?}",
-        resolve_output.local_modules()
-    );
-    let main_module_id = resolve_output.local_modules()[0];
-    let main_module = resolve_output.module_rel.module_info(main_module_id);
-
     // Preferred backend
-    let preferred_backend = main_module.preferred_target;
-    info!("Preferred backend: {:?}", preferred_backend);
+    info!("Checking local modules and backend");
+    let main_module = match resolve_output.local_modules() {
+        &[module_id] => Some(resolve_output.module_rel.module_info(module_id)),
+        _ => None,
+    };
+    let preferred_target = workspace_preferred_target(&resolve_output);
+    info!("Preferred backend: {:?}", preferred_target);
 
     let target_backend = preconfig
         .target_backend
-        .or(preferred_backend)
+        .or(preferred_target)
         .unwrap_or_default();
 
     // TODO: remove this once LLVM backend is well supported
@@ -614,7 +649,7 @@ pub fn plan_build_from_resolved<'a>(
 
     // std or no-std?
     // Ultimately we want to determine this from config instead of special cases.
-    let is_core = main_module.name == MOONBITLANG_CORE;
+    let is_core = main_module.is_some_and(|module| module.name == MOONBITLANG_CORE);
     info!("is_core: {}", is_core);
 
     // Run prebuild config if any
@@ -807,11 +842,16 @@ pub fn generate_all_pkgs_json(
     mode: RunMode,
 ) -> anyhow::Result<()> {
     let resolve_output = &build_meta.resolve_output;
-    let &[main_module_id] = resolve_output.local_modules() else {
-        panic!("Currently only one local module is supported");
+    let main_module = match resolve_output.local_modules() {
+        &[module_id] => Some(
+            resolve_output
+                .module_rel
+                .mod_name_from_id(module_id)
+                .clone(),
+        ),
+        _ => None,
     };
-    let main_module = resolve_output.module_rel.mod_name_from_id(main_module_id);
-    let is_core = main_module.is_core();
+    let is_core = main_module.as_ref().is_some_and(|module| module.is_core());
     // the necessary information to calculate the layout of the `target`
     // directory
     // When building stdlib itself, don't point to prebuilt stdlib artifacts.
@@ -824,7 +864,7 @@ pub fn generate_all_pkgs_json(
             Some(moonutil::moon_dir::core())
         })
         .target_base_dir(target_dir.to_owned())
-        .main_module(Some(main_module.clone()))
+        .main_module(main_module)
         .build()
         .expect("Failed to build legacy layout");
 

@@ -734,19 +734,22 @@ fn calc_user_intent(
     out_filter: &mut TestFilter,
     target_backend: moonutil::common::TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[main_module_id] = resolve_output.local_modules() else {
-        panic!("No multiple main modules are supported");
-    };
-
-    let packages = resolve_output
-        .pkg_dirs
-        .packages_for_module(main_module_id)
-        .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
+    let all_affected_packages: Vec<_> = resolve_output
+        .local_modules()
+        .iter()
+        .flat_map(|&module_id| {
+            resolve_output
+                .pkg_dirs
+                .packages_for_module(module_id)
+                .into_iter()
+                .flat_map(|packages| packages.values().copied())
+        })
+        .collect();
     debug!(
-        package_count = packages.len(),
-        "calculating user intent for module"
+        package_count = all_affected_packages.len(),
+        module_count = resolve_output.local_modules().len(),
+        "calculating user intent for workspace"
     );
-    let all_affected_packages: Vec<_> = packages.values().copied().collect();
     let backend_affected_packages = all_affected_packages
         .iter()
         .copied()

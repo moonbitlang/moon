@@ -141,9 +141,16 @@ pub fn add(
     let m = Arc::new(m);
     let ms = moonutil::mooncakes::ModuleSource::from_local_module(&m, source_dir)
         .expect("Malformed module manifest");
-    install_impl(source_dir, Arc::clone(&m), ms, quiet, false, false, true)?;
+    install_impl(
+        source_dir,
+        &[(ms, Arc::clone(&m))],
+        quiet,
+        false,
+        false,
+        true,
+    )?;
 
-    let new_j = convert_module_to_mod_json(Arc::into_inner(m).unwrap());
+    let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
     write_module_json_to_file(&new_j, source_dir)?;
 
     Ok(0)

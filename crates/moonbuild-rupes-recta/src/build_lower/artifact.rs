@@ -49,8 +49,10 @@ const IMPL_MI_EXTENSION: &str = ".impl.mi";
 pub struct LegacyLayout {
     /// The base target directory, usually `<project-root>/_build`
     target_base_dir: PathBuf,
-    /// The name of the main module, so that packages from the main module will
-    /// not be put into nested directories.
+    /// The single main module to flatten in the legacy compatibility layout.
+    ///
+    /// When absent, all packages are nested under their module path, which is
+    /// the layout used for multi-root workspaces.
     main_module: Option<ModuleSource>,
 
     /// The directory of the standard library
@@ -111,18 +113,28 @@ impl MiPathResult {
 impl LegacyLayout {
     /// Returns the directory the given package resides in.
     ///
-    /// For modules determined as the "main module", this path is
-    /// `_build/<backend>[/<opt_level>/build]/<...package>/`. Otherwise, it's
+    /// In the single-root compatibility layout, packages from the chosen main
+    /// module are flattened to `_build/<backend>[/<opt_level>/build]/<...package>/`
+    /// and all others go under
     /// `_build/<backend>[/<opt_level>/build]/.mooncakes/<...module>/<...package>`.
+    ///
+    /// In the multi-root workspace layout, all packages go under
+    /// `_build/<backend>[/<opt_level>/build]/<...module>/<...package>`.
     pub fn package_dir(&self, pkg: &PackageFQN, backend: TargetBackend) -> PathBuf {
         let mut dir = self.target_base_dir.clone();
         self.push_opt_and_run_mode(backend, &mut dir);
 
-        if self.main_module.as_ref().is_some_and(|m| pkg.module() == m) {
-            // no nested directory for the working module
-        } else {
-            dir.push(LEGACY_NON_MAIN_MODULE_DIR);
-            dir.extend(pkg.module().name().segments());
+        match self.main_module.as_ref() {
+            Some(main_module) if pkg.module() == main_module => {
+                // no nested directory for the working module
+            }
+            Some(_) => {
+                dir.push(LEGACY_NON_MAIN_MODULE_DIR);
+                dir.extend(pkg.module().name().segments());
+            }
+            None => {
+                dir.extend(pkg.module().name().segments());
+            }
         }
         dir.extend(pkg.package().segments());
 
@@ -617,4 +629,95 @@ pub fn stdlib_mi_path(core_root: &Path, backend: TargetBackend, fqn: &PackageFQN
     path.push(package_name);
     path.push(format!("{}{}", package_last_segment, MI_EXTENSION));
     path
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use moonutil::mooncakes::{DEFAULT_VERSION, ModuleName, ModuleSource};
+
+    use super::*;
+    use crate::pkg_name::{PackageFQN, PackagePath};
+
+    fn module(name: &str) -> ModuleSource {
+        ModuleSource::local_path(
+            name.parse::<ModuleName>()
+                .expect("test module name should parse"),
+            PathBuf::from(format!("/tmp/{name}")),
+            DEFAULT_VERSION.clone(),
+        )
+    }
+
+    #[test]
+    fn single_root_layout_keeps_legacy_flattening() {
+        let main_module = module("username/hello");
+        let dep_module = module("username/world");
+        let layout = LegacyLayoutBuilder::default()
+            .target_base_dir(PathBuf::from("_build"))
+            .main_module(Some(main_module.clone()))
+            .stdlib_dir(None)
+            .opt_level(OptLevel::Debug)
+            .run_mode(RunMode::Build)
+            .build()
+            .expect("test layout should build");
+
+        let main_pkg = PackageFQN::new(
+            main_module,
+            "lib"
+                .parse::<PackagePath>()
+                .expect("test package path should parse"),
+        );
+        let dep_pkg = PackageFQN::new(
+            dep_module,
+            "lib"
+                .parse::<PackagePath>()
+                .expect("test package path should parse"),
+        );
+
+        assert_eq!(
+            layout.package_dir(&main_pkg, TargetBackend::WasmGC),
+            PathBuf::from("_build/wasm-gc/debug/build/lib"),
+        );
+        assert_eq!(
+            layout.package_dir(&dep_pkg, TargetBackend::WasmGC),
+            PathBuf::from("_build/wasm-gc/debug/build/.mooncakes/username/world/lib"),
+        );
+    }
+
+    #[test]
+    fn multi_root_layout_qualifies_all_packages_by_module() {
+        let root_module = module("username/hello");
+        let dep_module = module("username/world/v2");
+        let layout = LegacyLayoutBuilder::default()
+            .target_base_dir(PathBuf::from("_build"))
+            .main_module(None)
+            .stdlib_dir(None)
+            .opt_level(OptLevel::Debug)
+            .run_mode(RunMode::Build)
+            .build()
+            .expect("test layout should build");
+
+        let root_pkg = PackageFQN::new(
+            root_module,
+            "lib"
+                .parse::<PackagePath>()
+                .expect("test package path should parse"),
+        );
+        let dep_pkg = PackageFQN::new(
+            dep_module,
+            "lib"
+                .parse::<PackagePath>()
+                .expect("test package path should parse"),
+        );
+
+        assert_eq!(
+            layout.package_dir(&root_pkg, TargetBackend::WasmGC),
+            PathBuf::from("_build/wasm-gc/debug/build/username/hello/lib"),
+        );
+        assert_eq!(
+            layout.package_dir(&dep_pkg, TargetBackend::WasmGC),
+            PathBuf::from("_build/wasm-gc/debug/build/username/world/v2/lib"),
+        );
+    }
 }

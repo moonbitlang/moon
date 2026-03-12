@@ -135,10 +135,10 @@ pub fn compile(
     debug!("Build plan contains {} nodes", plan.node_count());
 
     let lower_env = build_lower::BuildOptions {
-        main_module: if let &[module] = resolve_output.module_rel.input_module_ids() {
-            Some(resolve_output.module_rel.mod_name_from_id(module).clone())
-        } else {
-            None
+        main_module: match resolve_output.local_modules() {
+            &[module] => Some(resolve_output.module_rel.mod_name_from_id(module).clone()),
+            [_, ..] => None,
+            [] => unreachable!("resolve output must contain at least one main module"),
         },
         target_dir_root: cx.target_dir.clone(),
         target_backend: cx.target_backend,

@@ -43,5 +43,6 @@ pub mod render;
 pub mod shlex;
 pub mod supported_targets;
 pub mod version;
+pub mod workspace;
 
 pub use binaries::BINARIES;

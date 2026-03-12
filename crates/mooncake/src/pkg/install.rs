@@ -19,7 +19,7 @@
 use crate::{
     dep_dir::resolve_dep_dirs,
     registry,
-    resolver::{ResolveConfig, resolve_single_root_with_defaults},
+    resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
 };
 
 use anyhow::Context;
@@ -93,26 +93,31 @@ pub fn install(
     let m = read_module_desc_file_in_dir(source_dir)?;
     let m = Arc::new(m);
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
-    install_impl(source_dir, m, ms, quiet, verbose, false, no_std).map(|_| 0)
+    let roots = [(ms, Arc::clone(&m))];
+    install_impl(source_dir, &roots, quiet, verbose, false, no_std).map(|_| 0)
 }
 
 pub(crate) fn install_impl(
     source_dir: &Path,
-    m: Arc<moonutil::module::MoonMod>,
-    ms: ModuleSource,
+    roots: &[(ModuleSource, Arc<MoonMod>)],
     quiet: bool,
     verbose: bool,
     dont_sync: bool,
     no_std: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
-    let is_stdlib = m.name == MOONBITLANG_CORE;
+    let includes_core = roots
+        .iter()
+        .any(|(_, module)| module.name == MOONBITLANG_CORE);
+    if includes_core && roots.len() != 1 {
+        anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
+    }
 
     let resolve_config = ResolveConfig {
         registry: registry::default_registry(),
-        inject_std: !is_stdlib && !no_std,
+        inject_std: !includes_core && !no_std,
     };
 
-    let res = resolve_single_root_with_defaults(&resolve_config, ms, Arc::clone(&m))?;
+    let res = resolve_with_default_env_and_resolver(&resolve_config, roots)?;
     let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
 
     crate::dep_dir::sync_deps(
@@ -126,21 +131,22 @@ pub(crate) fn install_impl(
 
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
 
-    install_bin_deps(m, verbose, &res, &dir_sync_result)?;
+    install_bin_deps(verbose, &res, &dir_sync_result)?;
 
     Ok((res, dir_sync_result))
 }
 
 fn install_bin_deps(
-    m: Arc<MoonMod>,
     verbose: bool,
     res: &ResolvedEnv,
     dep_dir: &DirSyncResult,
 ) -> Result<(), anyhow::Error> {
-    if let Some(ref bin_deps) = m.bin_deps {
+    for &main_module in res.input_module_ids() {
+        let Some(bin_deps) = res.module_info(main_module).bin_deps.as_ref() else {
+            continue;
+        };
         let moon_path = moonutil::BINARIES.moonbuild.to_string_lossy();
 
-        let main_module = res.input_module_ids()[0];
         let bin_deps_iter = res
             .deps_keyed(main_module)
             .filter(|(_, edge)| edge.kind == DependencyKind::Binary);

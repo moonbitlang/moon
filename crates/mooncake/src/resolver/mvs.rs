@@ -38,6 +38,8 @@ use semver::Version;
 
 use super::{Resolver, ResolverError, env::ResolverEnv};
 
+type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
+
 /// A dependency solver that follows the MVS (minimal version selection) algorithm,
 /// which is the same as that Go uses.
 /// See https://research.swtch.com/vgo-mvs for more information.
@@ -211,6 +213,10 @@ fn mvs_resolve(
     res: &mut ResolvedEnv,
     root: &[(ModuleSource, Arc<MoonMod>)],
 ) -> bool {
+    let workspace_roots = root
+        .iter()
+        .map(|(source, module)| (source.name().clone(), (source.clone(), Arc::clone(module))))
+        .collect::<WorkspaceRoots>();
     let root_sources = root
         .iter()
         .map(|(source, _)| source.clone())
@@ -256,7 +262,7 @@ fn mvs_resolve(
                 }
             };
 
-            let (ms, module) = match resolve_pkg(req, &source, env, &pkg_name) {
+            let (ms, module) = match resolve_pkg(req, &source, env, &workspace_roots, &pkg_name) {
                 Ok(value) => value,
                 Err(e) => {
                     env.report_error(e);
@@ -359,12 +365,18 @@ fn mvs_resolve(
             let dep_name = dep_name.parse().unwrap();
             // If any malformed name, it should be reported in the previous round
 
-            let dep_versions = &settled_versions[&dep_name];
-            let resolved = dep_versions
-                .iter()
-                .find(|v| req.version.matches(v.0.version()))
-                .expect("There should be at least one version available, otherwise previous steps will fail");
-            let resolved = &resolved.0;
+            let resolved = if let Some((source, _)) = workspace_roots.get(&dep_name) {
+                source
+            } else {
+                let dep_versions = &settled_versions[&dep_name];
+                let resolved = dep_versions
+                    .iter()
+                    .find(|v| req.version.matches(v.0.version()))
+                    .expect(
+                        "There should be at least one version available, otherwise previous steps will fail",
+                    );
+                &resolved.0
+            };
 
             let id = if let Some(id) = visited.get(&resolved) {
                 *id
@@ -399,8 +411,18 @@ fn resolve_pkg(
     req: &SourceDependencyInfo,
     dependant: &ModuleSource,
     env: &mut ResolverEnv,
+    workspace_roots: &WorkspaceRoots,
     pkg_name: &ModuleName,
 ) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
+    if let Some((source, module)) = workspace_roots.get(pkg_name) {
+        log::debug!(
+            "---- Dependency {} resolved to workspace module {}",
+            pkg_name,
+            source
+        );
+        return Ok((source.clone(), Arc::clone(module)));
+    }
+
     if let Some(path) = &req.path
         && local_dep_allowed(dependant)
     {
@@ -662,10 +684,14 @@ mod test {
     fn assert_depends_on(result: &ResolvedEnv, pkg1: &str, pkg2: &str) {
         let pkg1 = pkg1.parse().expect("Invalid pkg1");
         let pkg2 = pkg2.parse().expect("Invalid pkg2");
+        assert_depends_on_source(result, &pkg1, &pkg2);
+    }
+
+    fn assert_depends_on_source(result: &ResolvedEnv, pkg1: &ModuleSource, pkg2: &ModuleSource) {
         // we're writing tests, so we can use a slightly inefficient way to get IDs
         // from module names, since we don't have a lot of modules in tests
-        let id1 = id_from_mod_name(result, &pkg1).expect("pkg1 not found in the result");
-        let id2 = id_from_mod_name(result, &pkg2).expect("pkg2 not found in the result");
+        let id1 = id_from_mod_name(result, pkg1).expect("pkg1 not found in the result");
+        let id2 = id_from_mod_name(result, pkg2).expect("pkg2 not found in the result");
         assert!(
             result.graph().contains_edge(id1, id2),
             "{pkg1} does not depend on {pkg2}"
@@ -675,8 +701,12 @@ mod test {
     fn assert_no_depends_on(result: &ResolvedEnv, pkg1: &str, pkg2: &str) {
         let pkg1 = pkg1.parse().expect("Invalid pkg1");
         let pkg2 = pkg2.parse().expect("Invalid pkg2");
-        let id1 = id_from_mod_name(result, &pkg1);
-        let id2 = id_from_mod_name(result, &pkg2);
+        assert_no_depends_on_source(result, &pkg1, &pkg2);
+    }
+
+    fn assert_no_depends_on_source(result: &ResolvedEnv, pkg1: &ModuleSource, pkg2: &ModuleSource) {
+        let id1 = id_from_mod_name(result, pkg1);
+        let id2 = id_from_mod_name(result, pkg2);
         if let (Some(id1), Some(id2)) = (id1, id2) {
             assert!(
                 !result.graph().contains_edge(id1, id2),
@@ -694,10 +724,27 @@ mod test {
         )
     }
 
+    fn create_mock_workspace_source(module: &MoonMod, path: &str) -> ModuleSource {
+        ModuleSource::local_path(
+            module.name.parse().unwrap(),
+            PathBuf::from(path),
+            module.version.clone().unwrap(),
+        )
+    }
+
     fn create_mock_root(root: impl Into<Arc<MoonMod>>) -> Vec<(ModuleSource, Arc<MoonMod>)> {
         let root = root.into();
         let root_src = create_mock_local_source(&root);
         vec![(root_src, root)]
+    }
+
+    fn create_mock_workspace_roots<const N: usize>(
+        roots: [(&str, Arc<MoonMod>); N],
+    ) -> Vec<(ModuleSource, Arc<MoonMod>)> {
+        roots
+            .into_iter()
+            .map(|(path, root)| (create_mock_workspace_source(&root, path), root))
+            .collect()
     }
 
     #[test]
@@ -833,6 +880,65 @@ mod test {
         assert_depends_on(&result, "dep/two@0.2.0", "dep/one@0.2.0");
         assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.2.0");
         assert_no_depends_on(&result, "root/module@0.1.0", "dep/two@0.2.0");
+    }
+
+    #[test]
+    fn test_workspace_root_overrides_registry_dependency() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("dep/shared", "0.2.0", [])
+            .add_module_full("dep/consumer", "0.1.0", [("dep/shared", "0.2.0")]);
+
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let app = Arc::new(create_mock_module(
+            "workspace/app",
+            "0.1.0",
+            [("dep/consumer", "0.1.0")],
+        ));
+        let shared = Arc::new(create_mock_module("dep/shared", "0.1.0", []));
+        let roots = create_mock_workspace_roots([
+            ("/workspace/app", Arc::clone(&app)),
+            ("/workspace/shared", Arc::clone(&shared)),
+        ]);
+        let mut result_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        assert!(status, "Resolve failed");
+        let result = result_env;
+        let app_src = create_mock_workspace_source(&app, "/workspace/app");
+        let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
+
+        assert_depends_on_source(&result, &app_src, &"dep/consumer@0.1.0".parse().unwrap());
+        assert_depends_on_source(&result, &"dep/consumer@0.1.0".parse().unwrap(), &shared_src);
+        assert_no_depends_on(&result, "dep/consumer@0.1.0", "dep/shared@0.2.0");
+    }
+
+    #[test]
+    fn test_workspace_root_ignores_declared_version_mismatch() {
+        let mut registry = MockRegistry::new();
+        registry.add_module_full("dep/shared", "0.2.0", []);
+
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let app = Arc::new(create_mock_module(
+            "workspace/app",
+            "0.1.0",
+            [("dep/shared", "0.2.0")],
+        ));
+        let shared = Arc::new(create_mock_module("dep/shared", "0.1.0", []));
+        let roots = create_mock_workspace_roots([
+            ("/workspace/app", Arc::clone(&app)),
+            ("/workspace/shared", Arc::clone(&shared)),
+        ]);
+        let mut result_env = ResolvedEnv::new();
+        let status = resolver.resolve(&mut env, &mut result_env, &roots);
+        assert!(status, "Resolve failed");
+        let result = result_env;
+        let app_src = create_mock_workspace_source(&app, "/workspace/app");
+        let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
+
+        assert_depends_on_source(&result, &app_src, &shared_src);
+        assert_no_depends_on_source(&result, &app_src, &"dep/shared@0.2.0".parse().unwrap());
     }
 
     fn resolve(registry: &dyn Registry, root: Arc<MoonMod>) -> Vec<ModuleSource> {

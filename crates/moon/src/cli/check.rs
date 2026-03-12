@@ -380,7 +380,7 @@ fn run_check_normal_internal_rr(
     }
 }
 
-/// Generate user intent of checking all packages in the current module.
+/// Generate user intent of checking all packages in the current workspace.
 ///
 /// Two paths are supported:
 /// - `package_path`: The legacy `-p` flag, specifying the path from the source
@@ -398,10 +398,6 @@ fn calc_user_intent(
     no_mi: bool,
     patch_file: Option<&Path>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[main_module_id] = resolve_output.local_modules() else {
-        panic!("No multiple main modules are supported");
-    };
-
     if package_path.is_some() && path.is_some() {
         anyhow::bail!(
             "Only one of `-p/--package-path` and positional `PATH` can be specified at a time"
@@ -429,13 +425,7 @@ fn calc_user_intent(
 
         Ok((vec![UserIntent::Check(pkg)], directive).into())
     } else {
-        let packages = resolve_output
-            .pkg_dirs
-            .packages_for_module(main_module_id)
-            .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-        let intents: Vec<_> = packages
-            .values()
-            .copied()
+        let intents: Vec<_> = rr_build::local_packages(resolve_output)
             .filter(|&pkg| package_supports_backend(resolve_output, pkg, target_backend))
             .map(UserIntent::Check)
             .collect();
