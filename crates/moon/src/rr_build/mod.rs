@@ -198,7 +198,7 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput) {
                 let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
                 if pkg.supported_targets_decl == SupportedTargetsDeclKind::LegacyArray {
                     warn!(
-                        "Package `{}` uses legacy array syntax for `supported-targets`; use expression syntax like `<backend>` instead",
+                        "Package `{}` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead",
                         pkg.fqn
                     );
                 }
@@ -290,7 +290,7 @@ fn ensure_dependency_graph_backend_compatibility(
         {
             let dep_pkg = resolve_output.pkg_dirs.get_package(dep_pkg_id);
             warn!(
-                "Package `{}` does not declare `supported-targets`, but depends on `{}` which declares it. Consider declaring `supported-targets` explicitly",
+                "Package `{}` does not declare `supported_targets`, but depends on `{}` which declares it. Consider declaring `supported_targets` explicitly",
                 root_pkg.fqn, dep_pkg.fqn
             );
         }

@@ -168,7 +168,7 @@ pub enum MoonModJSONFormatErrorKind {
     Version(#[from] semver::Error),
     #[error("`preferred-backend` is not a valid backend")]
     PreferredBackend(anyhow::Error),
-    #[error("`supported-targets` bad format")]
+    #[error("`supported_targets` bad format")]
     SupportedTargets(anyhow::Error),
 }
 

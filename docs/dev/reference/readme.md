@@ -4,29 +4,29 @@ This is a reference documentation of the current MoonBuild behavior.
 
 ## Core features
 
-- [Architecture and overview](./arch.md)
-- [Modules and packages](./modules-packages.md)
-- [Package build process](./build.md)
-- [How binaries are found](./binaries.md)
-- [Indirect dependency support for compiler](./indirect-dep.md)
-- [Debugging utilities](./debugging.md)
+* [Architecture and overview](./arch.md)
+* [Modules and packages](./modules-packages.md)
+* [Package build process](./build.md)
+* [How binaries are found](./binaries.md)
+* [Indirect dependency support for compiler](./indirect-dep.md)
+* [Debugging utilities](./debugging.md)
 
 ## Additional features
 
-- [Prebuild tasks](./prebuild.md)
-- [Conditional compilation](./cond-comp.md)
-- [Virtual packages](./virtual-pkg.md)
-- [`tcc -run` mode](./tcc-run.md)
-- [`moon bundle`](./bundle.md)
-- [`moon install` binary installer behavior](./moon-install-binary.md)
-- [Rupes Recta special cases](./rr-special-cases.md)
-- [`moon test` execution flow](./tests.md)
-- [`supported-targets` behavior](./supported-targets.md)
-- TODO: Single-file mode
-- TODO: Markdown checks and tests
-- [Dry-run behavior (UB)](./dry-run.md)
+* [Prebuild tasks](./prebuild.md)
+* [Conditional compilation](./cond-comp.md)
+* [Virtual packages](./virtual-pkg.md)
+* [`tcc -run` mode](./tcc-run.md)
+* [`moon bundle`](./bundle.md)
+* [`moon install` binary installer behavior](./moon-install-binary.md)
+* [Rupes Recta special cases](./rr-special-cases.md)
+* [`moon test` execution flow](./tests.md)
+* [`supported_targets` behavior](./supported-targets.md)
+* TODO: Single-file mode
+* TODO: Markdown checks and tests
+* [Dry-run behavior (UB)](./dry-run.md)
 
 ## Testing
 
-- TODO: Doc tests
-- TODO: Snapshot testing
+* TODO: Doc tests
+* TODO: Snapshot testing

@@ -473,6 +473,46 @@ fn expect_warnings() {
 }
 
 #[test]
+fn expect_supported_targets_prefers_new_config() {
+    let actual = run(r#"
+    supported_targets = "js"
+    options(
+      "supported-targets": "+native",
+    )
+    "#);
+    expect_test::expect![[r#"
+        MoonPkg {
+            name: None,
+            is_main: false,
+            force_link: false,
+            sub_package: None,
+            imports: [],
+            wbtest_imports: [],
+            test_imports: [],
+            formatter: MoonPkgFormatter {
+                ignore: {},
+            },
+            link: None,
+            warn_list: None,
+            alert_list: None,
+            targets: None,
+            pre_build: None,
+            bin_name: None,
+            bin_target: None,
+            supported_targets: {
+                Js,
+            },
+            native_stub: None,
+            virtual_pkg: None,
+            implement: None,
+            overrides: None,
+            max_concurrent_tests: None,
+            regex_backend: None,
+        }"#]]
+    .assert_eq(&actual);
+}
+
+#[test]
 fn expect_options() {
     let actual = run(r#"
     options(
