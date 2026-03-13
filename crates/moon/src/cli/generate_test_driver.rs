@@ -27,7 +27,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 /// Generate tests for a provided package. This is a thin wrapper around
-/// `moonc gen-test-info`, which does the actual parsing and generation.
+/// `moonc gen-test-info`, followed by rendering a `.mbt` driver from the
+/// collected metadata.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct GenerateTestDriverSubcommand {
     /// The paths of the source files to be mapped
@@ -74,6 +75,67 @@ pub(crate) struct GenerateTestDriverSubcommand {
     /// Path to the patch file
     #[clap(long)]
     patch_file: Option<PathBuf>,
+
+    /// Max concurrent tests for `async test`
+    #[clap(long)]
+    max_concurrent_tests: Option<u32>,
+}
+
+/// Collect test metadata for a provided package without rendering the driver.
+#[derive(Debug, clap::Parser)]
+pub(crate) struct GenerateTestInfoSubcommand {
+    /// The paths of the source files to be mapped
+    files: Vec<PathBuf>,
+
+    /// Files that need to be mapped, but only extract the doctests, not main contents
+    #[clap(long = "doctest-only")]
+    doctest_only_files: Vec<PathBuf>,
+
+    /// The output test metadata file
+    #[clap(long)]
+    output_metadata: PathBuf,
+
+    /// The target backend for the generated test metadata.
+    #[clap(long = "target")]
+    target_backend: TargetBackend,
+
+    /// The test driver kind
+    #[clap(long)]
+    driver_kind: DriverKind,
+
+    /// Path to the patch file
+    #[clap(long)]
+    patch_file: Option<PathBuf>,
+}
+
+/// Render a `.mbt` test driver from previously collected metadata.
+#[derive(Debug, clap::Parser)]
+pub(crate) struct RenderTestDriverSubcommand {
+    /// The input test metadata file
+    #[clap(long)]
+    input_metadata: PathBuf,
+
+    /// The output test driver `.mbt` file
+    #[clap(long)]
+    output_driver: PathBuf,
+
+    /// The name of the package for which the test driver is generated for.
+    #[clap(long)]
+    pkg_name: String,
+
+    /// Whether to generate the test driver in bench mode. Not providing this
+    /// option will result in test mode.
+    #[clap(long)]
+    bench: bool,
+
+    /// Whether coverage is enabled in this build. Enabling it will insert
+    /// coverage-custom code at the end of the test.
+    #[clap(long)]
+    enable_coverage: bool,
+
+    /// Override coverage package name; `@self` is a special value that means the package itself
+    #[clap(long)]
+    coverage_package_override: Option<String>,
 
     /// Max concurrent tests for `async test`
     #[clap(long)]
@@ -159,6 +221,103 @@ fn moonc_gen_test_info(
     }
 }
 
+fn load_test_info(path: &Path) -> anyhow::Result<MooncGenTestInfo> {
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("failed to read test metadata: {}", path.display()))?;
+    serde_json_lenient::from_slice(&bytes)
+        .with_context(|| format!("failed to parse test metadata: {}", path.display()))
+}
+
+fn write_test_metadata(
+    output_metadata: &Path,
+    files: &[PathBuf],
+    doctest_only_files: &[PathBuf],
+    driver_kind: DriverKind,
+    patch_file: Option<PathBuf>,
+    target_backend: TargetBackend,
+) -> anyhow::Result<MooncGenTestInfo> {
+    output_metadata
+        .parent()
+        .map(std::fs::create_dir_all)
+        .transpose()?;
+    moonc_gen_test_info(
+        files,
+        doctest_only_files,
+        driver_kind,
+        output_metadata,
+        patch_file,
+        target_backend,
+    )
+}
+
+fn write_test_driver(
+    output_driver: &Path,
+    metadata: &MooncGenTestInfo,
+    pkg_name: &str,
+    enable_coverage: bool,
+    bench: bool,
+    coverage_package_override: Option<&str>,
+    max_concurrent_tests: Option<u32>,
+) -> anyhow::Result<()> {
+    output_driver
+        .parent()
+        .map(std::fs::create_dir_all)
+        .transpose()?;
+    let generated_content = generate_driver(
+        metadata,
+        pkg_name,
+        enable_coverage,
+        bench,
+        coverage_package_override,
+        max_concurrent_tests,
+    );
+    std::fs::write(output_driver, generated_content)
+        .with_context(|| format!("failed to write test driver: {}", output_driver.display()))?;
+    Ok(())
+}
+
+pub(crate) fn generate_test_info(
+    cli: UniversalFlags,
+    cmd: GenerateTestInfoSubcommand,
+) -> anyhow::Result<i32> {
+    if cli.dry_run {
+        bail!("dry-run is not supported for generate-test-info");
+    }
+
+    write_test_metadata(
+        &cmd.output_metadata,
+        &cmd.files,
+        &cmd.doctest_only_files,
+        cmd.driver_kind,
+        cmd.patch_file,
+        cmd.target_backend,
+    )?;
+
+    Ok(0)
+}
+
+pub(crate) fn render_test_driver(
+    cli: UniversalFlags,
+    cmd: RenderTestDriverSubcommand,
+) -> anyhow::Result<i32> {
+    if cli.dry_run {
+        bail!("dry-run is not supported for render-test-driver");
+    }
+
+    let metadata = load_test_info(&cmd.input_metadata)?;
+    write_test_driver(
+        &cmd.output_driver,
+        &metadata,
+        &cmd.pkg_name,
+        cmd.enable_coverage,
+        cmd.bench,
+        cmd.coverage_package_override.as_deref(),
+        cmd.max_concurrent_tests,
+    )?;
+
+    Ok(0)
+}
+
 pub(crate) fn generate_test_driver(
     cli: UniversalFlags,
     cmd: GenerateTestDriverSubcommand,
@@ -167,34 +326,23 @@ pub(crate) fn generate_test_driver(
         bail!("dry-run is not supported for generate-test-driver");
     }
 
-    // Create directories if not exists
-    cmd.output_metadata
-        .parent()
-        .map(std::fs::create_dir_all)
-        .transpose()?;
-    cmd.output_driver
-        .parent()
-        .map(std::fs::create_dir_all)
-        .transpose()?;
-
-    let mbts_test_data = moonc_gen_test_info(
+    let metadata = write_test_metadata(
+        &cmd.output_metadata,
         &cmd.files,
         &cmd.doctest_only_files,
         cmd.driver_kind,
-        &cmd.output_metadata,
-        cmd.patch_file.clone(),
+        cmd.patch_file,
         cmd.target_backend,
     )?;
-
-    let generated_content = generate_driver(
-        &mbts_test_data,
+    write_test_driver(
+        &cmd.output_driver,
+        &metadata,
         &cmd.pkg_name,
         cmd.enable_coverage,
         cmd.bench,
         cmd.coverage_package_override.as_deref(),
         cmd.max_concurrent_tests,
-    );
-    std::fs::write(&cmd.output_driver, generated_content)?;
+    )?;
 
     Ok(0)
 }
