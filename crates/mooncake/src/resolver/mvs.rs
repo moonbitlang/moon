@@ -209,15 +209,18 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
         .iter()
         .map(|&id| {
             (
-                res.mod_name_from_id(id).name().clone(),
-                (res.mod_name_from_id(id).clone(), Arc::clone(res.module_info(id))),
+                res.module_source(id).name().clone(),
+                (
+                    res.module_source(id).clone(),
+                    Arc::clone(res.module_info(id)),
+                ),
             )
         })
         .collect::<WorkspaceRoots>();
     let root_sources = res
         .input_module_ids()
         .iter()
-        .map(|&id| res.mod_name_from_id(id).clone())
+        .map(|&id| res.module_source(id).clone())
         .collect::<HashSet<_>>();
 
     // Ordered set used to ensure they are iterated in order later.
@@ -231,14 +234,14 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
 
     working_list.extend(res.input_module_ids().iter().map(|&id| {
         (
-            res.mod_name_from_id(id).clone(),
+            res.module_source(id).clone(),
             Arc::clone(res.module_info(id)),
         )
     }));
     if log::log_enabled!(log::Level::Debug) {
         for &id in res.input_module_ids() {
-            log::debug!("MVS root item: {}", res.mod_name_from_id(id));
-            visited.insert(res.mod_name_from_id(id).clone());
+            log::debug!("MVS root item: {}", res.module_source(id));
+            visited.insert(res.module_source(id).clone());
         }
     }
 
@@ -335,17 +338,17 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
         .input_module_ids()
         .iter()
         .map(|&id| {
-            log::debug!("---- {} -> {:?}", res.mod_name_from_id(id), id);
+            log::debug!("---- {} -> {:?}", res.module_source(id), id);
             (
                 Arc::clone(res.module_info(id)),
-                res.mod_name_from_id(id).clone(),
+                res.module_source(id).clone(),
             )
         })
         .collect::<Vec<_>>();
     let mut visited = res
         .input_module_ids()
         .iter()
-        .map(|&id| (res.mod_name_from_id(id).clone(), id))
+        .map(|&id| (res.module_source(id).clone(), id))
         .collect::<HashMap<_, _>>();
 
     log::debug!("-- Inserting dependencies");
@@ -568,7 +571,7 @@ mod test {
             .map(|(id, _)| id)
             .expect("Module not found");
         expect!["ModuleId(1v1)"].assert_eq(&format!("{:?}", &id));
-        let mt = result.mod_name_from_id(id);
+        let mt = result.module_source(id);
         expect!["dep/three@0.1.0"].assert_eq(&format!("{mt:?}"));
 
         let module_info = result.module_info(id);

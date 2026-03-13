@@ -325,7 +325,7 @@ impl BuildPlanNode {
                 )
             }
             BuildPlanNode::Bundle(module_id) => {
-                let module_src = env.mod_name_from_id(*module_id);
+                let module_src = env.module_source(*module_id);
                 format!(
                     "bundle module {}@{}",
                     module_src.name(),
@@ -410,7 +410,7 @@ impl BuildPlanNode {
                 format!("{}@{:?}@GenerateMbti", fqn, t.kind)
             }
             BuildPlanNode::Bundle(mid) => {
-                let src = env.mod_name_from_id(*mid);
+                let src = env.module_source(*mid);
                 format!("{}@Bundle", src)
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),

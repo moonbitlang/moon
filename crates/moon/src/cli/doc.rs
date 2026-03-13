@@ -144,7 +144,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         let full_name = build_meta
             .resolve_output
             .module_rel
-            .mod_name_from_id(mid)
+            .module_source(mid)
             .name()
             .to_string();
         moonbuild::doc_http::start_server(static_dir, &full_name, cmd.bind, cmd.port)?;

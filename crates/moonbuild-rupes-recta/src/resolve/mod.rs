@@ -320,7 +320,7 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
     let main_is_core = {
         let ids = resolved_env.input_module_ids();
-        ids.len() == 1 && *resolved_env.mod_name_from_id(ids[0]).name() == CORE_MODULE_TUPLE
+        ids.len() == 1 && *resolved_env.module_source(ids[0]).name() == CORE_MODULE_TUPLE
     };
     if cfg.enable_coverage && main_is_core {
         // Gate coverage bundling (coverage -> builtin) behind both flag and main-module check

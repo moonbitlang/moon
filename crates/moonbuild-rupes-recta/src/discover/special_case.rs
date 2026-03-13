@@ -34,7 +34,7 @@ pub fn inject_core_coverage_into_builtin(env: &ResolvedEnv, res: &mut DiscoverRe
     let Some(&stdlib) = env
         .input_module_ids()
         .iter()
-        .find(|id| *env.mod_name_from_id(**id).name() == CORE_MODULE_TUPLE)
+        .find(|id| *env.module_source(**id).name() == CORE_MODULE_TUPLE)
     else {
         info!(
             "No standard library injected and no local core module found, skipping coverage->builtin injection"

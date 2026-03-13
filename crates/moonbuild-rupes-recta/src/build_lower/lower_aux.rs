@@ -109,7 +109,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         node: BuildPlanNode,
         module_id: ModuleId,
     ) -> BuildCommand {
-        let module = self.modules.mod_name_from_id(module_id);
+        let module = self.modules.module_source(module_id);
         let output = self
             .layout
             .bundle_result_path(self.opt.target_backend.into(), module.name());

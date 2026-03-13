@@ -76,7 +76,7 @@ impl<'a> BuildPlanConstructor<'a> {
             vars.get(caps.get(1).expect("build var regex has capture").as_str())
                 .map(|s| s.as_str())
                 .unwrap_or_else(|| {
-                    let m_name = self.input.module_rel.mod_name_from_id(module);
+                    let m_name = self.input.module_rel.module_source(module);
                     let pkg_name = &self.input.pkg_dirs.get_package(package).fqn;
                     warn!(
                         "Build variable {} required in {} but not found in \

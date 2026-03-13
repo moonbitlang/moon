@@ -418,7 +418,7 @@ pub mod result {
             &self.mapping[id]
         }
 
-        pub fn mod_name_from_id(&self, id: ModuleId) -> &ModuleSource {
+        pub fn module_source(&self, id: ModuleId) -> &ModuleSource {
             self.resolved_module(id).source()
         }
 
@@ -507,9 +507,11 @@ pub mod result {
             }
         }
 
-        /// Set the given module ID as the standard library. All modules
-        /// inserted afterwards will automatically depend on this module.
-        pub fn set_stdlib(&mut self, stdlib: ModuleId) {
+        /// Register the given module ID as the standard library.
+        ///
+        /// All existing modules, and modules inserted afterwards, will
+        /// automatically depend on this module.
+        pub fn register_stdlib(&mut self, stdlib: ModuleId) {
             self.stdlib = Some(stdlib);
             for id in self.mapping.keys() {
                 if id == stdlib {

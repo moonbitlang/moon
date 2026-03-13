@@ -136,7 +136,7 @@ pub fn compile(
 
     let lower_env = build_lower::BuildOptions {
         main_module: match resolve_output.local_modules() {
-            &[module] => Some(resolve_output.module_rel.mod_name_from_id(module).clone()),
+            &[module] => Some(resolve_output.module_rel.module_source(module).clone()),
             [_, ..] => None,
             [] => unreachable!("resolve output must contain at least one main module"),
         },

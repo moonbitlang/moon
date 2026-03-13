@@ -189,7 +189,7 @@ fn describe_dependency_chain(result: &ResolvedEnv, target: ModuleId) -> Option<V
 
     Some(
         path.into_iter()
-            .map(|id| result.mod_name_from_id(id).clone())
+            .map(|id| result.module_source(id).clone())
             .collect(),
     )
 }
@@ -274,7 +274,7 @@ fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
     let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)
         .map_err(|e| anyhow::anyhow!("Failed to create module source: {e}"))?;
     let id = res.add_module(source, Arc::new(loaded_core));
-    res.set_stdlib(id);
+    res.register_stdlib(id);
 
     Ok(())
 }
