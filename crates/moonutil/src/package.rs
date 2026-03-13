@@ -689,6 +689,7 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         "test-import",
         "options",
         "warnings",
+        "supported_targets",
     ];
     let json = match json {
         Value::Object(mut map) => {
@@ -715,6 +716,32 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
                 if !merged.is_empty() {
                     map.insert(String::from("warn-list"), Value::String(merged));
                 }
+            }
+            let supported_targets = map.remove("supported_targets");
+            let legacy_supported_targets = map.remove("supported-targets");
+            match (supported_targets, legacy_supported_targets) {
+                (Some(supported_targets), Some(_)) => {
+                    eprintln!(
+                        "{}",
+                        "Warning: Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value."
+                            .yellow()
+                            .bold()
+                    );
+                    map.insert(String::from("supported-targets"), supported_targets);
+                }
+                (Some(supported_targets), None) => {
+                    map.insert(String::from("supported-targets"), supported_targets);
+                }
+                (None, Some(legacy_supported_targets)) => {
+                    eprintln!(
+                        "{}",
+                        "Warning: `options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
+                            .yellow()
+                            .bold()
+                    );
+                    map.insert(String::from("supported-targets"), legacy_supported_targets);
+                }
+                (None, None) => {}
             }
             Value::Object(map)
         }
@@ -853,6 +880,38 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         regex_backend: j.regex_backend,
     };
     Ok((result, supported_targets_decl_kind))
+}
+
+#[test]
+fn convert_pkg_dsl_supports_supported_targets_shorthand() {
+    let json = crate::moon_pkg::parse(r#"supported_targets = "js""#).unwrap();
+    let (pkg, decl_kind) = convert_pkg_dsl_to_package_with_supported_targets_decl(json).unwrap();
+
+    assert_eq!(
+        pkg.supported_targets.iter().copied().collect::<Vec<_>>(),
+        vec![Js]
+    );
+    assert_eq!(decl_kind, SupportedTargetsDeclKind::Expr);
+}
+
+#[test]
+fn convert_pkg_dsl_prefers_supported_targets_over_options_supported_targets() {
+    let json = crate::moon_pkg::parse(
+        r#"
+supported_targets = "js"
+options(
+  "supported-targets": "+native",
+)
+"#,
+    )
+    .unwrap();
+    let (pkg, decl_kind) = convert_pkg_dsl_to_package_with_supported_targets_decl(json).unwrap();
+
+    assert_eq!(
+        pkg.supported_targets.iter().copied().collect::<Vec<_>>(),
+        vec![Js]
+    );
+    assert_eq!(decl_kind, SupportedTargetsDeclKind::Expr);
 }
 
 #[test]
