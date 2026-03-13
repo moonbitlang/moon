@@ -501,3 +501,21 @@ fn test_legacy_supported_targets_warning_is_local_only() {
     assert!(stderr.contains("Package `mixed/localdep/web` uses legacy array syntax"));
     assert!(!stderr.contains("Package `mixed/localdep/jsdep` uses legacy array syntax"));
 }
+
+#[test]
+fn test_explicit_target_suppresses_mixed_preferred_target_warning() {
+    let dir = TestDir::new("workspace_mixed_preferred_targets.in");
+    let warning = "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly";
+
+    let default_stderr = get_stderr(&dir, ["check", "--dry-run", "--sort-input"]);
+    assert!(default_stderr.contains(warning), "stderr: {default_stderr}");
+
+    let explicit_stderr = get_stderr(
+        &dir,
+        ["check", "--target", "js", "--dry-run", "--sort-input"],
+    );
+    assert!(
+        !explicit_stderr.contains(warning),
+        "stderr: {explicit_stderr}"
+    );
+}
