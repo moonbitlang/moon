@@ -17,10 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
-use moonutil::{
-    cli::UniversalFlags,
-    common::{FileLock, MOON_MOD_JSON},
-};
+use moonutil::{cli::UniversalFlags, common::FileLock};
 
 /// Remove the _build directory
 #[derive(Debug, clap::Parser)]
@@ -34,14 +31,6 @@ pub(crate) fn run_clean(cli: &UniversalFlags) -> anyhow::Result<i32> {
     let src_tgt = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let _lock = FileLock::lock(&src_tgt.target_dir)?;
-
-    if !moonutil::common::check_moon_mod_exists(&src_tgt.source_dir) {
-        bail!(
-            "could not find `{}` in module directory `{}`",
-            MOON_MOD_JSON,
-            src_tgt.source_dir.display()
-        );
-    }
 
     if src_tgt.target_dir.is_dir() {
         std::fs::remove_dir_all(&src_tgt.target_dir)
