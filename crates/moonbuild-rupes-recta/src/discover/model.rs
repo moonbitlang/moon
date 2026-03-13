@@ -25,7 +25,7 @@ use std::{
 
 use moonbuild::expect::PackageSrcResolver;
 use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend};
-use moonutil::mooncakes::{ModuleId, ModuleSource};
+use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedRootModules};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
 use slotmap::{SecondaryMap, SlotMap};
 
@@ -162,6 +162,17 @@ pub struct DiscoverResult {
     abort_pkg: Option<PackageId>,
 }
 
+/// A local project discovered directly from the file system without dependency resolution.
+#[derive(Debug, Clone)]
+pub struct DiscoveredLocalProject {
+    /// The discovered local root modules.
+    pub root_modules: ResolvedRootModules,
+    /// The module IDs of the local root modules.
+    pub root_module_ids: Vec<ModuleId>,
+    /// The packages discovered under the local root modules.
+    pub pkg_dirs: DiscoverResult,
+}
+
 impl DiscoverResult {
     /// Add a discovered package to the result.
     ///
@@ -266,6 +277,15 @@ impl PackageSrcResolver for DiscoverResult {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum DiscoverError {
+    #[error("Unable to load local workspace rooted at path '{path}', error: {inner}")]
+    CantReadLocalWorkspace { path: PathBuf, inner: anyhow::Error },
+
+    #[error("Unable to read local `moon.mod.json` at path '{path}', error: {inner}")]
+    CantReadLocalModuleFile { path: PathBuf, inner: anyhow::Error },
+
+    #[error("Malformed local module manifest at path '{path}'")]
+    MalformedLocalModule { path: PathBuf },
+
     #[error(
         "Unable to read `moon.mod.json` for module '{module}' at path '{path}', error: {inner}"
     )]

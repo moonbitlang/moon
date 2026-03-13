@@ -25,10 +25,9 @@ use crate::{
 use anyhow::Context;
 use moonutil::{
     common::{MOONBITLANG_CORE, read_module_desc_file_in_dir},
-    module::MoonMod,
     mooncakes::{
         DirSyncResult, ModuleSource,
-        result::{DependencyKind, ResolvedEnv},
+        result::{DependencyKind, ResolvedEnv, ResolvedModule, ResolvedRootModules},
     },
 };
 use std::{
@@ -93,13 +92,13 @@ pub fn install(
     let m = read_module_desc_file_in_dir(source_dir)?;
     let m = Arc::new(m);
     let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
-    let roots = [(ms, Arc::clone(&m))];
-    install_impl(source_dir, &roots, quiet, verbose, false, no_std).map(|_| 0)
+    let (roots, _) = ResolvedModule::only_one_module(ms, m);
+    install_impl(source_dir, roots, quiet, verbose, false, no_std).map(|_| 0)
 }
 
 pub(crate) fn install_impl(
     source_dir: &Path,
-    roots: &[(ModuleSource, Arc<MoonMod>)],
+    roots: ResolvedRootModules,
     quiet: bool,
     verbose: bool,
     dont_sync: bool,
@@ -107,7 +106,7 @@ pub(crate) fn install_impl(
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let includes_core = roots
         .iter()
-        .any(|(_, module)| module.name == MOONBITLANG_CORE);
+        .any(|(_, module)| module.module_info().name == MOONBITLANG_CORE);
     if includes_core && roots.len() != 1 {
         anyhow::bail!("workspaces that include `moonbitlang/core` are not supported yet");
     }

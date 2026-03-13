@@ -383,7 +383,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 }
             }
             BuildPlanNode::Bundle(id) => {
-                let module_name = self.modules.mod_name_from_id(id);
+                let module_name = self.modules.module_source(id);
                 out.push(
                     self.layout
                         .bundle_result_path(self.opt.target_backend.into(), module_name.name()),

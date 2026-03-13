@@ -20,7 +20,7 @@ use colored::Colorize;
 use moonutil::common::{MOONBITLANG_CORE, read_module_desc_file_in_dir, write_module_json_to_file};
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
 use moonutil::module::convert_module_to_mod_json;
-use moonutil::mooncakes::ModuleName;
+use moonutil::mooncakes::{ModuleName, result::ResolvedModule};
 use semver::Version;
 use std::path::Path;
 use std::sync::Arc;
@@ -141,14 +141,8 @@ pub fn add(
     let m = Arc::new(m);
     let ms = moonutil::mooncakes::ModuleSource::from_local_module(&m, source_dir)
         .expect("Malformed module manifest");
-    install_impl(
-        source_dir,
-        &[(ms, Arc::clone(&m))],
-        quiet,
-        false,
-        false,
-        true,
-    )?;
+    let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
+    install_impl(source_dir, roots, quiet, false, false, true)?;
 
     let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
     write_module_json_to_file(&new_j, source_dir)?;

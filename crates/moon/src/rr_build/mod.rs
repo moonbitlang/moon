@@ -843,12 +843,7 @@ pub fn generate_all_pkgs_json(
 ) -> anyhow::Result<()> {
     let resolve_output = &build_meta.resolve_output;
     let main_module = match resolve_output.local_modules() {
-        &[module_id] => Some(
-            resolve_output
-                .module_rel
-                .mod_name_from_id(module_id)
-                .clone(),
-        ),
+        &[module_id] => Some(resolve_output.module_rel.module_source(module_id).clone()),
         _ => None,
     };
     let is_core = main_module.as_ref().is_some_and(|module| module.is_core());

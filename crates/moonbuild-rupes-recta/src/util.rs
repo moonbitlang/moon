@@ -235,7 +235,7 @@ impl BuildPlanNode {
                 format!("{}\\nGenerateTestInfo", fqn)
             }
             BuildPlanNode::Bundle(module_id) => {
-                let src = env.mod_name_from_id(*module_id);
+                let src = env.module_source(*module_id);
                 format!("{}\\nBundle", src)
             }
             BuildPlanNode::GenerateMbti(build_target) => {

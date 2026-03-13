@@ -25,7 +25,9 @@ use moonutil::{
     common::{MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
     module::MoonMod,
     mooncakes::{
-        DirSyncResult, ModuleSource, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags,
+        DirSyncResult, ModuleSource, RegistryConfig,
+        result::{ResolvedEnv, ResolvedModule, ResolvedRootModules},
+        sync::AutoSyncFlags,
     },
     workspace::{MoonWork, canonical_workspace_module_dirs, read_workspace},
 };
@@ -41,24 +43,16 @@ pub fn auto_sync(
     no_std: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
     if let Some(workspace) = read_workspace(source_dir)? {
-        let roots = canonical_workspace_module_dirs(source_dir, &workspace)?
-            .into_iter()
-            .map(|member_dir| {
-                let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);
-                let source = ModuleSource::from_local_module(&module, &member_dir)
-                    .expect("Malformed module manifest");
-                Ok((source, module))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut roots = ResolvedRootModules::with_key();
+        for member_dir in canonical_workspace_module_dirs(source_dir, &workspace)? {
+            let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);
+            let source = ModuleSource::from_local_module(&module, &member_dir)
+                .expect("Malformed module manifest");
+            roots.insert(ResolvedModule::new(source, module));
+        }
 
-        let (resolved_env, sync_result) = super::install::install_impl(
-            source_dir,
-            &roots,
-            quiet,
-            false,
-            cli.dont_sync(),
-            no_std,
-        )?;
+        let (resolved_env, sync_result) =
+            super::install::install_impl(source_dir, roots, quiet, false, cli.dont_sync(), no_std)?;
         log::debug!("Dir sync result: {:?}", sync_result);
         return Ok((resolved_env, sync_result, Some(workspace)));
     }
@@ -66,10 +60,10 @@ pub fn auto_sync(
     let module = Arc::new(read_module_desc_file_in_dir(source_dir)?);
     let source =
         ModuleSource::from_local_module(&module, source_dir).expect("Malformed module manifest");
-    let roots = [(source, module)];
+    let (roots, _) = ResolvedModule::only_one_module(source, module);
 
     let (resolved_env, sync_result) =
-        super::install::install_impl(source_dir, &roots, quiet, false, cli.dont_sync(), no_std)?;
+        super::install::install_impl(source_dir, roots, quiet, false, cli.dont_sync(), no_std)?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((resolved_env, sync_result, None))
 }
@@ -102,11 +96,11 @@ pub fn auto_sync_for_single_mbt_md(
     });
     let ms = ModuleSource::single_file(&m, &moonbuild_opt.source_dir)
         .expect("Malformed initializer for module");
-    let roots = [(ms, Arc::clone(&m))];
+    let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
 
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         &moonbuild_opt.source_dir,
-        &roots,
+        roots,
         moonbuild_opt.quiet,
         moonbuild_opt.verbose,
         dont_sync,
@@ -135,11 +129,11 @@ pub fn auto_sync_for_single_file_rr(
         ..Default::default()
     });
     let ms = ModuleSource::single_file(&m, source_dir).expect("Malformed initializer for module");
-    let roots = [(ms, Arc::clone(&m))];
+    let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
 
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         source_dir,
-        &roots,
+        roots,
         false,
         false,
         sync_flags.dont_sync(),

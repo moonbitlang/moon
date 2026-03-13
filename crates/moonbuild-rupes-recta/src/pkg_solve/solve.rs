@@ -361,7 +361,7 @@ fn resolve_import_raw<'a>(
         );
         return Err(SolveError::ImportNotImportedByModule {
             import: imported.fqn.clone().into(),
-            module: env.modules.mod_name_from_id(mid).clone(),
+            module: env.modules.module_source(mid).clone(),
             pkg: env.packages.get_package(pid).fqn.package().clone(),
         });
     }
