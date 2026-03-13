@@ -30,17 +30,20 @@ mod model;
 pub mod special_case;
 pub mod synth;
 
-pub use model::{DiscoverError, DiscoverResult, DiscoveredPackage};
+pub use model::{DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage};
 use moonutil::common::is_moon_pkg_exist;
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use indexmap::IndexSet;
 use log::{debug, info, trace};
 use moonutil::common::TargetBackend;
 use moonutil::mooncakes::{
     DirSyncResult, ModuleId, ModuleSource,
-    result::{ResolvedEnv, ResolvedModule},
+    result::{ResolvedEnv, ResolvedModule, ResolvedRootModules},
 };
 use moonutil::package::MoonPkg;
 use moonutil::{
@@ -50,6 +53,7 @@ use moonutil::{
     },
     mooncakes::ModuleSourceKind,
     package::resolve_supported_targets,
+    workspace::{canonical_workspace_module_dirs, read_workspace},
 };
 use relative_path::{PathExt, RelativePath};
 use tracing::{Level, instrument, warn};
@@ -95,6 +99,72 @@ pub fn discover_packages(
     );
 
     Ok(res)
+}
+
+/// Discover a local project directly from the source tree without dependency resolution.
+///
+/// This supports either a single local module rooted at `source_dir` or a
+/// workspace rooted there via `moon.work.json`.
+#[instrument(skip_all)]
+pub fn discover_local_project(source_dir: &Path) -> Result<DiscoveredLocalProject, DiscoverError> {
+    info!(
+        "Starting local project discovery for {}",
+        source_dir.display()
+    );
+
+    let workspace =
+        read_workspace(source_dir).map_err(|inner| DiscoverError::CantReadLocalWorkspace {
+            path: source_dir.to_owned(),
+            inner,
+        })?;
+    let module_dirs = if let Some(workspace) = workspace.as_ref() {
+        canonical_workspace_module_dirs(source_dir, workspace).map_err(|inner| {
+            DiscoverError::CantReadLocalWorkspace {
+                path: source_dir.to_owned(),
+                inner,
+            }
+        })?
+    } else {
+        vec![source_dir.to_path_buf()]
+    };
+
+    let mut root_modules = ResolvedRootModules::with_key();
+    let mut root_module_ids = Vec::with_capacity(module_dirs.len());
+    let mut pkg_dirs = DiscoverResult::default();
+
+    for module_dir in module_dirs {
+        let module = read_module_desc_file_in_dir(&module_dir).map_err(|inner| {
+            DiscoverError::CantReadLocalModuleFile {
+                path: module_dir.clone(),
+                inner,
+            }
+        })?;
+        let module = Arc::new(module);
+        let source = ModuleSource::from_local_module(&module, &module_dir).ok_or_else(|| {
+            DiscoverError::MalformedLocalModule {
+                path: module_dir.clone(),
+            }
+        })?;
+        let id = root_modules.insert(ResolvedModule::new(source, module));
+        root_module_ids.push(id);
+
+        discover_packages_for_mod(&mut pkg_dirs, &module_dir, id, &root_modules[id])?;
+    }
+
+    if let Some(id) = pkg_dirs.get_package_id_by_name(MOONBITLANG_ABORT) {
+        pkg_dirs.set_abort_pkg(id);
+    }
+
+    info!(
+        "Local project discovery completed: found {} packages",
+        pkg_dirs.package_count()
+    );
+
+    Ok(DiscoveredLocalProject {
+        root_modules,
+        root_module_ids,
+        pkg_dirs,
+    })
 }
 
 /// Discover packages within the given module directory

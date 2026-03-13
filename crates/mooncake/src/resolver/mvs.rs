@@ -384,7 +384,7 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
                 &resolved.0
             };
 
-            let id = if let Some(id) = visited.get(&resolved) {
+            let id = if let Some(id) = visited.get(resolved) {
                 *id
             } else {
                 let dep_module = env.get(resolved).unwrap();

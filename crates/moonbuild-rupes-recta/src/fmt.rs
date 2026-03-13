@@ -31,34 +31,22 @@
 //! module into a more generic one, probably named "source utility" or similar.
 
 use log::*;
-use std::{collections::HashSet, path::Path, sync::Arc};
+use std::{collections::HashSet, path::Path};
 
-use moonutil::{
-    common::{MOON_PKG, MOON_PKG_JSON, read_module_desc_file_in_dir},
-    mooncakes::{
-        ModuleId, ModuleSource,
-        result::{ResolvedModule, ResolvedRootModules},
-    },
-    workspace::{canonical_workspace_module_dirs, read_workspace},
-};
+use moonutil::common::{MOON_PKG, MOON_PKG_JSON};
 use n2::graph::Build;
-use slotmap::SlotMap;
 
 use crate::{
     build_lower::{
         artifact::{LegacyLayout, LegacyLayoutBuilder},
         build_ins, build_n2_fileloc, build_outs,
     },
-    discover::{DiscoverResult, DiscoveredPackage, discover_packages_for_mod},
+    discover::{DiscoveredLocalProject, DiscoveredPackage, discover_local_project},
     model::PackageId,
     resolve::ResolveError,
 };
 
-pub struct FmtResolveOutput {
-    pub root_modules: ResolvedRootModules,
-    pub pkg_dirs: DiscoverResult,
-    pub root_module_ids: Vec<ModuleId>,
-}
+pub type FmtResolveOutput = DiscoveredLocalProject;
 
 /// Perform a barebones, faked resolving process for `moon fmt`.
 ///
@@ -69,48 +57,7 @@ pub fn resolve_for_fmt(source_dir: &Path) -> Result<FmtResolveOutput, ResolveErr
         "Resolving formatter environment for {}",
         source_dir.display()
     );
-
-    let workspace = read_workspace(source_dir).map_err(ResolveError::SyncModulesError)?;
-    let module_dirs = if let Some(workspace) = workspace.as_ref() {
-        canonical_workspace_module_dirs(source_dir, workspace)
-            .map_err(ResolveError::SyncModulesError)?
-    } else {
-        vec![source_dir.to_path_buf()]
-    };
-
-    let mut root_modules = SlotMap::with_key();
-    let mut discover_res = DiscoverResult::default();
-    let mut root_module_ids = Vec::with_capacity(module_dirs.len());
-
-    for module_dir in module_dirs {
-        #[allow(clippy::disallowed_methods)] // we are not using the `resolve` module
-        let module =
-            read_module_desc_file_in_dir(&module_dir).map_err(ResolveError::SyncModulesError)?;
-        let module = Arc::new(module);
-        let module_source = ModuleSource::from_local_module(&module, &module_dir).ok_or_else(|| {
-            ResolveError::SyncModulesError(anyhow::anyhow!("Malformed module manifest"))
-        })?;
-        let id = root_modules.insert(ResolvedModule::new(module_source, module));
-        root_module_ids.push(id);
-
-        debug!(
-            "Resolved formatter root id = {:?}, name = {}",
-            id,
-            root_modules[id].source()
-        );
-        discover_packages_for_mod(&mut discover_res, &module_dir, id, &root_modules[id])?;
-    }
-
-    info!(
-        "Package discovery completed for {} formatter root modules",
-        root_module_ids.len()
-    );
-
-    Ok(FmtResolveOutput {
-        root_modules,
-        pkg_dirs: discover_res,
-        root_module_ids,
-    })
+    discover_local_project(source_dir).map_err(ResolveError::from)
 }
 
 pub struct FmtConfig {
