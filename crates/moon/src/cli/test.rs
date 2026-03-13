@@ -34,6 +34,7 @@ use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
 use colored::Colorize;
+use moonbuild::entry::TestArgs;
 use moonbuild_rupes_recta::build_plan::InputDirective;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildPlanNode;
@@ -850,16 +851,29 @@ fn rr_test_from_plan(
 
     // since n2 build consumes the graph, we back it up for reruns
     let build_graph_backup = cmd.update.then(|| build_graph.clone());
-    let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
+    let metadata_files = collect_test_metadata_files(build_meta);
+    let result = build_requested_artifacts(
+        &build_config,
+        build_graph.clone(),
+        target_dir,
+        metadata_files,
+    )?;
     debug!(
         success = result.successful(),
         exit_code = result.return_code_for_success(),
-        "executed rupes-recta build"
+        "executed rupes-recta metadata build"
     );
 
     if !result.successful() {
         return Ok(result.return_code_for_success());
     }
+
+    let selected_executables = collect_selected_test_executables(
+        build_meta,
+        &filter,
+        cmd.include_skipped,
+        cmd.run_mode == RunMode::Bench,
+    )?;
 
     if cmd.outline {
         let entries = collect_test_outline(
@@ -872,15 +886,27 @@ fn rr_test_from_plan(
         return Ok(0);
     }
 
+    let executable_files = selected_executables
+        .iter()
+        .map(|selected| selected.executable_path.clone())
+        .collect();
+    let result =
+        build_requested_artifacts(&build_config, build_graph, target_dir, executable_files)?;
+    debug!(
+        success = result.successful(),
+        exit_code = result.return_code_for_success(),
+        selected_targets = selected_executables.len(),
+        "executed rupes-recta test executable build"
+    );
+
+    if !result.successful() {
+        return Ok(result.return_code_for_success());
+    }
+
     if cmd.build_only {
         // Match legacy behavior: create JS wrappers and print test artifacts as JSON
-        let test_artifacts = collect_test_artifacts_for_build_only(
-            build_meta,
-            target_dir,
-            &filter,
-            cmd.include_skipped,
-            cmd.run_mode == RunMode::Bench,
-        )?;
+        let test_artifacts =
+            collect_test_artifacts_for_build_only(build_meta, target_dir, &selected_executables)?;
         println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
         return Ok(0);
     }
@@ -1008,83 +1034,138 @@ fn rr_test_from_plan(
     }
 }
 
-/// Collect test artifacts for --build-only mode, matching legacy behavior.
-/// For JS backend, creates .cjs wrapper files and returns those paths.
-/// For other backends, returns the executable paths directly.
-/// Only includes artifacts that have actual tests (skips empty test executables).
-fn collect_test_artifacts_for_build_only(
-    build_meta: &rr_build::BuildMeta,
+#[derive(Clone, Debug)]
+struct SelectedTestExecutable {
+    executable_path: PathBuf,
+    test_args: TestArgs,
+}
+
+fn collect_test_metadata_files(build_meta: &rr_build::BuildMeta) -> Vec<PathBuf> {
+    let mut files = build_meta
+        .artifacts
+        .iter()
+        .filter_map(|(node, artifacts)| match node {
+            BuildPlanNode::GenerateTestInfo(_) => Some(artifacts.artifacts[0].clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+fn build_requested_artifacts(
+    build_config: &BuildConfig,
+    build_graph: rr_build::BuildInput,
     target_dir: &Path,
+    wanted_files: Vec<PathBuf>,
+) -> anyhow::Result<moonbuild::entry::N2RunStats> {
+    if wanted_files.is_empty() {
+        return Ok(moonbuild::entry::N2RunStats {
+            n_tasks_executed: Some(0),
+            n_errors: 0,
+            n_warnings: 0,
+        });
+    }
+
+    rr_build::execute_build_partial(
+        build_config,
+        build_graph,
+        target_dir,
+        Box::new(move |work| {
+            for file_path in &wanted_files {
+                let file_path_str = file_path.to_string_lossy();
+                let file = work
+                    .lookup(&file_path_str)
+                    .expect("File should exist in work");
+                work.want_file(file).context("Failed to want file")?;
+            }
+            Ok(())
+        }),
+    )
+}
+
+fn collect_selected_test_executables(
+    build_meta: &rr_build::BuildMeta,
     filter: &TestFilter,
     include_skipped: bool,
     bench: bool,
+) -> anyhow::Result<Vec<SelectedTestExecutable>> {
+    use moonutil::common::MooncGenTestInfo;
+
+    let mut selected = vec![];
+
+    for (node, node_artifacts) in &build_meta.artifacts {
+        let BuildPlanNode::MakeExecutable(target) = node else {
+            continue;
+        };
+        if !target.kind.is_test() {
+            continue;
+        }
+
+        let Some(meta_artifacts) = build_meta
+            .artifacts
+            .get(&BuildPlanNode::GenerateTestInfo(*target))
+        else {
+            continue;
+        };
+
+        let meta_path = &meta_artifacts.artifacts[0];
+        let meta_bytes = std::fs::read(meta_path)
+            .with_context(|| format!("Failed to read test metadata at {}", meta_path.display()))?;
+        let meta: MooncGenTestInfo = serde_json_lenient::from_slice(&meta_bytes)
+            .with_context(|| format!("Failed to parse test metadata at {}", meta_path.display()))?;
+
+        let Some(test_args) = crate::run::build_test_args_for_target(
+            build_meta,
+            filter,
+            *target,
+            &meta,
+            include_skipped,
+            bench,
+        ) else {
+            continue;
+        };
+
+        selected.push(SelectedTestExecutable {
+            executable_path: node_artifacts.artifacts[0].clone(),
+            test_args,
+        });
+    }
+
+    selected.sort_by(|left, right| left.executable_path.cmp(&right.executable_path));
+    Ok(selected)
+}
+
+/// Collect test artifacts for --build-only mode, matching legacy behavior.
+/// For JS backend, creates .cjs wrapper files and returns those paths.
+/// For other backends, returns the executable paths directly.
+/// Only includes artifacts that still have selected tests after filtering.
+fn collect_test_artifacts_for_build_only(
+    build_meta: &rr_build::BuildMeta,
+    target_dir: &Path,
+    selected: &[SelectedTestExecutable],
 ) -> anyhow::Result<TestArtifacts> {
     use moonbuild_rupes_recta::model::RunBackend;
-    use moonutil::common::MooncGenTestInfo;
 
     let mut artifacts_path = vec![];
     let mut test_filter_args = vec![];
 
-    // Gather test executables (only MakeExecutable nodes)
-    for (node, node_artifacts) in &build_meta.artifacts {
-        if !matches!(node, BuildPlanNode::MakeExecutable(_)) {
-            continue;
-        }
-
-        let target = node
-            .extract_target()
-            .expect("MakeExecutable should have a build target");
-
-        // Find the corresponding GenerateTestInfo node to check if there are actual tests
-        let meta_node = BuildPlanNode::GenerateTestInfo(target);
-        let meta_artifacts = match build_meta.artifacts.get(&meta_node) {
-            Some(a) => a,
-            None => continue,
-        };
-
-        // Read test info to check if there are actual tests
-        let meta_path = &meta_artifacts.artifacts[1]; // Second artifact is the JSON
-        let meta_file = match std::fs::File::open(meta_path) {
-            Ok(f) => f,
-            Err(_) => continue,
-        };
-        let meta: MooncGenTestInfo = match serde_json_lenient::from_reader(meta_file) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        // Skip if no tests exist (legacy behavior)
-        if meta.no_args_tests.values().all(|v| v.is_empty()) {
-            continue;
-        }
-
-        let executable_path = &node_artifacts.artifacts[0];
-
+    for selected in selected {
         // For JS backend, create .cjs wrapper file (matching legacy behavior)
         if matches!(build_meta.target_backend, RunBackend::Js) {
             // Write package.json to prevent node from using outer "type": "module"
             let _ = std::fs::write(target_dir.join("package.json"), "{}");
-            if let Some(parent) = executable_path.parent() {
+            if let Some(parent) = selected.executable_path.parent() {
                 let _ = std::fs::write(parent.join("package.json"), "{}");
             }
 
-            let Some(test_args) = crate::run::build_test_args_for_target(
-                build_meta,
-                filter,
-                target,
-                &meta,
-                include_skipped,
-                bench,
-            ) else {
-                continue;
-            };
-            let filter_arg = serde_json::to_string(&test_args)
+            let filter_arg = serde_json::to_string(&selected.test_args)
                 .context("failed to serialize JS test filter args")?;
 
-            artifacts_path.push(executable_path.clone());
+            artifacts_path.push(selected.executable_path.clone());
             test_filter_args.push(filter_arg);
         } else {
-            artifacts_path.push(executable_path.clone());
+            artifacts_path.push(selected.executable_path.clone());
         }
     }
 

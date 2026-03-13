@@ -188,8 +188,11 @@ pub enum BuildPlanNode {
     /// execution logic.
     MakeExecutable(BuildTarget),
 
-    /// Generate test driver and metadata for the given test target.
+    /// Collect test metadata for the given test target.
     GenerateTestInfo(BuildTarget),
+
+    /// Render the `.mbt` driver for the given test target from collected metadata.
+    RenderTestDriver(BuildTarget),
 
     /// Generate the `.mbti` interface file for the given target's package.
     /// This does not promote the `.mbti` into the source directory.
@@ -244,6 +247,10 @@ impl BuildPlanNode {
         Self::GenerateTestInfo(target)
     }
 
+    pub fn render_test_driver(target: BuildTarget) -> Self {
+        Self::RenderTestDriver(target)
+    }
+
     /// Extract the target from a BuildPlanNode, if it has one
     pub fn extract_target(&self) -> Option<BuildTarget> {
         match *self {
@@ -252,6 +259,7 @@ impl BuildPlanNode {
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::MakeExecutable(target)
             | BuildPlanNode::GenerateTestInfo(target)
+            | BuildPlanNode::RenderTestDriver(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
             BuildPlanNode::BuildCStub(_, _)
             | BuildPlanNode::ArchiveOrLinkCStubs(_)
@@ -311,7 +319,15 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateTestInfo(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!(
-                    "generate test driver for {}{}",
+                    "collect test info for {}{}",
+                    fqn,
+                    kind_suffix(build_target.kind)
+                )
+            }
+            BuildPlanNode::RenderTestDriver(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!(
+                    "render test driver for {}{}",
                     fqn,
                     kind_suffix(build_target.kind)
                 )
@@ -404,6 +420,10 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateTestInfo(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@GenerateTestInfo", fqn, t.kind)
+            }
+            BuildPlanNode::RenderTestDriver(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@RenderTestDriver", fqn, t.kind)
             }
             BuildPlanNode::GenerateMbti(t) => {
                 let fqn = packages.fqn(t.package);

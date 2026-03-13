@@ -1357,7 +1357,7 @@ _moon_commands() {
 'check:Check the current package, but don'/''t build object files' /
 'run:Run a main package' /
 'test:Test the current package' /
-'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, which does the actual parsing and generation' /
+'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, followed by rendering a /`.mbt/` driver from the collected metadata' /
 'clean:Remove the _build directory' /
 'fmt:Format source code' /
 'doc:Generate documentation or searching documentation for a symbol' /
@@ -1505,7 +1505,7 @@ _moon__help_commands() {
 'check:Check the current package, but don'/''t build object files' /
 'run:Run a main package' /
 'test:Test the current package' /
-'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, which does the actual parsing and generation' /
+'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, followed by rendering a /`.mbt/` driver from the collected metadata' /
 'clean:Remove the _build directory' /
 'fmt:Format source code' /
 'doc:Generate documentation or searching documentation for a symbol' /

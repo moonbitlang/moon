@@ -276,6 +276,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     );
                 }
             }
+            BuildPlanNode::RenderTestDriver(_build_target) => (),
             BuildPlanNode::BuildCStub(build_target, _)
             | BuildPlanNode::ArchiveOrLinkCStubs(build_target) => {
                 assert!(
@@ -418,6 +419,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
             BuildPlanNode::MakeExecutable(target) => self.build_make_exec_link_core(node, target),
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
+            BuildPlanNode::RenderTestDriver(target) => self.build_render_test_driver(node, target),
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),

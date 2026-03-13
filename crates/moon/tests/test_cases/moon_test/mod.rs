@@ -104,6 +104,42 @@ fn test_moon_test_hello_lib() {
 }
 
 #[test]
+fn test_moon_test_skips_empty_internal_and_blackbox_targets() {
+    let dir = TestDir::new("moon_test/skip_empty_targets");
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["test", "-q"])
+        .assert()
+        .success();
+
+    assert!(
+        dir.join("_build/wasm-gc/debug/test/inline/inline.internal_test.wasm")
+            .exists()
+    );
+    assert!(
+        !dir.join("_build/wasm-gc/debug/test/inline/inline.blackbox_test.wasm")
+            .exists()
+    );
+    assert!(
+        dir.join("_build/wasm-gc/debug/test/blackbox/blackbox.blackbox_test.wasm")
+            .exists()
+    );
+    assert!(
+        !dir.join("_build/wasm-gc/debug/test/blackbox/blackbox.internal_test.wasm")
+            .exists()
+    );
+    assert!(
+        !dir.join("_build/wasm-gc/debug/test/plain/plain.internal_test.wasm")
+            .exists()
+    );
+    assert!(
+        !dir.join("_build/wasm-gc/debug/test/plain/plain.blackbox_test.wasm")
+            .exists()
+    );
+}
+
+#[test]
 fn test_zombie_child_process() {
     use super::util::moon_bin;
     use std::thread;
@@ -321,52 +357,18 @@ fn test_moon_test_with_local_dep() {
             _build/wasm-gc/debug/check/main/main.mbti
             _build/wasm-gc/debug/check/main/main.mi
             _build/wasm-gc/debug/test
-            _build/wasm-gc/debug/test/.mooncakes
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/lib
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/lib/lib.core
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/lib/lib.mi
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/mooncake.core
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake/mooncake.mi
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/lib
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/lib/lib.core
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/lib/lib.mi
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/mooncake2.core
-            _build/wasm-gc/debug/test/.mooncakes/lijunchen/mooncake2/mooncake2.mi
             _build/wasm-gc/debug/test/all_pkgs.json
             _build/wasm-gc/debug/test/lib
             _build/wasm-gc/debug/test/lib/__blackbox_test_info.json
-            _build/wasm-gc/debug/test/lib/__generated_driver_for_blackbox_test.mbt
-            _build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt
             _build/wasm-gc/debug/test/lib/__generated_driver_for_whitebox_test.mbt
             _build/wasm-gc/debug/test/lib/__internal_test_info.json
             _build/wasm-gc/debug/test/lib/__whitebox_test_info.json
-            _build/wasm-gc/debug/test/lib/lib.blackbox_test.core
-            _build/wasm-gc/debug/test/lib/lib.blackbox_test.wasm
-            _build/wasm-gc/debug/test/lib/lib.blackbox_test.wasm.map
-            _build/wasm-gc/debug/test/lib/lib.core
-            _build/wasm-gc/debug/test/lib/lib.internal_test.core
-            _build/wasm-gc/debug/test/lib/lib.internal_test.wasm
-            _build/wasm-gc/debug/test/lib/lib.internal_test.wasm.map
-            _build/wasm-gc/debug/test/lib/lib.mi
             _build/wasm-gc/debug/test/lib/lib.whitebox_test.core
             _build/wasm-gc/debug/test/lib/lib.whitebox_test.wasm
             _build/wasm-gc/debug/test/lib/lib.whitebox_test.wasm.map
             _build/wasm-gc/debug/test/main
             _build/wasm-gc/debug/test/main/__blackbox_test_info.json
-            _build/wasm-gc/debug/test/main/__generated_driver_for_blackbox_test.mbt
-            _build/wasm-gc/debug/test/main/__generated_driver_for_internal_test.mbt
             _build/wasm-gc/debug/test/main/__internal_test_info.json
-            _build/wasm-gc/debug/test/main/main.blackbox_test.core
-            _build/wasm-gc/debug/test/main/main.blackbox_test.wasm
-            _build/wasm-gc/debug/test/main/main.blackbox_test.wasm.map
-            _build/wasm-gc/debug/test/main/main.core
-            _build/wasm-gc/debug/test/main/main.internal_test.core
-            _build/wasm-gc/debug/test/main/main.internal_test.wasm
-            _build/wasm-gc/debug/test/main/main.internal_test.wasm.map
-            _build/wasm-gc/debug/test/main/main.mi
             _build/wasm-gc/debug/test/test.moon_db
             lib
             lib/hello.mbt
