@@ -626,7 +626,11 @@ pub fn plan_build_from_resolved<'a>(
         &[module_id] => Some(resolve_output.module_rel.module_info(module_id)),
         _ => None,
     };
-    let preferred_target = workspace_preferred_target(&resolve_output);
+    let preferred_target = if preconfig.target_backend.is_some() {
+        None
+    } else {
+        workspace_preferred_target(&resolve_output)
+    };
     info!("Preferred backend: {:?}", preferred_target);
 
     let target_backend = preconfig

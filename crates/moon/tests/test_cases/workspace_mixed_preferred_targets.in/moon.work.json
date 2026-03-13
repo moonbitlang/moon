@@ -1,0 +1,6 @@
+{
+  "use": [
+    "./jsmod",
+    "./nativemod"
+  ]
+}

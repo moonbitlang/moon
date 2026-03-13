@@ -39,13 +39,14 @@ pub struct SourceTargetDirs {
     // NOTE: This separates "working directory" vs "project root".
     //
     // - `-C` changes the process working directory early (like `cd DIR && moon ...`).
-    // - `--manifest-path` pins the project root to a specific `moon.mod.json`
-    //   without changing the working directory.
+    // - `--manifest-path` pins the project root to a specific project manifest
+    //   (`moon.mod.json` or `moon.work.json`) without changing the working
+    //   directory.
     /// Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`.
     #[arg(short = 'C', value_name = "DIR")]
     pub cwd: Option<PathBuf>,
 
-    /// Path to `moon.mod.json` to use as the project manifest (does not change the working directory).
+    /// Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory).
     #[arg(long = "manifest-path", global = true, value_name = "PATH")]
     pub manifest_path: Option<PathBuf>,
 
