@@ -489,7 +489,7 @@ fn test_supported_targets_transitive_mismatch_fails_fast() {
 fn test_missing_supported_targets_root_warns_when_dep_declares() {
     let dir = TestDir::new("supported_targets_missing_root_warning.in");
     let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
-    assert!(stderr.contains("does not declare `supported-targets`"));
+    assert!(stderr.contains("does not declare `supported_targets`"));
     assert!(stderr.contains("supported/missing-root/main"));
     assert!(stderr.contains("supported/missing-root/lib"));
 }

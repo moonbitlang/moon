@@ -52,7 +52,7 @@ fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBac
     let expr = expr.trim();
     if expr.is_empty() {
         bail!(
-            "invalid `supported-targets` expression: expression cannot be empty. {}",
+            "invalid `supported_targets` expression: expression cannot be empty. {}",
             EXPR_HINT
         );
     }
@@ -79,7 +79,7 @@ fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBac
             _ if first_term => '+',
             _ => {
                 bail!(
-                    "invalid `supported-targets` expression `{}`: expected `+` or `-` at position {}. {}",
+                    "invalid `supported_targets` expression `{}`: expected `+` or `-` at position {}. {}",
                     expr,
                     i,
                     EXPR_HINT
@@ -92,7 +92,7 @@ fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBac
         let token_start = i;
         if token_start >= bytes.len() {
             bail!(
-                "invalid `supported-targets` expression `{}`: missing token after `{}` at position {}. {}",
+                "invalid `supported_targets` expression `{}`: missing token after `{}` at position {}. {}",
                 expr,
                 op,
                 token_start.saturating_sub(1),
@@ -130,7 +130,7 @@ fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBac
             let token = expr[token_start..token_end].trim();
             if token.is_empty() {
                 bail!(
-                    "invalid `supported-targets` expression `{}`: empty token at position {}. {}",
+                    "invalid `supported_targets` expression `{}`: empty token at position {}. {}",
                     expr,
                     token_start,
                     EXPR_HINT
@@ -155,7 +155,7 @@ fn parse_supported_targets_expr(expr: &str) -> anyhow::Result<IndexSet<TargetBac
 
         let backend = TargetBackend::str_to_backend(token).map_err(|_| {
             anyhow::anyhow!(
-                "invalid `supported-targets` expression `{}`: unknown token `{}`. {}",
+                "invalid `supported_targets` expression `{}`: unknown token `{}`. {}",
                 expr,
                 token,
                 EXPR_HINT

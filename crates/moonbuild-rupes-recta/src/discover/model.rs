@@ -53,7 +53,7 @@ pub struct DiscoveredPackage {
 
     /// The raw `moon.pkg.json` of this package.
     pub raw: Box<MoonPkg>,
-    /// How backend `supported-targets` was declared in package config.
+    /// How backend `supported_targets` was declared in package config.
     pub supported_targets_decl: SupportedTargetsDeclKind,
 
     /// `.mbt` files contained by this package. This list contains absolute
