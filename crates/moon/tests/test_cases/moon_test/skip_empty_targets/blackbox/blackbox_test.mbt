@@ -1,0 +1,3 @@
+test {
+  ignore(@blackbox.value())
+}

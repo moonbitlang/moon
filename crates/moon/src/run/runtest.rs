@@ -421,7 +421,8 @@ fn collect_tests_by_file(
 
 /// Build test invocation args for one target based on metadata and CLI filter.
 ///
-/// Returns `None` when the target is excluded by package-level filtering.
+/// Returns `None` when the target is excluded or when filtering leaves no
+/// runnable test cases for this target.
 pub(crate) fn build_test_args_for_target(
     build_meta: &BuildMeta,
     filter: &TestFilter,
@@ -452,6 +453,14 @@ pub(crate) fn build_test_args_for_target(
         bench,
         filter.name_filter.as_deref(),
     );
+
+    if test_args
+        .file_and_index
+        .iter()
+        .all(|(_, ranges)| ranges.is_empty())
+    {
+        return None;
+    }
 
     Some(test_args)
 }
@@ -553,7 +562,7 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
         // FIXME: artifact index relies on implementation of append_artifact_of
         match node {
             BuildPlanNode::MakeExecutable(_) => working.executable(&artifacts.artifacts[0]),
-            BuildPlanNode::GenerateTestInfo(_) => working.meta(&artifacts.artifacts[1]),
+            BuildPlanNode::GenerateTestInfo(_) => working.meta(&artifacts.artifacts[0]),
             _ => panic!("Unexpected artifact for test: {:?}", artifacts.node),
         };
 

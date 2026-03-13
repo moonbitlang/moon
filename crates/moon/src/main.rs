@@ -18,7 +18,7 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
-use std::{any::Any, io::IsTerminal};
+use std::{any::Any, ffi::OsString, io::IsTerminal};
 
 use clap::Parser;
 use cli::MoonBuildSubcommands;
@@ -32,6 +32,21 @@ mod watch;
 
 use colored::*;
 use tracing_subscriber::{Layer, layer::SubscriberExt};
+
+#[derive(Debug, clap::Parser)]
+struct InternalMoonBuildCli {
+    #[clap(subcommand)]
+    subcommand: InternalMoonBuildSubcommands,
+
+    #[clap(flatten)]
+    flags: moonutil::cli::UniversalFlags,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum InternalMoonBuildSubcommands {
+    GenerateTestInfo(cli::GenerateTestInfoSubcommand),
+    RenderTestDriver(cli::RenderTestDriverSubcommand),
+}
 
 /// Initialize logging and tracing-related functionality.
 ///
@@ -105,8 +120,21 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
 pub fn main() {
     panic::setup_panic_hook();
 
-    let cli = cli::MoonBuildCli::parse();
-    let flags = cli.flags;
+    let args = std::env::args_os().collect::<Vec<_>>();
+    let parsed = try_parse_internal_cli(&args)
+        .map(ParsedCli::Internal)
+        .unwrap_or_else(|| ParsedCli::Public(cli::MoonBuildCli::parse_from(args)));
+    let (flags, command) = match parsed {
+        ParsedCli::Public(cli) => (cli.flags, ParsedCommand::Public(cli.subcommand)),
+        ParsedCli::Internal(cli) => match cli.subcommand {
+            InternalMoonBuildSubcommands::GenerateTestInfo(g) => {
+                (cli.flags, ParsedCommand::GenerateTestInfo(g))
+            }
+            InternalMoonBuildSubcommands::RenderTestDriver(r) => {
+                (cli.flags, ParsedCommand::RenderTestDriver(r))
+            }
+        },
+    };
 
     if let Some(dir) = &flags.source_tgt_dir.cwd {
         // `-C` changes the process working directory early.
@@ -127,38 +155,42 @@ pub fn main() {
     flags.check_deprecations();
 
     use MoonBuildSubcommands::*;
-    let res = match cli.subcommand {
-        Add(a) => cli::add_cli(flags, a),
-        Bench(b) => cli::run_bench(flags, b),
-        Build(b) => cli::run_build(&flags, b),
-        Bundle(b) => cli::run_bundle(flags, b),
-        Check(c) => cli::run_check(&flags, &c),
-        Clean(_) => cli::run_clean(&flags),
-        Coverage(c) => cli::run_coverage(flags, c),
-        Doc(d) => cli::run_doc(flags, d),
-        Fetch(f) => cli::fetch_cli(flags, f),
-        Fmt(f) => cli::run_fmt(&flags, f),
-        GenerateBuildMatrix(b) => cli::generate_build_matrix(&flags, b),
-        GenerateTestDriver(g) => cli::generate_test_driver(flags, g),
-        Info(i) => cli::run_info(flags, i),
-        Install(i) => cli::install_cli(flags, i),
-        Login(l) => cli::mooncake_adapter::login_cli(flags, l),
-        Whoami(w) => cli::run_whoami(&flags, w),
-        New(n) => cli::run_new(&flags, n),
-        Publish(p) => cli::mooncake_adapter::publish_cli(flags, p),
-        Package(p) => cli::mooncake_adapter::package_cli(flags, p),
-        Query(q) => cli::run_query(flags, q),
-        Register(r) => cli::mooncake_adapter::register_cli(flags, r),
-        Remove(r) => cli::remove_cli(flags, r),
-        Run(r) => cli::run_run(&flags, r),
-        Test(t) => cli::run_test(flags, t),
-        Tree(t) => cli::tree_cli(flags, t),
-        Update(u) => cli::update_cli(flags, u),
-        Upgrade(u) => cli::run_upgrade(flags, u),
-        ShellCompletion(gs) => cli::gen_shellcomp(&flags, gs),
-        Version(v) => cli::run_version(&flags, v),
-        Tool(v) => cli::run_tool(&flags, v),
-        External(args) => cli::run_external(args),
+    let res = match command {
+        ParsedCommand::Public(subcommand) => match subcommand {
+            Add(a) => cli::add_cli(flags, a),
+            Bench(b) => cli::run_bench(flags, b),
+            Build(b) => cli::run_build(&flags, b),
+            Bundle(b) => cli::run_bundle(flags, b),
+            Check(c) => cli::run_check(&flags, &c),
+            Clean(_) => cli::run_clean(&flags),
+            Coverage(c) => cli::run_coverage(flags, c),
+            Doc(d) => cli::run_doc(flags, d),
+            Fetch(f) => cli::fetch_cli(flags, f),
+            Fmt(f) => cli::run_fmt(&flags, f),
+            GenerateBuildMatrix(b) => cli::generate_build_matrix(&flags, b),
+            GenerateTestDriver(g) => cli::generate_test_driver(flags, g),
+            Info(i) => cli::run_info(flags, i),
+            Install(i) => cli::install_cli(flags, i),
+            Login(l) => cli::mooncake_adapter::login_cli(flags, l),
+            Whoami(w) => cli::run_whoami(&flags, w),
+            New(n) => cli::run_new(&flags, n),
+            Publish(p) => cli::mooncake_adapter::publish_cli(flags, p),
+            Package(p) => cli::mooncake_adapter::package_cli(flags, p),
+            Query(q) => cli::run_query(flags, q),
+            Register(r) => cli::mooncake_adapter::register_cli(flags, r),
+            Remove(r) => cli::remove_cli(flags, r),
+            Run(r) => cli::run_run(&flags, r),
+            Test(t) => cli::run_test(flags, t),
+            Tree(t) => cli::tree_cli(flags, t),
+            Update(u) => cli::update_cli(flags, u),
+            Upgrade(u) => cli::run_upgrade(flags, u),
+            ShellCompletion(gs) => cli::gen_shellcomp(&flags, gs),
+            Version(v) => cli::run_version(&flags, v),
+            Tool(v) => cli::run_tool(&flags, v),
+            External(args) => cli::run_external(args),
+        },
+        ParsedCommand::GenerateTestInfo(g) => cli::generate_test_info(flags, g),
+        ParsedCommand::RenderTestDriver(r) => cli::render_test_driver(flags, r),
     };
 
     drop(_trace_guard);
@@ -170,4 +202,42 @@ pub fn main() {
             std::process::exit(-1);
         }
     }
+}
+
+enum ParsedCli {
+    Public(cli::MoonBuildCli),
+    Internal(InternalMoonBuildCli),
+}
+
+enum ParsedCommand {
+    Public(MoonBuildSubcommands),
+    GenerateTestInfo(cli::GenerateTestInfoSubcommand),
+    RenderTestDriver(cli::RenderTestDriverSubcommand),
+}
+
+fn try_parse_internal_cli(args: &[OsString]) -> Option<InternalMoonBuildCli> {
+    match first_subcommand(args) {
+        Some("generate-test-info" | "render-test-driver") => {
+            Some(InternalMoonBuildCli::parse_from(args.iter().cloned()))
+        }
+        _ => None,
+    }
+}
+
+fn first_subcommand(args: &[OsString]) -> Option<&str> {
+    let mut i = 1;
+    while i < args.len() {
+        let arg = args[i].to_str()?;
+        match arg {
+            "-C" | "--manifest-path" | "--target-dir" | "-Z" | "--unstable-feature" => {
+                i += 2;
+            }
+            "-q" | "--quiet" | "-v" | "--verbose" | "--trace" | "--dry-run" | "--build-graph" => {
+                i += 1;
+            }
+            _ if arg.starts_with('-') => return None,
+            _ => return Some(arg),
+        }
+    }
+    None
 }

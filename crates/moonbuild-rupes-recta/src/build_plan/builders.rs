@@ -236,15 +236,11 @@ impl<'a> BuildPlanConstructor<'a> {
             self.need_mi_of_dep(node, dep, false);
         }
 
-        // If the given target is a test, we will also need to generate the test driver.
+        // If the given target is a test, we will also need to render the test driver.
         if target.kind.is_test() {
-            let gen_test_info = BuildPlanNode::GenerateTestInfo(target);
-            self.need_node(gen_test_info);
-            self.add_edge_spec(
-                node,
-                gen_test_info,
-                FileDependencyKind::GenerateTestInfo { meta: false },
-            );
+            let render_test_driver = BuildPlanNode::RenderTestDriver(target);
+            self.need_node(render_test_driver);
+            self.add_edge(node, render_test_driver);
         }
 
         self.need_virtual_if_necessary(pkg, node, target);
@@ -266,6 +262,19 @@ impl<'a> BuildPlanConstructor<'a> {
         self.need_node(node);
 
         self.populate_target_info(target);
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_render_test_driver(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        self.need_node(node);
+        self.need_node(BuildPlanNode::GenerateTestInfo(target));
+        self.add_edge(node, BuildPlanNode::GenerateTestInfo(target));
         self.resolved_node(node);
         Ok(())
     }
