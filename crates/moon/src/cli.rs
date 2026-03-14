@@ -227,6 +227,10 @@ pub struct BuildFlags {
     /// Render no-location diagnostics starting from a certain level
     #[clap(long, value_name = "MIN_LEVEL", default_value = "error")]
     pub render_no_loc: DiagnosticLevel,
+
+    /// Disable source maps support in Node.js runtime (JS backend only)
+    #[clap(long)]
+    pub disable_source_maps: bool,
 }
 
 impl Default for BuildFlags {
@@ -252,6 +256,7 @@ impl Default for BuildFlags {
             enable_value_tracing: false,
             jobs: None,
             render_no_loc: DiagnosticLevel::Error,
+            disable_source_maps: false,
         }
     }
 }

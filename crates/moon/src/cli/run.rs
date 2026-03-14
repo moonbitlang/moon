@@ -191,7 +191,11 @@ fn run_run_rr(
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn get_run_cmd(build_meta: &rr_build::BuildMeta, argv: &[String]) -> tokio::process::Command {
+fn get_run_cmd(
+    build_meta: &rr_build::BuildMeta,
+    argv: &[String],
+    disable_source_maps: bool,
+) -> tokio::process::Command {
     let (_, artifact) = build_meta
         .artifacts
         .first()
@@ -200,7 +204,12 @@ fn get_run_cmd(build_meta: &rr_build::BuildMeta, argv: &[String]) -> tokio::proc
         .artifacts
         .first()
         .expect("Expected exactly one executable as the output of the build node");
-    let mut cmd = crate::run::command_for(build_meta.target_backend, executable, None);
+    let mut cmd = crate::run::command_for(
+        build_meta.target_backend,
+        executable,
+        None,
+        !disable_source_maps,
+    );
     cmd.args(argv);
     cmd
 }
@@ -348,7 +357,7 @@ fn rr_run_from_plan(
             target_dir,
         );
 
-        let run_cmd = get_run_cmd(build_meta, &cmd.args);
+        let run_cmd = get_run_cmd(build_meta, &cmd.args, cmd.build_flags.disable_source_maps);
         rr_build::dry_print_command(run_cmd.as_std(), source_dir, false);
         return Ok(0);
     }
@@ -364,7 +373,7 @@ fn rr_run_from_plan(
     if !build_result.successful() {
         return Ok(build_result.return_code_for_success());
     }
-    let run_cmd = get_run_cmd(build_meta, &cmd.args);
+    let run_cmd = get_run_cmd(build_meta, &cmd.args, cmd.build_flags.disable_source_maps);
     if cli.verbose {
         rr_build::dry_print_command(run_cmd.as_std(), source_dir, true);
     }
