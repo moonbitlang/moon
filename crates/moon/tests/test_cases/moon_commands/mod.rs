@@ -30,6 +30,7 @@ fn test_moon_help() {
               new                    Create a new MoonBit module
               build                  Build the current package
               check                  Check the current package, but don't build object files
+              prove                  Prove the current package
               run                    Run a main package
               test                   Test the current package
               clean                  Remove the _build directory
