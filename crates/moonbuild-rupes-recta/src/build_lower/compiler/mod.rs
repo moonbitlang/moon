@@ -27,6 +27,7 @@ mod gen_test_driver;
 mod link_core;
 mod moondoc;
 mod mooninfo;
+mod prove;
 
 use std::borrow::Cow;
 use std::ffi::OsStr;
@@ -44,6 +45,7 @@ pub(super) use self::gen_test_driver::*;
 pub(super) use self::link_core::*;
 pub(super) use self::moondoc::*;
 pub(super) use self::mooninfo::*;
+pub(super) use self::prove::*;
 
 /// The format of error reports from `moonc`.
 ///

@@ -179,6 +179,7 @@ impl BuildPlanNode {
     fn gen_node_id(&self) -> String {
         match self {
             BuildPlanNode::Check(target) => format!("{:?}@Check", target),
+            BuildPlanNode::Prove(target) => format!("{:?}@Prove", target),
             BuildPlanNode::BuildCore(target) => format!("{:?}@BuildCore", target),
             BuildPlanNode::BuildCStub(target, index) => {
                 format!("{:?}@BuildCStub_{}", target, index)
@@ -209,6 +210,10 @@ impl BuildPlanNode {
             BuildPlanNode::Check(target) => {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nCheck", fqn)
+            }
+            BuildPlanNode::Prove(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nProve", fqn)
             }
             BuildPlanNode::BuildCore(target) => {
                 let fqn = packages.fqn(target.package);
@@ -266,6 +271,7 @@ impl BuildPlanNode {
     fn gen_color(&self) -> &'static str {
         match self {
             BuildPlanNode::Check(_) => "lightblue",
+            BuildPlanNode::Prove(_) => "lightgoldenrod1",
             BuildPlanNode::BuildCore(_) => "lightgreen",
             BuildPlanNode::BuildCStub(_, _) => "lightsalmon",
             BuildPlanNode::ArchiveOrLinkCStubs(_) => "lightyellow",

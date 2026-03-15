@@ -160,6 +160,7 @@ pub fn build_synth_single_file_package(
         mbt_lex_files: Vec::new(),
         mbt_yacc_files: Vec::new(),
         mbt_md_files,
+        mbtp_files: Vec::new(),
         c_stub_files: Vec::new(),
         virtual_mbti: None,
         is_stdlib: false,

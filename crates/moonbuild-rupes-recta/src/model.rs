@@ -152,6 +152,8 @@ impl PackageId {
 pub enum BuildPlanNode {
     /// Check the given build target
     Check(BuildTarget),
+    /// Prove the given build target.
+    Prove(BuildTarget),
 
     /// Build the `.core` file from `.mbt` sources for the given target.
     BuildCore(BuildTarget),
@@ -228,6 +230,10 @@ impl BuildPlanNode {
         Self::Check(target)
     }
 
+    pub fn prove(target: BuildTarget) -> Self {
+        Self::Prove(target)
+    }
+
     pub fn build_core(target: BuildTarget) -> Self {
         Self::BuildCore(target)
     }
@@ -248,6 +254,7 @@ impl BuildPlanNode {
     pub fn extract_target(&self) -> Option<BuildTarget> {
         match *self {
             BuildPlanNode::Check(target)
+            | BuildPlanNode::Prove(target)
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::MakeExecutable(target)
@@ -287,6 +294,10 @@ impl BuildPlanNode {
             BuildPlanNode::Check(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("check {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::Prove(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("prove {}{}", fqn, kind_suffix(build_target.kind))
             }
             BuildPlanNode::BuildCore(build_target) => {
                 let fqn = packages.fqn(build_target.package);
@@ -380,6 +391,10 @@ impl BuildPlanNode {
             BuildPlanNode::Check(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@Check", fqn, t.kind)
+            }
+            BuildPlanNode::Prove(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@Prove", fqn, t.kind)
             }
             BuildPlanNode::BuildCore(t) => {
                 let fqn = packages.fqn(t.package);

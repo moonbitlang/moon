@@ -99,6 +99,13 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("Build target info should be present for Check nodes");
                 self.lower_check(node, target, info)
             }
+            BuildPlanNode::Prove(target) => {
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for Prove nodes");
+                self.lower_prove(node, target, info)
+            }
             BuildPlanNode::BuildCore(target) => {
                 let info = self
                     .build_plan
@@ -189,7 +196,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         // only triggers for `Check` nodes.
         //
         // FIXME: Revisit for other `moonc` invocations, e.g. `BuildCore`.
-        build.can_dirty_on_output = matches!(node, BuildPlanNode::Check(_));
+        build.can_dirty_on_output =
+            matches!(node, BuildPlanNode::Check(_) | BuildPlanNode::Prove(_));
 
         self.debug_print_command_and_files(node, &build);
         self.lowered(build).map_err(|e| LoweringError::N2 {
@@ -211,6 +219,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let dominated_by_moonc = matches!(
             node,
             BuildPlanNode::Check(_)
+                | BuildPlanNode::Prove(_)
                 | BuildPlanNode::BuildCore(_)
                 | BuildPlanNode::LinkCore(_)
                 | BuildPlanNode::BuildVirtual(_)
@@ -286,6 +295,10 @@ impl<'a> BuildPlanLowerContext<'a> {
                     );
                     out.push(mi_artifact_path);
                 };
+            }
+            BuildPlanNode::Prove(target) => {
+                out.push(self.layout.prove_whyml_path(self.packages, &target));
+                out.push(self.layout.prove_report_path(self.packages, &target));
             }
             BuildPlanNode::BuildCore(target) => {
                 let info = self

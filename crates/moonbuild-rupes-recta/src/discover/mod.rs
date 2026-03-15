@@ -331,6 +331,7 @@ fn discover_one_package(
     let mut mbt_lex_files = Vec::new();
     let mut mbt_yacc_files = Vec::new();
     let mut mbt_md_files = Vec::new();
+    let mut mbtp_files = Vec::new();
 
     let dir = abs
         .read_dir()
@@ -371,6 +372,8 @@ fn discover_one_package(
             source_files.push(path)
         } else if filename_str.ends_with(".mbt.md") {
             mbt_md_files.push(path);
+        } else if filename_str.ends_with(".mbtp") {
+            mbtp_files.push(path);
         } else if filename_str.ends_with(".mbl") {
             mbt_lex_files.push(path);
         } else if filename_str.ends_with(".mby") {
@@ -404,6 +407,7 @@ fn discover_one_package(
     mbt_lex_files.sort();
     mbt_yacc_files.sort();
     mbt_md_files.sort();
+    mbtp_files.sort();
     drop(_sort_guard);
 
     // Get the virtual mbti file if any
@@ -420,6 +424,7 @@ fn discover_one_package(
         mbt_lex_files,
         mbt_yacc_files,
         mbt_md_files,
+        mbtp_files,
         c_stub_files: c_stubs,
         virtual_mbti,
         is_stdlib: pkg_is_stdlib,

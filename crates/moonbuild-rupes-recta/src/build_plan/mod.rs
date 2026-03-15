@@ -203,6 +203,8 @@ impl BuildPlan {
 pub struct BuildTargetInfo {
     /// Regular compilation files
     pub(crate) regular_files: Vec<PathBuf>,
+    /// Verification helper files (`.mbtp`) for this target.
+    pub(crate) mbtp_files: Vec<PathBuf>,
 
     /// Whitebox test files. Separated so determine whether the whitebox test is
     /// needed.
@@ -248,6 +250,10 @@ impl BuildTargetInfo {
 
     pub fn doctest_files(&self) -> impl Iterator<Item = &Path> {
         self.doctest_files.iter().map(|x| x.as_path())
+    }
+
+    pub fn mbtp_files(&self) -> impl Iterator<Item = &Path> {
+        self.mbtp_files.iter().map(|x| x.as_path())
     }
 
     pub fn no_mi(&self) -> bool {

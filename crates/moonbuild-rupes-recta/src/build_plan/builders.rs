@@ -210,6 +210,38 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_prove(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        let pkg = self.input.pkg_dirs.get_package(target.package);
+
+        assert!(
+            pkg.has_implementation(),
+            "Proving a virtual package without implementation should use the \
+            `BuildVirtual` action instead"
+        );
+
+        self.need_node(node);
+        for dep in self
+            .input
+            .pkg_rel
+            .dep_graph
+            .neighbors_directed(target, petgraph::Direction::Outgoing)
+        {
+            self.need_mi_of_dep(node, dep, true);
+        }
+
+        self.need_all_package_prebuild(node, target.package);
+        self.need_virtual_if_necessary(pkg, node, target);
+        self.populate_target_info(target);
+        self.resolved_node(node);
+
+        Ok(())
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_build(
         &mut self,
         node: BuildPlanNode,
@@ -369,6 +401,15 @@ impl<'a> BuildPlanConstructor<'a> {
                 regular_files.insert(md_file.clone());
             }
         }
+        let mbtp_files = match target.kind {
+            Source | SubPackage | InlineTest | WhiteboxTest | BlackboxTest => {
+                // `.mbtp` files are threaded into all moonc-based compilation
+                // and checking commands for this package. We intentionally
+                // ignore prebuild-generated `.mbtp` files for now until their
+                // semantics are designed explicitly.
+                pkg.mbtp_files.clone()
+            }
+        };
         drop(_filter_span);
 
         // Sort the input, or the different order may cause n2 to view the input
@@ -405,6 +446,7 @@ impl<'a> BuildPlanConstructor<'a> {
 
         BuildTargetInfo {
             regular_files: regular_files.into_iter().collect(),
+            mbtp_files,
             whitebox_files: whitebox_files.into_iter().collect(),
             doctest_files: doctest_files.into_iter().collect(),
             warn_list,
