@@ -33,6 +33,7 @@ pub(crate) mod info;
 pub(crate) mod install_binary;
 pub(crate) mod mooncake_adapter;
 pub(crate) mod new;
+pub(crate) mod prove;
 pub(crate) mod query;
 pub(crate) mod run;
 pub(crate) mod shell_completion;
@@ -62,6 +63,7 @@ use mooncake::pkg::{
     add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
 };
 pub(crate) use new::*;
+pub(crate) use prove::*;
 pub(crate) use query::*;
 pub(crate) use run::*;
 pub(crate) use shell_completion::*;
@@ -101,6 +103,7 @@ pub(crate) enum MoonBuildSubcommands {
     Bundle(BundleSubcommand),
     Build(BuildSubcommand),
     Check(CheckSubcommand),
+    Prove(ProveSubcommand),
     Run(RunSubcommand),
     Test(TestSubcommand),
     #[clap(hide = true)]
@@ -337,6 +340,7 @@ impl BuildFlags {
                 | RunMode::Run
                 | RunMode::Test
                 | RunMode::Check
+                | RunMode::Prove
                 | RunMode::Format => BuildProfile::Debug,
             }
         }

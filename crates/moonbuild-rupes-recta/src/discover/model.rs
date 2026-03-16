@@ -75,6 +75,8 @@ pub struct DiscoveredPackage {
     /// Documentation-oriented programming Markdown files (`.mbt.md`) contained
     /// by this package.
     pub mbt_md_files: Vec<PathBuf>,
+    /// Verification helper files (`.mbtp`) contained by this package.
+    pub mbtp_files: Vec<PathBuf>,
     /// C stub files (`.c`) contained by this package. Note that this file list
     /// is generated from the package json, instead of directly collected from
     /// the folder.

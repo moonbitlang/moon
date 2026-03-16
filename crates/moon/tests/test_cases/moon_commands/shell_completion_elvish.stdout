@@ -36,6 +36,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand bundle 'Bundle the module'
             cand build 'Build the current package'
             cand check 'Check the current package, but don''t build object files'
+            cand prove 'Prove the current package'
             cand run 'Run a main package'
             cand test 'Test the current package'
             cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
@@ -193,6 +194,29 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --no-mi 'Whether to skip the mi generation, Only valid when checking specified package'
             cand --explain 'Whether to explain the error code with details'
             cand --fmt 'Check whether the code is properly formatted'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;prove'= {
+            cand --warn-list 'Warn list config'
+            cand --alert-list 'Alert list config'
+            cand -j 'Set the max number of jobs to run in parallel'
+            cand --jobs 'Set the max number of jobs to run in parallel'
+            cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
+            cand --manifest-path 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
+            cand -d 'Treat all warnings as errors'
+            cand --deny-warn 'Treat all warnings as errors'
+            cand --no-render 'Don''t render diagnostics (in raw human-readable format)'
+            cand --output-json 'Output diagnostics in JSON format'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -947,6 +971,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand bundle 'Bundle the module'
             cand build 'Build the current package'
             cand check 'Check the current package, but don''t build object files'
+            cand prove 'Prove the current package'
             cand run 'Run a main package'
             cand test 'Test the current package'
             cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
@@ -983,6 +1008,8 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;help;build'= {
         }
         &'moon;help;check'= {
+        }
+        &'moon;help;prove'= {
         }
         &'moon;help;run'= {
         }

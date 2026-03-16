@@ -264,6 +264,7 @@ impl<'a> BuildPlanConstructor<'a> {
     fn ensure_resolved(&self, node: BuildPlanNode) {
         match node {
             BuildPlanNode::Check(build_target)
+            | BuildPlanNode::Prove(build_target)
             | BuildPlanNode::BuildCore(build_target)
             | BuildPlanNode::GenerateTestInfo(build_target) => {
                 let pkg = self.input.pkg_dirs.get_package(build_target.package);
@@ -402,6 +403,7 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         match node {
             BuildPlanNode::Check(target) => self.build_check(node, target),
+            BuildPlanNode::Prove(target) => self.build_prove(node, target),
             BuildPlanNode::BuildCore(target) => self.build_build(node, target),
             BuildPlanNode::BuildCStub(target, index) => {
                 self.build_build_c_stub(node, target, index)

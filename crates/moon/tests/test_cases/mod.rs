@@ -71,6 +71,7 @@ mod moon_info_001;
 mod moon_info_002;
 mod moon_info_compare_backends;
 mod moon_new;
+mod moon_prove;
 mod moon_test;
 mod moon_version;
 mod native_abort_trace;

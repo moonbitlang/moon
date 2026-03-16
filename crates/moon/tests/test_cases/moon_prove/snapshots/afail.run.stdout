@@ -1,0 +1,10 @@
+failed: moonc prove -error-format json $ROOT/afail/afail.mbt $ROOT/afail/afail.mbtp --whyml-output-path $ROOT/_build/verif/afail/afail.mlw --proof-report-output-path $ROOT/_build/verif/afail/afail.proof.json --why3-config $ROOT/_build/verif/why3.conf -pkg username/prove/afail -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude -pkg-sources username/prove/afail:$ROOT/afail -workspace-path $ROOT -all-pkgs $ROOT/_build/wasm-gc/debug/prove/all_pkgs.json
+username/prove/afail
+  Failed: 11 goals proved, 1 timeout
+  WhyML: _build/verif/afail/afail.mlw
+  Report: _build/verif/afail/afail.proof.json
+  Failed goals: 1
+
+Summary:
+  0 of 1 packages proved
+  11 goals proved, 1 timeout

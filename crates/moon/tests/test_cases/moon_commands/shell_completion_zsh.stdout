@@ -187,6 +187,32 @@ _arguments "${_arguments_options[@]}" : /
 '::PATH -- Check single file (.mbt or .mbt.md):_files' /
 && ret=0
 ;;
+(prove)
+_arguments "${_arguments_options[@]}" : /
+'--warn-list=[Warn list config]:WARN_LIST: ' /
+'--alert-list=[Alert list config]:ALERT_LIST: ' /
+'-j+[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' /
+'--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' /
+'--manifest-path=[Path to /`moon.mod.json/` or /`moon.work.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
+'--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' /
+'-d[Treat all warnings as errors]' /
+'--deny-warn[Treat all warnings as errors]' /
+'--no-render[Don'/''t render diagnostics (in raw human-readable format)]' /
+'(--no-render)--output-json[Output diagnostics in JSON format]' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+'::PATH -- The file-system path to the package or file in package to prove:_files' /
+&& ret=0
+;;
 (run)
 _arguments "${_arguments_options[@]}" : /
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' /
@@ -1135,6 +1161,10 @@ _arguments "${_arguments_options[@]}" : /
 _arguments "${_arguments_options[@]}" : /
 && ret=0
 ;;
+(prove)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
 (run)
 _arguments "${_arguments_options[@]}" : /
 && ret=0
@@ -1355,6 +1385,7 @@ _moon_commands() {
 'bundle:Bundle the module' /
 'build:Build the current package' /
 'check:Check the current package, but don'/''t build object files' /
+'prove:Prove the current package' /
 'run:Run a main package' /
 'test:Test the current package' /
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, which does the actual parsing and generation' /
@@ -1503,6 +1534,7 @@ _moon__help_commands() {
 'bundle:Bundle the module' /
 'build:Build the current package' /
 'check:Check the current package, but don'/''t build object files' /
+'prove:Prove the current package' /
 'run:Run a main package' /
 'test:Test the current package' /
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around /`moonc gen-test-info/`, which does the actual parsing and generation' /
@@ -1684,6 +1716,11 @@ _moon__help__new_commands() {
 _moon__help__package_commands() {
     local commands; commands=()
     _describe -t commands 'moon help package commands' commands "$@"
+}
+(( $+functions[_moon__help__prove_commands] )) ||
+_moon__help__prove_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help prove commands' commands "$@"
 }
 (( $+functions[_moon__help__publish_commands] )) ||
 _moon__help__publish_commands() {
@@ -1896,6 +1933,11 @@ _moon__new_commands() {
 _moon__package_commands() {
     local commands; commands=()
     _describe -t commands 'moon package commands' commands "$@"
+}
+(( $+functions[_moon__prove_commands] )) ||
+_moon__prove_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon prove commands' commands "$@"
 }
 (( $+functions[_moon__publish_commands] )) ||
 _moon__publish_commands() {

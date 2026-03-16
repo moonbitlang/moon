@@ -42,6 +42,8 @@ pub enum UserIntent {
     Run(PackageId),
     /// Check a package (source/whitebox/blackbox).
     Check(PackageId),
+    /// Prove a package (source only).
+    Prove(PackageId),
     /// Test a package (emit test driver and build for all test targets).
     Test(PackageId),
     /// Bench a package (same node set shape as Test; runtime behavior differs elsewhere).
@@ -117,6 +119,9 @@ impl UserIntent {
                     // Pure virtual package: compile its interface
                     out.push(BuildPlanNode::BuildVirtual(pkg));
                 }
+            }
+            UserIntent::Prove(pkg) => {
+                out.push(BuildPlanNode::prove(pkg.build_target(TargetKind::Source)));
             }
             UserIntent::Test(pkg) | UserIntent::Bench(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);

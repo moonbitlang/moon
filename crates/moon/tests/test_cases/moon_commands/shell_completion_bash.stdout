@@ -69,6 +69,9 @@ _moon() {
             moon,package)
                 cmd="moon__package"
                 ;;
+            moon,prove)
+                cmd="moon__prove"
+                ;;
             moon,publish)
                 cmd="moon__publish"
                 ;;
@@ -188,6 +191,9 @@ _moon() {
                 ;;
             moon__help,package)
                 cmd="moon__help__package"
+                ;;
+            moon__help,prove)
+                cmd="moon__help__prove"
                 ;;
             moon__help,publish)
                 cmd="moon__help__publish"
@@ -355,7 +361,7 @@ _moon() {
 
     case "${cmd}" in
         moon)
-            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
+            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1033,7 +1039,7 @@ _moon() {
             return 0
             ;;
         moon__help)
-            opts="new bundle build check run test generate-test-driver clean fmt doc info bench add remove install tree fetch login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
+            opts="new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1425,6 +1431,20 @@ _moon() {
             return 0
             ;;
         moon__help__package)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__prove)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2051,6 +2071,48 @@ _moon() {
                 return 0
             fi
             case "${prev}" in
+                --manifest-path)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --target-dir)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__prove)
+            opts="-d -j -q -v -h --frozen --deny-warn --no-render --output-json --warn-list --alert-list --jobs --render-no-loc --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --warn-list)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --alert-list)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --jobs)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                -j)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --render-no-loc)
+                    COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
+                    return 0
+                    ;;
                 --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

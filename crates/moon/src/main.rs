@@ -133,6 +133,7 @@ pub fn main() {
         Build(b) => cli::run_build(&flags, b),
         Bundle(b) => cli::run_bundle(flags, b),
         Check(c) => cli::run_check(&flags, &c),
+        Prove(p) => cli::run_prove(&flags, &p),
         Clean(_) => cli::run_clean(&flags),
         Coverage(c) => cli::run_coverage(flags, c),
         Doc(d) => cli::run_doc(flags, d),

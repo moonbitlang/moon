@@ -8,6 +8,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon new`↴](#moon-new)
 * [`moon build`↴](#moon-build)
 * [`moon check`↴](#moon-check)
+* [`moon prove`↴](#moon-prove)
 * [`moon run`↴](#moon-run)
 * [`moon test`↴](#moon-test)
 * [`moon clean`↴](#moon-clean)
@@ -44,6 +45,7 @@ This document contains the help content for the `moon` command-line program.
 * `new` — Create a new MoonBit module
 * `build` — Build the current package
 * `check` — Check the current package, but don't build object files
+* `prove` — Prove the current package
 * `run` — Run a main package
 * `test` — Test the current package
 * `clean` — Remove the _build directory
@@ -173,6 +175,34 @@ Check the current package, but don't build object files
 * `--no-mi` — Whether to skip the mi generation, Only valid when checking specified package
 * `--explain` — Whether to explain the error code with details
 * `--fmt` — Check whether the code is properly formatted
+
+
+
+## `moon prove`
+
+Prove the current package
+
+**Usage:** `moon prove [OPTIONS] [PATH]`
+
+###### **Arguments:**
+
+* `<PATH>` — The file-system path to the package or file in package to prove
+
+###### **Options:**
+
+* `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
+* `-d`, `--deny-warn` — Treat all warnings as errors
+* `--no-render` — Don't render diagnostics (in raw human-readable format)
+* `--output-json` — Output diagnostics in JSON format
+* `--warn-list <WARN_LIST>` — Warn list config
+* `--alert-list <ALERT_LIST>` — Alert list config
+* `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
+* `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
+
+  Default value: `error`
+
+  Possible values: `info`, `warn`, `error`
+
 
 
 

@@ -1,0 +1,13 @@
+predicate in_bounds(xs : FixedArray[Int], i : Int) {
+  (0 <= i) && (i < xs.length())
+}
+
+predicate sorted(xs : FixedArray[Int]) {
+  ∀ i : Int, ∀ j : Int,
+    ((in_bounds(xs, i)) && (in_bounds(xs, j)) && (i <= j)) →
+      xs[i] <= xs[j]
+}
+
+predicate binary_search_ok(xs : FixedArray[Int], key : Int, result : Int) {
+  (result == -1) || ((in_bounds(xs, result)) && (xs[result] == key))
+}

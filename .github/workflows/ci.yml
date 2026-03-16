@@ -238,6 +238,79 @@ jobs:
       #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm
       #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm --release
 
+  verification-test:
+    needs: [typo-check, license-header-check]
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup opam
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 4.14.2
+
+      - name: install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: Install verification dependencies (Ubuntu)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y z3
+          echo "Z3PATH=$(command -v z3)" >> $GITHUB_ENV
+
+      - name: Install verification dependencies (macOS)
+        if: ${{ matrix.os == 'macos-latest' }}
+        run: |
+          brew install z3
+          echo "Z3PATH=$(command -v z3)" >> $GITHUB_ENV
+
+      - name: Install Why3 1.7.2 via opam
+        run: |
+          opam install -y why3.1.7.2
+          echo "WHY3DATA=$(opam exec -- why3 --print-datadir)" >> $GITHUB_ENV
+          echo "WHY3LIB=$(opam exec -- why3 --print-libdir)" >> $GITHUB_ENV
+
+      - name: Build
+        run: cargo build
+
+      - name: Set built binary to PATH
+        run: echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH
+
+      - name: Versions
+        run: cargo run --bin moon -- version --all
+
+      - name: Bundle core
+        run: cargo run --bin moon -- -C ~/.moon/lib/core bundle --all
+
+      - name: Run verification tests
+        env:
+          VERIFICATION_TESTS: 1
+          Z3PATH: ${{ env.Z3PATH }}
+          WHY3DATA: ${{ env.WHY3DATA }}
+          WHY3LIB: ${{ env.WHY3LIB }}
+        run: opam exec -- cargo test -p moon moon_prove -- --nocapture
+
   stable-test:
     needs: [typo-check, license-header-check]
     strategy:

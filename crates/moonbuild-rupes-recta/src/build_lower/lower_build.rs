@@ -51,6 +51,12 @@ use crate::{
 use super::{BuildCommand, Commandline, compiler, context::BuildPlanLowerContext};
 
 impl<'a> BuildPlanLowerContext<'a> {
+    fn compiler_source_files(&self, info: &BuildTargetInfo) -> Vec<PathBuf> {
+        let mut files = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
+        files.extend(info.mbtp_files().map(|x| x.to_owned()));
+        files
+    }
+
     fn is_module_third_party(&self, mid: ModuleId) -> bool {
         // This is usually a small vector, so this perf overhead is okay.
         !self.modules.input_module_ids().contains(&mid)
@@ -237,7 +243,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let mi_inputs = self.mi_inputs_of(node, target);
 
         // Collect files iterator once so we can pass slices and extra inputs
-        let files_vec = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
+        let files_vec = self.compiler_source_files(info);
 
         // Determine whether the checked package is a main package.
         //
@@ -289,6 +295,56 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
+    pub(super) fn lower_prove(
+        &self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+        info: &BuildTargetInfo,
+    ) -> BuildCommand {
+        let package = self.get_package(target);
+        let module = self.modules.module_info(package.module);
+        let mi_inputs = self.mi_inputs_of(node, target);
+
+        let files_vec = self.compiler_source_files(info);
+
+        let backend = self.opt.target_backend.into();
+        let why3_config = self.layout.why3_config_path();
+        let whyml_output = self.layout.prove_whyml_path(self.packages, &target);
+        let proof_report_output = self.layout.prove_report_path(self.packages, &target);
+        let cmd = compiler::MooncProve {
+            required: BuildCommonInput::new(
+                &files_vec,
+                &info.doctest_files,
+                &mi_inputs,
+                compiler::CompiledPackageName::new(&package.fqn, target.kind),
+                &package.root_path,
+                self.layout.all_pkgs_of_build_target(backend),
+                backend,
+                target.kind,
+            ),
+            defaults: self.set_build_commons(package, info, package.raw.is_main),
+            why3_config: why3_config.clone().into(),
+            whyml_out: whyml_output.clone().into(),
+            proof_report_out: proof_report_output.clone().into(),
+            single_file: package.is_single_file,
+            extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
+        };
+
+        let mut extra_inputs = files_vec.clone();
+        extra_inputs.extend(info.doctest_files.clone());
+        extra_inputs.push(why3_config);
+        if !package.is_single_file {
+            extra_inputs.push(package.config_path());
+        }
+        self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
+
+        BuildCommand {
+            extra_inputs,
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
+        }
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_build_mbt(
         &self,
         node: BuildPlanNode,
@@ -309,7 +365,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let mi_inputs = self.mi_inputs_of(node, target);
 
-        let mut files = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
+        let mut files = self.compiler_source_files(info);
         match target.kind {
             TargetKind::Source | TargetKind::SubPackage => {}
             TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest => {
@@ -355,7 +411,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Include doctest-only files as inputs to track dependency correctly
         // Note: This is the *extra* inputs, trivial dependencies are already
         // tracked via the build graph.
-        let mut extra_inputs = info.files().map(|x| x.to_path_buf()).collect::<Vec<_>>();
+        let mut extra_inputs = self.compiler_source_files(info);
         extra_inputs.extend(info.doctest_files.clone());
         if !package.is_single_file {
             extra_inputs.push(package.config_path());

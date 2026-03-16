@@ -381,6 +381,35 @@ impl LegacyLayout {
         base_dir
     }
 
+    pub fn verif_root(&self) -> PathBuf {
+        self.target_base_dir.join("verif")
+    }
+
+    pub fn verif_package_dir(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut dir = self.verif_root();
+        dir.extend(pkg_fqn.package().segments());
+        dir
+    }
+
+    pub fn why3_config_path(&self) -> PathBuf {
+        self.verif_root().join("why3.conf")
+    }
+
+    pub fn prove_whyml_path(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut dir = self.verif_package_dir(pkg_list, target);
+        dir.push(format!("{}.mlw", artifact(pkg_fqn, target.kind)));
+        dir
+    }
+
+    pub fn prove_report_path(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut dir = self.verif_package_dir(pkg_list, target);
+        dir.push(format!("{}.proof.json", artifact(pkg_fqn, target.kind)));
+        dir
+    }
+
     /// Returns the path for a C stub object file.
     ///
     /// Format: `_build/{backend}/{opt_level}/build/{package_path}/{stub_name}.o`
