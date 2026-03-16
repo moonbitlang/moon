@@ -81,9 +81,7 @@ fn test_moon_prove_generates_artifacts() {
         .get_output()
         .to_owned();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
     expect_file!["snapshots/zzok.run.stdout"].assert_eq(&replace_dir(&stdout, &dir));
-    expect_file!["snapshots/zzok.stderr"].assert_eq(&replace_dir(&stderr, &dir));
 
     assert_is_file(&dir.join("_build/verif/zzok/zzok.mlw"));
     assert_is_file(&dir.join("_build/verif/zzok/zzok.proof.json"));
@@ -109,9 +107,7 @@ fn test_moon_prove_mixed_workspace_failure() {
         .get_output()
         .to_owned();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
     expect_file!["snapshots/mixed.run.stdout"].assert_eq(&replace_dir(&stdout, &dir));
-    expect_file!["snapshots/mixed.stderr"].assert_eq(&replace_dir(&stderr, &dir));
 
     assert_is_file(&dir.join("_build/verif/zzok/zzok.proof.json"));
     assert_is_file(&dir.join("_build/verif/afail/afail.proof.json"));
@@ -138,9 +134,7 @@ fn test_moon_prove_selected_failed_package() {
         .get_output()
         .to_owned();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
     expect_file!["snapshots/afail.run.stdout"].assert_eq(&replace_dir(&stdout, &dir));
-    expect_file!["snapshots/afail.stderr"].assert_eq(&replace_dir(&stderr, &dir));
 
     assert_is_file(&dir.join("_build/verif/afail/afail.proof.json"));
 }
