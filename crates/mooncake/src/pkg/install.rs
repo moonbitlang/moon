@@ -91,7 +91,7 @@ pub fn install(
 ) -> anyhow::Result<i32> {
     let m = read_module_desc_file_in_dir(source_dir)?;
     let m = Arc::new(m);
-    let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
+    let ms = ModuleSource::from_local_module(&m, source_dir);
     let (roots, _) = ResolvedModule::only_one_module(ms, m);
     install_impl(source_dir, roots, quiet, verbose, false, no_std).map(|_| 0)
 }

@@ -140,11 +140,7 @@ pub fn discover_local_project(source_dir: &Path) -> Result<DiscoveredLocalProjec
             }
         })?;
         let module = Arc::new(module);
-        let source = ModuleSource::from_local_module(&module, &module_dir).ok_or_else(|| {
-            DiscoverError::MalformedLocalModule {
-                path: module_dir.clone(),
-            }
-        })?;
+        let source = ModuleSource::from_local_module(&module, &module_dir);
         let id = root_modules.insert(ResolvedModule::new(source, module));
         root_module_ids.push(id);
 

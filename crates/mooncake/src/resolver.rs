@@ -41,8 +41,6 @@ use self::env::ResolverEnv;
 /// Any error that may occur during dependency resolution.
 #[derive(Debug, Error)]
 pub(crate) enum ResolverError {
-    #[error("Malformed module name found in dependency {0}: {1}")]
-    MalformedModuleName(ModuleName, String),
     #[error(
         "Failed to resolve registry dependency `{dependency}` for module `{dependant}`: module was not found in the registry"
     )]
@@ -271,8 +269,7 @@ fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
     let core_dir = moon_dir::core();
     let loaded_core =
         read_module_desc_file_in_dir(&core_dir).context("Cannot load the core file")?;
-    let source = ModuleSource::from_stdlib(&loaded_core, &core_dir)
-        .map_err(|e| anyhow::anyhow!("Failed to create module source: {e}"))?;
+    let source = ModuleSource::from_stdlib(&loaded_core, &core_dir);
     let id = res.add_module(source, Arc::new(loaded_core));
     res.register_stdlib(id);
 

@@ -55,7 +55,7 @@ pub fn remove(
         )
     }
     let m = Arc::new(m);
-    let ms = ModuleSource::from_local_module(&m, source_dir).expect("Malformed module manifest");
+    let ms = ModuleSource::from_local_module(&m, source_dir);
 
     let resolve_cfg = ResolveConfig {
         registry: registry::default_registry(),

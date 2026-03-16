@@ -285,9 +285,6 @@ pub enum DiscoverError {
     #[error("Unable to read local `moon.mod.json` at path '{path}', error: {inner}")]
     CantReadLocalModuleFile { path: PathBuf, inner: anyhow::Error },
 
-    #[error("Malformed local module manifest at path '{path}'")]
-    MalformedLocalModule { path: PathBuf },
-
     #[error(
         "Unable to read `moon.mod.json` for module '{module}' at path '{path}', error: {inner}"
     )]

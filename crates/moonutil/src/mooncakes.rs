@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
+    convert::Infallible,
     fs::File,
     io::BufReader,
     path::{Path, PathBuf},
@@ -89,20 +90,26 @@ impl std::fmt::Display for ModuleName {
     }
 }
 
-impl FromStr for ModuleName {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split_once('/') {
-            Some((username, pkgname)) => Ok(ModuleName {
+impl From<&str> for ModuleName {
+    fn from(value: &str) -> Self {
+        match value.split_once('/') {
+            Some((username, pkgname)) => ModuleName {
                 username: username.into(),
                 unqual: pkgname.into(),
-            }),
-            None => Ok(ModuleName {
+            },
+            None => ModuleName {
                 username: ArcStr::new(),
-                unqual: s.into(),
-            }),
+                unqual: value.into(),
+            },
         }
+    }
+}
+
+impl FromStr for ModuleName {
+    type Err = Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(s.into())
     }
 }
 
@@ -213,26 +220,26 @@ impl ModuleSource {
         })
     }
 
-    pub fn from_local_module(module: &MoonMod, path: &Path) -> Option<Self> {
-        Some(Self::new_inner(ModuleSourceInner {
-            name: module.name.parse().ok()?,
+    pub fn from_local_module(module: &MoonMod, path: &Path) -> Self {
+        Self::new_inner(ModuleSourceInner {
+            name: module.name.as_str().into(),
             version: module
                 .version
                 .clone()
                 .unwrap_or_else(|| DEFAULT_VERSION.clone()),
             source: ModuleSourceKind::Local(path.to_owned()),
-        }))
+        })
     }
 
-    pub fn from_stdlib(module: &MoonMod, path: &Path) -> Result<Self, String> {
-        Ok(Self::new_inner(ModuleSourceInner {
-            name: module.name.parse()?,
+    pub fn from_stdlib(module: &MoonMod, path: &Path) -> Self {
+        Self::new_inner(ModuleSourceInner {
+            name: module.name.as_str().into(),
             version: module
                 .version
                 .clone()
                 .unwrap_or_else(|| DEFAULT_VERSION.clone()),
             source: ModuleSourceKind::Stdlib(path.to_owned()),
-        }))
+        })
     }
 
     pub fn git(name: ModuleName, url: String, version: Version) -> Self {
@@ -243,15 +250,15 @@ impl ModuleSource {
         })
     }
 
-    pub fn single_file(module: &MoonMod, path: &Path) -> Result<Self, String> {
-        Ok(Self::new_inner(ModuleSourceInner {
-            name: module.name.parse()?,
+    pub fn single_file(module: &MoonMod, path: &Path) -> Self {
+        Self::new_inner(ModuleSourceInner {
+            name: module.name.as_str().into(),
             version: module
                 .version
                 .clone()
                 .unwrap_or_else(|| DEFAULT_VERSION.clone()),
             source: ModuleSourceKind::SingleFile(path.to_owned()),
-        }))
+        })
     }
 
     fn new_inner(inner: ModuleSourceInner) -> Self {
@@ -295,7 +302,7 @@ impl std::str::FromStr for ModuleSource {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts = s.split_once('@').ok_or("missing version")?;
         let version = Version::parse(parts.1).map_err(|e| e.to_string())?;
-        let name = parts.0.parse()?;
+        let name = parts.0.into();
         Ok(ModuleSource::new_inner(ModuleSourceInner {
             name,
             version,
@@ -308,7 +315,7 @@ impl std::str::FromStr for ModuleSource {
 pub static DEFAULT_VERSION: Version = Version::new(0, 0, 0);
 
 pub mod result {
-    use std::{collections::HashMap, str::FromStr, sync::Arc};
+    use std::{collections::HashMap, convert::Infallible, str::FromStr, sync::Arc};
 
     use petgraph::graphmap::DiGraphMap;
     use slotmap::SlotMap;
@@ -332,10 +339,10 @@ pub mod result {
 
     // Only used in tests
     impl FromStr for DependencyEdge {
-        type Err = String;
+        type Err = Infallible;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            let name = s.parse()?;
+            let name = s.into();
             Ok(DependencyEdge {
                 name,
                 kind: DependencyKind::Regular,
