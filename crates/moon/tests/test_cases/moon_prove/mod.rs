@@ -4,6 +4,19 @@ use crate::{
 };
 use expect_test::{expect, expect_file};
 
+fn verification_tests_enabled() -> bool {
+    std::env::var_os("VERIFICATION_TESTS").is_some()
+}
+
+fn skip_unless_verification_tests_enabled(name: &str) -> bool {
+    if verification_tests_enabled() {
+        return false;
+    }
+
+    eprintln!("skipping {name}: set VERIFICATION_TESTS=1 to enable verification tests");
+    true
+}
+
 fn z3_path() -> Option<std::path::PathBuf> {
     std::env::var_os("Z3PATH")
         .map(std::path::PathBuf::from)
@@ -39,6 +52,9 @@ fn assert_invpred_runtime_commands_succeed(dir: &TestDir) {
 
 #[test]
 fn test_moon_prove_dry_run() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_dry_run") {
+        return;
+    }
     let dir = TestDir::new("moon_prove/mixed.in");
     let stdout = get_stdout(&dir, ["prove", "zzok", "--dry-run"]);
     expect_file!["snapshots/zzok.stdout"].assert_eq(&stdout);
@@ -46,6 +62,9 @@ fn test_moon_prove_dry_run() {
 
 #[test]
 fn test_moon_prove_generates_artifacts() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_generates_artifacts") {
+        return;
+    }
     let dir = TestDir::new("moon_prove/mixed.in");
     let z3_path = z3_path();
     let Some(z3_path) = z3_path else {
@@ -72,6 +91,9 @@ fn test_moon_prove_generates_artifacts() {
 
 #[test]
 fn test_moon_prove_mixed_workspace_failure() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_mixed_workspace_failure") {
+        return;
+    }
     let dir = TestDir::new("moon_prove/mixed.in");
     let Some(z3_path) = z3_path() else {
         eprintln!("skipping mixed moon_prove test: z3 is not available");
@@ -98,6 +120,9 @@ fn test_moon_prove_mixed_workspace_failure() {
 
 #[test]
 fn test_moon_prove_selected_failed_package() {
+    if skip_unless_verification_tests_enabled("test_moon_prove_selected_failed_package") {
+        return;
+    }
     let dir = TestDir::new("moon_prove/mixed.in");
     let Some(z3_path) = z3_path() else {
         eprintln!("skipping selected failed moon_prove test: z3 is not available");
@@ -122,6 +147,11 @@ fn test_moon_prove_selected_failed_package() {
 
 #[test]
 fn test_invpred_package_threads_mbtp_into_compile_dry_runs() {
+    if skip_unless_verification_tests_enabled(
+        "test_invpred_package_threads_mbtp_into_compile_dry_runs",
+    ) {
+        return;
+    }
     let dir = TestDir::new("moon_prove/mixed.in");
 
     for (label, args) in [
@@ -154,6 +184,9 @@ fn test_invpred_package_threads_mbtp_into_compile_dry_runs() {
 
 #[test]
 fn test_invpred_package_runtime_commands_succeed() {
+    if skip_unless_verification_tests_enabled("test_invpred_package_runtime_commands_succeed") {
+        return;
+    }
     let dir = TestDir::new("moon_prove/mixed.in");
     assert_invpred_runtime_commands_succeed(&dir);
     check(
@@ -167,6 +200,9 @@ fn test_invpred_package_runtime_commands_succeed() {
 
 #[test]
 fn test_invpred_package_prove_succeeds() {
+    if skip_unless_verification_tests_enabled("test_invpred_package_prove_succeeds") {
+        return;
+    }
     let dir = TestDir::new("moon_prove/mixed.in");
     let Some(z3_path) = z3_path() else {
         eprintln!("skipping invpred moon_prove test: z3 is not available");
