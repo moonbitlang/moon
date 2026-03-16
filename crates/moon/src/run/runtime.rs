@@ -37,6 +37,9 @@ use tokio::process::Command;
 /// file in WASM or WASM-GC backends, a `.js` file in JS backend, or a native
 /// executable in Native or LLVM backends.
 ///
+/// `enable_source_maps` controls whether to add `--enable-source-maps` flag
+/// to the Node.js runtime for JS backend.
+///
 /// ### Note
 ///
 /// Currently there's no support for using `tcc` to execute the target program.
@@ -44,6 +47,7 @@ pub(crate) fn command_for(
     backend: RunBackend,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
+    enable_source_maps: bool,
 ) -> Command {
     match backend {
         RunBackend::Wasm | RunBackend::WasmGC => {
@@ -66,7 +70,9 @@ pub(crate) fn command_for(
                 }
             }
             let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
-            cmd.arg("--enable-source-maps");
+            if enable_source_maps {
+                cmd.arg("--enable-source-maps");
+            }
             cmd.arg(mbt_executable);
             if let Some(t) = test {
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));

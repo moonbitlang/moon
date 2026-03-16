@@ -213,7 +213,7 @@ fn install_build_rr(
         .context("RR build should yield exactly one artifact file")?;
 
     // Build command using existing runtime mapping, then shlex-join
-    let guard = crate::run::command_for(meta.target_backend, artifact, None);
+    let guard = crate::run::command_for(meta.target_backend, artifact, None, true);
     let parts = std::iter::once(guard.as_std().get_program())
         .chain(guard.as_std().get_args())
         .map(|x| x.to_string_lossy().to_string())
