@@ -99,7 +99,7 @@ fn moonbit_test_driver_internal_do_execute(
   fn handle_result(testname : String, message : String, skipped : Bool) {
     // In WASM, this function is called by the external test driver, but here
     // in native mode there's nothing that calls it, so we call it manually.
-    if not(skipped) && MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE {
+    if !skipped && MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE {
       // {COVERAGE_END}
     }
     let file_name = filename.escape()
