@@ -52,6 +52,21 @@
     },
     {
       "root": "moonbitlang/core",
+      "rel": "bytes/internal/regex_engine",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/regex_engine.mi"
+    },
+    {
+      "root": "moonbitlang/core",
+      "rel": "bytes/internal/regex_engine/ast",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/ast/ast.mi"
+    },
+    {
+      "root": "moonbitlang/core",
+      "rel": "bytes/internal/regex_engine/symbol_map",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/bytes/internal/regex_engine/symbol_map/symbol_map.mi"
+    },
+    {
+      "root": "moonbitlang/core",
       "rel": "char",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/char/char.mi"
     },
@@ -182,16 +197,6 @@
     },
     {
       "root": "moonbitlang/core",
-      "rel": "internal/regex_engine",
-      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/regex_engine/regex_engine.mi"
-    },
-    {
-      "root": "moonbitlang/core",
-      "rel": "internal/regex_engine/ast",
-      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/regex_engine/ast/ast.mi"
-    },
-    {
-      "root": "moonbitlang/core",
       "rel": "internal/regex_engine/automata",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/regex_engine/automata/automata.mi"
     },
@@ -204,16 +209,6 @@
       "root": "moonbitlang/core",
       "rel": "internal/regex_engine/shared_types/rechar_set",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/regex_engine/shared_types/rechar_set/rechar_set.mi"
-    },
-    {
-      "root": "moonbitlang/core",
-      "rel": "internal/regex_engine/symbol_map",
-      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/regex_engine/symbol_map/symbol_map.mi"
-    },
-    {
-      "root": "moonbitlang/core",
-      "rel": "internal/regex_parser",
-      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/regex_parser/regex_parser.mi"
     },
     {
       "root": "moonbitlang/core",
@@ -304,6 +299,26 @@
       "root": "moonbitlang/core",
       "rel": "string",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/string.mi"
+    },
+    {
+      "root": "moonbitlang/core",
+      "rel": "string/internal/regex_engine",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/regex_engine.mi"
+    },
+    {
+      "root": "moonbitlang/core",
+      "rel": "string/internal/regex_engine/ast",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/ast/ast.mi"
+    },
+    {
+      "root": "moonbitlang/core",
+      "rel": "string/internal/regex_engine/symbol_map",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_engine/symbol_map/symbol_map.mi"
+    },
+    {
+      "root": "moonbitlang/core",
+      "rel": "string/internal/regex_parser",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/string/internal/regex_parser/regex_parser.mi"
     },
     {
       "root": "moonbitlang/core",
