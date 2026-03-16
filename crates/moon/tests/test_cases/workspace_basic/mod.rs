@@ -201,6 +201,68 @@ fn test_work_use_updates_workspace_members() {
 }
 
 #[test]
+fn test_work_sync_ignores_unrelated_ancestor_workspace() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    std::fs::create_dir_all(dir.join("extra")).unwrap();
+    std::fs::write(
+        dir.join("extra/moon.mod.json"),
+        r#"{
+  "name": "alice/extra"
+}"#,
+    )
+    .unwrap();
+
+    let stderr = get_err_stderr(&dir, ["-C", "extra", "work", "sync"]);
+
+    assert!(stderr.contains("`moon work sync` requires `moon.work.json`"));
+}
+
+#[test]
+fn test_work_use_ignores_unrelated_ancestor_workspace() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    std::fs::create_dir_all(dir.join("extra")).unwrap();
+    std::fs::write(
+        dir.join("extra/moon.mod.json"),
+        r#"{
+  "name": "alice/extra"
+}"#,
+    )
+    .unwrap();
+
+    check(
+        get_stdout(&dir, ["-C", "extra", "work", "use", "."]),
+        expect![[r#"
+            Created moon.work.json
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("extra/moon.work.json")).unwrap(),
+        expect![[r#"
+            {
+              "use": [
+                "."
+              ]
+            }"#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        expect![[r#"
+            {
+              "preferred-target": "wasm-gc",
+              "use": [
+                "./app",
+                "./liba"
+              ]
+            }
+        "#]],
+    );
+}
+
+#[test]
 fn test_workspace_sync_updates_member_manifests() {
     let dir = TestDir::new("workspace_basic.in");
 

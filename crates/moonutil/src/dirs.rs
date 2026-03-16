@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{BUILD_DIR, MOON_MOD_JSON, MOON_WORK};
+use crate::workspace::{canonical_workspace_module_dirs, read_workspace};
 
 #[derive(Debug, Error)]
 pub enum PackageDirsError {
@@ -81,11 +82,35 @@ pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
         .map(|p| p.to_path_buf())
 }
 
-pub fn find_ancestor_with_work(source_dir: &Path) -> Option<PathBuf> {
-    source_dir
-        .ancestors()
-        .find(|dir| check_moon_work_exists(dir))
-        .map(|p| p.to_path_buf())
+pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
+    let module_root = find_ancestor_with_mod(source_dir);
+
+    for dir in source_dir.ancestors() {
+        if !check_moon_work_exists(dir) {
+            continue;
+        }
+
+        let Some(module_root) = module_root.as_deref() else {
+            if dir == source_dir {
+                return Ok(Some(dir.to_path_buf()));
+            }
+            continue;
+        };
+
+        // An implicit ancestor workspace only applies when it explicitly lists
+        // the current module as one of its members.
+        let workspace = read_workspace(dir)?.context(format!(
+            "failed to parse workspace file `{}`",
+            dir.join(MOON_WORK).display()
+        ))?;
+        for member_dir in canonical_workspace_module_dirs(dir, &workspace)? {
+            if member_dir == module_root {
+                return Ok(Some(dir.to_path_buf()));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
@@ -131,8 +156,9 @@ fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDir
         let start_dir = dunce::canonicalize(start_dir)
             .context("failed to resolve current directory")
             .map_err(PackageDirsError::from)?;
-        let project_root =
-            find_ancestor_with_work(&start_dir).or_else(|| find_ancestor_with_mod(&start_dir));
+        let project_root = find_ancestor_with_work(&start_dir)
+            .map_err(PackageDirsError::from)?
+            .or_else(|| find_ancestor_with_mod(&start_dir));
         project_root.ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?
     };
 

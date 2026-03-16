@@ -19,7 +19,9 @@
 use std::path::PathBuf;
 
 use anyhow::bail;
-use moonutil::dirs::{PackageDirs, find_ancestor_with_work, resolve_manifest_root};
+use moonutil::dirs::{
+    PackageDirs, find_ancestor_with_mod, find_ancestor_with_work, resolve_manifest_root,
+};
 
 use super::UniversalFlags;
 
@@ -90,8 +92,14 @@ fn work_root(cli: &UniversalFlags, prefer_existing_workspace: bool) -> anyhow::R
     };
     let root = dunce::canonicalize(root)?;
 
-    if prefer_existing_workspace {
-        Ok(find_ancestor_with_work(&root).unwrap_or(root))
+    // `work use` should extend the current workspace when the current module is
+    // already a member, but should otherwise stay local to the current module.
+    if prefer_existing_workspace && let Some(work_root) = find_ancestor_with_work(&root)? {
+        return Ok(work_root);
+    }
+
+    if let Some(module_root) = find_ancestor_with_mod(&root) {
+        Ok(module_root)
     } else {
         Ok(root)
     }
