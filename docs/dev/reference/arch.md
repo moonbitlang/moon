@@ -132,14 +132,18 @@ explicit workspace root via `moon.work.json`, following the same discovery
 precedence as Go workspaces:
 
 - Search the current directory and its ancestors for `moon.work.json`.
-- If one is found, the workspace roots are the modules listed by its `use` directives.
-- If no `moon.work.json` is found, fall back to the closest ancestor `moon.mod.json`.
+- If one is found and the current module is one of its `use` entries, the workspace roots are the
+  modules listed by that file.
+- Otherwise, fall back to the closest ancestor `moon.mod.json`.
 
 The `moon.work.json` file is intentionally small.
 It currently supports one JSON object with:
 
 - `use: ["./app", "./lib"]` to list workspace roots.
 - `preferred-target: "wasm-gc"` to set the preferred default target for the workspace.
+
+When Moon writes `use` entries, relative paths are normalized with `/` separators. Absolute paths
+are kept as absolute OS-specific paths and are not made portable.
 
 [mod-pkg]: ./modules-packages.md
 
