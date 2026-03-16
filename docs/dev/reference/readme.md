@@ -28,5 +28,6 @@ This is a reference documentation of the current MoonBuild behavior.
 
 ## Testing
 
+* [Test suite strategy](./testing-strategy.md)
 * TODO: Doc tests
 * TODO: Snapshot testing
