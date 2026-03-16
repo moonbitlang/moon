@@ -41,18 +41,12 @@ use super::{BuildCommand, compiler};
 
 impl<'a> super::BuildPlanLowerContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
-    pub(super) fn lower_gen_test_driver(
+    pub(super) fn lower_generate_test_info(
         &mut self,
         _node: BuildPlanNode,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
-        let package = self.get_package(target);
-        let output_driver = self.layout.generated_test_driver(
-            self.packages,
-            &target,
-            self.opt.target_backend.into(),
-        );
         let output_metadata = self.layout.generated_test_driver_metadata(
             self.packages,
             &target,
@@ -65,30 +59,19 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             TargetKind::InlineTest => DriverKind::Internal,
             TargetKind::SubPackage => panic!("Sub-package cannot be a test driver"),
         };
-        let pkg_full_name = package.fqn.to_string();
         let files_vec = if target.kind == TargetKind::WhiteboxTest {
             info.whitebox_files.clone()
         } else {
             info.files().map(|x| x.to_owned()).collect::<Vec<_>>()
         };
         let patch_file = info.patch_file.as_deref().map(|x| x.into());
-
-        let (enable_coverage, self_coverage) =
-            self.get_coverage_flags(target, package, &package.fqn, false);
-
-        let cmd = compiler::MoonGenTestDriver {
+        let cmd = compiler::MoonGenTestInfo {
             files: &files_vec,
             doctest_only_files: &info.doctest_files,
-            output_driver: output_driver.into(),
             output_metadata: output_metadata.into(),
-            bench: self.opt.action == moonutil::common::RunMode::Bench,
-            enable_coverage,
-            coverage_package_override: if self_coverage { Some("@self") } else { None },
             driver_kind,
             target_backend: self.opt.target_backend.into(),
             patch_file,
-            pkg_name: &pkg_full_name,
-            max_concurrent_tests: package.raw.max_concurrent_tests,
         };
 
         let commandline = cmd.build_command(&*moonutil::BINARIES.moonbuild);
@@ -100,6 +83,43 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         BuildCommand {
             commandline: commandline.into(),
             extra_inputs,
+        }
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn lower_render_test_driver(
+        &mut self,
+        _node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> BuildCommand {
+        let package = self.get_package(target);
+        let output_driver = self.layout.generated_test_driver(
+            self.packages,
+            &target,
+            self.opt.target_backend.into(),
+        );
+        let input_metadata = self.layout.generated_test_driver_metadata(
+            self.packages,
+            &target,
+            self.opt.target_backend.into(),
+        );
+        let pkg_full_name = package.fqn.to_string();
+        let (enable_coverage, self_coverage) =
+            self.get_coverage_flags(target, package, &package.fqn, false);
+
+        let cmd = compiler::MoonRenderTestDriver {
+            input_metadata: input_metadata.into(),
+            output_driver: output_driver.into(),
+            bench: self.opt.action == moonutil::common::RunMode::Bench,
+            enable_coverage,
+            coverage_package_override: if self_coverage { Some("@self") } else { None },
+            pkg_name: &pkg_full_name,
+            max_concurrent_tests: package.raw.max_concurrent_tests,
+        };
+
+        BuildCommand {
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonbuild).into(),
+            extra_inputs: vec![],
         }
     }
 

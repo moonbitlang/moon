@@ -149,8 +149,9 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .build_plan
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for GenerateTestInfo nodes");
-                self.lower_gen_test_driver(node, target, info)
+                self.lower_generate_test_info(node, target, info)
             }
+            BuildPlanNode::RenderTestDriver(target) => self.lower_render_test_driver(node, target),
             BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
             BuildPlanNode::BuildDocs => self.lower_build_docs(),
             BuildPlanNode::RunPrebuild(pkg, idx) => self.lower_run_prebuild(pkg, idx),
@@ -377,23 +378,18 @@ impl<'a> BuildPlanLowerContext<'a> {
                 ))
             }
             BuildPlanNode::GenerateTestInfo(target) => {
-                let meta = if let FileDependencyKind::GenerateTestInfo { meta } = edge {
-                    meta
-                } else {
-                    true
-                };
+                out.push(self.layout.generated_test_driver_metadata(
+                    self.packages,
+                    &target,
+                    self.opt.target_backend.into(),
+                ));
+            }
+            BuildPlanNode::RenderTestDriver(target) => {
                 out.push(self.layout.generated_test_driver(
                     self.packages,
                     &target,
                     self.opt.target_backend.into(),
                 ));
-                if meta {
-                    out.push(self.layout.generated_test_driver_metadata(
-                        self.packages,
-                        &target,
-                        self.opt.target_backend.into(),
-                    ));
-                }
             }
             BuildPlanNode::Bundle(id) => {
                 let module_name = self.modules.module_source(id);

@@ -126,9 +126,6 @@ pub enum FileDependencyKind {
 
     /// Depending on specific files of a `BuildCore` node.
     BuildCore { mi: bool, core: bool },
-
-    /// Depending on specific files of a `GenerateTestInfo` node.
-    GenerateTestInfo { meta: bool },
 }
 
 impl BuildPlan {

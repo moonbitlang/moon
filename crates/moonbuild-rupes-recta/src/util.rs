@@ -188,6 +188,7 @@ impl BuildPlanNode {
             BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
             BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
+            BuildPlanNode::RenderTestDriver(target) => format!("{:?}@RenderTestDriver", target),
             BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
             BuildPlanNode::RunPrebuild(target, index) => {
@@ -239,6 +240,10 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nGenerateTestInfo", fqn)
             }
+            BuildPlanNode::RenderTestDriver(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nRenderTestDriver", fqn)
+            }
             BuildPlanNode::Bundle(module_id) => {
                 let src = env.module_source(*module_id);
                 format!("{}\\nBundle", src)
@@ -278,6 +283,7 @@ impl BuildPlanNode {
             BuildPlanNode::LinkCore(_) => "lightcoral",
             BuildPlanNode::MakeExecutable(_) => "lightpink",
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
+            BuildPlanNode::RenderTestDriver(_) => "gainsboro",
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
             BuildPlanNode::RunPrebuild(_, _) => "khaki",
