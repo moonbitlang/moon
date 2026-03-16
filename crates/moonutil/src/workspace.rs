@@ -30,7 +30,11 @@ use crate::common::{MOON_WORK, TargetBackend};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct MoonWork {
-    #[serde(rename = "use")]
+    #[serde(
+        rename = "use",
+        deserialize_with = "deserialize_use_paths",
+        serialize_with = "serialize_use_paths"
+    )]
     pub use_paths: Vec<PathBuf>,
     #[serde(
         rename = "preferred-target",
@@ -53,6 +57,14 @@ where
         .map_err(serde::de::Error::custom)
 }
 
+fn deserialize_use_paths<'de, D>(deserializer: D) -> Result<Vec<PathBuf>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let use_paths = Vec::<String>::deserialize(deserializer)?;
+    Ok(use_paths.into_iter().map(PathBuf::from).collect())
+}
+
 fn serialize_preferred_target<S>(
     preferred_target: &Option<TargetBackend>,
     serializer: S,
@@ -63,6 +75,25 @@ where
     match preferred_target {
         Some(preferred_target) => serializer.serialize_some(preferred_target.to_flag()),
         None => serializer.serialize_none(),
+    }
+}
+
+fn serialize_use_paths<S>(use_paths: &[PathBuf], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let use_paths: Vec<String> = use_paths
+        .iter()
+        .map(|path| manifest_path_string(path))
+        .collect();
+    use_paths.serialize(serializer)
+}
+
+fn manifest_path_string(path: &Path) -> String {
+    if path.is_absolute() {
+        path.to_string_lossy().into_owned()
+    } else {
+        path.to_string_lossy().replace('\\', "/")
     }
 }
 
@@ -170,5 +201,43 @@ mod tests {
 
         assert!(parsed.use_paths.is_empty());
         assert_eq!(parsed.preferred_target, None);
+    }
+
+    #[test]
+    fn serialize_relative_workspace_paths_with_forward_slashes() {
+        let workspace = MoonWork {
+            use_paths: vec![PathBuf::from(".").join("app").join("main")],
+            preferred_target: Some(TargetBackend::WasmGC),
+        };
+
+        let json = serde_json_lenient::to_string_pretty(&workspace).unwrap();
+        assert_eq!(
+            json,
+            "{\n  \"use\": [\n    \"./app/main\"\n  ],\n  \"preferred-target\": \"wasm-gc\"\n}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn serialize_absolute_workspace_paths_without_normalizing_separators() {
+        let workspace = MoonWork {
+            use_paths: vec![PathBuf::from(r"C:\repo\app")],
+            preferred_target: None,
+        };
+
+        let json = serde_json_lenient::to_string_pretty(&workspace).unwrap();
+        assert_eq!(json, "{\n  \"use\": [\n    \"C:\\\\repo\\\\app\"\n  ]\n}");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn serialize_absolute_workspace_paths_without_normalizing_separators() {
+        let workspace = MoonWork {
+            use_paths: vec![PathBuf::from("/repo/app")],
+            preferred_target: None,
+        };
+
+        let json = serde_json_lenient::to_string_pretty(&workspace).unwrap();
+        assert_eq!(json, "{\n  \"use\": [\n    \"/repo/app\"\n  ]\n}");
     }
 }
