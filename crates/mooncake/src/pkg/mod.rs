@@ -23,4 +23,4 @@ pub mod sync;
 pub mod tree;
 mod work;
 
-pub use work::sync_workspace;
+pub use work::{init_workspace, sync_workspace, use_workspace};

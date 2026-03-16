@@ -88,44 +88,42 @@ pub fn find_ancestor_with_work(source_dir: &Path) -> Option<PathBuf> {
         .map(|p| p.to_path_buf())
 }
 
+pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
+    let manifest_path = dunce::canonicalize(manifest_path).with_context(|| {
+        format!(
+            "failed to resolve manifest path `{}`",
+            manifest_path.display()
+        )
+    })?;
+
+    if manifest_path.is_dir() {
+        anyhow::bail!(
+            "`--manifest-path` must point to `{}` or `{}` (got directory `{}`)",
+            MOON_MOD_JSON,
+            MOON_WORK,
+            manifest_path.display()
+        );
+    }
+
+    let file_name = manifest_path.file_name().and_then(|s| s.to_str());
+    if file_name != Some(MOON_MOD_JSON) && file_name != Some(MOON_WORK) {
+        anyhow::bail!(
+            "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
+            MOON_MOD_JSON,
+            MOON_WORK,
+            manifest_path.display()
+        );
+    }
+
+    manifest_path
+        .parent()
+        .context("manifest path has no parent directory")
+        .map(Path::to_path_buf)
+}
+
 fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDirsError> {
     let project_root = if let Some(manifest_path) = &matches.manifest_path {
-        let manifest_path = dunce::canonicalize(manifest_path)
-            .with_context(|| {
-                format!(
-                    "failed to resolve manifest path `{}`",
-                    manifest_path.display()
-                )
-            })
-            .map_err(PackageDirsError::from)?;
-
-        if manifest_path.is_dir() {
-            return Err(anyhow::anyhow!(
-                "`--manifest-path` must point to `{}` (got directory `{}`)",
-                MOON_MOD_JSON,
-                manifest_path.display()
-            )
-            .into());
-        }
-
-        let file_name = manifest_path.file_name().and_then(|s| s.to_str());
-        let is_module_manifest = file_name == Some(MOON_MOD_JSON);
-        let is_workspace_manifest = file_name == Some(MOON_WORK);
-        if !is_module_manifest && !is_workspace_manifest {
-            return Err(anyhow::anyhow!(
-                "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
-                MOON_MOD_JSON,
-                MOON_WORK,
-                manifest_path.display()
-            )
-            .into());
-        }
-
-        manifest_path
-            .parent()
-            .context("manifest path has no parent directory")
-            .map_err(PackageDirsError::from)?
-            .to_path_buf()
+        resolve_manifest_root(manifest_path).map_err(PackageDirsError::from)?
     } else {
         let start_dir = std::env::current_dir()
             .context("failed to get current directory")

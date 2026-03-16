@@ -146,6 +146,61 @@ fn test_workspace_commands() {
 }
 
 #[test]
+fn test_work_init_creates_empty_workspace() {
+    let dir = TestDir::new("hello");
+
+    check(
+        get_stdout(&dir, ["work", "init"]),
+        expect![[r#"
+            Created moon.work.json
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        expect![[r#"
+            {
+              "use": []
+            }"#]],
+    );
+}
+
+#[test]
+fn test_work_use_updates_workspace_members() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    std::fs::write(
+        dir.join("moon.work.json"),
+        r#"{
+  "preferred-target": "wasm-gc",
+  "use": [
+    "./liba"
+  ]
+}"#,
+    )
+    .unwrap();
+
+    check(
+        get_stdout(&dir, ["work", "use", "app"]),
+        expect![[r#"
+            Updated moon.work.json
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        expect![[r#"
+            {
+              "use": [
+                "./liba",
+                "./app"
+              ],
+              "preferred-target": "wasm-gc"
+            }"#]],
+    );
+}
+
+#[test]
 fn test_workspace_sync_updates_member_manifests() {
     let dir = TestDir::new("workspace_basic.in");
 

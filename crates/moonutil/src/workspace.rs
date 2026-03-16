@@ -18,22 +18,26 @@
 
 use std::{
     collections::BTreeSet,
+    fs::File,
+    io::BufWriter,
     path::{Path, PathBuf},
 };
 
 use anyhow::Context;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::common::{MOON_WORK, TargetBackend};
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct MoonWork {
     #[serde(rename = "use")]
     pub use_paths: Vec<PathBuf>,
     #[serde(
         rename = "preferred-target",
         default,
-        deserialize_with = "deserialize_preferred_target"
+        deserialize_with = "deserialize_preferred_target",
+        serialize_with = "serialize_preferred_target",
+        skip_serializing_if = "Option::is_none"
     )]
     pub preferred_target: Option<TargetBackend>,
 }
@@ -49,6 +53,19 @@ where
         .map_err(serde::de::Error::custom)
 }
 
+fn serialize_preferred_target<S>(
+    preferred_target: &Option<TargetBackend>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match preferred_target {
+        Some(preferred_target) => serializer.serialize_some(preferred_target.to_flag()),
+        None => serializer.serialize_none(),
+    }
+}
+
 pub fn read_workspace(dir: &Path) -> anyhow::Result<Option<MoonWork>> {
     let path = dir.join(MOON_WORK);
     if !path.exists() {
@@ -60,6 +77,14 @@ pub fn read_workspace(dir: &Path) -> anyhow::Result<Option<MoonWork>> {
     parse_workspace_json(&content)
         .with_context(|| format!("failed to parse workspace file `{}`", path.display()))
         .map(Some)
+}
+
+pub fn write_workspace(dir: &Path, work: &MoonWork) -> anyhow::Result<()> {
+    let path = dir.join(MOON_WORK);
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    serde_json_lenient::to_writer_pretty(&mut writer, work)?;
+    Ok(())
 }
 
 pub fn canonical_workspace_module_dirs(
@@ -88,11 +113,7 @@ pub fn canonical_workspace_module_dirs(
 }
 
 fn parse_workspace_json(content: &str) -> anyhow::Result<MoonWork> {
-    let parsed: MoonWork = serde_json_lenient::from_str(content)?;
-    if parsed.use_paths.is_empty() {
-        anyhow::bail!("workspace file must list at least one path in `use`");
-    }
-    Ok(parsed)
+    Ok(serde_json_lenient::from_str(content)?)
 }
 
 #[cfg(test)]
@@ -133,6 +154,21 @@ mod tests {
             parsed.use_paths,
             vec![PathBuf::from("./app"), PathBuf::from("./shared")]
         );
+        assert_eq!(parsed.preferred_target, None);
+    }
+
+    #[test]
+    fn parse_workspace_json_with_empty_use() {
+        let parsed = parse_workspace_json(
+            r#"
+                {
+                  "use": []
+                }
+            "#,
+        )
+        .unwrap();
+
+        assert!(parsed.use_paths.is_empty());
         assert_eq!(parsed.preferred_target, None);
     }
 }

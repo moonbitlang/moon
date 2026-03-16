@@ -22,6 +22,8 @@ This document contains the help content for the `moon` command-line program.
 * [`moon tree`↴](#moon-tree)
 * [`moon fetch`↴](#moon-fetch)
 * [`moon work`↴](#moon-work)
+* [`moon work init`↴](#moon-work-init)
+* [`moon work use`↴](#moon-work-use)
 * [`moon work sync`↴](#moon-work-sync)
 * [`moon login`↴](#moon-login)
 * [`moon whoami`↴](#moon-whoami)
@@ -522,7 +524,33 @@ Workspace maintenance commands
 
 ###### **Subcommands:**
 
+* `init` — Create a workspace manifest
+* `use` — Add modules to the workspace manifest
 * `sync` — Sync workspace dependency versions into member manifests
+
+
+
+## `moon work init`
+
+Create a workspace manifest
+
+**Usage:** `moon work init [PATHS]...`
+
+###### **Arguments:**
+
+* `<PATHS>` — Module directories to add to the workspace
+
+
+
+## `moon work use`
+
+Add modules to the workspace manifest
+
+**Usage:** `moon work use <PATHS>...`
+
+###### **Arguments:**
+
+* `<PATHS>` — Module directories to add to the workspace
 
 
 
