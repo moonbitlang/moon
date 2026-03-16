@@ -144,3 +144,48 @@ fn test_workspace_commands() {
         "$ROOT/_build/wasm-gc/debug/check/alice/liba/lib/lib.mi"
     );
 }
+
+#[test]
+fn test_workspace_sync_updates_member_manifests() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    check(
+        get_stdout(&dir, ["work", "sync"]),
+        expect![[r#"
+            Synced workspace manifests:
+            app/moon.mod.json
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
+        expect![[r#"
+            {
+              "name": "alice/app",
+              "version": "0.1.0",
+              "deps": {
+                "alice/liba": "0.1.1"
+              },
+              "source": "src"
+            }"#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("liba/moon.mod.json")).unwrap(),
+        expect![[r#"
+            {
+              "name": "alice/liba",
+              "version": "0.1.1",
+              "source": "src"
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn test_work_sync_requires_workspace() {
+    let dir = TestDir::new("hello");
+    let stderr = get_err_stderr(&dir, ["work", "sync"]);
+
+    assert!(stderr.contains("`moon work sync` requires `moon.work.json`"));
+}

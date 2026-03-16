@@ -21,6 +21,8 @@ This document contains the help content for the `moon` command-line program.
 * [`moon install`↴](#moon-install)
 * [`moon tree`↴](#moon-tree)
 * [`moon fetch`↴](#moon-fetch)
+* [`moon work`↴](#moon-work)
+* [`moon work sync`↴](#moon-work-sync)
 * [`moon login`↴](#moon-login)
 * [`moon whoami`↴](#moon-whoami)
 * [`moon register`↴](#moon-register)
@@ -58,6 +60,7 @@ This document contains the help content for the `moon` command-line program.
 * `install` — Install a binary package globally or install project dependencies (deprecated without args)
 * `tree` — Display the dependency tree
 * `fetch` — Download a package to .repos directory (unstable)
+* `work` — Workspace maintenance commands
 * `login` — Log in to your account
 * `whoami` — Show login status and username
 * `register` — Register an account at mooncakes.io
@@ -508,6 +511,26 @@ Note: This is an unstable command and may change or be removed in future version
 ###### **Options:**
 
 * `--no-update` — Do not update the registry index before fetching
+
+
+
+## `moon work`
+
+Workspace maintenance commands
+
+**Usage:** `moon work <COMMAND>`
+
+###### **Subcommands:**
+
+* `sync` — Sync workspace dependency versions into member manifests
+
+
+
+## `moon work sync`
+
+Sync workspace dependency versions into member manifests
+
+**Usage:** `moon work sync`
 
 
 

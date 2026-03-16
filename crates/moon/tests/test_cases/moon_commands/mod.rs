@@ -43,6 +43,7 @@ fn test_moon_help() {
               install                Install a binary package globally or install project dependencies (deprecated without args)
               tree                   Display the dependency tree
               fetch                  Download a package to .repos directory (unstable)
+              work                   Workspace maintenance commands
               login                  Log in to your account
               whoami                 Show login status and username
               register               Register an account at mooncakes.io

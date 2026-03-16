@@ -553,6 +553,72 @@ _arguments "${_arguments_options[@]}" : /
 ':package_path -- The package to fetch in the form of <author>/<package_name>/[@<version>/]:' /
 && ret=0
 ;;
+(work)
+_arguments "${_arguments_options[@]}" : /
+'--manifest-path=[Path to /`moon.mod.json/` or /`moon.work.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+":: :_moon__work_commands" /
+"*::: :->work" /
+&& ret=0
+
+    case $state in
+    (work)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-work-command-$line[1]:"
+        case $line[1] in
+            (sync)
+_arguments "${_arguments_options[@]}" : /
+'--manifest-path=[Path to /`moon.mod.json/` or /`moon.work.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
+'--target-dir=[The target directory. Defaults to /`<project-root>/_build/`]:TARGET_DIR:_files' /
+'-q[Suppress output]' /
+'--quiet[Suppress output]' /
+'-v[Increase verbosity]' /
+'--verbose[Increase verbosity]' /
+'--trace[Trace the execution of the program]' /
+'--dry-run[Do not actually run the command]' /
+'(--dry-run)--build-graph[]' /
+'-h[Print help]' /
+'--help[Print help]' /
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+":: :_moon__work__help_commands" /
+"*::: :->help" /
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-work-help-command-$line[1]:"
+        case $line[1] in
+            (sync)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (login)
 _arguments "${_arguments_options[@]}" : /
 '--manifest-path=[Path to /`moon.mod.json/` or /`moon.work.json/` to use as the project manifest (does not change the working directory)]:PATH:_files' /
@@ -1217,6 +1283,26 @@ _arguments "${_arguments_options[@]}" : /
 _arguments "${_arguments_options[@]}" : /
 && ret=0
 ;;
+(work)
+_arguments "${_arguments_options[@]}" : /
+":: :_moon__help__work_commands" /
+"*::: :->work" /
+&& ret=0
+
+    case $state in
+    (work)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-help-work-command-$line[1]:"
+        case $line[1] in
+            (sync)
+_arguments "${_arguments_options[@]}" : /
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (login)
 _arguments "${_arguments_options[@]}" : /
 && ret=0
@@ -1399,6 +1485,7 @@ _moon_commands() {
 'install:Install a binary package globally or install project dependencies (deprecated without args)' /
 'tree:Display the dependency tree' /
 'fetch:Download a package to .repos directory (unstable)' /
+'work:Workspace maintenance commands' /
 'login:Log in to your account' /
 'whoami:Show login status and username' /
 'register:Register an account at mooncakes.io' /
@@ -1548,6 +1635,7 @@ _moon__help_commands() {
 'install:Install a binary package globally or install project dependencies (deprecated without args)' /
 'tree:Display the dependency tree' /
 'fetch:Download a package to .repos directory (unstable)' /
+'work:Workspace maintenance commands' /
 'login:Log in to your account' /
 'whoami:Show login status and username' /
 'register:Register an account at mooncakes.io' /
@@ -1818,6 +1906,18 @@ _moon__help__whoami_commands() {
     local commands; commands=()
     _describe -t commands 'moon help whoami commands' commands "$@"
 }
+(( $+functions[_moon__help__work_commands] )) ||
+_moon__help__work_commands() {
+    local commands; commands=(
+'sync:Sync workspace dependency versions into member manifests' /
+    )
+    _describe -t commands 'moon help work commands' commands "$@"
+}
+(( $+functions[_moon__help__work__sync_commands] )) ||
+_moon__help__work__sync_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help work sync commands' commands "$@"
+}
 (( $+functions[_moon__ide_commands] )) ||
 _moon__ide_commands() {
     local commands; commands=(
@@ -2077,6 +2177,37 @@ _moon__version_commands() {
 _moon__whoami_commands() {
     local commands; commands=()
     _describe -t commands 'moon whoami commands' commands "$@"
+}
+(( $+functions[_moon__work_commands] )) ||
+_moon__work_commands() {
+    local commands; commands=(
+'sync:Sync workspace dependency versions into member manifests' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon work commands' commands "$@"
+}
+(( $+functions[_moon__work__help_commands] )) ||
+_moon__work__help_commands() {
+    local commands; commands=(
+'sync:Sync workspace dependency versions into member manifests' /
+'help:Print this message or the help of the given subcommand(s)' /
+    )
+    _describe -t commands 'moon work help commands' commands "$@"
+}
+(( $+functions[_moon__work__help__help_commands] )) ||
+_moon__work__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon work help help commands' commands "$@"
+}
+(( $+functions[_moon__work__help__sync_commands] )) ||
+_moon__work__help__sync_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon work help sync commands' commands "$@"
+}
+(( $+functions[_moon__work__sync_commands] )) ||
+_moon__work__sync_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon work sync commands' commands "$@"
 }
 
 if [ "$funcstack[1]" = "_moon" ]; then

@@ -53,6 +53,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Install a binary package globally or install project dependencies (deprecated without args)')
             [CompletionResult]::new('tree', 'tree', [CompletionResultType]::ParameterValue, 'Display the dependency tree')
             [CompletionResult]::new('fetch', 'fetch', [CompletionResultType]::ParameterValue, 'Download a package to .repos directory (unstable)')
+            [CompletionResult]::new('work', 'work', [CompletionResultType]::ParameterValue, 'Workspace maintenance commands')
             [CompletionResult]::new('login', 'login', [CompletionResultType]::ParameterValue, 'Log in to your account')
             [CompletionResult]::new('whoami', 'whoami', [CompletionResultType]::ParameterValue, 'Show login status and username')
             [CompletionResult]::new('register', 'register', [CompletionResultType]::ParameterValue, 'Register an account at mooncakes.io')
@@ -548,6 +549,47 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;work' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('sync', 'sync', [CompletionResultType]::ParameterValue, 'Sync workspace dependency versions into member manifests')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;work;sync' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;work;help' {
+            [CompletionResult]::new('sync', 'sync', [CompletionResultType]::ParameterValue, 'Sync workspace dependency versions into member manifests')
+            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
+            break
+        }
+        'moon;work;help;sync' {
+            break
+        }
+        'moon;work;help;help' {
             break
         }
         'moon;login' {
@@ -1055,6 +1097,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('install', 'install', [CompletionResultType]::ParameterValue, 'Install a binary package globally or install project dependencies (deprecated without args)')
             [CompletionResult]::new('tree', 'tree', [CompletionResultType]::ParameterValue, 'Display the dependency tree')
             [CompletionResult]::new('fetch', 'fetch', [CompletionResultType]::ParameterValue, 'Download a package to .repos directory (unstable)')
+            [CompletionResult]::new('work', 'work', [CompletionResultType]::ParameterValue, 'Workspace maintenance commands')
             [CompletionResult]::new('login', 'login', [CompletionResultType]::ParameterValue, 'Log in to your account')
             [CompletionResult]::new('whoami', 'whoami', [CompletionResultType]::ParameterValue, 'Show login status and username')
             [CompletionResult]::new('register', 'register', [CompletionResultType]::ParameterValue, 'Register an account at mooncakes.io')
@@ -1124,6 +1167,13 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;help;fetch' {
+            break
+        }
+        'moon;help;work' {
+            [CompletionResult]::new('sync', 'sync', [CompletionResultType]::ParameterValue, 'Sync workspace dependency versions into member manifests')
+            break
+        }
+        'moon;help;work;sync' {
             break
         }
         'moon;help;login' {

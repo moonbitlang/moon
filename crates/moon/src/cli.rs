@@ -43,7 +43,10 @@ pub(crate) mod update;
 pub(crate) mod upgrade;
 pub(crate) mod version;
 pub(crate) mod whoami;
+mod work;
+pub(crate) use work::{WorkSubcommand, work_cli};
 
+use anyhow::bail;
 pub(crate) use bench::*;
 pub(crate) use build::*;
 pub(crate) use build_matrix::*;
@@ -62,6 +65,12 @@ use moonbuild::upgrade::UpgradeSubcommand;
 use mooncake::pkg::{
     add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
 };
+use moonutil::{
+    cli::UniversalFlags,
+    common::{DiagnosticLevel, RunMode, SurfaceTarget, TargetBackend},
+    cond_expr::OptLevel as BuildProfile,
+    mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
+};
 pub(crate) use new::*;
 pub(crate) use prove::*;
 pub(crate) use query::*;
@@ -73,14 +82,6 @@ pub(crate) use update::*;
 pub(crate) use upgrade::*;
 pub(crate) use version::*;
 pub(crate) use whoami::*;
-
-use anyhow::bail;
-use moonutil::{
-    cli::UniversalFlags,
-    common::{DiagnosticLevel, RunMode, SurfaceTarget, TargetBackend},
-    cond_expr::OptLevel as BuildProfile,
-    mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
-};
 
 #[derive(Debug, clap::Parser)]
 #[clap(
@@ -120,6 +121,7 @@ pub(crate) enum MoonBuildSubcommands {
     Install(InstallSubcommand),
     Tree(TreeSubcommand),
     Fetch(FetchSubcommand),
+    Work(WorkSubcommand),
 
     // Mooncake
     Login(LoginSubcommand),
@@ -147,7 +149,6 @@ pub(crate) enum MoonBuildSubcommands {
     #[clap(external_subcommand)]
     External(Vec<String>),
 }
-
 #[derive(Debug, clap::Parser, Clone)]
 pub struct BuildFlags {
     /// Enable the standard library (default)

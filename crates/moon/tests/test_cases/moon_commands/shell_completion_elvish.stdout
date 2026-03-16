@@ -50,6 +50,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand install 'Install a binary package globally or install project dependencies (deprecated without args)'
             cand tree 'Display the dependency tree'
             cand fetch 'Download a package to .repos directory (unstable)'
+            cand work 'Workspace maintenance commands'
             cand login 'Log in to your account'
             cand whoami 'Show login status and username'
             cand register 'Register an account at mooncakes.io'
@@ -528,6 +529,42 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
         }
+        &'moon;work'= {
+            cand --manifest-path 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+            cand sync 'Sync workspace dependency versions into member manifests'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;work;sync'= {
+            cand --manifest-path 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;work;help'= {
+            cand sync 'Sync workspace dependency versions into member manifests'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;work;help;sync'= {
+        }
+        &'moon;work;help;help'= {
+        }
         &'moon;login'= {
             cand --manifest-path 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
@@ -985,6 +1022,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand install 'Install a binary package globally or install project dependencies (deprecated without args)'
             cand tree 'Display the dependency tree'
             cand fetch 'Download a package to .repos directory (unstable)'
+            cand work 'Workspace maintenance commands'
             cand login 'Log in to your account'
             cand whoami 'Show login status and username'
             cand register 'Register an account at mooncakes.io'
@@ -1036,6 +1074,11 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;help;tree'= {
         }
         &'moon;help;fetch'= {
+        }
+        &'moon;help;work'= {
+            cand sync 'Sync workspace dependency versions into member manifests'
+        }
+        &'moon;help;work;sync'= {
         }
         &'moon;help;login'= {
         }

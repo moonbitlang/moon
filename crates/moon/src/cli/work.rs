@@ -16,11 +16,33 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub mod add;
-pub mod install;
-pub mod remove;
-pub mod sync;
-pub mod tree;
-mod work;
+use anyhow::bail;
+use moonutil::dirs::PackageDirs;
 
-pub use work::sync_workspace;
+use super::UniversalFlags;
+
+/// Workspace maintenance commands
+#[derive(Debug, clap::Parser)]
+pub(crate) struct WorkSubcommand {
+    #[clap(subcommand)]
+    command: WorkSubcommands,
+}
+
+#[derive(Debug, clap::Parser)]
+enum WorkSubcommands {
+    /// Sync workspace dependency versions into member manifests
+    Sync,
+}
+
+pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Result<i32> {
+    match cmd.command {
+        WorkSubcommands::Sync => {
+            if cli.dry_run {
+                bail!("dry-run is not supported for work sync")
+            }
+
+            let PackageDirs { source_dir, .. } = cli.source_tgt_dir.try_into_package_dirs()?;
+            mooncake::pkg::sync_workspace(&source_dir, cli.quiet)
+        }
+    }
+}
