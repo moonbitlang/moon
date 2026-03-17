@@ -23,10 +23,10 @@ use moonbuild::expect::PackageSrcResolver;
 use moonbuild::expect::{apply_expect, apply_snapshot};
 use tracing::info;
 
-use crate::run::runtest::{
-    ReplaceableTestResults, TestCaseResult, TestResultKind, filter::PackageFilter,
-};
+use crate::run::PackageFilter;
 use moonutil::common::TestIndexRange;
+
+use super::{ReplaceableTestResults, TestCaseResult, TestResultKind};
 
 /// Perform promotion on all test snapshots and expect tests met. Returns
 /// the total number of tests promoted, along with a filter indicating which

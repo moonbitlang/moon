@@ -82,10 +82,13 @@ use moonutil::common::{
 use tokio::runtime::Runtime;
 use tracing::{debug, info, instrument, trace, warn};
 
-use crate::{rr_build::BuildMeta, run::default_rt};
-use moonutil::common::TestIndexRange;
+use crate::{
+    rr_build::BuildMeta,
+    run::default_rt,
+};
 
-pub(crate) use filter::TestFilter;
+use filter::apply_filter;
+pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};
 pub(crate) use promotion::perform_promotion;
 
 #[derive(Debug, Clone)]
@@ -119,23 +122,6 @@ struct TestCaseResult {
 impl TestCaseResult {
     pub(crate) fn passed(&self) -> bool {
         matches!(self.kind, TestResultKind::Passed)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum TestIndex {
-    /// A regular test block, i.e. `test { ... }`
-    Regular(TestIndexRange),
-    /// A doctest block after `///`
-    DocTest(TestIndexRange),
-}
-
-impl TestIndex {
-    pub(crate) fn range(self) -> TestIndexRange {
-        match self {
-            TestIndex::Regular(v) => v,
-            TestIndex::DocTest(v) => v,
-        }
     }
 }
 
@@ -444,7 +430,7 @@ pub(crate) fn build_test_args_for_target(
         file_and_index: vec![],
     };
 
-    filter::apply_filter(
+    apply_filter(
         file_filt,
         meta,
         &mut test_args.file_and_index,
@@ -479,7 +465,7 @@ pub(crate) fn collect_test_outline(
             .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
 
         let mut file_ranges = vec![];
-        filter::apply_filter(
+        apply_filter(
             file_filt,
             &meta,
             &mut file_ranges,
