@@ -129,7 +129,7 @@
       ]
     },
     "supported-targets": {
-      "description": "Supported backend set for all packages in this module.\n\nThis uses the same expression/list grammar as `moon.pkg.json`.",
+      "description": "Supported backend set for all packages in this module.\n\nThis uses the same expression/list grammar as `moon.pkg`.",
       "anyOf": [
         {
           "$ref": "#/definitions/SupportedTargetsConfig"
