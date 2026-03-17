@@ -26,7 +26,21 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::common::{MbtTestInfo, MooncGenTestInfo, TestIndexRange, glob_match};
 
-use crate::run::TestIndex;
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TestIndex {
+    /// A regular test block, i.e. `test { ... }`
+    Regular(TestIndexRange),
+    /// A doctest block after `///`
+    DocTest(TestIndexRange),
+}
+
+impl TestIndex {
+    pub(crate) fn range(self) -> TestIndexRange {
+        match self {
+            TestIndex::Regular(v) | TestIndex::DocTest(v) => v,
+        }
+    }
+}
 
 /// Leaf-level filter over test indices within a file.
 ///
@@ -275,7 +289,7 @@ fn all_ranges(
     indices_to_ranges(actual_indices)
 }
 
-pub(super) fn apply_filter(
+pub(crate) fn apply_filter(
     file_filt: Option<&FileFilter>,
     meta: &MooncGenTestInfo,
     files_and_index: &mut Vec<(String, Vec<std::ops::Range<u32>>)>,

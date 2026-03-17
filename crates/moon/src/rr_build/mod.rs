@@ -62,7 +62,7 @@ use moonutil::{
 };
 use tracing::{Level, info, instrument, warn};
 
-use crate::cli::BuildFlags;
+use crate::build_flags::{BuildFlags, OutputStyle};
 
 mod dry_run;
 pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
@@ -899,7 +899,7 @@ pub struct BuildConfig {
     /// available CPU cores.
     parallelism: Option<usize>,
     /// The output style for errors and warnings
-    output_style: crate::cli::OutputStyle,
+    output_style: OutputStyle,
     /// Render no-location diagnostics above this level
     render_no_loc: DiagnosticLevel,
 
@@ -938,7 +938,7 @@ impl Default for BuildConfig {
     fn default() -> Self {
         Self {
             parallelism: None,
-            output_style: crate::cli::OutputStyle::Raw,
+            output_style: OutputStyle::Raw,
             render_no_loc: DiagnosticLevel::Error,
             generate_metadata: false,
             explain_errors: false,
@@ -1031,10 +1031,10 @@ pub fn execute_build_partial(
 
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
     let mut prog_console = match cfg.output_style {
-        crate::cli::OutputStyle::Raw => {
+        OutputStyle::Raw => {
             create_progress_console(Some(Box::new(no_render_callback())), cfg.verbose)
         }
-        crate::cli::OutputStyle::Fancy | crate::cli::OutputStyle::Json => create_progress_console(
+        OutputStyle::Fancy | OutputStyle::Json => create_progress_console(
             Some(Box::new(capture_diagnostics_callback(Arc::clone(
                 &result_catcher,
             )))),
@@ -1123,7 +1123,7 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
         };
     }
 
-    if cfg.output_style == crate::cli::OutputStyle::Json {
+    if cfg.output_style == OutputStyle::Json {
         // In JSON mode, just print raw content after dedup
         for file_diagnostics in by_file.values() {
             for (diag, content) in file_diagnostics {
@@ -1131,7 +1131,7 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
                 catcher.append_diag(diag);
             }
         }
-    } else if cfg.output_style == crate::cli::OutputStyle::Fancy {
+    } else if cfg.output_style == OutputStyle::Fancy {
         for file_diagnostics in by_file.values() {
             for (diag, _content) in file_diagnostics {
                 let kind = diag.render_diagnostics(

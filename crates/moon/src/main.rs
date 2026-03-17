@@ -23,6 +23,7 @@ use std::{any::Any, io::IsTerminal};
 use clap::Parser;
 use cli::MoonBuildSubcommands;
 
+mod build_flags;
 mod cli;
 mod filter;
 mod panic;
