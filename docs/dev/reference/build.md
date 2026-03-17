@@ -54,6 +54,15 @@ and are available to all three build targets.
 Test targets (whitebox and blackbox) can also have imports that are not used in regular targets,
 specified in an additional import field named `wbtest-import` and `test-import`.
 
+Main packages (`is-main: true`) are on a stricter migration path:
+
+- Release N warns when another package depends on a main package through
+  `import`, `wbtest-import`, or `test-import`.
+- Release N+1 will reject such dependencies as hard errors.
+
+The intended structure is to keep a main package as an entrypoint only,
+and move reusable APIs into a non-main package that other packages may import.
+
 ## Build pipeline
 
 There are two build commands that are used to build the source files,
@@ -230,7 +239,21 @@ In detail:
   but gets special treatments to be able to import symbols in the source package
   without qualification.
 
+  Main packages are being tightened here as well:
+
+  - Release N warns if a main package still declares blackbox test inputs such
+    as `_test.mbt`, doctests, `.mbt.md`, or `test-import`.
+  - Release N+1 will stop generating blackbox test targets for main packages.
+
+  If you need blackbox tests for public behavior, move that behavior into a
+  non-main package and keep the main package focused on wiring and process
+  entry.
+
 All three test targets are compiled to an executable in the corresponding backend.
+
+For now, the build graph still models main-package blackbox tests so release N
+can warn users before the behavior is removed. Release N+1 will make main
+packages an exception and only generate inline/whitebox tests for them.
 
 The different build targets have the following dependency relationship:
 
