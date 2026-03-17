@@ -2811,6 +2811,7 @@ fn test_in_main_pkg() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
+             WARN Main package `username/hello/main` uses blackbox-only test inputs (`_test.mbt` files) in "$ROOT/main/moon.pkg.json". Main packages will stop generating blackbox tests in a future release. Move public behavior into a non-main package and keep the main package as an entrypoint.
             Warning: [0002]
                ╭─[ $ROOT/lib/1_test.mbt:2:7 ]
                │
