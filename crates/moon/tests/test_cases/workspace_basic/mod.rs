@@ -263,6 +263,27 @@ fn test_work_use_ignores_unrelated_ancestor_workspace() {
 }
 
 #[test]
+fn test_workspace_commands_find_ancestor_workspace_from_nested_non_module_dir() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::create_dir_all(dir.join("tools")).unwrap();
+
+    check(get_stdout(&dir, ["-C", "tools", "info"]), expect![[r#""#]]);
+}
+
+#[test]
+fn test_work_use_reuses_ancestor_workspace_from_nested_non_module_dir() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::create_dir_all(dir.join("tools")).unwrap();
+
+    check(
+        get_stdout(&dir, ["-C", "tools", "work", "use", "../app"]),
+        expect![[r#"
+            moon.work.json is already up to date
+        "#]],
+    );
+}
+
+#[test]
 fn test_workspace_sync_updates_member_manifests() {
     let dir = TestDir::new("workspace_basic.in");
 

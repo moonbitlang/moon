@@ -83,30 +83,30 @@ pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
 }
 
 pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
-    let module_root = find_ancestor_with_mod(source_dir);
+    let mut module_root = None;
 
     for dir in source_dir.ancestors() {
-        if !check_moon_work_exists(dir) {
-            continue;
+        if check_moon_work_exists(dir) {
+            let Some(module_root) = module_root else {
+                // A workspace still applies from nested non-module directories.
+                return Ok(Some(dir.to_path_buf()));
+            };
+
+            // After we have entered a module, only ancestor workspaces that
+            // explicitly list that module still apply.
+            let workspace = read_workspace(dir)?.context(format!(
+                "failed to parse workspace file `{}`",
+                dir.join(MOON_WORK).display()
+            ))?;
+            for member_dir in canonical_workspace_module_dirs(dir, &workspace)? {
+                if member_dir == module_root {
+                    return Ok(Some(dir.to_path_buf()));
+                }
+            }
         }
 
-        let Some(module_root) = module_root.as_deref() else {
-            if dir == source_dir {
-                return Ok(Some(dir.to_path_buf()));
-            }
-            continue;
-        };
-
-        // An implicit ancestor workspace only applies when it explicitly lists
-        // the current module as one of its members.
-        let workspace = read_workspace(dir)?.context(format!(
-            "failed to parse workspace file `{}`",
-            dir.join(MOON_WORK).display()
-        ))?;
-        for member_dir in canonical_workspace_module_dirs(dir, &workspace)? {
-            if member_dir == module_root {
-                return Ok(Some(dir.to_path_buf()));
-            }
+        if module_root.is_none() && check_moon_mod_exists(dir) {
+            module_root = Some(dir);
         }
     }
 

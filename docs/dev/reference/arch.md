@@ -131,10 +131,12 @@ that contains a `moon.mod.json` file.
 explicit workspace root via `moon.work.json`, following the same discovery
 precedence as Go workspaces:
 
-- Search the current directory and its ancestors for `moon.work.json`.
-- If one is found and the current module is one of its `use` entries, the workspace roots are the
-  modules listed by that file.
-- Otherwise, fall back to the closest ancestor `moon.mod.json`.
+- Search the current directory and its ancestors for `moon.work.json` and `moon.mod.json`.
+- If a `moon.work.json` is found before any `moon.mod.json`, use it.
+- If a `moon.mod.json` is found first, keep it as the current module root and continue searching
+  ancestors for `moon.work.json`.
+- An ancestor `moon.work.json` found after that only applies if it explicitly lists that module.
+- Otherwise, fall back to that `moon.mod.json`.
 
 The `moon.work.json` file is intentionally small.
 It currently supports one JSON object with:
