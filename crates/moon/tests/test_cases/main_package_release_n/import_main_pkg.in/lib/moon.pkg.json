@@ -1,0 +1,11 @@
+{
+  "import": [
+    "username/hello/main"
+  ],
+  "wbtest-import": [
+    "username/hello/main"
+  ],
+  "test-import": [
+    "username/hello/main"
+  ]
+}

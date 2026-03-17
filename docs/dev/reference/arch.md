@@ -232,6 +232,17 @@ Additionally, whitebox tests and blackbox tests have their own list of dependenc
 Together, these imports determine the package-level dependency edges in the resolved graph
 and, by extension, between build-plan nodes.
 
+Main packages are being tightened relative to ordinary packages:
+
+- Release N warns when a package depends on a main package.
+- Release N+1 will reject dependencies on main packages.
+- Release N also warns when a main package still relies on blackbox-test-only
+  inputs; release N+1 will stop generating blackbox test targets for main
+  packages.
+
+This follows the intended model that a main package is an entrypoint, not a
+reusable library package.
+
 Each dependency of a package must either be:
 
 - in the same module as the package itself, or
@@ -269,6 +280,10 @@ it will map into "check package source", "check package whitebox text" and "chec
 However, if the package does not contain whitebox test files,
 the "check whitebox" node will be omitted.
 If the package is virtual, then a list of virtual package checking nodes will be used instead.
+
+This mapping is also on a migration path for main packages: release N keeps the
+current nodes so warnings can be surfaced, while release N+1 will omit blackbox
+check/test nodes for `is-main` packages.
 
 The details of how an user intent is mapped to build plan nodes
 is described in [its module](/crates/moonbuild-rupes-recta/src/intent.rs).

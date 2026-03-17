@@ -26,7 +26,7 @@ use petgraph::visit::IntoNodeIdentifiers;
 
 use crate::{
     discover::DiscoverResult,
-    model::{BuildTarget, PackageId},
+    model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::{
         DepEdge,
         model::{DepRelationship, ImportLoop, SolveError},
@@ -55,6 +55,8 @@ pub(super) fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result
     debug!("Done uniqueness verification");
     verify_no_forbidden_internal_imports(dep, packages, &mut errs);
     debug!("Done internal import verification");
+    warn_main_package_dependencies(dep, packages);
+    debug!("Done main package deprecation warnings");
 
     debug!("Package dependency graph verification completed successfully");
     if errs.is_empty() {
@@ -218,6 +220,55 @@ fn verify_no_forbidden_internal_imports(
                     dependency: packages.fqn(to.package).into(),
                 });
             }
+        }
+    }
+}
+
+fn warn_main_package_dependencies(dep: &DepRelationship, packages: &DiscoverResult) {
+    let mut seen: HashSet<(PackageId, PackageId, TargetKind)> = HashSet::new();
+
+    for node in dep.dep_graph.node_identifiers() {
+        for (from, to, edge) in dep
+            .dep_graph
+            .edges_directed(node, petgraph::Direction::Outgoing)
+        {
+            if from.package == to.package {
+                continue;
+            }
+
+            if !matches!(
+                edge.kind,
+                TargetKind::Source | TargetKind::WhiteboxTest | TargetKind::BlackboxTest
+            ) {
+                continue;
+            }
+
+            let dependency_pkg = packages.get_package(to.package);
+            if !dependency_pkg.raw.is_main {
+                continue;
+            }
+
+            if !seen.insert((from.package, to.package, edge.kind)) {
+                continue;
+            }
+
+            let importer_pkg = packages.get_package(from.package);
+            let import_field = match edge.kind {
+                TargetKind::Source => "import",
+                TargetKind::WhiteboxTest => "wbtest-import",
+                TargetKind::BlackboxTest => "test-import",
+                _ => unreachable!("only package import fields should reach this warning"),
+            };
+
+            tracing::warn!(
+                "Package `{}` depends on main package `{}` via `{}` in \"{}\". \
+This dependency will become an error in a future release. \
+Move reusable APIs into a non-main package and keep main packages as entrypoints.",
+                importer_pkg.fqn,
+                dependency_pkg.fqn,
+                import_field,
+                importer_pkg.config_path().display(),
+            );
         }
     }
 }
