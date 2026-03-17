@@ -147,10 +147,9 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
 }
 
 pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+    let project_root = &dirs.project_root;
+    let module_dir = dirs.require_module_dir("remove")?;
     let package_path = cmd.package_path;
     let parts: Vec<&str> = package_path.splitn(2, '/').collect();
     if parts.len() != 2 {
@@ -160,8 +159,8 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
     let pkgname = parts[1];
     let registry_config = RegistryConfig::load();
     mooncake::pkg::remove::remove(
-        &source_dir,
-        &target_dir,
+        project_root,
+        module_dir,
         username,
         pkgname,
         &registry_config,
@@ -169,10 +168,9 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
 }
 
 pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+    let project_root = &dirs.project_root;
+    let module_dir = dirs.require_module_dir("add")?;
 
     // Update registry index by default (issue #963).
     // - `--no-update` keeps the previous behavior.
@@ -217,8 +215,8 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
         let version: &str = parts[1];
         let version = version.parse()?;
         mooncake::pkg::add::add(
-            &source_dir,
-            &target_dir,
+            project_root,
+            module_dir,
             &pkg_name,
             cmd.bin,
             &version,
@@ -226,8 +224,8 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
         )
     } else {
         mooncake::pkg::add::add_latest(
-            &source_dir,
-            &target_dir,
+            project_root,
+            module_dir,
             &pkg_name,
             cmd.bin,
             cli.quiet,
@@ -237,11 +235,10 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
 }
 
 pub(crate) fn tree_cli(cli: UniversalFlags, _cmd: TreeSubcommand) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
-    mooncake::pkg::tree::tree(&source_dir, &target_dir)
+    let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+    let project_root = &dirs.project_root;
+    let module_dir = dirs.require_module_dir("tree")?;
+    mooncake::pkg::tree::tree(project_root, module_dir)
 }
 
 #[cfg(test)]

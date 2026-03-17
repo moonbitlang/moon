@@ -22,12 +22,13 @@ use std::{path::Path, sync::Arc};
 use moonutil::{
     common::{read_module_desc_file_in_dir, write_module_json_to_file},
     module::convert_module_to_mod_json,
-    mooncakes::{ModuleSource, RegistryConfig},
+    mooncakes::RegistryConfig,
 };
 
 use crate::{
+    pkg::roots_for_selected_module,
     registry,
-    resolver::{ResolveConfig, resolve_single_root_with_defaults},
+    resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
 };
 
 /// Remove a dependency
@@ -38,14 +39,13 @@ pub struct RemoveSubcommand {
 }
 
 pub fn remove(
-    source_dir: &Path,
-    target_dir: &Path,
+    project_root: &Path,
+    module_dir: &Path,
     username: &str,
     pkgname: &str,
     _registry_config: &RegistryConfig,
 ) -> anyhow::Result<i32> {
-    let _ = target_dir;
-    let mut m = read_module_desc_file_in_dir(source_dir)?;
+    let mut m = read_module_desc_file_in_dir(module_dir)?;
     let removed = m.deps.shift_remove(&format!("{username}/{pkgname}"));
     if removed.is_none() {
         bail!(
@@ -55,15 +55,15 @@ pub fn remove(
         )
     }
     let m = Arc::new(m);
-    let ms = ModuleSource::from_local_module(&m, source_dir);
+    let roots = roots_for_selected_module(project_root, module_dir, Arc::clone(&m))?;
 
     let resolve_cfg = ResolveConfig {
         registry: registry::default_registry(),
         inject_std: false, // no need to inject
     };
-    resolve_single_root_with_defaults(&resolve_cfg, ms, Arc::clone(&m))?;
+    resolve_with_default_env_and_resolver(&resolve_cfg, roots)?;
 
     let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
-    write_module_json_to_file(&new_j, source_dir)?;
+    write_module_json_to_file(&new_j, module_dir)?;
     Ok(0)
 }

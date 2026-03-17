@@ -23,7 +23,7 @@ use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode};
 use moonutil::{
     cli::UniversalFlags,
     common::{DiagnosticLevel, FileLock, RunMode, TargetBackend},
-    mooncakes::sync::AutoSyncFlags,
+    mooncakes::{ModuleId, sync::AutoSyncFlags},
 };
 use serde::Deserialize;
 use tracing::instrument;
@@ -93,8 +93,13 @@ impl ProveSubcommand {
 
 #[instrument(skip_all)]
 pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::Result<i32> {
-    let dirs = cli.source_tgt_dir.try_into_package_dirs()?;
-    let source_dir = dirs.source_dir;
+    let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+    let module_dir = if cmd.path.is_some() {
+        dirs.module_dir.clone()
+    } else {
+        Some(dirs.require_module_dir("prove")?.clone())
+    };
+    let project_root = dirs.project_root;
     let target_dir = dirs.target_dir;
     let build_flags = cmd.to_build_flags();
     let verif_dir = target_dir.join("verif");
@@ -112,14 +117,20 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         &target_dir,
         RunMode::Prove,
     );
+    let path_filter = cmd.path.as_deref();
 
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
-        &source_dir,
+        &project_root,
         &target_dir,
-        Box::new(|resolve_output, target_backend| {
-            calc_user_intent(cmd.path.as_deref(), resolve_output, target_backend)
+        Box::new(move |resolve_output, target_backend| {
+            calc_user_intent(
+                path_filter,
+                module_dir.as_deref(),
+                resolve_output,
+                target_backend,
+            )
         }),
     )?;
     let proof_reports = planned_proof_reports(&build_meta);
@@ -128,7 +139,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         rr_build::print_dry_run(
             &build_graph,
             build_meta.artifacts.values(),
-            &source_dir,
+            &project_root,
             &target_dir,
         );
         return Ok(0);
@@ -139,26 +150,24 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
     let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
     let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
     if !cli.quiet && !build_flags.output_json {
-        let _ = print_prove_summary(&source_dir, &proof_reports);
+        let _ = print_prove_summary(&project_root, &proof_reports);
     }
     Ok(result.return_code_for_success())
 }
 
 fn calc_user_intent(
     path_filter: Option<&Path>,
+    selected_module_dir: Option<&Path>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let &[main_module_id] = resolve_output.local_modules() else {
-        panic!("No multiple main modules are supported");
-    };
-
     if let Some(path) = path_filter {
         let (dir, _) = canonicalize_with_filename(path)?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
         ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
         Ok(vec![UserIntent::Prove(pkg)].into())
     } else {
+        let main_module_id = selected_main_module_id(resolve_output, selected_module_dir)?;
         let packages = resolve_output
             .pkg_dirs
             .packages_for_module(main_module_id)
@@ -176,6 +185,35 @@ fn calc_user_intent(
             .map(UserIntent::Prove)
             .collect::<Vec<_>>();
         Ok(intents.into())
+    }
+}
+
+fn selected_main_module_id(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    selected_module_dir: Option<&Path>,
+) -> anyhow::Result<ModuleId> {
+    if let Some(selected_module_dir) = selected_module_dir {
+        return resolve_output
+            .local_modules()
+            .iter()
+            .copied()
+            .find(|&module_id| {
+                resolve_output
+                    .module_dirs
+                    .get(module_id)
+                    .is_some_and(|module_dir| module_dir == selected_module_dir)
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Cannot find the local module at `{}`",
+                    selected_module_dir.display()
+                )
+            });
+    }
+
+    match resolve_output.local_modules() {
+        &[main_module_id] => Ok(main_module_id),
+        _ => bail!("No multiple main modules are supported"),
     }
 }
 

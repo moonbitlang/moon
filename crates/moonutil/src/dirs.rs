@@ -58,13 +58,136 @@ pub struct SourceTargetDirs {
 
 impl SourceTargetDirs {
     pub fn try_into_package_dirs(&self) -> Result<PackageDirs, PackageDirsError> {
-        get_src_dst_dir(self)
+        let project_root = if let Some(manifest_path) = &self.manifest_path {
+            resolve_manifest_root(manifest_path).map_err(PackageDirsError::from)?
+        } else {
+            let start_dir = Self::current_dir()?;
+            let project_root = find_ancestor_with_work(&start_dir)
+                .map_err(PackageDirsError::from)?
+                .or_else(|| find_ancestor_with_mod(&start_dir));
+            project_root.ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?
+        };
+
+        let target_dir = self.resolve_target_dir(&project_root)?;
+
+        Ok(PackageDirs {
+            source_dir: project_root,
+            target_dir,
+        })
+    }
+
+    pub fn try_into_workspace_module_dirs(&self) -> Result<WorkspaceModuleDirs, PackageDirsError> {
+        let (project_root, module_dir) = if let Some(manifest_path) = &self.manifest_path {
+            let manifest_path = dunce::canonicalize(manifest_path)
+                .with_context(|| {
+                    format!(
+                        "failed to resolve manifest path `{}`",
+                        manifest_path.display()
+                    )
+                })
+                .map_err(PackageDirsError::from)?;
+
+            if manifest_path.is_dir() {
+                return Err(PackageDirsError::from(anyhow::anyhow!(
+                    "`--manifest-path` must point to `{}` or `{}` (got directory `{}`)",
+                    MOON_MOD_JSON,
+                    MOON_WORK,
+                    manifest_path.display()
+                )));
+            }
+
+            let file_name = manifest_path.file_name().and_then(|s| s.to_str());
+            let manifest_root = manifest_path
+                .parent()
+                .context("manifest path has no parent directory")
+                .map(Path::to_path_buf)
+                .map_err(PackageDirsError::from)?;
+
+            match file_name {
+                Some(MOON_MOD_JSON) => {
+                    let module_dir = manifest_root;
+                    let project_root = find_ancestor_with_work(&module_dir)
+                        .map_err(PackageDirsError::from)?
+                        .unwrap_or_else(|| module_dir.clone());
+                    (project_root, Some(module_dir))
+                }
+                Some(MOON_WORK) => (manifest_root, None),
+                _ => {
+                    return Err(PackageDirsError::from(anyhow::anyhow!(
+                        "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
+                        MOON_MOD_JSON,
+                        MOON_WORK,
+                        manifest_path.display()
+                    )));
+                }
+            }
+        } else {
+            let start_dir = Self::current_dir()?;
+            let project_root = find_ancestor_with_work(&start_dir)
+                .map_err(PackageDirsError::from)?
+                .or_else(|| find_ancestor_with_mod(&start_dir))
+                .ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?;
+            let module_dir = find_ancestor_with_mod(&start_dir);
+            (project_root, module_dir)
+        };
+
+        let target_dir = self.resolve_target_dir(&project_root)?;
+
+        Ok(WorkspaceModuleDirs {
+            project_root,
+            module_dir,
+            target_dir,
+        })
+    }
+
+    fn current_dir() -> Result<PathBuf, PackageDirsError> {
+        let start_dir = std::env::current_dir()
+            .context("failed to get current directory")
+            .map_err(PackageDirsError::from)?;
+        dunce::canonicalize(start_dir)
+            .context("failed to resolve current directory")
+            .map_err(PackageDirsError::from)
+    }
+
+    fn resolve_target_dir(&self, project_root: &Path) -> Result<PathBuf, PackageDirsError> {
+        let target_dir = self
+            .target_dir
+            .clone()
+            .unwrap_or_else(|| project_root.join(BUILD_DIR));
+        if !target_dir.exists() {
+            std::fs::create_dir_all(&target_dir)
+                .context("failed to create target directory")
+                .map_err(PackageDirsError::from)?;
+        }
+        dunce::canonicalize(target_dir)
+            .context("failed to set target directory")
+            .map_err(PackageDirsError::from)
     }
 }
 
 pub struct PackageDirs {
     pub source_dir: PathBuf,
     pub target_dir: PathBuf,
+}
+
+pub struct WorkspaceModuleDirs {
+    /// Root used for workspace/project-wide resolution and default `_build`.
+    pub project_root: PathBuf,
+    /// Selected module root, if the command was invoked from within a module.
+    pub module_dir: Option<PathBuf>,
+    pub target_dir: PathBuf,
+}
+
+impl WorkspaceModuleDirs {
+    pub fn require_module_dir(&self, command: &str) -> anyhow::Result<&PathBuf> {
+        self.module_dir.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or pass `--manifest-path <member>/{}`.",
+                self.project_root.display(),
+                MOON_MOD_JSON
+            )
+        })
+    }
 }
 
 pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
@@ -144,39 +267,4 @@ pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
         .parent()
         .context("manifest path has no parent directory")
         .map(Path::to_path_buf)
-}
-
-fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDirsError> {
-    let project_root = if let Some(manifest_path) = &matches.manifest_path {
-        resolve_manifest_root(manifest_path).map_err(PackageDirsError::from)?
-    } else {
-        let start_dir = std::env::current_dir()
-            .context("failed to get current directory")
-            .map_err(PackageDirsError::from)?;
-        let start_dir = dunce::canonicalize(start_dir)
-            .context("failed to resolve current directory")
-            .map_err(PackageDirsError::from)?;
-        let project_root = find_ancestor_with_work(&start_dir)
-            .map_err(PackageDirsError::from)?
-            .or_else(|| find_ancestor_with_mod(&start_dir));
-        project_root.ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?
-    };
-
-    let target_dir = matches
-        .target_dir
-        .clone()
-        .unwrap_or_else(|| project_root.join(BUILD_DIR));
-    if !target_dir.exists() {
-        std::fs::create_dir_all(&target_dir)
-            .context("failed to create target directory")
-            .map_err(PackageDirsError::from)?;
-    }
-    let target_dir = dunce::canonicalize(target_dir)
-        .context("failed to set target directory")
-        .map_err(PackageDirsError::from)?;
-
-    Ok(PackageDirs {
-        source_dir: project_root,
-        target_dir,
-    })
 }

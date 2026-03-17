@@ -20,12 +20,12 @@ use colored::Colorize;
 use moonutil::common::{MOONBITLANG_CORE, read_module_desc_file_in_dir, write_module_json_to_file};
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
 use moonutil::module::convert_module_to_mod_json;
-use moonutil::mooncakes::{ModuleName, result::ResolvedModule};
+use moonutil::mooncakes::ModuleName;
 use semver::Version;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::pkg::install::install_impl;
+use crate::pkg::{install::install_impl, roots_for_selected_module};
 use crate::registry::{self, Registry};
 
 /// Add a dependency
@@ -44,8 +44,8 @@ pub struct AddSubcommand {
 }
 
 pub fn add_latest(
-    source_dir: &Path,
-    target_dir: &Path,
+    project_root: &Path,
+    module_dir: &Path,
     pkg_name: &ModuleName,
     bin: bool,
     quiet: bool,
@@ -81,8 +81,8 @@ pub fn add_latest(
         .clone()
         .unwrap();
     add(
-        source_dir,
-        target_dir,
+        project_root,
+        module_dir,
         pkg_name,
         bin,
         &latest_version,
@@ -97,14 +97,14 @@ fn test_module_name() {
 }
 
 pub fn add(
-    source_dir: &Path,
-    _target_dir: &Path,
+    project_root: &Path,
+    module_dir: &Path,
     pkg_name: &ModuleName,
     bin: bool,
     version: &Version,
     quiet: bool,
 ) -> anyhow::Result<i32> {
-    let mut m = read_module_desc_file_in_dir(source_dir)?;
+    let mut m = read_module_desc_file_in_dir(module_dir)?;
 
     let pkg_name_str = pkg_name.to_string();
     if pkg_name_str == MOONBITLANG_CORE {
@@ -139,12 +139,11 @@ pub fn add(
     }
 
     let m = Arc::new(m);
-    let ms = moonutil::mooncakes::ModuleSource::from_local_module(&m, source_dir);
-    let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
-    install_impl(source_dir, roots, quiet, false, false, true)?;
+    let roots = roots_for_selected_module(project_root, module_dir, Arc::clone(&m))?;
+    install_impl(project_root, roots, quiet, false, false, true)?;
 
     let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
-    write_module_json_to_file(&new_j, source_dir)?;
+    write_module_json_to_file(&new_j, module_dir)?;
 
     Ok(0)
 }

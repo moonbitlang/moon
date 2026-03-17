@@ -21,10 +21,9 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use moonutil::common::read_module_desc_file_in_dir;
-use moonutil::module::MoonMod;
 use moonutil::moon_dir;
 use moonutil::mooncakes::ModuleId;
-use moonutil::mooncakes::result::{ResolvedEnv, ResolvedModule, ResolvedRootModules};
+use moonutil::mooncakes::result::{ResolvedEnv, ResolvedRootModules};
 use moonutil::mooncakes::{ModuleName, ModuleSource, result};
 use semver::{Version, VersionReq};
 use thiserror::Error;
@@ -282,13 +281,4 @@ pub(crate) fn resolve_with_default_env_and_resolver(
 ) -> Result<result::ResolvedEnv, ResolverErrors> {
     let mut resolver = MvsSolver;
     resolve_with_default_env(config, &mut resolver, root)
-}
-
-pub(crate) fn resolve_single_root_with_defaults(
-    config: &ResolveConfig,
-    root_source: ModuleSource,
-    root_module: Arc<MoonMod>,
-) -> Result<result::ResolvedEnv, ResolverErrors> {
-    let (root, _) = ResolvedModule::only_one_module(root_source, root_module);
-    resolve_with_default_env_and_resolver(config, root)
 }
