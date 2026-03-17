@@ -349,6 +349,12 @@ fn test_single_module_commands_fail_at_workspace_root() {
 
     let stderr = get_err_stderr(&dir, ["add", "alice/liba@0.1.0", "--no-update"]);
     assert_requires_target_module(&stderr, "add");
+
+    let stderr = get_err_stderr(&dir, ["package", "--list"]);
+    assert_requires_target_module(&stderr, "package");
+
+    let stderr = get_err_stderr(&dir, ["publish", "--dry-run"]);
+    assert_requires_target_module(&stderr, "publish");
 }
 
 #[test]
@@ -403,6 +409,15 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
         "expected add command to target app module, got:\n{stderr}"
     );
 
+    let stderr = get_stderr(
+        &dir,
+        ["--manifest-path", "app/moon.mod.json", "package", "--list"],
+    );
+    assert!(
+        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
+        "expected package command to target app module, got:\n{stderr}"
+    );
+
     check(
         std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
         expect![[r#"
@@ -440,6 +455,17 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
               "deps": {},
               "source": "src"
             }"#]],
+    );
+}
+
+#[test]
+fn test_package_targets_workspace_member_from_member_dir() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_stderr(&dir, ["-C", "app", "package", "--list"]);
+    assert!(
+        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
+        "expected package command to target app module, got:\n{stderr}"
     );
 }
 

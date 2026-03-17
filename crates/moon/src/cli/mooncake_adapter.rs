@@ -21,6 +21,7 @@ use std::process::{Command, Stdio};
 use anyhow::bail;
 use moonutil::{
     cli::UniversalFlags,
+    common::MOON_MOD_JSON,
     mooncakes::{
         LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand,
         RegisterSubcommand,
@@ -95,6 +96,7 @@ pub(crate) fn register_cli(cli: UniversalFlags, cmd: RegisterSubcommand) -> anyh
 }
 
 pub(crate) fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Result<i32> {
+    let cli = single_module_mooncake_cli(cli, "publish")?;
     execute_cli(
         cli,
         MooncakeSubcommands::Publish(cmd),
@@ -104,10 +106,22 @@ pub(crate) fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow
 }
 
 pub(crate) fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow::Result<i32> {
+    let cli = single_module_mooncake_cli(cli, "package")?;
     execute_cli(
         cli,
         MooncakeSubcommands::Package(cmd),
         &["--read-args-from-stdin"],
         "package",
     )
+}
+
+fn single_module_mooncake_cli(
+    mut cli: UniversalFlags,
+    command: &str,
+) -> anyhow::Result<UniversalFlags> {
+    let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+    let module_dir = dirs.require_module_dir(command)?;
+    cli.source_tgt_dir.cwd = None;
+    cli.source_tgt_dir.manifest_path = Some(module_dir.join(MOON_MOD_JSON));
+    Ok(cli)
 }
