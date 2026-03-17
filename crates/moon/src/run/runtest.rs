@@ -82,10 +82,7 @@ use moonutil::common::{
 use tokio::runtime::Runtime;
 use tracing::{debug, info, instrument, trace, warn};
 
-use crate::{
-    rr_build::BuildMeta,
-    run::default_rt,
-};
+use crate::{rr_build::BuildMeta, run::default_rt};
 
 use filter::apply_filter;
 pub(crate) use filter::{PackageFilter, TestFilter, TestIndex};

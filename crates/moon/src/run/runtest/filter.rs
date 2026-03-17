@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-
 use std::{collections::BTreeSet, ops::Range};
 
 use indexmap::IndexMap;

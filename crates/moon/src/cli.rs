@@ -45,7 +45,6 @@ pub(crate) mod version;
 pub(crate) mod whoami;
 mod work;
 pub(crate) use crate::build_flags::BuildFlags;
-pub(crate) use work::{WorkSubcommand, work_cli};
 pub(crate) use bench::*;
 pub(crate) use build::*;
 pub(crate) use build_matrix::*;
@@ -79,6 +78,7 @@ pub(crate) use update::*;
 pub(crate) use upgrade::*;
 pub(crate) use version::*;
 pub(crate) use whoami::*;
+pub(crate) use work::{WorkSubcommand, work_cli};
 #[derive(Debug, clap::Parser)]
 #[clap(
     name = "moon",
