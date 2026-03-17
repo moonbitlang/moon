@@ -20,7 +20,7 @@ use super::MoonBuildCli;
 use clap::{Arg, Command, CommandFactory};
 use clap_complete::{Shell, generate};
 use moonutil::cli::UniversalFlags;
-use std::io;
+use std::io::{self, Write};
 
 /// Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout
 #[derive(Debug, clap::Parser)]
@@ -162,16 +162,17 @@ pub(crate) struct ShellCompSubCommand {
     pub shell: Shell,
 }
 
-pub(crate) fn gen_shellcomp(
-    _cli: &UniversalFlags,
-    cmd: ShellCompSubCommand,
-) -> anyhow::Result<i32> {
-    if _cli.dry_run {
+pub(crate) fn gen_shellcomp(cli: &UniversalFlags, cmd: ShellCompSubCommand) -> anyhow::Result<i32> {
+    if cli.dry_run {
         anyhow::bail!("this command has no side effects, dry run is not needed.")
     }
-    let mut _moon = adjust_shell_completion_command(MoonBuildCli::command());
-    generate(cmd.shell, &mut _moon, "moon", &mut io::stdout());
+    generate_shell_completion(cmd.shell, io::stdout());
     Ok(0)
+}
+
+fn generate_shell_completion(shell: Shell, mut writer: impl Write) {
+    let mut moon = adjust_shell_completion_command(MoonBuildCli::command());
+    generate(shell, &mut moon, "moon", &mut writer);
 }
 
 fn adjust_shell_completion_command(cmd: Command) -> Command {
@@ -249,4 +250,46 @@ fn add_common_args_recursive(mut cmd: Command, common_args: &[Arg]) -> Command {
         *subcmd = add_common_args_recursive(subcmd.clone(), common_args);
     }
     cmd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use expect_test::expect_file;
+
+    fn render_shell_completion(shell: Shell) -> String {
+        let mut output = Vec::new();
+        generate_shell_completion(shell, &mut output);
+        String::from_utf8(output).expect("shell completion should be valid UTF-8")
+    }
+
+    #[test]
+    fn test_shell_completion_bash_snapshot() {
+        expect_file!["snapshots/shell_completion_bash.stdout"]
+            .assert_eq(&render_shell_completion(Shell::Bash));
+    }
+
+    #[test]
+    fn test_shell_completion_elvish_snapshot() {
+        expect_file!["snapshots/shell_completion_elvish.stdout"]
+            .assert_eq(&render_shell_completion(Shell::Elvish));
+    }
+
+    #[test]
+    fn test_shell_completion_fish_snapshot() {
+        expect_file!["snapshots/shell_completion_fish.stdout"]
+            .assert_eq(&render_shell_completion(Shell::Fish));
+    }
+
+    #[test]
+    fn test_shell_completion_powershell_snapshot() {
+        expect_file!["snapshots/shell_completion_powershell.stdout"]
+            .assert_eq(&render_shell_completion(Shell::PowerShell));
+    }
+
+    #[test]
+    fn test_shell_completion_zsh_snapshot() {
+        expect_file!["snapshots/shell_completion_zsh.stdout"]
+            .assert_eq(&render_shell_completion(Shell::Zsh));
+    }
 }

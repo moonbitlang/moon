@@ -1,6 +1,6 @@
 # Print an optspec for argparse to handle cmd's options that are independent of any subcommand.
 function __fish_moon_global_optspecs
-	string join /n C= manifest-path= target-dir= q/quiet v/verbose trace dry-run build-graph Z/unstable-feature= h/help
+	string join \n C= manifest-path= target-dir= q/quiet v/verbose trace dry-run build-graph Z/unstable-feature= h/help
 end
 
 function __fish_moon_needs_command
@@ -37,7 +37,7 @@ complete -c moon -n "__fish_moon_needs_command" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_needs_command" -f -a "new" -d 'Create a new MoonBit module'
 complete -c moon -n "__fish_moon_needs_command" -f -a "bundle" -d 'Bundle the module'
 complete -c moon -n "__fish_moon_needs_command" -f -a "build" -d 'Build the current package'
-complete -c moon -n "__fish_moon_needs_command" -f -a "check" -d 'Check the current package, but don/'t build object files'
+complete -c moon -n "__fish_moon_needs_command" -f -a "check" -d 'Check the current package, but don\'t build object files'
 complete -c moon -n "__fish_moon_needs_command" -f -a "prove" -d 'Prove the current package'
 complete -c moon -n "__fish_moon_needs_command" -f -a "run" -d 'Run a main package'
 complete -c moon -n "__fish_moon_needs_command" -f -a "test" -d 'Test the current package'
@@ -78,11 +78,11 @@ complete -c moon -n "__fish_moon_using_subcommand new" -l trace -d 'Trace the ex
 complete -c moon -n "__fish_moon_using_subcommand new" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand new" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand new" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand bundle" -l target -d 'Select output target' -r -f -a "{wasm/t'',wasm-gc/t'',js/t'',native/t'',llvm/t'',all/t''}"
+complete -c moon -n "__fish_moon_using_subcommand bundle" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand bundle" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
-complete -c moon -n "__fish_moon_using_subcommand bundle" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info/t'',warn/t'',error/t''}"
+complete -c moon -n "__fish_moon_using_subcommand bundle" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l std -d 'Enable the standard library (default)'
@@ -96,7 +96,7 @@ complete -c moon -n "__fish_moon_using_subcommand bundle" -l enable-coverage -d 
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l sort-input -d 'Sort input files'
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l output-wat -d 'Output WAT instead of WASM'
 complete -c moon -n "__fish_moon_using_subcommand bundle" -s d -l deny-warn -d 'Treat all warnings as errors'
-complete -c moon -n "__fish_moon_using_subcommand bundle" -l no-render -d 'Don/'t render diagnostics (in raw human-readable format)'
+complete -c moon -n "__fish_moon_using_subcommand bundle" -l no-render -d 'Don\'t render diagnostics (in raw human-readable format)'
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l output-json -d 'Output diagnostics in JSON format'
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l all -d 'Bundle all targets'
@@ -107,11 +107,11 @@ complete -c moon -n "__fish_moon_using_subcommand bundle" -l trace -d 'Trace the
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand bundle" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand build" -l target -d 'Select output target' -r -f -a "{wasm/t'',wasm-gc/t'',js/t'',native/t'',llvm/t'',all/t''}"
+complete -c moon -n "__fish_moon_using_subcommand build" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand build" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand build" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand build" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
-complete -c moon -n "__fish_moon_using_subcommand build" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info/t'',warn/t'',error/t''}"
+complete -c moon -n "__fish_moon_using_subcommand build" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand build" -l install-path -r -F
 complete -c moon -n "__fish_moon_using_subcommand build" -l package -r
 complete -c moon -n "__fish_moon_using_subcommand build" -l bin-alias -r
@@ -128,7 +128,7 @@ complete -c moon -n "__fish_moon_using_subcommand build" -l enable-coverage -d '
 complete -c moon -n "__fish_moon_using_subcommand build" -l sort-input -d 'Sort input files'
 complete -c moon -n "__fish_moon_using_subcommand build" -l output-wat -d 'Output WAT instead of WASM'
 complete -c moon -n "__fish_moon_using_subcommand build" -s d -l deny-warn -d 'Treat all warnings as errors'
-complete -c moon -n "__fish_moon_using_subcommand build" -l no-render -d 'Don/'t render diagnostics (in raw human-readable format)'
+complete -c moon -n "__fish_moon_using_subcommand build" -l no-render -d 'Don\'t render diagnostics (in raw human-readable format)'
 complete -c moon -n "__fish_moon_using_subcommand build" -l output-json -d 'Output diagnostics in JSON format'
 complete -c moon -n "__fish_moon_using_subcommand build" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand build" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
@@ -140,12 +140,12 @@ complete -c moon -n "__fish_moon_using_subcommand build" -l trace -d 'Trace the 
 complete -c moon -n "__fish_moon_using_subcommand build" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand build" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand build" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand check" -l target -d 'Select output target' -r -f -a "{wasm/t'',wasm-gc/t'',js/t'',native/t'',llvm/t'',all/t''}"
+complete -c moon -n "__fish_moon_using_subcommand check" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand check" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand check" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand check" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
-complete -c moon -n "__fish_moon_using_subcommand check" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info/t'',warn/t'',error/t''}"
-complete -c moon -n "__fish_moon_using_subcommand check" -s p -l package-path -d 'The package(and it/'s deps) to check' -r -F
+complete -c moon -n "__fish_moon_using_subcommand check" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
+complete -c moon -n "__fish_moon_using_subcommand check" -s p -l package-path -d 'The package(and it\'s deps) to check' -r -F
 complete -c moon -n "__fish_moon_using_subcommand check" -l patch-file -d 'The patch file to check, Only valid when checking specified package' -r -F
 complete -c moon -n "__fish_moon_using_subcommand check" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand check" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
@@ -160,7 +160,7 @@ complete -c moon -n "__fish_moon_using_subcommand check" -l enable-coverage -d '
 complete -c moon -n "__fish_moon_using_subcommand check" -l sort-input -d 'Sort input files'
 complete -c moon -n "__fish_moon_using_subcommand check" -l output-wat -d 'Output WAT instead of WASM'
 complete -c moon -n "__fish_moon_using_subcommand check" -s d -l deny-warn -d 'Treat all warnings as errors'
-complete -c moon -n "__fish_moon_using_subcommand check" -l no-render -d 'Don/'t render diagnostics (in raw human-readable format)'
+complete -c moon -n "__fish_moon_using_subcommand check" -l no-render -d 'Don\'t render diagnostics (in raw human-readable format)'
 complete -c moon -n "__fish_moon_using_subcommand check" -l output-json -d 'Output diagnostics in JSON format'
 complete -c moon -n "__fish_moon_using_subcommand check" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand check" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
@@ -177,12 +177,12 @@ complete -c moon -n "__fish_moon_using_subcommand check" -s h -l help -d 'Print 
 complete -c moon -n "__fish_moon_using_subcommand prove" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand prove" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand prove" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
-complete -c moon -n "__fish_moon_using_subcommand prove" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info/t'',warn/t'',error/t''}"
+complete -c moon -n "__fish_moon_using_subcommand prove" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand prove" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand prove" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand prove" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
 complete -c moon -n "__fish_moon_using_subcommand prove" -s d -l deny-warn -d 'Treat all warnings as errors'
-complete -c moon -n "__fish_moon_using_subcommand prove" -l no-render -d 'Don/'t render diagnostics (in raw human-readable format)'
+complete -c moon -n "__fish_moon_using_subcommand prove" -l no-render -d 'Don\'t render diagnostics (in raw human-readable format)'
 complete -c moon -n "__fish_moon_using_subcommand prove" -l output-json -d 'Output diagnostics in JSON format'
 complete -c moon -n "__fish_moon_using_subcommand prove" -s q -l quiet -d 'Suppress output'
 complete -c moon -n "__fish_moon_using_subcommand prove" -s v -l verbose -d 'Increase verbosity'
@@ -190,11 +190,11 @@ complete -c moon -n "__fish_moon_using_subcommand prove" -l trace -d 'Trace the 
 complete -c moon -n "__fish_moon_using_subcommand prove" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand prove" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand prove" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand run" -l target -d 'Select output target' -r -f -a "{wasm/t'',wasm-gc/t'',js/t'',native/t'',llvm/t'',all/t''}"
+complete -c moon -n "__fish_moon_using_subcommand run" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand run" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand run" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand run" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
-complete -c moon -n "__fish_moon_using_subcommand run" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info/t'',warn/t'',error/t''}"
+complete -c moon -n "__fish_moon_using_subcommand run" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand run" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand run" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand run" -l std -d 'Enable the standard library (default)'
@@ -208,7 +208,7 @@ complete -c moon -n "__fish_moon_using_subcommand run" -l enable-coverage -d 'En
 complete -c moon -n "__fish_moon_using_subcommand run" -l sort-input -d 'Sort input files'
 complete -c moon -n "__fish_moon_using_subcommand run" -l output-wat -d 'Output WAT instead of WASM'
 complete -c moon -n "__fish_moon_using_subcommand run" -s d -l deny-warn -d 'Treat all warnings as errors'
-complete -c moon -n "__fish_moon_using_subcommand run" -l no-render -d 'Don/'t render diagnostics (in raw human-readable format)'
+complete -c moon -n "__fish_moon_using_subcommand run" -l no-render -d 'Don\'t render diagnostics (in raw human-readable format)'
 complete -c moon -n "__fish_moon_using_subcommand run" -l output-json -d 'Output diagnostics in JSON format'
 complete -c moon -n "__fish_moon_using_subcommand run" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand run" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
@@ -219,18 +219,18 @@ complete -c moon -n "__fish_moon_using_subcommand run" -l trace -d 'Trace the ex
 complete -c moon -n "__fish_moon_using_subcommand run" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand run" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand run" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand test" -l target -d 'Select output target' -r -f -a "{wasm/t'',wasm-gc/t'',js/t'',native/t'',llvm/t'',all/t''}"
+complete -c moon -n "__fish_moon_using_subcommand test" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand test" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
-complete -c moon -n "__fish_moon_using_subcommand test" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info/t'',warn/t'',error/t''}"
+complete -c moon -n "__fish_moon_using_subcommand test" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand test" -s p -l package -d 'Run test in the specified package' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -s f -l file -d 'Run test in the specified file. Only valid when `--package` is also specified' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -s i -l index -d 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified. Implies `--include-skipped`' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -l doc-index -d 'Run only the index-th doc test in the file. Only valid when `--file` is also specified. Implies `--include-skipped`' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -s l -l limit -d 'Limit of expect test update passes to run, in order to avoid infinite loops' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -l patch-file -d 'Path to the patch file' -r -F
-complete -c moon -n "__fish_moon_using_subcommand test" -s F -l filter -d 'Run only tests whose name matches the given glob pattern. Supports /'*/' (matches any sequence) and /'?/' (matches any single character)' -r
+complete -c moon -n "__fish_moon_using_subcommand test" -s F -l filter -d 'Run only tests whose name matches the given glob pattern. Supports \'*\' (matches any sequence) and \'?\' (matches any single character)' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand test" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand test" -l std -d 'Enable the standard library (default)'
@@ -244,7 +244,7 @@ complete -c moon -n "__fish_moon_using_subcommand test" -l enable-coverage -d 'E
 complete -c moon -n "__fish_moon_using_subcommand test" -l sort-input -d 'Sort input files'
 complete -c moon -n "__fish_moon_using_subcommand test" -l output-wat -d 'Output WAT instead of WASM'
 complete -c moon -n "__fish_moon_using_subcommand test" -s d -l deny-warn -d 'Treat all warnings as errors'
-complete -c moon -n "__fish_moon_using_subcommand test" -l no-render -d 'Don/'t render diagnostics (in raw human-readable format)'
+complete -c moon -n "__fish_moon_using_subcommand test" -l no-render -d 'Don\'t render diagnostics (in raw human-readable format)'
 complete -c moon -n "__fish_moon_using_subcommand test" -l output-json -d 'Output diagnostics in JSON format'
 complete -c moon -n "__fish_moon_using_subcommand test" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand test" -s u -l update -d 'Update the test snapshot'
@@ -264,10 +264,10 @@ complete -c moon -n "__fish_moon_using_subcommand test" -s h -l help -d 'Print h
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l doctest-only -d 'Files that need to be mapped, but only extract the doctests, not main contents' -r -F
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l output-driver -d 'The output test driver `.mbt` file' -r -F
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l output-metadata -d 'The output test metadata file' -r -F
-complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l target -d 'The target backend for the generated test driver' -r -f -a "{wasm/t'',wasm-gc/t'',js/t'',native/t'',llvm/t''}"
+complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l target -d 'The target backend for the generated test driver' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t''}"
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l pkg-name -d 'The name of the package for which the test driver is generated for' -r
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l coverage-package-override -d 'Override coverage package name; `@self` is a special value that means the package itself' -r
-complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l driver-kind -d 'The test driver kind' -r -f -a "{internal/t'',whitebox/t'',blackbox/t''}"
+complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l driver-kind -d 'The test driver kind' -r -f -a "{internal\t'',whitebox\t'',blackbox\t''}"
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l patch-file -d 'Path to the patch file' -r -F
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l max-concurrent-tests -d 'Max concurrent tests for `async test`' -r
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
@@ -288,10 +288,10 @@ complete -c moon -n "__fish_moon_using_subcommand clean" -l trace -d 'Trace the 
 complete -c moon -n "__fish_moon_using_subcommand clean" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand clean" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand clean" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand fmt" -l block-style -d 'Add separator between each segments' -r -f -a "{false/t'',true/t''}"
+complete -c moon -n "__fish_moon_using_subcommand fmt" -l block-style -d 'Add separator between each segments' -r -f -a "{false\t'',true\t''}"
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
-complete -c moon -n "__fish_moon_using_subcommand fmt" -l check -d 'Check only and don/'t change the source code'
+complete -c moon -n "__fish_moon_using_subcommand fmt" -l check -d 'Check only and don\'t change the source code'
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l sort-input -d 'Sort input files'
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l warn -d 'Warn if code is not properly formatted'
 complete -c moon -n "__fish_moon_using_subcommand fmt" -s q -l quiet -d 'Suppress output'
@@ -312,7 +312,7 @@ complete -c moon -n "__fish_moon_using_subcommand doc" -l trace -d 'Trace the ex
 complete -c moon -n "__fish_moon_using_subcommand doc" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand doc" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand doc" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand info" -l target -d 'Select output target' -r -f -a "{wasm/t'',wasm-gc/t'',js/t'',native/t'',llvm/t'',all/t''}"
+complete -c moon -n "__fish_moon_using_subcommand info" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand info" -s p -l package -d 'The full or subset of name of the package to emit `mbti` files for' -r
 complete -c moon -n "__fish_moon_using_subcommand info" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand info" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
@@ -323,12 +323,12 @@ complete -c moon -n "__fish_moon_using_subcommand info" -s v -l verbose -d 'Incr
 complete -c moon -n "__fish_moon_using_subcommand info" -l trace -d 'Trace the execution of the program'
 complete -c moon -n "__fish_moon_using_subcommand info" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand info" -l build-graph
-complete -c moon -n "__fish_moon_using_subcommand info" -s h -l help -d 'Print help (see more with /'--help/')'
-complete -c moon -n "__fish_moon_using_subcommand bench" -l target -d 'Select output target' -r -f -a "{wasm/t'',wasm-gc/t'',js/t'',native/t'',llvm/t'',all/t''}"
+complete -c moon -n "__fish_moon_using_subcommand info" -s h -l help -d 'Print help (see more with \'--help\')'
+complete -c moon -n "__fish_moon_using_subcommand bench" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand bench" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
-complete -c moon -n "__fish_moon_using_subcommand bench" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info/t'',warn/t'',error/t''}"
+complete -c moon -n "__fish_moon_using_subcommand bench" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand bench" -s p -l package -d 'Run test in the specified package' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s f -l file -d 'Run test in the specified file. Only valid when `--package` is also specified' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s i -l index -d 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified' -r
@@ -345,7 +345,7 @@ complete -c moon -n "__fish_moon_using_subcommand bench" -l enable-coverage -d '
 complete -c moon -n "__fish_moon_using_subcommand bench" -l sort-input -d 'Sort input files'
 complete -c moon -n "__fish_moon_using_subcommand bench" -l output-wat -d 'Output WAT instead of WASM'
 complete -c moon -n "__fish_moon_using_subcommand bench" -s d -l deny-warn -d 'Treat all warnings as errors'
-complete -c moon -n "__fish_moon_using_subcommand bench" -l no-render -d 'Don/'t render diagnostics (in raw human-readable format)'
+complete -c moon -n "__fish_moon_using_subcommand bench" -l no-render -d 'Don\'t render diagnostics (in raw human-readable format)'
 complete -c moon -n "__fish_moon_using_subcommand bench" -l output-json -d 'Output diagnostics in JSON format'
 complete -c moon -n "__fish_moon_using_subcommand bench" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand bench" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
@@ -387,7 +387,7 @@ complete -c moon -n "__fish_moon_using_subcommand install" -s v -l verbose -d 'I
 complete -c moon -n "__fish_moon_using_subcommand install" -l trace -d 'Trace the execution of the program'
 complete -c moon -n "__fish_moon_using_subcommand install" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand install" -l build-graph
-complete -c moon -n "__fish_moon_using_subcommand install" -s h -l help -d 'Print help (see more with /'--help/')'
+complete -c moon -n "__fish_moon_using_subcommand install" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c moon -n "__fish_moon_using_subcommand tree" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tree" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tree" -s q -l quiet -d 'Suppress output'
@@ -552,11 +552,11 @@ complete -c moon -n "__fish_moon_using_subcommand generate-build-matrix" -l trac
 complete -c moon -n "__fish_moon_using_subcommand generate-build-matrix" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand generate-build-matrix" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand generate-build-matrix" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand query" -l target -d 'Select output target' -r -f -a "{wasm/t'',wasm-gc/t'',js/t'',native/t'',llvm/t'',all/t''}"
+complete -c moon -n "__fish_moon_using_subcommand query" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand query" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand query" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand query" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
-complete -c moon -n "__fish_moon_using_subcommand query" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info/t'',warn/t'',error/t''}"
+complete -c moon -n "__fish_moon_using_subcommand query" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand query" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand query" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand query" -l std -d 'Enable the standard library (default)'
@@ -570,7 +570,7 @@ complete -c moon -n "__fish_moon_using_subcommand query" -l enable-coverage -d '
 complete -c moon -n "__fish_moon_using_subcommand query" -l sort-input -d 'Sort input files'
 complete -c moon -n "__fish_moon_using_subcommand query" -l output-wat -d 'Output WAT instead of WASM'
 complete -c moon -n "__fish_moon_using_subcommand query" -s d -l deny-warn -d 'Treat all warnings as errors'
-complete -c moon -n "__fish_moon_using_subcommand query" -l no-render -d 'Don/'t render diagnostics (in raw human-readable format)'
+complete -c moon -n "__fish_moon_using_subcommand query" -l no-render -d 'Don\'t render diagnostics (in raw human-readable format)'
 complete -c moon -n "__fish_moon_using_subcommand query" -l output-json -d 'Output diagnostics in JSON format'
 complete -c moon -n "__fish_moon_using_subcommand query" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand query" -s q -l quiet -d 'Suppress output'
@@ -591,7 +591,7 @@ complete -c moon -n "__fish_moon_using_subcommand upgrade" -l trace -d 'Trace th
 complete -c moon -n "__fish_moon_using_subcommand upgrade" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand upgrade" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand upgrade" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand shell-completion" -l shell -d 'The shell to generate completion for' -r -f -a "{bash/t'',elvish/t'',fish/t'',powershell/t'',zsh/t''}"
+complete -c moon -n "__fish_moon_using_subcommand shell-completion" -l shell -d 'The shell to generate completion for' -r -f -a "{bash\t'',elvish\t'',fish\t'',powershell\t'',zsh\t''}"
 complete -c moon -n "__fish_moon_using_subcommand shell-completion" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand shell-completion" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand shell-completion" -s q -l quiet -d 'Suppress output'
@@ -711,7 +711,7 @@ complete -c moon -n "__fish_moon_using_subcommand ide; and __fish_seen_subcomman
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help" -f -a "new" -d 'Create a new MoonBit module'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help" -f -a "bundle" -d 'Bundle the module'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help" -f -a "build" -d 'Build the current package'
-complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help" -f -a "check" -d 'Check the current package, but don/'t build object files'
+complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help" -f -a "check" -d 'Check the current package, but don\'t build object files'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help" -f -a "prove" -d 'Prove the current package'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help" -f -a "run" -d 'Run a main package'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help" -f -a "test" -d 'Test the current package'
