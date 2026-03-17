@@ -422,6 +422,10 @@ impl<'a> BuildPlanConstructor<'a> {
         doctest_files.sort();
         drop(_sort_span);
 
+        if target.kind == BlackboxTest {
+            self.warn_if_main_package_uses_blackbox_inputs(pkg, &regular_files);
+        }
+
         // Populate `alert_list` and `warn_list`
         // The list population is simply concatenating:
         //   module-level + package-level + commandline
@@ -459,6 +463,48 @@ impl<'a> BuildPlanConstructor<'a> {
                 .value_tracing
                 .is_some_and(|pkg| pkg == target.package),
         }
+    }
+
+    fn warn_if_main_package_uses_blackbox_inputs(
+        &self,
+        pkg: &DiscoveredPackage,
+        regular_files: &IndexSet<PathBuf>,
+    ) {
+        if !pkg.raw.is_main {
+            return;
+        }
+
+        let mut blackbox_inputs = Vec::new();
+
+        if regular_files.iter().any(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    matches!(
+                        cond_comp::get_file_test_kind_full(name),
+                        cond_comp::FileTestKind::Blackbox
+                    )
+                })
+        }) {
+            blackbox_inputs.push("`_test.mbt` files");
+        }
+
+        if !pkg.mbt_md_files.is_empty() {
+            blackbox_inputs.push("`.mbt.md` files");
+        }
+
+        if blackbox_inputs.is_empty() {
+            return;
+        }
+
+        warn!(
+            "Main package `{}` uses blackbox-only test inputs ({}) in \"{}\". \
+Main packages will stop generating blackbox tests in a future release. \
+Move public behavior into a non-main package and keep the main package as an entrypoint.",
+            pkg.fqn,
+            blackbox_inputs.join(", "),
+            pkg.config_path().display(),
+        );
     }
 
     /// Check if a given target needs to check `.mi` against another target.

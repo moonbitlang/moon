@@ -61,6 +61,7 @@ mod hello;
 mod indirect_dep;
 mod inline_test;
 mod js_test_build_only;
+mod main_package;
 mod mbti;
 mod moon_bench;
 mod moon_build_package;
