@@ -1,6 +1,15 @@
 use super::*;
 use moonutil::common::MBTI_GENERATED;
 
+fn assert_requires_target_module(stderr: &str, command: &str) {
+    assert!(
+        stderr.contains(&format!(
+            "`moon {command}` cannot infer a target module in workspace `$ROOT`"
+        )),
+        "expected missing target module error, got:\n{stderr}"
+    );
+}
+
 #[test]
 fn test_workspace_commands() {
     let dir = TestDir::new("workspace_basic.in");
@@ -326,4 +335,163 @@ fn test_work_sync_requires_workspace() {
     let stderr = get_err_stderr(&dir, ["work", "sync"]);
 
     assert!(stderr.contains("`moon work sync` requires `moon.work.json`"));
+}
+
+#[test]
+fn test_single_module_commands_fail_at_workspace_root() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_err_stderr(&dir, ["tree"]);
+    assert_requires_target_module(&stderr, "tree");
+
+    let stderr = get_err_stderr(&dir, ["remove", "alice/liba"]);
+    assert_requires_target_module(&stderr, "remove");
+
+    let stderr = get_err_stderr(&dir, ["add", "alice/liba@0.1.0", "--no-update"]);
+    assert_requires_target_module(&stderr, "add");
+}
+
+#[test]
+fn test_single_module_commands_from_member_dir_target_member_manifest() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    check(get_stdout(&dir, ["-C", "app", "tree"]), expect![[r#""#]]);
+
+    let stderr = get_stderr(
+        &dir,
+        ["-C", "app", "add", "moonbitlang/core", "--no-update"],
+    );
+    assert!(
+        stderr.contains("no need to add `moonbitlang/core` as dependency"),
+        "expected add command to target app module, got:\n{stderr}"
+    );
+
+    check(
+        get_stdout(&dir, ["-C", "app", "remove", "alice/liba"]),
+        expect![[r#""#]],
+    );
+
+    let app_manifest = std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap();
+    check(
+        app_manifest.trim_end_matches('\n'),
+        expect![[r#"
+            {
+              "name": "alice/app",
+              "version": "0.1.0",
+              "deps": {},
+              "source": "src"
+            }"#]],
+    );
+}
+
+#[test]
+fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            "--manifest-path",
+            "app/moon.mod.json",
+            "add",
+            "moonbitlang/core",
+            "--no-update",
+        ],
+    );
+    assert!(
+        stderr.contains("no need to add `moonbitlang/core` as dependency"),
+        "expected add command to target app module, got:\n{stderr}"
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
+        expect![[r#"
+            {
+              "name": "alice/app",
+              "version": "0.1.0",
+              "source": "src",
+              "deps": {
+                "alice/liba": "0.1.0"
+              }
+            }
+        "#]],
+    );
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "--manifest-path",
+                "app/moon.mod.json",
+                "remove",
+                "alice/liba",
+            ],
+        ),
+        expect![[r#""#]],
+    );
+
+    let app_manifest = std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap();
+    check(
+        app_manifest.trim_end_matches('\n'),
+        expect![[r#"
+            {
+              "name": "alice/app",
+              "version": "0.1.0",
+              "deps": {},
+              "source": "src"
+            }"#]],
+    );
+}
+
+#[test]
+fn test_prove_targets_member_module_with_workspace_resolution() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_err_stderr(&dir, ["prove", "--dry-run"]);
+    assert_requires_target_module(&stderr, "prove");
+
+    let stdout = get_stdout(&dir, ["-C", "app", "prove", "--dry-run"]);
+    assert!(
+        stdout.contains("moonc prove ./app/src/main/main.mbt"),
+        "expected app prove dry-run to target the app member, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-workspace-path ./app"),
+        "expected app prove dry-run to keep the app workspace path, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("alice/liba/lib"),
+        "expected app prove dry-run to keep workspace-local dependency resolution, got:\n{stdout}"
+    );
+
+    let stdout = get_stdout(
+        &dir,
+        ["--manifest-path", "app/moon.mod.json", "prove", "--dry-run"],
+    );
+    assert!(
+        stdout.contains("moonc prove ./app/src/main/main.mbt"),
+        "expected manifest-path prove dry-run to target the app member, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-workspace-path ./app"),
+        "expected manifest-path prove dry-run to keep workspace-local context, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("alice/liba/lib"),
+        "expected manifest-path prove dry-run to keep workspace-local dependency resolution, got:\n{stdout}"
+    );
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "--manifest-path",
+            "liba/moon.mod.json",
+            "prove",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        stdout.contains("alice/liba/lib"),
+        "expected prove dry-run to target the liba module, got:\n{stdout}"
+    );
 }

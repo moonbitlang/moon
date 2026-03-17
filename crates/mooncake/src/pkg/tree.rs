@@ -37,15 +37,14 @@ fn bold(top: &HashSet<String>, item: &str) -> ColoredString {
     }
 }
 
-pub fn tree(source_dir: &Path, target_dir: &Path) -> anyhow::Result<i32> {
-    let _ = target_dir;
-    let root_m = read_module_desc_file_in_dir(source_dir)?;
+pub fn tree(project_root: &Path, module_dir: &Path) -> anyhow::Result<i32> {
+    let root_m = read_module_desc_file_in_dir(module_dir)?;
     let mut top = HashSet::new();
     for (name, dep) in root_m.deps {
         top.insert(format!("{}@{}", name, dep.version));
     }
 
-    let mooncakes_dir = source_dir.join(DEP_PATH);
+    let mooncakes_dir = project_root.join(DEP_PATH);
     if !mooncakes_dir.exists() {
         return Ok(0);
     }
