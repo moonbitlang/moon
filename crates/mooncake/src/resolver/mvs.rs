@@ -257,16 +257,7 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
         });
         let all_deps = module.deps.iter().chain(bin_deps.into_iter().flatten());
         for (name, req) in all_deps {
-            let pkg_name = match name.parse() {
-                Ok(v) => v,
-                Err(_) => {
-                    env.report_error(ResolverError::MalformedModuleName(
-                        module.name.parse().unwrap(),
-                        name.clone(),
-                    ));
-                    continue;
-                }
-            };
+            let pkg_name = name.as_str().into();
 
             let (ms, module) = match resolve_pkg(req, &source, env, &workspace_roots, &pkg_name) {
                 Ok(value) => value,

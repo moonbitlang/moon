@@ -138,6 +138,7 @@ pub fn main() {
         Coverage(c) => cli::run_coverage(flags, c),
         Doc(d) => cli::run_doc(flags, d),
         Fetch(f) => cli::fetch_cli(flags, f),
+        Work(w) => cli::work_cli(flags, w),
         Fmt(f) => cli::run_fmt(&flags, f),
         GenerateBuildMatrix(b) => cli::generate_build_matrix(&flags, b),
         GenerateTestDriver(g) => cli::generate_test_driver(flags, g),

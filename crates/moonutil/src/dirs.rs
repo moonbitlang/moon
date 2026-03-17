@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{BUILD_DIR, MOON_MOD_JSON, MOON_WORK};
+use crate::workspace::{canonical_workspace_module_dirs, read_workspace};
 
 #[derive(Debug, Error)]
 pub enum PackageDirsError {
@@ -81,51 +82,73 @@ pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
         .map(|p| p.to_path_buf())
 }
 
-pub fn find_ancestor_with_work(source_dir: &Path) -> Option<PathBuf> {
-    source_dir
-        .ancestors()
-        .find(|dir| check_moon_work_exists(dir))
-        .map(|p| p.to_path_buf())
+pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
+    let mut module_root = None;
+
+    for dir in source_dir.ancestors() {
+        if check_moon_work_exists(dir) {
+            let Some(module_root) = module_root else {
+                // A workspace still applies from nested non-module directories.
+                return Ok(Some(dir.to_path_buf()));
+            };
+
+            // After we have entered a module, only ancestor workspaces that
+            // explicitly list that module still apply.
+            let workspace = read_workspace(dir)?.context(format!(
+                "failed to parse workspace file `{}`",
+                dir.join(MOON_WORK).display()
+            ))?;
+            for member_dir in canonical_workspace_module_dirs(dir, &workspace)? {
+                if member_dir == module_root {
+                    return Ok(Some(dir.to_path_buf()));
+                }
+            }
+        }
+
+        if module_root.is_none() && check_moon_mod_exists(dir) {
+            module_root = Some(dir);
+        }
+    }
+
+    Ok(None)
+}
+
+pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
+    let manifest_path = dunce::canonicalize(manifest_path).with_context(|| {
+        format!(
+            "failed to resolve manifest path `{}`",
+            manifest_path.display()
+        )
+    })?;
+
+    if manifest_path.is_dir() {
+        anyhow::bail!(
+            "`--manifest-path` must point to `{}` or `{}` (got directory `{}`)",
+            MOON_MOD_JSON,
+            MOON_WORK,
+            manifest_path.display()
+        );
+    }
+
+    let file_name = manifest_path.file_name().and_then(|s| s.to_str());
+    if file_name != Some(MOON_MOD_JSON) && file_name != Some(MOON_WORK) {
+        anyhow::bail!(
+            "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
+            MOON_MOD_JSON,
+            MOON_WORK,
+            manifest_path.display()
+        );
+    }
+
+    manifest_path
+        .parent()
+        .context("manifest path has no parent directory")
+        .map(Path::to_path_buf)
 }
 
 fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDirsError> {
     let project_root = if let Some(manifest_path) = &matches.manifest_path {
-        let manifest_path = dunce::canonicalize(manifest_path)
-            .with_context(|| {
-                format!(
-                    "failed to resolve manifest path `{}`",
-                    manifest_path.display()
-                )
-            })
-            .map_err(PackageDirsError::from)?;
-
-        if manifest_path.is_dir() {
-            return Err(anyhow::anyhow!(
-                "`--manifest-path` must point to `{}` (got directory `{}`)",
-                MOON_MOD_JSON,
-                manifest_path.display()
-            )
-            .into());
-        }
-
-        let file_name = manifest_path.file_name().and_then(|s| s.to_str());
-        let is_module_manifest = file_name == Some(MOON_MOD_JSON);
-        let is_workspace_manifest = file_name == Some(MOON_WORK);
-        if !is_module_manifest && !is_workspace_manifest {
-            return Err(anyhow::anyhow!(
-                "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
-                MOON_MOD_JSON,
-                MOON_WORK,
-                manifest_path.display()
-            )
-            .into());
-        }
-
-        manifest_path
-            .parent()
-            .context("manifest path has no parent directory")
-            .map_err(PackageDirsError::from)?
-            .to_path_buf()
+        resolve_manifest_root(manifest_path).map_err(PackageDirsError::from)?
     } else {
         let start_dir = std::env::current_dir()
             .context("failed to get current directory")
@@ -133,8 +156,9 @@ fn get_src_dst_dir(matches: &SourceTargetDirs) -> Result<PackageDirs, PackageDir
         let start_dir = dunce::canonicalize(start_dir)
             .context("failed to resolve current directory")
             .map_err(PackageDirsError::from)?;
-        let project_root =
-            find_ancestor_with_work(&start_dir).or_else(|| find_ancestor_with_mod(&start_dir));
+        let project_root = find_ancestor_with_work(&start_dir)
+            .map_err(PackageDirsError::from)?
+            .or_else(|| find_ancestor_with_mod(&start_dir));
         project_root.ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?
     };
 

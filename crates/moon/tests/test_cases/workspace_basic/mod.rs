@@ -144,3 +144,186 @@ fn test_workspace_commands() {
         "$ROOT/_build/wasm-gc/debug/check/alice/liba/lib/lib.mi"
     );
 }
+
+#[test]
+fn test_work_init_creates_empty_workspace() {
+    let dir = TestDir::new("hello");
+
+    check(
+        get_stdout(&dir, ["work", "init"]),
+        expect![[r#"
+            Created moon.work.json
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        expect![[r#"
+            {
+              "use": []
+            }"#]],
+    );
+}
+
+#[test]
+fn test_work_use_updates_workspace_members() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    std::fs::write(
+        dir.join("moon.work.json"),
+        r#"{
+  "preferred-target": "wasm-gc",
+  "use": [
+    "./liba"
+  ]
+}"#,
+    )
+    .unwrap();
+
+    check(
+        get_stdout(&dir, ["work", "use", "app"]),
+        expect![[r#"
+            Updated moon.work.json
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        expect![[r#"
+            {
+              "use": [
+                "./liba",
+                "./app"
+              ],
+              "preferred-target": "wasm-gc"
+            }"#]],
+    );
+}
+
+#[test]
+fn test_work_sync_ignores_unrelated_ancestor_workspace() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    std::fs::create_dir_all(dir.join("extra")).unwrap();
+    std::fs::write(
+        dir.join("extra/moon.mod.json"),
+        r#"{
+  "name": "alice/extra"
+}"#,
+    )
+    .unwrap();
+
+    let stderr = get_err_stderr(&dir, ["-C", "extra", "work", "sync"]);
+
+    assert!(stderr.contains("`moon work sync` requires `moon.work.json`"));
+}
+
+#[test]
+fn test_work_use_ignores_unrelated_ancestor_workspace() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    std::fs::create_dir_all(dir.join("extra")).unwrap();
+    std::fs::write(
+        dir.join("extra/moon.mod.json"),
+        r#"{
+  "name": "alice/extra"
+}"#,
+    )
+    .unwrap();
+
+    check(
+        get_stdout(&dir, ["-C", "extra", "work", "use", "."]),
+        expect![[r#"
+            Created moon.work.json
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("extra/moon.work.json")).unwrap(),
+        expect![[r#"
+            {
+              "use": [
+                "."
+              ]
+            }"#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        expect![[r#"
+            {
+              "preferred-target": "wasm-gc",
+              "use": [
+                "./app",
+                "./liba"
+              ]
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn test_workspace_commands_find_ancestor_workspace_from_nested_non_module_dir() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::create_dir_all(dir.join("tools")).unwrap();
+
+    check(get_stdout(&dir, ["-C", "tools", "info"]), expect![[r#""#]]);
+}
+
+#[test]
+fn test_work_use_reuses_ancestor_workspace_from_nested_non_module_dir() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::create_dir_all(dir.join("tools")).unwrap();
+
+    check(
+        get_stdout(&dir, ["-C", "tools", "work", "use", "../app"]),
+        expect![[r#"
+            moon.work.json is already up to date
+        "#]],
+    );
+}
+
+#[test]
+fn test_workspace_sync_updates_member_manifests() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    check(
+        get_stdout(&dir, ["work", "sync"]),
+        expect![[r#"
+            Synced workspace manifests:
+            app/moon.mod.json
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
+        expect![[r#"
+            {
+              "name": "alice/app",
+              "version": "0.1.0",
+              "deps": {
+                "alice/liba": "0.1.1"
+              },
+              "source": "src"
+            }"#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("liba/moon.mod.json")).unwrap(),
+        expect![[r#"
+            {
+              "name": "alice/liba",
+              "version": "0.1.1",
+              "source": "src"
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn test_work_sync_requires_workspace() {
+    let dir = TestDir::new("hello");
+    let stderr = get_err_stderr(&dir, ["work", "sync"]);
+
+    assert!(stderr.contains("`moon work sync` requires `moon.work.json`"));
+}

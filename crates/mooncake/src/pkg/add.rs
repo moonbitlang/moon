@@ -139,8 +139,7 @@ pub fn add(
     }
 
     let m = Arc::new(m);
-    let ms = moonutil::mooncakes::ModuleSource::from_local_module(&m, source_dir)
-        .expect("Malformed module manifest");
+    let ms = moonutil::mooncakes::ModuleSource::from_local_module(&m, source_dir);
     let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
     install_impl(source_dir, roots, quiet, false, false, true)?;
 

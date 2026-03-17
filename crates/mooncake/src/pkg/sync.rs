@@ -46,8 +46,7 @@ pub fn auto_sync(
         let mut roots = ResolvedRootModules::with_key();
         for member_dir in canonical_workspace_module_dirs(source_dir, &workspace)? {
             let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);
-            let source = ModuleSource::from_local_module(&module, &member_dir)
-                .expect("Malformed module manifest");
+            let source = ModuleSource::from_local_module(&module, &member_dir);
             roots.insert(ResolvedModule::new(source, module));
         }
 
@@ -58,8 +57,7 @@ pub fn auto_sync(
     }
 
     let module = Arc::new(read_module_desc_file_in_dir(source_dir)?);
-    let source =
-        ModuleSource::from_local_module(&module, source_dir).expect("Malformed module manifest");
+    let source = ModuleSource::from_local_module(&module, source_dir);
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
     let (resolved_env, sync_result) =
@@ -94,8 +92,7 @@ pub fn auto_sync_for_single_mbt_md(
         alert_list: moonc_opt.build_opt.alert_list.clone(),
         ..Default::default()
     });
-    let ms = ModuleSource::single_file(&m, &moonbuild_opt.source_dir)
-        .expect("Malformed initializer for module");
+    let ms = ModuleSource::single_file(&m, &moonbuild_opt.source_dir);
     let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
 
     let (resolved_env, dir_sync_result) = super::install::install_impl(
@@ -128,7 +125,7 @@ pub fn auto_sync_for_single_file_rr(
         deps: synth_deps,
         ..Default::default()
     });
-    let ms = ModuleSource::single_file(&m, source_dir).expect("Malformed initializer for module");
+    let ms = ModuleSource::single_file(&m, source_dir);
     let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
 
     let (resolved_env, dir_sync_result) = super::install::install_impl(
