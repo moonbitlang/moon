@@ -426,16 +426,11 @@ impl<'a> BuildPlanConstructor<'a> {
             self.warn_if_main_package_uses_blackbox_inputs(pkg, &regular_files);
         }
 
-        // Populate `alert_list` and `warn_list`
-        // The list population is simply concatenating:
-        //   module-level + package-level + commandline
+        // Populate `warn_list` by concatenating module-level, package-level,
+        // and command-line settings.
         let warn_list = cat_opt(
             cat_opt(module.warn_list.clone(), pkg.raw.warn_list.as_deref()),
             self.build_env.warn_list.as_deref(),
-        );
-        let alert_list = cat_opt(
-            cat_opt(module.alert_list.clone(), pkg.raw.alert_list.as_deref()),
-            self.build_env.alert_list.as_deref(),
         );
 
         let specified_no_mi = self.input_directive.specify_no_mi_for == Some(target.package);
@@ -454,7 +449,6 @@ impl<'a> BuildPlanConstructor<'a> {
             whitebox_files: whitebox_files.into_iter().collect(),
             doctest_files: doctest_files.into_iter().collect(),
             warn_list,
-            alert_list,
             specified_no_mi,
             patch_file,
             check_mi_against: mi_check_target,

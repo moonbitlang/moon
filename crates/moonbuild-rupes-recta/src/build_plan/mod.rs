@@ -217,8 +217,6 @@ pub struct BuildTargetInfo {
 
     /// The final list of warnings to pass to the compiler
     pub(crate) warn_list: Option<String>,
-    /// The final list of alerts to pass to the compiler
-    pub(crate) alert_list: Option<String>,
 
     /// Whether the target is designated by the user to not generate module interface.
     pub(crate) specified_no_mi: bool,
@@ -321,7 +319,6 @@ pub struct BuildEnvironment {
     pub std: bool,
     /// Commandline_level warnings to enable/disable
     pub warn_list: Option<String>,
-    pub alert_list: Option<String>,
     // Can have more, e.g. cross compile
 }
 

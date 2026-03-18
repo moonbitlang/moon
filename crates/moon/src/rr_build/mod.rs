@@ -434,7 +434,6 @@ pub struct CompilePreConfig {
     /// Attempt to use `tcc -run` when possible
     pub try_tcc_run: bool,
     warn_list: Option<String>,
-    alert_list: Option<String>,
 }
 
 impl CompilePreConfig {
@@ -499,7 +498,6 @@ impl CompilePreConfig {
             docs_serve: self.docs_serve,
             warning_condition: self.warning_condition,
             warn_list: self.warn_list,
-            alert_list: self.alert_list,
             info_no_alias: self.info_no_alias,
             default_cc: CC::default(), // TODO: determine how CC will be set
         }
@@ -550,7 +548,6 @@ pub fn preconfig_compile(
             WarningCondition::Default
         },
         warn_list: build_flags.warn_list.clone(),
-        alert_list: build_flags.alert_list.clone(),
     }
 }
 

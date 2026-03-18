@@ -85,7 +85,6 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;bundle'= {
             cand --target 'Select output target'
             cand --warn-list 'Warn list config'
-            cand --alert-list 'Alert list config'
             cand -j 'Set the max number of jobs to run in parallel'
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
@@ -122,7 +121,6 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;build'= {
             cand --target 'Select output target'
             cand --warn-list 'Warn list config'
-            cand --alert-list 'Alert list config'
             cand -j 'Set the max number of jobs to run in parallel'
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
@@ -164,7 +162,6 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;check'= {
             cand --target 'Select output target'
             cand --warn-list 'Warn list config'
-            cand --alert-list 'Alert list config'
             cand -j 'Set the max number of jobs to run in parallel'
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
@@ -207,7 +204,6 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;prove'= {
             cand --warn-list 'Warn list config'
-            cand --alert-list 'Alert list config'
             cand -j 'Set the max number of jobs to run in parallel'
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
@@ -231,7 +227,6 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;run'= {
             cand --target 'Select output target'
             cand --warn-list 'Warn list config'
-            cand --alert-list 'Alert list config'
             cand -j 'Set the max number of jobs to run in parallel'
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
@@ -268,7 +263,6 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;test'= {
             cand --target 'Select output target'
             cand --warn-list 'Warn list config'
-            cand --alert-list 'Alert list config'
             cand -j 'Set the max number of jobs to run in parallel'
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
@@ -415,7 +409,6 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;bench'= {
             cand --target 'Select output target'
             cand --warn-list 'Warn list config'
-            cand --alert-list 'Alert list config'
             cand -j 'Set the max number of jobs to run in parallel'
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
@@ -777,7 +770,6 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;query'= {
             cand --target 'Select output target'
             cand --warn-list 'Warn list config'
-            cand --alert-list 'Alert list config'
             cand -j 'Set the max number of jobs to run in parallel'
             cand --jobs 'Set the max number of jobs to run in parallel'
             cand --render-no-loc 'Render no-location diagnostics starting from a certain level'

@@ -1,8 +1,0 @@
-{
-  "is-main": true,
-  "import": [
-    "username/hello/lib"
-  ],
-  "warn-list": "-1-2",
-  "alert-list": "-alert_1"
-}

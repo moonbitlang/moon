@@ -63,10 +63,6 @@ pub(crate) struct ProveSubcommand {
     #[clap(long, allow_hyphen_values = true)]
     pub warn_list: Option<String>,
 
-    /// Alert list config
-    #[clap(long, allow_hyphen_values = true)]
-    pub alert_list: Option<String>,
-
     /// Set the max number of jobs to run in parallel
     #[clap(short = 'j', long)]
     pub jobs: Option<usize>,
@@ -83,7 +79,6 @@ impl ProveSubcommand {
             no_render: self.no_render,
             output_json: self.output_json,
             warn_list: self.warn_list.clone(),
-            alert_list: self.alert_list.clone(),
             jobs: self.jobs,
             render_no_loc: self.render_no_loc,
             ..BuildFlags::default()

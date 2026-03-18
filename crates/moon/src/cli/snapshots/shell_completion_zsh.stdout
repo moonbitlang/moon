@@ -60,7 +60,6 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
-'--alert-list=[Alert list config]:ALERT_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
@@ -99,7 +98,6 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
-'--alert-list=[Alert list config]:ALERT_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
@@ -144,7 +142,6 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
-'--alert-list=[Alert list config]:ALERT_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
@@ -190,7 +187,6 @@ _arguments "${_arguments_options[@]}" : \
 (prove)
 _arguments "${_arguments_options[@]}" : \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
-'--alert-list=[Alert list config]:ALERT_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
@@ -217,7 +213,6 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
-'--alert-list=[Alert list config]:ALERT_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
@@ -258,7 +253,6 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
-'--alert-list=[Alert list config]:ALERT_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
@@ -423,7 +417,6 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
-'--alert-list=[Alert list config]:ALERT_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
@@ -888,7 +881,6 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
-'--alert-list=[Alert list config]:ALERT_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \

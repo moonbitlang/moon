@@ -89,7 +89,6 @@ pub fn auto_sync_for_single_mbt_md(
         version: Some(Version::new(0, 0, 1)),
         deps,
         warn_list: moonc_opt.build_opt.warn_list.clone(),
-        alert_list: moonc_opt.build_opt.alert_list.clone(),
         ..Default::default()
     });
     let ms = ModuleSource::single_file(&m, &moonbuild_opt.source_dir);

@@ -123,7 +123,6 @@ Build the current package
 * `--no-render` — Don't render diagnostics (in raw human-readable format)
 * `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
-* `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
 
@@ -165,7 +164,6 @@ Check the current package, but don't build object files
 * `--no-render` — Don't render diagnostics (in raw human-readable format)
 * `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
-* `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
 
@@ -200,7 +198,6 @@ Prove the current package
 * `--no-render` — Don't render diagnostics (in raw human-readable format)
 * `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
-* `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
 
@@ -241,7 +238,6 @@ Run a main package
 * `--no-render` — Don't render diagnostics (in raw human-readable format)
 * `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
-* `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
 
@@ -283,7 +279,6 @@ Test the current package
 * `--no-render` — Don't render diagnostics (in raw human-readable format)
 * `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
-* `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
 
@@ -413,7 +408,6 @@ Run benchmarks in the current package
 * `--no-render` — Don't render diagnostics (in raw human-readable format)
 * `--output-json` — Output diagnostics in JSON format
 * `--warn-list <WARN_LIST>` — Warn list config
-* `--alert-list <ALERT_LIST>` — Alert list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
 

@@ -71,8 +71,8 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
         // Additional inputs in stable ordering
         self.required.add_doctest_only_sources(args);
 
-        // Custom warning/alert lists
-        self.defaults.add_custom_warn_alert_lists(args);
+        // Custom warning list
+        self.defaults.add_custom_warn_list(args);
 
         // Third-party package handling (allow all)
         self.defaults.add_warn_alert_allow_all(args);

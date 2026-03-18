@@ -122,7 +122,6 @@ pub fn build_synth_single_file_package(
         },
         link: None,
         warn_list: None,
-        alert_list: None,
         targets: None,
         pre_build: None,
         bin_name: None,

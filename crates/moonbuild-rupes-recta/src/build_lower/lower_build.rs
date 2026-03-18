@@ -119,25 +119,15 @@ impl<'a> BuildPlanLowerContext<'a> {
         let deny_warn = self.opt.warning_condition == WarningCondition::Deny;
         let allow_warn = self.opt.warning_condition == WarningCondition::Allow;
 
-        // Determine warn/alert config
-        let (warn_config, alert_config) = if self.is_module_third_party(pkg.module) || allow_warn {
-            // Third-party modules don't have any warnings or alerts
-            (
-                compiler::WarnAlertConfig::Suppress,
-                compiler::WarnAlertConfig::Suppress,
-            )
+        let warn_config = if self.is_module_third_party(pkg.module) || allow_warn {
+            // Third-party modules don't have any warnings enabled explicitly.
+            compiler::WarnAlertConfig::Suppress
         } else {
-            let wc = if let Some(w) = &info.warn_list {
+            if let Some(w) = &info.warn_list {
                 compiler::WarnAlertConfig::List(w.into())
             } else {
                 compiler::WarnAlertConfig::default()
-            };
-            let ac = if let Some(a) = &info.alert_list {
-                compiler::WarnAlertConfig::List(a.into())
-            } else {
-                compiler::WarnAlertConfig::default()
-            };
-            (wc, ac)
+            }
         };
 
         // Workspace settings
@@ -189,7 +179,6 @@ impl<'a> BuildPlanLowerContext<'a> {
             error_format,
             deny_warn,
             warn_config,
-            alert_config,
             patch_file,
             no_mi,
             workspace_root,

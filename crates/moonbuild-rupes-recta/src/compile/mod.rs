@@ -70,8 +70,6 @@ pub struct CompileConfig {
     pub warning_condition: WarningCondition,
     /// List of warnings to enable
     pub warn_list: Option<String>,
-    /// List of alerts to enable
-    pub alert_list: Option<String>,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
     /// Preferred default C/C++ toolchain to use for native builds
@@ -121,7 +119,6 @@ pub fn compile(
         opt_level: cx.opt_level,
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),
-        alert_list: cx.alert_list.clone(),
     };
     let plan = build_plan::build_plan(
         resolve_output,
