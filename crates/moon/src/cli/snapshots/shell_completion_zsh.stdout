@@ -65,8 +65,8 @@ _arguments "${_arguments_options[@]}" : \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'--std[Enable the standard library (default)]' \
-'--nostd[Disable the standard library]' \
+'(--nostd)--std[Enable the standard library (default)]' \
+'(--std)--nostd[Disable the standard library]' \
 '-g[Emit debug information]' \
 '--debug[Emit debug information]' \
 '(-g --debug)--release[Compile in release mode]' \
@@ -106,8 +106,8 @@ _arguments "${_arguments_options[@]}" : \
 '--bin-alias=[]:BIN_ALIAS: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'--std[Enable the standard library (default)]' \
-'--nostd[Disable the standard library]' \
+'(--nostd)--std[Enable the standard library (default)]' \
+'(--std)--nostd[Disable the standard library]' \
 '-g[Emit debug information]' \
 '--debug[Emit debug information]' \
 '(-g --debug)--release[Compile in release mode]' \
@@ -150,8 +150,8 @@ _arguments "${_arguments_options[@]}" : \
 '--patch-file=[The patch file to check, Only valid when checking specified package]:PATCH_FILE:_files' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'--std[Enable the standard library (default)]' \
-'--nostd[Disable the standard library]' \
+'(--nostd)--std[Enable the standard library (default)]' \
+'(--std)--nostd[Disable the standard library]' \
 '-g[Emit debug information]' \
 '--debug[Emit debug information]' \
 '(-g --debug)--release[Compile in release mode]' \
@@ -218,8 +218,8 @@ _arguments "${_arguments_options[@]}" : \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'--std[Enable the standard library (default)]' \
-'--nostd[Disable the standard library]' \
+'(--nostd)--std[Enable the standard library (default)]' \
+'(--std)--nostd[Disable the standard library]' \
 '-g[Emit debug information]' \
 '--debug[Emit debug information]' \
 '(-g --debug)--release[Compile in release mode]' \
@@ -270,8 +270,8 @@ _arguments "${_arguments_options[@]}" : \
 '--filter=[Run only tests whose name matches the given glob pattern. Supports '\''*'\'' (matches any sequence) and '\''?'\'' (matches any single character)]:FILTER: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'--std[Enable the standard library (default)]' \
-'--nostd[Disable the standard library]' \
+'(--nostd)--std[Enable the standard library (default)]' \
+'(--std)--nostd[Disable the standard library]' \
 '-g[Emit debug information]' \
 '--debug[Emit debug information]' \
 '(-g --debug)--release[Compile in release mode]' \
@@ -420,16 +420,16 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
-'*-p+[Run test in the specified package]' \
-'*--package=[Run test in the specified package]' \
+'*-p+[Run test in the specified package]:PACKAGE: ' \
+'*--package=[Run test in the specified package]:PACKAGE: ' \
 '-f+[Run test in the specified file. Only valid when \`--package\` is also specified]:FILE: ' \
 '--file=[Run test in the specified file. Only valid when \`--package\` is also specified]:FILE: ' \
 '-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified]:INDEX: ' \
 '--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified]:INDEX: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'--std[Enable the standard library (default)]' \
-'--nostd[Disable the standard library]' \
+'(--nostd)--std[Enable the standard library (default)]' \
+'(--std)--nostd[Disable the standard library]' \
 '-g[Emit debug information]' \
 '--debug[Emit debug information]' \
 '(-g --debug)--release[Compile in release mode]' \
@@ -886,8 +886,8 @@ _arguments "${_arguments_options[@]}" : \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'--std[Enable the standard library (default)]' \
-'--nostd[Disable the standard library]' \
+'(--nostd)--std[Enable the standard library (default)]' \
+'(--std)--nostd[Disable the standard library]' \
 '-g[Emit debug information]' \
 '--debug[Emit debug information]' \
 '(-g --debug)--release[Compile in release mode]' \

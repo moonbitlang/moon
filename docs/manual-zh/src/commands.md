@@ -292,7 +292,6 @@ Test the current package
 * `--outline` — Print the outline of tests to be executed and exit
 * `--test-failure-json` — Print failure message in JSON format
 * `--patch-file <PATCH_FILE>` — Path to the patch file
-* `--doc` — Run doc test
 * `--include-skipped` — Include skipped tests. Automatically implied when `--[doc-]index` is set
 * `-F`, `--filter <FILTER>` — Run only tests whose name matches the given glob pattern. Supports '*' (matches any sequence) and '?' (matches any single character)
 

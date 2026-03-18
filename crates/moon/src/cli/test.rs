@@ -114,7 +114,7 @@ pub(crate) struct TestSubcommand {
     pub package: Option<Vec<String>>,
 
     /// Run test in the specified file. Only valid when `--package` is also specified.
-    #[clap(short, long)]
+    #[clap(short, long, requires = "package")]
     pub file: Option<String>,
 
     /// Run only the index-th test in the file. Accepts a single index or a left-inclusive
@@ -160,7 +160,7 @@ pub(crate) struct TestSubcommand {
     pub patch_file: Option<PathBuf>,
 
     /// Run doc test
-    #[clap(long = "doc")]
+    #[clap(long = "doc", hide = true)]
     pub doc_test: bool,
 
     /// Run test in single file or directory. If in a project, runs only this

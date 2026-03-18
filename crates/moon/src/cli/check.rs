@@ -71,7 +71,7 @@ pub(crate) struct CheckSubcommand {
     pub explain: bool,
 
     /// Check single file (.mbt or .mbt.md)
-    #[clap(conflicts_with = "watch", name = "PATH")]
+    #[clap(conflicts_with_all = ["watch", "package_path"], name = "PATH")]
     pub path: Option<PathBuf>,
 
     /// Check whether the code is properly formatted

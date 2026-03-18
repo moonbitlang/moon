@@ -467,6 +467,34 @@ fn debug_flag_test() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn clap_requires_and_conflicts_are_enforced_at_parse_time() {
+    let dir = TestDir::new("debug_flag_test");
+
+    let check_stderr = get_err_stderr(&dir, ["check", "-p", "lib", "lib", "--dry-run"]);
+    assert!(
+        check_stderr.contains("cannot be used with"),
+        "stderr: {check_stderr}"
+    );
+    assert!(
+        !check_stderr.contains("Failed to calculate build plan"),
+        "stderr: {check_stderr}"
+    );
+
+    let test_stderr = get_err_stderr(&dir, ["test", "--file", "hello.mbt", "--dry-run"]);
+    assert!(test_stderr.contains("--package"), "stderr: {test_stderr}");
+    assert!(test_stderr.contains("required"), "stderr: {test_stderr}");
+    assert!(
+        !test_stderr.contains("`--file` must be used with `--package`"),
+        "stderr: {test_stderr}"
+    );
+
+    let bench_stderr = get_err_stderr(&dir, ["bench", "--package", "--dry-run"]);
+    assert!(bench_stderr.contains("--package"), "stderr: {bench_stderr}");
+    assert!(bench_stderr.contains("value"), "stderr: {bench_stderr}");
+}
+
 fn assert_moonc_line(
     output: &str,
     command: &str,
