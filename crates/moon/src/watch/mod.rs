@@ -267,7 +267,20 @@ fn check_paths(
 }
 
 fn path_matches(paths: &HashSet<PathBuf>, path: &Path) -> bool {
-    paths.contains(path) || paths.contains(&normalize_watch_path(path))
+    if paths.contains(path) {
+        return true;
+    }
+
+    let normalized_path = normalize_watch_path(path);
+    if paths.contains(&normalized_path) {
+        return true;
+    }
+
+    paths.iter().any(|candidate| {
+        candidate != path
+            && candidate != &normalized_path
+            && normalize_watch_path(candidate) == normalized_path
+    })
 }
 
 fn normalize_watch_path(path: &Path) -> PathBuf {
@@ -306,8 +319,16 @@ fn run_and_print(run: impl FnOnce() -> anyhow::Result<WatchOutput>) -> Additiona
                 );
             }
             AdditionalWatchPaths {
-                ignored_paths: HashSet::from_iter(res.additional_ignored_paths),
-                watched_paths: HashSet::from_iter(res.additional_watched_paths),
+                ignored_paths: HashSet::from_iter(
+                    res.additional_ignored_paths
+                        .into_iter()
+                        .map(|path| normalize_watch_path(&path)),
+                ),
+                watched_paths: HashSet::from_iter(
+                    res.additional_watched_paths
+                        .into_iter()
+                        .map(|path| normalize_watch_path(&path)),
+                ),
             }
         }
         Err(e) => {
@@ -533,6 +554,34 @@ mod tests {
     }
 
     #[test]
+    fn rerun_triggered_for_explicitly_watched_prebuild_input_with_dot_segments() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join(BUILD_DIR);
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let file = root.join("src/lib/input.txt");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "data").unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(
+            &target_dir,
+            root,
+            &[event],
+            &AdditionalWatchPaths {
+                ignored_paths: HashSet::new(),
+                watched_paths: HashSet::from_iter([root.join("./src/lib/input.txt")]),
+            },
+        )
+        .unwrap();
+
+        assert!(result);
+    }
+
+    #[test]
     fn rerun_ignored_for_explicitly_ignored_prebuild_output() {
         use std::fs;
 
@@ -552,6 +601,34 @@ mod tests {
             &[event],
             &AdditionalWatchPaths {
                 ignored_paths: HashSet::from_iter([dunce::canonicalize(file).unwrap()]),
+                watched_paths: HashSet::new(),
+            },
+        )
+        .unwrap();
+
+        assert!(!result);
+    }
+
+    #[test]
+    fn rerun_ignored_for_explicitly_ignored_prebuild_output_with_dot_segments() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join(BUILD_DIR);
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let file = root.join("src/lib/generated.mbt");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "fn generated() {}").unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(
+            &target_dir,
+            root,
+            &[event],
+            &AdditionalWatchPaths {
+                ignored_paths: HashSet::from_iter([root.join("./src/lib/generated.mbt")]),
                 watched_paths: HashSet::new(),
             },
         )
