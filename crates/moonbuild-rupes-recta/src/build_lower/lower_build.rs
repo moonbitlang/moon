@@ -122,12 +122,10 @@ impl<'a> BuildPlanLowerContext<'a> {
         let warn_config = if self.is_module_third_party(pkg.module) || allow_warn {
             // Third-party modules don't have any warnings enabled explicitly.
             compiler::WarnAlertConfig::Suppress
+        } else if let Some(w) = &info.warn_list {
+            compiler::WarnAlertConfig::List(w.into())
         } else {
-            if let Some(w) = &info.warn_list {
-                compiler::WarnAlertConfig::List(w.into())
-            } else {
-                compiler::WarnAlertConfig::default()
-            }
+            compiler::WarnAlertConfig::default()
         };
 
         // Workspace settings
