@@ -189,7 +189,7 @@ fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
     match ms.source() {
         ModuleSourceKind::Local(_) => {
             log::warn!(
-                "A git dependency was skipped during version resolution: {}",
+                "A local dependency was skipped during version resolution: {}",
                 ms
             );
         }
