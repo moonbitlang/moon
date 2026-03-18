@@ -203,6 +203,24 @@ fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
     }
 }
 
+fn workspace_version_override_warning(
+    req: &SourceDependencyInfo,
+    dependant: &ModuleSource,
+    workspace_member: &ModuleSource,
+) -> Option<String> {
+    if req.version.comparators.is_empty() || req.version.matches(workspace_member.version()) {
+        return None;
+    }
+
+    Some(format!(
+        "Workspace member `{}` overrides dependency requirement `{}` for `{}` from `{}`. This build uses the workspace copy, but resolution outside the workspace may differ.",
+        workspace_member,
+        req.version,
+        workspace_member.name(),
+        dependant,
+    ))
+}
+
 fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
     let workspace_roots = res
         .input_module_ids()
@@ -415,6 +433,9 @@ fn resolve_pkg(
     pkg_name: &ModuleName,
 ) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
     if let Some((source, module)) = workspace_roots.get(pkg_name) {
+        if let Some(warning) = workspace_version_override_warning(req, dependant, source) {
+            log::warn!("{warning}");
+        }
         log::debug!(
             "---- Dependency {} resolved to workspace module {}",
             pkg_name,
@@ -941,6 +962,49 @@ mod test {
 
         assert_depends_on_source(&result, &app_src, &shared_src);
         assert_no_depends_on_source(&result, &app_src, &"dep/shared@0.2.0".parse().unwrap());
+    }
+
+    #[test]
+    fn test_workspace_version_override_warning_for_incompatible_req() {
+        let app = Arc::new(create_mock_module(
+            "workspace/app",
+            "0.1.0",
+            [("dep/shared", "0.2.0")],
+        ));
+        let shared = Arc::new(create_mock_module("dep/shared", "0.1.0", []));
+        let app_src = create_mock_workspace_source(&app, "/workspace/app");
+        let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
+        let req = SourceDependencyInfo {
+            version: VersionReq::parse("0.2.0").unwrap(),
+            ..Default::default()
+        };
+
+        let warning = workspace_version_override_warning(&req, &app_src, &shared_src)
+            .expect("expected mismatch warning");
+
+        expect![[r#"Workspace member `dep/shared@0.1.0 (local /workspace/shared)` overrides dependency requirement `^0.2.0` for `dep/shared` from `workspace/app@0.1.0 (local /workspace/app)`. This build uses the workspace copy, but resolution outside the workspace may differ."#]]
+        .assert_eq(&warning);
+    }
+
+    #[test]
+    fn test_workspace_version_override_warning_is_silent_for_compatible_req() {
+        let app = Arc::new(create_mock_module(
+            "workspace/app",
+            "0.1.0",
+            [("dep/shared", "0.1.0")],
+        ));
+        let shared = Arc::new(create_mock_module("dep/shared", "0.1.1", []));
+        let app_src = create_mock_workspace_source(&app, "/workspace/app");
+        let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
+        let req = SourceDependencyInfo {
+            version: VersionReq::parse("0.1.0").unwrap(),
+            ..Default::default()
+        };
+
+        assert!(
+            workspace_version_override_warning(&req, &app_src, &shared_src).is_none(),
+            "compatible workspace override should not warn",
+        );
     }
 
     fn resolve(registry: &dyn Registry, root: Arc<MoonMod>) -> Vec<ModuleSource> {
