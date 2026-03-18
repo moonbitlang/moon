@@ -261,7 +261,7 @@ _arguments "${_arguments_options[@]}" : \
 '--file=[Run test in the specified file. Only valid when \`--package\` is also specified]:FILE: ' \
 '-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified. Implies \`--include-skipped\`]:INDEX: ' \
 '--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified. Implies \`--include-skipped\`]:INDEX: ' \
-'(-i --index)--doc-index=[Run only the index-th doc test in the file. Only valid when \`--file\` is also specified. Implies \`--include-skipped\`]:DOC_INDEX: ' \
+'--doc-index=[Run only the index-th doc test in the file. Only valid when \`--file\` is also specified. Implies \`--include-skipped\`]:DOC_INDEX: ' \
 '-l+[Limit of expect test update passes to run, in order to avoid infinite loops]:LIMIT: ' \
 '--limit=[Limit of expect test update passes to run, in order to avoid infinite loops]:LIMIT: ' \
 '(-u --update)--patch-file=[Path to the patch file]:PATCH_FILE:_files' \
@@ -1019,8 +1019,8 @@ _arguments "${_arguments_options[@]}" : \
 '--name=[]:NAME: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'(--text)--binary[]' \
-'(--binary)--text[]' \
+'--binary[]' \
+'--text[]' \
 '--timestamp[]' \
 '-q[Suppress output]' \
 '--quiet[Suppress output]' \
@@ -1055,7 +1055,7 @@ _arguments "${_arguments_options[@]}" : \
 '--install-path=[The parent directory where the binary module is installed to]:INSTALL_PATH:_files' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'()--all-pkgs[Whether to build and install all binary packages in the module]' \
+'--all-pkgs[Whether to build and install all binary packages in the module]' \
 '-q[Suppress output]' \
 '--quiet[Suppress output]' \
 '-v[Increase verbosity]' \
