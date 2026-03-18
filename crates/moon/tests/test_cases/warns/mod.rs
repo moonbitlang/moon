@@ -131,64 +131,89 @@ fn test_warn_list_real_run() {
 }
 
 #[test]
-fn test_alert_list() {
+fn test_warn_list_alerts() {
     // TODO: Audit that the environment access only happens in single-threaded code.
     unsafe { std::env::set_var("NO_COLOR", "1") };
-    let dir = TestDir::new("warns/alert_list");
+    let dir = TestDir::new("warns/warn_list_alerts");
 
-    // don't set -alert & -w if it's empty string
+    // don't set -w if it's empty string
     check(
-        get_stdout(&dir, ["check", "--sort-input", "--dry-run"]),
+        get_stdout(
+            &dir,
+            [
+                "check",
+                "--manifest-path",
+                "a/moon.mod.json",
+                "--sort-input",
+                "--dry-run",
+            ],
+        ),
         expect![[r#"
-            moonc check ./lib/hello.mbt -w -2 -alert -alert_1-alert_2 -o ./_build/wasm-gc/debug/check/lib/lib.mi -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check ./main/main.mbt -w -1-2 -alert -alert_1 -o ./_build/wasm-gc/debug/check/main/main.mi -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check -doctest-only ./main/main.mbt -include-doctests -w -1-2 -alert -alert_1 -o ./_build/wasm-gc/debug/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i ./_build/wasm-gc/debug/check/main/main.mi:main -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check ./lib2/hello.mbt -o ./_build/wasm-gc/debug/check/lib2/lib2.mi -pkg username/hello/lib2 -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check -doctest-only ./lib2/hello.mbt -include-doctests -o ./_build/wasm-gc/debug/check/lib2/lib2.blackbox_test.mi -pkg username/hello/lib2_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib2/lib2.mi:lib2 -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib2_blackbox_test:./lib2 -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check -doctest-only ./lib/hello.mbt -include-doctests -w -2 -alert -alert_1-alert_2 -o ./_build/wasm-gc/debug/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check $ROOT/b/hello.mbt -w -a -o ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi -pkg username/b -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:$ROOT/b -target wasm-gc -workspace-path $ROOT/b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check ./main.mbt -o ./_build/wasm-gc/debug/check/a.mi -pkg username/a -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a:. -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check -doctest-only ./main.mbt -include-doctests -o ./_build/wasm-gc/debug/check/a.blackbox_test.mi -pkg username/a_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/a.mi:a -i ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a_blackbox_test:. -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
         "#]],
     );
 
     check(
-        get_stderr(&dir, ["build", "--sort-input"]),
+        get_stderr(
+            &dir,
+            [
+                "check",
+                "--manifest-path",
+                "a/moon.mod.json",
+                "--sort-input",
+            ],
+        ),
         expect![[r#"
-            Finished. moon: ran 3 tasks, now up to date
+            Warning: [0014]
+               ╭─[ $ROOT/a/main.mbt:2:3 ]
+               │
+             2 │   @b.internal_one()
+               │   ───────┬───────  
+               │          ╰───────── Warning (alert_one): one
+            ───╯
+            Warning: [0014]
+               ╭─[ $ROOT/a/main.mbt:3:3 ]
+               │
+             3 │   @b.internal_two()
+               │   ───────┬───────  
+               │          ╰───────── Warning (alert_two): two
+            ───╯
+            Finished. moon: ran 3 tasks, now up to date (2 warnings, 0 errors)
         "#]],
     );
 
     check(
-        get_stdout(&dir, ["test", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["test", "--manifest-path", "a/moon.mod.json", "--sort-input"],
+        ),
         expect![[r#"
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    );
-
-    check(
-        get_stderr(&dir, ["bundle", "--sort-input"]),
-        expect![[r#"
-            Finished. moon: ran 4 tasks, now up to date
-        "#]],
-    );
-
-    check(
-        get_stderr(&dir, ["check", "--sort-input"]),
-        expect![[r#"
-            Finished. moon: ran 6 tasks, now up to date
+            Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
 }
 
 #[test]
-fn test_mod_level_warn_alert_list() {
+fn test_mod_level_warn_list_alerts() {
     let dir = TestDir::new("warns/mod_level");
 
     check(
-        get_stdout(&dir, ["check", "--dry-run"]),
+        get_stdout(
+            &dir,
+            [
+                "check",
+                "--manifest-path",
+                "a/moon.mod.json",
+                "--dry-run",
+                "--sort-input",
+            ],
+        ),
         expect![[r#"
-            moonc check ./lib/hello.mbt -w -1 -alert -alert_1 -o ./_build/wasm-gc/debug/check/lib/lib.mi -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check ./main/main.mbt -w -1-2 -alert -alert_1-alert_2 -o ./_build/wasm-gc/debug/check/main/main.mi -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check -doctest-only ./main/main.mbt -include-doctests -w -1-2 -alert -alert_1-alert_2 -o ./_build/wasm-gc/debug/check/main/main.blackbox_test.mi -pkg username/hello/main_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i ./_build/wasm-gc/debug/check/main/main.mi:main -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main_blackbox_test:./main -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check -doctest-only ./lib/hello.mbt -include-doctests -w -1 -alert -alert_1 -o ./_build/wasm-gc/debug/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check $ROOT/b/hello.mbt -w -a -o ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi -pkg username/b -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:$ROOT/b -target wasm-gc -workspace-path $ROOT/b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check ./main.mbt -w -alert_one-alert_two -o ./_build/wasm-gc/debug/check/a.mi -pkg username/a -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a:. -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check -doctest-only ./main.mbt -include-doctests -w -alert_one-alert_two -o ./_build/wasm-gc/debug/check/a.blackbox_test.mi -pkg username/a_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/a.mi:a -i ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a_blackbox_test:. -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
         "#]],
     );
 }

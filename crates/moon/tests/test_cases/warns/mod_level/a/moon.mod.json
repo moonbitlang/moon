@@ -1,0 +1,10 @@
+{
+  "name": "username/a",
+  "version": "0.1.0",
+  "warn-list": "-alert_one",
+  "deps": {
+    "username/b": {
+      "path": "../b"
+    }
+  }
+}

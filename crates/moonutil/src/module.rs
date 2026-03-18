@@ -60,7 +60,6 @@ pub struct MoonMod {
     pub ext: serde_json_lenient::Value,
 
     pub warn_list: Option<String>,
-    pub alert_list: Option<String>,
 
     pub include: Option<Vec<String>>,
     pub exclude: Option<Vec<String>>,
@@ -144,13 +143,6 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warn_list: Option<String>,
 
-    /// Alert list setting of the module
-    ///     
-    /// Please use `warn-list` instead. For example, `"warn-list": "-deprecated"` or `"warn-list": "-alert_unsafe"`.
-    #[deprecated = r#"Please use `warn-list` instead. For example, `"warn-list": "-deprecated"` or `"warn-list": "-alert_unsafe"`"#]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alert_list: Option<String>,
-
     /// Files to include when publishing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include: Option<Vec<String>>,
@@ -222,7 +214,6 @@ impl TryFrom<MoonModJSON> for MoonMod {
         resolve_supported_targets(j.supported_targets.as_ref())
             .map_err(MoonModJSONFormatErrorKind::SupportedTargets)?;
 
-        #[allow(deprecated)]
         Ok(MoonMod {
             name: j.name,
             version,
@@ -240,7 +231,6 @@ impl TryFrom<MoonModJSON> for MoonMod {
             source,
             ext: j.ext,
 
-            alert_list: j.alert_list,
             warn_list: j.warn_list,
 
             include: j.include,
@@ -255,7 +245,6 @@ impl TryFrom<MoonModJSON> for MoonMod {
     }
 }
 
-#[allow(deprecated)]
 pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
     MoonModJSON {
         name: m.name,
@@ -276,7 +265,6 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         source: m.source,
         ext: m.ext,
 
-        alert_list: m.alert_list,
         warn_list: m.warn_list,
 
         include: m.include,

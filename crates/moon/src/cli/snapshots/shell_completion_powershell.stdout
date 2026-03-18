@@ -90,7 +90,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;bundle' {
             [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
-            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
@@ -128,7 +127,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;build' {
             [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
-            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
@@ -171,7 +169,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;check' {
             [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
-            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
@@ -215,7 +212,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;prove' {
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
-            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
@@ -240,7 +236,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;run' {
             [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
-            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
@@ -278,7 +273,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;test' {
             [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
-            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
@@ -431,7 +425,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;bench' {
             [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
-            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
@@ -824,7 +817,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         'moon;query' {
             [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
-            [CompletionResult]::new('--alert-list', 'alert-list', [CompletionResultType]::ParameterName, 'Alert list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')

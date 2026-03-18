@@ -80,7 +80,6 @@ complete -c moon -n "__fish_moon_using_subcommand new" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand new" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l warn-list -d 'Warn list config' -r
-complete -c moon -n "__fish_moon_using_subcommand bundle" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand bundle" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
@@ -109,7 +108,6 @@ complete -c moon -n "__fish_moon_using_subcommand bundle" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand bundle" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand build" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand build" -l warn-list -d 'Warn list config' -r
-complete -c moon -n "__fish_moon_using_subcommand build" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand build" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand build" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand build" -l install-path -r -F
@@ -142,7 +140,6 @@ complete -c moon -n "__fish_moon_using_subcommand build" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand build" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand check" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand check" -l warn-list -d 'Warn list config' -r
-complete -c moon -n "__fish_moon_using_subcommand check" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand check" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand check" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand check" -s p -l package-path -d 'The package(and it\'s deps) to check' -r -F
@@ -175,7 +172,6 @@ complete -c moon -n "__fish_moon_using_subcommand check" -l dry-run -d 'Do not a
 complete -c moon -n "__fish_moon_using_subcommand check" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand check" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand prove" -l warn-list -d 'Warn list config' -r
-complete -c moon -n "__fish_moon_using_subcommand prove" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand prove" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand prove" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand prove" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
@@ -192,7 +188,6 @@ complete -c moon -n "__fish_moon_using_subcommand prove" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand prove" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand run" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand run" -l warn-list -d 'Warn list config' -r
-complete -c moon -n "__fish_moon_using_subcommand run" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand run" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand run" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand run" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
@@ -221,7 +216,6 @@ complete -c moon -n "__fish_moon_using_subcommand run" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand run" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand test" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand test" -l warn-list -d 'Warn list config' -r
-complete -c moon -n "__fish_moon_using_subcommand test" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand test" -s p -l package -d 'Run test in the specified package' -r
@@ -326,7 +320,6 @@ complete -c moon -n "__fish_moon_using_subcommand info" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand info" -s h -l help -d 'Print help (see more with \'--help\')'
 complete -c moon -n "__fish_moon_using_subcommand bench" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand bench" -l warn-list -d 'Warn list config' -r
-complete -c moon -n "__fish_moon_using_subcommand bench" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand bench" -s p -l package -d 'Run test in the specified package' -r
@@ -554,7 +547,6 @@ complete -c moon -n "__fish_moon_using_subcommand generate-build-matrix" -l buil
 complete -c moon -n "__fish_moon_using_subcommand generate-build-matrix" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand query" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand query" -l warn-list -d 'Warn list config' -r
-complete -c moon -n "__fish_moon_using_subcommand query" -l alert-list -d 'Alert list config' -r
 complete -c moon -n "__fish_moon_using_subcommand query" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand query" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
 complete -c moon -n "__fish_moon_using_subcommand query" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F

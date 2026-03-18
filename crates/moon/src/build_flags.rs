@@ -89,10 +89,6 @@ pub struct BuildFlags {
     #[clap(long, allow_hyphen_values = true)]
     pub warn_list: Option<String>,
 
-    /// Alert list config
-    #[clap(long, allow_hyphen_values = true)]
-    pub alert_list: Option<String>,
-
     /// Enable value tracing
     #[clap(long, hide = true)]
     pub enable_value_tracing: bool,
@@ -125,7 +121,6 @@ impl Default for BuildFlags {
             no_render: false,
             output_json: false,
             warn_list: None,
-            alert_list: None,
             enable_value_tracing: false,
             jobs: None,
             render_no_loc: DiagnosticLevel::Error,

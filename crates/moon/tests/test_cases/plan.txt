@@ -24,8 +24,8 @@ Backend Configuration
 Warning and Alert Handling
   - test_warn_list_dry_run
   - test_warn_list_real_run
-  - test_alert_list
-  - test_mod_level_warn_alert_list
+  - test_warn_list_alerts
+  - test_mod_level_warn_list_alerts
   - test_deny_warn
   - test_no_warn_deps
 

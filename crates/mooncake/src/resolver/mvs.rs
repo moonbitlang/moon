@@ -612,7 +612,6 @@ mod test {
                 source: None,
                 ext: Null,
                 warn_list: None,
-                alert_list: None,
                 include: None,
                 exclude: None,
                 preferred_target: None,

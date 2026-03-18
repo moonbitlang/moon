@@ -169,10 +169,9 @@ pub(crate) struct BuildCommonConfig<'a> {
     // Basic command structure
     pub error_format: ErrorFormat,
 
-    // Warning and alert configuration
+    // Warning configuration
     pub deny_warn: bool,
     pub warn_config: WarnAlertConfig<'a>,
-    pub alert_config: WarnAlertConfig<'a>,
 
     // Input files
 
@@ -206,7 +205,6 @@ impl<'a> Default for BuildCommonConfig<'a> {
             error_format: ErrorFormat::Regular,
             deny_warn: false,
             warn_config: WarnAlertConfig::Default,
-            alert_config: WarnAlertConfig::Default,
             is_main: false,
             stdlib_core_file: None,
             workspace_root: None,
@@ -227,17 +225,12 @@ impl<'a> BuildCommonConfig<'a> {
         }
     }
 
-    /// Add custom warning/alert list arguments
-    pub(crate) fn add_custom_warn_alert_lists(&self, args: &mut Vec<String>) {
+    /// Add custom warning list arguments
+    pub(crate) fn add_custom_warn_list(&self, args: &mut Vec<String>) {
         if let WarnAlertConfig::List(warn_list) = &self.warn_config
             && !warn_list.is_empty()
         {
             args.extend(["-w".to_string(), warn_list.to_string()]);
-        }
-        if let WarnAlertConfig::List(alert_list) = &self.alert_config
-            && !alert_list.is_empty()
-        {
-            args.extend(["-alert".to_string(), alert_list.to_string()]);
         }
     }
 

@@ -72,8 +72,8 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
         // Include doctests for blackbox
         self.required.add_include_doctests_if_blackbox(args);
 
-        // Custom warning/alert lists
-        self.defaults.add_custom_warn_alert_lists(args);
+        // Custom warning list
+        self.defaults.add_custom_warn_list(args);
         self.defaults.add_warn_alert_allow_all(args);
 
         // Output
