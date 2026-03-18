@@ -261,13 +261,13 @@ fn warn_main_package_dependencies(dep: &DepRelationship, packages: &DiscoverResu
             };
 
             tracing::warn!(
-                "Package `{}` depends on main package `{}` via `{}` in \"{}\". \
+                "Package `{}` depends on main package `{}` via `{}` in package directory \"{}\". \
 This dependency will become an error in a future release. \
 Move reusable APIs into a non-main package and keep main packages as entrypoints.",
                 importer_pkg.fqn,
                 dependency_pkg.fqn,
                 import_field,
-                importer_pkg.config_path().display(),
+                importer_pkg.root_path.display(),
             );
         }
     }
