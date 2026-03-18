@@ -31,7 +31,7 @@ pub mod special_case;
 pub mod synth;
 
 pub use model::{DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage};
-use moonutil::common::is_moon_pkg_exist;
+use moonutil::common::{PackageSourceFileKind, is_moon_pkg_exist, package_source_file_kind};
 
 use std::{
     path::{Path, PathBuf},
@@ -364,18 +364,15 @@ fn discover_one_package(
             .file_name()
             .expect("We are listing a dir, file should have name");
         let filename_str = filename.to_string_lossy();
-        if filename_str.ends_with(".mbt") {
-            source_files.push(path)
-        } else if filename_str.ends_with(".mbt.md") {
-            mbt_md_files.push(path);
-        } else if filename_str.ends_with(".mbtp") {
-            mbtp_files.push(path);
-        } else if filename_str.ends_with(".mbl") {
-            mbt_lex_files.push(path);
-        } else if filename_str.ends_with(".mby") {
-            mbt_yacc_files.push(path);
-        } else {
-            // File is not one of our expected types, skip
+        match package_source_file_kind(&filename_str) {
+            Some(PackageSourceFileKind::Mbt) => source_files.push(path),
+            Some(PackageSourceFileKind::MbtMd) => mbt_md_files.push(path),
+            Some(PackageSourceFileKind::Mbtp) => mbtp_files.push(path),
+            Some(PackageSourceFileKind::Mbl) => mbt_lex_files.push(path),
+            Some(PackageSourceFileKind::Mby) => mbt_yacc_files.push(path),
+            None => {
+                // File is not one of our expected types, skip
+            }
         }
     }
 

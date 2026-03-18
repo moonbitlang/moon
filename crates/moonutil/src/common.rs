@@ -74,6 +74,7 @@ pub const WHITEBOX_TEST_PATCH: &str = "_wbtest.json";
 pub const BLACKBOX_TEST_PATCH: &str = "_test.json";
 
 pub const DOT_MBT_DOT_MD: &str = ".mbt.md";
+pub const DOT_MBTP: &str = ".mbtp";
 pub const DOT_MBL: &str = ".mbl";
 pub const DOT_MBY: &str = ".mby";
 
@@ -106,6 +107,73 @@ pub fn is_moon_pkg_exist(dir: &Path) -> bool {
 
 pub fn is_moon_pkg(filename: &str) -> bool {
     filename == MOON_PKG || filename == MOON_PKG_JSON
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageSourceFileKind {
+    Mbt,
+    MbtMd,
+    Mbtp,
+    Mbl,
+    Mby,
+}
+
+pub fn package_source_file_kind(filename: &str) -> Option<PackageSourceFileKind> {
+    if filename.ends_with(".mbt") {
+        Some(PackageSourceFileKind::Mbt)
+    } else if filename.ends_with(DOT_MBT_DOT_MD) {
+        Some(PackageSourceFileKind::MbtMd)
+    } else if filename.ends_with(DOT_MBTP) {
+        Some(PackageSourceFileKind::Mbtp)
+    } else if filename.ends_with(DOT_MBL) {
+        Some(PackageSourceFileKind::Mbl)
+    } else if filename.ends_with(DOT_MBY) {
+        Some(PackageSourceFileKind::Mby)
+    } else {
+        None
+    }
+}
+
+pub fn is_watch_relevant_project_file(filename: &str) -> bool {
+    package_source_file_kind(filename).is_some()
+        || is_moon_pkg(filename)
+        || filename == MOON_MOD_JSON
+        || filename == MOON_WORK
+}
+
+#[test]
+fn package_source_file_kind_detects_supported_package_inputs() {
+    assert_eq!(
+        package_source_file_kind("main.mbt"),
+        Some(PackageSourceFileKind::Mbt)
+    );
+    assert_eq!(
+        package_source_file_kind("guide.mbt.md"),
+        Some(PackageSourceFileKind::MbtMd)
+    );
+    assert_eq!(
+        package_source_file_kind("proof.mbtp"),
+        Some(PackageSourceFileKind::Mbtp)
+    );
+    assert_eq!(
+        package_source_file_kind("lexer.mbl"),
+        Some(PackageSourceFileKind::Mbl)
+    );
+    assert_eq!(
+        package_source_file_kind("parser.mby"),
+        Some(PackageSourceFileKind::Mby)
+    );
+    assert_eq!(package_source_file_kind("moon.pkg"), None);
+}
+
+#[test]
+fn watch_relevant_project_file_covers_sources_and_manifests() {
+    assert!(is_watch_relevant_project_file("moon.mod.json"));
+    assert!(is_watch_relevant_project_file("moon.work.json"));
+    assert!(is_watch_relevant_project_file("moon.pkg"));
+    assert!(is_watch_relevant_project_file("moon.pkg.json"));
+    assert!(is_watch_relevant_project_file("lexer.mbl"));
+    assert!(!is_watch_relevant_project_file("README.md"));
 }
 
 #[derive(Debug, Deserialize)]
