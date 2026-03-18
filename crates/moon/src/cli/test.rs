@@ -468,6 +468,82 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
     }
 }
 
+/// Plan `moon test`/`moon bench` once and return the pieces needed for either
+/// execution or inspection.
+///
+/// The normal CLI path resolves and plans here, while unit tests can skip the
+/// resolve step and reuse [`plan_test_or_bench_rr_from_resolved`].
+pub(crate) fn plan_test_or_bench_rr(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+    );
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir)?;
+    plan_test_or_bench_rr_from_resolved(
+        cli,
+        cmd,
+        target_dir,
+        selected_target_backend,
+        resolve_output,
+    )
+}
+
+pub(crate) fn plan_test_or_bench_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
+    // Keep the planning flow explicit:
+    // 1. derive the effective build flags used by test/bench,
+    // 2. build the compile preconfig,
+    // 3. let RR turn resolved packages plus user intent into a graph and filter.
+    let build_flags = BuildFlags {
+        no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
+        ..cmd.build_flags.clone()
+    };
+    let mut preconfig = preconfig_compile(
+        cmd.auto_sync_flags,
+        cli,
+        &build_flags,
+        selected_target_backend,
+        target_dir,
+        if cmd.run_mode == RunMode::Bench {
+            RunMode::Bench
+        } else {
+            RunMode::Test
+        },
+    );
+
+    // Match the legacy dry-run graph shape for `moon test`.
+    if cmd.run_mode != RunMode::Bench {
+        preconfig.try_tcc_run = true;
+    }
+
+    let mut filter = TestFilter {
+        name_filter: cmd.filter.clone(),
+        ..Default::default()
+    };
+    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+        preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        Box::new(|resolved, target_backend| {
+            calc_user_intent(resolved, cmd, &mut filter, target_backend)
+        }),
+        resolve_output,
+    )?;
+    Ok((build_meta, build_graph, filter))
+}
+
 #[instrument(skip_all)]
 pub(crate) fn run_test_or_bench_internal(
     cli: &UniversalFlags,
@@ -492,6 +568,7 @@ pub(crate) fn run_test_or_bench_internal(
         no_parallelize = cmd.no_parallelize,
         "cli filter state"
     );
+
     // Accept -i/--doc-index when the positional PATH refers to a file; otherwise they require --file.
     // explicit_is_file is true only when PATH is an existing regular file.
     let explicit_is_file = cmd.explicit_file_filter.is_some_and(|p| p.is_file());
@@ -533,48 +610,8 @@ fn run_test_rr(
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<i32, anyhow::Error> {
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
-    let is_bench = cmd.run_mode == RunMode::Bench;
-
-    // MAINTAINERS: This is to match the legacy behavior of `moon test` always
-    // emitting debug info regardless of `--release` flag. This may result in
-    // both `debug=true` and `release=true` and it's expected behavior. It
-    // should be removed once https://github.com/moonbitlang/moon/pull/1153 is
-    // in place.
-    let build_flags = BuildFlags {
-        no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
-        ..cmd.build_flags.clone()
-    };
-
-    let mut preconfig = preconfig_compile(
-        cmd.auto_sync_flags,
-        cli,
-        &build_flags,
-        selected_target_backend,
-        target_dir,
-        if cmd.run_mode == RunMode::Bench {
-            RunMode::Bench
-        } else {
-            RunMode::Test
-        },
-    );
-    // Enable tcc-run for tests regardless of dry-run so the graph shape matches legacy.
-    if !is_bench {
-        preconfig.try_tcc_run = true;
-    }
-
-    let mut filter = TestFilter {
-        name_filter: cmd.filter.clone(),
-        ..Default::default()
-    };
-    let (build_meta, build_graph) = rr_build::plan_build(
-        preconfig,
-        &cli.unstable_feature,
-        source_dir,
-        target_dir,
-        Box::new(|resolved, target_backend| {
-            calc_user_intent(resolved, cmd, &mut filter, target_backend)
-        }),
-    )?;
+    let (build_meta, build_graph, filter) =
+        plan_test_or_bench_rr(cli, cmd, source_dir, target_dir, selected_target_backend)?;
     debug!(
         artifact_count = build_meta.artifacts.len(),
         "planned rupes-recta build graph"

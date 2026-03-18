@@ -29,6 +29,8 @@ mod filter;
 mod panic;
 pub mod rr_build;
 mod run;
+#[cfg(test)]
+mod tests;
 mod watch;
 
 use colored::*;

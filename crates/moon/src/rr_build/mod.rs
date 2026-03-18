@@ -958,6 +958,13 @@ pub struct BuildInput {
     db_path: PathBuf,
 }
 
+#[cfg(test)]
+impl BuildInput {
+    pub(crate) fn graph_for_test(&self) -> &n2::graph::Graph {
+        &self.graph
+    }
+}
+
 /// Execute a build plan.
 ///
 /// Takes ownership of the build graph and executes the actual build tasks.

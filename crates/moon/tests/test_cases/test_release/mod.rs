@@ -1,25 +1,10 @@
-use expect_test::{expect, expect_file};
+use expect_test::expect;
 
-use crate::{TestDir, build_graph::compare_graphs, get_stdout, snap_dry_run_graph, util::check};
+use crate::{TestDir, get_stdout, util::check};
 
 #[test]
 fn test_moon_test_release() {
     let dir = TestDir::new("test_release");
-
-    let graph_file = dir.join("dry_run_graph.jsonl");
-    snap_dry_run_graph(&dir, ["test", "--dry-run", "--sort-input"], &graph_file);
-    compare_graphs(&graph_file, expect_file!["dry_run_graph.jsonl.snap"]);
-
-    let graph_file = dir.join("release_dry_run_graph.jsonl");
-    snap_dry_run_graph(
-        &dir,
-        ["test", "--release", "--dry-run", "--sort-input"],
-        &graph_file,
-    );
-    compare_graphs(
-        &graph_file,
-        expect_file!["release_dry_run_graph.jsonl.snap"],
-    );
 
     check(
         get_stdout(

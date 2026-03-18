@@ -1,0 +1,122 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2024 International Digital Economy Academy
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use clap::Parser;
+use moonbuild_debug::graph::debug_dump_build_graph;
+use std::path::PathBuf;
+
+use moonbuild_rupes_recta::ResolveOutput;
+use moonutil::{cli::UniversalFlags, common::TargetBackend};
+
+use crate::cli::{
+    BenchSubcommand, MoonBuildCli, MoonBuildSubcommands, TestLikeSubcommand, TestSubcommand,
+};
+
+pub(super) struct PlanningFixture {
+    source_dir: PathBuf,
+    resolve_output: ResolveOutput,
+}
+
+impl PlanningFixture {
+    pub(super) fn new(case: &str) -> anyhow::Result<Self> {
+        let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+        // These planner tests only inspect graph construction, so they can use
+        // the checked-in fixture directly without copying it to a temp directory.
+        let source_dir = dunce::canonicalize(case_root.join(case))?;
+        let resolve_cfg =
+            moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(true, false, false);
+        let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir)?;
+        Ok(Self {
+            source_dir,
+            resolve_output,
+        })
+    }
+
+    pub(super) fn plan_test_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &TestSubcommand,
+    ) -> anyhow::Result<String> {
+        let borrowed: TestLikeSubcommand<'_> = cmd.into();
+        self.plan(
+            cli,
+            &borrowed,
+            cmd.build_flags.resolve_single_target_backend()?,
+        )
+    }
+
+    pub(super) fn plan_bench_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &BenchSubcommand,
+    ) -> anyhow::Result<String> {
+        let borrowed: TestLikeSubcommand<'_> = cmd.into();
+        self.plan(
+            cli,
+            &borrowed,
+            cmd.build_flags.resolve_single_target_backend()?,
+        )
+    }
+
+    fn plan(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &TestLikeSubcommand<'_>,
+        selected_target_backend: Option<TargetBackend>,
+    ) -> anyhow::Result<String> {
+        let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
+            cli,
+            cmd,
+            &self.source_dir.join("_build"),
+            selected_target_backend,
+            self.resolve_output.clone(),
+        )?;
+        let graph = build_graph.graph_for_test();
+        let default_files = build_meta
+            .artifacts
+            .values()
+            .flat_map(|art| {
+                art.artifacts
+                    .iter()
+                    .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
+            })
+            .collect::<Vec<_>>();
+        let dump = debug_dump_build_graph(graph, &default_files, &self.source_dir);
+        let mut out = Vec::new();
+        dump.dump_to(&mut out).expect("graph dump should serialize");
+        Ok(String::from_utf8(out).expect("graph dump should be valid UTF-8"))
+    }
+}
+
+pub(super) fn parse_test_command(args: &[&str]) -> (UniversalFlags, TestSubcommand) {
+    let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
+        .expect("test command should parse");
+    let MoonBuildSubcommands::Test(cmd) = parsed.subcommand else {
+        panic!("expected `moon test` to parse as the test subcommand");
+    };
+    (parsed.flags, cmd)
+}
+
+pub(super) fn parse_bench_command(args: &[&str]) -> (UniversalFlags, BenchSubcommand) {
+    let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
+        .expect("bench command should parse");
+    let MoonBuildSubcommands::Bench(cmd) = parsed.subcommand else {
+        panic!("expected `moon bench` to parse as the bench subcommand");
+    };
+    (parsed.flags, cmd)
+}

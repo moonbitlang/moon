@@ -702,35 +702,6 @@ fn test_moon_parallelism() {
 }
 
 #[test]
-fn test_moon_test_filter_package_dry_run() {
-    let dir = TestDir::new("test_filter/test_filter");
-
-    let graph_file = dir.join("test_graph_filter_a.jsonl");
-    snap_dry_run_graph(
-        &dir,
-        [
-            "test",
-            "-p",
-            "username/hello/A",
-            "--dry-run",
-            "--sort-input",
-        ],
-        &graph_file,
-    );
-    compare_graphs(
-        &graph_file,
-        expect_file!["test_filter_dry_run_filter_a.jsonl.snap"],
-    );
-
-    let graph_file = dir.join("test_graph_no_filter.jsonl");
-    snap_dry_run_graph(&dir, ["test", "--dry-run", "--sort-input"], &graph_file);
-    compare_graphs(
-        &graph_file,
-        expect_file!["test_filter_dry_run_no_filter.jsonl.snap"],
-    );
-}
-
-#[test]
 fn test_moon_test_filter_file() {
     let dir = TestDir::new("test_filter/test_filter");
 
