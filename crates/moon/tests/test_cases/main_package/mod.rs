@@ -18,7 +18,7 @@ fn test_warn_on_dependencies_to_main_packages() {
         "stderr: {stderr}"
     );
     assert!(
-        stderr.contains("$ROOT/lib/moon.pkg.json"),
+        stderr.contains("package directory \"$ROOT/lib\""),
         "stderr: {stderr}"
     );
 }
@@ -35,7 +35,7 @@ fn test_warn_on_main_package_blackbox_inputs() {
     assert!(stderr.contains("`_test.mbt` files"), "stderr: {stderr}");
     assert!(stderr.contains("`.mbt.md` files"), "stderr: {stderr}");
     assert!(
-        stderr.contains("$ROOT/main/moon.pkg.json"),
+        stderr.contains("package directory \"$ROOT/main\""),
         "stderr: {stderr}"
     );
 }

@@ -498,12 +498,12 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         warn!(
-            "Main package `{}` uses blackbox-only test inputs ({}) in \"{}\". \
+            "Main package `{}` uses blackbox-only test inputs ({}) in package directory \"{}\". \
 Main packages will stop generating blackbox tests in a future release. \
 Move public behavior into a non-main package and keep the main package as an entrypoint.",
             pkg.fqn,
             blackbox_inputs.join(", "),
-            pkg.config_path().display(),
+            pkg.root_path.display(),
         );
     }
 

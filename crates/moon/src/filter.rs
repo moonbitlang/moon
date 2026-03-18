@@ -27,7 +27,7 @@ use std::{
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
-use moonutil::common::{MOON_PKG, TargetBackend};
+use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend, is_moon_pkg_exist};
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
@@ -200,28 +200,47 @@ pub(crate) fn report_package_not_found(
     }
 
     // Report the hint on why it might not work
-    let hint = if let Some(mid) = inside_module_pkgs {
+    let missing_pkg_desc = !is_moon_pkg_exist(input_path);
+
+    let hint = if let Some(mid) = inside_module_pkgs.or(inside_module_root) {
         let (m_def, module_dir) = m_def_and_dir(mid);
         let m_packages_root = module_dir.join(m_def.source.as_deref().unwrap_or(""));
 
-        format!(
-            "The provided path `{}` is inside the packages directory of module `{}` at `{}`,
-            but does not match any known package.",
-            input_path.display(),
-            m_def.name,
-            m_packages_root.display()
-        )
-    } else if let Some(mid) = inside_module_root {
-        let (m_def, module_dir) = m_def_and_dir(mid);
+        if missing_pkg_desc {
+            let (scope, scope_path) = if inside_module_pkgs == Some(mid) {
+                ("packages directory", m_packages_root.as_path())
+            } else {
+                ("root directory", module_dir.as_path())
+            };
 
-        format!(
-            "The provided path `{}` is inside the root directory of module `{}` at `{}`, \
-            but it is not in the path for searching packages, \
-            thus it cannot be resolved to any known package.",
-            input_path.display(),
-            m_def.name,
-            module_dir.display()
-        )
+            format!(
+                "The provided path `{}` is inside the {} of module `{}` at `{}`, \
+                but the directory itself does not contain `{}` or `{}`, so it is not a package.",
+                input_path.display(),
+                scope,
+                m_def.name,
+                scope_path.display(),
+                MOON_PKG,
+                MOON_PKG_JSON,
+            )
+        } else if inside_module_pkgs == Some(mid) {
+            format!(
+                "The provided path `{}` is inside the packages directory of module `{}` at `{}`,
+                but does not match any known package.",
+                input_path.display(),
+                m_def.name,
+                m_packages_root.display()
+            )
+        } else {
+            format!(
+                "The provided path `{}` is inside the root directory of module `{}` at `{}`, \
+                but it is not in the path for searching packages, \
+                thus it cannot be resolved to any known package.",
+                input_path.display(),
+                m_def.name,
+                module_dir.display()
+            )
+        }
     } else {
         format!(
             "The provided path `{}` is not inside any known module.",
