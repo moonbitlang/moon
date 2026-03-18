@@ -29,12 +29,10 @@ pub(crate) fn rr_get_prebuild_ignored_paths(env: &ResolveOutput) -> Vec<PathBuf>
     let mut ignored_paths = vec![];
 
     for &m in env.local_modules() {
-        for &pkg_id in env
-            .pkg_dirs
-            .packages_for_module(m)
-            .expect("Module should exist")
-            .values()
-        {
+        let Some(packages) = env.pkg_dirs.packages_for_module(m) else {
+            continue;
+        };
+        for &pkg_id in packages.values() {
             let pkg = env.pkg_dirs.get_package(pkg_id);
             if let Some(prebuild) = pkg.raw.pre_build.as_ref() {
                 push_prebuild_paths(&mut ignored_paths, prebuild, &pkg.root_path);
@@ -55,5 +53,32 @@ fn push_prebuild_paths(
             let path = pkg_root.join(o);
             ignored_paths.push(path);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use moonbuild_rupes_recta::resolve::{ResolveConfig, resolve};
+
+    #[test]
+    fn rr_get_prebuild_ignored_paths_skips_empty_modules() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            temp_dir.path().join("moon.mod.json"),
+            r#"{"name":"user/empty"}"#,
+        )
+        .unwrap();
+
+        let resolved = resolve(
+            &ResolveConfig::new_with_load_defaults(false, false, false),
+            temp_dir.path(),
+        )
+        .unwrap();
+
+        assert!(rr_get_prebuild_ignored_paths(&resolved).is_empty());
     }
 }
