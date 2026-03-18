@@ -41,7 +41,7 @@ use super::BuildFlags;
 
 /// Check the current package, but don't build object files
 #[derive(Debug, clap::Parser)]
-#[clap(group = clap::ArgGroup::new("package_selector").args(["package_path", "PATH"]).multiple(false))]
+#[clap(group = clap::ArgGroup::new("package_selector").multiple(false))]
 pub(crate) struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
@@ -58,7 +58,13 @@ pub(crate) struct CheckSubcommand {
     // This selects a package directory under the module source root, not an arbitrary
     // filesystem path. Use positional `PATH` for filesystem paths.
     // TODO: Unify the `-p` flag to specifying package name, see #1139
-    #[clap(long, short_alias = 'p', value_name = "PACKAGE_DIR", hide = true)]
+    #[clap(
+        long,
+        short_alias = 'p',
+        value_name = "PACKAGE_DIR",
+        hide = true,
+        group = "package_selector"
+    )]
     pub package_path: Option<PathBuf>,
 
     /// The patch file to check. Only valid when the selector resolves to a single package.
@@ -74,7 +80,7 @@ pub(crate) struct CheckSubcommand {
     pub explain: bool,
 
     /// Filesystem path to a package directory or `.mbt` / `.mbt.md` file
-    #[clap(conflicts_with = "watch", name = "PATH")]
+    #[clap(conflicts_with = "watch", name = "PATH", group = "package_selector")]
     pub path: Option<PathBuf>,
 
     /// Check whether the code is properly formatted

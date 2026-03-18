@@ -105,6 +105,7 @@ fn print_test_outline(entries: &[TestOutlineEntry]) {
 
 /// Test the current package
 #[derive(Debug, clap::Parser)]
+#[clap(group = clap::ArgGroup::new("test_index_selector").multiple(false))]
 pub(crate) struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
@@ -120,12 +121,12 @@ pub(crate) struct TestSubcommand {
     /// Run only the index-th test in the file. Accepts a single index or a left-inclusive
     /// right-exclusive range like `0-2`. Only valid when `--file` is also specified.
     /// Implies `--include-skipped`.
-    #[clap(short, long)]
+    #[clap(short, long, group = "test_index_selector")]
     pub index: Option<TestIndexRange>,
 
     /// Run only the index-th doc test in the file. Only valid when `--file` is also specified.
     /// Implies `--include-skipped`.
-    #[clap(long, conflicts_with = "index")]
+    #[clap(long, group = "test_index_selector")]
     pub doc_index: Option<u32>,
 
     /// Update the test snapshot

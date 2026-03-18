@@ -494,6 +494,52 @@ fn cli_requires_conflicts_and_path_kinds_are_enforced() {
     assert!(bench_stderr.contains("--package"), "stderr: {bench_stderr}");
     assert!(bench_stderr.contains("value"), "stderr: {bench_stderr}");
 
+    let test_index_stderr = get_err_stderr(
+        &dir,
+        [
+            "test",
+            "--package",
+            "lib",
+            "--file",
+            "hello.mbt",
+            "--index",
+            "0",
+            "--doc-index",
+            "0",
+        ],
+    );
+    assert!(
+        test_index_stderr.contains("cannot be used with"),
+        "stderr: {test_index_stderr}"
+    );
+
+    let embed_mode_stderr = get_err_stderr(
+        &dir,
+        [
+            "tool", "embed", "--binary", "--text", "-i", "in.bin", "-o", "out.mbt",
+        ],
+    );
+    assert!(
+        embed_mode_stderr.contains("cannot be used with"),
+        "stderr: {embed_mode_stderr}"
+    );
+
+    let build_binary_dep_stderr = get_err_stderr(
+        &dir,
+        [
+            "tool",
+            "build-binary-dep",
+            "hello",
+            "--all-pkgs",
+            "--install-path",
+            "bin",
+        ],
+    );
+    assert!(
+        build_binary_dep_stderr.contains("cannot be used with"),
+        "stderr: {build_binary_dep_stderr}"
+    );
+
     let check_with_path_selector = get_stdout(&dir, ["check", "lib", "--no-mi", "--dry-run"]);
     assert!(
         check_with_path_selector.contains("moonc check"),

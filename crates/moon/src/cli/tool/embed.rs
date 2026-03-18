@@ -21,10 +21,11 @@ use std::path::PathBuf;
 use anyhow::Context;
 
 #[derive(Debug, clap::Parser)]
+#[clap(group = clap::ArgGroup::new("embed_mode").multiple(false))]
 pub(crate) struct Embed {
-    #[clap(long, conflicts_with = "text")]
+    #[clap(long, group = "embed_mode")]
     binary: bool,
-    #[clap(long, conflicts_with = "binary")]
+    #[clap(long, group = "embed_mode")]
     text: bool,
     #[clap(long, short)]
     input: PathBuf,
