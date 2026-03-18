@@ -21,7 +21,7 @@ pub(crate) mod prebuild_output;
 
 use anyhow::Context;
 use colored::*;
-use moonutil::common::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK};
+use moonutil::common::is_watch_relevant_project_file;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use std::collections::HashSet;
@@ -210,7 +210,7 @@ fn check_paths(
 
     for evt in relevant_events {
         for path in &evt.paths {
-            // Filter to: *.mbt, *.mbt.md, moon.pkg.json, moon.mod.json, moon.work.json
+            // Filter to source/config files that can affect RR planning/builds.
             // Note: A file removal will render `path.is_file()` false, but we
             // should still trigger a rerun in that case.
             if path.is_file()
@@ -218,12 +218,7 @@ fn check_paths(
                 && let Some(fname) = path.file_name()
             {
                 let lossy_fname = fname.to_string_lossy();
-                if !lossy_fname.ends_with(".mbt")
-                    && !lossy_fname.ends_with(".mbt.md")
-                    && lossy_fname != MOON_PKG_JSON
-                    && lossy_fname != MOON_MOD_JSON
-                    && lossy_fname != MOON_WORK
-                {
+                if !is_watch_relevant_project_file(&lossy_fname) {
                     trace!(
                         "Ignoring event for path '{}' due to filename filter",
                         path.display()
@@ -368,6 +363,63 @@ mod tests {
 
         let file = root.join(MOON_WORK);
         fs::write(&file, "{ \"use\": [\"./app\"] }").unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
+
+        assert!(result);
+    }
+
+    #[test]
+    fn rerun_triggered_for_moon_pkg_dsl() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join(BUILD_DIR);
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let file = root.join("main/moon.pkg");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "is-main = true").unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
+
+        assert!(result);
+    }
+
+    #[test]
+    fn rerun_triggered_for_moonlex_input() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join(BUILD_DIR);
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let file = root.join("src/main/lexer.mbl");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "rule token = parse").unwrap();
+
+        let event = build_event(&file);
+        let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
+
+        assert!(result);
+    }
+
+    #[test]
+    fn rerun_triggered_for_moonyacc_input() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        let target_dir = root.join(BUILD_DIR);
+        std::fs::create_dir_all(&target_dir).unwrap();
+
+        let file = root.join("src/main/parser.mby");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, "%%").unwrap();
 
         let event = build_event(&file);
         let result = check_rerun_trigger(&target_dir, root, &[event], &HashSet::new()).unwrap();
