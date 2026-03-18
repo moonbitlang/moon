@@ -142,8 +142,8 @@ complete -c moon -n "__fish_moon_using_subcommand check" -l target -d 'Select ou
 complete -c moon -n "__fish_moon_using_subcommand check" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand check" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand check" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
-complete -c moon -n "__fish_moon_using_subcommand check" -s p -l package-path -d 'The package(and it\'s deps) to check' -r -F
-complete -c moon -n "__fish_moon_using_subcommand check" -l patch-file -d 'The patch file to check, Only valid when checking specified package' -r -F
+complete -c moon -n "__fish_moon_using_subcommand check" -l package-path -d 'Legacy package directory path relative to the module source root (`source` in `moon.mod.json`)' -r -F
+complete -c moon -n "__fish_moon_using_subcommand check" -l patch-file -d 'The patch file to check. Only valid when the selector resolves to a single package' -r -F
 complete -c moon -n "__fish_moon_using_subcommand check" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand check" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand check" -l std -d 'Enable the standard library (default)'
@@ -162,7 +162,7 @@ complete -c moon -n "__fish_moon_using_subcommand check" -l output-json -d 'Outp
 complete -c moon -n "__fish_moon_using_subcommand check" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand check" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
 complete -c moon -n "__fish_moon_using_subcommand check" -s w -l watch -d 'Monitor the file system and automatically check files'
-complete -c moon -n "__fish_moon_using_subcommand check" -l no-mi -d 'Whether to skip the mi generation, Only valid when checking specified package'
+complete -c moon -n "__fish_moon_using_subcommand check" -l no-mi -d 'Whether to skip the mi generation. Only valid when the selector resolves to a single package'
 complete -c moon -n "__fish_moon_using_subcommand check" -l explain -d 'Whether to explain the error code with details'
 complete -c moon -n "__fish_moon_using_subcommand check" -l fmt -d 'Check whether the code is properly formatted'
 complete -c moon -n "__fish_moon_using_subcommand check" -s q -l quiet -d 'Suppress output'

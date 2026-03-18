@@ -145,9 +145,8 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
-'-p+[The package(and it'\''s deps) to check]:PACKAGE_PATH:_files' \
-'--package-path=[The package(and it'\''s deps) to check]:PACKAGE_PATH:_files' \
-'--patch-file=[The patch file to check, Only valid when checking specified package]:PATCH_FILE:_files' \
+'--package-path=[Legacy package directory path relative to the module source root (\`source\` in \`moon.mod.json\`)]:PACKAGE_DIR:_files' \
+'--patch-file=[The patch file to check. Only valid when the selector resolves to a single package]:PATCH_FILE:_files' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '(--nostd)--std[Enable the standard library (default)]' \
@@ -169,7 +168,7 @@ _arguments "${_arguments_options[@]}" : \
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' \
 '-w[Monitor the file system and automatically check files]' \
 '--watch[Monitor the file system and automatically check files]' \
-'--no-mi[Whether to skip the mi generation, Only valid when checking specified package]' \
+'--no-mi[Whether to skip the mi generation. Only valid when the selector resolves to a single package]' \
 '--explain[Whether to explain the error code with details]' \
 '--fmt[Check whether the code is properly formatted]' \
 '-q[Suppress output]' \
@@ -181,7 +180,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::PATH -- Check single file (.mbt or .mbt.md):_files' \
+'::PATH -- Filesystem path to a package directory or `.mbt` / `.mbt.md` file:_files' \
 && ret=0
 ;;
 (prove)
@@ -304,7 +303,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::PATH -- Run test in single file or directory. If in a project, runs only this package (if matches a package path) or file (if matches a file in package); otherwise, runs in a temporary project:_files' \
+'::PATH -- Run tests for a filesystem path. If in a project, `PATH` may point to a package directory or a file inside a package; otherwise, runs in a temporary project:_files' \
 && ret=0
 ;;
 (generate-test-driver)
@@ -473,7 +472,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':package_path -- The package path to add:' \
+':package_path -- The registry module name to add:' \
 && ret=0
 ;;
 (remove)
@@ -489,7 +488,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':package_path -- The package path to remove:' \
+':package_path -- The registry module name to remove:' \
 && ret=0
 ;;
 (install)
@@ -543,7 +542,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':package_path -- The package to fetch in the form of <author>/<package_name>\[@<version>\]:' \
+':package_path -- The registry module name to fetch in the form of <author>/<module_name>\[@<version>\]:' \
 && ret=0
 ;;
 (work)

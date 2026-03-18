@@ -31,7 +31,8 @@ use crate::registry::{self, Registry};
 /// Add a dependency
 #[derive(Debug, clap::Parser)]
 pub struct AddSubcommand {
-    /// The package path to add
+    /// The registry module name to add
+    #[clap(value_name = "MODULE")]
     pub package_path: String,
 
     /// Whether to add the dependency as a binary

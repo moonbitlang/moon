@@ -469,7 +469,7 @@ fn debug_flag_test() {
 
 #[cfg(unix)]
 #[test]
-fn clap_requires_and_conflicts_are_enforced_at_parse_time() {
+fn cli_requires_conflicts_and_path_kinds_are_enforced() {
     let dir = TestDir::new("debug_flag_test");
 
     let check_stderr = get_err_stderr(&dir, ["check", "-p", "lib", "lib", "--dry-run"]);
@@ -493,6 +493,12 @@ fn clap_requires_and_conflicts_are_enforced_at_parse_time() {
     let bench_stderr = get_err_stderr(&dir, ["bench", "--package", "--dry-run"]);
     assert!(bench_stderr.contains("--package"), "stderr: {bench_stderr}");
     assert!(bench_stderr.contains("value"), "stderr: {bench_stderr}");
+
+    let check_with_path_selector = get_stdout(&dir, ["check", "lib", "--no-mi", "--dry-run"]);
+    assert!(
+        check_with_path_selector.contains("moonc check"),
+        "stdout: {check_with_path_selector}"
+    );
 }
 
 fn assert_moonc_line(

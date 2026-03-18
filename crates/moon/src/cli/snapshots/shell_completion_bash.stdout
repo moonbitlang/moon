@@ -434,7 +434,7 @@ _moon() {
             return 0
             ;;
         moon__add)
-            opts="-q -v -h --bin --no-update --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_PATH>"
+            opts="-q -v -h --bin --no-update --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <MODULE>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -618,7 +618,7 @@ _moon() {
             return 0
             ;;
         moon__check)
-            opts="-g -d -j -w -p -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package-path --patch-file --no-mi --explain --fmt --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package-path --patch-file --no-mi --explain --fmt --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -645,10 +645,6 @@ _moon() {
                     return 0
                     ;;
                 --package-path)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -p)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -906,7 +902,7 @@ _moon() {
             return 0
             ;;
         moon__fetch)
-            opts="-q -v -h --no-update --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_PATH>"
+            opts="-q -v -h --no-update --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <MODULE[@VERSION]>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2290,7 +2286,7 @@ _moon() {
             return 0
             ;;
         moon__remove)
-            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_PATH>"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <MODULE>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

@@ -58,6 +58,10 @@ and an unqualified _package path_ within the module.
 The package path may be empty, or a path with components separated by a forward slash.
 The two parts are separated by a forward slash if the package path is not empty.
 
+A package path is a logical path within the module, not a filesystem path.
+It is always relative to the module's package scanning root (the `source` field
+in `moon.mod.json`, if present), and never includes that root prefix.
+
 Currently, the package's full name is derived from its path and its containing module,
 specified in the following [Package discovery](#package-discovery) section.
 

@@ -163,9 +163,9 @@ pub(crate) struct TestSubcommand {
     #[clap(long = "doc", hide = true)]
     pub doc_test: bool,
 
-    /// Run test in single file or directory. If in a project, runs only this
-    /// package (if matches a package path) or file (if matches a file in
-    /// package); otherwise, runs in a temporary project.
+    /// Run tests for a filesystem path. If in a project, `PATH` may point to a
+    /// package directory or a file inside a package; otherwise, runs in a
+    /// temporary project.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub single_file: Option<PathBuf>,
 
