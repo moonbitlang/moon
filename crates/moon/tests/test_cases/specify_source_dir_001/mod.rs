@@ -184,3 +184,14 @@ fn test_specify_source_dir_001() {
         "#]],
     );
 }
+
+#[test]
+fn test_specify_source_dir_root_path_reports_missing_pkg() {
+    let dir = TestDir::new("specify_source_dir_001.in");
+
+    let stderr = get_err_stderr(&dir, ["test", ".", "--dry-run"]);
+    assert!(
+        stderr.contains("does not contain `moon.pkg` or `moon.pkg.json`, so it is not a package"),
+        "stderr: {stderr}"
+    );
+}
