@@ -176,6 +176,13 @@ fn run_check_for_single_file_rr(
     cmd: &CheckSubcommand,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
+    if cmd.no_mi {
+        anyhow::bail!("standalone single-file `moon check` does not support `--no-mi`");
+    }
+    if cmd.patch_file.is_some() {
+        anyhow::bail!("standalone single-file `moon check` does not support `--patch-file`");
+    }
+
     let path = cmd
         .path
         .as_ref()

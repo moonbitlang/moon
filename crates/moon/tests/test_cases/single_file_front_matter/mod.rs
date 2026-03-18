@@ -48,3 +48,28 @@ fn test_single_file_mbtx_run_block_import() {
     let stdout = get_stdout(&dir, ["run", "import_block_ok.mbtx"]);
     assert!(stdout.contains("hello"));
 }
+
+#[test]
+fn test_single_file_check_rejects_unsupported_selector_flags() {
+    let dir = TestDir::new("moon_test_single_file.in");
+
+    let no_mi_stderr = get_err_stderr(&dir, ["check", "front_matter_import_ok.mbt.md", "--no-mi"]);
+    assert!(
+        no_mi_stderr.contains("does not support `--no-mi`"),
+        "stderr: {no_mi_stderr}"
+    );
+
+    let patch_stderr = get_err_stderr(
+        &dir,
+        [
+            "check",
+            "front_matter_import_ok.mbt.md",
+            "--patch-file",
+            "patch.json",
+        ],
+    );
+    assert!(
+        patch_stderr.contains("does not support `--patch-file`"),
+        "stderr: {patch_stderr}"
+    );
+}
