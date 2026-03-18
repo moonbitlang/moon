@@ -34,7 +34,7 @@ use crate::filter::{
     package_supports_backend,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
-use crate::watch::prebuild_output::rr_get_prebuild_ignored_paths;
+use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
 use super::BuildFlags;
@@ -345,9 +345,12 @@ fn run_check_normal_internal_rr(
     .context("Failed to calculate build plan")?;
 
     let prebuild_list = if _watch {
-        rr_get_prebuild_ignored_paths(&build_meta.resolve_output)
+        rr_get_prebuild_watch_paths(&build_meta.resolve_output)
     } else {
-        Vec::new()
+        PrebuildWatchPaths {
+            ignored_paths: Vec::new(),
+            watched_paths: Vec::new(),
+        }
     };
 
     if cli.dry_run {
@@ -359,7 +362,8 @@ fn run_check_normal_internal_rr(
         );
         Ok(WatchOutput {
             ok: true,
-            additional_ignored_paths: prebuild_list,
+            additional_ignored_paths: prebuild_list.ignored_paths,
+            additional_watched_paths: prebuild_list.watched_paths,
         })
     } else {
         let _lock = FileLock::lock(target_dir)?;
@@ -375,7 +379,8 @@ fn run_check_normal_internal_rr(
         result.print_info(cli.quiet, "checking")?;
         Ok(WatchOutput {
             ok: result.successful(),
-            additional_ignored_paths: prebuild_list,
+            additional_ignored_paths: prebuild_list.ignored_paths,
+            additional_watched_paths: prebuild_list.watched_paths,
         })
     }
 }

@@ -38,7 +38,7 @@ use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
 use crate::rr_build::preconfig_compile;
 use crate::watch::WatchOutput;
-use crate::watch::prebuild_output::rr_get_prebuild_ignored_paths;
+use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::watching;
 
 use super::{BuildFlags, UniversalFlags};
@@ -160,9 +160,12 @@ fn run_build_rr(
 
     // Prepare for `watch` mode
     let prebuild_list = if _watch {
-        rr_get_prebuild_ignored_paths(&build_meta.resolve_output)
+        rr_get_prebuild_watch_paths(&build_meta.resolve_output)
     } else {
-        Vec::new()
+        PrebuildWatchPaths {
+            ignored_paths: Vec::new(),
+            watched_paths: Vec::new(),
+        }
     };
 
     let ok = if cli.dry_run {
@@ -189,7 +192,8 @@ fn run_build_rr(
     };
     Ok(WatchOutput {
         ok,
-        additional_ignored_paths: prebuild_list,
+        additional_ignored_paths: prebuild_list.ignored_paths,
+        additional_watched_paths: prebuild_list.watched_paths,
     })
 }
 
