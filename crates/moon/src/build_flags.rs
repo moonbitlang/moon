@@ -25,11 +25,11 @@ use moonutil::{
 #[derive(Debug, clap::Parser, Clone)]
 pub struct BuildFlags {
     /// Enable the standard library (default)
-    #[clap(long)]
+    #[clap(long, hide = true)]
     pub(crate) std: bool,
 
     /// Disable the standard library
-    #[clap(long, long = "nostd")]
+    #[clap(long, long = "nostd", hide = true)]
     pub(crate) no_std: bool,
 
     /// Emit debug information

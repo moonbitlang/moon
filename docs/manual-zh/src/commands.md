@@ -106,8 +106,6 @@ Build the current package
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
@@ -147,8 +145,6 @@ Check the current package, but don't build object files
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
@@ -221,8 +217,6 @@ Run a main package
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
@@ -262,8 +256,6 @@ Test the current package
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
@@ -391,8 +383,6 @@ Run benchmarks in the current package
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
