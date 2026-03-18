@@ -47,9 +47,11 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         .to_str()
         .unwrap()
         .to_string();
+    let path_str2 = path_str1.replace('\\', "/");
     // for something like "{...\"loc\":{\"path\":\"C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\.tmpP0u4VZ\\\\main\\\\main.mbt\"...\r\n" on windows
     // https://github.com/moonbitlang/moon/actions/runs/10092428950/job/27906057649#step:13:149
     let s = s.replace(&path_str1, "$ROOT");
+    let s = s.replace(&path_str2, "$ROOT");
     let s = s.replace(
         dunce::canonicalize(moonutil::moon_dir::home())
             .unwrap()
@@ -117,4 +119,24 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
     let exit_code = moon_test_util::cmdtest::run::t(&test_path, &moon_bin(), update);
 
     assert_eq!(exit_code, 0, "cmdtest failed for {}", test_path.display());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replace_dir;
+
+    #[test]
+    fn replace_dir_replaces_forward_slash_root_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let canonical = dunce::canonicalize(dir.path()).unwrap();
+        let root = canonical.to_str().unwrap().replace('\\', "/");
+        let output = format!(
+            "moonc check {root}/b/hello.mbt -pkg-sources username/b:{root}/b -workspace-path {root}/b"
+        );
+
+        assert_eq!(
+            replace_dir(&output, dir.path()),
+            "moonc check $ROOT/b/hello.mbt -pkg-sources username/b:$ROOT/b -workspace-path $ROOT/b"
+        );
+    }
 }

@@ -202,7 +202,7 @@ fn test_mod_level_warn_list_alerts() {
     check(
         get_stdout(
             &dir,
-            ["check", "--manifest-path", "a/moon.mod.json", "--dry-run"],
+            ["check", "--manifest-path", "a/moon.mod.json", "--dry-run", "--sort-input"],
         ),
         expect![[r#"
             moonc check $ROOT/b/hello.mbt -w -a -o ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi -pkg username/b -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:$ROOT/b -target wasm-gc -workspace-path $ROOT/b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
