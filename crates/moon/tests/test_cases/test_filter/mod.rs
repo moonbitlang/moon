@@ -105,7 +105,7 @@ fn test_moon_test_filter_by_name_with_question_mark() {
                 "test",
                 "-p",
                 "username/hello/A",
-                "-f",
+                "--file",
                 "hello.mbt",
                 "--filter",
                 "?",
@@ -157,7 +157,7 @@ fn test_moon_test_filter_by_name_combined_with_file() {
                 "test",
                 "-p",
                 "username/hello/A",
-                "-f",
+                "--file",
                 "hello.mbt",
                 "--filter",
                 "A",
@@ -735,7 +735,10 @@ fn test_moon_test_filter_file() {
     let dir = TestDir::new("test_filter/test_filter");
 
     check(
-        get_stdout(&dir, ["test", "-p", "username/hello/A", "-f", "hello.mbt"]),
+        get_stdout(
+            &dir,
+            ["test", "-p", "username/hello/A", "--file", "hello.mbt"],
+        ),
         expect![[r#"
             test A
             test B
@@ -746,7 +749,13 @@ fn test_moon_test_filter_file() {
     check(
         get_stdout(
             &dir,
-            ["test", "-p", "username/hello/lib", "-f", "hello_wbtest.mbt"],
+            [
+                "test",
+                "-p",
+                "username/hello/lib",
+                "--file",
+                "hello_wbtest.mbt",
+            ],
         ),
         expect![[r#"
             test hello_0
@@ -790,7 +799,7 @@ fn test_moon_test_filter_index() {
                 "test",
                 "-p",
                 "username/hello/A",
-                "-f",
+                "--file",
                 "hello.mbt",
                 "-i",
                 "1",
@@ -809,7 +818,7 @@ fn test_moon_test_filter_index() {
                 "test",
                 "-p",
                 "username/hello/lib",
-                "-f",
+                "--file",
                 "hello_wbtest.mbt",
                 "-i",
                 "0",
@@ -857,7 +866,7 @@ fn test_moon_test_filter_index_with_auto_update() {
             "test",
             "-p",
             "username/hello/lib2",
-            "-f",
+            "--file",
             "lib.mbt",
             "-i",
             "1",
@@ -896,7 +905,7 @@ fn test_moon_test_filter_index_with_auto_update() {
             "test",
             "-p",
             "username/hello/lib2",
-            "-f",
+            "--file",
             "lib.mbt",
             "-i",
             "1",
@@ -935,7 +944,7 @@ fn test_moon_test_filter_index_with_auto_update() {
             "test",
             "-p",
             "username/hello/lib2",
-            "-f",
+            "--file",
             "lib.mbt",
             "-u",
             "-l",
