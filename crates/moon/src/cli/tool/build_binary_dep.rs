@@ -50,13 +50,15 @@ use crate::{
 };
 
 #[derive(clap::Args, Debug)]
+#[clap(group = clap::ArgGroup::new("package_selector").multiple(false))]
 pub(crate) struct BuildBinaryDepArgs {
     /// The name of the package to build and install, without the module name prefix.
     /// The top-level package can be specified as an empty string.
+    #[clap(group = "package_selector")]
     pkg_names: Vec<String>,
 
     /// Whether to build and install all binary packages in the module.
-    #[clap(long, conflicts_with = "pkg_names")]
+    #[clap(long, group = "package_selector")]
     all_pkgs: bool,
 
     /// The parent directory where the binary module is installed to.

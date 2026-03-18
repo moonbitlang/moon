@@ -34,7 +34,7 @@ pub(crate) struct BenchSubcommand {
     pub build_flags: BuildFlags,
 
     /// Run test in the specified package
-    #[clap(short, long, num_args(0..))]
+    #[clap(short, long, num_args(1..))]
     pub package: Option<Vec<String>>,
 
     /// Run test in the specified file. Only valid when `--package` is also specified.

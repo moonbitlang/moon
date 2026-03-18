@@ -32,7 +32,8 @@ use super::UniversalFlags;
     before_help = "Note: This is an unstable command and may change or be removed in future versions."
 )]
 pub(crate) struct FetchSubcommand {
-    /// The package to fetch in the form of <author>/<package_name>[@<version>]
+    /// The registry module name to fetch in the form of <author>/<module_name>[@<version>]
+    #[clap(value_name = "MODULE[@VERSION]")]
     pub package_path: String,
 
     /// Do not update the registry index before fetching
@@ -67,7 +68,7 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
 
     let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
     if author_pkg.len() != 2 || author_pkg[0].is_empty() || author_pkg[1].is_empty() {
-        bail!("package path must be in the form of <author>/<package_name>[@<version>]");
+        bail!("registry module name must be in the form of <author>/<module_name>[@<version>]");
     }
     let username = author_pkg[0];
     let pkgname = author_pkg[1];

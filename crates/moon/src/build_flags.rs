@@ -25,11 +25,11 @@ use moonutil::{
 #[derive(Debug, clap::Parser, Clone)]
 pub struct BuildFlags {
     /// Enable the standard library (default)
-    #[clap(long)]
+    #[clap(long, hide = true, conflicts_with = "no_std")]
     pub(crate) std: bool,
 
     /// Disable the standard library
-    #[clap(long, long = "nostd")]
+    #[clap(long = "nostd", hide = true, conflicts_with = "std")]
     pub(crate) no_std: bool,
 
     /// Emit debug information
@@ -176,7 +176,9 @@ impl BuildFlags {
             (false, false) => true,
             (true, false) => true,
             (false, true) => false,
-            (true, true) => panic!("both std and no_std flags are set"),
+            (true, true) => unreachable!(
+                "unreachable: both std and no_std flags are set (should be prevented by conflicts_with)"
+            ),
         }
     }
 

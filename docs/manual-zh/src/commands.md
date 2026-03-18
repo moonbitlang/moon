@@ -106,8 +106,6 @@ Build the current package
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
@@ -143,12 +141,10 @@ Check the current package, but don't build object files
 
 ###### **Arguments:**
 
-* `<PATH>` — Check single file (.mbt or .mbt.md)
+* `<PATH>` — Filesystem path to a package directory or `.mbt` / `.mbt.md` file
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
@@ -173,9 +169,8 @@ Check the current package, but don't build object files
 
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically check files
-* `-p`, `--package-path <PACKAGE_PATH>` — The package(and it's deps) to check
-* `--patch-file <PATCH_FILE>` — The patch file to check, Only valid when checking specified package
-* `--no-mi` — Whether to skip the mi generation, Only valid when checking specified package
+* `--patch-file <PATCH_FILE>` — The patch file to check. Only valid when the selector resolves to a single package
+* `--no-mi` — Whether to skip the mi generation. Only valid when the selector resolves to a single package
 * `--explain` — Whether to explain the error code with details
 * `--fmt` — Check whether the code is properly formatted
 
@@ -221,8 +216,6 @@ Run a main package
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
@@ -258,12 +251,10 @@ Test the current package
 
 ###### **Arguments:**
 
-* `<PATH>` — Run test in single file or directory. If in a project, runs only this package (if matches a package path) or file (if matches a file in package); otherwise, runs in a temporary project
+* `<PATH>` — Run tests for a filesystem path. If in a project, `PATH` may point to a package directory or a file inside a package; otherwise, runs in a temporary project
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
@@ -300,7 +291,6 @@ Test the current package
 * `--outline` — Print the outline of tests to be executed and exit
 * `--test-failure-json` — Print failure message in JSON format
 * `--patch-file <PATCH_FILE>` — Path to the patch file
-* `--doc` — Run doc test
 * `--include-skipped` — Include skipped tests. Automatically implied when `--[doc-]index` is set
 * `-F`, `--filter <FILTER>` — Run only tests whose name matches the given glob pattern. Supports '*' (matches any sequence) and '?' (matches any single character)
 
@@ -391,8 +381,6 @@ Run benchmarks in the current package
 
 ###### **Options:**
 
-* `--std` — Enable the standard library (default)
-* `--nostd` — Disable the standard library
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information
@@ -428,11 +416,11 @@ Run benchmarks in the current package
 
 Add a dependency
 
-**Usage:** `moon add [OPTIONS] <PACKAGE_PATH>`
+**Usage:** `moon add [OPTIONS] <MODULE>`
 
 ###### **Arguments:**
 
-* `<PACKAGE_PATH>` — The package path to add
+* `<MODULE>` — The registry module name to add
 
 ###### **Options:**
 
@@ -445,11 +433,11 @@ Add a dependency
 
 Remove a dependency
 
-**Usage:** `moon remove <PACKAGE_PATH>`
+**Usage:** `moon remove <MODULE>`
 
 ###### **Arguments:**
 
-* `<PACKAGE_PATH>` — The package path to remove
+* `<MODULE>` — The registry module name to remove
 
 
 
@@ -498,11 +486,11 @@ Download a package to .repos directory (unstable)
 
 Note: This is an unstable command and may change or be removed in future versions.
 
-**Usage:** `moon fetch [OPTIONS] <PACKAGE_PATH>`
+**Usage:** `moon fetch [OPTIONS] <MODULE[@VERSION]>`
 
 ###### **Arguments:**
 
-* `<PACKAGE_PATH>` — The package to fetch in the form of <author>/<package_name>[@<version>]
+* `<MODULE[@VERSION]>` — The registry module name to fetch in the form of <author>/<module_name>[@<version>]
 
 ###### **Options:**
 

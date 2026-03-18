@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::*;
+use crate::get_err_stderr;
 use expect_test::expect;
 
 #[test]
@@ -57,4 +58,10 @@ fn test_extra_flags() {
             moonrun ./_build/wasm-gc/debug/build/main/main.wasm --
         "#]],
     );
+
+    let stderr = get_err_stderr(&dir, ["build", "--std", "--nostd"]);
+    assert!(stderr.contains("cannot be used with"), "stderr: {stderr}");
+    assert!(stderr.contains("--std"), "stderr: {stderr}");
+    assert!(stderr.contains("--nostd"), "stderr: {stderr}");
+    assert!(!stderr.contains("panicked"), "stderr: {stderr}");
 }

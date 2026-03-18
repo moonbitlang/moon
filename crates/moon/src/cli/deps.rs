@@ -153,7 +153,7 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
     let package_path = cmd.package_path;
     let parts: Vec<&str> = package_path.splitn(2, '/').collect();
     if parts.len() != 2 {
-        bail!("package path must be in the form of <author>/<package_name>");
+        bail!("registry module name must be in the form of <author>/<module_name>");
     }
     let username = parts[0];
     let pkgname = parts[1];
@@ -202,7 +202,7 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
 
     let author_pkg: Vec<&str> = parts[0].splitn(2, '/').collect();
     if author_pkg.len() != 2 {
-        bail!("package path must be in the form of <author>/<package_name>[@<version>]");
+        bail!("registry module name must be in the form of <author>/<module_name>[@<version>]");
     }
     let username = author_pkg[0];
     let pkgname = author_pkg[1];

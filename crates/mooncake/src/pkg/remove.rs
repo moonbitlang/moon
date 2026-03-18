@@ -34,7 +34,8 @@ use crate::{
 /// Remove a dependency
 #[derive(Debug, clap::Parser)]
 pub struct RemoveSubcommand {
-    /// The package path to remove
+    /// The registry module name to remove
+    #[clap(value_name = "MODULE")]
     pub package_path: String,
 }
 

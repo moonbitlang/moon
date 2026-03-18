@@ -41,6 +41,7 @@ use super::BuildFlags;
 
 /// Check the current package, but don't build object files
 #[derive(Debug, clap::Parser)]
+#[clap(group = clap::ArgGroup::new("package_selector").multiple(false))]
 pub(crate) struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
@@ -52,26 +53,34 @@ pub(crate) struct CheckSubcommand {
     #[clap(long, short)]
     pub watch: bool,
 
-    /// The package(and it's deps) to check
+    /// Legacy package directory path relative to the module source root (`source` in `moon.mod.json`)
     //
+    // This selects a package directory under the module source root, not an arbitrary
+    // filesystem path. Use positional `PATH` for filesystem paths.
     // TODO: Unify the `-p` flag to specifying package name, see #1139
-    #[clap(long, short)]
+    #[clap(
+        long,
+        short_alias = 'p',
+        value_name = "PACKAGE_DIR",
+        hide = true,
+        group = "package_selector"
+    )]
     pub package_path: Option<PathBuf>,
 
-    /// The patch file to check, Only valid when checking specified package.
-    #[clap(long, requires = "package_path")]
+    /// The patch file to check. Only valid when the selector resolves to a single package.
+    #[clap(long, requires = "package_selector")]
     pub patch_file: Option<PathBuf>,
 
-    /// Whether to skip the mi generation, Only valid when checking specified package.
-    #[clap(long, requires = "package_path")]
+    /// Whether to skip the mi generation. Only valid when the selector resolves to a single package.
+    #[clap(long, requires = "package_selector")]
     pub no_mi: bool,
 
     /// Whether to explain the error code with details.
     #[clap(long)]
     pub explain: bool,
 
-    /// Check single file (.mbt or .mbt.md)
-    #[clap(conflicts_with = "watch", name = "PATH")]
+    /// Filesystem path to a package directory or `.mbt` / `.mbt.md` file
+    #[clap(conflicts_with = "watch", name = "PATH", group = "package_selector")]
     pub path: Option<PathBuf>,
 
     /// Check whether the code is properly formatted
@@ -167,6 +176,13 @@ fn run_check_for_single_file_rr(
     cmd: &CheckSubcommand,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
+    if cmd.no_mi {
+        anyhow::bail!("standalone single-file `moon check` does not support `--no-mi`");
+    }
+    if cmd.patch_file.is_some() {
+        anyhow::bail!("standalone single-file `moon check` does not support `--patch-file`");
+    }
+
     let path = cmd
         .path
         .as_ref()

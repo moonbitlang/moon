@@ -105,6 +105,7 @@ fn print_test_outline(entries: &[TestOutlineEntry]) {
 
 /// Test the current package
 #[derive(Debug, clap::Parser)]
+#[clap(group = clap::ArgGroup::new("test_index_selector").multiple(false))]
 pub(crate) struct TestSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
@@ -114,18 +115,18 @@ pub(crate) struct TestSubcommand {
     pub package: Option<Vec<String>>,
 
     /// Run test in the specified file. Only valid when `--package` is also specified.
-    #[clap(short, long)]
+    #[clap(short, long, requires = "package")]
     pub file: Option<String>,
 
     /// Run only the index-th test in the file. Accepts a single index or a left-inclusive
     /// right-exclusive range like `0-2`. Only valid when `--file` is also specified.
     /// Implies `--include-skipped`.
-    #[clap(short, long)]
+    #[clap(short, long, group = "test_index_selector")]
     pub index: Option<TestIndexRange>,
 
     /// Run only the index-th doc test in the file. Only valid when `--file` is also specified.
     /// Implies `--include-skipped`.
-    #[clap(long, conflicts_with = "index")]
+    #[clap(long, group = "test_index_selector")]
     pub doc_index: Option<u32>,
 
     /// Update the test snapshot
@@ -160,12 +161,12 @@ pub(crate) struct TestSubcommand {
     pub patch_file: Option<PathBuf>,
 
     /// Run doc test
-    #[clap(long = "doc")]
+    #[clap(long = "doc", hide = true)]
     pub doc_test: bool,
 
-    /// Run test in single file or directory. If in a project, runs only this
-    /// package (if matches a package path) or file (if matches a file in
-    /// package); otherwise, runs in a temporary project.
+    /// Run tests for a filesystem path. If in a project, `PATH` may point to a
+    /// package directory or a file inside a package; otherwise, runs in a
+    /// temporary project.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
     pub single_file: Option<PathBuf>,
 

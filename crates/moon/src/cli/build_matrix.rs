@@ -30,23 +30,23 @@ pub(crate) struct GenerateBuildMatrix {
     pub number: Option<u32>,
 
     /// Number of directory rows
-    #[clap(long, long = "drow")]
+    #[clap(long = "drow")]
     pub dir_rows: Option<u32>,
 
     /// Number of directory columns
-    #[clap(long, long = "dcol")]
+    #[clap(long = "dcol")]
     pub dir_cols: Option<u32>,
 
     /// Number of module rows
-    #[clap(long, long = "mrow")]
+    #[clap(long = "mrow")]
     pub mod_rows: Option<u32>,
 
     /// Number of module columns
-    #[clap(long, long = "mcol")]
+    #[clap(long = "mcol")]
     pub mod_cols: Option<u32>,
 
     /// The output directory
-    #[clap(long, long = "output-dir", short, short = 'o')]
+    #[clap(long = "output-dir", short = 'o')]
     pub out_dir: PathBuf,
 }
 
