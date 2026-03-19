@@ -21,10 +21,11 @@ use moonbuild_debug::graph::debug_dump_build_graph;
 use std::path::PathBuf;
 
 use moonbuild_rupes_recta::ResolveOutput;
-use moonutil::{cli::UniversalFlags, common::TargetBackend};
+use moonutil::cli::UniversalFlags;
 
 use crate::cli::{
-    BenchSubcommand, MoonBuildCli, MoonBuildSubcommands, TestLikeSubcommand, TestSubcommand,
+    BenchSubcommand, BuildSubcommand, CheckSubcommand, MoonBuildCli, MoonBuildSubcommands,
+    RunSubcommand, TestLikeSubcommand, TestSubcommand,
 };
 
 pub(super) struct PlanningFixture {
@@ -53,11 +54,14 @@ impl PlanningFixture {
         cmd: &TestSubcommand,
     ) -> anyhow::Result<String> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
-        self.plan(
+        let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
             cli,
             &borrowed,
+            &self.source_dir.join("_build"),
             cmd.build_flags.resolve_single_target_backend()?,
-        )
+            self.resolve_output.clone(),
+        )?;
+        self.dump_plan(build_meta, build_graph)
     }
 
     pub(super) fn plan_bench_with_cli(
@@ -66,26 +70,72 @@ impl PlanningFixture {
         cmd: &BenchSubcommand,
     ) -> anyhow::Result<String> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
-        self.plan(
+        let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
             cli,
             &borrowed,
+            &self.source_dir.join("_build"),
             cmd.build_flags.resolve_single_target_backend()?,
-        )
+            self.resolve_output.clone(),
+        )?;
+        self.dump_plan(build_meta, build_graph)
     }
 
-    fn plan(
+    pub(super) fn plan_build_with_cli(
         &self,
         cli: &UniversalFlags,
-        cmd: &TestLikeSubcommand<'_>,
-        selected_target_backend: Option<TargetBackend>,
+        cmd: &BuildSubcommand,
     ) -> anyhow::Result<String> {
-        let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
+        let (build_meta, build_graph) = crate::cli::build::plan_build_rr_from_resolved(
             cli,
             cmd,
             &self.source_dir.join("_build"),
-            selected_target_backend,
+            cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
+        self.dump_plan(build_meta, build_graph)
+    }
+
+    pub(super) fn plan_check_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &CheckSubcommand,
+    ) -> anyhow::Result<String> {
+        let (build_meta, build_graph) = crate::cli::check::plan_check_rr_from_resolved(
+            cli,
+            cmd,
+            &self.source_dir,
+            &self.source_dir.join("_build"),
+            cmd.build_flags.resolve_single_target_backend()?,
+            self.resolve_output.clone(),
+        )?;
+        self.dump_plan(build_meta, build_graph)
+    }
+
+    pub(super) fn plan_run_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &RunSubcommand,
+    ) -> anyhow::Result<String> {
+        let (build_meta, build_graph) = crate::cli::run::plan_run_rr_from_resolved(
+            cli,
+            cmd,
+            &self.source_dir,
+            &self.source_dir.join("_build"),
+            cmd.build_flags.resolve_single_target_backend()?,
+            self.resolve_output.clone(),
+        )?;
+        self.dump_plan(build_meta, build_graph)
+    }
+
+    pub(super) fn case_dir(&self) -> &std::path::Path {
+        &self.source_dir
+    }
+
+    fn dump_plan(
+        &self,
+        build_meta: crate::rr_build::BuildMeta,
+        build_graph: crate::rr_build::BuildInput,
+    ) -> anyhow::Result<String> {
         let graph = build_graph.graph_for_test();
         let default_files = build_meta
             .artifacts
@@ -101,6 +151,33 @@ impl PlanningFixture {
         dump.dump_to(&mut out).expect("graph dump should serialize");
         Ok(String::from_utf8(out).expect("graph dump should be valid UTF-8"))
     }
+}
+
+pub(super) fn parse_build_command(args: &[&str]) -> (UniversalFlags, BuildSubcommand) {
+    let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
+        .expect("build command should parse");
+    let MoonBuildSubcommands::Build(cmd) = parsed.subcommand else {
+        panic!("expected `moon build` to parse as the build subcommand");
+    };
+    (parsed.flags, cmd)
+}
+
+pub(super) fn parse_check_command(args: &[&str]) -> (UniversalFlags, CheckSubcommand) {
+    let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
+        .expect("check command should parse");
+    let MoonBuildSubcommands::Check(cmd) = parsed.subcommand else {
+        panic!("expected `moon check` to parse as the check subcommand");
+    };
+    (parsed.flags, cmd)
+}
+
+pub(super) fn parse_run_command(args: &[&str]) -> (UniversalFlags, RunSubcommand) {
+    let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
+        .expect("run command should parse");
+    let MoonBuildSubcommands::Run(cmd) = parsed.subcommand else {
+        panic!("expected `moon run` to parse as the run subcommand");
+    };
+    (parsed.flags, cmd)
 }
 
 pub(super) fn parse_test_command(args: &[&str]) -> (UniversalFlags, TestSubcommand) {

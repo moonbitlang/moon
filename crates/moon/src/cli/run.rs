@@ -160,24 +160,19 @@ fn run_run_rr(
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
-    let input_path = cmd.package_or_mbt_file.clone();
-    let mut preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &cmd.build_flags,
-        selected_target_backend,
-        &target_dir,
-        RunMode::Run,
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
     );
-    preconfig.try_tcc_run = !cli.dry_run;
-
-    let value_tracing = cmd.build_flags.enable_value_tracing;
-    let (build_meta, build_graph) = rr_build::plan_build(
-        preconfig,
-        &cli.unstable_feature,
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir)?;
+    let (build_meta, build_graph) = plan_run_rr_from_resolved(
+        cli,
+        &cmd,
         &source_dir,
         &target_dir,
-        Box::new(|r, tb| calc_user_intent(&input_path, &source_dir, r, value_tracing, tb)),
+        selected_target_backend,
+        resolve_output,
     )?;
     rr_run_from_plan(
         cli,
@@ -186,6 +181,43 @@ fn run_run_rr(
         &target_dir,
         &build_meta,
         build_graph,
+    )
+}
+
+pub(crate) fn plan_run_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &RunSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+    let mut preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        selected_target_backend,
+        target_dir,
+        RunMode::Run,
+    );
+    preconfig.try_tcc_run = !cli.dry_run;
+
+    let input_path = cmd.package_or_mbt_file.clone();
+    let value_tracing = cmd.build_flags.enable_value_tracing;
+    rr_build::plan_build_from_resolved(
+        preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        Box::new(|resolved, target_backend| {
+            calc_user_intent(
+                &input_path,
+                source_dir,
+                resolved,
+                value_tracing,
+                target_backend,
+            )
+        }),
+        resolve_output,
     )
 }
 

@@ -135,27 +135,18 @@ fn run_build_rr(
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &cmd.build_flags,
-        selected_target_backend,
-        target_dir,
-        RunMode::Build,
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
     );
-    let (build_meta, build_graph) = rr_build::plan_build(
-        preconfig,
-        &cli.unstable_feature,
-        source_dir,
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir)?;
+    let (build_meta, build_graph) = plan_build_rr_from_resolved(
+        cli,
+        cmd,
         target_dir,
-        Box::new(|resolve_output, target_backend| {
-            calc_user_intent(
-                cmd.path.as_deref(),
-                cmd.package.as_deref(),
-                resolve_output,
-                target_backend,
-            )
-        }),
+        selected_target_backend,
+        resolve_output,
     )?;
 
     // Prepare for `watch` mode
@@ -195,6 +186,38 @@ fn run_build_rr(
         additional_ignored_paths: prebuild_list.ignored_paths,
         additional_watched_paths: prebuild_list.watched_paths,
     })
+}
+
+pub(crate) fn plan_build_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+    let preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        selected_target_backend,
+        target_dir,
+        RunMode::Build,
+    );
+
+    rr_build::plan_build_from_resolved(
+        preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        Box::new(|resolved, target_backend| {
+            calc_user_intent(
+                cmd.path.as_deref(),
+                cmd.package.as_deref(),
+                resolved,
+                target_backend,
+            )
+        }),
+        resolve_output,
+    )
 }
 
 /// Generate user intent

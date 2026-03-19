@@ -330,31 +330,20 @@ fn run_check_normal_internal_rr(
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
-    let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &cmd.build_flags,
-        selected_target_backend,
-        target_dir,
-        RunMode::Check,
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
+        cmd.auto_sync_flags.clone(),
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
     );
-
-    let (build_meta, build_graph) = rr_build::plan_build(
-        preconfig,
-        &cli.unstable_feature,
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir)
+        .context("Failed to calculate build plan")?;
+    let (build_meta, build_graph) = plan_check_rr_from_resolved(
+        cli,
+        cmd,
         source_dir,
         target_dir,
-        Box::new(|r, tb| {
-            calc_user_intent(
-                r,
-                source_dir,
-                cmd.package_path.as_deref(),
-                cmd.path.as_deref(),
-                tb,
-                cmd.no_mi,
-                cmd.patch_file.as_deref(),
-            )
-        }),
+        selected_target_backend,
+        resolve_output,
     )
     .context("Failed to calculate build plan")?;
 
@@ -397,6 +386,42 @@ fn run_check_normal_internal_rr(
             additional_watched_paths: prebuild_list.watched_paths,
         })
     }
+}
+
+pub(crate) fn plan_check_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+    let preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        selected_target_backend,
+        target_dir,
+        RunMode::Check,
+    );
+
+    rr_build::plan_build_from_resolved(
+        preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        Box::new(|resolved, target_backend| {
+            calc_user_intent(
+                resolved,
+                source_dir,
+                cmd.package_path.as_deref(),
+                cmd.path.as_deref(),
+                target_backend,
+                cmd.no_mi,
+                cmd.patch_file.as_deref(),
+            )
+        }),
+        resolve_output,
+    )
 }
 
 /// Generate user intent of checking all packages in the current workspace.
