@@ -655,7 +655,7 @@ pub fn plan_build_from_resolved<'a>(
 
     // Run prebuild config if any
     info!("Running prebuild configuration");
-    let prebuild_config = run_prebuild_config(&resolve_output)?;
+    let prebuild_config = Some(run_prebuild_config(&resolve_output)?);
 
     // Expand user intents to concrete BuildPlanNode inputs
     info!("Expanding user intents to build plan nodes");
@@ -677,7 +677,7 @@ pub fn plan_build_from_resolved<'a>(
         &resolve_output,
         &input_nodes,
         &intent.directive,
-        Some(&prebuild_config),
+        prebuild_config.as_ref(),
     )?;
 
     if unstable_features.rr_export_build_plan

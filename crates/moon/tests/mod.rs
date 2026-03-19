@@ -190,3 +190,13 @@ pub fn get_err_stderr(
     let s = get_err_stderr_without_replace(dir, args, [] as [(&str, &str); 0]);
     replace_dir(&s, dir)
 }
+
+#[track_caller]
+pub fn get_err_stderr_with_envs(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
+) -> String {
+    let s = get_err_stderr_without_replace(dir, args, envs);
+    replace_dir(&s, dir)
+}
