@@ -18,6 +18,7 @@
 
 mod backend_selection;
 mod cli_to_planner;
+mod dummy_core_planning;
 mod fixture;
 mod package_filter_planning;
 mod profile_planning;

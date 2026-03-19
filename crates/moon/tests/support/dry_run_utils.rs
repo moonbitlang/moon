@@ -39,16 +39,6 @@ pub(crate) fn line_with<T: AsRef<str> + Debug>(
     );
 }
 
-/// Return the shlex-split tokens of a command line from a dry-run output.
-pub(crate) fn command_tokens<T: AsRef<str> + Debug>(
-    input: impl AsRef<str>,
-    command: impl AsRef<str>,
-    filter: &[T],
-) -> Vec<String> {
-    let line = line_with(input, command, filter);
-    shlex::split(&line).unwrap_or_default()
-}
-
 /// Ensures the expected lines appear in order within the actual output, allowing
 /// unrelated lines to exist between matches.
 pub(crate) fn assert_lines_in_order(actual: impl AsRef<str>, expect: impl AsRef<str>) {
