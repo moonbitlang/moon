@@ -22,7 +22,6 @@ use std::{path::Path, sync::Arc};
 use moonutil::{
     common::{read_module_desc_file_in_dir, write_module_json_to_file},
     module::convert_module_to_mod_json,
-    mooncakes::RegistryConfig,
 };
 
 use crate::{
@@ -44,7 +43,6 @@ pub fn remove(
     module_dir: &Path,
     username: &str,
     pkgname: &str,
-    _registry_config: &RegistryConfig,
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(module_dir)?;
     let removed = m.deps.shift_remove(&format!("{username}/{pkgname}"));

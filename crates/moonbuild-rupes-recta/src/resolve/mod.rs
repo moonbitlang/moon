@@ -35,9 +35,7 @@ use mooncake::pkg::sync::{auto_sync, auto_sync_for_single_file_rr};
 use moonutil::{
     common::{MOONBITLANG_CORE, MbtMdHeader, TargetBackend, parse_front_matter_config},
     dependency::{SourceDependencyInfo, SourceDependencyInfoJson},
-    mooncakes::{
-        DirSyncResult, ModuleId, RegistryConfig, result::ResolvedEnv, sync::AutoSyncFlags,
-    },
+    mooncakes::{DirSyncResult, ModuleId, result::ResolvedEnv, sync::AutoSyncFlags},
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
 };
 use tracing::instrument;
@@ -79,7 +77,6 @@ impl ResolveOutput {
 #[derive(Debug)]
 pub struct ResolveConfig {
     sync_flags: AutoSyncFlags,
-    registry_config: RegistryConfig,
     no_std: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
@@ -252,28 +249,19 @@ mod tests {
 
 impl ResolveConfig {
     /// Creates a new `ResolveConfig` with whether to freeze package resolving,
-    /// and other flags populated from the environment with a sensible default.
-    ///
-    /// This method performs IO to load the registry configuration,
+    /// and other flags populated with sensible defaults.
     pub fn new_with_load_defaults(frozen: bool, no_std: bool, enable_coverage: bool) -> Self {
         Self {
             sync_flags: AutoSyncFlags { frozen },
-            registry_config: RegistryConfig::load(),
             no_std,
             enable_coverage,
         }
     }
 
-    /// Creates a new `ResolveConfig` with the given flags and registry
-    pub fn new(
-        sync_flags: AutoSyncFlags,
-        registry_config: RegistryConfig,
-        no_std: bool,
-        enable_coverage: bool,
-    ) -> Self {
+    /// Creates a new `ResolveConfig` with the given sync and build flags.
+    pub fn new(sync_flags: AutoSyncFlags, no_std: bool, enable_coverage: bool) -> Self {
         Self {
             sync_flags,
-            registry_config,
             no_std,
             enable_coverage,
         }
@@ -305,14 +293,9 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
-    let (resolved_env, dir_sync_result, workspace) = auto_sync(
-        source_dir,
-        &cfg.sync_flags,
-        &cfg.registry_config,
-        false,
-        cfg.no_std,
-    )
-    .map_err(ResolveError::SyncModulesError)?;
+    let (resolved_env, dir_sync_result, workspace) =
+        auto_sync(source_dir, &cfg.sync_flags, false, cfg.no_std)
+            .map_err(ResolveError::SyncModulesError)?;
 
     info!("Module dependency resolution completed successfully");
     debug!("Resolved {} modules", resolved_env.module_count());

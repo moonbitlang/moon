@@ -157,14 +157,7 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
     }
     let username = parts[0];
     let pkgname = parts[1];
-    let registry_config = RegistryConfig::load();
-    mooncake::pkg::remove::remove(
-        project_root,
-        module_dir,
-        username,
-        pkgname,
-        &registry_config,
-    )
+    mooncake::pkg::remove::remove(project_root, module_dir, username, pkgname)
 }
 
 pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {

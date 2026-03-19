@@ -41,7 +41,6 @@ use moonutil::common::BUILD_DIR;
 use moonutil::common::{
     FileLock, RunMode, TargetBackend, TestArtifacts, TestIndexRange, lower_surface_targets,
 };
-use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, debug, info, instrument, trace, warn};
@@ -318,7 +317,6 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     // Resolve synthesized single-file project
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
-        RegistryConfig::load(),
         false,
         cmd.build_flags.enable_coverage,
     );

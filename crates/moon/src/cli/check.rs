@@ -24,7 +24,6 @@ use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
 use moonutil::common::{BUILD_DIR, lower_surface_targets};
 use moonutil::common::{FileLock, TargetBackend};
-use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
@@ -199,7 +198,6 @@ fn run_check_for_single_file_rr(
     // Manually synthesize and resolve single file project
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
-        RegistryConfig::load(),
         false,
         cmd.build_flags.enable_coverage,
     );

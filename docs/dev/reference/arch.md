@@ -190,7 +190,9 @@ There are two types of dependencies in a module.
 
 There are two kinds of sources that dependencies come from:
 
-- A **registry dependency** is downloaded from the `mooncakes.io` package registry.
+- A **registry dependency** is resolved from the local registry index under
+  `~/.moon/registry/index`, which is typically populated from `mooncakes.io`
+  by `moon update`.
   It is declared with a version range (written as a version number)
   and later resolved to a concrete version.
 - A **local dependency** is fetched from a local path.
@@ -202,6 +204,18 @@ MVS resolves each module dependency to the lowest version that satisfies all req
 Since MoonBit packages follows [SemVer][],
 only the caret version range (all compatible versions) is supported when specifying version requirements.
 See details in [Modules and packages][mod-pkg].
+
+Current registry configuration behavior today is:
+
+- `RegistryConfig` currently affects how `moon update` populates the local
+  registry index.
+- MVS itself resolves against the local on-disk index and does not consume
+  `RegistryConfig` directly.
+- Package artifact downloads and symbols download are still tied to the default
+  Mooncakes endpoints.
+
+Future custom/private registry work may configure these pieces together,
+rather than reintroducing unused registry parameters into resolve entry points.
 
 [semver]: https://semver.org/
 [mvs]: https://go.dev/ref/mod#minimal-version-selection
