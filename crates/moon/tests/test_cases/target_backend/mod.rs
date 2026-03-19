@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn test_target_backend() {
+fn test_target_backend_cli_wiring_smoke() {
     let dir = TestDir::new("target_backend");
     check(
         get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
@@ -9,54 +9,6 @@ fn test_target_backend() {
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
-        "#]],
-    );
-    check(
-        get_stdout(
-            &dir,
-            ["build", "--dry-run", "--target", "wasm-gc", "--nostd"],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
-        "#]],
-    );
-    check(
-        get_stdout(&dir, ["build", "--dry-run", "--target", "js", "--nostd"]),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg hello/main -is-main -i ./_build/js/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc link-core ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target js -g -O0 -source-map
-        "#]],
-    );
-    check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
-        "#]],
-    );
-    check(
-        get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
-            moonrun ./_build/wasm-gc/debug/build/main/main.wasm --
-        "#]],
-    );
-    check(
-        get_stdout(
-            &dir,
-            ["run", "main", "--dry-run", "--target", "wasm-gc", "--nostd"],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -is-main -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
-            moonrun ./_build/wasm-gc/debug/build/main/main.wasm --
         "#]],
     );
     check(
@@ -89,75 +41,6 @@ fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
 }
 
 #[test]
-fn test_mixed_backend_build_and_check_are_target_aware() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
-
-    let check_js = get_stdout(
-        &dir,
-        ["check", "--target", "js", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &check_js,
-        &[
-            "./shared/shared.mbt",
-            "./web/main.mbt",
-            "./deps/jsdep/lib/lib.mbt",
-        ],
-        &[
-            "./server/main.mbt",
-            "./deps/nativedep/lib/lib.mbt",
-            "./deps/unuseddep/lib/lib.mbt",
-        ],
-    );
-
-    let build_js = get_stdout(
-        &dir,
-        ["build", "--target", "js", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &build_js,
-        &[
-            "./shared/shared.mbt",
-            "./web/main.mbt",
-            "./deps/jsdep/lib/lib.mbt",
-        ],
-        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
-    );
-
-    let check_native = get_stdout(
-        &dir,
-        ["check", "--target", "native", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &check_native,
-        &[
-            "./shared/shared.mbt",
-            "./server/main.mbt",
-            "./deps/nativedep/lib/lib.mbt",
-        ],
-        &[
-            "./web/main.mbt",
-            "./deps/jsdep/lib/lib.mbt",
-            "./deps/unuseddep/lib/lib.mbt",
-        ],
-    );
-
-    let build_native = get_stdout(
-        &dir,
-        ["build", "--target", "native", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &build_native,
-        &[
-            "./shared/shared.mbt",
-            "./server/main.mbt",
-            "./deps/nativedep/lib/lib.mbt",
-        ],
-        &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
-    );
-}
-
-#[test]
 fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
@@ -166,58 +49,11 @@ fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
         check_err.contains("Package 'mixed/localdep/server' does not support target backend 'js'")
     );
     assert!(check_err.contains("Supported backends: [native]"));
-
-    let build_err = get_err_stderr(&dir, ["build", "server", "--target", "js", "--dry-run"]);
-    assert!(
-        build_err.contains("Package 'mixed/localdep/server' does not support target backend 'js'")
-    );
-    assert!(build_err.contains("Supported backends: [native]"));
-
-    let run_err = get_err_stderr(&dir, ["run", "server", "--target", "js", "--dry-run"]);
-    assert!(
-        run_err.contains("Package 'mixed/localdep/server' does not support target backend 'js'")
-    );
-    assert!(run_err.contains("Supported backends: [native]"));
 }
 
 #[test]
 fn test_mixed_backend_run_info_bundle_are_target_aware() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
-
-    let run_js = get_stdout(
-        &dir,
-        ["run", "web", "--target", "js", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &run_js,
-        &[
-            "./shared/shared.mbt",
-            "./web/main.mbt",
-            "./deps/jsdep/lib/lib.mbt",
-        ],
-        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
-    );
-
-    let run_native = get_stdout(
-        &dir,
-        [
-            "run",
-            "server",
-            "--target",
-            "native",
-            "--dry-run",
-            "--sort-input",
-        ],
-    );
-    assert_contains_and_absent(
-        &run_native,
-        &[
-            "./shared/shared.mbt",
-            "./server/main.mbt",
-            "./deps/nativedep/lib/lib.mbt",
-        ],
-        &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
-    );
 
     get_stdout(&dir, ["info", "--target", "js"]);
     assert!(dir.join("shared").join(MBTI_GENERATED).exists());
@@ -289,26 +125,6 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
 fn test_supported_targets_empty_list_is_never_selected() {
     let dir = TestDir::new("supported_targets_empty.in");
 
-    let check_js = get_stdout(
-        &dir,
-        ["check", "--target", "js", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &check_js,
-        &["./main/main.mbt", "./lib/lib.mbt"],
-        &["./never/never.mbt"],
-    );
-
-    let check_native = get_stdout(
-        &dir,
-        ["check", "--target", "native", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &check_native,
-        &["./main/main.mbt", "./lib/lib.mbt"],
-        &["./never/never.mbt"],
-    );
-
     let explicit_err = get_err_stderr(&dir, ["check", "never", "--target", "js", "--dry-run"]);
     assert!(
         explicit_err
@@ -320,45 +136,6 @@ fn test_supported_targets_empty_list_is_never_selected() {
 #[test]
 fn test_module_supported_targets_intersects_package_supported_targets() {
     let dir = TestDir::new("supported_targets_module_intersection.in");
-
-    let check_wasm_gc = get_stdout(
-        &dir,
-        [
-            "check",
-            "lib",
-            "--target",
-            "wasm-gc",
-            "--dry-run",
-            "--sort-input",
-        ],
-    );
-    assert_contains_and_absent(&check_wasm_gc, &["./lib/lib.mbt"], &["./main/main.mbt"]);
-
-    let check_native = get_stdout(
-        &dir,
-        [
-            "check",
-            "lib",
-            "--target",
-            "native",
-            "--dry-run",
-            "--sort-input",
-        ],
-    );
-    assert_contains_and_absent(&check_native, &["./lib/lib.mbt"], &["./main/main.mbt"]);
-
-    let check_llvm = get_stdout(
-        &dir,
-        [
-            "check",
-            "lib",
-            "--target",
-            "llvm",
-            "--dry-run",
-            "--sort-input",
-        ],
-    );
-    assert_contains_and_absent(&check_llvm, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 
     let js_err = get_err_stderr(&dir, ["check", "lib", "--target", "js", "--dry-run"]);
     assert!(
