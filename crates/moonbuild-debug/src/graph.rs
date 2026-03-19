@@ -176,15 +176,23 @@ fn generate_from_nodes(
 pub struct PathNormalizer {
     canonical: Option<PathBuf>,
     replace_table: Vec<(String, String)>,
+    binary_file_name_table: Vec<(String, String)>,
     moon_home: String,
 }
 
 impl PathNormalizer {
     pub fn new(source_dir: &Path) -> Self {
-        let replace_table = moonutil::BINARIES
-            .all_moon_bins()
+        let all_moon_bins = moonutil::BINARIES.all_moon_bins();
+        let replace_table = all_moon_bins
             .iter()
             .map(|(name, path)| (path.to_string_lossy().into_owned(), name.to_string()))
+            .collect();
+        let binary_file_name_table = all_moon_bins
+            .iter()
+            .filter_map(|(name, path)| {
+                let file_name = path.file_name()?.to_str()?;
+                (file_name != *name).then(|| (file_name.to_owned(), (*name).to_owned()))
+            })
             .collect();
         let moon_home = home().to_string_lossy().into_owned();
 
@@ -192,6 +200,7 @@ impl PathNormalizer {
         PathNormalizer {
             canonical,
             replace_table,
+            binary_file_name_table,
             moon_home,
         }
     }
@@ -220,6 +229,7 @@ impl PathNormalizer {
         }
         s = s.replace(&self.moon_home, "$MOON_HOME");
         s = s.replace('\\', "/");
+        s = self.normalize_binary_file_name(s);
 
         s
     }
@@ -234,8 +244,24 @@ impl PathNormalizer {
         let mut path = path.to_owned();
         path = path.replace(&self.moon_home, "$MOON_HOME");
         path = path.replace('\\', "/");
+        path = self.normalize_binary_file_name(path);
 
         path
+    }
+
+    fn normalize_binary_file_name(&self, s: String) -> String {
+        self.binary_file_name_table
+            .iter()
+            .find_map(|(from, to)| {
+                if s == *from {
+                    Some(to.clone())
+                } else {
+                    s.strip_suffix(from)
+                        .filter(|prefix| prefix.ends_with('/'))
+                        .map(|prefix| format!("{prefix}{to}"))
+                }
+            })
+            .unwrap_or(s)
     }
 
     fn relative_from_path(stripped: &Path) -> String {
@@ -245,5 +271,30 @@ impl PathNormalizer {
             let normalized = stripped.to_string_lossy().replace('\\', "/");
             format!("./{}", normalized)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PathNormalizer;
+
+    #[test]
+    fn normalizes_known_tool_exe_suffix_without_touching_native_outputs() {
+        let replacer = PathNormalizer {
+            canonical: None,
+            replace_table: vec![],
+            binary_file_name_table: vec![("moonc.exe".to_owned(), "moonc".to_owned())],
+            moon_home: "$MOON_HOME".to_owned(),
+        };
+
+        assert_eq!(replacer.normalize_command_arg("moonc.exe"), "moonc");
+        assert_eq!(
+            replacer.normalize_command_arg("$MOON_HOME/bin/moonc.exe"),
+            "$MOON_HOME/bin/moonc"
+        );
+        assert_eq!(
+            replacer.normalize_path("./_build/native/debug/build/main/main.exe"),
+            "./_build/native/debug/build/main/main.exe"
+        );
     }
 }

@@ -89,7 +89,8 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                 filter: None,
             },
         )
-    "#]].assert_debug_eq(&(cli, cmd));
+    "#]]
+    .assert_debug_eq(&(cli, cmd));
 }
 
 #[test]
