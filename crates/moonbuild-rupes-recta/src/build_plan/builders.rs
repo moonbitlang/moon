@@ -29,8 +29,8 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     common::{
-        DEP_PATH, DOT_MBT_DOT_MD, MOD_DIR, MOON_BIN_DIR, MOON_MOD_JSON, MOONCAKE_BIN, PKG_DIR,
-        is_moon_pkg,
+        DEP_PATH, DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOON_BIN_DIR, MOON_MOD_JSON,
+        MOONCAKE_BIN, PKG_DIR, is_moon_pkg, is_moon_script_ignored,
     },
     compiler_flags::{CC, DETECTED_CC},
     mooncakes::ModuleId,
@@ -101,7 +101,9 @@ impl<'a> BuildPlanConstructor<'a> {
             return;
         }
 
-        if let Some(prebuild) = &pkg.raw.pre_build {
+        if !is_moon_script_ignored(IgnoredMoonScript::Prebuild)
+            && let Some(prebuild) = &pkg.raw.pre_build
+        {
             for i in 0..prebuild.len() {
                 let prebuild_node = self.need_node(BuildPlanNode::RunPrebuild(pkg_id, i as u32));
                 self.add_edge(node, prebuild_node);

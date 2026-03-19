@@ -1224,8 +1224,27 @@ impl PrePostBuild {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum IgnoredMoonScript {
+    Prebuild,
+    Postadd,
+}
+
+impl IgnoredMoonScript {
+    pub fn env_var(self) -> &'static str {
+        match self {
+            IgnoredMoonScript::Prebuild => "MOON_IGNORE_PREBUILD",
+            IgnoredMoonScript::Postadd => "MOON_IGNORE_POSTADD",
+        }
+    }
+}
+
+pub fn is_moon_script_ignored(script: IgnoredMoonScript) -> bool {
+    std::env::var_os(script.env_var()).is_some()
+}
+
 pub fn execute_postadd_script(dir: &Path) -> anyhow::Result<()> {
-    if std::env::var("MOON_IGNORE_POSTADD").is_ok() {
+    if is_moon_script_ignored(IgnoredMoonScript::Postadd) {
         return Ok(());
     }
     let m = read_module_desc_file_in_dir(dir)?;

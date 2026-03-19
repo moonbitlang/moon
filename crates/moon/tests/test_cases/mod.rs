@@ -1357,6 +1357,31 @@ fn test_pre_build() {
 }
 
 #[test]
+fn test_pre_build_ignore_prebuild_env() {
+    let dir = TestDir::new("pre_build.in");
+
+    // replace CRLF with LF on Windows
+    let b_txt_path = dir.join("src/lib/b.txt");
+    std::fs::write(&b_txt_path, read(&b_txt_path)).unwrap();
+
+    assert!(
+        !dir.join("src/lib/a.mbt").exists(),
+        "Prebuilt file should not exist before execution"
+    );
+
+    let stderr = get_err_stderr_with_envs(&dir, ["check"], [("MOON_IGNORE_PREBUILD", "1")]);
+
+    assert!(
+        stderr.contains("a.mbt"),
+        "expected missing generated source in stderr, got:\n{stderr}"
+    );
+    assert!(
+        !dir.join("src/lib/a.mbt").exists(),
+        "`MOON_IGNORE_PREBUILD` should not generate prebuild outputs"
+    );
+}
+
+#[test]
 fn test_bad_version() {
     let dir = TestDir::new("general.in");
     let content = std::fs::read_to_string(dir.join("moon.mod.json")).unwrap();
