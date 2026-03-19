@@ -25,7 +25,7 @@ use moonutil::{
     common::{MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
     module::MoonMod,
     mooncakes::{
-        DirSyncResult, ModuleSource, RegistryConfig,
+        DirSyncResult, ModuleSource,
         result::{ResolvedEnv, ResolvedModule, ResolvedRootModules},
         sync::AutoSyncFlags,
     },
@@ -35,10 +35,11 @@ use semver::Version;
 
 /// Given the specified source directory, resolve the module dependency relation
 /// and their directories
+///
+/// TODO: support registry config
 pub fn auto_sync(
     source_dir: &Path,
     cli: &AutoSyncFlags,
-    _registry_config: &RegistryConfig,
     quiet: bool,
     no_std: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {

@@ -192,10 +192,7 @@ enum PullLatestRegistryIndexErrorKind {
     NonZeroExitCode(std::process::ExitStatus),
 }
 
-fn pull_latest_registry_index(
-    _registry_config: &RegistryConfig,
-    target_dir: &Path,
-) -> Result<(), PullLatestRegistryIndexError> {
+fn pull_latest_registry_index(target_dir: &Path) -> Result<(), PullLatestRegistryIndexError> {
     let mut child = moonutil::git::git_command(
         &["-C", target_dir.to_str().unwrap(), "pull", "origin", "main"],
         Stdios::npp(),
@@ -340,7 +337,7 @@ pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Re
             source: UpdateErrorKind::GetRemoteUrlError(e),
         })?;
         if url == registry_config.index {
-            let result = pull_latest_registry_index(registry_config, target_dir);
+            let result = pull_latest_registry_index(target_dir);
             match result {
                 Err(_) => {
                     eprintln!(

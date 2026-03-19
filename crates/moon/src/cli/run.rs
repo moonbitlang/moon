@@ -25,7 +25,6 @@ use moonutil::common::{
     BUILD_DIR, FileLock, RunMode, TargetBackend, TestArtifacts, is_moon_pkg_exist,
 };
 use moonutil::dirs::PackageDirs;
-use moonutil::mooncakes::RegistryConfig;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use tracing::{Level, instrument};
 
@@ -271,7 +270,6 @@ fn run_single_file_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     // Resolve single-file project (synthesized package around the file)
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
-        RegistryConfig::load(),
         false,
         cmd.build_flags.enable_coverage,
     );
