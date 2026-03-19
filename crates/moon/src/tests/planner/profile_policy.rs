@@ -24,49 +24,59 @@ use crate::build_flags::BuildFlags;
 // tested without involving any planner graph.
 
 #[test]
-fn bench_profile_selection_matches_flags() {
-    assert_eq!(
-        BuildFlags::default().effective_profile(RunMode::Bench),
-        OptLevel::Release
-    );
-    assert_eq!(
-        BuildFlags {
-            release: true,
-            ..Default::default()
-        }
-        .effective_profile(RunMode::Bench),
-        OptLevel::Release
-    );
-    assert_eq!(
-        BuildFlags {
-            debug: true,
-            ..Default::default()
-        }
-        .effective_profile(RunMode::Bench),
-        OptLevel::Debug
-    );
+fn release_by_default_modes_match_flags() {
+    for run_mode in [RunMode::Bench, RunMode::Bundle] {
+        assert_eq!(
+            BuildFlags::default().effective_profile(run_mode),
+            OptLevel::Release
+        );
+    }
 }
 
 #[test]
-fn test_profile_selection_matches_flags() {
-    assert_eq!(
-        BuildFlags::default().effective_profile(RunMode::Test),
-        OptLevel::Debug
-    );
-    assert_eq!(
-        BuildFlags {
-            release: true,
-            ..Default::default()
-        }
-        .effective_profile(RunMode::Test),
-        OptLevel::Release
-    );
-    assert_eq!(
-        BuildFlags {
-            debug: true,
-            ..Default::default()
-        }
-        .effective_profile(RunMode::Test),
-        OptLevel::Debug
-    );
+fn debug_by_default_modes_match_flags() {
+    for run_mode in [RunMode::Build, RunMode::Run, RunMode::Test, RunMode::Check] {
+        assert_eq!(
+            BuildFlags::default().effective_profile(run_mode),
+            OptLevel::Debug
+        );
+    }
+}
+
+#[test]
+fn explicit_release_overrides_every_mode() {
+    let flags = BuildFlags {
+        release: true,
+        ..Default::default()
+    };
+
+    for run_mode in [
+        RunMode::Build,
+        RunMode::Run,
+        RunMode::Test,
+        RunMode::Check,
+        RunMode::Bench,
+        RunMode::Bundle,
+    ] {
+        assert_eq!(flags.effective_profile(run_mode), OptLevel::Release);
+    }
+}
+
+#[test]
+fn explicit_debug_overrides_every_mode() {
+    let flags = BuildFlags {
+        debug: true,
+        ..Default::default()
+    };
+
+    for run_mode in [
+        RunMode::Build,
+        RunMode::Run,
+        RunMode::Test,
+        RunMode::Check,
+        RunMode::Bench,
+        RunMode::Bundle,
+    ] {
+        assert_eq!(flags.effective_profile(run_mode), OptLevel::Debug);
+    }
 }
