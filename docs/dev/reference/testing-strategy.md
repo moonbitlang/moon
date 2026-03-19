@@ -601,3 +601,31 @@ are:
 
 The first two are the best candidates because they contain a lot of dry-run and
 selection coverage that should not need full CLI e2e tests.
+
+## Follow-up after the current planner PR
+
+The current `test` / `bench` planner split is intentionally narrow. It is a
+useful seam for reducing repeated process spawn and repeated resolve/planning
+work, especially on Windows, but it should not turn into a broad refactor in
+the same PR.
+
+If a later performance-focused PR is needed, the best next candidates are the
+remaining suites that mostly exercise dry-run planning on the same fixture many
+times:
+
+- `target_backend`, especially `build` / `check` / `run` graph-only coverage
+- `dummy_core`, which contains a large dry-run matrix over one fixture
+- `debug_flag_test`, which is mostly profile-selection policy plus graph shape
+- `targets`, after there is a clean seam for multi-target planning
+
+The expected shape of that follow-up is:
+
+- add small planning seams for `build` / `check` / `run` similar to the
+  existing `test` / `bench` seam
+- move graph-only dry-run assertions below the CLI so they can reuse one
+  resolved fixture
+- keep real execution, file rewriting, stdout/stderr wiring, and CLI parsing
+  checks as integration or e2e tests
+
+These candidates are worth revisiting because they are more likely to improve
+default CI time than smaller one-off test moves.

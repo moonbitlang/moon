@@ -89,7 +89,7 @@ fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
 }
 
 #[test]
-fn test_mixed_backend_default_selection_is_target_aware() {
+fn test_mixed_backend_build_and_check_are_target_aware() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
     let check_js = get_stdout(
@@ -124,16 +124,6 @@ fn test_mixed_backend_default_selection_is_target_aware() {
         &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
     );
 
-    let test_js = get_stdout(
-        &dir,
-        ["test", "--target", "js", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &test_js,
-        &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
-        &["./server/server_wbtest.mbt", "./deps/nativedep/lib/lib.mbt"],
-    );
-
     let check_native = get_stdout(
         &dir,
         ["check", "--target", "native", "--dry-run", "--sort-input"],
@@ -165,41 +155,6 @@ fn test_mixed_backend_default_selection_is_target_aware() {
         ],
         &["./web/main.mbt", "./deps/jsdep/lib/lib.mbt"],
     );
-
-    let test_native = get_stdout(
-        &dir,
-        ["test", "--target", "native", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &test_native,
-        &["./server/server_wbtest.mbt", "./deps/nativedep/lib/lib.mbt"],
-        &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
-    );
-}
-
-#[test]
-fn test_mixed_backend_bench_is_target_aware() {
-    let dir = TestDir::new("mixed_backend_local_dep.in");
-
-    let bench_js = get_stdout(
-        &dir,
-        ["bench", "--target", "js", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &bench_js,
-        &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
-        &["./server/server_wbtest.mbt", "./deps/nativedep/lib/lib.mbt"],
-    );
-
-    let bench_native = get_stdout(
-        &dir,
-        ["bench", "--target", "native", "--dry-run", "--sort-input"],
-    );
-    assert_contains_and_absent(
-        &bench_native,
-        &["./server/server_wbtest.mbt", "./deps/nativedep/lib/lib.mbt"],
-        &["./web/web_wbtest.mbt", "./deps/jsdep/lib/lib.mbt"],
-    );
 }
 
 #[test]
@@ -217,20 +172,6 @@ fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
         build_err.contains("Package 'mixed/localdep/server' does not support target backend 'js'")
     );
     assert!(build_err.contains("Supported backends: [native]"));
-
-    let test_err = get_err_stderr(
-        &dir,
-        [
-            "test",
-            "--package",
-            "mixed/localdep/server",
-            "--target",
-            "js",
-            "--dry-run",
-        ],
-    );
-    assert!(test_err.contains("Selected package(s) do not support target backend 'js'"));
-    assert!(test_err.contains("mixed/localdep/server ([native])"));
 
     let run_err = get_err_stderr(&dir, ["run", "server", "--target", "js", "--dry-run"]);
     assert!(

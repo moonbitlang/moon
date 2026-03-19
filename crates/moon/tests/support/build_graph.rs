@@ -133,28 +133,14 @@ pub(crate) fn compare_graphs_with_replacements(
 fn transform_graph(graph: &mut BuildGraphDump, transform: impl Fn(&mut String)) {
     for n in graph.nodes.iter_mut() {
         if let Some(cmd) = &mut n.command {
-            normalize_graph_entry(cmd);
             transform(cmd)
         }
         for in_file in n.inputs.iter_mut() {
-            normalize_graph_entry(in_file);
             transform(in_file)
         }
         for out_file in n.outputs.iter_mut() {
-            normalize_graph_entry(out_file);
             transform(out_file)
         }
-    }
-}
-
-fn normalize_graph_entry(s: &mut String) {
-    // `BINARIES.moonc` resolves to `moonc.exe` on Windows.
-    // Normalize tool names in graph snapshots so they are portable.
-    if s.contains("/moonc.exe") {
-        *s = s.replace("/moonc.exe", "/moonc");
-    }
-    if s.contains("\\moonc.exe") {
-        *s = s.replace("\\moonc.exe", "\\moonc");
     }
 }
 
