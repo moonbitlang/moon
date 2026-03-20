@@ -26,9 +26,16 @@ use std::{
 };
 
 use anyhow::Context;
+use colored::Colorize;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
-use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend, is_moon_pkg_exist};
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
+use moonutil::{
+    common::{
+        BUILD_DIR, MOON_PKG, MOON_PKG_JSON, TargetBackend, is_moon_pkg_exist,
+        package_source_file_kind,
+    },
+    dirs::{find_ancestor_with_mod, find_ancestor_with_work},
+};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
@@ -165,6 +172,241 @@ pub(crate) fn filter_pkg_by_dir(
                 resolve_output.local_modules(),
             )
         })
+}
+
+pub(crate) struct ProjectPathGroup {
+    /// Workspace root if inside a workspace, otherwise the module root.
+    pub project_root: PathBuf,
+    /// Package directories selected under this project root, after normalizing
+    /// both package-dir inputs and source-file inputs to their containing package.
+    pub package_dirs: Vec<PathBuf>,
+}
+
+pub(crate) struct ProjectPathSelection {
+    /// Valid package selections grouped by project root for one resolve pass per root.
+    pub groups: Vec<ProjectPathGroup>,
+    /// Directory inputs that are outside every known workspace or module root.
+    pub skipped_non_project_dirs: Vec<PathBuf>,
+    /// Paths inside a known project root whose directory is not a package.
+    pub skipped_non_package_paths: Vec<PathBuf>,
+    /// File inputs that are not MoonBit source files and therefore cannot select a package.
+    pub skipped_unexpected_files: Vec<PathBuf>,
+}
+
+fn find_project_root_for_dir(dir: &Path) -> anyhow::Result<Option<PathBuf>> {
+    Ok(find_ancestor_with_work(dir)?.or_else(|| find_ancestor_with_mod(dir)))
+}
+
+enum ProjectPathKind {
+    Package {
+        project_root: PathBuf,
+        package_dir: PathBuf,
+    },
+    NonProject {
+        path: PathBuf,
+        dir: PathBuf,
+        is_file: bool,
+    },
+    NonPackage {
+        path: PathBuf,
+        dir: PathBuf,
+    },
+    UnexpectedFile(PathBuf),
+}
+
+fn classify_project_path(path: &Path) -> anyhow::Result<ProjectPathKind> {
+    let (dir, filename) = canonicalize_with_filename(path)?;
+    let Some(project_root) = find_project_root_for_dir(&dir)? else {
+        return Ok(ProjectPathKind::NonProject {
+            path: path.to_path_buf(),
+            dir,
+            is_file: filename.is_some(),
+        });
+    };
+
+    match filename.as_deref() {
+        Some(filename) if package_source_file_kind(filename).is_none() => {
+            Ok(ProjectPathKind::UnexpectedFile(path.to_path_buf()))
+        }
+        Some(_) | None if is_moon_pkg_exist(&dir) => Ok(ProjectPathKind::Package {
+            project_root,
+            package_dir: dir,
+        }),
+        _ => Ok(ProjectPathKind::NonPackage {
+            path: path.to_path_buf(),
+            dir,
+        }),
+    }
+}
+
+/// Group paths by project root using only filesystem structure, before resolve.
+pub(crate) fn group_paths_by_project_root(
+    paths: &[PathBuf],
+    allow_skipping_non_project_paths: bool,
+) -> anyhow::Result<ProjectPathSelection> {
+    let classified = paths
+        .iter()
+        .map(|path| classify_project_path(path))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    let (selection, _, _) = classified.into_iter().try_fold(
+        (
+            ProjectPathSelection {
+                groups: Vec::new(),
+                skipped_non_project_dirs: Vec::new(),
+                skipped_non_package_paths: Vec::new(),
+                skipped_unexpected_files: Vec::new(),
+            },
+            Vec::<PathBuf>::new(),
+            Vec::<PathBuf>::new(),
+        ),
+        |(mut selection, mut skipped_non_project_dir_roots, mut skipped_non_package_roots), kind| {
+            match kind {
+                ProjectPathKind::Package {
+                    project_root,
+                    package_dir,
+                } => {
+                    if let Some(group) = selection
+                        .groups
+                        .iter_mut()
+                        .find(|group| group.project_root == project_root)
+                    {
+                        group.package_dirs.push(package_dir);
+                    } else {
+                        selection.groups.push(ProjectPathGroup {
+                            project_root,
+                            package_dirs: vec![package_dir],
+                        });
+                    }
+                }
+                ProjectPathKind::NonProject { path, dir, is_file }
+                    if allow_skipping_non_project_paths =>
+                {
+                    if !is_file
+                        && !skipped_non_project_dir_roots
+                            .iter()
+                            .any(|skipped| dir.starts_with(skipped))
+                    {
+                        skipped_non_project_dir_roots.push(dir);
+                        selection.skipped_non_project_dirs.push(path);
+                    }
+                }
+                ProjectPathKind::NonProject { path, .. } => {
+                    anyhow::bail!(
+                        "The provided path `{}` is not inside any Moon module or workspace.",
+                        path.display()
+                    )
+                }
+                ProjectPathKind::NonPackage { path, dir }
+                    if allow_skipping_non_project_paths =>
+                {
+                    if !skipped_non_package_roots
+                        .iter()
+                        .any(|skipped| dir.starts_with(skipped))
+                    {
+                        skipped_non_package_roots.push(dir);
+                        selection.skipped_non_package_paths.push(path);
+                    }
+                }
+                ProjectPathKind::NonPackage { path, .. } => {
+                    anyhow::bail!(
+                        "The provided path `{}` does not contain `{}` or `{}`, so it is not a package.",
+                        path.display(),
+                        MOON_PKG,
+                        MOON_PKG_JSON,
+                    )
+                }
+                ProjectPathKind::UnexpectedFile(path) if allow_skipping_non_project_paths => {
+                    selection.skipped_unexpected_files.push(path);
+                }
+                ProjectPathKind::UnexpectedFile(path) => {
+                    selection.skipped_unexpected_files.push(path);
+                }
+            }
+
+            Ok((
+                selection,
+                skipped_non_project_dir_roots,
+                skipped_non_package_roots,
+            ))
+        },
+    )?;
+
+    Ok(selection)
+}
+
+/// Resolve package directories to packages after package discovery has completed.
+pub(crate) fn filter_pkgs_by_dirs(
+    resolve_output: &ResolveOutput,
+    package_dirs: &[PathBuf],
+) -> anyhow::Result<Vec<PackageId>> {
+    let mut matched = Vec::new();
+    let mut seen = HashSet::new();
+
+    for dir in package_dirs {
+        let pkg_id = filter_pkg_by_dir(resolve_output, dir)?;
+        if seen.insert(pkg_id) {
+            matched.push(pkg_id);
+        }
+    }
+
+    Ok(matched)
+}
+
+pub(crate) fn warn_skipped_non_package_paths(paths: &[PathBuf]) {
+    for path in paths {
+        eprintln!(
+            "{}: skipping `{}` because it does not contain `{}` or `{}`",
+            "Warning".yellow().bold(),
+            path.display(),
+            MOON_PKG,
+            MOON_PKG_JSON,
+        );
+    }
+}
+
+pub(crate) fn warn_skipped_unexpected_files(paths: &[PathBuf]) {
+    for path in paths {
+        eprintln!(
+            "{}: skipping `{}` because only package directories and MoonBit source files are accepted",
+            "Warning".yellow().bold(),
+            path.display(),
+        );
+    }
+}
+
+pub(crate) fn warn_skipped_non_project_dirs(paths: &[PathBuf]) {
+    for path in paths {
+        eprintln!(
+            "{}: skipping `{}` because it is not inside any Moon module or workspace",
+            "Warning".yellow().bold(),
+            path.display(),
+        );
+    }
+}
+
+pub(crate) fn resolve_target_dir_for_project(
+    project_root: &Path,
+    explicit_target_dir: Option<&PathBuf>,
+) -> anyhow::Result<PathBuf> {
+    let target_dir = explicit_target_dir
+        .cloned()
+        .unwrap_or_else(|| project_root.join(BUILD_DIR));
+    if !target_dir.exists() {
+        std::fs::create_dir_all(&target_dir).with_context(|| {
+            format!(
+                "failed to create target directory `{}`",
+                target_dir.display()
+            )
+        })?;
+    }
+    let target_dir_display = target_dir.clone();
+    dunce::canonicalize(target_dir).with_context(|| {
+        format!(
+            "failed to resolve target directory `{}`",
+            target_dir_display.display()
+        )
+    })
 }
 
 /// Given an invalid input path, report a helpful error message indicating why
