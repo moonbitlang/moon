@@ -16,11 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{fs, path::Path, process::Command};
+
+use crate::redact::{OutputRedactor, moon_home};
 
 #[derive(Debug)]
 struct CommandOutput {
@@ -29,37 +27,18 @@ struct CommandOutput {
     exit_code: u8,
 }
 
-fn canonicalize_or_self(path: &Path) -> PathBuf {
-    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
-}
-
-fn moon_home() -> Option<PathBuf> {
-    if let Ok(moon_home) = std::env::var("MOON_HOME") {
-        return Some(PathBuf::from(moon_home));
-    }
-
-    home::home_dir().map(|h| h.join(".moon"))
-}
-
 fn normalize_output(output: &str, workdir: &Path) -> String {
-    let mut redactions = snapbox::Redactions::new();
+    let redactor = OutputRedactor::new().path("[WORK_DIR]", "[WORK_DIR]", workdir);
+    let redactor = match moon_home() {
+        Some(moon_home) => redactor.path("[MOON_HOME]", "[MOON_HOME]", moon_home),
+        None => redactor,
+    };
 
-    redactions
-        .insert("[WORK_DIR]", canonicalize_or_self(workdir))
-        .expect("valid WORK_DIR redaction");
-
-    if let Some(moon_home) = moon_home() {
-        redactions
-            .insert("[MOON_HOME]", canonicalize_or_self(&moon_home))
-            .expect("valid MOON_HOME redaction");
-    }
-
-    let normalized = output
-        .replace("\\\\", "\\")
-        .replace("${WORK_DIR}", "[WORK_DIR]")
-        .replace("$MOON_HOME", "[MOON_HOME]");
-
-    redactions.redact(&normalized).replace("\r\n", "\n")
+    redactor.redact(
+        &output
+            .replace("${WORK_DIR}", "[WORK_DIR]")
+            .replace("$MOON_HOME", "[MOON_HOME]"),
+    )
 }
 
 fn run_process(program: &Path, args: &[&str], workdir: &Path) -> CommandOutput {

@@ -17,5 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 pub mod cmdtest;
+pub mod redact;
 pub mod stack_trace;
 pub mod test_dir;

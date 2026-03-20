@@ -101,6 +101,7 @@ mod test_error_report;
 mod test_exclude_001;
 mod test_exclude_002;
 mod test_expect_test;
+mod test_expect_with_escape;
 mod test_filter;
 mod test_include_001;
 mod test_include_002;
@@ -2197,57 +2198,6 @@ fn test_supported_backends_in_pkg_json() {
     );
 }
 
-#[test]
-fn test_update_expect_failed() {
-    let dir = TestDir::new("test_expect_with_escape.in");
-    let _ = get_stdout(&dir, ["test", "-u"]);
-    check(
-        read(dir.join("src").join("lib").join("hello.mbt")),
-        expect![[r#"
-            ///|
-            test {
-              inspect("\x0b", content=(#|
-              ))
-              inspect("a\x0b", content=(#|a
-              ))
-              inspect("a\x00b", content=(#|a b
-              ))
-              inspect("a\x00b\x19", content=(#|a b
-              ))
-              inspect("\na\n\x00\nb\n\x19", content=(
-                #|
-                #|a
-                #| 
-                #|b
-                #|
-              ))
-              inspect("\n\"a\n\x00\nb\"\n\x19", content=(
-                #|
-                #|"a
-                #| 
-                #|b"
-                #|
-              ))
-            }
-
-            ///|
-            test {
-              inspect("\"abc\"", content=(#|"abc"
-              ))
-              inspect("\"a\nb\nc\"", content=(
-                #|"a
-                #|b
-                #|c"
-              ))
-              inspect("\x0b\"a\nb\nc\"", content=(
-                #|"a
-                #|b
-                #|c"
-              ))
-            }
-        "#]],
-    );
-}
 
 #[test]
 fn test_update_expect_failed_with_multiline_string() {
