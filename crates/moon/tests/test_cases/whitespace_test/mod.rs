@@ -147,9 +147,6 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
         .join("whitespace_test.in");
     copy(&dir, &path_with_space)?;
 
-    let canon = dunce::canonicalize(tmp_dir.path())?;
-    let prefix = canon.as_path().display().to_string().replace('\\', "/");
-
     let build_graph = path_with_space.join("build_graph.jsonl");
     snap_dry_run_graph(
         &path_with_space,
@@ -162,14 +159,6 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     );
 
     let out = get_stderr(&path_with_space, ["build", "--no-render"]);
-    let out = out.replace(&prefix, ".");
-    let out = out.replace(
-        &moonutil::moon_dir::home()
-            .to_str()
-            .unwrap()
-            .replace('\\', "/"),
-        "$MOON_HOME",
-    );
 
     copy(&dir, &path_with_space)?;
     check(

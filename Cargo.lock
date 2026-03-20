@@ -1611,6 +1611,7 @@ dependencies = [
  "dunce",
  "home",
  "ignore",
+ "moonutil",
  "regex",
  "snapbox",
  "tempfile",
