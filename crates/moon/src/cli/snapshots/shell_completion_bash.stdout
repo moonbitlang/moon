@@ -516,7 +516,7 @@ _moon() {
             return 0
             ;;
         moon__build)
-            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --install-path --package --bin-alias --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -542,15 +542,7 @@ _moon() {
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
                     return 0
                     ;;
-                --install-path)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
                 --package)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --bin-alias)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

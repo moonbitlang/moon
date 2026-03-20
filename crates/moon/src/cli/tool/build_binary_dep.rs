@@ -201,7 +201,7 @@ fn add_bin_dep(
     }
 }
 
-/// Handle `moon build --install-path`
+/// Install a built binary artifact into the requested output directory.
 fn install_build_rr(
     meta: &BuildMeta,
     install_dir: &Path,

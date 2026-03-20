@@ -109,9 +109,7 @@ complete -c moon -n "__fish_moon_using_subcommand build" -l target -d 'Select ou
 complete -c moon -n "__fish_moon_using_subcommand build" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand build" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand build" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
-complete -c moon -n "__fish_moon_using_subcommand build" -l install-path -r -F
 complete -c moon -n "__fish_moon_using_subcommand build" -l package -r
-complete -c moon -n "__fish_moon_using_subcommand build" -l bin-alias -r
 complete -c moon -n "__fish_moon_using_subcommand build" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand build" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand build" -l std -d 'Enable the standard library (default)'

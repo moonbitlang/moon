@@ -101,9 +101,7 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
-'--install-path=[]:INSTALL_PATH:_files' \
 '--package=[]:PACKAGE: ' \
-'--bin-alias=[]:BIN_ALIAS: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '(--nostd)--std[Enable the standard library (default)]' \
