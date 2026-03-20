@@ -75,9 +75,6 @@ _moon() {
             moon,publish)
                 cmd="moon__publish"
                 ;;
-            moon,query)
-                cmd="moon__query"
-                ;;
             moon,register)
                 cmd="moon__register"
                 ;;
@@ -200,9 +197,6 @@ _moon() {
                 ;;
             moon__help,publish)
                 cmd="moon__help__publish"
-                ;;
-            moon__help,query)
-                cmd="moon__help__query"
                 ;;
             moon__help,register)
                 cmd="moon__help__register"
@@ -400,7 +394,7 @@ _moon() {
 
     case "${cmd}" in
         moon)
-            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
+            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -522,7 +516,7 @@ _moon() {
             return 0
             ;;
         moon__build)
-            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --install-path --show-artifacts --package --bin-alias --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --install-path --package --bin-alias --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1058,7 +1052,7 @@ _moon() {
             return 0
             ;;
         moon__help)
-            opts="new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix query upgrade shell-completion version tool ide help"
+            opts="new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1478,20 +1472,6 @@ _moon() {
             return 0
             ;;
         moon__help__publish)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__help__query)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2206,48 +2186,6 @@ _moon() {
                 return 0
             fi
             case "${prev}" in
-                --manifest-path)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --target-dir)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__query)
-            opts="-g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <MOD_NAME>"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                --target)
-                    COMPREPLY=($(compgen -W "wasm wasm-gc js native llvm all" -- "${cur}"))
-                    return 0
-                    ;;
-                --warn-list)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --jobs)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                -j)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --render-no-loc)
-                    COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
-                    return 0
-                    ;;
                 --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

@@ -1870,23 +1870,6 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
     );
 }
 
-#[cfg(unix)]
-#[test]
-#[ignore = "moon query may no support anymore"]
-fn test_moon_query() {
-    let dir = TestDir::new("test_filter_pkg_with_test_imports.in");
-
-    check(
-        get_stdout(&dir, ["build", "--show-artifacts"]),
-        // need topological order
-        expect![[r#"
-            [["username/hello/lib6","$ROOT/_build/wasm-gc/debug/build/lib6/lib6.mi","$ROOT/_build/wasm-gc/debug/build/lib6/lib6.core"],["username/hello/lib7","$ROOT/_build/wasm-gc/debug/build/lib7/lib7.mi","$ROOT/_build/wasm-gc/debug/build/lib7/lib7.core"],["username/hello/lib3","$ROOT/_build/wasm-gc/debug/build/lib3/lib3.mi","$ROOT/_build/wasm-gc/debug/build/lib3/lib3.core"],["username/hello/lib1","$ROOT/_build/wasm-gc/debug/build/lib1/lib1.mi","$ROOT/_build/wasm-gc/debug/build/lib1/lib1.core"],["username/hello/lib5","$ROOT/_build/wasm-gc/debug/build/lib5/lib5.mi","$ROOT/_build/wasm-gc/debug/build/lib5/lib5.core"],["username/hello/lib4","$ROOT/_build/wasm-gc/debug/build/lib4/lib4.mi","$ROOT/_build/wasm-gc/debug/build/lib4/lib4.core"],["username/hello/lib2","$ROOT/_build/wasm-gc/debug/build/lib2/lib2.mi","$ROOT/_build/wasm-gc/debug/build/lib2/lib2.core"],["username/hello/lib","$ROOT/_build/wasm-gc/debug/build/lib/lib.mi","$ROOT/_build/wasm-gc/debug/build/lib/lib.core"],["username/hello/main","$ROOT/_build/wasm-gc/debug/build/main/main.mi","$ROOT/_build/wasm-gc/debug/build/main/main.core"]]
-        "#]],
-    );
-
-    get_stdout(&dir, ["query", "moonbitlang/x"]);
-}
-
 #[test]
 #[allow(clippy::just_underscores_and_digits)]
 fn test_moon_install_bin() {

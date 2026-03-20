@@ -63,9 +63,6 @@ pub(crate) struct BuildSubcommand {
     #[clap(long, hide = true)]
     pub install_path: Option<PathBuf>,
 
-    #[clap(long, hide = true)]
-    pub show_artifacts: bool,
-
     // package name (username/hello/lib)
     #[clap(long, hide = true)]
     pub package: Option<String>,

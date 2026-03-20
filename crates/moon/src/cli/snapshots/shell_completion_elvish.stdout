@@ -59,7 +59,6 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand update 'Update the package registry index'
             cand coverage 'Code coverage utilities'
             cand generate-build-matrix 'Generate build matrix for benchmarking (legacy feature)'
-            cand query 'query'
             cand upgrade 'Upgrade toolchains'
             cand shell-completion 'Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout'
             cand version 'Print version information and exit'
@@ -148,7 +147,6 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
             cand -w 'Monitor the file system and automatically build artifacts'
             cand --watch 'Monitor the file system and automatically build artifacts'
-            cand --show-artifacts 'show-artifacts'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -766,40 +764,6 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
         }
-        &'moon;query'= {
-            cand --target 'Select output target'
-            cand --warn-list 'Warn list config'
-            cand -j 'Set the max number of jobs to run in parallel'
-            cand --jobs 'Set the max number of jobs to run in parallel'
-            cand --render-no-loc 'Render no-location diagnostics starting from a certain level'
-            cand --manifest-path 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)'
-            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
-            cand --std 'Enable the standard library (default)'
-            cand --nostd 'Disable the standard library'
-            cand -g 'Emit debug information'
-            cand --debug 'Emit debug information'
-            cand --release 'Compile in release mode'
-            cand --strip 'Enable stripping debug information'
-            cand --no-strip 'Disable stripping debug information'
-            cand --serial '[Deprecated] Handle the selected targets sequentially'
-            cand --enable-coverage 'Enable coverage instrumentation'
-            cand --sort-input 'Sort input files'
-            cand --output-wat 'Output WAT instead of WASM'
-            cand -d 'Treat all warnings as errors'
-            cand --deny-warn 'Treat all warnings as errors'
-            cand --no-render 'Don''t render diagnostics (in raw human-readable format)'
-            cand --output-json 'Output diagnostics in JSON format'
-            cand --enable-value-tracing 'Enable value tracing'
-            cand -q 'Suppress output'
-            cand --quiet 'Suppress output'
-            cand -v 'Increase verbosity'
-            cand --verbose 'Increase verbosity'
-            cand --trace 'Trace the execution of the program'
-            cand --dry-run 'Do not actually run the command'
-            cand --build-graph 'build-graph'
-            cand -h 'Print help'
-            cand --help 'Print help'
-        }
         &'moon;upgrade'= {
             cand --base-url 'base-url'
             cand --manifest-path 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)'
@@ -1056,7 +1020,6 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand update 'Update the package registry index'
             cand coverage 'Code coverage utilities'
             cand generate-build-matrix 'Generate build matrix for benchmarking (legacy feature)'
-            cand query 'query'
             cand upgrade 'Upgrade toolchains'
             cand shell-completion 'Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout'
             cand version 'Print version information and exit'
@@ -1135,8 +1098,6 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;help;coverage;clean'= {
         }
         &'moon;help;generate-build-matrix'= {
-        }
-        &'moon;help;query'= {
         }
         &'moon;help;upgrade'= {
         }
