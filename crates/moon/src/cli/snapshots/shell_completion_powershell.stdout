@@ -62,7 +62,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('update', 'update', [CompletionResultType]::ParameterValue, 'Update the package registry index')
             [CompletionResult]::new('coverage', 'coverage', [CompletionResultType]::ParameterValue, 'Code coverage utilities')
             [CompletionResult]::new('generate-build-matrix', 'generate-build-matrix', [CompletionResultType]::ParameterValue, 'Generate build matrix for benchmarking (legacy feature)')
-            [CompletionResult]::new('query', 'query', [CompletionResultType]::ParameterValue, 'query')
             [CompletionResult]::new('upgrade', 'upgrade', [CompletionResultType]::ParameterValue, 'Upgrade toolchains')
             [CompletionResult]::new('shell-completion', 'shell-completion', [CompletionResultType]::ParameterValue, 'Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout')
             [CompletionResult]::new('version', 'version', [CompletionResultType]::ParameterValue, 'Print version information and exit')
@@ -130,9 +129,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
-            [CompletionResult]::new('--install-path', 'install-path', [CompletionResultType]::ParameterName, 'install-path')
             [CompletionResult]::new('--package', 'package', [CompletionResultType]::ParameterName, 'package')
-            [CompletionResult]::new('--bin-alias', 'bin-alias', [CompletionResultType]::ParameterName, 'bin-alias')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
@@ -154,7 +151,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
             [CompletionResult]::new('-w', 'w', [CompletionResultType]::ParameterName, 'Monitor the file system and automatically build artifacts')
             [CompletionResult]::new('--watch', 'watch', [CompletionResultType]::ParameterName, 'Monitor the file system and automatically build artifacts')
-            [CompletionResult]::new('--show-artifacts', 'show-artifacts', [CompletionResultType]::ParameterName, 'show-artifacts')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -813,41 +809,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
-        'moon;query' {
-            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
-            [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
-            [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
-            [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
-            [CompletionResult]::new('--render-no-loc', 'render-no-loc', [CompletionResultType]::ParameterName, 'Render no-location diagnostics starting from a certain level')
-            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)')
-            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
-            [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')
-            [CompletionResult]::new('--nostd', 'nostd', [CompletionResultType]::ParameterName, 'Disable the standard library')
-            [CompletionResult]::new('-g', 'g', [CompletionResultType]::ParameterName, 'Emit debug information')
-            [CompletionResult]::new('--debug', 'debug', [CompletionResultType]::ParameterName, 'Emit debug information')
-            [CompletionResult]::new('--release', 'release', [CompletionResultType]::ParameterName, 'Compile in release mode')
-            [CompletionResult]::new('--strip', 'strip', [CompletionResultType]::ParameterName, 'Enable stripping debug information')
-            [CompletionResult]::new('--no-strip', 'no-strip', [CompletionResultType]::ParameterName, 'Disable stripping debug information')
-            [CompletionResult]::new('--serial', 'serial', [CompletionResultType]::ParameterName, '[Deprecated] Handle the selected targets sequentially')
-            [CompletionResult]::new('--enable-coverage', 'enable-coverage', [CompletionResultType]::ParameterName, 'Enable coverage instrumentation')
-            [CompletionResult]::new('--sort-input', 'sort-input', [CompletionResultType]::ParameterName, 'Sort input files')
-            [CompletionResult]::new('--output-wat', 'output-wat', [CompletionResultType]::ParameterName, 'Output WAT instead of WASM')
-            [CompletionResult]::new('-d', 'd', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
-            [CompletionResult]::new('--deny-warn', 'deny-warn', [CompletionResultType]::ParameterName, 'Treat all warnings as errors')
-            [CompletionResult]::new('--no-render', 'no-render', [CompletionResultType]::ParameterName, 'Don''t render diagnostics (in raw human-readable format)')
-            [CompletionResult]::new('--output-json', 'output-json', [CompletionResultType]::ParameterName, 'Output diagnostics in JSON format')
-            [CompletionResult]::new('--enable-value-tracing', 'enable-value-tracing', [CompletionResultType]::ParameterName, 'Enable value tracing')
-            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
-            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
-            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
-            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
-            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
-            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
-            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
-            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
-            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
-            break
-        }
         'moon;upgrade' {
             [CompletionResult]::new('--base-url', 'base-url', [CompletionResultType]::ParameterName, 'base-url')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory)')
@@ -1135,7 +1096,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('update', 'update', [CompletionResultType]::ParameterValue, 'Update the package registry index')
             [CompletionResult]::new('coverage', 'coverage', [CompletionResultType]::ParameterValue, 'Code coverage utilities')
             [CompletionResult]::new('generate-build-matrix', 'generate-build-matrix', [CompletionResultType]::ParameterValue, 'Generate build matrix for benchmarking (legacy feature)')
-            [CompletionResult]::new('query', 'query', [CompletionResultType]::ParameterValue, 'query')
             [CompletionResult]::new('upgrade', 'upgrade', [CompletionResultType]::ParameterValue, 'Upgrade toolchains')
             [CompletionResult]::new('shell-completion', 'shell-completion', [CompletionResultType]::ParameterValue, 'Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout')
             [CompletionResult]::new('version', 'version', [CompletionResultType]::ParameterValue, 'Print version information and exit')
@@ -1247,9 +1207,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;help;generate-build-matrix' {
-            break
-        }
-        'moon;help;query' {
             break
         }
         'moon;help;upgrade' {

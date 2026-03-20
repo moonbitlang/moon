@@ -34,7 +34,6 @@ pub(crate) mod install_binary;
 pub(crate) mod mooncake_adapter;
 pub(crate) mod new;
 pub(crate) mod prove;
-pub(crate) mod query;
 pub(crate) mod run;
 pub(crate) mod shell_completion;
 pub(crate) mod test;
@@ -69,7 +68,6 @@ use moonutil::{
 };
 pub(crate) use new::*;
 pub(crate) use prove::*;
-pub(crate) use query::*;
 pub(crate) use run::*;
 pub(crate) use shell_completion::*;
 pub(crate) use test::*;
@@ -131,9 +129,6 @@ pub(crate) enum MoonBuildSubcommands {
     // Misc
     Coverage(CoverageSubcommand),
     GenerateBuildMatrix(GenerateBuildMatrix),
-    #[clap(hide = true)]
-    Query(QuerySubcommand),
-
     /// Upgrade toolchains
     Upgrade(UpgradeSubcommand),
     ShellCompletion(ShellCompSubCommand),

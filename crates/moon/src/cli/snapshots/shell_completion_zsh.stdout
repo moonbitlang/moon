@@ -101,9 +101,7 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
-'--install-path=[]:INSTALL_PATH:_files' \
 '--package=[]:PACKAGE: ' \
-'--bin-alias=[]:BIN_ALIAS: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '(--nostd)--std[Enable the standard library (default)]' \
@@ -125,7 +123,6 @@ _arguments "${_arguments_options[@]}" : \
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' \
 '-w[Monitor the file system and automatically build artifacts]' \
 '--watch[Monitor the file system and automatically build artifacts]' \
-'--show-artifacts[]' \
 '-q[Suppress output]' \
 '--quiet[Suppress output]' \
 '-v[Increase verbosity]' \
@@ -876,43 +873,6 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
-(query)
-_arguments "${_arguments_options[@]}" : \
-'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
-'--warn-list=[Warn list config]:WARN_LIST: ' \
-'-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
-'--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
-'--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
-'--manifest-path=[Path to \`moon.mod.json\` or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
-'--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'(--nostd)--std[Enable the standard library (default)]' \
-'(--std)--nostd[Disable the standard library]' \
-'-g[Emit debug information]' \
-'--debug[Emit debug information]' \
-'(-g --debug)--release[Compile in release mode]' \
-'(--no-strip)--strip[Enable stripping debug information]' \
-'(--strip)--no-strip[Disable stripping debug information]' \
-'--serial[\[Deprecated\] Handle the selected targets sequentially]' \
-'--enable-coverage[Enable coverage instrumentation]' \
-'--sort-input[Sort input files]' \
-'--output-wat[Output WAT instead of WASM]' \
-'-d[Treat all warnings as errors]' \
-'--deny-warn[Treat all warnings as errors]' \
-'--no-render[Don'\''t render diagnostics (in raw human-readable format)]' \
-'(--no-render)--output-json[Output diagnostics in JSON format]' \
-'--enable-value-tracing[Enable value tracing]' \
-'-q[Suppress output]' \
-'--quiet[Suppress output]' \
-'-v[Increase verbosity]' \
-'--verbose[Increase verbosity]' \
-'--trace[Trace the execution of the program]' \
-'--dry-run[Do not actually run the command]' \
-'(--dry-run)--build-graph[]' \
-'-h[Print help]' \
-'--help[Print help]' \
-':mod_name:' \
-&& ret=0
-;;
 (upgrade)
 _arguments "${_arguments_options[@]}" : \
 '--base-url=[]:BASE_URL: ' \
@@ -1398,10 +1358,6 @@ esac
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
-(query)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
 (upgrade)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1533,7 +1489,6 @@ _moon_commands() {
 'update:Update the package registry index' \
 'coverage:Code coverage utilities' \
 'generate-build-matrix:Generate build matrix for benchmarking (legacy feature)' \
-'query:' \
 'upgrade:Upgrade toolchains' \
 'shell-completion:Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout' \
 'version:Print version information and exit' \
@@ -1683,7 +1638,6 @@ _moon__help_commands() {
 'update:Update the package registry index' \
 'coverage:Code coverage utilities' \
 'generate-build-matrix:Generate build matrix for benchmarking (legacy feature)' \
-'query:' \
 'upgrade:Upgrade toolchains' \
 'shell-completion:Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout' \
 'version:Print version information and exit' \
@@ -1853,11 +1807,6 @@ _moon__help__prove_commands() {
 _moon__help__publish_commands() {
     local commands; commands=()
     _describe -t commands 'moon help publish commands' commands "$@"
-}
-(( $+functions[_moon__help__query_commands] )) ||
-_moon__help__query_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon help query commands' commands "$@"
 }
 (( $+functions[_moon__help__register_commands] )) ||
 _moon__help__register_commands() {
@@ -2094,11 +2043,6 @@ _moon__prove_commands() {
 _moon__publish_commands() {
     local commands; commands=()
     _describe -t commands 'moon publish commands' commands "$@"
-}
-(( $+functions[_moon__query_commands] )) ||
-_moon__query_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon query commands' commands "$@"
 }
 (( $+functions[_moon__register_commands] )) ||
 _moon__register_commands() {

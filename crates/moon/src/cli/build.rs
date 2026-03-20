@@ -60,19 +60,9 @@ pub(crate) struct BuildSubcommand {
     #[clap(long, short)]
     pub watch: bool,
 
-    #[clap(long, hide = true)]
-    pub install_path: Option<PathBuf>,
-
-    #[clap(long, hide = true)]
-    pub show_artifacts: bool,
-
     // package name (username/hello/lib)
     #[clap(long, hide = true)]
     pub package: Option<String>,
-
-    // when package is specified, specify the alias of the binary package artifact to install
-    #[clap(long, hide = true, requires("package"))]
-    pub bin_alias: Option<String>,
 }
 
 #[instrument(skip_all)]
