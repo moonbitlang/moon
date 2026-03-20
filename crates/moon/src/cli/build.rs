@@ -30,8 +30,9 @@ use std::path::PathBuf;
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    canonicalize_with_filename, ensure_package_supports_backend, ensure_packages_support_backend,
-    filter_pkg_by_dir, match_packages_by_name_rr, package_supports_backend,
+    ensure_packages_support_backend, filter_pkgs_by_dirs, group_paths_by_project_root,
+    match_packages_by_name_rr, package_supports_backend, resolve_target_dir_for_project,
+    warn_skipped_non_package_paths, warn_skipped_non_project_dirs, warn_skipped_unexpected_files,
 };
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
@@ -44,11 +45,11 @@ use crate::watch::watching;
 use super::{BuildFlags, UniversalFlags};
 
 /// Build the current package
-#[derive(Debug, clap::Parser)]
+#[derive(Clone, Debug, clap::Parser)]
 pub(crate) struct BuildSubcommand {
-    /// The path to the package that should be built.
+    /// Filesystem paths to package directories or files inside packages to build.
     #[clap(name = "PATH", conflicts_with("package"))]
-    pub path: Option<PathBuf>,
+    pub paths: Vec<PathBuf>,
 
     #[clap(flatten)]
     pub build_flags: BuildFlags,
@@ -77,22 +78,81 @@ pub(crate) struct BuildSubcommand {
 
 #[instrument(skip_all)]
 pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::Result<i32> {
+    if !cmd.paths.is_empty() && cli.source_tgt_dir.manifest_path.is_none() {
+        let selection = group_paths_by_project_root(&cmd.paths, cmd.paths.len() > 1)?;
+        warn_skipped_non_project_dirs(&selection.skipped_non_project_dirs);
+        warn_skipped_non_package_paths(&selection.skipped_non_package_paths);
+        warn_skipped_unexpected_files(&selection.skipped_unexpected_files);
+
+        if selection.groups.is_empty() {
+            if selection.skipped_non_project_dirs.is_empty() {
+                anyhow::bail!("None of the provided paths resolve to a package")
+            }
+            anyhow::bail!(
+                "None of the provided paths are inside any known Moon module or workspace"
+            )
+        }
+        if cmd.watch && selection.groups.len() > 1 {
+            anyhow::bail!(
+                "`moon build --watch` does not support paths from multiple modules or workspaces"
+            )
+        }
+        if cli.source_tgt_dir.target_dir.is_some() && selection.groups.len() > 1 {
+            anyhow::bail!(
+                "`--target-dir` cannot be used when selected paths span multiple modules or workspaces"
+            )
+        }
+
+        let roots = selection
+            .groups
+            .into_iter()
+            .map(|group| {
+                let target_dir = resolve_target_dir_for_project(
+                    &group.project_root,
+                    cli.source_tgt_dir.target_dir.as_ref(),
+                )?;
+                Ok((group.project_root, target_dir, group.package_dirs))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        return run_build_for_roots(cli, &cmd, &roots);
+    }
+
     let PackageDirs {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
+    run_build_for_roots(cli, &cmd, &[(source_dir, target_dir, cmd.paths.clone())])
+}
+
+fn run_build_for_roots(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    roots: &[(PathBuf, PathBuf, Vec<PathBuf>)],
+) -> anyhow::Result<i32> {
     if cmd.build_flags.target.is_empty() {
-        return run_build_internal(cli, &cmd, &source_dir, &target_dir, None);
+        let mut ret_value = 0;
+        for (source_dir, target_dir, paths) in roots {
+            let mut root_cmd = cmd.clone();
+            root_cmd.paths = paths.clone();
+            let x = run_build_internal(cli, &root_cmd, source_dir, target_dir, None)?;
+            ret_value = ret_value.max(x);
+        }
+        return Ok(ret_value);
     }
+
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
-
     let mut ret_value = 0;
     for t in targets {
-        let x = run_build_internal(cli, &cmd, &source_dir, &target_dir, Some(t))
-            .context(format!("failed to run build for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+        for (source_dir, target_dir, paths) in roots {
+            let mut root_cmd = cmd.clone();
+            root_cmd.paths = paths.clone();
+            let x = run_build_internal(cli, &root_cmd, source_dir, target_dir, Some(t))
+                .context(format!("failed to run build for target {t:?}"))?;
+            ret_value = ret_value.max(x);
+        }
     }
     Ok(ret_value)
 }
@@ -210,7 +270,7 @@ pub(crate) fn plan_build_rr_from_resolved(
         target_dir,
         Box::new(|resolved, target_backend| {
             calc_user_intent(
-                cmd.path.as_deref(),
+                cmd.paths.as_slice(),
                 cmd.package.as_deref(),
                 resolved,
                 target_backend,
@@ -225,16 +285,24 @@ pub(crate) fn plan_build_rr_from_resolved(
 /// to core.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
-    path_filter: Option<&Path>,
+    package_dirs: &[PathBuf],
     package_filter: Option<&str>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    if let Some(path) = path_filter {
-        let (dir, _) = canonicalize_with_filename(path)?;
-        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
-        ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
-        Ok(vec![UserIntent::Build(pkg)].into())
+    if !package_dirs.is_empty() {
+        let selected = filter_pkgs_by_dirs(resolve_output, package_dirs)?;
+
+        if selected.is_empty() {
+            anyhow::bail!("None of the provided paths resolve to a package")
+        }
+
+        ensure_packages_support_backend(resolve_output, selected.iter().copied(), target_backend)?;
+        Ok(selected
+            .into_iter()
+            .map(UserIntent::Build)
+            .collect::<Vec<_>>()
+            .into())
     } else if let Some(package_filter) = package_filter {
         let pkgs = match_packages_by_name_rr(
             resolve_output,

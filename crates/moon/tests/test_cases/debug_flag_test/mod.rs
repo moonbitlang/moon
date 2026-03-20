@@ -37,7 +37,7 @@ fn profile_flags_conflict_in_cli() {
         expect![[r#"
             error: the argument '--debug' cannot be used with '--release'
 
-            Usage: moon build --debug [PATH]
+            Usage: moon build --debug [PATH]...
 
             For more information, try '--help'.
         "#]],
@@ -48,7 +48,7 @@ fn profile_flags_conflict_in_cli() {
         expect![[r#"
             error: the argument '--release' cannot be used with '--debug'
 
-            Usage: moon check --release [PATH]
+            Usage: moon check --release [PATH]...
 
             For more information, try '--help'.
         "#]],
