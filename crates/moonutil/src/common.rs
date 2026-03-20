@@ -276,7 +276,8 @@ fn read_package_from_json_with_supported_targets_decl(
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let j = serde_json_lenient::from_reader(reader).context(format!("Failed to parse {path:?}"))?;
-    convert_pkg_json_to_package_with_supported_targets_decl(j)
+    let emit_warnings = should_warn_pkg(path);
+    convert_pkg_json_to_package_with_supported_targets_decl(j, emit_warnings)
 }
 
 /// Reads a moon.pkg from the given path.
@@ -287,7 +288,15 @@ fn read_package_from_dsl_with_supported_targets_decl(
     let str = std::io::read_to_string(file)?;
     let json = moon_pkg::parse(&str)?;
     let j = serde_json_lenient::from_value(json)?;
-    convert_pkg_dsl_to_package_with_supported_targets_decl(j)
+    let emit_warnings = should_warn_pkg(path);
+    convert_pkg_dsl_to_package_with_supported_targets_decl(j, emit_warnings)
+}
+
+/// avoid emit warnings for moon.pkg in .mooncakes
+fn should_warn_pkg(path: &Path) -> bool {
+    !path
+        .components()
+        .any(|component| component.as_os_str() == DEP_PATH)
 }
 
 pub fn write_module_json_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::Result<()> {

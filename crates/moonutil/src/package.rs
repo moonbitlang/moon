@@ -663,11 +663,12 @@ impl Import {
 
 /// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
 pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
-    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(json)?.0)
+    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(json, true)?.0)
 }
 
 pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     json: Value,
+    emit_warnings: bool,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     // It will validate the top-level keys and merge `options` into the root level.
     // Might be removed in the future, after we remove the moon.pkg.json and have an
@@ -710,24 +711,28 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
             let legacy_supported_targets = map.remove("supported-targets");
             match (supported_targets, legacy_supported_targets) {
                 (Some(supported_targets), Some(_)) => {
-                    eprintln!(
-                        "{}",
-                        "Warning: Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value."
-                            .yellow()
-                            .bold()
-                    );
+                    if emit_warnings {
+                        eprintln!(
+                            "{}",
+                            "Warning: Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value."
+                                .yellow()
+                                .bold()
+                        );
+                    }
                     map.insert(String::from("supported-targets"), supported_targets);
                 }
                 (Some(supported_targets), None) => {
                     map.insert(String::from("supported-targets"), supported_targets);
                 }
                 (None, Some(legacy_supported_targets)) => {
-                    eprintln!(
-                        "{}",
-                        "Warning: `options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
-                            .yellow()
-                            .bold()
-                    );
+                    if emit_warnings {
+                        eprintln!(
+                            "{}",
+                            "Warning: `options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
+                                .yellow()
+                                .bold()
+                        );
+                    }
                     map.insert(String::from("supported-targets"), legacy_supported_targets);
                 }
                 (None, None) => {}
@@ -737,7 +742,7 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         _ => json,
     };
     let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
-    convert_pkg_json_to_package_with_supported_targets_decl(pkg_json)
+    convert_pkg_json_to_package_with_supported_targets_decl(pkg_json, emit_warnings)
 }
 
 pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
@@ -797,6 +802,7 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
 
 pub fn convert_pkg_json_to_package_with_supported_targets_decl(
     j: MoonPkgJSON,
+    emit_warnings: bool,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let get_imports =
         |source: Option<PkgJSONImport>| -> Vec<Import> { pkg_json_imports_to_imports(source) };
@@ -818,11 +824,14 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         && name == "main"
     {
         is_main = true;
-        eprintln!(
+        if emit_warnings {
+            eprintln!(
                 "{}",
-                "Warning: The `name` field in `moon.pkg` is now deprecated. For the main package, please use `\"is-main\": true` instead. Refer to the latest documentation at https://www.moonbitlang.com/docs/build-system-tutorial for more information.".yellow()
+                "Warning: The `name` field in `moon.pkg` is now deprecated. For the main package, please use `\"is-main\": true` instead. Refer to the latest documentation at https://www.moonbitlang.com/docs/build-system-tutorial for more information."
+                    .yellow()
                     .bold()
             );
+        }
     }
     let force_link = match &j.link {
         None => false,
@@ -872,7 +881,8 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
 #[test]
 fn convert_pkg_dsl_supports_supported_targets_shorthand() {
     let json = crate::moon_pkg::parse(r#"supported_targets = "js""#).unwrap();
-    let (pkg, decl_kind) = convert_pkg_dsl_to_package_with_supported_targets_decl(json).unwrap();
+    let (pkg, decl_kind) =
+        convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
 
     assert_eq!(
         pkg.supported_targets.iter().copied().collect::<Vec<_>>(),
@@ -892,7 +902,8 @@ options(
 "#,
     )
     .unwrap();
-    let (pkg, decl_kind) = convert_pkg_dsl_to_package_with_supported_targets_decl(json).unwrap();
+    let (pkg, decl_kind) =
+        convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
 
     assert_eq!(
         pkg.supported_targets.iter().copied().collect::<Vec<_>>(),
@@ -928,4 +939,20 @@ fn validate_pkg_json_schema() {
         "/../../docs/manual-zh/src/source/pkg_json_schema.html"
     );
     std::fs::write(zh_html_path, content).unwrap();
+}
+
+#[test]
+fn package_manifest_warnings_are_local_only() {
+    let should_warn = |path: &std::path::Path| {
+        !path
+            .components()
+            .any(|component| component.as_os_str() == crate::common::DEP_PATH)
+    };
+
+    assert!(should_warn(std::path::Path::new(
+        "/tmp/project/main/moon.pkg"
+    )));
+    assert!(!should_warn(std::path::Path::new(
+        "/tmp/project/.mooncakes/user/pkg/moon.pkg"
+    )));
 }
