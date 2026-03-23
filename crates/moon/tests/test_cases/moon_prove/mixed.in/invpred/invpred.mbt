@@ -15,6 +15,6 @@ pub fn binary_search(xs : FixedArray[Int], key : Int) -> Int {
       -1
     }
   } where {
-    invariant: search_window(xs, i, j),
+    proof_invariant: search_window(xs, i, j),
   }
 }
