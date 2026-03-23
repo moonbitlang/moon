@@ -16,11 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonutil::mooncakes::ModuleSource;
+use std::collections::HashMap;
+
+use moonutil::{common::TargetBackend, mooncakes::ModuleSource};
 use petgraph::prelude::DiGraphMap;
 use slotmap::SparseSecondaryMap;
 
 use crate::{
+    discover::DiscoverResult,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackageFQNWithSource, PackagePath},
 };
@@ -63,6 +66,117 @@ pub struct DepRelationship {
 
     /// A map from package to the virtual package it implements, if any.
     pub virt_impl: SparseSecondaryMap<PackageId, PackageId>,
+
+    /// Transitive backend compatibility for each build target.
+    ///
+    /// This is the intersection of the target package's own
+    /// `supported_targets` and the transitive dependency graph reachable from
+    /// that target.
+    transitive_supported_backends: HashMap<BuildTarget, Vec<TargetBackend>>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TargetBackendMask(u8);
+
+impl TargetBackendMask {
+    fn from_targets(targets: impl IntoIterator<Item = TargetBackend>) -> Self {
+        let mut mask = Self::default();
+        for target in targets {
+            mask.0 |= 1 << (target as u8);
+        }
+        mask
+    }
+
+    fn intersect(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+
+    fn to_sorted_vec(self) -> Vec<TargetBackend> {
+        let mut out = Vec::new();
+        for target in [
+            TargetBackend::Wasm,
+            TargetBackend::WasmGC,
+            TargetBackend::Js,
+            TargetBackend::Native,
+            TargetBackend::LLVM,
+        ] {
+            if self.contains(target) {
+                out.push(target);
+            }
+        }
+        out
+    }
+
+    fn contains(self, target: TargetBackend) -> bool {
+        (self.0 & (1 << (target as u8))) != 0
+    }
+}
+
+impl DepRelationship {
+    pub fn target_transitively_supports_backend(
+        &self,
+        target: BuildTarget,
+        backend: TargetBackend,
+    ) -> bool {
+        self.transitive_supported_backends
+            .get(&target)
+            .is_some_and(|targets| targets.contains(&backend))
+    }
+
+    pub fn target_transitive_supported_backends(&self, target: BuildTarget) -> &[TargetBackend] {
+        self.transitive_supported_backends
+            .get(&target)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub(super) fn populate_transitive_supported_backends(&mut self, packages: &DiscoverResult) {
+        let mut cache = HashMap::new();
+        for (pkg_id, _) in packages.all_packages(false) {
+            for kind in [
+                TargetKind::Source,
+                TargetKind::WhiteboxTest,
+                TargetKind::BlackboxTest,
+                TargetKind::InlineTest,
+                TargetKind::SubPackage,
+            ] {
+                collect_transitive_supported_backends(
+                    pkg_id.build_target(kind),
+                    self,
+                    packages,
+                    &mut cache,
+                );
+            }
+        }
+        self.transitive_supported_backends = cache
+            .into_iter()
+            .map(|(target, mask)| (target, mask.to_sorted_vec()))
+            .collect();
+    }
+}
+
+fn collect_transitive_supported_backends(
+    target: BuildTarget,
+    dep: &DepRelationship,
+    packages: &DiscoverResult,
+    cache: &mut HashMap<BuildTarget, TargetBackendMask>,
+) -> TargetBackendMask {
+    if let Some(mask) = cache.get(&target).copied() {
+        return mask;
+    }
+
+    let pkg = packages.get_package(target.package);
+    let mut mask = TargetBackendMask::from_targets(pkg.raw.supported_targets.iter().copied());
+    for dependency in dep
+        .dep_graph
+        .neighbors_directed(target, petgraph::Direction::Outgoing)
+    {
+        mask = mask.intersect(collect_transitive_supported_backends(
+            dependency, dep, packages, cache,
+        ));
+    }
+    cache.insert(target, mask);
+    mask
 }
 
 #[derive(Debug, thiserror::Error)]

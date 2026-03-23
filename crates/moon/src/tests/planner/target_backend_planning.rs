@@ -149,6 +149,44 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
 }
 
 #[test]
+fn check_planning_skips_incompatible_test_only_dependencies() {
+    let fixture = PlanningFixture::new("check_skip_incompatible_test_import.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) = parse_check_command(&["check", "--target", "js", "--dry-run", "--sort-input"]);
+    let check_js = fixture
+        .plan_check_with_cli(&cli, &cmd)
+        .expect("js check graph should plan");
+    assert_contains_and_absent(
+        &check_js,
+        &[
+            "./lib/lib.mbt",
+            "./lib/lib_test.mbt",
+            "./lib/lib_wbtest.mbt",
+            "./testonly/dep.mbt",
+            "./wbonly/dep.mbt",
+        ],
+        &[],
+    );
+
+    let (cli, cmd) =
+        parse_check_command(&["check", "--target", "native", "--dry-run", "--sort-input"]);
+    let check_native = fixture
+        .plan_check_with_cli(&cli, &cmd)
+        .expect("native check graph should plan");
+    assert_contains_and_absent(
+        &check_native,
+        &["./lib/lib.mbt"],
+        &[
+            "./lib/lib_test.mbt",
+            "./lib/lib_wbtest.mbt",
+            "./testonly/dep.mbt",
+            "./wbonly/dep.mbt",
+        ],
+    );
+}
+
+#[test]
 fn mixed_backend_run_planning_is_target_aware() {
     let fixture =
         PlanningFixture::new("mixed_backend_local_dep.in").expect("fixture should resolve");

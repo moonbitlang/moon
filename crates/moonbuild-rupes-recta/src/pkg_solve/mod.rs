@@ -40,8 +40,9 @@ pub fn solve(
 ) -> Result<DepRelationship, SolveError> {
     info!("Starting dependency resolution");
 
-    let res = solve_only(modules, packages, enable_coverage)?;
+    let mut res = solve_only(modules, packages, enable_coverage)?;
     verify(&res, packages)?;
+    res.populate_transitive_supported_backends(packages);
 
     info!("Dependency resolution completed successfully");
     Ok(res)

@@ -1,0 +1,12 @@
+{
+  "supported-targets": [
+    "js",
+    "native"
+  ],
+  "test-import": [
+    "skip/testimports/testonly"
+  ],
+  "wbtest-import": [
+    "skip/testimports/wbonly"
+  ]
+}

@@ -23,7 +23,9 @@
 //! package definition and status. This is for simplifying the CLI command
 //! node generation logic.
 
+use moonutil::common::TargetBackend;
 use moonutil::mooncakes::ModuleId;
+use tracing::warn;
 
 use crate::{
     build_plan::InputDirective,
@@ -65,6 +67,7 @@ impl UserIntent {
         resolved: &ResolveOutput,
         out: &mut Vec<BuildPlanNode>,
         directive: &InputDirective,
+        target_backend: TargetBackend,
     ) {
         match self {
             UserIntent::Build(pkg) => {
@@ -106,14 +109,30 @@ impl UserIntent {
                         // blackbox/whitebox tests otherwise we skip checking
                         // its blackbox/whitebox tests
 
-                        if has_whitebox_decl(resolved, pkg, directive) {
+                        if has_whitebox_decl(resolved, pkg, directive)
+                            && should_check_test_target(
+                                resolved,
+                                pkg,
+                                TargetKind::WhiteboxTest,
+                                target_backend,
+                                directive,
+                            )
+                        {
                             out.push(BuildPlanNode::check(
                                 pkg.build_target(TargetKind::WhiteboxTest),
                             ));
                         }
-                        out.push(BuildPlanNode::check(
-                            pkg.build_target(TargetKind::BlackboxTest),
-                        ));
+                        if should_check_test_target(
+                            resolved,
+                            pkg,
+                            TargetKind::BlackboxTest,
+                            target_backend,
+                            directive,
+                        ) {
+                            out.push(BuildPlanNode::check(
+                                pkg.build_target(TargetKind::BlackboxTest),
+                            ));
+                        }
                     }
                 } else {
                     // Pure virtual package: compile its interface
@@ -188,4 +207,53 @@ fn has_whitebox_decl(
         let (_, with_target_stripped) = get_file_target_backend(file_stem);
         with_target_stripped.ends_with("_wbtest")
     })
+}
+
+fn should_check_test_target(
+    resolved: &ResolveOutput,
+    pkg_id: PackageId,
+    kind: TargetKind,
+    target_backend: TargetBackend,
+    directive: &InputDirective,
+) -> bool {
+    let target = pkg_id.build_target(kind);
+    if directive
+        .specify_patch_file
+        .as_ref()
+        .is_some_and(|(specified_target, _)| specified_target == &target)
+    {
+        return true;
+    }
+
+    if resolved
+        .pkg_rel
+        .target_transitively_supports_backend(target, target_backend)
+    {
+        return true;
+    }
+
+    let pkg = resolved.pkg_dirs.get_package(pkg_id);
+    let test_kind = match kind {
+        TargetKind::WhiteboxTest => "whitebox",
+        TargetKind::BlackboxTest => "blackbox",
+        _ => unreachable!("only check test targets should be filtered"),
+    };
+    warn!(
+        "Skipping {} tests for package `{}` when checking backend `{}` because the {} test dependency graph only supports {}",
+        test_kind,
+        pkg.fqn,
+        target_backend,
+        test_kind,
+        format_supported_backends(
+            resolved
+                .pkg_rel
+                .target_transitive_supported_backends(target)
+        ),
+    );
+    false
+}
+
+fn format_supported_backends(backends: &[TargetBackend]) -> String {
+    let values = backends.iter().map(ToString::to_string).collect::<Vec<_>>();
+    format!("[{}]", values.join(", "))
 }
