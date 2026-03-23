@@ -44,11 +44,19 @@ fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
 fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
-    let check_err = get_err_stderr(&dir, ["check", "server", "--target", "js", "--dry-run"]);
-    assert!(
-        check_err.contains("Package 'mixed/localdep/server' does not support target backend 'js'")
+    check(
+        get_err_stderr(&dir, ["check", "server", "--target", "js", "--dry-run"]),
+        expect![[r#"
+             WARN Package `mixed/localdep/server` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead
+             WARN Package `mixed/localdep/shared` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead
+             WARN Package `mixed/localdep/web` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead
+            error: failed to run check for target Js
+
+            Caused by:
+                0: Failed to calculate build plan
+                1: Selected package(s) do not support target backend 'js': mixed/localdep/server ([native])
+        "#]],
     );
-    assert!(check_err.contains("Supported backends: [native]"));
 }
 
 #[test]
@@ -125,29 +133,45 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
 fn test_supported_targets_empty_list_is_never_selected() {
     let dir = TestDir::new("supported_targets_empty.in");
 
-    let explicit_err = get_err_stderr(&dir, ["check", "never", "--target", "js", "--dry-run"]);
-    assert!(
-        explicit_err
-            .contains("Package 'supported/empty/never' does not support target backend 'js'")
+    check(
+        get_err_stderr(&dir, ["check", "never", "--target", "js", "--dry-run"]),
+        expect![[r#"
+             WARN Package `supported/empty/main` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead
+             WARN Package `supported/empty/never` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead
+            error: failed to run check for target Js
+
+            Caused by:
+                0: Failed to calculate build plan
+                1: Selected package(s) do not support target backend 'js': supported/empty/never ([])
+        "#]],
     );
-    assert!(explicit_err.contains("Supported backends: []"));
 }
 
 #[test]
 fn test_module_supported_targets_intersects_package_supported_targets() {
     let dir = TestDir::new("supported_targets_module_intersection.in");
 
-    let js_err = get_err_stderr(&dir, ["check", "lib", "--target", "js", "--dry-run"]);
-    assert!(
-        js_err.contains(
-            "Package 'supported/mod-intersection/lib' does not support target backend 'js'"
-        )
+    check(
+        get_err_stderr(&dir, ["check", "lib", "--target", "js", "--dry-run"]),
+        expect![[r#"
+            error: failed to run check for target Js
+
+            Caused by:
+                0: Failed to calculate build plan
+                1: Selected package(s) do not support target backend 'js': supported/mod-intersection/lib ([llvm, native, wasm-gc])
+        "#]],
     );
 
-    let wasm_err = get_err_stderr(&dir, ["check", "lib", "--target", "wasm", "--dry-run"]);
-    assert!(wasm_err.contains(
-        "Package 'supported/mod-intersection/lib' does not support target backend 'wasm'"
-    ));
+    check(
+        get_err_stderr(&dir, ["check", "lib", "--target", "wasm", "--dry-run"]),
+        expect![[r#"
+            error: failed to run check for target Wasm
+
+            Caused by:
+                0: Failed to calculate build plan
+                1: Selected package(s) do not support target backend 'wasm': supported/mod-intersection/lib ([llvm, native, wasm-gc])
+        "#]],
+    );
 }
 
 #[test]
