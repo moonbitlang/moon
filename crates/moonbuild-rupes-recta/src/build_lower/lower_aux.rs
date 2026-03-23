@@ -227,7 +227,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_build_docs(&self) -> BuildCommand {
+    pub(super) fn lower_build_docs(&self, module_id: ModuleId) -> BuildCommand {
         // TODO: How to enforce the `packages.json` dependency is generated
         // up-to-date before the command is executed?
         //
@@ -238,15 +238,9 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         // One possible solution is to modify `n2` to support build steps that
         // execute an in-process callback to generate files.
 
-        // Currently, moondoc only support a single module in scope, so we
-        // have these constraints
-        let main_module = self
-            .opt
-            .main_module
-            .as_ref()
-            .expect("Currently only one module in the workspace is supported.");
-        let path = match main_module.source() {
-            ModuleSourceKind::Local(p) => p,
+        let module = self.modules.module_source(module_id);
+        let path = match module.source() {
+            ModuleSourceKind::Local(path) => path,
             ModuleSourceKind::Registry | ModuleSourceKind::Git(_) | ModuleSourceKind::Stdlib(_) => {
                 panic!("Remote modules for docs are not supported")
             }

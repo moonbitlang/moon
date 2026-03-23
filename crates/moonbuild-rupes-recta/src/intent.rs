@@ -50,8 +50,8 @@ pub enum UserIntent {
     Bench(PackageId),
     /// Bundle all non-virtual packages in a module.
     Bundle(ModuleId),
-    /// Build docs for the whole workspace universe.
-    Docs,
+    /// Build docs for a single module.
+    Doc(ModuleId),
     /// Generate .mbti for a package (non-virtual only).
     Info(PackageId),
 }
@@ -146,8 +146,8 @@ impl UserIntent {
             UserIntent::Bundle(m) => {
                 out.push(BuildPlanNode::Bundle(m));
             }
-            UserIntent::Docs => {
-                out.push(BuildPlanNode::BuildDocs);
+            UserIntent::Doc(module_id) => {
+                out.push(BuildPlanNode::BuildDocs(module_id));
             }
             UserIntent::Info(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);

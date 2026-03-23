@@ -1139,6 +1139,7 @@ Move public behavior into a non-main package and keep the main package as an ent
     pub(super) fn build_build_docs(
         &mut self,
         _node: BuildPlanNode,
+        _module_id: ModuleId,
     ) -> Result<(), BuildPlanConstructError> {
         // For now, `moondoc` depends on *every check*, as specified in its
         // packages.json input. I guess bad things might happen if you don't?

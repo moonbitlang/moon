@@ -217,12 +217,12 @@ pub enum BuildPlanNode {
     /// Run the i-th prebuild rule for `moonyacc` predefined prebuild.
     RunMoonYaccPrebuild(PackageId, u32),
 
-    /// Docs build is currently for everything.
+    /// Docs build for a single selected module.
     ///
     /// The legacy layout does not have a separate folder for different kinds
     /// of docs, and the behavior is dictated by `packages.json`, so we can't
     /// do much better for now.
-    BuildDocs,
+    BuildDocs(ModuleId),
 }
 
 impl BuildPlanNode {
@@ -264,7 +264,7 @@ impl BuildPlanNode {
             | BuildPlanNode::ArchiveOrLinkCStubs(_)
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
-            | BuildPlanNode::BuildDocs
+            | BuildPlanNode::BuildDocs(_)
             | BuildPlanNode::BuildVirtual(_)
             | BuildPlanNode::RunPrebuild(_, _)
             | BuildPlanNode::RunMoonLexPrebuild(_, _)
@@ -380,7 +380,10 @@ impl BuildPlanNode {
                 let input_name = file_basename(input.as_path());
                 format!("run moonyacc {} {}", packages.fqn(*package_id), input_name)
             }
-            BuildPlanNode::BuildDocs => "build docs".to_string(),
+            BuildPlanNode::BuildDocs(module_id) => {
+                let src = env.module_source(*module_id);
+                format!("build docs {}", src)
+            }
         }
     }
 
@@ -445,7 +448,10 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(*pkg);
                 format!("{}@RunMoonYaccPrebuild_{}", fqn, idx)
             }
-            BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
+            BuildPlanNode::BuildDocs(module_id) => {
+                let src = env.module_source(*module_id);
+                format!("{}@BuildDocs", src)
+            }
         }
     }
 }
