@@ -82,6 +82,24 @@ fn test_moon_help() {
 }
 
 #[test]
+fn test_moon_doc_query_warns_and_succeeds() {
+    let dir = TestDir::new_empty();
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["doc", "@json"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+package "moonbitlang/core/json"
+...
+"#]])
+        .stderr_eq(
+            "Warning: `moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.\n",
+        );
+}
+
+#[test]
 fn test_moon_whoami_not_logged_in() {
     let dir = TestDir::new_empty();
     let moon_home = dir.join("moon_home");

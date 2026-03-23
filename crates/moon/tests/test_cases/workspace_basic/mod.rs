@@ -521,3 +521,89 @@ fn test_prove_targets_member_module_with_workspace_resolution() {
         "expected prove dry-run to target the liba module, got:\n{stdout}"
     );
 }
+
+#[test]
+fn test_doc_targets_member_module_with_workspace_resolution() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_err_stderr(&dir, ["doc", "--dry-run"]);
+    assert_requires_target_module(&stderr, "doc");
+
+    let stdout = get_stdout(&dir, ["-C", "app", "doc", "--dry-run"]);
+    assert!(
+        stdout.contains("moondoc ./app -o ./_build/doc"),
+        "expected doc dry-run to use the app module as moondoc root, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-packages-json ./_build/packages.json"),
+        "expected doc dry-run to pass workspace metadata to moondoc, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("./_build/wasm-gc/debug/check/alice/app/main/main.mi"),
+        "expected doc dry-run to keep the workspace build layout for the app module, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("./_build/wasm-gc/debug/check/alice/liba/lib/lib.mi"),
+        "expected doc dry-run to keep the workspace build layout for dependencies, got:\n{stdout}"
+    );
+
+    let stdout = get_stdout(&dir, ["-C", "app", "doc", "--serve", "--dry-run"]);
+    assert!(
+        stdout.contains("moondoc ./app -o ./_build/doc"),
+        "expected doc --serve dry-run to use the app module as moondoc root, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-serve-mode"),
+        "expected doc --serve dry-run to enable serve mode for moondoc, got:\n{stdout}"
+    );
+
+    let stdout = get_stdout(
+        &dir,
+        ["--manifest-path", "app/moon.mod.json", "doc", "--dry-run"],
+    );
+    assert!(
+        stdout.contains("moondoc ./app -o ./_build/doc"),
+        "expected manifest-path doc dry-run to target the app member, got:\n{stdout}"
+    );
+
+    let stdout = get_stdout(&dir, ["-C", "app/src/main", "doc", "--dry-run"]);
+    assert!(
+        stdout.contains("moondoc ./app -o ./_build/doc"),
+        "expected nested doc dry-run to resolve the app module like `moon publish`, got:\n{stdout}"
+    );
+
+    let _ = get_stderr(&dir, ["-C", "app", "doc"]);
+    assert!(
+        dir.join("_build/doc/alice/app/main/members.md").exists(),
+        "expected member docs to be generated under the app module"
+    );
+
+    let metadata = std::fs::read_to_string(dir.join("_build/packages.json")).unwrap();
+    let metadata = replace_dir(&metadata, &dir);
+    let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
+
+    assert_eq!(metadata["source_dir"], "$ROOT/app");
+    assert_eq!(metadata["name"], "workspace");
+    assert_eq!(metadata["deps"], serde_json::json!(["alice/liba"]));
+
+    let packages = metadata["packages"].as_array().unwrap();
+    let app_pkg = packages
+        .iter()
+        .find(|pkg| pkg["root"] == "alice/app" && pkg["rel"] == "main")
+        .unwrap();
+    assert_eq!(app_pkg["is-third-party"], serde_json::json!(false));
+    assert_eq!(
+        app_pkg["artifact"],
+        serde_json::json!("$ROOT/_build/wasm-gc/debug/check/alice/app/main/main.mi")
+    );
+
+    let lib_pkg = packages
+        .iter()
+        .find(|pkg| pkg["root"] == "alice/liba" && pkg["rel"] == "lib")
+        .unwrap();
+    assert_eq!(lib_pkg["is-third-party"], serde_json::json!(false));
+    assert_eq!(
+        lib_pkg["artifact"],
+        serde_json::json!("$ROOT/_build/wasm-gc/debug/check/alice/liba/lib/lib.mi")
+    );
+}

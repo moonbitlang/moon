@@ -152,7 +152,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 self.lower_gen_test_driver(node, target, info)
             }
             BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
-            BuildPlanNode::BuildDocs => self.lower_build_docs(),
+            BuildPlanNode::BuildDocs(module_id) => self.lower_build_docs(module_id),
             BuildPlanNode::RunPrebuild(pkg, idx) => self.lower_run_prebuild(pkg, idx),
             BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => self.lower_moon_lex_prebuild(pkg, idx),
             BuildPlanNode::RunMoonYaccPrebuild(pkg, idx) => self.lower_moon_yacc_prebuild(pkg, idx),
@@ -415,7 +415,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.opt.target_backend.into(),
                 ));
             }
-            BuildPlanNode::BuildDocs => {
+            BuildPlanNode::BuildDocs(_) => {
                 // The output is a whole folder
                 out.push(self.layout.doc_dir())
             }

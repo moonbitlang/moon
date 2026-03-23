@@ -194,7 +194,7 @@ impl BuildPlanNode {
                 format!("{:?}@RunPrebuild_{}", target, index)
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
-            BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
+            BuildPlanNode::BuildDocs(module_id) => format!("{:?}@BuildDocs", module_id),
             BuildPlanNode::BuildVirtual(target) => format!("{:?}@BuildVirtual", target),
             BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
                 format!("{:?}@RunMoonLexPrebuild_{}", package_id, index)
@@ -252,7 +252,10 @@ impl BuildPlanNode {
                 format!("{}\\nRunPrebuild_{}", fqn, index)
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
-            BuildPlanNode::BuildDocs => "BuildDocs".to_string(),
+            BuildPlanNode::BuildDocs(module_id) => {
+                let src = env.module_source(*module_id);
+                format!("{}\\nBuildDocs", src)
+            }
             BuildPlanNode::BuildVirtual(package) => {
                 let fqn = packages.fqn(*package);
                 format!("{}\\nBuildVirtual", fqn)
@@ -282,7 +285,7 @@ impl BuildPlanNode {
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
             BuildPlanNode::RunPrebuild(_, _) => "khaki",
             BuildPlanNode::BuildRuntimeLib => "orange",
-            BuildPlanNode::BuildDocs => "lavender",
+            BuildPlanNode::BuildDocs(_) => "lavender",
             BuildPlanNode::BuildVirtual(_) => "lightsteelblue",
             BuildPlanNode::RunMoonLexPrebuild(..) => "plum",
             BuildPlanNode::RunMoonYaccPrebuild(..) => "thistle",

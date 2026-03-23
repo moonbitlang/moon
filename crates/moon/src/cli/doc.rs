@@ -16,10 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
+use std::path::Path;
+
+use anyhow::{Context as _, bail};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::common::{FileLock, RunMode};
-use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonutil::mooncakes::{ModuleId, sync::AutoSyncFlags};
 use tracing::instrument;
 
 use super::UniversalFlags;
@@ -47,40 +49,47 @@ pub(crate) struct DocSubcommand {
 
     #[clap(
         conflicts_with("serve"),
-        help = "The symbol to query documentation for, e.g. 'String::from*' or '@list.from*'"
+        help = "[Deprecated] The symbol to query documentation for. Use `moon ide doc <SYMBOL>` instead."
     )]
+    #[deprecated]
     pub symbol: Option<String>,
 }
 
 #[instrument(skip_all)]
+#[allow(deprecated)]
 pub(crate) fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    match cmd.symbol {
-        None => {
-            // generate the docs
-            run_doc_rr(cli, cmd)
-        }
-        Some(symbol) => {
-            // deligate to `moondoc` for querying symbol
-            let query_result = std::process::Command::new(&*moonutil::BINARIES.moondoc)
-                .arg("-q")
-                .arg(symbol)
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .spawn()?
-                .wait()?;
-            if !query_result.success() {
-                bail!("failed to query symbol documentation");
-            }
-            Ok(0)
-        }
+    if let Some(symbol) = cmd.symbol.as_deref() {
+        return run_doc_query(symbol);
     }
+
+    run_doc_rr(cli, cmd)
+}
+
+#[instrument(skip_all)]
+fn run_doc_query(symbol: &str) -> anyhow::Result<i32> {
+    eprintln!("Warning: `moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
+    let query_result = std::process::Command::new(&*moonutil::BINARIES.moon_ide)
+        .arg("doc")
+        .arg(symbol)
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .with_context(|| {
+            "no such subcommand: `ide`, is `moon-ide` installed with the current MoonBit toolchain or accessible via your `PATH`?"
+        })?
+        .wait()?;
+    if !query_result.success() {
+        bail!("failed to query symbol documentation");
+    }
+    Ok(0)
 }
 
 #[instrument(skip_all)]
 pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    let dir = cli.source_tgt_dir.try_into_package_dirs()?;
-    let source_dir = dir.source_dir;
-    let target_dir = dir.target_dir;
+    let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+    let doc_source_dir = dirs.require_module_dir("doc")?.clone();
+    let source_dir = dirs.project_root;
+    let target_dir = dirs.target_dir;
 
     // FIXME: This is copied from `moon check`'s code. Share code if possible.
     let mut preconfig = preconfig_compile(
@@ -93,13 +102,16 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     );
     preconfig.docs_serve = cmd.serve;
 
+    let doc_source_dir_for_intent = doc_source_dir.clone();
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        // Docs are global
-        Box::new(|_, _| Ok(vec![UserIntent::Docs].into())),
+        Box::new(move |resolve_output, _| {
+            let module_id = selected_doc_module_id(resolve_output, &doc_source_dir_for_intent)?;
+            Ok(vec![UserIntent::Doc(module_id)].into())
+        }),
     )?;
 
     // Early exit for dry-run
@@ -118,7 +130,13 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     // before executing the build
     rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
     // Generate metadata for `moondoc`
-    rr_build::generate_metadata(&source_dir, &target_dir, &build_meta, RunMode::Check, None)?;
+    rr_build::generate_metadata(
+        &doc_source_dir,
+        &target_dir,
+        &build_meta,
+        RunMode::Check,
+        None,
+    )?;
 
     // Execute the build
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
@@ -140,15 +158,37 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
                 static_dir.display()
             );
         }
-        let mid = build_meta.resolve_output.local_modules()[0];
+        let module_id = selected_doc_module_id(&build_meta.resolve_output, &doc_source_dir)?;
         let full_name = build_meta
             .resolve_output
             .module_rel
-            .module_source(mid)
+            .module_source(module_id)
             .name()
             .to_string();
         moonbuild::doc_http::start_server(static_dir, &full_name, cmd.bind, cmd.port)?;
     }
 
     Ok(0)
+}
+
+fn selected_doc_module_id(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    selected_module_dir: &Path,
+) -> anyhow::Result<ModuleId> {
+    resolve_output
+        .local_modules()
+        .iter()
+        .copied()
+        .find(|&module_id| {
+            resolve_output
+                .module_dirs
+                .get(module_id)
+                .is_some_and(|module_dir| module_dir == selected_module_dir)
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Cannot find the local module at `{}`",
+                selected_module_dir.display()
+            )
+        })
 }

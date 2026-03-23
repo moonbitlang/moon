@@ -335,7 +335,7 @@ Generate documentation or searching documentation for a symbol
 
 ###### **Arguments:**
 
-* `<SYMBOL>` — The symbol to query documentation for, e.g. 'String::from*' or '@list.from*'
+* `<SYMBOL>` — [Deprecated] The symbol to query documentation for. Use `moon ide doc <SYMBOL>` instead.
 
 ###### **Options:**
 

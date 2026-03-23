@@ -312,7 +312,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::BuildRuntimeLib => (),
-            BuildPlanNode::BuildDocs => (),
+            BuildPlanNode::BuildDocs(_) => (),
             BuildPlanNode::RunPrebuild(pkg, idx) => {
                 assert!(
                     self.res.prebuild_info.contains_key(&pkg),
@@ -423,7 +423,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),
-            BuildPlanNode::BuildDocs => self.build_build_docs(node),
+            BuildPlanNode::BuildDocs(module_id) => self.build_build_docs(node, module_id),
             BuildPlanNode::RunPrebuild(package_id, index) => {
                 self.build_run_prebuild(node, package_id, index)
             }
