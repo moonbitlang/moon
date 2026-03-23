@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use anyhow::bail;
+use anyhow::{Context as _, bail};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::common::{FileLock, RunMode};
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -47,33 +47,39 @@ pub(crate) struct DocSubcommand {
 
     #[clap(
         conflicts_with("serve"),
-        help = "The symbol to query documentation for, e.g. 'String::from*' or '@list.from*'"
+        help = "[Deprecated] The symbol to query documentation for. Use `moon ide doc <SYMBOL>` instead."
     )]
+    #[deprecated]
     pub symbol: Option<String>,
 }
 
 #[instrument(skip_all)]
+#[allow(deprecated)]
 pub(crate) fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    match cmd.symbol {
-        None => {
-            // generate the docs
-            run_doc_rr(cli, cmd)
-        }
-        Some(symbol) => {
-            // deligate to `moondoc` for querying symbol
-            let query_result = std::process::Command::new(&*moonutil::BINARIES.moondoc)
-                .arg("-q")
-                .arg(symbol)
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .spawn()?
-                .wait()?;
-            if !query_result.success() {
-                bail!("failed to query symbol documentation");
-            }
-            Ok(0)
-        }
+    if let Some(symbol) = cmd.symbol.as_deref() {
+        return run_doc_query(symbol);
     }
+
+    run_doc_rr(cli, cmd)
+}
+
+#[instrument(skip_all)]
+fn run_doc_query(symbol: &str) -> anyhow::Result<i32> {
+    eprintln!("Warning: `moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
+    let query_result = std::process::Command::new(&*moonutil::BINARIES.moon_ide)
+        .arg("doc")
+        .arg(symbol)
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .with_context(|| {
+            "no such subcommand: `ide`, is `moon-ide` installed with the current MoonBit toolchain or accessible via your `PATH`?"
+        })?
+        .wait()?;
+    if !query_result.success() {
+        bail!("failed to query symbol documentation");
+    }
+    Ok(0)
 }
 
 #[instrument(skip_all)]
@@ -98,7 +104,6 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
-        // Docs are global
         Box::new(|_, _| Ok(vec![UserIntent::Docs].into())),
     )?;
 
