@@ -72,7 +72,7 @@ pub struct DepRelationship {
     /// This is the intersection of the target package's own
     /// `supported_targets` and the transitive dependency graph reachable from
     /// that target.
-    transitive_supported_backends: HashMap<BuildTarget, Vec<TargetBackend>>,
+    transitive_supported_backends: HashMap<BuildTarget, TargetBackendMask>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -110,6 +110,15 @@ impl TargetBackendMask {
     fn contains(self, target: TargetBackend) -> bool {
         (self.0 & (1 << (target as u8))) != 0
     }
+
+    fn format(self) -> String {
+        let values = self
+            .to_sorted_vec()
+            .into_iter()
+            .map(|target| target.to_string())
+            .collect::<Vec<_>>();
+        format!("[{}]", values.join(", "))
+    }
 }
 
 impl DepRelationship {
@@ -120,14 +129,15 @@ impl DepRelationship {
     ) -> bool {
         self.transitive_supported_backends
             .get(&target)
-            .is_some_and(|targets| targets.contains(&backend))
+            .is_some_and(|mask| mask.contains(backend))
     }
 
-    pub fn target_transitive_supported_backends(&self, target: BuildTarget) -> &[TargetBackend] {
+    pub fn describe_transitive_supported_backends(&self, target: BuildTarget) -> String {
         self.transitive_supported_backends
             .get(&target)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
+            .copied()
+            .unwrap_or_default()
+            .format()
     }
 
     pub(super) fn populate_transitive_supported_backends(&mut self, packages: &DiscoverResult) {
@@ -148,10 +158,7 @@ impl DepRelationship {
                 );
             }
         }
-        self.transitive_supported_backends = cache
-            .into_iter()
-            .map(|(target, mask)| (target, mask.to_sorted_vec()))
-            .collect();
+        self.transitive_supported_backends = cache;
     }
 }
 

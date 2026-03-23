@@ -31,7 +31,7 @@ use crate::{
     build_plan::InputDirective,
     cond_comp::get_file_target_backend,
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, PackageId, TargetKind},
+    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
     resolve::ResolveOutput,
 };
 
@@ -95,48 +95,38 @@ impl UserIntent {
             }
             UserIntent::Check(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
-                if pkg_info.has_implementation() {
+                if !pkg_info.has_implementation() {
+                    // Pure virtual package: compile its interface
+                    out.push(BuildPlanNode::BuildVirtual(pkg));
+                } else {
                     // - Always check Source.
                     // - If this package is not a virtual implementation, we can
                     //   check tests (virtual impls cannot be tested).
                     // - When checking tests, always check blackbox tests, and
                     //   only check whitebox if it has related files.
                     out.push(BuildPlanNode::check(pkg.build_target(TargetKind::Source)));
-                    if !pkg_info.is_virtual_impl()
-                        && resolved.local_modules().contains(&pkg_info.module)
-                    {
-                        // If the package is in a local module, we check its
-                        // blackbox/whitebox tests otherwise we skip checking
-                        // its blackbox/whitebox tests
 
-                        if has_whitebox_decl(resolved, pkg, directive)
-                            && should_check_test_target(
+                    if !(pkg_info.is_virtual_impl()
+                        || !resolved.local_modules().contains(&pkg_info.module))
+                    {
+                        if has_whitebox_decl(resolved, pkg, directive) {
+                            push_check_test_target(
                                 resolved,
-                                pkg,
-                                TargetKind::WhiteboxTest,
+                                out,
+                                pkg.build_target(TargetKind::WhiteboxTest),
                                 target_backend,
                                 directive,
-                            )
-                        {
-                            out.push(BuildPlanNode::check(
-                                pkg.build_target(TargetKind::WhiteboxTest),
-                            ));
+                            );
                         }
-                        if should_check_test_target(
+
+                        push_check_test_target(
                             resolved,
-                            pkg,
-                            TargetKind::BlackboxTest,
+                            out,
+                            pkg.build_target(TargetKind::BlackboxTest),
                             target_backend,
                             directive,
-                        ) {
-                            out.push(BuildPlanNode::check(
-                                pkg.build_target(TargetKind::BlackboxTest),
-                            ));
-                        }
+                        );
                     }
-                } else {
-                    // Pure virtual package: compile its interface
-                    out.push(BuildPlanNode::BuildVirtual(pkg));
                 }
             }
             UserIntent::Prove(pkg) => {
@@ -209,31 +199,32 @@ fn has_whitebox_decl(
     })
 }
 
-fn should_check_test_target(
+fn push_check_test_target(
     resolved: &ResolveOutput,
-    pkg_id: PackageId,
-    kind: TargetKind,
+    out: &mut Vec<BuildPlanNode>,
+    target: BuildTarget,
     target_backend: TargetBackend,
     directive: &InputDirective,
-) -> bool {
-    let target = pkg_id.build_target(kind);
+) {
     if directive
         .specify_patch_file
         .as_ref()
         .is_some_and(|(specified_target, _)| specified_target == &target)
     {
-        return true;
+        out.push(BuildPlanNode::check(target));
+        return;
     }
 
     if resolved
         .pkg_rel
         .target_transitively_supports_backend(target, target_backend)
     {
-        return true;
+        out.push(BuildPlanNode::check(target));
+        return;
     }
 
-    let pkg = resolved.pkg_dirs.get_package(pkg_id);
-    let test_kind = match kind {
+    let pkg = resolved.pkg_dirs.get_package(target.package);
+    let test_kind = match target.kind {
         TargetKind::WhiteboxTest => "whitebox",
         TargetKind::BlackboxTest => "blackbox",
         _ => unreachable!("only check test targets should be filtered"),
@@ -244,16 +235,8 @@ fn should_check_test_target(
         pkg.fqn,
         target_backend,
         test_kind,
-        format_supported_backends(
-            resolved
-                .pkg_rel
-                .target_transitive_supported_backends(target)
-        ),
+        resolved
+            .pkg_rel
+            .describe_transitive_supported_backends(target),
     );
-    false
-}
-
-fn format_supported_backends(backends: &[TargetBackend]) -> String {
-    let values = backends.iter().map(ToString::to_string).collect::<Vec<_>>();
-    format!("[{}]", values.join(", "))
 }
