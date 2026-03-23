@@ -385,7 +385,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::symbol -- The symbol to query documentation for, e.g. '\''String\:\:from*'\'' or '\''@list.from*'\'':' \
+'::symbol -- \[Deprecated\] The symbol to query documentation for. Use `moon ide doc <SYMBOL>` instead.:' \
 && ret=0
 ;;
 (info)
