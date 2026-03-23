@@ -98,11 +98,11 @@ Create a new MoonBit module
 
 Build the current package
 
-**Usage:** `moon build [OPTIONS] [PATH]`
+**Usage:** `moon build [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 
-* `<PATH>` — The path to the package that should be built
+* `<PATH>` — Filesystem paths to package directories or files inside packages to build
 
 ###### **Options:**
 
@@ -137,11 +137,11 @@ Build the current package
 
 Check the current package, but don't build object files
 
-**Usage:** `moon check [OPTIONS] [PATH]`
+**Usage:** `moon check [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 
-* `<PATH>` — Filesystem path to a package directory or `.mbt` / `.mbt.md` file
+* `<PATH>` — Filesystem paths to package directories or `.mbt` / `.mbt.md` files
 
 ###### **Options:**
 

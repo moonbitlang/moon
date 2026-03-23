@@ -132,7 +132,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::PATH -- The path to the package that should be built:_files' \
+'*::PATH -- Filesystem paths to package directories or files inside packages to build:_files' \
 && ret=0
 ;;
 (check)
@@ -177,7 +177,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::PATH -- Filesystem path to a package directory or `.mbt` / `.mbt.md` file:_files' \
+'*::PATH -- Filesystem paths to package directories or `.mbt` / `.mbt.md` files:_files' \
 && ret=0
 ;;
 (prove)

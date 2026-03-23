@@ -370,7 +370,7 @@ fn discover_one_package(
             Some(PackageSourceFileKind::Mbtp) => mbtp_files.push(path),
             Some(PackageSourceFileKind::Mbl) => mbt_lex_files.push(path),
             Some(PackageSourceFileKind::Mby) => mbt_yacc_files.push(path),
-            None => {
+            Some(PackageSourceFileKind::Mbtx) | None => {
                 // File is not one of our expected types, skip
             }
         }

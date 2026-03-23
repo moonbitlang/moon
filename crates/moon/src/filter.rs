@@ -21,14 +21,21 @@
 //! This module contains the common path filtering logic for both legacy and RR backends.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
 use anyhow::Context;
+use colored::Colorize;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
-use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend, is_moon_pkg_exist};
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
+use moonutil::{
+    common::{
+        MOON_PKG, MOON_PKG_JSON, PackageSourceFileKind, TargetBackend, is_moon_pkg_exist,
+        package_source_file_kind,
+    },
+    dirs::{find_ancestor_with_mod, find_ancestor_with_work},
+};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
@@ -165,6 +172,161 @@ pub(crate) fn filter_pkg_by_dir(
                 resolve_output.local_modules(),
             )
         })
+}
+
+pub(crate) enum PathSelection {
+    Project {
+        /// Workspace root if inside a workspace, otherwise the module root.
+        project_root: PathBuf,
+        /// Package directories selected under this project root, after normalizing
+        /// both package-dir inputs and source-file inputs to their containing package.
+        package_dirs: Vec<PathBuf>,
+    },
+    StandaloneSingleFile {
+        /// Directory containing the standalone file. Its `_build` hosts the
+        /// synthesized single-file project.
+        file_dir: PathBuf,
+        /// The original CLI path to the selected standalone file.
+        path: PathBuf,
+    },
+}
+
+fn find_project_root_for_dir(dir: &Path) -> anyhow::Result<Option<PathBuf>> {
+    Ok(find_ancestor_with_work(dir)?.or_else(|| find_ancestor_with_mod(dir)))
+}
+
+pub(crate) fn batch_paths(paths: &[PathBuf]) -> anyhow::Result<Vec<PathSelection>> {
+    let mut batches = Vec::<PathSelection>::new();
+    // Package selections are grouped by the project root they resolve under, so
+    // repeated paths inside the same module/workspace share one batch.
+    let mut project_batch_indices = HashMap::<PathBuf, usize>::new();
+    // Standalone files stay as one batch per canonical file path.
+    let mut standalone_paths = HashSet::<PathBuf>::new();
+    // Directory warnings are emitted once per skipped subtree to avoid noise
+    // from shell-expanded globs or repeated nested inputs.
+    let mut skipped_outside_project_roots = Vec::<PathBuf>::new();
+    let mut skipped_non_package_roots = Vec::<PathBuf>::new();
+
+    for path in paths {
+        let (dir, filename) = canonicalize_with_filename(path)?;
+
+        if let Some(filename) = filename {
+            match package_source_file_kind(&filename) {
+                Some(_) if is_moon_pkg_exist(&dir) => {
+                    let Some(project_root) = find_project_root_for_dir(&dir)? else {
+                        warn_skipped_paths(
+                            std::slice::from_ref(path),
+                            "it is not inside any Moon module or workspace",
+                        );
+                        continue;
+                    };
+
+                    let package_dir = dir;
+                    if let Some(index) = project_batch_indices.get(&project_root).copied() {
+                        let PathSelection::Project { package_dirs, .. } = &mut batches[index]
+                        else {
+                            unreachable!("project root index must point to a project batch");
+                        };
+                        if !package_dirs.contains(&package_dir) {
+                            package_dirs.push(package_dir);
+                        }
+                    } else {
+                        let index = batches.len();
+                        batches.push(PathSelection::Project {
+                            project_root: project_root.clone(),
+                            package_dirs: vec![package_dir],
+                        });
+                        project_batch_indices.insert(project_root, index);
+                    }
+                }
+                Some(PackageSourceFileKind::Mbt)
+                | Some(PackageSourceFileKind::MbtMd)
+                | Some(PackageSourceFileKind::Mbtx) => {
+                    if standalone_paths.insert(path.clone()) {
+                        batches.push(PathSelection::StandaloneSingleFile {
+                            file_dir: dir,
+                            path: path.clone(),
+                        });
+                    }
+                }
+                Some(_) | None => warn_skipped_paths(
+                    std::slice::from_ref(path),
+                    "only package directories and MoonBit source files are accepted",
+                ),
+            }
+            continue;
+        }
+
+        if let Some(project_root) = find_project_root_for_dir(&dir)? {
+            if is_moon_pkg_exist(&dir) {
+                let package_dir = dir;
+                if let Some(index) = project_batch_indices.get(&project_root).copied() {
+                    let PathSelection::Project { package_dirs, .. } = &mut batches[index] else {
+                        unreachable!("project root index must point to a project batch");
+                    };
+                    if !package_dirs.contains(&package_dir) {
+                        package_dirs.push(package_dir);
+                    }
+                } else {
+                    let index = batches.len();
+                    batches.push(PathSelection::Project {
+                        project_root: project_root.clone(),
+                        package_dirs: vec![package_dir],
+                    });
+                    project_batch_indices.insert(project_root, index);
+                }
+            } else if !skipped_non_package_roots
+                .iter()
+                .any(|skipped| dir.starts_with(skipped))
+            {
+                skipped_non_package_roots.push(dir);
+                warn_skipped_paths(
+                    std::slice::from_ref(path),
+                    &format!("it does not contain `{}` or `{}`", MOON_PKG, MOON_PKG_JSON),
+                );
+            }
+        } else if !skipped_outside_project_roots
+            .iter()
+            .any(|skipped| dir.starts_with(skipped))
+        {
+            skipped_outside_project_roots.push(dir);
+            warn_skipped_paths(
+                std::slice::from_ref(path),
+                "it is not inside any Moon module or workspace",
+            );
+        }
+    }
+
+    Ok(batches)
+}
+
+/// Resolve package directories to packages after package discovery has completed.
+pub(crate) fn filter_pkgs_by_dirs(
+    resolve_output: &ResolveOutput,
+    package_dirs: &[PathBuf],
+) -> anyhow::Result<Vec<PackageId>> {
+    let mut matched = Vec::new();
+    let mut seen = HashSet::new();
+
+    for dir in package_dirs {
+        let pkg_id = filter_pkg_by_dir(resolve_output, dir)?;
+        if seen.insert(pkg_id) {
+            matched.push(pkg_id);
+        }
+    }
+
+    Ok(matched)
+}
+
+pub(crate) fn warn_skipped_paths(paths: &[PathBuf], reason: &str) {
+    for path in paths {
+        eprintln!(
+            "{}: skipping `{}` because {}",
+            "Warning".yellow().bold(),
+            path.display(),
+            reason,
+        );
+    }
 }
 
 /// Given an invalid input path, report a helpful error message indicating why

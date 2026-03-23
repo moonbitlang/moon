@@ -77,6 +77,7 @@ pub const DOT_MBT_DOT_MD: &str = ".mbt.md";
 pub const DOT_MBTP: &str = ".mbtp";
 pub const DOT_MBL: &str = ".mbl";
 pub const DOT_MBY: &str = ".mby";
+pub const DOT_MBTX: &str = ".mbtx";
 
 pub const MOON_BIN_DIR: &str = "__moonbin__";
 
@@ -116,6 +117,7 @@ pub enum PackageSourceFileKind {
     Mbtp,
     Mbl,
     Mby,
+    Mbtx,
 }
 
 pub fn package_source_file_kind(filename: &str) -> Option<PackageSourceFileKind> {
@@ -129,6 +131,8 @@ pub fn package_source_file_kind(filename: &str) -> Option<PackageSourceFileKind>
         Some(PackageSourceFileKind::Mbl)
     } else if filename.ends_with(DOT_MBY) {
         Some(PackageSourceFileKind::Mby)
+    } else if filename.ends_with(DOT_MBTX) {
+        Some(PackageSourceFileKind::Mbtx)
     } else {
         None
     }

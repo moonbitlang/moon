@@ -202,14 +202,58 @@ fn test_moon_build_filter_by_path_success() {
     let stdout = get_stdout(&dir, ["build", "./lib", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/build_relative_lib.stdout"].assert_eq(&stdout);
 
-    // Test error handling for file paths (not supported by build)
+    // Test build with a file path, which resolves through the containing package
     let stdout = get_stdout(&dir, ["build", "A/hello.mbt", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/build_A_file.stdout"].assert_eq(&stdout);
+
+    // Test build with `--manifest-path` and a package directory
+    let stdout = get_stdout(
+        &dir,
+        [
+            "--manifest-path",
+            "moon.mod.json",
+            "build",
+            "A",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    expect_file!["snapshots/build_A.stdout"].assert_eq(&stdout);
+
+    // Test build with `--manifest-path` and a file path
+    let stdout = get_stdout(
+        &dir,
+        [
+            "--manifest-path",
+            "moon.mod.json",
+            "build",
+            "A/hello.mbt",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    expect_file!["snapshots/build_A_file.stdout"].assert_eq(&stdout);
+
+    // Test build with multiple paths, deduplicating repeated package matches
+    let stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            "A",
+            "A/hello.mbt",
+            "lib",
+            "lib/hello.mbt",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    expect_file!["snapshots/build_A_lib.stdout"].assert_eq(&stdout);
 }
 
 #[test]
 fn test_moon_build_filter_by_path_failure() {
     let dir = TestDir::new("test_filter/test_filter");
+    std::fs::write(dir.join("orphan.mbt"), "fn orphan() -> Int { 0 }\n").unwrap();
 
     // Test error handling for non-existent paths
     snapbox::cmd::Command::new(moon_bin())
@@ -225,8 +269,58 @@ fn test_moon_build_filter_by_path_failure() {
         .assert()
         .failure();
 
-    // Multiple folders should be rejected
-    let _stderr = get_err_stderr(&dir, ["build", "A", "lib", "--dry-run", "--sort-input"]);
+    let stderr = get_err_stderr(&dir, ["build", "orphan.mbt", "--dry-run"]);
+    assert!(
+        stderr.contains("standalone single-file `moon build` is not supported"),
+        "stderr: {stderr}"
+    );
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            ".",
+            "moon.mod.json",
+            "A",
+            "A/hello.mbt",
+            "lib",
+            "lib/hello.mbt",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    expect_file!["snapshots/build_A_lib.stdout"].assert_eq(&stdout);
+
+    check(
+        get_stderr(
+            &dir,
+            [
+                "build",
+                ".",
+                "moon.mod.json",
+                "A",
+                "A/hello.mbt",
+                "lib",
+                "lib/hello.mbt",
+                "--dry-run",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            Warning: skipping `.` because it does not contain `moon.pkg` or `moon.pkg.json`
+            Warning: skipping `moon.mod.json` because only package directories and MoonBit source files are accepted
+        "#]],
+    );
+
+    let stderr = get_err_stderr(&dir, ["build", "moon.mod.json", "--dry-run"]);
+    assert!(
+        stderr.contains("Warning: skipping `moon.mod.json`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("None of the provided paths resolve to a package"),
+        "stderr: {stderr}"
+    );
 }
 
 // ===== moon check command tests =====
@@ -234,6 +328,7 @@ fn test_moon_build_filter_by_path_failure() {
 #[test]
 fn test_moon_check_filter_by_path_success() {
     let dir = TestDir::new("test_filter/test_filter");
+    std::fs::write(dir.join("orphan.mbt"), "fn orphan() -> Int { 0 }\n").unwrap();
 
     // Test check with folder path
     let stdout = get_stdout(&dir, ["check", "A", "--dry-run", "--sort-input"]);
@@ -266,6 +361,34 @@ fn test_moon_check_filter_by_path_success() {
     );
     expect_file!["snapshots/check_A_file_inside.stdout"].assert_eq(&stdout);
 
+    // Test check with `--manifest-path` and a package directory
+    let stdout = get_stdout(
+        &dir,
+        [
+            "--manifest-path",
+            "moon.mod.json",
+            "check",
+            "A",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    expect_file!["snapshots/check_A.stdout"].assert_eq(&stdout);
+
+    // Test check with `--manifest-path` and a file path
+    let stdout = get_stdout(
+        &dir,
+        [
+            "--manifest-path",
+            "moon.mod.json",
+            "check",
+            "A/hello.mbt",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    expect_file!["snapshots/check_A_file.stdout"].assert_eq(&stdout);
+
     // Test check with relative paths using dot notation
     let stdout = get_stdout(&dir, ["check", "./A", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/check_relative_A.stdout"].assert_eq(&stdout);
@@ -276,6 +399,26 @@ fn test_moon_check_filter_by_path_success() {
         ["check", "./A/hello.mbt", "--dry-run", "--sort-input"],
     );
     expect_file!["snapshots/check_relative_A_file.stdout"].assert_eq(&stdout);
+
+    // Test check with multiple paths, deduplicating repeated package matches
+    let stdout = get_stdout(
+        &dir,
+        [
+            "check",
+            "A",
+            "A/hello.mbt",
+            "lib",
+            "lib/hello.mbt",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    expect_file!["snapshots/check_A_lib.stdout"].assert_eq(&stdout);
+
+    // Test standalone single-file check from module root without moon.pkg
+    let stdout = get_stdout(&dir, ["check", "orphan.mbt", "--dry-run"]);
+    assert!(stdout.contains("-single-file"), "stdout: {stdout}");
+    assert!(stdout.contains("moon/test/single"), "stdout: {stdout}");
 }
 
 #[test]
@@ -303,6 +446,153 @@ fn test_moon_check_filter_by_path_failure() {
         .assert()
         .failure();
 
-    // Multiple folders should be rejected
-    let _stderr = get_err_stderr(&dir, ["check", "A", "lib", "--dry-run", "--sort-input"]);
+    let stdout = get_stdout(
+        &dir,
+        [
+            "check",
+            ".",
+            "moon.mod.json",
+            "A",
+            "A/hello.mbt",
+            "lib",
+            "lib/hello.mbt",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    expect_file!["snapshots/check_A_lib.stdout"].assert_eq(&stdout);
+
+    check(
+        get_stderr(
+            &dir,
+            [
+                "check",
+                ".",
+                "moon.mod.json",
+                "A",
+                "A/hello.mbt",
+                "lib",
+                "lib/hello.mbt",
+                "--dry-run",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            Warning: skipping `.` because it does not contain `moon.pkg` or `moon.pkg.json`
+            Warning: skipping `moon.mod.json` because only package directories and MoonBit source files are accepted
+        "#]],
+    );
+
+    let stderr = get_err_stderr(&dir, ["check", "moon.mod.json", "--dry-run"]);
+    assert!(
+        stderr.contains("Warning: skipping `moon.mod.json`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("None of the provided paths resolve to a package"),
+        "stderr: {stderr}"
+    );
+
+    let stderr = get_err_stderr(&dir, ["check", "A", "lib", "--dry-run", "--no-mi"]);
+    assert!(
+        stderr
+            .contains("`--no-mi` can only be used when the selector resolves to a single package"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_moon_build_and_check_across_nested_module_roots() {
+    let dir = TestDir::new("indirect_dep.in");
+
+    let build_stderr = get_stderr(
+        &dir,
+        [
+            "build",
+            ".",
+            "indirect_dep1/sub",
+            "indirect_dep2/sub",
+            "--sort-input",
+        ],
+    );
+    assert!(
+        build_stderr.contains(
+            "Warning: skipping `.` because it is not inside any Moon module or workspace"
+        ),
+        "stderr: {build_stderr}"
+    );
+    assert!(
+        dir.join("indirect_dep1/sub/_build/wasm-gc/debug/build/sub.core")
+            .exists(),
+        "expected build artifact for indirect_dep1/sub"
+    );
+    assert!(
+        dir.join("indirect_dep2/sub/_build/wasm-gc/debug/build/sub.core")
+            .exists(),
+        "expected build artifact for indirect_dep2/sub"
+    );
+
+    let check_stderr = get_stderr(
+        &dir,
+        [
+            "check",
+            ".",
+            "indirect_dep1/sub",
+            "indirect_dep2/sub",
+            "--sort-input",
+        ],
+    );
+    assert!(
+        check_stderr.contains(
+            "Warning: skipping `.` because it is not inside any Moon module or workspace"
+        ),
+        "stderr: {check_stderr}"
+    );
+    assert!(
+        dir.join("indirect_dep1/sub/_build/wasm-gc/debug/check/sub.mi")
+            .exists(),
+        "expected check artifact for indirect_dep1/sub"
+    );
+    assert!(
+        dir.join("indirect_dep2/sub/_build/wasm-gc/debug/check/sub.mi")
+            .exists(),
+        "expected check artifact for indirect_dep2/sub"
+    );
+}
+
+#[test]
+fn test_moon_build_and_check_with_member_manifest_path() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let build_stdout = get_stdout(
+        &dir,
+        [
+            "--manifest-path",
+            "app/moon.mod.json",
+            "build",
+            "app/src/main",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert!(
+        build_stdout.contains("alice/app/main"),
+        "stdout: {build_stdout}"
+    );
+
+    let check_stdout = get_stdout(
+        &dir,
+        [
+            "--manifest-path",
+            "app/moon.mod.json",
+            "check",
+            "app/src/main/main.mbt",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert!(
+        check_stdout.contains("alice/app/main"),
+        "stdout: {check_stdout}"
+    );
 }

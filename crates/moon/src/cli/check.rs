@@ -20,17 +20,20 @@ use anyhow::Context;
 use colored::Colorize;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::cli::UniversalFlags;
+use moonutil::common::BUILD_DIR;
 use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
-use moonutil::common::{BUILD_DIR, lower_surface_targets};
+use moonutil::common::lower_surface_targets;
 use moonutil::common::{FileLock, TargetBackend};
+use moonutil::dirs::{PackageDirs, WorkspaceModuleDirs};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
-    package_supports_backend,
+    PathSelection, batch_paths, canonicalize_with_filename, ensure_package_supports_backend,
+    ensure_packages_support_backend, filter_pkg_by_dir, filter_pkgs_by_dirs,
+    package_supports_backend, warn_skipped_paths,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
@@ -38,8 +41,10 @@ use crate::watch::{WatchOutput, watching};
 
 use super::BuildFlags;
 
+type CheckRoot = (PathBuf, PathBuf, Vec<PathBuf>, bool);
+
 /// Check the current package, but don't build object files
-#[derive(Debug, clap::Parser)]
+#[derive(Clone, Debug, clap::Parser)]
 #[clap(group = clap::ArgGroup::new("package_selector").multiple(false))]
 pub(crate) struct CheckSubcommand {
     #[clap(flatten)]
@@ -78,9 +83,9 @@ pub(crate) struct CheckSubcommand {
     #[clap(long)]
     pub explain: bool,
 
-    /// Filesystem path to a package directory or `.mbt` / `.mbt.md` file
+    /// Filesystem paths to package directories or `.mbt` / `.mbt.md` files
     #[clap(conflicts_with = "watch", name = "PATH", group = "package_selector")]
-    pub path: Option<PathBuf>,
+    pub paths: Vec<PathBuf>,
 
     /// Check whether the code is properly formatted
     #[clap(long)]
@@ -90,6 +95,11 @@ pub(crate) struct CheckSubcommand {
 #[instrument(skip_all)]
 pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
     if cmd.fmt {
+        let fmt_path = match cmd.paths.as_slice() {
+            [] => None,
+            [path] => Some(path.clone()),
+            _ => anyhow::bail!("`moon check --fmt` only supports a single `PATH` argument"),
+        };
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;
         let fmt_exit_code = crate::cli::fmt::run_fmt(
@@ -99,7 +109,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
                 sort_input: false,
                 block_style: None,
                 warn: true,
-                path: cmd.path.clone(),
+                path: fmt_path,
                 args: vec![],
             },
         )?;
@@ -108,40 +118,172 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
         }
     }
 
-    // Check if we're running within a project
-    let (source_dir, target_dir, single_file) = match cli.source_tgt_dir.try_into_package_dirs() {
-        Ok(dirs) => (dirs.source_dir, dirs.target_dir, false),
-        Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
-            // Now we're talking about real single-file scenario.
-            if let Some(path) = cmd.path.as_deref() {
-                let single_file_path = dunce::canonicalize(path)
-                    .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
-                let source_dir = single_file_path
-                    .parent()
-                    .context("file path must have a parent directory")?
-                    .to_path_buf();
-                let target_dir = source_dir.join(BUILD_DIR);
-                (source_dir, target_dir, true)
-            } else {
-                return Err(e.into());
+    if cmd.paths.is_empty() {
+        let PackageDirs {
+            source_dir,
+            target_dir,
+        } = cli.source_tgt_dir.try_into_package_dirs()?;
+        return run_check_for_roots(cli, cmd, &[(source_dir, target_dir, Vec::new(), false)]);
+    }
+
+    let batches = batch_paths(&cmd.paths)?;
+
+    let roots = if cli.source_tgt_dir.manifest_path.is_some() {
+        let WorkspaceModuleDirs {
+            project_root,
+            module_dir,
+            target_dir,
+        } = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+        let selected_root = module_dir.unwrap_or_else(|| project_root.clone());
+        let mut roots = Vec::new();
+        let mut skipped_outside_selected_project = false;
+        let skipped_reason = format!(
+            "it is not inside the selected project `{}`",
+            selected_root.display()
+        );
+
+        for batch in batches {
+            match batch {
+                PathSelection::Project {
+                    project_root: batch_project_root,
+                    package_dirs,
+                } if batch_project_root == project_root => {
+                    let (selected_dirs, skipped_dirs): (Vec<_>, Vec<_>) = package_dirs
+                        .into_iter()
+                        .partition(|dir| dir.starts_with(&selected_root));
+                    if !selected_dirs.is_empty() {
+                        roots.push((
+                            project_root.clone(),
+                            target_dir.clone(),
+                            selected_dirs,
+                            false,
+                        ));
+                    }
+                    if !skipped_dirs.is_empty() {
+                        skipped_outside_selected_project = true;
+                        warn_skipped_paths(&skipped_dirs, &skipped_reason);
+                    }
+                }
+                PathSelection::Project { package_dirs, .. } => {
+                    skipped_outside_selected_project = true;
+                    warn_skipped_paths(&package_dirs, &skipped_reason);
+                }
+                PathSelection::StandaloneSingleFile { file_dir, path }
+                    if file_dir.starts_with(&selected_root) =>
+                {
+                    let target_dir = file_dir.join(BUILD_DIR);
+                    roots.push((file_dir, target_dir, vec![path], true));
+                }
+                PathSelection::StandaloneSingleFile { path, .. } => {
+                    skipped_outside_selected_project = true;
+                    warn_skipped_paths(&[path], &skipped_reason);
+                }
             }
         }
-        Err(e) => {
-            return Err(e.into());
+
+        if roots.is_empty() {
+            if skipped_outside_selected_project {
+                anyhow::bail!(
+                    "None of the provided paths are inside the selected project `{}`",
+                    selected_root.display()
+                )
+            }
+            anyhow::bail!("None of the provided paths resolve to a package")
         }
+
+        roots
+    } else {
+        let roots = batches
+            .into_iter()
+            .map(|batch| match batch {
+                PathSelection::Project {
+                    project_root,
+                    package_dirs,
+                } => {
+                    let target_dir = cli
+                        .source_tgt_dir
+                        .target_dir
+                        .clone()
+                        .unwrap_or_else(|| project_root.join(BUILD_DIR));
+                    if !target_dir.exists() {
+                        std::fs::create_dir_all(&target_dir).with_context(|| {
+                            format!(
+                                "failed to create target directory `{}`",
+                                target_dir.display()
+                            )
+                        })?;
+                    }
+                    let target_dir_display = target_dir.clone();
+                    let target_dir = dunce::canonicalize(target_dir).with_context(|| {
+                        format!(
+                            "failed to resolve target directory `{}`",
+                            target_dir_display.display()
+                        )
+                    })?;
+                    Ok((project_root, target_dir, package_dirs, false))
+                }
+                PathSelection::StandaloneSingleFile { file_dir, path } => {
+                    let target_dir = file_dir.join(BUILD_DIR);
+                    Ok((file_dir, target_dir, vec![path], true))
+                }
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        if roots.is_empty() {
+            anyhow::bail!("None of the provided paths resolve to a package")
+        }
+
+        roots
     };
 
+    if cmd.watch && roots.len() > 1 {
+        anyhow::bail!(
+            "`moon check --watch` does not support paths from multiple modules or workspaces"
+        )
+    }
+    if cli.source_tgt_dir.target_dir.is_some() && roots.len() > 1 {
+        anyhow::bail!(
+            "`--target-dir` cannot be used when selected paths span multiple modules or workspaces"
+        )
+    }
+
+    run_check_for_roots(cli, cmd, &roots)
+}
+
+fn run_check_for_roots(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    roots: &[CheckRoot],
+) -> anyhow::Result<i32> {
     if cmd.build_flags.target.is_empty() {
-        return run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, None);
+        let mut ret_value = 0;
+        for (source_dir, target_dir, paths, single_file) in roots {
+            let mut root_cmd = cmd.clone();
+            root_cmd.paths = paths.clone();
+            let x = run_check_internal(cli, &root_cmd, source_dir, target_dir, *single_file, None)?;
+            ret_value = ret_value.max(x);
+        }
+        return Ok(ret_value);
     }
 
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
     let mut ret_value = 0;
     for t in targets {
-        let x = run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, Some(t))
+        for (source_dir, target_dir, paths, single_file) in roots {
+            let mut root_cmd = cmd.clone();
+            root_cmd.paths = paths.clone();
+            let x = run_check_internal(
+                cli,
+                &root_cmd,
+                source_dir,
+                target_dir,
+                *single_file,
+                Some(t),
+            )
             .context(format!("failed to run check for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+            ret_value = ret_value.max(x);
+        }
     }
     Ok(ret_value)
 }
@@ -183,8 +325,8 @@ fn run_check_for_single_file_rr(
     }
 
     let path = cmd
-        .path
-        .as_ref()
+        .paths
+        .first()
         .expect("path should be set in single-file mode");
     let single_file_path = dunce::canonicalize(path)
         .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
@@ -414,7 +556,7 @@ pub(crate) fn plan_check_rr_from_resolved(
                 resolved,
                 source_dir,
                 cmd.package_path.as_deref(),
-                cmd.path.as_deref(),
+                cmd.paths.as_slice(),
                 target_backend,
                 cmd.no_mi,
                 cmd.patch_file.as_deref(),
@@ -429,20 +571,20 @@ pub(crate) fn plan_check_rr_from_resolved(
 /// Two paths are supported:
 /// - `package_path`: The legacy `-p` flag, specifying the path from the source
 ///   dir to the package to check.
-/// - `path`: The new positional argument, specifying a relative path from the
-///   working directory to a package directory.
+/// - `paths`: The new positional arguments, specifying relative paths from the
+///   working directory to package directories or files inside packages.
 /// Only one of them can be specified at a time.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     source_dir: &Path,
     package_path: Option<&Path>,
-    path: Option<&Path>,
+    paths: &[PathBuf],
     target_backend: TargetBackend,
     no_mi: bool,
     patch_file: Option<&Path>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    if package_path.is_some() && path.is_some() {
+    if package_path.is_some() && !paths.is_empty() {
         anyhow::bail!(
             "Only one of `-p/--package-path` and positional `PATH` can be specified at a time"
         );
@@ -458,16 +600,41 @@ fn calc_user_intent(
             rr_build::build_patch_directive_for_package(pkg, no_mi, None, patch_file, false)?;
 
         Ok((vec![UserIntent::Check(pkg)], directive).into())
-    } else if let Some(check_path) = path {
-        let (dir, _) = canonicalize_with_filename(check_path)?;
-        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
-        ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
+    } else if !paths.is_empty() {
+        let selected = filter_pkgs_by_dirs(resolve_output, paths)?;
 
-        // Apply --no-mi and --patch-file to specific packages
-        let directive =
-            rr_build::build_patch_directive_for_package(pkg, no_mi, None, patch_file, false)?;
+        if selected.is_empty() {
+            anyhow::bail!("None of the provided paths resolve to a package")
+        }
 
-        Ok((vec![UserIntent::Check(pkg)], directive).into())
+        ensure_packages_support_backend(resolve_output, selected.iter().copied(), target_backend)?;
+
+        let directive = match selected.as_slice() {
+            [] => unreachable!("checked above"),
+            [pkg] => {
+                rr_build::build_patch_directive_for_package(*pkg, no_mi, None, patch_file, false)?
+            }
+            _ if no_mi => {
+                anyhow::bail!(
+                    "`--no-mi` can only be used when the selector resolves to a single package"
+                )
+            }
+            _ if patch_file.is_some() => {
+                anyhow::bail!(
+                    "`--patch-file` can only be used when the selector resolves to a single package"
+                )
+            }
+            _ => Default::default(),
+        };
+
+        Ok((
+            selected
+                .into_iter()
+                .map(UserIntent::Check)
+                .collect::<Vec<_>>(),
+            directive,
+        )
+            .into())
     } else {
         let intents: Vec<_> = rr_build::local_packages(resolve_output)
             .filter(|&pkg| package_supports_backend(resolve_output, pkg, target_backend))
