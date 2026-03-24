@@ -362,8 +362,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::PATH -- Path to a package directory to format:_files' \
-'*::args -- Extra arguments passed to the formatter (after --):' \
+'*::PATH -- Paths to package directories or files inside packages to format:_files' \
 && ret=0
 ;;
 (doc)

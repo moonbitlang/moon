@@ -910,7 +910,7 @@ _moon() {
             return 0
             ;;
         moon__fmt)
-            opts="-q -v -h --check --sort-input --block-style --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH] [ARGS]..."
+            opts="-q -v -h --check --sort-input --block-style --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]... [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

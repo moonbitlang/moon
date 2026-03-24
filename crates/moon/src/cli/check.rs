@@ -30,7 +30,7 @@ use tracing::{Level, instrument};
 
 use crate::filter::{
     canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
-    package_supports_backend, resolve_selected_package_dir, select_supported_packages,
+    package_supports_backend, select_supported_packages,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
@@ -92,40 +92,17 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;
-        let current_root = cli
-            .source_tgt_dir
-            .try_into_workspace_module_dirs()
-            .ok()
-            .map(|dirs| dirs.module_dir.unwrap_or(dirs.project_root));
-        let fmt_targets = match (current_root.as_deref(), cmd.path.is_empty()) {
-            (_, true) => vec![None],
-            (Some(current_root), false) => cmd
-                .path
-                .iter()
-                .filter_map(|path| {
-                    resolve_selected_package_dir(current_root, path, cli.verbose).transpose()
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?
-                .into_iter()
-                .map(Some)
-                .collect::<Vec<_>>(),
-            (None, false) => cmd.path.iter().cloned().map(Some).collect::<Vec<_>>(),
-        };
-        let mut fmt_exit_code = 0;
-        for path in fmt_targets {
-            let exit_code = crate::cli::fmt::run_fmt(
-                &cli_for_fmt,
-                crate::cli::FmtSubcommand {
-                    check: false,
-                    sort_input: false,
-                    block_style: None,
-                    warn: true,
-                    path,
-                    args: vec![],
-                },
-            )?;
-            fmt_exit_code = fmt_exit_code.max(exit_code);
-        }
+        let fmt_exit_code = crate::cli::fmt::run_fmt(
+            &cli_for_fmt,
+            crate::cli::FmtSubcommand {
+                check: false,
+                sort_input: false,
+                block_style: None,
+                warn: true,
+                path: cmd.path.clone(),
+                args: vec![],
+            },
+        )?;
         if fmt_exit_code != 0 {
             eprintln!("{}: formatting code failed", "Warning".yellow().bold());
         }

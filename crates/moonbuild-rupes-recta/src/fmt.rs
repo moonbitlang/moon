@@ -79,13 +79,13 @@ pub struct FmtConfig {
 
 /// Generate the necessary build graph for the formatter operation.
 ///
-/// If `package_filter` is `Some`, only the specified package will be formatted.
+/// If `selected_packages` is non-empty, only the specified packages will be formatted.
 /// Otherwise, all packages in the current module or workspace will be formatted.
 pub fn build_graph_for_fmt(
     resolved: &FmtResolveOutput,
     cfg: &FmtConfig,
     target_dir: &Path,
-    package_filter: Option<PackageId>,
+    selected_packages: &[PackageId],
 ) -> anyhow::Result<n2::graph::Graph> {
     info!(
         "Building format graph for {} root modules",
@@ -109,6 +109,8 @@ pub fn build_graph_for_fmt(
 
     let mut graph = n2::graph::Graph::default();
     let mut package_count = 0;
+    let selected_packages = (!selected_packages.is_empty())
+        .then(|| selected_packages.iter().copied().collect::<HashSet<_>>());
 
     for &module_id in &resolved.root_module_ids {
         let Some(packages) = resolved.pkg_dirs.packages_for_module(module_id) else {
@@ -116,8 +118,8 @@ pub fn build_graph_for_fmt(
         };
 
         for &id in packages.values() {
-            if let Some(filter_id) = package_filter
-                && id != filter_id
+            if let Some(selected_packages) = &selected_packages
+                && !selected_packages.contains(&id)
             {
                 continue;
             }

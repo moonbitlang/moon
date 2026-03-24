@@ -16,13 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
 use anyhow::Context;
 use moonbuild_rupes_recta::fmt::FmtConfig;
 use moonutil::{common::BlockStyle, dirs::PackageDirs};
 
-use crate::filter::{canonicalize_with_filename, filter_pkg_by_dir_for_fmt};
+use crate::filter::{filter_pkg_by_dir_for_fmt, resolve_selected_package_dir};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
 
 use super::UniversalFlags;
@@ -46,9 +46,9 @@ pub(crate) struct FmtSubcommand {
     #[clap(long, conflicts_with = "check")]
     pub warn: bool,
 
-    /// Path to a package directory to format
+    /// Paths to package directories or files inside packages to format
     #[clap(name = "PATH")]
-    pub path: Option<PathBuf>,
+    pub path: Vec<PathBuf>,
 
     /// Extra arguments passed to the formatter (after --)
     #[clap(last = true)]
@@ -64,18 +64,30 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
+    let current_work_root = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+    let current_work_root = current_work_root
+        .module_dir
+        .unwrap_or(current_work_root.project_root);
 
     let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir)
         .context("Failed to resolve environment")?;
 
-    // Resolve the package filter from the path argument
-    let package_filter = if let Some(path) = &cmd.path {
-        let (dir, _) = canonicalize_with_filename(path)
-            .with_context(|| format!("Cannot canonicalize provided path '{}'", path.display()))?;
-        Some(filter_pkg_by_dir_for_fmt(&resolved, &dir)?)
-    } else {
-        None
-    };
+    let mut selected_packages = Vec::new();
+    let mut seen = HashSet::new();
+
+    for path in &cmd.path {
+        let Some(dir) = resolve_selected_package_dir(&current_work_root, path, cli.verbose)? else {
+            continue;
+        };
+        let pkg_id = filter_pkg_by_dir_for_fmt(&resolved, &dir)?;
+        if seen.insert(pkg_id) {
+            selected_packages.push(pkg_id);
+        }
+    }
+
+    if !cmd.path.is_empty() && selected_packages.is_empty() {
+        return Ok(0);
+    }
 
     let fmt_config = FmtConfig {
         block_style: cmd.block_style.unwrap_or_default().is_line(),
@@ -84,7 +96,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         extra_args: cmd.args.clone(),
         migrate_moon_pkg_json: cli.unstable_feature.rr_moon_pkg,
     };
-    let graph = plan_fmt(&resolved, &fmt_config, &target_dir, package_filter)?;
+    let graph = plan_fmt(&resolved, &fmt_config, &target_dir, &selected_packages)?;
 
     if cli.dry_run {
         rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);
