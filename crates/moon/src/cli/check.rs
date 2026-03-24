@@ -30,7 +30,7 @@ use tracing::{Level, instrument};
 
 use crate::filter::{
     canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
-    package_supports_backend, select_supported_packages, work_context_module_roots,
+    package_supports_backend, select_supported_packages,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
@@ -109,19 +109,8 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
     }
 
     // Check if we're running within a project
-    let (source_dir, target_dir, single_file, allowed_module_roots) = match cli
-        .source_tgt_dir
-        .try_into_package_dirs()
-    {
-        Ok(dirs) => {
-            let allowed_module_roots = work_context_module_roots(&dirs.source_dir)?;
-            (
-                dirs.source_dir,
-                dirs.target_dir,
-                false,
-                allowed_module_roots,
-            )
-        }
+    let (source_dir, target_dir, single_file) = match cli.source_tgt_dir.try_into_package_dirs() {
+        Ok(dirs) => (dirs.source_dir, dirs.target_dir, false),
         Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {
@@ -134,7 +123,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
                         .context("file path must have a parent directory")?
                         .to_path_buf();
                     let target_dir = source_dir.join(BUILD_DIR);
-                    (source_dir, target_dir, true, vec![])
+                    (source_dir, target_dir, true)
                 }
                 [] => return Err(e.into()),
                 _ => {
@@ -148,31 +137,15 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
     };
 
     if cmd.build_flags.target.is_empty() {
-        return run_check_internal(
-            cli,
-            cmd,
-            &source_dir,
-            &target_dir,
-            &allowed_module_roots,
-            single_file,
-            None,
-        );
+        return run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, None);
     }
 
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
     let mut ret_value = 0;
     for t in targets {
-        let x = run_check_internal(
-            cli,
-            cmd,
-            &source_dir,
-            &target_dir,
-            &allowed_module_roots,
-            single_file,
-            Some(t),
-        )
-        .context(format!("failed to run check for target {t:?}"))?;
+        let x = run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, Some(t))
+            .context(format!("failed to run check for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -184,21 +157,13 @@ fn run_check_internal(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    allowed_module_roots: &[PathBuf],
     single_file: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     if single_file {
         run_check_for_single_file(cli, cmd, selected_target_backend)
     } else {
-        run_check_normal_internal(
-            cli,
-            cmd,
-            source_dir,
-            target_dir,
-            allowed_module_roots,
-            selected_target_backend,
-        )
+        run_check_normal_internal(cli, cmd, source_dir, target_dir, selected_target_backend)
     }
 }
 
@@ -329,7 +294,6 @@ fn run_check_normal_internal(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    allowed_module_roots: &[PathBuf],
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let run_once = |watch: bool, target_dir: &Path| -> anyhow::Result<WatchOutput> {
@@ -338,7 +302,6 @@ fn run_check_normal_internal(
             cmd,
             source_dir,
             target_dir,
-            allowed_module_roots,
             watch,
             selected_target_backend,
         )
@@ -369,7 +332,6 @@ fn run_check_normal_internal_rr(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    allowed_module_roots: &[PathBuf],
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
@@ -385,7 +347,6 @@ fn run_check_normal_internal_rr(
         cmd,
         source_dir,
         target_dir,
-        allowed_module_roots,
         selected_target_backend,
         resolve_output,
     )
@@ -437,7 +398,6 @@ pub(crate) fn plan_check_rr_from_resolved(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    allowed_module_roots: &[PathBuf],
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
@@ -468,7 +428,6 @@ pub(crate) fn plan_check_rr_from_resolved(
 
             calc_user_intent(
                 resolved,
-                allowed_module_roots,
                 &cmd.path,
                 target_backend,
                 cmd.no_mi,
@@ -502,7 +461,6 @@ fn calc_user_intent_from_package_path(
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    allowed_module_roots: &[PathBuf],
     paths: &[PathBuf],
     target_backend: TargetBackend,
     no_mi: bool,
@@ -510,13 +468,7 @@ fn calc_user_intent(
     verbose: bool,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !paths.is_empty() {
-        let selected = select_supported_packages(
-            allowed_module_roots,
-            resolve_output,
-            paths,
-            target_backend,
-            verbose,
-        )?;
+        let selected = select_supported_packages(resolve_output, paths, target_backend, verbose)?;
         let directive = build_directive_for_selected_packages(&selected, no_mi, patch_file)?;
         Ok((
             selected.into_iter().map(UserIntent::Check).collect(),

@@ -16,13 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{collections::HashSet, path::PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::fmt::FmtConfig;
 use moonutil::{common::BlockStyle, dirs::PackageDirs};
 
-use crate::filter::{filter_pkg_by_dir_for_fmt, select_package_dirs, work_context_module_roots};
+use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
 
 use super::UniversalFlags;
@@ -64,27 +64,16 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-    let allowed_module_roots = work_context_module_roots(&source_dir)?;
 
     let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir)
         .context("Failed to resolve environment")?;
 
     let mut selected_packages = Vec::new();
-    let mut seen = HashSet::new();
 
-    for (path, dir) in select_package_dirs(&allowed_module_roots, &cmd.path, cli.verbose)? {
-        let Ok(pkg_id) = filter_pkg_by_dir_for_fmt(&resolved, &dir) else {
-            if cli.verbose {
-                tracing::warn!(
-                    "skipping path `{}` because it is not a package in the current work context.",
-                    path.display()
-                );
-            }
-            continue;
-        };
-        if seen.insert(pkg_id) {
-            selected_packages.push(pkg_id);
-        }
+    for (_, pkg_id) in select_packages(&cmd.path, cli.verbose, |dir| {
+        filter_pkg_by_dir_for_fmt(&resolved, dir)
+    })? {
+        selected_packages.push(pkg_id);
     }
 
     if !cmd.path.is_empty() && selected_packages.is_empty() {
