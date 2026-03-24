@@ -27,9 +27,10 @@ use std::{
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
-use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend, is_moon_pkg_exist};
-use moonutil::dirs::{check_moon_work_exists, find_ancestor_with_mod, find_ancestor_with_work};
+use moonutil::common::{MOON_PKG, MOON_PKG_JSON, MOON_WORK, TargetBackend, is_moon_pkg_exist};
+use moonutil::dirs::find_ancestor_with_mod;
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
+use moonutil::workspace::{canonical_workspace_module_dirs, read_workspace};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
@@ -65,6 +66,51 @@ pub(crate) fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf
 
         Ok((parent.to_path_buf(), Some(filename)))
     }
+}
+
+pub(crate) fn work_context_module_roots(source_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    if source_dir.join(MOON_WORK).exists() {
+        let workspace = read_workspace(source_dir)?.with_context(|| {
+            format!(
+                "failed to parse workspace file `{}`",
+                source_dir.join(MOON_WORK).display()
+            )
+        })?;
+        canonical_workspace_module_dirs(source_dir, &workspace)
+    } else {
+        Ok(vec![source_dir.to_path_buf()])
+    }
+}
+
+pub(crate) fn select_package_dirs<I>(
+    allowed_module_roots: &[PathBuf],
+    paths: I,
+    verbose: bool,
+) -> anyhow::Result<Vec<(PathBuf, PathBuf)>>
+where
+    I: IntoIterator,
+    I::Item: AsRef<Path>,
+{
+    let mut selected = Vec::new();
+
+    for path in paths {
+        let path = path.as_ref();
+        let (dir, _) = canonicalize_with_filename(path)?;
+        let current_context_matches = find_ancestor_with_mod(&dir)
+            .is_some_and(|path_module_root| allowed_module_roots.contains(&path_module_root));
+        if !is_moon_pkg_exist(&dir) || !current_context_matches {
+            if verbose {
+                tracing::warn!(
+                    "skipping path `{}` because it is not a package in the current work context.",
+                    path.display()
+                );
+            }
+            continue;
+        }
+        selected.push((path.to_path_buf(), dir));
+    }
+
+    Ok(selected)
 }
 
 trait AsNameMap<T> {
@@ -339,32 +385,8 @@ where
     );
 }
 
-pub(crate) fn resolve_selected_package_dir(
-    current_root: &Path,
-    path: &Path,
-    verbose: bool,
-) -> anyhow::Result<Option<PathBuf>> {
-    let (dir, _) = canonicalize_with_filename(path)?;
-    let path_root = if check_moon_work_exists(current_root) {
-        find_ancestor_with_work(&dir)?
-    } else {
-        find_ancestor_with_mod(&dir)
-    };
-
-    if !is_moon_pkg_exist(&dir) || path_root.as_deref() != Some(current_root) {
-        if verbose {
-            tracing::warn!(
-                "skipping path `{}` because it is not a package in the current work context.",
-                path.display()
-            );
-        }
-        return Ok(None);
-    }
-    Ok(Some(dir))
-}
-
 pub(crate) fn select_supported_packages<I>(
-    current_root: &Path,
+    allowed_module_roots: &[PathBuf],
     resolve_output: &ResolveOutput,
     paths: I,
     target_backend: TargetBackend,
@@ -378,11 +400,7 @@ where
     let mut unsupported = Vec::new();
     let mut seen = HashSet::new();
 
-    for path in paths {
-        let path = path.as_ref();
-        let Some(dir) = resolve_selected_package_dir(current_root, path, verbose)? else {
-            continue;
-        };
+    for (path, dir) in select_package_dirs(allowed_module_roots, paths, verbose)? {
         let pkg_id = filter_pkg_by_dir(resolve_output, &dir)?;
         if !seen.insert(pkg_id) {
             continue;
@@ -515,4 +533,103 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
                 MOON_PKG
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{select_supported_packages, work_context_module_roots};
+    use moonbuild_rupes_recta::ResolveConfig;
+    use moonutil::common::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK, TargetBackend};
+    use std::path::{Path, PathBuf};
+
+    fn write_file(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    fn canonical(path: impl AsRef<Path>) -> PathBuf {
+        dunce::canonicalize(path).unwrap()
+    }
+
+    fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ResolveOutput {
+        let cfg = ResolveConfig::new_with_load_defaults(false, false, false);
+        moonbuild_rupes_recta::resolve(&cfg, source_dir).unwrap()
+    }
+
+    #[test]
+    fn select_supported_packages_skips_dangling_pkg_under_workspace_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let workspace_root = temp.path().join("workspace");
+        std::fs::create_dir_all(&workspace_root).unwrap();
+        write_file(&workspace_root.join(MOON_WORK), "{ \"use\": [\"./app\"] }");
+        write_file(
+            &workspace_root.join("app").join(MOON_MOD_JSON),
+            "{ \"name\": \"workspace/app\", \"version\": \"0.1.0\" }",
+        );
+        write_file(
+            &workspace_root.join("dangling/pkg").join(MOON_PKG_JSON),
+            "{ \"import\": [] }",
+        );
+
+        let workspace_root = canonical(workspace_root);
+        let dangling_pkg = workspace_root.join("dangling/pkg");
+        let allowed_module_roots = work_context_module_roots(&workspace_root).unwrap();
+        let resolved = resolve_output(&workspace_root);
+
+        assert_eq!(
+            select_supported_packages(
+                &allowed_module_roots,
+                &resolved,
+                [&dangling_pkg],
+                TargetBackend::default(),
+                false,
+            )
+            .unwrap(),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn select_supported_packages_accepts_external_workspace_member() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let workspace_root = root.join("workspace");
+        let external_module = root.join("external/app");
+        std::fs::create_dir_all(&workspace_root).unwrap();
+        std::fs::create_dir_all(&external_module).unwrap();
+
+        write_file(
+            &workspace_root.join(MOON_WORK),
+            "{ \"use\": [\"../external/app\"] }",
+        );
+        write_file(
+            &external_module.join(MOON_MOD_JSON),
+            "{ \"name\": \"external/app\", \"version\": \"0.1.0\" }",
+        );
+        write_file(
+            &external_module.join("src/main").join(MOON_PKG_JSON),
+            "{ \"is-main\": true }",
+        );
+
+        let workspace_root = canonical(workspace_root);
+        let external_pkg = canonical(external_module.join("src/main"));
+        let allowed_module_roots = work_context_module_roots(&workspace_root).unwrap();
+        let resolved = resolve_output(&workspace_root);
+        let selected = select_supported_packages(
+            &allowed_module_roots,
+            &resolved,
+            [&external_pkg],
+            TargetBackend::default(),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(selected.len(), 1);
+        assert_eq!(
+            resolved.pkg_dirs.get_package(selected[0]).root_path,
+            external_pkg
+        );
+    }
 }

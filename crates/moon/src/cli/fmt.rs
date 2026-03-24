@@ -22,7 +22,7 @@ use anyhow::Context;
 use moonbuild_rupes_recta::fmt::FmtConfig;
 use moonutil::{common::BlockStyle, dirs::PackageDirs};
 
-use crate::filter::{filter_pkg_by_dir_for_fmt, resolve_selected_package_dir};
+use crate::filter::{filter_pkg_by_dir_for_fmt, select_package_dirs, work_context_module_roots};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
 
 use super::UniversalFlags;
@@ -64,10 +64,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-    let current_work_root = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
-    let current_work_root = current_work_root
-        .module_dir
-        .unwrap_or(current_work_root.project_root);
+    let allowed_module_roots = work_context_module_roots(&source_dir)?;
 
     let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir)
         .context("Failed to resolve environment")?;
@@ -75,10 +72,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
     let mut selected_packages = Vec::new();
     let mut seen = HashSet::new();
 
-    for path in &cmd.path {
-        let Some(dir) = resolve_selected_package_dir(&current_work_root, path, cli.verbose)? else {
-            continue;
-        };
+    for (_, dir) in select_package_dirs(&allowed_module_roots, &cmd.path, cli.verbose)? {
         let pkg_id = filter_pkg_by_dir_for_fmt(&resolved, &dir)?;
         if seen.insert(pkg_id) {
             selected_packages.push(pkg_id);

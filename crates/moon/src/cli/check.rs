@@ -30,7 +30,7 @@ use tracing::{Level, instrument};
 
 use crate::filter::{
     canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
-    package_supports_backend, select_supported_packages,
+    package_supports_backend, select_supported_packages, work_context_module_roots,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
@@ -108,15 +108,20 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
         }
     }
 
-    let current_work_root = cli
-        .source_tgt_dir
-        .try_into_workspace_module_dirs()
-        .ok()
-        .map(|dirs| dirs.module_dir.unwrap_or(dirs.project_root));
-
     // Check if we're running within a project
-    let (source_dir, target_dir, single_file) = match cli.source_tgt_dir.try_into_package_dirs() {
-        Ok(dirs) => (dirs.source_dir, dirs.target_dir, false),
+    let (source_dir, target_dir, single_file, allowed_module_roots) = match cli
+        .source_tgt_dir
+        .try_into_package_dirs()
+    {
+        Ok(dirs) => {
+            let allowed_module_roots = work_context_module_roots(&dirs.source_dir)?;
+            (
+                dirs.source_dir,
+                dirs.target_dir,
+                false,
+                allowed_module_roots,
+            )
+        }
         Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {
@@ -129,7 +134,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
                         .context("file path must have a parent directory")?
                         .to_path_buf();
                     let target_dir = source_dir.join(BUILD_DIR);
-                    (source_dir, target_dir, true)
+                    (source_dir, target_dir, true, vec![])
                 }
                 [] => return Err(e.into()),
                 _ => {
@@ -148,7 +153,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             cmd,
             &source_dir,
             &target_dir,
-            current_work_root.as_deref(),
+            &allowed_module_roots,
             single_file,
             None,
         );
@@ -163,7 +168,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             cmd,
             &source_dir,
             &target_dir,
-            current_work_root.as_deref(),
+            &allowed_module_roots,
             single_file,
             Some(t),
         )
@@ -179,7 +184,7 @@ fn run_check_internal(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    current_work_root: Option<&Path>,
+    allowed_module_roots: &[PathBuf],
     single_file: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -191,7 +196,7 @@ fn run_check_internal(
             cmd,
             source_dir,
             target_dir,
-            current_work_root.expect("project checks should have a work root"),
+            allowed_module_roots,
             selected_target_backend,
         )
     }
@@ -324,7 +329,7 @@ fn run_check_normal_internal(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    current_work_root: &Path,
+    allowed_module_roots: &[PathBuf],
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let run_once = |watch: bool, target_dir: &Path| -> anyhow::Result<WatchOutput> {
@@ -333,7 +338,7 @@ fn run_check_normal_internal(
             cmd,
             source_dir,
             target_dir,
-            current_work_root,
+            allowed_module_roots,
             watch,
             selected_target_backend,
         )
@@ -364,7 +369,7 @@ fn run_check_normal_internal_rr(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    current_work_root: &Path,
+    allowed_module_roots: &[PathBuf],
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
@@ -380,7 +385,7 @@ fn run_check_normal_internal_rr(
         cmd,
         source_dir,
         target_dir,
-        current_work_root,
+        allowed_module_roots,
         selected_target_backend,
         resolve_output,
     )
@@ -432,7 +437,7 @@ pub(crate) fn plan_check_rr_from_resolved(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    current_work_root: &Path,
+    allowed_module_roots: &[PathBuf],
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
@@ -463,7 +468,7 @@ pub(crate) fn plan_check_rr_from_resolved(
 
             calc_user_intent(
                 resolved,
-                current_work_root,
+                allowed_module_roots,
                 &cmd.path,
                 target_backend,
                 cmd.no_mi,
@@ -497,7 +502,7 @@ fn calc_user_intent_from_package_path(
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    current_work_root: &Path,
+    allowed_module_roots: &[PathBuf],
     paths: &[PathBuf],
     target_backend: TargetBackend,
     no_mi: bool,
@@ -506,7 +511,7 @@ fn calc_user_intent(
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !paths.is_empty() {
         let selected = select_supported_packages(
-            current_work_root,
+            allowed_module_roots,
             resolve_output,
             paths,
             target_backend,
