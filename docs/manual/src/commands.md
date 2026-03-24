@@ -308,11 +308,11 @@ Remove the _build directory
 
 Format source code
 
-**Usage:** `moon fmt [OPTIONS] [PATH] [-- <ARGS>...]`
+**Usage:** `moon fmt [OPTIONS] [PATH]... [-- <ARGS>...]`
 
 ###### **Arguments:**
 
-* `<PATH>` — Path to a package directory to format
+* `<PATH>` — Paths to package directories or files inside packages to format
 * `<ARGS>` — Extra arguments passed to the formatter (after --)
 
 ###### **Options:**
