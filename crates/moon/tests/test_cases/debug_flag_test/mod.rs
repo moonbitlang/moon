@@ -37,7 +37,7 @@ fn profile_flags_conflict_in_cli() {
         expect![[r#"
             error: the argument '--debug' cannot be used with '--release'
 
-            Usage: moon build --debug [PATH]
+            Usage: moon build --debug [PATH]...
 
             For more information, try '--help'.
         "#]],
@@ -48,7 +48,7 @@ fn profile_flags_conflict_in_cli() {
         expect![[r#"
             error: the argument '--release' cannot be used with '--debug'
 
-            Usage: moon check --release [PATH]
+            Usage: moon check --release [PATH]...
 
             For more information, try '--help'.
         "#]],
@@ -71,7 +71,7 @@ fn profile_flags_conflict_in_cli() {
 fn cli_reports_selector_conflicts_before_planning() {
     let dir = TestDir::new("debug_flag_test");
 
-    let check_stderr = get_err_stderr(&dir, ["check", "-p", "lib", "lib", "--dry-run"]);
+    let check_stderr = get_err_stderr(&dir, ["check", "-p", "lib", "--dry-run", "lib"]);
     assert!(
         check_stderr.contains("cannot be used with"),
         "stderr: {check_stderr}"
@@ -148,6 +148,30 @@ fn check_path_selector_smoke() {
         check_with_path_selector.contains("moonc check"),
         "stdout: {check_with_path_selector}"
     );
+
+    #[cfg(unix)]
+    {
+        let stderr = get_err_stderr(&dir, ["check", "lib", "main", "--no-mi", "--dry-run"]);
+        assert!(
+            stderr.contains("`--no-mi` requires the selector to resolve to a single package"),
+            "stderr: {stderr}"
+        );
+
+        let stderr = get_err_stderr(&dir, ["check", "notes", "--no-mi", "--dry-run"]);
+        assert!(
+            stderr.contains("`--no-mi` requires the selector to resolve to a single package"),
+            "stderr: {stderr}"
+        );
+
+        let stderr = get_err_stderr(
+            &dir,
+            ["check", "notes", "--patch-file", "patch.json", "--dry-run"],
+        );
+        assert!(
+            stderr.contains("`--patch-file` requires the selector to resolve to a single package"),
+            "stderr: {stderr}"
+        );
+    }
 }
 
 fn assert_moonrun_line(output: &str, release: bool) {

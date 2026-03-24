@@ -1,5 +1,38 @@
 use super::*;
 use expect_test::expect_file;
+use std::{ffi::OsString, path::PathBuf};
+
+fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
+    for needle in present {
+        assert!(
+            output.contains(needle),
+            "expected output to contain `{needle}`, got:\n{output}"
+        );
+    }
+    for needle in absent {
+        assert!(
+            !output.contains(needle),
+            "expected output to not contain `{needle}`, got:\n{output}"
+        );
+    }
+}
+
+fn create_outside_work_context_dir(dir: &TestDir, name: &str) -> PathBuf {
+    let outside = dir.as_ref().parent().unwrap().join(name);
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("README.txt"), "outside work context").unwrap();
+    outside
+}
+
+fn create_other_project_pkg(dir: &TestDir, name: &str) -> PathBuf {
+    let root = dir.as_ref().parent().unwrap().join(name);
+    let pkg = root.join("pkg");
+    std::fs::create_dir_all(&pkg).unwrap();
+    std::fs::write(root.join("moon.mod.json"), "{}").unwrap();
+    std::fs::write(pkg.join("moon.pkg.json"), "{}").unwrap();
+    std::fs::write(pkg.join("hello.mbt"), "fn init { () }\n").unwrap();
+    pkg
+}
 
 fn run_info_and_clear(
     base_dir: &TestDir,
@@ -208,7 +241,7 @@ fn test_moon_build_filter_by_path_success() {
 }
 
 #[test]
-fn test_moon_build_filter_by_path_failure() {
+fn test_moon_build_filter_by_multiple_paths_success() {
     let dir = TestDir::new("test_filter/test_filter");
 
     // Test error handling for non-existent paths
@@ -225,8 +258,87 @@ fn test_moon_build_filter_by_path_failure() {
         .assert()
         .failure();
 
-    // Multiple folders should be rejected
-    let _stderr = get_err_stderr(&dir, ["build", "A", "lib", "--dry-run", "--sort-input"]);
+    let stdout = get_stdout(&dir, ["build", "A", "lib", "--dry-run", "--sort-input"]);
+    assert_contains_and_absent(
+        &stdout,
+        &["./A/hello.mbt", "./lib/hello.mbt"],
+        &["./main/main.mbt"],
+    );
+}
+
+#[test]
+fn test_moon_build_filter_by_multiple_paths_skips_outside_current_root() {
+    let dir = TestDir::new("test_filter/test_filter");
+    let outside = create_outside_work_context_dir(&dir, "outside_build_skip");
+    let other_pkg = create_other_project_pkg(&dir, "other_build_project");
+    let outside_display = outside.display().to_string().replace('\\', "/");
+    let other_pkg_display = other_pkg.display().to_string().replace('\\', "/");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            OsString::from("build"),
+            OsString::from("A"),
+            outside.as_os_str().to_os_string(),
+            other_pkg.as_os_str().to_os_string(),
+            OsString::from("--dry-run"),
+            OsString::from("--sort-input"),
+        ],
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &["./A/hello.mbt"],
+        &["./lib/hello.mbt", "./main/main.mbt"],
+    );
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            OsString::from("build"),
+            OsString::from("A"),
+            outside.as_os_str().to_os_string(),
+            other_pkg.as_os_str().to_os_string(),
+            OsString::from("--dry-run"),
+            OsString::from("--sort-input"),
+            OsString::from("--verbose"),
+        ],
+    );
+    assert!(
+        stderr.contains(&format!("skipping path `{outside_display}`")),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("skipping path `{other_pkg_display}`")),
+        "stderr: {stderr}"
+    );
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            OsString::from("build"),
+            OsString::from("A"),
+            outside.as_os_str().to_os_string(),
+            other_pkg.as_os_str().to_os_string(),
+            OsString::from("--dry-run"),
+            OsString::from("--sort-input"),
+        ],
+    );
+    assert!(!stderr.contains("skipping path"), "stderr: {stderr}");
+}
+
+#[test]
+fn test_moon_build_filter_by_multiple_paths_skips_same_root_non_packages() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    let stdout = get_stdout(&dir, ["build", "A", "notes", "--dry-run", "--sort-input"]);
+    assert_contains_and_absent(
+        &stdout,
+        &["./A/hello.mbt"],
+        &["./lib/hello.mbt", "./main/main.mbt"],
+    );
+
+    let stderr = get_stderr(&dir, ["build", "A", "notes", "--dry-run", "--verbose"]);
+    assert!(stderr.contains("skipping path `notes`"), "stderr: {stderr}");
 }
 
 // ===== moon check command tests =====
@@ -279,7 +391,7 @@ fn test_moon_check_filter_by_path_success() {
 }
 
 #[test]
-fn test_moon_check_filter_by_path_failure() {
+fn test_moon_check_filter_by_multiple_paths_success() {
     let dir = TestDir::new("test_filter/test_filter");
 
     // Test error handling for non-existent paths
@@ -303,6 +415,85 @@ fn test_moon_check_filter_by_path_failure() {
         .assert()
         .failure();
 
-    // Multiple folders should be rejected
-    let _stderr = get_err_stderr(&dir, ["check", "A", "lib", "--dry-run", "--sort-input"]);
+    let stdout = get_stdout(&dir, ["check", "A", "lib", "--dry-run", "--sort-input"]);
+    assert_contains_and_absent(
+        &stdout,
+        &["./A/hello.mbt", "./lib/hello.mbt"],
+        &["./main/main.mbt"],
+    );
+}
+
+#[test]
+fn test_moon_check_filter_by_multiple_paths_skips_outside_current_root() {
+    let dir = TestDir::new("test_filter/test_filter");
+    let outside = create_outside_work_context_dir(&dir, "outside_check_skip");
+    let other_pkg = create_other_project_pkg(&dir, "other_check_project");
+    let outside_display = outside.display().to_string().replace('\\', "/");
+    let other_pkg_display = other_pkg.display().to_string().replace('\\', "/");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            OsString::from("check"),
+            OsString::from("A"),
+            outside.as_os_str().to_os_string(),
+            other_pkg.as_os_str().to_os_string(),
+            OsString::from("--dry-run"),
+            OsString::from("--sort-input"),
+        ],
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &["./A/hello.mbt"],
+        &["./lib/hello.mbt", "./main/main.mbt"],
+    );
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            OsString::from("check"),
+            OsString::from("A"),
+            outside.as_os_str().to_os_string(),
+            other_pkg.as_os_str().to_os_string(),
+            OsString::from("--dry-run"),
+            OsString::from("--sort-input"),
+            OsString::from("--verbose"),
+        ],
+    );
+    assert!(
+        stderr.contains(&format!("skipping path `{outside_display}`")),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("skipping path `{other_pkg_display}`")),
+        "stderr: {stderr}"
+    );
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            OsString::from("check"),
+            OsString::from("A"),
+            outside.as_os_str().to_os_string(),
+            other_pkg.as_os_str().to_os_string(),
+            OsString::from("--dry-run"),
+            OsString::from("--sort-input"),
+        ],
+    );
+    assert!(!stderr.contains("skipping path"), "stderr: {stderr}");
+}
+
+#[test]
+fn test_moon_check_filter_by_multiple_paths_skips_same_root_non_packages() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    let stdout = get_stdout(&dir, ["check", "A", "notes", "--dry-run", "--sort-input"]);
+    assert_contains_and_absent(
+        &stdout,
+        &["./A/hello.mbt"],
+        &["./lib/hello.mbt", "./main/main.mbt"],
+    );
+
+    let stderr = get_stderr(&dir, ["check", "A", "notes", "--dry-run", "--verbose"]);
+    assert!(stderr.contains("skipping path `notes`"), "stderr: {stderr}");
 }

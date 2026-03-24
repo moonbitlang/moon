@@ -30,8 +30,8 @@ use std::path::PathBuf;
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    canonicalize_with_filename, ensure_package_supports_backend, ensure_packages_support_backend,
-    filter_pkg_by_dir, match_packages_by_name_rr, package_supports_backend,
+    ensure_packages_support_backend, match_packages_by_name_rr, package_supports_backend,
+    select_supported_packages,
 };
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
@@ -46,9 +46,9 @@ use super::{BuildFlags, UniversalFlags};
 /// Build the current package
 #[derive(Debug, clap::Parser)]
 pub(crate) struct BuildSubcommand {
-    /// The path to the package that should be built.
+    /// Paths to the packages that should be built.
     #[clap(name = "PATH", conflicts_with("package"))]
-    pub path: Option<PathBuf>,
+    pub path: Vec<PathBuf>,
 
     #[clap(flatten)]
     pub build_flags: BuildFlags,
@@ -71,17 +71,35 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
+    let current_work_root = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+    let current_work_root = current_work_root
+        .module_dir
+        .unwrap_or(current_work_root.project_root);
 
     if cmd.build_flags.target.is_empty() {
-        return run_build_internal(cli, &cmd, &source_dir, &target_dir, None);
+        return run_build_internal(
+            cli,
+            &cmd,
+            &source_dir,
+            &target_dir,
+            &current_work_root,
+            None,
+        );
     }
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
 
     let mut ret_value = 0;
     for t in targets {
-        let x = run_build_internal(cli, &cmd, &source_dir, &target_dir, Some(t))
-            .context(format!("failed to run build for target {t:?}"))?;
+        let x = run_build_internal(
+            cli,
+            &cmd,
+            &source_dir,
+            &target_dir,
+            &current_work_root,
+            Some(t),
+        )
+        .context(format!("failed to run build for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -93,6 +111,7 @@ fn run_build_internal(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    current_work_root: &Path,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let f = |watch: bool| {
@@ -101,6 +120,7 @@ fn run_build_internal(
             cmd,
             source_dir,
             target_dir,
+            current_work_root,
             watch,
             selected_target_backend,
         )
@@ -122,6 +142,7 @@ fn run_build_rr(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    current_work_root: &Path,
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
@@ -134,6 +155,7 @@ fn run_build_rr(
     let (build_meta, build_graph) = plan_build_rr_from_resolved(
         cli,
         cmd,
+        current_work_root,
         target_dir,
         selected_target_backend,
         resolve_output,
@@ -181,6 +203,7 @@ fn run_build_rr(
 pub(crate) fn plan_build_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
+    current_work_root: &Path,
     target_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
@@ -200,10 +223,12 @@ pub(crate) fn plan_build_rr_from_resolved(
         target_dir,
         Box::new(|resolved, target_backend| {
             calc_user_intent(
-                cmd.path.as_deref(),
+                current_work_root,
+                &cmd.path,
                 cmd.package.as_deref(),
                 resolved,
                 target_backend,
+                cli.verbose,
             )
         }),
         resolve_output,
@@ -215,16 +240,26 @@ pub(crate) fn plan_build_rr_from_resolved(
 /// to core.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
-    path_filter: Option<&Path>,
+    current_work_root: &Path,
+    path_filters: &[PathBuf],
     package_filter: Option<&str>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
+    verbose: bool,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    if let Some(path) = path_filter {
-        let (dir, _) = canonicalize_with_filename(path)?;
-        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
-        ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
-        Ok(vec![UserIntent::Build(pkg)].into())
+    if !path_filters.is_empty() {
+        let selected = select_supported_packages(
+            current_work_root,
+            resolve_output,
+            path_filters,
+            target_backend,
+            verbose,
+        )?;
+        Ok(selected
+            .into_iter()
+            .map(UserIntent::Build)
+            .collect::<Vec<_>>()
+            .into())
     } else if let Some(package_filter) = package_filter {
         let pkgs = match_packages_by_name_rr(
             resolve_output,

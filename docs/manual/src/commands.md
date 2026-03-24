@@ -98,11 +98,11 @@ Create a new MoonBit module
 
 Build the current package
 
-**Usage:** `moon build [OPTIONS] [PATH]`
+**Usage:** `moon build [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 
-* `<PATH>` — The path to the package that should be built
+* `<PATH>` — Paths to the packages that should be built
 
 ###### **Options:**
 
@@ -137,7 +137,7 @@ Build the current package
 
 Check the current package, but don't build object files
 
-**Usage:** `moon check [OPTIONS] [PATH]`
+**Usage:** `moon check [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 
