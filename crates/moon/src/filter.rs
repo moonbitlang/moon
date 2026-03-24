@@ -28,6 +28,7 @@ use std::{
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
 use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend, is_moon_pkg_exist};
+use moonutil::dirs::{check_moon_work_exists, find_ancestor_with_mod, find_ancestor_with_work};
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
 
 /// Canonicalize the given path, returning the directory it's referencing, and
@@ -336,6 +337,90 @@ where
         target_backend,
         details
     );
+}
+
+pub(crate) fn resolve_selected_package_dir(
+    current_root: &Path,
+    path: &Path,
+    verbose: bool,
+) -> anyhow::Result<Option<PathBuf>> {
+    let (dir, _) = canonicalize_with_filename(path)?;
+    let path_root = if check_moon_work_exists(current_root) {
+        find_ancestor_with_work(&dir)?
+    } else {
+        find_ancestor_with_mod(&dir)
+    };
+
+    if !is_moon_pkg_exist(&dir) || path_root.as_deref() != Some(current_root) {
+        if verbose {
+            tracing::warn!(
+                "skipping path `{}` because it is not a package in the current work context.",
+                path.display()
+            );
+        }
+        return Ok(None);
+    }
+    Ok(Some(dir))
+}
+
+pub(crate) fn select_supported_packages<I>(
+    current_root: &Path,
+    resolve_output: &ResolveOutput,
+    paths: I,
+    target_backend: TargetBackend,
+    verbose: bool,
+) -> anyhow::Result<Vec<PackageId>>
+where
+    I: IntoIterator,
+    I::Item: AsRef<Path>,
+{
+    let mut selected = Vec::new();
+    let mut unsupported = Vec::new();
+    let mut seen = HashSet::new();
+
+    for path in paths {
+        let path = path.as_ref();
+        let Some(dir) = resolve_selected_package_dir(current_root, path, verbose)? else {
+            continue;
+        };
+        let pkg_id = filter_pkg_by_dir(resolve_output, &dir)?;
+        if !seen.insert(pkg_id) {
+            continue;
+        }
+
+        if package_supports_backend(resolve_output, pkg_id, target_backend) {
+            selected.push(pkg_id);
+        } else {
+            unsupported.push((path.to_path_buf(), pkg_id));
+        }
+    }
+
+    if selected.is_empty() && !unsupported.is_empty() {
+        if let [(_, pkg_id)] = unsupported.as_slice() {
+            ensure_package_supports_backend(resolve_output, *pkg_id, target_backend)?;
+        } else {
+            ensure_packages_support_backend(
+                resolve_output,
+                unsupported.iter().map(|(_, pkg_id)| *pkg_id),
+                target_backend,
+            )?;
+        }
+    }
+
+    if verbose {
+        for (path, pkg_id) in &unsupported {
+            let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
+            tracing::warn!(
+                "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
+                path.display(),
+                pkg.fqn,
+                target_backend,
+                format_supported_backends(resolve_output, *pkg_id),
+            );
+        }
+    }
+
+    Ok(selected)
 }
 
 #[derive(Debug)]

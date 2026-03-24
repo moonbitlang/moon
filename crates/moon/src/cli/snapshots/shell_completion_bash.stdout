@@ -516,7 +516,7 @@ _moon() {
             return 0
             ;;
         moon__build)
-            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -604,7 +604,7 @@ _moon() {
             return 0
             ;;
         moon__check)
-            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package-path --patch-file --no-mi --explain --fmt --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package-path --patch-file --no-mi --explain --fmt --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

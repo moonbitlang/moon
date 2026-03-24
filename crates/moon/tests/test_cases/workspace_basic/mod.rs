@@ -155,6 +155,134 @@ fn test_workspace_commands() {
 }
 
 #[test]
+fn test_workspace_root_path_selector_is_skipped() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    check(
+        get_stdout(&dir, ["build", ".", "--dry-run"]),
+        expect![[r#""#]],
+    );
+    check(
+        get_stdout(&dir, ["check", ".", "--dry-run"]),
+        expect![[r#""#]],
+    );
+
+    let build_stderr = get_stderr(&dir, ["build", ".", "--dry-run"]);
+    assert!(
+        !build_stderr.contains("skipping path"),
+        "stderr: {build_stderr}"
+    );
+
+    let check_stderr = get_stderr(&dir, ["check", ".", "--dry-run"]);
+    assert!(
+        !check_stderr.contains("skipping path"),
+        "stderr: {check_stderr}"
+    );
+
+    let build_stderr = get_stderr(&dir, ["build", ".", "--dry-run", "--verbose"]);
+    assert!(
+        build_stderr.contains("skipping path `.`"),
+        "stderr: {build_stderr}"
+    );
+
+    let check_stderr = get_stderr(&dir, ["check", ".", "--dry-run", "--verbose"]);
+    assert!(
+        check_stderr.contains("skipping path `.`"),
+        "stderr: {check_stderr}"
+    );
+}
+
+#[test]
+fn test_workspace_module_root_path_selector_is_skipped() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    check(
+        get_stdout(&dir, ["build", "app", "--dry-run"]),
+        expect![[r#""#]],
+    );
+    check(
+        get_stdout(&dir, ["check", "app", "--dry-run"]),
+        expect![[r#""#]],
+    );
+    check(
+        get_stdout(&dir, ["build", "liba", "--dry-run"]),
+        expect![[r#""#]],
+    );
+    check(
+        get_stdout(&dir, ["check", "liba", "--dry-run"]),
+        expect![[r#""#]],
+    );
+
+    let build_app = get_stderr(&dir, ["build", "app", "--dry-run", "--verbose"]);
+    assert!(
+        build_app.contains("skipping path `app`"),
+        "stderr: {build_app}"
+    );
+
+    let check_app = get_stderr(&dir, ["check", "app", "--dry-run", "--verbose"]);
+    assert!(
+        check_app.contains("skipping path `app`"),
+        "stderr: {check_app}"
+    );
+
+    let build_liba = get_stderr(&dir, ["build", "liba", "--dry-run", "--verbose"]);
+    assert!(
+        build_liba.contains("skipping path `liba`"),
+        "stderr: {build_liba}"
+    );
+
+    let check_liba = get_stderr(&dir, ["check", "liba", "--dry-run", "--verbose"]);
+    assert!(
+        check_liba.contains("skipping path `liba`"),
+        "stderr: {check_liba}"
+    );
+}
+
+#[test]
+fn test_workspace_member_path_selector_uses_module_context() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let build_stderr = get_stderr(
+        &dir,
+        [
+            "-C",
+            "app",
+            "build",
+            "src/main",
+            "../liba/src/lib",
+            "--dry-run",
+            "--verbose",
+        ],
+    );
+    assert!(
+        build_stderr.contains("skipping path `../liba/src/lib`"),
+        "stderr: {build_stderr}"
+    );
+
+    let check_stderr = get_stderr(
+        &dir,
+        [
+            "-C",
+            "app",
+            "check",
+            "src/main",
+            "../liba/src/lib",
+            "--no-mi",
+            "--dry-run",
+            "--verbose",
+        ],
+    );
+    assert!(
+        check_stderr.contains("skipping path `../liba/src/lib`"),
+        "stderr: {check_stderr}"
+    );
+    assert!(
+        !check_stderr.contains("`--no-mi` requires the selector to resolve to a single package"),
+        "stderr: {check_stderr}"
+    );
+}
+
+#[test]
 fn test_work_init_creates_empty_workspace() {
     let dir = TestDir::new("hello");
 

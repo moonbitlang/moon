@@ -52,6 +52,87 @@ fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
 }
 
 #[test]
+fn test_mixed_backend_explicit_multi_path_selection_filters_unsupported_packages() {
+    let dir = TestDir::new("mixed_backend_local_dep.in");
+
+    let check_out = get_stdout(
+        &dir,
+        [
+            "check",
+            "web",
+            "server",
+            "--target",
+            "js",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert_contains_and_absent(
+        &check_out,
+        &[
+            "./shared/shared.mbt",
+            "./web/main.mbt",
+            "./deps/jsdep/lib/lib.mbt",
+        ],
+        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
+    );
+
+    let build_out = get_stdout(
+        &dir,
+        [
+            "build",
+            "web",
+            "server",
+            "--target",
+            "js",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert_contains_and_absent(
+        &build_out,
+        &[
+            "./shared/shared.mbt",
+            "./web/main.mbt",
+            "./deps/jsdep/lib/lib.mbt",
+        ],
+        &["./server/main.mbt", "./deps/nativedep/lib/lib.mbt"],
+    );
+}
+
+#[test]
+fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode() {
+    let dir = TestDir::new("mixed_backend_local_dep.in");
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            "check",
+            "web",
+            "server",
+            "--target",
+            "js",
+            "--dry-run",
+            "--verbose",
+        ],
+    );
+    assert!(
+        stderr.contains("skipping path `server`"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("mixed/localdep/server"), "stderr: {stderr}");
+
+    let stderr = get_stderr(
+        &dir,
+        ["check", "web", "server", "--target", "js", "--dry-run"],
+    );
+    assert!(
+        !stderr.contains("skipping path `server`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn test_mixed_backend_run_info_bundle_are_target_aware() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
