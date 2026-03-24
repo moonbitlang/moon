@@ -239,7 +239,7 @@ fn test_workspace_module_root_path_selector_is_skipped() {
 }
 
 #[test]
-fn test_workspace_member_path_selector_uses_module_context() {
+fn test_workspace_member_path_selector_uses_workspace_context() {
     let dir = TestDir::new("workspace_basic.in");
 
     let build_stderr = get_stderr(
@@ -255,7 +255,7 @@ fn test_workspace_member_path_selector_uses_module_context() {
         ],
     );
     assert!(
-        build_stderr.contains("skipping path `../liba/src/lib`"),
+        !build_stderr.contains("skipping path `../liba/src/lib`"),
         "stderr: {build_stderr}"
     );
 
@@ -267,18 +267,48 @@ fn test_workspace_member_path_selector_uses_module_context() {
             "check",
             "src/main",
             "../liba/src/lib",
-            "--no-mi",
             "--dry-run",
             "--verbose",
         ],
     );
     assert!(
-        check_stderr.contains("skipping path `../liba/src/lib`"),
+        !check_stderr.contains("skipping path `../liba/src/lib`"),
         "stderr: {check_stderr}"
     );
+
+    let fmt_stderr = get_stderr(
+        &dir,
+        [
+            "-C",
+            "app",
+            "fmt",
+            "src/main",
+            "../liba/src/lib",
+            "--dry-run",
+            "--verbose",
+        ],
+    );
     assert!(
-        !check_stderr.contains("`--no-mi` requires the selector to resolve to a single package"),
-        "stderr: {check_stderr}"
+        !fmt_stderr.contains("skipping path `../liba/src/lib`"),
+        "stderr: {fmt_stderr}"
+    );
+
+    let check_no_mi_stderr = get_err_stderr(
+        &dir,
+        [
+            "-C",
+            "app",
+            "check",
+            "src/main",
+            "../liba/src/lib",
+            "--no-mi",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        check_no_mi_stderr
+            .contains("`--no-mi` requires the selector to resolve to a single package"),
+        "stderr: {check_no_mi_stderr}"
     );
 }
 

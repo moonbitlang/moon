@@ -31,7 +31,7 @@ use tracing::{Level, instrument};
 
 use crate::filter::{
     ensure_packages_support_backend, match_packages_by_name_rr, package_supports_backend,
-    select_supported_packages,
+    select_supported_packages, work_context_module_roots,
 };
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
@@ -71,10 +71,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
         source_dir,
         target_dir,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
-    let current_work_root = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
-    let current_work_root = current_work_root
-        .module_dir
-        .unwrap_or(current_work_root.project_root);
+    let allowed_module_roots = work_context_module_roots(&source_dir)?;
 
     if cmd.build_flags.target.is_empty() {
         return run_build_internal(
@@ -82,7 +79,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
             &cmd,
             &source_dir,
             &target_dir,
-            &current_work_root,
+            &allowed_module_roots,
             None,
         );
     }
@@ -96,7 +93,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
             &cmd,
             &source_dir,
             &target_dir,
-            &current_work_root,
+            &allowed_module_roots,
             Some(t),
         )
         .context(format!("failed to run build for target {t:?}"))?;
@@ -111,7 +108,7 @@ fn run_build_internal(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    current_work_root: &Path,
+    allowed_module_roots: &[PathBuf],
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let f = |watch: bool| {
@@ -120,7 +117,7 @@ fn run_build_internal(
             cmd,
             source_dir,
             target_dir,
-            current_work_root,
+            allowed_module_roots,
             watch,
             selected_target_backend,
         )
@@ -142,7 +139,7 @@ fn run_build_rr(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
-    current_work_root: &Path,
+    allowed_module_roots: &[PathBuf],
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
@@ -155,7 +152,7 @@ fn run_build_rr(
     let (build_meta, build_graph) = plan_build_rr_from_resolved(
         cli,
         cmd,
-        current_work_root,
+        allowed_module_roots,
         target_dir,
         selected_target_backend,
         resolve_output,
@@ -203,7 +200,7 @@ fn run_build_rr(
 pub(crate) fn plan_build_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
-    current_work_root: &Path,
+    allowed_module_roots: &[PathBuf],
     target_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
@@ -223,7 +220,7 @@ pub(crate) fn plan_build_rr_from_resolved(
         target_dir,
         Box::new(|resolved, target_backend| {
             calc_user_intent(
-                current_work_root,
+                allowed_module_roots,
                 &cmd.path,
                 cmd.package.as_deref(),
                 resolved,
@@ -240,7 +237,7 @@ pub(crate) fn plan_build_rr_from_resolved(
 /// to core.
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
-    current_work_root: &Path,
+    allowed_module_roots: &[PathBuf],
     path_filters: &[PathBuf],
     package_filter: Option<&str>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
@@ -249,7 +246,7 @@ fn calc_user_intent(
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !path_filters.is_empty() {
         let selected = select_supported_packages(
-            current_work_root,
+            allowed_module_roots,
             resolve_output,
             path_filters,
             target_backend,

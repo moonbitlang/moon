@@ -27,6 +27,7 @@ use crate::cli::{
     BenchSubcommand, BuildSubcommand, CheckSubcommand, MoonBuildCli, MoonBuildSubcommands,
     RunSubcommand, TestLikeSubcommand, TestSubcommand,
 };
+use crate::filter::work_context_module_roots;
 
 pub(super) struct PlanningFixture {
     source_dir: PathBuf,
@@ -85,10 +86,11 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
     ) -> anyhow::Result<String> {
+        let allowed_module_roots = work_context_module_roots(&self.source_dir)?;
         let (build_meta, build_graph) = crate::cli::build::plan_build_rr_from_resolved(
             cli,
             cmd,
-            &self.source_dir,
+            &allowed_module_roots,
             &self.source_dir.join("_build"),
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
@@ -101,12 +103,13 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &CheckSubcommand,
     ) -> anyhow::Result<String> {
+        let allowed_module_roots = work_context_module_roots(&self.source_dir)?;
         let (build_meta, build_graph) = crate::cli::check::plan_check_rr_from_resolved(
             cli,
             cmd,
             &self.source_dir,
             &self.source_dir.join("_build"),
-            &self.source_dir,
+            &allowed_module_roots,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
