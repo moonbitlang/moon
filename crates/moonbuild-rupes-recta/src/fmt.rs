@@ -51,7 +51,7 @@ pub type FmtResolveOutput = DiscoveredLocalProject;
 /// Perform a barebones, faked resolving process for `moon fmt`.
 ///
 /// This supports either a single module rooted at `source_dir` or a workspace
-/// rooted there via `moon.work.json`.
+/// rooted there via `moon.work` or legacy `moon.work.json`.
 pub fn resolve_for_fmt(source_dir: &Path) -> Result<FmtResolveOutput, ResolveError> {
     info!(
         "Resolving formatter environment for {}",

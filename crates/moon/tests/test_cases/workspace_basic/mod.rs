@@ -319,23 +319,23 @@ fn test_work_init_creates_empty_workspace() {
     check(
         get_stdout(&dir, ["work", "init"]),
         expect![[r#"
-            Created moon.work.json
+            Created moon.work
         "#]],
     );
 
     check(
-        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
         expect![[r#"
-            {
-              "use": []
-            }"#]],
+            members = []
+        "#]],
     );
 }
 
 #[test]
-fn test_work_use_updates_workspace_members() {
+fn test_work_use_reads_legacy_workspace_and_writes_moon_work() {
     let dir = TestDir::new("workspace_basic.in");
 
+    std::fs::remove_file(dir.join("moon.work")).unwrap();
     std::fs::write(
         dir.join("moon.work.json"),
         r#"{
@@ -350,7 +350,18 @@ fn test_work_use_updates_workspace_members() {
     check(
         get_stdout(&dir, ["work", "use", "app"]),
         expect![[r#"
-            Updated moon.work.json
+            Updated moon.work
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
+        expect![[r#"
+            members = [
+              "./liba",
+              "./app",
+            ]
+            preferred_target = "wasm-gc"
         "#]],
     );
 
@@ -358,11 +369,10 @@ fn test_work_use_updates_workspace_members() {
         std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
         expect![[r#"
             {
+              "preferred-target": "wasm-gc",
               "use": [
-                "./liba",
-                "./app"
-              ],
-              "preferred-target": "wasm-gc"
+                "./liba"
+              ]
             }"#]],
     );
 }
@@ -382,7 +392,7 @@ fn test_work_sync_ignores_unrelated_ancestor_workspace() {
 
     let stderr = get_err_stderr(&dir, ["-C", "extra", "work", "sync"]);
 
-    assert!(stderr.contains("`moon work sync` requires `moon.work.json`"));
+    assert!(stderr.contains("`moon work sync` requires `moon.work` or `moon.work.json`"));
 }
 
 #[test]
@@ -401,30 +411,27 @@ fn test_work_use_ignores_unrelated_ancestor_workspace() {
     check(
         get_stdout(&dir, ["-C", "extra", "work", "use", "."]),
         expect![[r#"
-            Created moon.work.json
+            Created moon.work
         "#]],
     );
 
     check(
-        std::fs::read_to_string(dir.join("extra/moon.work.json")).unwrap(),
+        std::fs::read_to_string(dir.join("extra/moon.work")).unwrap(),
         expect![[r#"
-            {
-              "use": [
-                "."
-              ]
-            }"#]],
+            members = [
+              ".",
+            ]
+        "#]],
     );
 
     check(
-        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
         expect![[r#"
-            {
-              "preferred-target": "wasm-gc",
-              "use": [
-                "./app",
-                "./liba"
-              ]
-            }
+            members = [
+              "./app",
+              "./liba",
+            ]
+            preferred_target = "wasm-gc"
         "#]],
     );
 }
@@ -441,11 +448,12 @@ fn test_workspace_commands_find_ancestor_workspace_from_nested_non_module_dir() 
 fn test_work_use_reuses_ancestor_workspace_from_nested_non_module_dir() {
     let dir = TestDir::new("workspace_basic.in");
     std::fs::create_dir_all(dir.join("tools")).unwrap();
+    std::fs::write(dir.join("moon.work.json"), r#"{ "use": ["./liba"] }"#).unwrap();
 
     check(
         get_stdout(&dir, ["-C", "tools", "work", "use", "../app"]),
         expect![[r#"
-            moon.work.json is already up to date
+            moon.work is already up to date
         "#]],
     );
 }
@@ -492,7 +500,7 @@ fn test_work_sync_requires_workspace() {
     let dir = TestDir::new("hello");
     let stderr = get_err_stderr(&dir, ["work", "sync"]);
 
-    assert!(stderr.contains("`moon work sync` requires `moon.work.json`"));
+    assert!(stderr.contains("`moon work sync` requires `moon.work` or `moon.work.json`"));
 }
 
 #[test]

@@ -60,7 +60,7 @@ pub struct ResolveOutput {
     pub pkg_dirs: DiscoverResult,
     /// Package dependency relationship
     pub pkg_rel: DepRelationship,
-    /// Explicit preferred target from `moon.work.json`, if any.
+    /// Explicit preferred target from `moon.work` or legacy `moon.work.json`, if any.
     pub workspace_preferred_target: Option<TargetBackend>,
 }
 

@@ -16,16 +16,20 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::process::{Command, Stdio};
+use std::{
+    path::PathBuf,
+    process::{Command, Stdio},
+};
 
 use anyhow::bail;
 use moonutil::{
     cli::UniversalFlags,
-    common::MOON_MOD_JSON,
+    common::{MOON_MOD_JSON, MOON_WORK, MOON_WORK_JSON},
     mooncakes::{
         LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand,
         RegisterSubcommand,
     },
+    workspace::{read_workspace, write_workspace_legacy_json},
 };
 use serde::Serialize;
 
@@ -96,32 +100,63 @@ pub(crate) fn register_cli(cli: UniversalFlags, cmd: RegisterSubcommand) -> anyh
 }
 
 pub(crate) fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Result<i32> {
-    let cli = single_module_mooncake_cli(cli, "publish")?;
+    let (cli, compat_workspace) = single_module_mooncake_cli(cli, "publish")?;
     execute_cli(
         cli,
         MooncakeSubcommands::Publish(cmd),
         &["--read-args-from-stdin"],
         "publish",
-    )
+    )?;
+    drop(compat_workspace);
+    Ok(0)
 }
 
 pub(crate) fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow::Result<i32> {
-    let cli = single_module_mooncake_cli(cli, "package")?;
+    let (cli, compat_workspace) = single_module_mooncake_cli(cli, "package")?;
     execute_cli(
         cli,
         MooncakeSubcommands::Package(cmd),
         &["--read-args-from-stdin"],
         "package",
-    )
+    )?;
+    drop(compat_workspace);
+    Ok(0)
 }
 
 fn single_module_mooncake_cli(
     mut cli: UniversalFlags,
     command: &str,
-) -> anyhow::Result<UniversalFlags> {
+) -> anyhow::Result<(UniversalFlags, Option<LegacyWorkspaceCompatFile>)> {
     let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
     let module_dir = dirs.require_module_dir(command)?;
+    let compat_workspace = LegacyWorkspaceCompatFile::ensure_for_workspace(&dirs.project_root)?;
     cli.source_tgt_dir.cwd = None;
     cli.source_tgt_dir.manifest_path = Some(module_dir.join(MOON_MOD_JSON));
-    Ok(cli)
+    Ok((cli, compat_workspace))
+}
+
+struct LegacyWorkspaceCompatFile {
+    path: PathBuf,
+}
+
+impl LegacyWorkspaceCompatFile {
+    fn ensure_for_workspace(project_root: &std::path::Path) -> anyhow::Result<Option<Self>> {
+        let dsl_path = project_root.join(MOON_WORK);
+        let legacy_path = project_root.join(MOON_WORK_JSON);
+        if !dsl_path.exists() || legacy_path.exists() {
+            return Ok(None);
+        }
+
+        let Some(workspace) = read_workspace(project_root)? else {
+            return Ok(None);
+        };
+        write_workspace_legacy_json(project_root, &workspace)?;
+        Ok(Some(Self { path: legacy_path }))
+    }
+}
+
+impl Drop for LegacyWorkspaceCompatFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }

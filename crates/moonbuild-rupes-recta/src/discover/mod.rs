@@ -104,7 +104,7 @@ pub fn discover_packages(
 /// Discover a local project directly from the source tree without dependency resolution.
 ///
 /// This supports either a single local module rooted at `source_dir` or a
-/// workspace rooted there via `moon.work.json`.
+/// workspace rooted there via `moon.work` or legacy `moon.work.json`.
 #[instrument(skip_all)]
 pub fn discover_local_project(source_dir: &Path) -> Result<DiscoveredLocalProject, DiscoverError> {
     info!(

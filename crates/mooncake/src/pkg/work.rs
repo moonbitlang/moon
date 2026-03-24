@@ -25,7 +25,7 @@ use std::{
 use anyhow::{Context, bail};
 use moonutil::{
     common::{
-        MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE, read_module_desc_file_in_dir,
+        MOON_MOD_JSON, MOON_WORK, MOON_WORK_JSON, MOONBITLANG_CORE, read_module_desc_file_in_dir,
         write_module_json_to_file,
     },
     dependency::SourceDependencyInfo,
@@ -37,7 +37,10 @@ use moonutil::{
         },
     },
     version::as_caret_version_req,
-    workspace::{MoonWork, canonical_workspace_module_dirs, read_workspace, write_workspace},
+    workspace::{
+        MoonWork, canonical_workspace_module_dirs, read_workspace, workspace_manifest_path,
+        write_workspace,
+    },
 };
 
 use crate::{
@@ -50,8 +53,7 @@ pub fn init_workspace(
     paths: &[PathBuf],
     quiet: bool,
 ) -> anyhow::Result<i32> {
-    let workspace_path = workspace_root.join(MOON_WORK);
-    if workspace_path.exists() {
+    if let Some(workspace_path) = workspace_manifest_path(workspace_root) {
         bail!(
             "workspace file `{}` already exists",
             workspace_path.display()
@@ -72,8 +74,10 @@ pub fn init_workspace(
         use_paths,
         preferred_target: None,
     };
-    write_workspace(workspace_root, &workspace)
-        .context(format!("failed to write `{}`", workspace_path.display()))?;
+    write_workspace(workspace_root, &workspace).context(format!(
+        "failed to write `{}`",
+        workspace_root.join(MOON_WORK).display()
+    ))?;
 
     if !quiet {
         println!("Created {}", MOON_WORK);
@@ -83,7 +87,6 @@ pub fn init_workspace(
 }
 
 pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> anyhow::Result<i32> {
-    let workspace_path = workspace_root.join(MOON_WORK);
     let existing = read_workspace(workspace_root)?;
     let preferred_target = match existing.as_ref() {
         Some(workspace) => workspace.preferred_target,
@@ -129,8 +132,10 @@ pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> a
         use_paths,
         preferred_target,
     };
-    write_workspace(workspace_root, &workspace)
-        .context(format!("failed to write `{}`", workspace_path.display()))?;
+    write_workspace(workspace_root, &workspace).context(format!(
+        "failed to write `{}`",
+        workspace_root.join(MOON_WORK).display()
+    ))?;
 
     if !quiet {
         if existing.is_none() {
@@ -147,8 +152,9 @@ pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> a
 
 pub fn sync_workspace(source_dir: &Path, quiet: bool) -> anyhow::Result<i32> {
     let workspace = read_workspace(source_dir)?.context(format!(
-        "`moon work sync` requires `{}` at `{}`",
+        "`moon work sync` requires `{}` or `{}` at `{}`",
         MOON_WORK,
+        MOON_WORK_JSON,
         source_dir.display()
     ))?;
     let member_dirs = canonical_workspace_module_dirs(source_dir, &workspace)?;

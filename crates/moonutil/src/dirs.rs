@@ -22,13 +22,13 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::common::{BUILD_DIR, MOON_MOD_JSON, MOON_WORK};
-use crate::workspace::{canonical_workspace_module_dirs, read_workspace};
+use crate::common::{BUILD_DIR, MOON_MOD_JSON, MOON_WORK, MOON_WORK_JSON};
+use crate::workspace::{canonical_workspace_module_dirs, read_workspace, workspace_manifest_path};
 
 #[derive(Debug, Error)]
 pub enum PackageDirsError {
     #[error(
-        "not in a Moon project (no moon.mod.json or moon.work.json found starting from {0} or its ancestors)"
+        "not in a Moon project (no moon.mod.json, moon.work, or moon.work.json found starting from {0} or its ancestors)"
     )]
     NotInProject(PathBuf),
     #[error(transparent)]
@@ -41,13 +41,13 @@ pub struct SourceTargetDirs {
     //
     // - `-C` changes the process working directory early (like `cd DIR && moon ...`).
     // - `--manifest-path` pins the project root to a specific project manifest
-    //   (`moon.mod.json` or `moon.work.json`) without changing the working
+    //   (`moon.mod.json`, `moon.work`, or `moon.work.json`) without changing the working
     //   directory.
     /// Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`.
     #[arg(short = 'C', value_name = "DIR")]
     pub cwd: Option<PathBuf>,
 
-    /// Path to `moon.mod.json` or `moon.work.json` to use as the project manifest (does not change the working directory).
+    /// Path to `moon.mod.json`, `moon.work`, or `moon.work.json` to use as the project manifest (does not change the working directory).
     #[arg(long = "manifest-path", global = true, value_name = "PATH")]
     pub manifest_path: Option<PathBuf>,
 
@@ -89,9 +89,10 @@ impl SourceTargetDirs {
 
             if manifest_path.is_dir() {
                 return Err(PackageDirsError::from(anyhow::anyhow!(
-                    "`--manifest-path` must point to `{}` or `{}` (got directory `{}`)",
+                    "`--manifest-path` must point to `{}`, `{}`, or `{}` (got directory `{}`)",
                     MOON_MOD_JSON,
                     MOON_WORK,
+                    MOON_WORK_JSON,
                     manifest_path.display()
                 )));
             }
@@ -112,11 +113,13 @@ impl SourceTargetDirs {
                     (project_root, Some(module_dir))
                 }
                 Some(MOON_WORK) => (manifest_root, None),
+                Some(MOON_WORK_JSON) => (manifest_root, None),
                 _ => {
                     return Err(PackageDirsError::from(anyhow::anyhow!(
-                        "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
+                        "`--manifest-path` must point to `{}`, `{}`, or `{}` (got `{}`)",
                         MOON_MOD_JSON,
                         MOON_WORK,
+                        MOON_WORK_JSON,
                         manifest_path.display()
                     )));
                 }
@@ -195,7 +198,7 @@ pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
 }
 
 pub fn check_moon_work_exists(source_dir: &Path) -> bool {
-    source_dir.join(MOON_WORK).exists()
+    workspace_manifest_path(source_dir).is_some()
 }
 
 pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
@@ -209,7 +212,7 @@ pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathB
     let mut module_root = None;
 
     for dir in source_dir.ancestors() {
-        if check_moon_work_exists(dir) {
+        if let Some(workspace_path) = workspace_manifest_path(dir) {
             let Some(module_root) = module_root else {
                 // A workspace still applies from nested non-module directories.
                 return Ok(Some(dir.to_path_buf()));
@@ -219,7 +222,7 @@ pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathB
             // explicitly list that module still apply.
             let workspace = read_workspace(dir)?.context(format!(
                 "failed to parse workspace file `{}`",
-                dir.join(MOON_WORK).display()
+                workspace_path.display()
             ))?;
             for member_dir in canonical_workspace_module_dirs(dir, &workspace)? {
                 if member_dir == module_root {
@@ -246,19 +249,24 @@ pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
 
     if manifest_path.is_dir() {
         anyhow::bail!(
-            "`--manifest-path` must point to `{}` or `{}` (got directory `{}`)",
+            "`--manifest-path` must point to `{}`, `{}`, or `{}` (got directory `{}`)",
             MOON_MOD_JSON,
             MOON_WORK,
+            MOON_WORK_JSON,
             manifest_path.display()
         );
     }
 
     let file_name = manifest_path.file_name().and_then(|s| s.to_str());
-    if file_name != Some(MOON_MOD_JSON) && file_name != Some(MOON_WORK) {
+    if file_name != Some(MOON_MOD_JSON)
+        && file_name != Some(MOON_WORK)
+        && file_name != Some(MOON_WORK_JSON)
+    {
         anyhow::bail!(
-            "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
+            "`--manifest-path` must point to `{}`, `{}`, or `{}` (got `{}`)",
             MOON_MOD_JSON,
             MOON_WORK,
+            MOON_WORK_JSON,
             manifest_path.display()
         );
     }
