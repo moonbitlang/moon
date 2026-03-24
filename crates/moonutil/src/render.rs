@@ -16,15 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    path::{Path, PathBuf},
-    sync::OnceLock,
-};
+use std::path::{Path, PathBuf};
 
 use ariadne::{Fmt, ReportKind};
 use clap::ValueEnum;
 use log::{error, warn};
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -44,43 +40,30 @@ pub struct MooncDiagnostic {
 }
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub enum Loc {
-    NoLocation,
-    Range { start: Position, end: Position },
+pub struct Loc {
+    pub start: Position,
+    pub end: Position,
 }
 
 impl Loc {
-    fn parse_span(text: &str) -> Option<(Position, Position)> {
-        static LOC_RE: OnceLock<Regex> = OnceLock::new();
-        let loc_re = LOC_RE.get_or_init(|| {
-            Regex::new(
-                r"^(?P<line_start>[0-9]+):(?P<col_start>[0-9]+)-(?P<line_end>[0-9]+):(?P<col_end>[0-9]+)$",
-            )
-            .expect("diagnostic location regex must be valid")
-        });
-        let caps = loc_re.captures(text)?;
-        let parse_part = |name: &str| -> Option<usize> {
-            let value = caps.name(name)?.as_str().parse::<usize>().ok()?;
-            (value > 0).then_some(value)
-        };
-
-        Some((
-            Position {
-                line: parse_part("line_start")?,
-                col: parse_part("col_start")?,
-            },
-            Position {
-                line: parse_part("line_end")?,
-                col: parse_part("col_end")?,
-            },
-        ))
+    fn zero() -> Self {
+        Self {
+            start: Position { line: 0, col: 0 },
+            end: Position { line: 0, col: 0 },
+        }
     }
 
-    fn as_range(&self) -> Option<(&Position, &Position)> {
-        match self {
-            Self::NoLocation => None,
-            Self::Range { start, end } => Some((start, end)),
-        }
+    fn parse_span(text: &str) -> Option<Self> {
+        let (start, end) = text.split_once('-')?;
+
+        Some(Self {
+            start: Position::parse(start)?,
+            end: Position::parse(end)?,
+        })
+    }
+
+    fn as_range(&self) -> (&Position, &Position) {
+        (&self.start, &self.end)
     }
 }
 
@@ -89,13 +72,10 @@ impl Serialize for Loc {
     where
         S: serde::Serializer,
     {
-        match self {
-            Self::NoLocation => serializer.serialize_str(""),
-            Self::Range { start, end } => serializer.serialize_str(&format!(
-                "{}:{}-{}:{}",
-                start.line, start.col, end.line, end.col
-            )),
-        }
+        serializer.serialize_str(&format!(
+            "{}:{}-{}:{}",
+            self.start.line, self.start.col, self.end.line, self.end.col
+        ))
     }
 }
 
@@ -106,11 +86,11 @@ impl<'de> Deserialize<'de> for Loc {
     {
         let text = String::deserialize(deserializer)?;
         if text.is_empty() {
-            return Ok(Self::NoLocation);
+            return Ok(Self::zero());
         }
-        let (start, end) = Self::parse_span(&text)
+        let loc = Self::parse_span(&text)
             .ok_or_else(|| serde::de::Error::custom(format!("invalid location: {text}")))?;
-        Ok(Self::Range { start, end })
+        Ok(loc)
     }
 }
 
@@ -121,7 +101,18 @@ pub struct Position {
 }
 
 impl Position {
+    fn parse(text: &str) -> Option<Self> {
+        let (line, col) = text.split_once(':')?;
+        Some(Self {
+            line: line.parse::<usize>().ok()?,
+            col: col.parse::<usize>().ok()?,
+        })
+    }
+
     pub fn calculate_offset(&self, content: &str) -> Option<usize> {
+        if self.line == 0 || self.col == 0 {
+            return None;
+        }
         let line_index = line_index::LineIndex::new(content);
         let byte_based_index =
             line_col_to_byte_idx(&line_index, self.line as u32 - 1, self.col as u32 - 1)?;
@@ -238,14 +229,7 @@ impl MooncDiagnostic {
                 }
             };
 
-        let Some((start_position, end_position)) = diagnostic.loc.as_range() else {
-            error!(
-                "missing source range for file diagnostic: path={}",
-                diagnostic.path
-            );
-            bail_print_original()?;
-            return None;
-        };
+        let (start_position, end_position) = diagnostic.loc.as_range();
         let Some(start_offset) = start_position.calculate_offset(&source_file_content) else {
             error!("failed to calculate start offset for diagnostic");
             bail_print_original()?;
@@ -415,5 +399,34 @@ impl MooncDiagnostic {
 
     pub fn formatted_error_code(&self) -> String {
         format!("{:04}", self.error_code)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn render_accepts_no_location_diagnostic_json() {
+        // Stable compiler repro: run `moonc check` on any valid `.mbt` file and
+        // pass that same existing non-`.mi` file to `-check-mi`. This emits a
+        // no-location diagnostic with `path: ""` and `loc: "0:0-0:0"`.
+        let diagnostic_json = r#"{"$message_type":"diagnostic","level":"error","error_code":4049,"path":"","loc":"0:0-0:0","message":"Magic number mismatch"}"#;
+
+        let diagnostic = serde_json_lenient::from_str::<MooncDiagnostic>(diagnostic_json).unwrap();
+        assert!(diagnostic.path.is_empty());
+
+        let rendered = MooncDiagnostic::render(
+            diagnostic_json,
+            false,
+            None,
+            false,
+            DiagnosticLevel::Error,
+            Path::new("."),
+            Path::new("."),
+        );
+
+        assert!(rendered.is_some());
     }
 }
