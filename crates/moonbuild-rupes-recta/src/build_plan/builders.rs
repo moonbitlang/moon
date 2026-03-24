@@ -30,10 +30,11 @@ use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     common::{
         DEP_PATH, DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOON_BIN_DIR, MOON_MOD_JSON,
-        MOONCAKE_BIN, PKG_DIR, is_moon_pkg, is_moon_script_ignored,
+        MOONCAKE_BIN, PKG_DIR, TargetBackend, is_moon_pkg, is_moon_script_ignored,
     },
     compiler_flags::{CC, DETECTED_CC},
     mooncakes::ModuleId,
+    package::SupportedTargetsDeclKind,
 };
 use regex::Regex;
 use tracing::{Level, debug, instrument, trace, warn};
@@ -120,10 +121,90 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
+    fn check_backend_compatibility_for_dep(
+        &mut self,
+        importer_target: BuildTarget,
+        dep: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        let selected_backend: TargetBackend = self.build_env.target_backend.into();
+        let importer_pkg = self.input.pkg_dirs.get_package(importer_target.package);
+        let dependency_pkg = self.input.pkg_dirs.get_package(dep.package);
+
+        if importer_pkg.supported_targets_decl == SupportedTargetsDeclKind::Omitted
+            && importer_target.package != dep.package
+            && dependency_pkg.supported_targets_decl != SupportedTargetsDeclKind::Omitted
+            && self
+                .warned_missing_supported_targets
+                .insert(importer_target.package)
+        {
+            warn!(
+                "Package `{}` does not declare `supported_targets`, but depends on `{}` which declares it. Consider declaring `supported_targets` explicitly",
+                importer_pkg.fqn, dependency_pkg.fqn
+            );
+        }
+
+        let dependency_realizable = self
+            .input
+            .pkg_rel
+            .realizable_supported_targets
+            .get(&dep)
+            .expect("realizable backend support should be available for every dependency node");
+
+        if dependency_realizable.contains(&selected_backend) {
+            return Ok(());
+        }
+
+        let mut supported_backends = dependency_realizable
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        supported_backends.sort();
+
+        Err(BuildPlanConstructError::BackendIncompatibleDependency {
+            backend: selected_backend,
+            importer: importer_pkg.fqn.to_string(),
+            dependency: dependency_pkg.fqn.to_string(),
+            supported_backends: format!("[{}]", supported_backends.join(", ")),
+            path: format!("{} -> {}", importer_pkg.fqn, dependency_pkg.fqn),
+        })
+    }
+
+    /// Validate backend compatibility for a dependency edge that needs `.mi`.
+    ///
+    /// This function is intentionally parallel to `need_mi_of_dep`: callers can
+    /// choose policy (hard error vs warning+skip) before mutating the graph.
+    ///
+    /// Note: This mirrors the stdlib short-circuit used by `need_mi_of_dep`.
+    /// When stdlib is injected, stdlib package deps are not planned and should
+    /// not be backend-checked here either.
+    fn check_backend_compatibility_for_mi_dep(
+        &mut self,
+        node: BuildPlanNode,
+        dep: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+            return Ok(());
+        }
+
+        let importer_target = match node {
+            BuildPlanNode::BuildVirtual(pkg) => Some(pkg.build_target(TargetKind::Source)),
+            _ => node.extract_target(),
+        };
+
+        if let Some(importer_target) = importer_target {
+            self.check_backend_compatibility_for_dep(importer_target, dep)?;
+        }
+
+        Ok(())
+    }
+
     /// Specify a need on the `.mi` of a dependency.
     ///
     /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
     /// nodes based on the property of the dependency package.
+    ///
+    /// Backend compatibility is checked by `check_backend_compatibility_for_mi_dep`.
+    /// Keep this function focused on graph wiring only.
     fn need_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget, check_only: bool) {
         // Skip stdlib packages when stdlib is injected, since we can use prebuilt .mi files.
         // When building the stdlib itself (build_env.std == false), treat stdlib packages
@@ -198,6 +279,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
+            self.check_backend_compatibility_for_mi_dep(node, dep)?;
             self.need_mi_of_dep(node, dep, true);
         }
 
@@ -232,6 +314,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
+            self.check_backend_compatibility_for_mi_dep(node, dep)?;
             self.need_mi_of_dep(node, dep, true);
         }
 
@@ -267,6 +350,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .dep_graph
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
+            self.check_backend_compatibility_for_mi_dep(node, dep)?;
             self.need_mi_of_dep(node, dep, false);
         }
 
@@ -961,7 +1045,7 @@ Move public behavior into a non-main package and keep the main package as an ent
         let target_backend: moonutil::common::TargetBackend = self.build_env.target_backend.into();
         for target in topo_sorted_pkgs.into_iter() {
             let pkg = self.input.pkg_dirs.get_package(target.package);
-            if !pkg.raw.supported_targets.contains(&target_backend) {
+            if !pkg.effective_supported_targets.contains(&target_backend) {
                 trace!(
                     ?module_id,
                     ?target,
@@ -1102,6 +1186,7 @@ Move public behavior into a non-main package and keep the main package as an ent
     ) -> Result<(), BuildPlanConstructError> {
         // Generate mbti relies on the `.mi` files spitted out by `moonc`, which
         // usually means `moonc check` instead of `moonc build`.
+        self.check_backend_compatibility_for_mi_dep(_node, target)?;
         self.need_mi_of_dep(_node, target, true);
         self.resolved_node(_node);
         Ok(())
@@ -1127,6 +1212,7 @@ Move public behavior into a non-main package and keep the main package as an ent
         ) {
             // Note: This depends on the `Check` node, which will be coalesced
             // to `Build` later if necessary.
+            self.check_backend_compatibility_for_mi_dep(node, dep)?;
             self.need_mi_of_dep(node, dep, true);
         }
 

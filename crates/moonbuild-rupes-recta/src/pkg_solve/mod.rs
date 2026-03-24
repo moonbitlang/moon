@@ -22,7 +22,10 @@ mod model;
 mod solve;
 mod verify;
 
-use crate::{discover::DiscoverResult, pkg_solve::verify::verify};
+use crate::{
+    discover::DiscoverResult,
+    pkg_solve::verify::{compute_realizable_supported_targets, verify},
+};
 use log::info;
 use moonutil::mooncakes::result::ResolvedEnv;
 use tracing::{Level, instrument};
@@ -40,8 +43,9 @@ pub fn solve(
 ) -> Result<DepRelationship, SolveError> {
     info!("Starting dependency resolution");
 
-    let res = solve_only(modules, packages, enable_coverage)?;
+    let mut res = solve_only(modules, packages, enable_coverage)?;
     verify(&res, packages)?;
+    res.realizable_supported_targets = compute_realizable_supported_targets(&res, packages);
 
     info!("Dependency resolution completed successfully");
     Ok(res)

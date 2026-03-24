@@ -16,6 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::collections::HashMap;
+
+use indexmap::IndexSet;
+use moonutil::common::TargetBackend;
 use moonutil::mooncakes::ModuleSource;
 use petgraph::prelude::DiGraphMap;
 use slotmap::SparseSecondaryMap;
@@ -63,6 +67,13 @@ pub struct DepRelationship {
 
     /// A map from package to the virtual package it implements, if any.
     pub virt_impl: SparseSecondaryMap<PackageId, PackageId>,
+
+    /// Per-build-target supported backends after dependency propagation.
+    ///
+    /// This is the realizable backend set of each build target:
+    /// `declared(package) ∩ realizable(dep1) ∩ realizable(dep2) ...`.
+    /// The set may be stricter than package-level `supported_targets`.
+    pub realizable_supported_targets: HashMap<BuildTarget, IndexSet<TargetBackend>>,
 }
 
 #[derive(Debug, thiserror::Error)]

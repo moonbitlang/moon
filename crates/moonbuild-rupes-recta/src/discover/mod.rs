@@ -313,14 +313,13 @@ fn discover_one_package(
                 inner: e,
             }
         })?;
-    let mut pkg_json = if is_core {
+    let pkg_json = if is_core {
         add_prelude_as_import_for_core(pkg_json)
     } else {
         pkg_json
     };
-    pkg_json
-        .supported_targets
-        .retain(|t| module_supported_targets.contains(t));
+    let mut effective_supported_targets = pkg_json.supported_targets.clone();
+    effective_supported_targets.retain(|t| module_supported_targets.contains(t));
 
     // Discover source files within the package
     let mut source_files = Vec::new();
@@ -413,6 +412,7 @@ fn discover_one_package(
         is_single_file: false,
         raw: Box::new(pkg_json),
         supported_targets_decl,
+        effective_supported_targets,
         source_files,
         mbt_lex_files,
         mbt_yacc_files,

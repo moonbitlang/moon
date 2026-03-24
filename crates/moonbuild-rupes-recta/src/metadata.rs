@@ -183,7 +183,7 @@ fn gen_package_json(
         artifact: metadata_source_mi_path(ctx, layout, pkg_id, backend)
             .to_string_lossy()
             .into_owned(),
-        supported_targets: pkg.raw.supported_targets.iter().copied().collect(),
+        supported_targets: pkg.effective_supported_targets.iter().copied().collect(),
     }
 }
 

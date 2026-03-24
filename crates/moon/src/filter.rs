@@ -293,8 +293,7 @@ pub(crate) fn format_supported_backends(
 ) -> String {
     let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
     let mut targets = pkg
-        .raw
-        .supported_targets
+        .effective_supported_targets
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
@@ -310,8 +309,7 @@ pub(crate) fn package_supports_backend(
     resolve_output
         .pkg_dirs
         .get_package(pkg_id)
-        .raw
-        .supported_targets
+        .effective_supported_targets
         .contains(&target_backend)
 }
 

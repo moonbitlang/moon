@@ -50,7 +50,9 @@ use std::{
 };
 
 use log::{debug, info};
-use moonutil::{compiler_flags::CC, cond_expr::OptLevel, mooncakes::ModuleId};
+use moonutil::{
+    common::TargetBackend, compiler_flags::CC, cond_expr::OptLevel, mooncakes::ModuleId,
+};
 use petgraph::prelude::DiGraphMap;
 use tracing::instrument;
 
@@ -364,6 +366,19 @@ pub enum BuildPlanConstructError {
     NoImplementationForVirtualPackage {
         package: PackageFQNWithSource,
         dep: PackageFQNWithSource,
+    },
+
+    #[error(
+        "Selected backend '{backend}' is incompatible with the dependency graph. \
+         '{importer}' requires '{dependency}' which supports {supported_backends}. \
+         Dependency path: {path}"
+    )]
+    BackendIncompatibleDependency {
+        backend: TargetBackend,
+        importer: String,
+        dependency: String,
+        supported_backends: String,
+        path: String,
     },
 }
 

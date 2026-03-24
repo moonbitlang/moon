@@ -1,0 +1,11 @@
+{
+  "virtual": {
+    "has-default": false
+  },
+  "import": [
+    "supported/virtual-root/lib"
+  ],
+  "supported-targets": [
+    "js"
+  ]
+}
