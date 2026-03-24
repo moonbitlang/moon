@@ -341,6 +341,38 @@ fn test_moon_build_filter_by_multiple_paths_skips_same_root_non_packages() {
     assert!(stderr.contains("skipping path `notes`"), "stderr: {stderr}");
 }
 
+#[test]
+fn test_moon_build_filter_by_multiple_paths_skips_pkg_like_dirs_outside_source() {
+    let dir = TestDir::new("path_outside_source.in");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            "src/main",
+            "generated/ghost",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert!(stdout.contains("./src/main/main.mbt"), "stdout: {stdout}");
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            "build",
+            "src/main",
+            "generated/ghost",
+            "--dry-run",
+            "--verbose",
+        ],
+    );
+    assert!(
+        stderr.contains("skipping path `generated/ghost`"),
+        "stderr: {stderr}"
+    );
+}
+
 // ===== moon check command tests =====
 
 #[test]
@@ -496,4 +528,36 @@ fn test_moon_check_filter_by_multiple_paths_skips_same_root_non_packages() {
 
     let stderr = get_stderr(&dir, ["check", "A", "notes", "--dry-run", "--verbose"]);
     assert!(stderr.contains("skipping path `notes`"), "stderr: {stderr}");
+}
+
+#[test]
+fn test_moon_check_filter_by_multiple_paths_skips_pkg_like_dirs_outside_source() {
+    let dir = TestDir::new("path_outside_source.in");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "check",
+            "src/main",
+            "generated/ghost",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert!(stdout.contains("./src/main/main.mbt"), "stdout: {stdout}");
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            "check",
+            "src/main",
+            "generated/ghost",
+            "--dry-run",
+            "--verbose",
+        ],
+    );
+    assert!(
+        stderr.contains("skipping path `generated/ghost`"),
+        "stderr: {stderr}"
+    );
 }

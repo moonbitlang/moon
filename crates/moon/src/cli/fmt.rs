@@ -72,8 +72,16 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
     let mut selected_packages = Vec::new();
     let mut seen = HashSet::new();
 
-    for (_, dir) in select_package_dirs(&allowed_module_roots, &cmd.path, cli.verbose)? {
-        let pkg_id = filter_pkg_by_dir_for_fmt(&resolved, &dir)?;
+    for (path, dir) in select_package_dirs(&allowed_module_roots, &cmd.path, cli.verbose)? {
+        let Ok(pkg_id) = filter_pkg_by_dir_for_fmt(&resolved, &dir) else {
+            if cli.verbose {
+                tracing::warn!(
+                    "skipping path `{}` because it is not a package in the current work context.",
+                    path.display()
+                );
+            }
+            continue;
+        };
         if seen.insert(pkg_id) {
             selected_packages.push(pkg_id);
         }

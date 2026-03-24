@@ -66,3 +66,25 @@ fn test_fmt_multiple_paths_skip_filtered_entries() {
     );
     assert!(stderr.contains("skipping path `notes`"), "stderr: {stderr}");
 }
+
+#[test]
+fn test_fmt_multiple_paths_skip_pkg_like_dirs_outside_source() {
+    let dir = TestDir::new("path_outside_source.in");
+
+    let _ = get_stdout(&dir, ["fmt", "src/main", "generated/ghost"]);
+    check(
+        read(dir.join("src/main/main.mbt")),
+        expect![[r#"
+            ///|
+            fn main {
+              println("hello")
+            }
+        "#]],
+    );
+
+    let stderr = get_stderr(&dir, ["fmt", "src/main", "generated/ghost", "--verbose"]);
+    assert!(
+        stderr.contains("skipping path `generated/ghost`"),
+        "stderr: {stderr}"
+    );
+}

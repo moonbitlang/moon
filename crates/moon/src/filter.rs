@@ -401,7 +401,15 @@ where
     let mut seen = HashSet::new();
 
     for (path, dir) in select_package_dirs(allowed_module_roots, paths, verbose)? {
-        let pkg_id = filter_pkg_by_dir(resolve_output, &dir)?;
+        let Ok(pkg_id) = filter_pkg_by_dir(resolve_output, &dir) else {
+            if verbose {
+                tracing::warn!(
+                    "skipping path `{}` because it is not a package in the current work context.",
+                    path.display()
+                );
+            }
+            continue;
+        };
         if !seen.insert(pkg_id) {
             continue;
         }
