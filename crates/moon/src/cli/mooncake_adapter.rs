@@ -16,20 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    path::PathBuf,
-    process::{Command, Stdio},
-};
+use std::process::{Command, Stdio};
 
 use anyhow::bail;
 use moonutil::{
     cli::UniversalFlags,
-    common::{MOON_MOD_JSON, MOON_WORK, MOON_WORK_JSON},
+    common::MOON_MOD_JSON,
     mooncakes::{
         LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand,
         RegisterSubcommand,
     },
-    workspace::{read_workspace, write_workspace_legacy_json},
 };
 use serde::Serialize;
 
@@ -100,63 +96,90 @@ pub(crate) fn register_cli(cli: UniversalFlags, cmd: RegisterSubcommand) -> anyh
 }
 
 pub(crate) fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Result<i32> {
-    let (cli, compat_workspace) = single_module_mooncake_cli(cli, "publish")?;
+    let cli = single_module_mooncake_cli(cli, "publish")?;
     execute_cli(
         cli,
         MooncakeSubcommands::Publish(cmd),
         &["--read-args-from-stdin"],
         "publish",
-    )?;
-    drop(compat_workspace);
-    Ok(0)
+    )
 }
 
 pub(crate) fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow::Result<i32> {
-    let (cli, compat_workspace) = single_module_mooncake_cli(cli, "package")?;
+    let cli = single_module_mooncake_cli(cli, "package")?;
     execute_cli(
         cli,
         MooncakeSubcommands::Package(cmd),
         &["--read-args-from-stdin"],
         "package",
-    )?;
-    drop(compat_workspace);
-    Ok(0)
+    )
 }
 
 fn single_module_mooncake_cli(
     mut cli: UniversalFlags,
     command: &str,
-) -> anyhow::Result<(UniversalFlags, Option<LegacyWorkspaceCompatFile>)> {
+) -> anyhow::Result<UniversalFlags> {
     let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
     let module_dir = dirs.require_module_dir(command)?;
-    let compat_workspace = LegacyWorkspaceCompatFile::ensure_for_workspace(&dirs.project_root)?;
     cli.source_tgt_dir.cwd = None;
     cli.source_tgt_dir.manifest_path = Some(module_dir.join(MOON_MOD_JSON));
-    Ok((cli, compat_workspace))
+    Ok(cli)
 }
 
-struct LegacyWorkspaceCompatFile {
-    path: PathBuf,
-}
+#[cfg(test)]
+mod tests {
+    use super::single_module_mooncake_cli;
+    use moonutil::{
+        cli::UniversalFlags,
+        common::{MOON_MOD_JSON, MOON_WORK_JSON},
+        dirs::SourceTargetDirs,
+    };
+    use std::path::Path;
 
-impl LegacyWorkspaceCompatFile {
-    fn ensure_for_workspace(project_root: &std::path::Path) -> anyhow::Result<Option<Self>> {
-        let dsl_path = project_root.join(MOON_WORK);
-        let legacy_path = project_root.join(MOON_WORK_JSON);
-        if !dsl_path.exists() || legacy_path.exists() {
-            return Ok(None);
+    fn write_file(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
         }
-
-        let Some(workspace) = read_workspace(project_root)? else {
-            return Ok(None);
-        };
-        write_workspace_legacy_json(project_root, &workspace)?;
-        Ok(Some(Self { path: legacy_path }))
+        std::fs::write(path, content).unwrap();
     }
-}
 
-impl Drop for LegacyWorkspaceCompatFile {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+    #[test]
+    fn single_module_mooncake_cli_does_not_emit_legacy_workspace_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let member = root.join("app");
+        write_file(&root.join("moon.work"), "members = [\n  \"./app\",\n]\n");
+        write_file(
+            &member.join(MOON_MOD_JSON),
+            "{\n  \"name\": \"alice/app\",\n  \"version\": \"0.1.0\"\n}\n",
+        );
+
+        let cli = UniversalFlags {
+            source_tgt_dir: SourceTargetDirs {
+                cwd: None,
+                manifest_path: Some(member.join(MOON_MOD_JSON)),
+                target_dir: None,
+            },
+            quiet: false,
+            verbose: false,
+            trace: false,
+            dry_run: false,
+            build_graph: false,
+            unstable_feature: Box::default(),
+        };
+
+        let cli = single_module_mooncake_cli(cli, "package").unwrap();
+        let expected_manifest_path = member.join(MOON_MOD_JSON).canonicalize().unwrap();
+        let actual_manifest_path = cli
+            .source_tgt_dir
+            .manifest_path
+            .as_ref()
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+
+        assert_eq!(cli.source_tgt_dir.cwd, None);
+        assert_eq!(actual_manifest_path, expected_manifest_path);
+        assert!(!root.join(MOON_WORK_JSON).exists());
     }
 }
