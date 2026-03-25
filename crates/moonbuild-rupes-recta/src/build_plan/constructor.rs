@@ -23,7 +23,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     ResolveOutput,
     build_plan::{FileDependencyKind, InputDirective},
-    model::{BuildPlanNode, BuildTarget},
+    model::{BuildPlanNode, BuildTarget, PackageId},
     prebuild::PrebuildOutput,
 };
 use indexmap::IndexMap;
@@ -46,6 +46,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     /// Currently pending nodes that need to be processed.
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
+    pub(super) warned_missing_supported_targets: HashSet<PackageId>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
@@ -70,6 +71,7 @@ impl<'a> BuildPlanConstructor<'a> {
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
+            warned_missing_supported_targets: HashSet::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),
         }

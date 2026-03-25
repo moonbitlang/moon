@@ -55,6 +55,11 @@ pub struct DiscoveredPackage {
     pub raw: Box<MoonPkg>,
     /// How backend `supported_targets` was declared in package config.
     pub supported_targets_decl: SupportedTargetsDeclKind,
+    /// Effective backend support used by build planning and backend checks.
+    ///
+    /// This is the package-supported targets intersected with the containing
+    /// module's supported targets.
+    pub effective_supported_targets: indexmap::IndexSet<TargetBackend>,
 
     /// `.mbt` files contained by this package. This list contains absolute
     /// paths of the files. The same applies to all other file lists below.

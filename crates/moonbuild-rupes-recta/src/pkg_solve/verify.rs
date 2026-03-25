@@ -22,6 +22,7 @@ use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use indexmap::IndexSet;
 use log::debug;
+use moonutil::common::TargetBackend;
 use petgraph::visit::IntoNodeIdentifiers;
 
 use crate::{
@@ -45,9 +46,8 @@ pub(super) fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result
 
     let mut errs = vec![];
 
-    match verify_no_loop(packages, dep) {
-        Ok(()) => {}
-        Err(e) => errs.push(e),
+    if let Err(e) = verify_no_loop(packages, dep) {
+        errs.push(e);
     }
     debug!("Done loop verification");
 
@@ -64,6 +64,41 @@ pub(super) fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result
     } else {
         Err(SolveError::Multiple(MultipleError(errs)))
     }
+}
+
+/// Compute per-target realizable backend support.
+///
+/// `verify` must run first so the graph is guaranteed to have no import loops.
+pub(super) fn compute_realizable_supported_targets(
+    dep: &DepRelationship,
+    packages: &DiscoverResult,
+) -> HashMap<BuildTarget, IndexSet<TargetBackend>> {
+    let graph = &dep.dep_graph;
+    let mut topo = petgraph::visit::Topo::new(graph);
+    let mut topo_order = Vec::new();
+    while let Some(node) = topo.next(graph) {
+        topo_order.push(node);
+    }
+
+    let mut realizable_supported_targets = HashMap::new();
+    for node in topo_order.into_iter().rev() {
+        let mut realizable = packages
+            .get_package(node.package)
+            .effective_supported_targets
+            .clone();
+        for dep_target in graph.neighbors(node) {
+            let dep_realizable: &IndexSet<TargetBackend> = realizable_supported_targets
+                .get(&dep_target)
+                .expect("dependency target should be resolved before dependent");
+            realizable.retain(|backend| dep_realizable.contains(backend));
+            if realizable.is_empty() {
+                break;
+            }
+        }
+        realizable_supported_targets.insert(node, realizable);
+    }
+
+    realizable_supported_targets
 }
 
 /// Verify there's no loops within the dependency graph. If there's any import

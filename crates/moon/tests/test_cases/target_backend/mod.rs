@@ -285,6 +285,27 @@ fn test_supported_targets_transitive_mismatch_fails_fast() {
 }
 
 #[test]
+fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
+    let dir = TestDir::new("supported_targets_virtual_root_mismatch.in");
+
+    let check_err = get_err_stderr(&dir, ["check", "virtual", "--target", "js", "--dry-run"]);
+    assert!(check_err.contains("incompatible with the dependency graph"));
+    assert!(
+        check_err
+            .contains("'supported/virtual-root/virtual' requires 'supported/virtual-root/lib'")
+    );
+    assert!(check_err.contains("supports [native]"));
+
+    let build_err = get_err_stderr(&dir, ["build", "virtual", "--target", "js", "--dry-run"]);
+    assert!(build_err.contains("incompatible with the dependency graph"));
+    assert!(
+        build_err
+            .contains("'supported/virtual-root/virtual' requires 'supported/virtual-root/lib'")
+    );
+    assert!(build_err.contains("supports [native]"));
+}
+
+#[test]
 fn test_missing_supported_targets_root_warns_when_dep_declares() {
     let dir = TestDir::new("supported_targets_missing_root_warning.in");
     let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);

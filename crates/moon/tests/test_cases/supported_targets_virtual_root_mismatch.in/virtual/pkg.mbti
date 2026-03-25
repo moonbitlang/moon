@@ -1,0 +1,3 @@
+package "supported/virtual-root/virtual"
+
+fn marker() -> Unit
