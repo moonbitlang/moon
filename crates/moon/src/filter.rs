@@ -287,7 +287,10 @@ pub(crate) fn report_package_not_found(
     )
 }
 
-fn format_supported_backends(resolve_output: &ResolveOutput, pkg_id: PackageId) -> String {
+pub(crate) fn format_supported_backends(
+    resolve_output: &ResolveOutput,
+    pkg_id: PackageId,
+) -> String {
     let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
     let mut targets = pkg
         .raw
