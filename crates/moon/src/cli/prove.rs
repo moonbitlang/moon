@@ -212,14 +212,52 @@ fn selected_main_module_id(
     }
 }
 
+struct SolverSpec {
+    name: &'static str,
+    binary: &'static str,
+    env_var: &'static str,
+}
+
+/// Supported solvers in alphabetical order (controls `[partial_prover]` section ordering).
+const SOLVER_SPECS: &[SolverSpec] = &[
+    SolverSpec {
+        name: "Alt-Ergo",
+        binary: "alt-ergo",
+        env_var: "ALTERGOPATH",
+    },
+    SolverSpec {
+        name: "CVC4",
+        binary: "cvc4",
+        env_var: "CVC4PATH",
+    },
+    SolverSpec {
+        name: "CVC5",
+        binary: "cvc5",
+        env_var: "CVC5PATH",
+    },
+    SolverSpec {
+        name: "Z3",
+        binary: "z3",
+        env_var: "Z3PATH",
+    },
+];
+
+/// Priority order for strategy lines (differs from alphabetical).
+const STRATEGY_ORDER: &[&str] = &["Alt-Ergo", "Z3", "CVC5", "CVC4"];
+
+#[derive(Debug)]
+struct DetectedSolver {
+    name: &'static str,
+    path: String,
+    version: String,
+}
+
 fn ensure_why3_config(path: &Path) -> anyhow::Result<()> {
     if path.exists() {
         return Ok(());
     }
 
-    let z3_path = resolve_z3_path()?;
-    let z3_path = z3_path.to_string_lossy().into_owned();
-    let version = detect_z3_version(&z3_path)?;
+    let solvers = detect_solvers()?;
 
     let parent = path
         .parent()
@@ -231,73 +269,141 @@ fn ensure_why3_config(path: &Path) -> anyhow::Result<()> {
         )
     })?;
 
-    let config = format!(
-        r#"[main]
-magic = 14
-memlimit = 1000
-running_provers_max = 16
-timelimit = 5.000000
-
-[partial_prover]
-name = "Z3"
-path = "{z3_path}"
-version = "{version}"
-
-[strategy]
-code = "start:
-c Z3,{version} .2 1000
-c Z3,{version} 1 1000
-t compute_specified start
-t split_vc start
-c Z3,{version} 2 4000
-"
-desc = "Automatic@ run@ of@ Z3@ and@ most@ useful@ transformations"
-name = "MoonBit_Auto"
-shortcut = "4"
-"#,
-        z3_path = z3_path,
-        version = version,
-    );
+    let config = generate_why3_config(&solvers);
 
     std::fs::write(path, config)
         .with_context(|| format!("failed to write why3 config to `{}`", path.display()))?;
     Ok(())
 }
 
-fn resolve_z3_path() -> anyhow::Result<PathBuf> {
-    if let Ok(path) = which::which("z3") {
-        return Ok(path);
+fn detect_solvers() -> anyhow::Result<Vec<DetectedSolver>> {
+    let solvers: Vec<DetectedSolver> = SOLVER_SPECS.iter().filter_map(try_detect_solver).collect();
+
+    if solvers.is_empty() {
+        bail!(
+            "failed to locate any SMT solver for `moon prove`: \
+             searched for `alt-ergo`, `cvc4`, `cvc5`, `z3` in PATH. \
+             You can also set ALTERGOPATH, CVC4PATH, CVC5PATH, or Z3PATH. \
+             Install at least one of: Alt-Ergo, CVC4, CVC5, Z3."
+        );
     }
 
-    if let Some(path) = std::env::var_os("Z3PATH").filter(|path| !path.is_empty()) {
-        return Ok(PathBuf::from(path));
-    }
-
-    bail!(
-        "failed to locate z3 for `moon prove`: searched for `z3` in PATH and `Z3PATH` is not set. Install `z3` or set `Z3PATH=/path/to/z3`"
-    );
+    Ok(solvers)
 }
 
-fn detect_z3_version(z3_path: &str) -> anyhow::Result<String> {
-    let output = std::process::Command::new(z3_path)
+fn try_detect_solver(spec: &SolverSpec) -> Option<DetectedSolver> {
+    let path = which::which(spec.binary).ok().or_else(|| {
+        std::env::var_os(spec.env_var)
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from)
+    })?;
+    let path_str = path.to_string_lossy().into_owned();
+
+    let output = std::process::Command::new(&path)
         .arg("--version")
         .output()
-        .with_context(|| format!("failed to execute `{z3_path} --version`"))?;
+        .ok()?;
     if !output.status.success() {
-        bail!("`{z3_path} --version` exited with status {}", output.status);
+        tracing::warn!(
+            "{} at `{}`: `--version` exited with status {}",
+            spec.name,
+            path_str,
+            output.status
+        );
+        return None;
     }
 
-    let stdout = String::from_utf8(output.stdout)
-        .with_context(|| format!("`{z3_path} --version` did not emit valid UTF-8"))?;
-    let version =
-        parse_z3_version(&stdout).context("failed to parse Z3 version from `--version` output")?;
-    Ok(version.to_string())
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let version = parse_solver_version(&stdout)?;
+
+    Some(DetectedSolver {
+        name: spec.name,
+        path: path_str,
+        version: version.to_string(),
+    })
 }
 
-fn parse_z3_version(stdout: &str) -> Option<&str> {
+fn generate_why3_config(solvers: &[DetectedSolver]) -> String {
+    let mut config = String::from(
+        "[main]\n\
+         magic = 14\n\
+         memlimit = 1000\n\
+         running_provers_max = 16\n\
+         timelimit = 5.000000\n",
+    );
+
+    for solver in solvers {
+        config.push_str(&format!(
+            "\n[partial_prover]\n\
+             name = \"{}\"\n\
+             path = \"{}\"\n\
+             version = \"{}\"\n",
+            solver.name, solver.path, solver.version,
+        ));
+    }
+
+    let strategy = generate_strategy(solvers);
+    config.push_str(&format!(
+        "\n[strategy]\n\
+         code = \"start:\n\
+         {strategy}\
+         \"\n\
+         desc = \"Automatic@ run@ of@ provers@ and@ most@ useful@ transformations\"\n\
+         name = \"MoonBit_Auto\"\n\
+         shortcut = \"4\"\n",
+    ));
+
+    config
+}
+
+fn generate_strategy(solvers: &[DetectedSolver]) -> String {
+    // Order solvers by STRATEGY_ORDER, filtering to those actually detected.
+    let ordered: Vec<&DetectedSolver> = STRATEGY_ORDER
+        .iter()
+        .filter_map(|&name| solvers.iter().find(|s| s.name == name))
+        .collect();
+
+    let solver_ref = |s: &DetectedSolver| format!("{},{}", s.name, s.version);
+    let mut strategy = String::new();
+
+    // Stage 1: Quick sequential attempts (0.2s, 1000 steps)
+    for s in &ordered {
+        strategy.push_str(&format!("c {} .2 1000\n", solver_ref(s)));
+    }
+
+    // Stage 2: Parallel medium attempts (1s, 1000 steps)
+    let medium: Vec<String> = ordered
+        .iter()
+        .map(|s| format!("c {} 1 1000", solver_ref(s)))
+        .collect();
+    strategy.push_str(&medium.join(" | "));
+    strategy.push('\n');
+
+    // Stage 3: Transformations
+    strategy.push_str("t compute_specified start\n");
+    strategy.push_str("t split_vc start\n");
+
+    // Stage 4: Parallel long attempts (2s, 4000 steps)
+    let long: Vec<String> = ordered
+        .iter()
+        .map(|s| format!("c {} 2 4000", solver_ref(s)))
+        .collect();
+    strategy.push_str(&long.join(" | "));
+    strategy.push('\n');
+
+    strategy
+}
+
+fn parse_solver_version(stdout: &str) -> Option<&str> {
     stdout
         .split_whitespace()
         .map(|token| token.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.'))
+        .map(|token| {
+            token
+                .strip_prefix('v')
+                .or(token.strip_prefix('V'))
+                .unwrap_or(token)
+        })
         .find(|token| {
             !token.is_empty()
                 && token.chars().next().is_some_and(|c| c.is_ascii_digit())
@@ -529,4 +635,138 @@ fn display_path(workspace_root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .display()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_solver_version_z3() {
+        assert_eq!(
+            parse_solver_version("Z3 version 4.15.3 - 64 bit"),
+            Some("4.15.3")
+        );
+    }
+
+    #[test]
+    fn test_parse_solver_version_alt_ergo() {
+        assert_eq!(parse_solver_version("v2.6.2"), Some("2.6.2"));
+    }
+
+    #[test]
+    fn test_parse_solver_version_cvc4() {
+        assert_eq!(
+            parse_solver_version("This is CVC4 version 1.8\ncompiled with GCC"),
+            Some("1.8")
+        );
+    }
+
+    #[test]
+    fn test_parse_solver_version_cvc5() {
+        assert_eq!(
+            parse_solver_version("This is cvc5 version 1.3.1\ncompiled with GCC"),
+            Some("1.3.1")
+        );
+    }
+
+    #[test]
+    fn test_parse_solver_version_empty() {
+        assert_eq!(parse_solver_version(""), None);
+    }
+
+    #[test]
+    fn test_parse_solver_version_no_version() {
+        assert_eq!(parse_solver_version("no version here"), None);
+    }
+
+    fn make_solver(name: &'static str, path: &str, version: &str) -> DetectedSolver {
+        DetectedSolver {
+            name,
+            path: path.to_string(),
+            version: version.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_generate_strategy_single_solver() {
+        let solvers = vec![make_solver("Z3", "/usr/bin/z3", "4.15.3")];
+        let strategy = generate_strategy(&solvers);
+        assert_eq!(
+            strategy,
+            "c Z3,4.15.3 .2 1000\n\
+             c Z3,4.15.3 1 1000\n\
+             t compute_specified start\n\
+             t split_vc start\n\
+             c Z3,4.15.3 2 4000\n"
+        );
+    }
+
+    #[test]
+    fn test_generate_strategy_two_solvers() {
+        let solvers = vec![
+            make_solver("CVC5", "/usr/bin/cvc5", "1.3.1"),
+            make_solver("Z3", "/usr/bin/z3", "4.15.3"),
+        ];
+        let strategy = generate_strategy(&solvers);
+        assert_eq!(
+            strategy,
+            "c Z3,4.15.3 .2 1000\n\
+             c CVC5,1.3.1 .2 1000\n\
+             c Z3,4.15.3 1 1000 | c CVC5,1.3.1 1 1000\n\
+             t compute_specified start\n\
+             t split_vc start\n\
+             c Z3,4.15.3 2 4000 | c CVC5,1.3.1 2 4000\n"
+        );
+    }
+
+    #[test]
+    fn test_generate_strategy_all_solvers() {
+        let solvers = vec![
+            make_solver("Alt-Ergo", "/usr/bin/alt-ergo", "2.6.2"),
+            make_solver("CVC4", "/usr/bin/cvc4", "1.8"),
+            make_solver("CVC5", "/usr/bin/cvc5", "1.3.1"),
+            make_solver("Z3", "/usr/bin/z3", "4.15.3"),
+        ];
+        let strategy = generate_strategy(&solvers);
+        assert_eq!(
+            strategy,
+            "c Alt-Ergo,2.6.2 .2 1000\n\
+             c Z3,4.15.3 .2 1000\n\
+             c CVC5,1.3.1 .2 1000\n\
+             c CVC4,1.8 .2 1000\n\
+             c Alt-Ergo,2.6.2 1 1000 | c Z3,4.15.3 1 1000 | c CVC5,1.3.1 1 1000 | c CVC4,1.8 1 1000\n\
+             t compute_specified start\n\
+             t split_vc start\n\
+             c Alt-Ergo,2.6.2 2 4000 | c Z3,4.15.3 2 4000 | c CVC5,1.3.1 2 4000 | c CVC4,1.8 2 4000\n"
+        );
+    }
+
+    #[test]
+    fn test_generate_config_single_solver() {
+        let solvers = vec![make_solver("Z3", "/usr/bin/z3", "4.15.3")];
+        let config = generate_why3_config(&solvers);
+        assert!(config.contains("[partial_prover]\nname = \"Z3\""));
+        assert!(config.contains("name = \"MoonBit_Auto\""));
+        assert!(!config.contains("Alt-Ergo"));
+    }
+
+    #[test]
+    fn test_generate_config_all_solvers() {
+        let solvers = vec![
+            make_solver("Alt-Ergo", "/usr/bin/alt-ergo", "2.6.2"),
+            make_solver("CVC4", "/usr/bin/cvc4", "1.8"),
+            make_solver("CVC5", "/usr/bin/cvc5", "1.3.1"),
+            make_solver("Z3", "/usr/bin/z3", "4.15.3"),
+        ];
+        let config = generate_why3_config(&solvers);
+        // All partial_prover sections present in alphabetical order
+        let alt_ergo_pos = config.find("name = \"Alt-Ergo\"").unwrap();
+        let cvc4_pos = config.find("name = \"CVC4\"").unwrap();
+        let cvc5_pos = config.find("name = \"CVC5\"").unwrap();
+        let z3_pos = config.find("name = \"Z3\"").unwrap();
+        assert!(alt_ergo_pos < cvc4_pos);
+        assert!(cvc4_pos < cvc5_pos);
+        assert!(cvc5_pos < z3_pos);
+    }
 }
