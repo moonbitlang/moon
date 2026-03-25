@@ -1,5 +1,5 @@
 use super::*;
-use moonutil::common::MBTI_GENERATED;
+use moonutil::{common::MBTI_GENERATED, dirs::MOON_NO_WORKSPACE};
 
 fn assert_requires_target_module(stderr: &str, command: &str) {
     assert!(
@@ -567,6 +567,18 @@ fn test_single_module_commands_from_member_dir_target_member_manifest() {
 }
 
 #[test]
+fn test_member_dir_can_disable_implicit_workspace_mode() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["-C", "app", "build", "--dry-run"],
+        [(MOON_NO_WORKSPACE, "1")],
+    );
+    assert_registry_resolution_failure(&stderr);
+}
+
+#[test]
 fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
     let dir = TestDir::new("workspace_basic.in");
 
@@ -628,6 +640,37 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
               "deps": {},
               "source": "src"
             }"#]],
+    );
+}
+
+#[test]
+fn test_manifest_path_can_disable_implicit_workspace_mode() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["--manifest-path", "app/moon.mod.json", "build", "--dry-run"],
+        [(MOON_NO_WORKSPACE, "1")],
+    );
+    assert_registry_resolution_failure(&stderr);
+}
+
+#[test]
+fn test_workspace_root_keeps_workspace_mode_with_env_override() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["build", "--dry-run", "--sort-input"],
+        [(MOON_NO_WORKSPACE, "1")],
+    );
+    assert!(
+        stdout.contains("./liba/src/lib/lib.mbt"),
+        "expected workspace-root build to keep the workspace member graph, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-workspace-path ./app"),
+        "expected workspace-root build to keep workspace-aware package layout, got:\n{stdout}"
     );
 }
 
