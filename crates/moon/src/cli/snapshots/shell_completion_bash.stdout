@@ -2007,7 +2007,7 @@ _moon() {
             return 0
             ;;
         moon__info)
-            opts="-p -q -v -h --frozen --no-alias --target --package --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-p -q -v -h --frozen --no-alias --target --package --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
