@@ -546,7 +546,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let workspace_root = temp.path().join("workspace");
         std::fs::create_dir_all(&workspace_root).unwrap();
-        write_file(&workspace_root.join(MOON_WORK), "{ \"use\": [\"./app\"] }");
+        write_file(
+            &workspace_root.join(MOON_WORK),
+            "members = [\n  \"./app\",\n]\n",
+        );
         write_file(
             &workspace_root.join("app").join(MOON_MOD_JSON),
             "{ \"name\": \"workspace/app\", \"version\": \"0.1.0\" }",
@@ -578,7 +581,7 @@ mod tests {
 
         write_file(
             &workspace_root.join(MOON_WORK),
-            "{ \"use\": [\"../external/app\"] }",
+            "members = [\n  \"../external/app\",\n]\n",
         );
         write_file(
             &external_module.join(MOON_MOD_JSON),

@@ -10,6 +10,14 @@ fn assert_requires_target_module(stderr: &str, command: &str) {
     );
 }
 
+fn assert_registry_resolution_failure(stderr: &str) {
+    assert!(
+        stderr
+            .contains("Failed to resolve registry dependency `alice/liba` for module `alice/app`"),
+        "expected registry dependency resolution failure, got:\n{stderr}"
+    );
+}
+
 #[test]
 fn test_workspace_commands() {
     let dir = TestDir::new("workspace_basic.in");
@@ -47,6 +55,7 @@ fn test_workspace_commands() {
         check(
             get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
             expect![[r#"
+                moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
                 moonfmt ./liba/src/lib/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg
                 cmd /c copy ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg ./liba/src/lib/moon.pkg
                 cmd /c del ./liba/src/lib/moon.pkg.json
@@ -63,6 +72,7 @@ fn test_workspace_commands() {
         check(
             get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
             expect![[r#"
+                moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
                 moonfmt ./liba/src/lib/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg
                 cp ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg ./liba/src/lib/moon.pkg
                 rm ./liba/src/lib/moon.pkg.json
@@ -319,23 +329,23 @@ fn test_work_init_creates_empty_workspace() {
     check(
         get_stdout(&dir, ["work", "init"]),
         expect![[r#"
-            Created moon.work.json
+            Created moon.work
         "#]],
     );
 
     check(
-        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
         expect![[r#"
-            {
-              "use": []
-            }"#]],
+            members = []
+        "#]],
     );
 }
 
 #[test]
-fn test_work_use_updates_workspace_members() {
+fn test_work_use_reads_legacy_workspace_and_writes_moon_work() {
     let dir = TestDir::new("workspace_basic.in");
 
+    std::fs::remove_file(dir.join("moon.work")).unwrap();
     std::fs::write(
         dir.join("moon.work.json"),
         r#"{
@@ -350,7 +360,18 @@ fn test_work_use_updates_workspace_members() {
     check(
         get_stdout(&dir, ["work", "use", "app"]),
         expect![[r#"
-            Updated moon.work.json
+            Updated moon.work
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
+        expect![[r#"
+            members = [
+              "./liba",
+              "./app",
+            ]
+            preferred_target = "wasm-gc"
         "#]],
     );
 
@@ -358,11 +379,10 @@ fn test_work_use_updates_workspace_members() {
         std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
         expect![[r#"
             {
+              "preferred-target": "wasm-gc",
               "use": [
-                "./liba",
-                "./app"
-              ],
-              "preferred-target": "wasm-gc"
+                "./liba"
+              ]
             }"#]],
     );
 }
@@ -382,7 +402,7 @@ fn test_work_sync_ignores_unrelated_ancestor_workspace() {
 
     let stderr = get_err_stderr(&dir, ["-C", "extra", "work", "sync"]);
 
-    assert!(stderr.contains("`moon work sync` requires `moon.work.json`"));
+    assert!(stderr.contains("`moon work sync` requires `moon.work` or `moon.work.json`"));
 }
 
 #[test]
@@ -401,30 +421,27 @@ fn test_work_use_ignores_unrelated_ancestor_workspace() {
     check(
         get_stdout(&dir, ["-C", "extra", "work", "use", "."]),
         expect![[r#"
-            Created moon.work.json
+            Created moon.work
         "#]],
     );
 
     check(
-        std::fs::read_to_string(dir.join("extra/moon.work.json")).unwrap(),
+        std::fs::read_to_string(dir.join("extra/moon.work")).unwrap(),
         expect![[r#"
-            {
-              "use": [
-                "."
-              ]
-            }"#]],
+            members = [
+              ".",
+            ]
+        "#]],
     );
 
     check(
-        std::fs::read_to_string(dir.join("moon.work.json")).unwrap(),
+        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
         expect![[r#"
-            {
-              "preferred-target": "wasm-gc",
-              "use": [
-                "./app",
-                "./liba"
-              ]
-            }
+            members = [
+              "./app",
+              "./liba",
+            ]
+            preferred_target = "wasm-gc"
         "#]],
     );
 }
@@ -441,11 +458,12 @@ fn test_workspace_commands_find_ancestor_workspace_from_nested_non_module_dir() 
 fn test_work_use_reuses_ancestor_workspace_from_nested_non_module_dir() {
     let dir = TestDir::new("workspace_basic.in");
     std::fs::create_dir_all(dir.join("tools")).unwrap();
+    std::fs::write(dir.join("moon.work.json"), r#"{ "use": ["./liba"] }"#).unwrap();
 
     check(
         get_stdout(&dir, ["-C", "tools", "work", "use", "../app"]),
         expect![[r#"
-            moon.work.json is already up to date
+            moon.work is already up to date
         "#]],
     );
 }
@@ -492,7 +510,7 @@ fn test_work_sync_requires_workspace() {
     let dir = TestDir::new("hello");
     let stderr = get_err_stderr(&dir, ["work", "sync"]);
 
-    assert!(stderr.contains("`moon work sync` requires `moon.work.json`"));
+    assert!(stderr.contains("`moon work sync` requires `moon.work` or `moon.work.json`"));
 }
 
 #[test]
@@ -567,14 +585,11 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
         "expected add command to target app module, got:\n{stderr}"
     );
 
-    let stderr = get_stderr(
+    let stderr = get_err_stderr(
         &dir,
         ["--manifest-path", "app/moon.mod.json", "package", "--list"],
     );
-    assert!(
-        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
-        "expected package command to target app module, got:\n{stderr}"
-    );
+    assert_registry_resolution_failure(&stderr);
 
     check(
         std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
@@ -620,11 +635,8 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
 fn test_package_targets_workspace_member_from_member_dir() {
     let dir = TestDir::new("workspace_basic.in");
 
-    let stderr = get_stderr(&dir, ["-C", "app", "package", "--list"]);
-    assert!(
-        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
-        "expected package command to target app module, got:\n{stderr}"
-    );
+    let stderr = get_err_stderr(&dir, ["-C", "app", "package", "--list"]);
+    assert_registry_resolution_failure(&stderr);
 }
 
 #[test]

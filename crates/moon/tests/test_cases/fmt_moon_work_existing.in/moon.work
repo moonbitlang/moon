@@ -1,0 +1,2 @@
+members=["./app"]
+preferred_target="wasm-gc"

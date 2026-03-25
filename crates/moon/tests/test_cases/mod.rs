@@ -55,6 +55,7 @@ mod filter_by_path;
 mod fmt;
 mod fmt_ignore;
 mod fmt_moon_pkg;
+mod fmt_moon_work;
 mod fmt_path;
 mod fuzzy_matching;
 mod hello;

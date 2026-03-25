@@ -43,7 +43,8 @@ use std::str::FromStr;
 
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
-pub const MOON_WORK: &str = "moon.work.json";
+pub const MOON_WORK: &str = "moon.work";
+pub const MOON_WORK_JSON: &str = "moon.work.json";
 pub const MOON_PKG: &str = "moon.pkg";
 pub const MBTI_GENERATED: &str = "pkg.generated.mbti";
 pub const MBTI_USER_WRITTEN: &str = "pkg.mbti";
@@ -109,6 +110,10 @@ pub fn is_moon_pkg(filename: &str) -> bool {
     filename == MOON_PKG || filename == MOON_PKG_JSON
 }
 
+pub fn is_moon_work(filename: &str) -> bool {
+    filename == MOON_WORK || filename == MOON_WORK_JSON
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PackageSourceFileKind {
     Mbt,
@@ -138,7 +143,7 @@ pub fn is_watch_relevant_project_file(filename: &str) -> bool {
     package_source_file_kind(filename).is_some()
         || is_moon_pkg(filename)
         || filename == MOON_MOD_JSON
-        || filename == MOON_WORK
+        || is_moon_work(filename)
 }
 
 #[test]
@@ -169,6 +174,7 @@ fn package_source_file_kind_detects_supported_package_inputs() {
 #[test]
 fn watch_relevant_project_file_covers_sources_and_manifests() {
     assert!(is_watch_relevant_project_file("moon.mod.json"));
+    assert!(is_watch_relevant_project_file("moon.work"));
     assert!(is_watch_relevant_project_file("moon.work.json"));
     assert!(is_watch_relevant_project_file("moon.pkg"));
     assert!(is_watch_relevant_project_file("moon.pkg.json"));

@@ -1,7 +1,0 @@
-{
-  "preferred-target": "wasm-gc",
-  "use": [
-    "./app",
-    "./liba"
-  ]
-}

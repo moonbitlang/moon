@@ -33,7 +33,7 @@
 use log::*;
 use std::{collections::HashSet, path::Path};
 
-use moonutil::common::{MOON_PKG, MOON_PKG_JSON};
+use moonutil::common::{MOON_PKG, MOON_PKG_JSON, MOON_WORK, MOON_WORK_JSON};
 use n2::graph::Build;
 
 use crate::{
@@ -51,7 +51,7 @@ pub type FmtResolveOutput = DiscoveredLocalProject;
 /// Perform a barebones, faked resolving process for `moon fmt`.
 ///
 /// This supports either a single module rooted at `source_dir` or a workspace
-/// rooted there via `moon.work.json`.
+/// rooted there via `moon.work` or legacy `moon.work.json`.
 pub fn resolve_for_fmt(source_dir: &Path) -> Result<FmtResolveOutput, ResolveError> {
     info!(
         "Resolving formatter environment for {}",
@@ -75,6 +75,9 @@ pub struct FmtConfig {
 
     /// Migrate moon.pkg.json to moon.pkg when only the JSON file exists.
     pub migrate_moon_pkg_json: bool,
+
+    /// Migrate moon.work.json to moon.work when only the JSON file exists.
+    pub migrate_moon_work_json: bool,
 }
 
 /// Generate the necessary build graph for the formatter operation.
@@ -84,6 +87,7 @@ pub struct FmtConfig {
 pub fn build_graph_for_fmt(
     resolved: &FmtResolveOutput,
     cfg: &FmtConfig,
+    source_dir: &Path,
     target_dir: &Path,
     selected_packages: &[PackageId],
 ) -> anyhow::Result<n2::graph::Graph> {
@@ -111,6 +115,8 @@ pub fn build_graph_for_fmt(
     let mut package_count = 0;
     let selected_packages = (!selected_packages.is_empty())
         .then(|| selected_packages.iter().copied().collect::<HashSet<_>>());
+    let has_workspace_manifest =
+        selected_packages.is_none() && format_workspace_node(&mut graph, cfg, &layout, source_dir)?;
 
     for &module_id in &resolved.root_module_ids {
         let Some(packages) = resolved.pkg_dirs.packages_for_module(module_id) else {
@@ -131,11 +137,65 @@ pub fn build_graph_for_fmt(
         }
     }
 
-    if package_count == 0 {
+    if package_count == 0 && !has_workspace_manifest {
         anyhow::bail!("No packages found in workspace to format");
     }
 
     Ok(graph)
+}
+
+fn format_workspace_node(
+    graph: &mut n2::graph::Graph,
+    cfg: &FmtConfig,
+    layout: &LegacyLayout,
+    source_dir: &Path,
+) -> anyhow::Result<bool> {
+    let moon_work = source_dir.join(MOON_WORK);
+    let moon_work_json = source_dir.join(MOON_WORK_JSON);
+
+    let has_dsl = moon_work.exists();
+    let has_json = moon_work_json.exists();
+
+    if !has_dsl && !has_json {
+        debug!(
+            "Skipping moon.work formatting for {} - no workspace file exists",
+            source_dir.display()
+        );
+        return Ok(false);
+    }
+
+    let target_moon_work = layout.format_root_artifact_path(std::ffi::OsStr::new(MOON_WORK));
+
+    if has_dsl && has_json {
+        warn!(
+            "Both {} and {} exist at workspace root '{}', using the new format {}. Please remove the deprecated {}.",
+            MOON_WORK_JSON,
+            MOON_WORK,
+            source_dir.display(),
+            MOON_WORK,
+            MOON_WORK_JSON
+        );
+        format_moon_work_dsl(graph, cfg, &moon_work, &target_moon_work)?;
+    } else if has_dsl {
+        format_moon_work_dsl(graph, cfg, &moon_work, &target_moon_work)?;
+    } else if cfg.migrate_moon_work_json {
+        format_moon_work_json_migrate(
+            graph,
+            cfg,
+            &moon_work_json,
+            &target_moon_work,
+            &moon_work,
+            source_dir,
+        )?;
+    } else {
+        debug!(
+            "Skipping moon.work.json migration for {} - feature disabled",
+            source_dir.display()
+        );
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 fn build_for_package(
@@ -250,6 +310,170 @@ fn format_node(
         build.can_dirty_on_output = true;
     }
     graph.add_build(build)?;
+    Ok(())
+}
+
+fn format_moon_work_dsl(
+    graph: &mut n2::graph::Graph,
+    cfg: &FmtConfig,
+    moon_work: &std::path::Path,
+    target_moon_work: &std::path::Path,
+) -> anyhow::Result<()> {
+    if cfg.check_only || cfg.warn_only {
+        let mut cmd = vec![
+            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            "tool".into(),
+            "format-workspace".into(),
+            "--old".into(),
+            moon_work.to_string_lossy().into_owned(),
+            "--new".into(),
+            target_moon_work.to_string_lossy().into_owned(),
+            "--check".into(),
+        ];
+        if cfg.warn_only {
+            cmd.pop();
+            cmd.push("--warn".into());
+        }
+
+        let ins = build_ins(graph, [moon_work]);
+        let outs = build_outs(graph, [target_moon_work]);
+        let mut build = Build::new(build_n2_fileloc("check moon.work format"), ins, outs);
+        build.cmdline = Some(moonutil::shlex::join_native(cmd.iter().map(|x| x.as_str())));
+        if cfg.warn_only {
+            build.can_dirty_on_output = true;
+        }
+        graph.add_build(build)?;
+    } else {
+        let fmt_cmd: Vec<String> = vec![
+            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            "tool".into(),
+            "format-workspace".into(),
+            "--old".into(),
+            moon_work.to_string_lossy().into_owned(),
+            "--write".into(),
+            "--new".into(),
+            target_moon_work.to_string_lossy().into_owned(),
+        ];
+
+        let ins = build_ins(graph, [moon_work]);
+        let outs = build_outs(graph, [target_moon_work.to_string_lossy().into_owned()]);
+        let mut build = Build::new(build_n2_fileloc("format moon.work"), ins, outs);
+        build.cmdline = Some(moonutil::shlex::join_native(
+            fmt_cmd.iter().map(|x| x.as_str()),
+        ));
+        graph.add_build(build)?;
+    }
+
+    Ok(())
+}
+
+fn format_moon_work_json_migrate(
+    graph: &mut n2::graph::Graph,
+    cfg: &FmtConfig,
+    moon_work_json: &std::path::Path,
+    target_moon_work: &std::path::Path,
+    moon_work: &std::path::Path,
+    source_dir: &Path,
+) -> anyhow::Result<()> {
+    warn!(
+        "Migrating to {} at workspace root '{}', deprecated {} is removed.",
+        MOON_WORK,
+        source_dir.display(),
+        MOON_WORK_JSON
+    );
+
+    if cfg.check_only || cfg.warn_only {
+        let mut cmd = vec![
+            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            "tool".into(),
+            "format-workspace".into(),
+            "--old".into(),
+            moon_work_json.to_string_lossy().into_owned(),
+            "--new".into(),
+            target_moon_work.to_string_lossy().into_owned(),
+            "--check".into(),
+        ];
+        if cfg.warn_only {
+            cmd.pop();
+            cmd.push("--warn".into());
+        }
+
+        let ins = build_ins(graph, [moon_work_json]);
+        let outs = build_outs(graph, [target_moon_work]);
+        let mut build = Build::new(
+            build_n2_fileloc("check moon.work.json migration"),
+            ins,
+            outs,
+        );
+        build.cmdline = Some(moonutil::shlex::join_native(cmd.iter().map(|x| x.as_str())));
+        if cfg.warn_only {
+            build.can_dirty_on_output = true;
+        }
+        graph.add_build(build)?;
+    } else {
+        let fmt_cmd: Vec<String> = vec![
+            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            "tool".into(),
+            "format-workspace".into(),
+            "--old".into(),
+            moon_work_json.to_string_lossy().into_owned(),
+            "--new".into(),
+            target_moon_work.to_string_lossy().into_owned(),
+        ];
+
+        let ins = build_ins(graph, [moon_work_json]);
+        let outs = build_outs(graph, [target_moon_work.to_string_lossy().into_owned()]);
+        let mut build = Build::new(build_n2_fileloc("format moon.work.json"), ins, outs);
+        build.cmdline = Some(moonutil::shlex::join_native(
+            fmt_cmd.iter().map(|x| x.as_str()),
+        ));
+        graph.add_build(build)?;
+
+        let cp_cmd: Vec<String> = if cfg!(windows) {
+            vec![
+                "cmd".into(),
+                "/c".into(),
+                "copy".into(),
+                target_moon_work.to_string_lossy().into_owned(),
+                moon_work.to_string_lossy().into_owned(),
+            ]
+        } else {
+            vec![
+                "cp".into(),
+                target_moon_work.to_string_lossy().into_owned(),
+                moon_work.to_string_lossy().into_owned(),
+            ]
+        };
+
+        let ins = build_ins(graph, [target_moon_work]);
+        let outs = build_outs(graph, [moon_work.to_string_lossy().into_owned()]);
+        let mut build = Build::new(build_n2_fileloc("copy moon.work"), ins, outs);
+        build.cmdline = Some(moonutil::shlex::join_native(
+            cp_cmd.iter().map(|x| x.as_str()),
+        ));
+        graph.add_build(build)?;
+
+        let rm_cmd: Vec<String> = if cfg!(windows) {
+            vec![
+                "cmd".into(),
+                "/c".into(),
+                "del".into(),
+                moon_work_json.to_string_lossy().into_owned(),
+            ]
+        } else {
+            vec!["rm".into(), moon_work_json.to_string_lossy().into_owned()]
+        };
+
+        let ins = build_ins(graph, [moon_work]);
+        let faked_rm_output = format!("{}.removed", moon_work_json.to_string_lossy());
+        let outs = build_outs(graph, [&faked_rm_output]);
+        let mut build = Build::new(build_n2_fileloc("remove moon.work.json"), ins, outs);
+        build.cmdline = Some(moonutil::shlex::join_native(
+            rm_cmd.iter().map(|x| x.as_str()),
+        ));
+        graph.add_build(build)?;
+    }
+
     Ok(())
 }
 

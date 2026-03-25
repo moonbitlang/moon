@@ -20,11 +20,13 @@ pub(crate) mod build_binary_dep;
 pub(crate) mod demangle;
 pub(crate) mod embed;
 pub(crate) mod format_and_diff;
+pub(crate) mod format_workspace;
 pub(crate) mod write_rsp_file;
 
 use demangle::*;
 use embed::*;
 use format_and_diff::*;
+use format_workspace::*;
 use moonutil::cli::UniversalFlags;
 use write_rsp_file::*;
 
@@ -37,6 +39,7 @@ pub(crate) struct ToolSubcommand {
 #[derive(Debug, clap::Parser)]
 pub(crate) enum ToolSubcommands {
     FormatAndDiff(FormatAndDiffSubcommand),
+    FormatWorkspace(FormatWorkspaceSubcommand),
     Embed(Embed),
     WriteTccRspFile(WriteTccRspFile),
     BuildBinaryDep(build_binary_dep::BuildBinaryDepArgs),
@@ -46,6 +49,7 @@ pub(crate) enum ToolSubcommands {
 pub(crate) fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Result<i32> {
     match cmd.subcommand {
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),
+        ToolSubcommands::FormatWorkspace(subcmd) => run_format_workspace(subcmd),
         ToolSubcommands::Embed(subcmd) => run_embed(subcmd),
         ToolSubcommands::WriteTccRspFile(subcmd) => write_tcc_rsp_file(subcmd),
         ToolSubcommands::BuildBinaryDep(subcmd) => {

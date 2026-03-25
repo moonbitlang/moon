@@ -125,3 +125,65 @@ fn single_module_mooncake_cli(
     cli.source_tgt_dir.manifest_path = Some(module_dir.join(MOON_MOD_JSON));
     Ok(cli)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::single_module_mooncake_cli;
+    use moonutil::{
+        cli::UniversalFlags,
+        common::{MOON_MOD_JSON, MOON_WORK_JSON},
+        dirs::SourceTargetDirs,
+    };
+    use std::path::Path;
+
+    fn write_file(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn single_module_mooncake_cli_does_not_emit_legacy_workspace_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let member = root.join("app");
+        write_file(&root.join("moon.work"), "members = [\n  \"./app\",\n]\n");
+        write_file(
+            &member.join(MOON_MOD_JSON),
+            "{\n  \"name\": \"alice/app\",\n  \"version\": \"0.1.0\"\n}\n",
+        );
+
+        let cli = UniversalFlags {
+            source_tgt_dir: SourceTargetDirs {
+                cwd: None,
+                manifest_path: Some(member.join(MOON_MOD_JSON)),
+                target_dir: None,
+            },
+            quiet: false,
+            verbose: false,
+            trace: false,
+            dry_run: false,
+            build_graph: false,
+            unstable_feature: Box::default(),
+        };
+
+        let cli = single_module_mooncake_cli(cli, "package").unwrap();
+        let actual_manifest_path = cli
+            .source_tgt_dir
+            .manifest_path
+            .as_ref()
+            .map(dunce::canonicalize)
+            .unwrap()
+            .unwrap();
+        let expected_manifest_path = member.join(MOON_MOD_JSON);
+
+        assert_eq!(cli.source_tgt_dir.cwd, None);
+        assert_eq!(
+            actual_manifest_path,
+            dunce::canonicalize(expected_manifest_path).unwrap()
+        );
+        assert_eq!(cli.source_tgt_dir.target_dir, None);
+        assert!(!root.join(MOON_WORK_JSON).exists());
+    }
+}

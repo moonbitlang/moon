@@ -369,6 +369,13 @@ impl LegacyLayout {
         result
     }
 
+    pub fn format_root_artifact_path(&self, filename: &OsStr) -> PathBuf {
+        let mut result = self.target_base_dir.clone();
+        self.push_opt_and_run_mode(TargetBackend::WasmGC, &mut result);
+        result.push(filename);
+        result
+    }
+
     pub fn generated_mbti_path(
         &self,
         pkg_list: &DiscoverResult,
