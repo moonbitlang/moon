@@ -969,6 +969,25 @@ _arguments "${_arguments_options[@]}" : \
 '*::args:' \
 && ret=0
 ;;
+(format-workspace)
+_arguments "${_arguments_options[@]}" : \
+'--old=[The source path of the workspace file to format]:OLD:_files' \
+'--new=[The target path of the formatted workspace file]:NEW:_files' \
+'--manifest-path=[Path to \`moon.mod.json\`, \`moon.work\`, or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
+'--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
+'(--warn)--check[Check formatting and print the difference]' \
+'(--check)--warn[Warn instead of showing differences]' \
+'-q[Suppress output]' \
+'--quiet[Suppress output]' \
+'-v[Increase verbosity]' \
+'--verbose[Increase verbosity]' \
+'--trace[Trace the execution of the program]' \
+'--dry-run[Do not actually run the command]' \
+'(--dry-run)--build-graph[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (embed)
 _arguments "${_arguments_options[@]}" : \
 '-i+[]:INPUT:_files' \
@@ -1056,6 +1075,10 @@ _arguments "${_arguments_options[@]}" : \
         curcontext="${curcontext%:*:*}:moon-tool-help-command-$line[1]:"
         case $line[1] in
             (format-and-diff)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(format-workspace)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1382,6 +1405,10 @@ _arguments "${_arguments_options[@]}" : \
         curcontext="${curcontext%:*:*}:moon-help-tool-command-$line[1]:"
         case $line[1] in
             (format-and-diff)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(format-workspace)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1836,6 +1863,7 @@ _moon__help__test_commands() {
 _moon__help__tool_commands() {
     local commands; commands=(
 'format-and-diff:Format the code and print the difference' \
+'format-workspace:' \
 'embed:' \
 'write-tcc-rsp-file:' \
 'build-binary-dep:' \
@@ -1862,6 +1890,11 @@ _moon__help__tool__embed_commands() {
 _moon__help__tool__format-and-diff_commands() {
     local commands; commands=()
     _describe -t commands 'moon help tool format-and-diff commands' commands "$@"
+}
+(( $+functions[_moon__help__tool__format-workspace_commands] )) ||
+_moon__help__tool__format-workspace_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help tool format-workspace commands' commands "$@"
 }
 (( $+functions[_moon__help__tool__write-tcc-rsp-file_commands] )) ||
 _moon__help__tool__write-tcc-rsp-file_commands() {
@@ -2072,6 +2105,7 @@ _moon__test_commands() {
 _moon__tool_commands() {
     local commands; commands=(
 'format-and-diff:Format the code and print the difference' \
+'format-workspace:' \
 'embed:' \
 'write-tcc-rsp-file:' \
 'build-binary-dep:' \
@@ -2100,10 +2134,16 @@ _moon__tool__format-and-diff_commands() {
     local commands; commands=()
     _describe -t commands 'moon tool format-and-diff commands' commands "$@"
 }
+(( $+functions[_moon__tool__format-workspace_commands] )) ||
+_moon__tool__format-workspace_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool format-workspace commands' commands "$@"
+}
 (( $+functions[_moon__tool__help_commands] )) ||
 _moon__tool__help_commands() {
     local commands; commands=(
 'format-and-diff:Format the code and print the difference' \
+'format-workspace:' \
 'embed:' \
 'write-tcc-rsp-file:' \
 'build-binary-dep:' \
@@ -2131,6 +2171,11 @@ _moon__tool__help__embed_commands() {
 _moon__tool__help__format-and-diff_commands() {
     local commands; commands=()
     _describe -t commands 'moon tool help format-and-diff commands' commands "$@"
+}
+(( $+functions[_moon__tool__help__format-workspace_commands] )) ||
+_moon__tool__help__format-workspace_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool help format-workspace commands' commands "$@"
 }
 (( $+functions[_moon__tool__help__help_commands] )) ||
 _moon__tool__help__help_commands() {

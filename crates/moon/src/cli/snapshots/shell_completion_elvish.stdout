@@ -823,6 +823,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
             cand format-and-diff 'Format the code and print the difference'
+            cand format-workspace 'format-workspace'
             cand embed 'embed'
             cand write-tcc-rsp-file 'write-tcc-rsp-file'
             cand build-binary-dep 'build-binary-dep'
@@ -835,6 +836,23 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --manifest-path 'Path to `moon.mod.json`, `moon.work`, or `moon.work.json` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --block-style 'Add separator between each segments'
+            cand --warn 'Warn instead of showing differences'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
+        &'moon;tool;format-workspace'= {
+            cand --old 'The source path of the workspace file to format'
+            cand --new 'The target path of the formatted workspace file'
+            cand --manifest-path 'Path to `moon.mod.json`, `moon.work`, or `moon.work.json` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand --check 'Check formatting and print the difference'
             cand --warn 'Warn instead of showing differences'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
@@ -910,6 +928,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;tool;help'= {
             cand format-and-diff 'Format the code and print the difference'
+            cand format-workspace 'format-workspace'
             cand embed 'embed'
             cand write-tcc-rsp-file 'write-tcc-rsp-file'
             cand build-binary-dep 'build-binary-dep'
@@ -917,6 +936,8 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'moon;tool;help;format-and-diff'= {
+        }
+        &'moon;tool;help;format-workspace'= {
         }
         &'moon;tool;help;embed'= {
         }
@@ -1105,12 +1126,15 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;help;tool'= {
             cand format-and-diff 'Format the code and print the difference'
+            cand format-workspace 'format-workspace'
             cand embed 'embed'
             cand write-tcc-rsp-file 'write-tcc-rsp-file'
             cand build-binary-dep 'build-binary-dep'
             cand demangle 'Demangle MoonBit symbol names'
         }
         &'moon;help;tool;format-and-diff'= {
+        }
+        &'moon;help;tool;format-workspace'= {
         }
         &'moon;help;tool;embed'= {
         }

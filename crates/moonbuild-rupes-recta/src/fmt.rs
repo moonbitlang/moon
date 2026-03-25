@@ -115,8 +115,8 @@ pub fn build_graph_for_fmt(
     let mut package_count = 0;
     let selected_packages = (!selected_packages.is_empty())
         .then(|| selected_packages.iter().copied().collect::<HashSet<_>>());
-    let has_workspace_manifest = selected_packages.is_none()
-        && format_workspace_node(&mut graph, cfg, &layout, source_dir)?;
+    let has_workspace_manifest =
+        selected_packages.is_none() && format_workspace_node(&mut graph, cfg, &layout, source_dir)?;
 
     for &module_id in &resolved.root_module_ids {
         let Some(packages) = resolved.pkg_dirs.packages_for_module(module_id) else {
