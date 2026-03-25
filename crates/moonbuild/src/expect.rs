@@ -28,7 +28,7 @@ use similar::TextDiff;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 pub trait PackageSrcResolver {
@@ -372,7 +372,13 @@ impl LocationJson {
     fn resolve(&self, pkg_src: &impl PackageSrcResolver, pkg: &str) -> Location {
         let actual_pkg = pkg.strip_suffix("_blackbox_test").unwrap_or(pkg);
         let mut full_path = pkg_src.resolve_pkg_src(actual_pkg);
-        full_path.push(&self.filename);
+        full_path.push(
+            Path::new(&self.filename)
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        );
         Location {
             filename: full_path.display().to_string(),
             line_start: self.start_line - 1,
