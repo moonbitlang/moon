@@ -122,6 +122,134 @@ fn test_moon_info_filter_by_path_failure() {
         .failure();
 }
 
+#[test]
+fn test_moon_info_filter_by_multiple_paths_success() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    for pkg in ["A", "lib", "main"] {
+        let generated = dir.join(pkg).join(MBTI_GENERATED);
+        if generated.exists() {
+            std::fs::remove_file(generated).unwrap();
+        }
+    }
+
+    check(get_stdout(&dir, ["info", "A", "lib"]), expect![[r#""#]]);
+
+    for pkg in ["A", "lib"] {
+        let generated = dir.join(pkg).join(MBTI_GENERATED);
+        assert!(generated.exists(), "missing {}", generated.display());
+        assert!(
+            !std::fs::read_to_string(&generated).unwrap().is_empty(),
+            "{} should not be empty",
+            generated.display()
+        );
+        std::fs::remove_file(generated).unwrap();
+    }
+
+    assert!(!dir.join("main").join(MBTI_GENERATED).exists());
+}
+
+#[test]
+fn test_moon_info_filter_by_multiple_paths_skips_outside_current_root() {
+    let dir = TestDir::new("test_filter/test_filter");
+    let outside = create_outside_work_context_dir(&dir, "outside_info_skip");
+    let other_pkg = create_other_project_pkg(&dir, "other_info_project");
+    let outside_display = outside.display().to_string().replace('\\', "/");
+    let other_pkg_display = other_pkg.display().to_string().replace('\\', "/");
+
+    for pkg in ["A", "lib", "main"] {
+        let generated = dir.join(pkg).join(MBTI_GENERATED);
+        if generated.exists() {
+            std::fs::remove_file(generated).unwrap();
+        }
+    }
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                OsString::from("info"),
+                OsString::from("A"),
+                outside.as_os_str().to_os_string(),
+                other_pkg.as_os_str().to_os_string(),
+            ],
+        ),
+        expect![[r#""#]],
+    );
+
+    let generated = dir.join("A").join(MBTI_GENERATED);
+    assert!(generated.exists(), "missing {}", generated.display());
+    std::fs::remove_file(generated).unwrap();
+    assert!(!dir.join("lib").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("main").join(MBTI_GENERATED).exists());
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            OsString::from("info"),
+            OsString::from("A"),
+            outside.as_os_str().to_os_string(),
+            other_pkg.as_os_str().to_os_string(),
+            OsString::from("--verbose"),
+        ],
+    );
+    assert!(
+        stderr.contains(&format!("skipping path `{outside_display}`")),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("skipping path `{other_pkg_display}`")),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_moon_info_filter_by_multiple_paths_skips_same_root_non_packages() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    for pkg in ["A", "lib", "main"] {
+        let generated = dir.join(pkg).join(MBTI_GENERATED);
+        if generated.exists() {
+            std::fs::remove_file(generated).unwrap();
+        }
+    }
+
+    check(get_stdout(&dir, ["info", "A", "notes"]), expect![[r#""#]]);
+
+    let generated = dir.join("A").join(MBTI_GENERATED);
+    assert!(generated.exists(), "missing {}", generated.display());
+    std::fs::remove_file(generated).unwrap();
+    assert!(!dir.join("lib").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("main").join(MBTI_GENERATED).exists());
+
+    let stderr = get_stderr(&dir, ["info", "A", "notes", "--verbose"]);
+    assert!(stderr.contains("skipping path `notes`"), "stderr: {stderr}");
+}
+
+#[test]
+fn test_moon_info_filter_by_multiple_paths_skips_pkg_like_dirs_outside_source() {
+    let dir = TestDir::new("path_outside_source.in");
+
+    let generated = dir.join("src/main").join(MBTI_GENERATED);
+    if generated.exists() {
+        std::fs::remove_file(&generated).unwrap();
+    }
+
+    check(
+        get_stdout(&dir, ["info", "src/main", "generated/ghost"]),
+        expect![[r#""#]],
+    );
+
+    assert!(generated.exists(), "missing {}", generated.display());
+    std::fs::remove_file(&generated).unwrap();
+
+    let stderr = get_stderr(&dir, ["info", "src/main", "generated/ghost", "--verbose"]);
+    assert!(
+        stderr.contains("skipping path `generated/ghost`"),
+        "stderr: {stderr}"
+    );
+}
+
 // ===== moon run command tests =====
 
 #[test]

@@ -18,7 +18,7 @@
 
 mod imp;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::bail;
 use moonbuild_rupes_recta::intent::UserIntent;
@@ -32,8 +32,8 @@ use tracing::warn;
 use crate::{
     cli::BuildFlags,
     filter::{
-        canonicalize_with_filename, filter_pkg_by_dir, match_packages_with_fuzzy,
-        package_supports_backend,
+        canonicalize_with_filename, filter_pkg_by_dir, format_supported_backends,
+        match_packages_with_fuzzy, package_supports_backend, select_packages,
     },
     rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
 };
@@ -65,7 +65,7 @@ pub(crate) struct InfoSubcommand {
     ///
     /// Conflicts with `--package`.
     #[clap(name = "PATH", conflicts_with("package"))]
-    pub path: Option<PathBuf>,
+    pub path: Vec<PathBuf>,
 }
 
 pub(crate) fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
@@ -161,9 +161,10 @@ pub(crate) fn run_info_rr_internal(
         Box::new(move |resolve_output, tb| {
             calc_user_intent(
                 package_filter.as_deref(),
-                path_filter.as_deref(),
+                &path_filter,
                 resolve_output,
                 tb,
+                cli.verbose,
             )
         }),
     )?;
@@ -181,9 +182,10 @@ pub(crate) fn run_info_rr_internal(
 
 fn calc_user_intent(
     package_filter: Option<&str>,
-    path_filter: Option<&Path>,
+    path_filter: &[PathBuf],
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
+    verbose: bool,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let package_ids: Vec<_> = resolve_output
         .local_modules()
@@ -197,8 +199,8 @@ fn calc_user_intent(
         })
         .collect();
 
-    let intents = if let Some(path) = path_filter {
-        // Path filter: resolve a specific file/directory to its containing package
+    let intents = if let [path] = path_filter {
+        // Preserve the old single-path behavior exactly.
         let (dir, _) = canonicalize_with_filename(path)?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
         if package_supports_backend(resolve_output, pkg, target_backend) {
@@ -211,6 +213,41 @@ fn calc_user_intent(
             );
             Vec::new()
         }
+    } else if !path_filter.is_empty() {
+        let mut filtered = Vec::new();
+        let mut unsupported = Vec::new();
+
+        for (path, pkg_id) in select_packages(path_filter, verbose, |dir| {
+            filter_pkg_by_dir(resolve_output, dir)
+        })? {
+            if package_supports_backend(resolve_output, pkg_id, target_backend) {
+                filtered.push(UserIntent::Info(pkg_id));
+            } else {
+                unsupported.push((path, pkg_id));
+            }
+        }
+
+        if verbose {
+            for (path, pkg_id) in &unsupported {
+                let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
+                warn!(
+                    "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
+                    path.display(),
+                    pkg.fqn,
+                    target_backend,
+                    format_supported_backends(resolve_output, *pkg_id),
+                );
+            }
+        }
+
+        if filtered.is_empty() && !unsupported.is_empty() {
+            warn!(
+                "No selected package supports target backend `{}` for `moon info`",
+                target_backend
+            );
+        }
+
+        filtered
     } else if let Some(filter) = package_filter {
         let matches = match_packages_with_fuzzy(
             resolve_output,
