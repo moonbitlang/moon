@@ -17,9 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::filter::canonicalize_with_filename;
-use crate::filter::ensure_package_supports_backend;
 use crate::filter::ensure_packages_support_backend;
 use crate::filter::filter_pkg_by_dir;
+use crate::filter::format_supported_backends;
 use crate::filter::match_packages_with_fuzzy;
 use crate::filter::package_supports_backend;
 use crate::rr_build;
@@ -167,7 +167,7 @@ pub(crate) struct TestSubcommand {
     /// package directory or a file inside a package; otherwise, runs in a
     /// temporary project.
     #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
-    pub single_file: Option<PathBuf>,
+    pub path: Vec<PathBuf>,
 
     /// Include skipped tests. Automatically implied when `--[doc-]index` is set.
     #[clap(long)]
@@ -197,7 +197,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
         build_only = cmd.build_only,
         doc_test = cmd.doc_test,
         package_filters = cmd.package.as_ref().map(|p| p.len()).unwrap_or(0),
-        has_single_file = cmd.single_file.is_some(),
+        path_filters = cmd.path.len(),
         "starting moon test command"
     );
     // Check if we're running within a project
@@ -205,11 +205,13 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
         Ok(dirs) => dirs,
         Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
             // Now we're talking about real single-file scenario.
-            if cmd.single_file.is_some() {
-                info!("delegating to single-file test runner");
-                return run_test_in_single_file(cli, cmd);
-            } else {
-                return Err(e.into());
+            match cmd.path.as_slice() {
+                [_] => {
+                    info!("delegating to single-file test runner");
+                    return run_test_in_single_file(cli, cmd);
+                }
+                [] => return Err(e.into()),
+                _ => anyhow::bail!("standalone single-file `moon test` expects exactly one `PATH`"),
             }
         }
         Err(e) => {
@@ -296,9 +298,9 @@ fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
     let path = cmd
-        .single_file
-        .as_ref()
-        .expect("single_file should be set in single-file mode");
+        .path
+        .first()
+        .expect("path should be set in single-file mode");
     let single_file_path = dunce::canonicalize(path)
         .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
     let source_dir = single_file_path
@@ -397,13 +399,8 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
 pub(crate) struct TestLikeSubcommand<'a> {
     pub run_mode: RunMode,
     pub build_flags: &'a BuildFlags,
-    /// An explicit file filter -- for when you write `moon test <file>` in a project.
-    ///
-    /// This should behave similar to `moon run <file>`. This should act like
-    /// both a package filter and optional file filter.
-    ///
-    /// FIXME: This is a reuse of the single-file input pattern. Will need a full overhaul.
-    pub explicit_file_filter: Option<&'a Path>,
+    /// Explicit filesystem path filters from positional `PATH` arguments.
+    pub explicit_path_filters: &'a [PathBuf],
     pub package: &'a Option<Vec<String>>,
     pub file: &'a Option<String>,
     pub index: &'a Option<TestIndexRange>,
@@ -427,7 +424,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             run_mode: RunMode::Test,
             build_flags: &cmd.build_flags,
             package: &cmd.package,
-            explicit_file_filter: cmd.single_file.as_deref(),
+            explicit_path_filters: &cmd.path,
             file: &cmd.file,
             index: &cmd.index,
             doc_index: &cmd.doc_index,
@@ -449,7 +446,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
         Self {
             run_mode: RunMode::Bench,
             build_flags: &cmd.build_flags,
-            explicit_file_filter: None,
+            explicit_path_filters: &[],
             package: &cmd.package,
             file: &cmd.file,
             index: &cmd.index,
@@ -537,7 +534,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         &cli.unstable_feature,
         target_dir,
         Box::new(|resolved, target_backend| {
-            calc_user_intent(resolved, cmd, &mut filter, target_backend)
+            calc_user_intent(resolved, cmd, &mut filter, target_backend, cli.verbose)
         }),
         resolve_output,
     )?;
@@ -553,13 +550,12 @@ pub(crate) fn run_test_or_bench_internal(
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    let explicit_file = cmd.explicit_file_filter.map(|p| p.display().to_string());
     debug!(
         run_mode = ?cmd.run_mode,
         update = cmd.update,
         build_only = cmd.build_only,
         package_filters = cmd.package.as_ref().map(|p| p.len()).unwrap_or(0),
-        explicit_file = explicit_file.as_deref(),
+        path_filters = cmd.explicit_path_filters.len(),
         "entering run_test_or_bench_internal"
     );
     trace!(
@@ -571,10 +567,13 @@ pub(crate) fn run_test_or_bench_internal(
 
     // Accept -i/--doc-index when the positional PATH refers to a file; otherwise they require --file.
     // explicit_is_file is true only when PATH is an existing regular file.
-    let explicit_is_file = cmd.explicit_file_filter.is_some_and(|p| p.is_file());
+    let explicit_is_file = matches!(cmd.explicit_path_filters, [path] if path.is_file());
 
     if cmd.package.is_none() && cmd.file.is_some() {
         anyhow::bail!("`--file` must be used with `--package`");
+    }
+    if cmd.explicit_path_filters.len() > 1 && (cmd.index.is_some() || cmd.doc_index.is_some()) {
+        anyhow::bail!("`--index` and `--doc-index` cannot be used with multiple `PATH`s");
     }
     if cmd.file.is_none() && cmd.index.is_some() && !explicit_is_file {
         anyhow::bail!("`--index` must be used with `--file`");
@@ -582,8 +581,8 @@ pub(crate) fn run_test_or_bench_internal(
     if cmd.file.is_none() && cmd.doc_index.is_some() && !explicit_is_file {
         anyhow::bail!("`--doc-index` must be used with `--file`");
     }
-    if cmd.explicit_file_filter.is_some() && (cmd.package.is_some() || cmd.file.is_some()) {
-        anyhow::bail!("cannot filter package or files when testing a single file in a project");
+    if !cmd.explicit_path_filters.is_empty() && (cmd.package.is_some() || cmd.file.is_some()) {
+        anyhow::bail!("cannot combine positional `PATH` filters with `--package` or `--file`");
     }
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
@@ -635,27 +634,6 @@ fn node_from_target(x: BuildTarget) -> [BuildPlanNode; 2] {
         BuildPlanNode::make_executable(x),
         BuildPlanNode::generate_test_info(x),
     ]
-}
-
-/// Apply explicit PATH filter (acts as package and optional file filter).
-/// `test_index` selects test indices (regular/doc) when PATH is a file.
-#[instrument(level = "debug", skip(resolve_output, out_filter))]
-fn apply_explicit_file_filter(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    out_filter: &mut TestFilter,
-    file_filter: &Path,
-    test_index: Option<TestIndex>,
-    target_backend: TargetBackend,
-) -> Result<(), anyhow::Error> {
-    let (dir, filename) = canonicalize_with_filename(file_filter)?;
-    debug!(dir = %dir.display(), filename = ?filename, "resolved explicit file filter path");
-
-    let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
-    ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
-    debug!(package = ?pkg, file = filename.as_deref(), "resolved explicit filter target");
-
-    out_filter.add_autodetermine_target(pkg, filename.as_deref(), test_index);
-    Ok(())
 }
 
 /// Apply the hierarchy of filters of packages, file and index
@@ -767,6 +745,7 @@ fn calc_user_intent(
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     target_backend: moonutil::common::TargetBackend,
+    verbose: bool,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let all_affected_packages: Vec<_> = resolve_output
         .local_modules()
@@ -790,7 +769,7 @@ fn calc_user_intent(
         .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
         .collect::<Vec<_>>();
 
-    let directive = if let Some(file_filter) = cmd.explicit_file_filter {
+    let directive = if !cmd.explicit_path_filters.is_empty() {
         let test_index = if let Some(index) = cmd.index {
             Some(TestIndex::Regular(*index))
         } else if let Some(id) = cmd.doc_index {
@@ -798,14 +777,73 @@ fn calc_user_intent(
         } else {
             None
         };
-        apply_explicit_file_filter(
-            resolve_output,
-            out_filter,
-            file_filter,
-            test_index,
-            target_backend,
-        )?;
-        trace!("explicit file filter applied");
+
+        if let [path] = cmd.explicit_path_filters {
+            let (dir, filename) = canonicalize_with_filename(path)?;
+            let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+
+            if !package_supports_backend(resolve_output, pkg, target_backend) {
+                ensure_packages_support_backend(resolve_output, [pkg], target_backend)?;
+            }
+
+            out_filter.add_autodetermine_target(pkg, filename.as_deref(), test_index);
+            trace!("single explicit path filter applied");
+        } else {
+            let mut unsupported_paths = Vec::new();
+            let mut supported_paths = 0;
+
+            for path in cmd.explicit_path_filters {
+                let (dir, filename) = canonicalize_with_filename(path)?;
+                debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
+
+                let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
+                    if verbose {
+                        warn!(
+                            "skipping path `{}` because it is not a package in the current work context.",
+                            path.display()
+                        );
+                    }
+                    continue;
+                };
+
+                if !package_supports_backend(resolve_output, pkg, target_backend) {
+                    unsupported_paths.push((path, pkg));
+                    continue;
+                }
+
+                supported_paths += 1;
+                out_filter.add_autodetermine_target(pkg, filename.as_deref(), test_index);
+            }
+
+            if supported_paths == 0 && !unsupported_paths.is_empty() {
+                let mut unsupported_packages = Vec::new();
+                for (_, pkg_id) in &unsupported_paths {
+                    if !unsupported_packages.contains(pkg_id) {
+                        unsupported_packages.push(*pkg_id);
+                    }
+                }
+                ensure_packages_support_backend(
+                    resolve_output,
+                    unsupported_packages,
+                    target_backend,
+                )?;
+            }
+
+            if verbose {
+                for (path, pkg_id) in unsupported_paths {
+                    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                    warn!(
+                        "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
+                        path.display(),
+                        pkg.fqn,
+                        target_backend,
+                        format_supported_backends(resolve_output, pkg_id),
+                    );
+                }
+            }
+
+            trace!("explicit path filters applied");
+        }
         Default::default()
     } else if let Some(package_filter) = cmd.package {
         let value_tracing = cmd.build_flags.enable_value_tracing;

@@ -561,3 +561,98 @@ fn test_moon_check_filter_by_multiple_paths_skips_pkg_like_dirs_outside_source()
         "stderr: {stderr}"
     );
 }
+
+// ===== moon test command tests =====
+
+#[test]
+fn test_moon_test_filter_by_multiple_paths_success() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "test",
+            "A",
+            "lib",
+            "--dry-run",
+            "--sort-input",
+            "--no-parallelize",
+        ],
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &["./A/hello.mbt", "./lib/hello.mbt"],
+        &["./main/main.mbt"],
+    );
+}
+
+#[test]
+fn test_moon_test_filter_by_multiple_paths_skips_same_root_non_packages() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "test",
+            "A",
+            "notes",
+            "--dry-run",
+            "--sort-input",
+            "--no-parallelize",
+        ],
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &["./A/hello.mbt"],
+        &["./lib/hello.mbt", "./main/main.mbt"],
+    );
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            "test",
+            "A",
+            "notes",
+            "--dry-run",
+            "--sort-input",
+            "--no-parallelize",
+            "--verbose",
+        ],
+    );
+    assert!(stderr.contains("skipping path `notes`"), "stderr: {stderr}");
+}
+
+#[test]
+fn test_moon_test_filter_by_multiple_paths_skips_pkg_like_dirs_outside_source() {
+    let dir = TestDir::new("path_outside_source.in");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "test",
+            "src/main",
+            "generated/ghost",
+            "--dry-run",
+            "--sort-input",
+            "--no-parallelize",
+        ],
+    );
+    assert!(stdout.contains("./src/main/main.mbt"), "stdout: {stdout}");
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            "test",
+            "src/main",
+            "generated/ghost",
+            "--dry-run",
+            "--sort-input",
+            "--no-parallelize",
+            "--verbose",
+        ],
+    );
+    assert!(
+        stderr.contains("skipping path `generated/ghost`"),
+        "stderr: {stderr}"
+    );
+}

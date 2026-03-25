@@ -247,7 +247,7 @@ Run a main package
 
 Test the current package
 
-**Usage:** `moon test [OPTIONS] [PATH]`
+**Usage:** `moon test [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 

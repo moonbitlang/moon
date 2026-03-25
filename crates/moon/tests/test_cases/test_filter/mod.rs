@@ -750,6 +750,18 @@ fn test_moon_test_filter_file_index_with_path_arg() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn test_moon_test_filter_multiple_paths_reject_index() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    let stderr = get_err_stderr(&dir, ["test", "A/hello.mbt", "lib/hello.mbt", "-i", "1"]);
+    assert!(
+        stderr.contains("cannot be used with multiple `PATH`s"),
+        "stderr: {stderr}"
+    );
+}
+
 #[test]
 fn test_moon_test_filter_index() {
     let dir = TestDir::new("test_filter/test_filter");

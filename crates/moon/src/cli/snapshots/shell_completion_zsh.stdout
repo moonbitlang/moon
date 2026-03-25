@@ -300,7 +300,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-'::PATH -- Run tests for a filesystem path. If in a project, `PATH` may point to a package directory or a file inside a package; otherwise, runs in a temporary project:_files' \
+'*::PATH -- Run tests for a filesystem path. If in a project, `PATH` may point to a package directory or a file inside a package; otherwise, runs in a temporary project:_files' \
 && ret=0
 ;;
 (generate-test-driver)

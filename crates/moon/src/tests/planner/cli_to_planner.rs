@@ -84,7 +84,7 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                 test_failure_json: false,
                 patch_file: None,
                 doc_test: false,
-                single_file: None,
+                path: [],
                 include_skipped: false,
                 filter: None,
             },
