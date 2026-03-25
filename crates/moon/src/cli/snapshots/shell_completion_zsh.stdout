@@ -975,6 +975,8 @@ _arguments "${_arguments_options[@]}" : \
 '--new=[The target path of the formatted workspace file]:NEW:_files' \
 '--manifest-path=[Path to \`moon.mod.json\`, \`moon.work\`, or \`moon.work.json\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
+'-w[Write the formatted output back to the source file]' \
+'--write[Write the formatted output back to the source file]' \
 '(--warn)--check[Check formatting and print the difference]' \
 '(--check)--warn[Warn instead of showing differences]' \
 '-q[Suppress output]' \

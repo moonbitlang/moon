@@ -904,6 +904,8 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--new', 'new', [CompletionResultType]::ParameterName, 'The target path of the formatted workspace file')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json`, `moon.work`, or `moon.work.json` to use as the project manifest (does not change the working directory)')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
+            [CompletionResult]::new('-w', 'w', [CompletionResultType]::ParameterName, 'Write the formatted output back to the source file')
+            [CompletionResult]::new('--write', 'write', [CompletionResultType]::ParameterName, 'Write the formatted output back to the source file')
             [CompletionResult]::new('--check', 'check', [CompletionResultType]::ParameterName, 'Check formatting and print the difference')
             [CompletionResult]::new('--warn', 'warn', [CompletionResultType]::ParameterName, 'Warn instead of showing differences')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')

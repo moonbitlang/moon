@@ -2561,7 +2561,7 @@ _moon() {
             return 0
             ;;
         moon__tool__format__workspace)
-            opts="-q -v -h --old --new --check --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-w -q -v -h --old --new --write --check --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

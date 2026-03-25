@@ -852,6 +852,8 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --new 'The target path of the formatted workspace file'
             cand --manifest-path 'Path to `moon.mod.json`, `moon.work`, or `moon.work.json` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand -w 'Write the formatted output back to the source file'
+            cand --write 'Write the formatted output back to the source file'
             cand --check 'Check formatting and print the difference'
             cand --warn 'Warn instead of showing differences'
             cand -q 'Suppress output'

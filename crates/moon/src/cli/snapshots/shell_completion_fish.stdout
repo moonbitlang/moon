@@ -604,6 +604,7 @@ complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcomma
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-workspace" -l new -d 'The target path of the formatted workspace file' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-workspace" -l manifest-path -d 'Path to `moon.mod.json`, `moon.work`, or `moon.work.json` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-workspace" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-workspace" -s w -l write -d 'Write the formatted output back to the source file'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-workspace" -l check -d 'Check formatting and print the difference'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-workspace" -l warn -d 'Warn instead of showing differences'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-workspace" -s q -l quiet -d 'Suppress output'
