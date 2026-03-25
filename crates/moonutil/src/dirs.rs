@@ -25,6 +25,10 @@ use thiserror::Error;
 use crate::common::{BUILD_DIR, MOON_MOD_JSON, MOON_WORK, MOON_WORK_JSON};
 use crate::workspace::{canonical_workspace_module_dirs, read_workspace, workspace_manifest_path};
 
+/// Set to a non-`0` value to keep commands started from inside a module in
+/// single-module mode instead of promoting them into an ancestor workspace.
+pub const MOON_NO_WORKSPACE: &str = "MOON_NO_WORKSPACE";
+
 #[derive(Debug, Error)]
 pub enum PackageDirsError {
     #[error(
@@ -210,6 +214,7 @@ pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
 
 pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
     let mut module_root = None;
+    let disable_workspace_from_module = disable_workspace_from_module_env();
 
     for dir in source_dir.ancestors() {
         if let Some(workspace_path) = workspace_manifest_path(dir) {
@@ -217,6 +222,10 @@ pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathB
                 // A workspace still applies from nested non-module directories.
                 return Ok(Some(dir.to_path_buf()));
             };
+
+            if disable_workspace_from_module {
+                return Ok(None);
+            }
 
             // After we have entered a module, only ancestor workspaces that
             // explicitly list that module still apply.
@@ -237,6 +246,14 @@ pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathB
     }
 
     Ok(None)
+}
+
+fn disable_workspace_from_module_env() -> bool {
+    match std::env::var(MOON_NO_WORKSPACE) {
+        Ok(value) => value != "0",
+        Err(std::env::VarError::NotPresent) => false,
+        Err(std::env::VarError::NotUnicode(_)) => true,
+    }
 }
 
 pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
