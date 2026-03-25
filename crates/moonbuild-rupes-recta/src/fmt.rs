@@ -350,6 +350,7 @@ fn format_moon_work_dsl(
             "format-workspace".into(),
             "--old".into(),
             moon_work.to_string_lossy().into_owned(),
+            "--write".into(),
             "--new".into(),
             target_moon_work.to_string_lossy().into_owned(),
         ];
@@ -359,30 +360,6 @@ fn format_moon_work_dsl(
         let mut build = Build::new(build_n2_fileloc("format moon.work"), ins, outs);
         build.cmdline = Some(moonutil::shlex::join_native(
             fmt_cmd.iter().map(|x| x.as_str()),
-        ));
-        graph.add_build(build)?;
-
-        let cp_cmd: Vec<String> = if cfg!(windows) {
-            vec![
-                "cmd".into(),
-                "/c".into(),
-                "copy".into(),
-                target_moon_work.to_string_lossy().into_owned(),
-                moon_work.to_string_lossy().into_owned(),
-            ]
-        } else {
-            vec![
-                "cp".into(),
-                target_moon_work.to_string_lossy().into_owned(),
-                moon_work.to_string_lossy().into_owned(),
-            ]
-        };
-
-        let ins = build_ins(graph, [target_moon_work]);
-        let outs = build_outs(graph, [moon_work.to_string_lossy().into_owned()]);
-        let mut build = Build::new(build_n2_fileloc("copy moon.work"), ins, outs);
-        build.cmdline = Some(moonutil::shlex::join_native(
-            cp_cmd.iter().map(|x| x.as_str()),
         ));
         graph.add_build(build)?;
     }

@@ -32,6 +32,10 @@ pub(crate) struct FormatWorkspaceSubcommand {
     #[clap(long)]
     new: PathBuf,
 
+    /// Write the formatted output back to the source file
+    #[clap(short = 'w', long = "write")]
+    write: bool,
+
     /// Check formatting and print the difference
     #[clap(long, conflicts_with = "warn")]
     check: bool,
@@ -48,6 +52,10 @@ pub(crate) fn run_format_workspace(cmd: FormatWorkspaceSubcommand) -> anyhow::Re
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&cmd.new, formatted.as_bytes())?;
+
+    if cmd.write {
+        std::fs::write(&cmd.old, formatted.as_bytes())?;
+    }
 
     if !cmd.check && !cmd.warn {
         return Ok(0);
