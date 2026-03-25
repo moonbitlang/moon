@@ -405,7 +405,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
-'::PATH -- The file-system path to the package or file in package to emit `mbti` files for:_files' \
+'*::PATH -- The file-system path to the package or file in package to emit `mbti` files for:_files' \
 && ret=0
 ;;
 (bench)

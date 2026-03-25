@@ -354,7 +354,7 @@ Generate documentation or searching documentation for a symbol
 
 Generate public interface (`.mbti`) files for all packages in the module or workspace
 
-**Usage:** `moon info [OPTIONS] [PATH]`
+**Usage:** `moon info [OPTIONS] [PATH]...`
 
 ###### **Arguments:**
 
