@@ -775,7 +775,7 @@ fn parse_one_test_result(
         ExpectTestFailed
     } else if result.message.starts_with(SNAPSHOT_TESTING) {
         // FIXME: file access HERE?!
-        if moonbuild::expect::snapshot_eq(pkg_src, &result.message)
+        if moonbuild::expect::snapshot_eq(pkg_src, result)
             .with_context(|| format!("Failed to read snapshot for {}", result.test_name))?
         {
             Passed
@@ -849,7 +849,8 @@ fn print_test_result_normal(
     verbose: bool,
     pkg_src: &impl PackageSrcResolver,
 ) {
-    let message = &res.raw.message;
+    let output = &res.raw;
+    let message = &output.message;
     let formatter = CompactTestFormatter::new(module_name, &res.raw, Some(&res.meta));
 
     match res.kind {
@@ -875,12 +876,12 @@ fn print_test_result_normal(
         TestResultKind::ExpectTestFailed => {
             let _ = formatter.write_failure(&mut std::io::stdout());
             println!();
-            let _ = render_expect_fail(pkg_src, message);
+            let _ = render_expect_fail(pkg_src, output);
         }
         TestResultKind::SnapshotTestFailed => {
             let _ = formatter.write_failure(&mut std::io::stdout());
             println!();
-            let _ = render_snapshot_fail(pkg_src, message);
+            let _ = render_snapshot_fail(pkg_src, output);
         }
         TestResultKind::ExpectPanic => {
             let _ =
