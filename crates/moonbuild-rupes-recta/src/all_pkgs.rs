@@ -30,7 +30,7 @@
 use moonutil::common::TargetBackend;
 use serde::Serialize;
 
-use crate::{ResolveOutput, model::TargetKind};
+use crate::{ResolveOutput, metadata::metadata_source_mi_path};
 
 pub const ALL_PKGS_JSON: &str = "all_pkgs.json";
 
@@ -63,12 +63,7 @@ pub fn gen_all_pkgs_json(
             let pkg = resolve_output.pkg_dirs.get_package(id);
             let root = pkg.fqn.module().name().to_string();
             let rel = pkg.fqn.package().to_string();
-            let artifact = layout
-                .mi_of_build_target(
-                    &resolve_output.pkg_dirs,
-                    &id.build_target(TargetKind::Source),
-                    backend,
-                )
+            let artifact = metadata_source_mi_path(resolve_output, layout, id, backend)
                 .to_string_lossy()
                 .into_owned();
             PackageArtifactJSON {

@@ -180,15 +180,31 @@ fn gen_package_json(
         deps,
         wbtest_deps,
         test_deps,
-        artifact: layout
-            .mi_of_build_target(
-                &ctx.pkg_dirs,
-                &pkg_id.build_target(TargetKind::Source),
-                backend,
-            )
+        artifact: metadata_source_mi_path(ctx, layout, pkg_id, backend)
             .to_string_lossy()
             .into_owned(),
         supported_targets: pkg.raw.supported_targets.iter().copied().collect(),
+    }
+}
+
+/// Returns the source-target `.mi` path recorded in metadata JSON files.
+///
+/// Virtual-package implementors are checked against the virtual interface and
+/// write their source artifact to `*.impl.mi`, so metadata must point to that
+/// file instead of the regular `*.mi` path.
+pub(crate) fn metadata_source_mi_path(
+    ctx: &ResolveOutput,
+    layout: &LegacyLayout,
+    pkg_id: PackageId,
+    backend: TargetBackend,
+) -> std::path::PathBuf {
+    let target = pkg_id.build_target(TargetKind::Source);
+    if ctx.pkg_rel.virt_impl.contains_key(pkg_id) {
+        layout
+            .mi_of_build_target_impl_virtual(&ctx.pkg_dirs, &target, backend)
+            .into_path()
+    } else {
+        layout.mi_of_build_target(&ctx.pkg_dirs, &target, backend)
     }
 }
 
