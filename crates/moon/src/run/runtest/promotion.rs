@@ -90,7 +90,7 @@ fn promote_all_snapshots<'a>(
     pkg_src: &impl PackageSrcResolver,
     results: impl IntoIterator<Item = &'a TestCaseResult>,
 ) -> anyhow::Result<()> {
-    apply_snapshot(pkg_src, results.into_iter().map(|x| x.raw.message.as_str()))
+    apply_snapshot(pkg_src, results.into_iter().map(|x| x.raw.as_ref()))
 }
 
 /// Perform promotion on all expect tests met. Should fil
@@ -98,5 +98,5 @@ fn promote_all_expects<'a>(
     pkg_src: &impl PackageSrcResolver,
     results: impl IntoIterator<Item = &'a TestCaseResult>,
 ) -> anyhow::Result<()> {
-    apply_expect(pkg_src, results.into_iter().map(|x| x.raw.message.as_str()))
+    apply_expect(pkg_src, results.into_iter().map(|x| x.raw.as_ref()))
 }

@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::runtest::TestStatistics;
 use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
@@ -27,7 +28,7 @@ use similar::TextDiff;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 pub trait PackageSrcResolver {
@@ -107,7 +108,6 @@ pub struct Target {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct LocationJson {
-    pkg: String,
     filename: String,
     start_line: u32,
     start_column: u32,
@@ -146,45 +146,26 @@ impl std::str::FromStr for ExpectFailedRaw {
     }
 }
 
-fn expect_failed_to_snapshot_result(
+fn parse_snapshot_result(
     pkg_src: &impl PackageSrcResolver,
-    efr: ExpectFailedRaw,
-) -> SnapshotResult {
-    let filename = efr.loc.resolve(pkg_src).filename;
-    let expect_file = dunce::canonicalize(PathBuf::from(&filename))
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("__snapshot__")
-        .join(efr.expect.as_deref().unwrap_or_default());
-
-    let file_content = if expect_file.exists() {
-        Some(std::fs::read_to_string(&expect_file).unwrap())
-    } else {
-        None
-    };
-    let succ = match &file_content {
-        Some(content) => content == efr.actual.as_deref().unwrap_or_default(),
-        None => false,
-    };
-    SnapshotResult {
-        loc: efr.loc,
-        args_loc: efr.args_loc,
+    output: &TestStatistics,
+) -> anyhow::Result<SnapshotResult> {
+    let json_str = &output.message[SNAPSHOT_TESTING.len()..];
+    let efr = ExpectFailedRaw::from_str(json_str)
+        .context(format!("parse snapshot test result failed: {json_str}"))?;
+    let loc = efr.loc.resolve(pkg_src, &output.package);
+    Ok(SnapshotResult {
+        loc,
         expect_file: PathBuf::from(efr.expect.unwrap_or_default()),
-        expect_content: file_content,
         actual: efr.actual.unwrap_or_default(),
-        succ,
-    }
+    })
 }
 
 #[derive(Debug)]
 pub struct SnapshotResult {
-    pub loc: LocationJson,
-    pub args_loc: Vec<Option<LocationJson>>,
-    pub expect_file: PathBuf,
-    pub expect_content: Option<String>,
-    pub actual: String,
-    pub succ: bool,
+    loc: Location,
+    expect_file: PathBuf,
+    actual: String,
 }
 
 #[derive(Debug)]
@@ -338,13 +319,17 @@ fn test_decode() {
 
 fn parse_expect_failed_message(
     pkg_src: &impl PackageSrcResolver,
-    msg: &str,
+    output: &TestStatistics,
 ) -> anyhow::Result<Replace> {
+    let msg = &output.message[EXPECT_FAILED.len()..];
     let j: ExpectFailedRaw = ExpectFailedRaw::from_str(msg)?;
     let locs: Vec<Option<Location>> = j
         .args_loc
         .iter()
-        .map(|loc| loc.as_ref().map(|loc| loc.resolve(pkg_src)))
+        .map(|loc| {
+            loc.as_ref()
+                .map(|loc| loc.resolve(pkg_src, &output.package))
+        })
         .collect();
     if locs.len() != 4 {
         anyhow::bail!(
@@ -357,7 +342,7 @@ fn parse_expect_failed_message(
         // impossible
         anyhow::bail!("the location of first argument cannot be None");
     }
-    let loc = j.loc.resolve(pkg_src);
+    let loc = j.loc.resolve(pkg_src, &output.package);
     let mut locs_iter = locs.into_iter();
     let actual_loc = locs_iter.next().unwrap().unwrap();
     let expect_loc = locs_iter.next().unwrap();
@@ -384,10 +369,16 @@ fn parse_expect_failed_message(
 }
 
 impl LocationJson {
-    fn resolve(&self, pkg_src: &impl PackageSrcResolver) -> Location {
-        let actual_pkg = self.pkg.strip_suffix("_blackbox_test").unwrap_or(&self.pkg);
+    fn resolve(&self, pkg_src: &impl PackageSrcResolver, pkg: &str) -> Location {
+        let actual_pkg = pkg.strip_suffix("_blackbox_test").unwrap_or(pkg);
         let mut full_path = pkg_src.resolve_pkg_src(actual_pkg);
-        full_path.push(&self.filename);
+        full_path.push(
+            Path::new(&self.filename)
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        );
         Location {
             filename: full_path.display().to_string(),
             line_start: self.start_line - 1,
@@ -400,16 +391,15 @@ impl LocationJson {
 
 fn collect<'a>(
     pkg_src: &impl PackageSrcResolver,
-    messages: impl IntoIterator<Item = &'a str>,
+    outputs: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<HashMap<String, BTreeSet<Target>>> {
     let mut targets: HashMap<String, BTreeSet<Target>> = HashMap::new();
 
-    for msg in messages {
-        if !msg.starts_with(EXPECT_FAILED) {
+    for output in outputs {
+        if !output.message.starts_with(EXPECT_FAILED) {
             continue;
         }
-        let json_str = &msg[EXPECT_FAILED.len()..];
-        let rep = parse_expect_failed_message(pkg_src, json_str)?;
+        let rep = parse_expect_failed_message(pkg_src, output)?;
 
         targets
             .entry(rep.loc.filename.clone())
@@ -773,22 +763,14 @@ fn apply_patch(pp: &PackagePatch) -> anyhow::Result<()> {
 
 pub fn apply_snapshot<'a>(
     pkg_src: &impl PackageSrcResolver,
-    messages: impl IntoIterator<Item = &'a str>,
+    outputs: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<()> {
-    let snapshots = messages
-        .into_iter()
-        .filter(|msg| msg.starts_with(SNAPSHOT_TESTING))
-        .map(|msg| {
-            let json_str = &msg[SNAPSHOT_TESTING.len()..];
-            let rep: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
-                .context(format!("parse snapshot test result failed: {json_str}"))
-                .unwrap();
-            rep
-        })
-        .map(|epf| expect_failed_to_snapshot_result(pkg_src, epf));
-
-    for snapshot in snapshots {
-        let filename = snapshot.loc.resolve(pkg_src).filename;
+    for output in outputs {
+        if !output.message.starts_with(SNAPSHOT_TESTING) {
+            continue;
+        }
+        let snapshot = parse_snapshot_result(pkg_src, output).unwrap();
+        let filename = snapshot.loc.filename;
         let actual = snapshot.actual.clone();
         let expect_file = &snapshot.expect_file;
         let expect_file = dunce::canonicalize(PathBuf::from(&filename))
@@ -816,7 +798,7 @@ pub fn apply_snapshot<'a>(
 
 pub fn apply_expect<'a>(
     pkg_src: &impl PackageSrcResolver,
-    messages: impl IntoIterator<Item = &'a str>,
+    messages: impl IntoIterator<Item = &'a TestStatistics>,
 ) -> anyhow::Result<()> {
     // dbg!(&messages);
     let targets = collect(pkg_src, messages)?;
@@ -952,10 +934,12 @@ fn write_diff_header(mut to: impl Write) -> std::io::Result<()> {
     )
 }
 
-pub fn render_expect_fail(pkg_src: &impl PackageSrcResolver, msg: &str) -> anyhow::Result<()> {
-    assert!(msg.starts_with(EXPECT_FAILED));
-    let json_str = &msg[EXPECT_FAILED.len()..];
-    let rep = parse_expect_failed_message(pkg_src, json_str)?;
+pub fn render_expect_fail(
+    pkg_src: &impl PackageSrcResolver,
+    output: &TestStatistics,
+) -> anyhow::Result<()> {
+    assert!(output.message.starts_with(EXPECT_FAILED));
+    let rep = parse_expect_failed_message(pkg_src, output)?;
 
     if let Some("json") = rep.mode.as_deref() {
         let j_expect = serde_json_lenient::from_str(&rep.expect)?;
@@ -986,15 +970,13 @@ pub fn render_expect_fail(pkg_src: &impl PackageSrcResolver, msg: &str) -> anyho
     Ok(())
 }
 
-pub fn snapshot_eq(pkg_src: &impl PackageSrcResolver, msg: &str) -> anyhow::Result<bool> {
-    assert!(msg.starts_with(SNAPSHOT_TESTING));
-    let json_str = &msg[SNAPSHOT_TESTING.len()..];
-
-    let e: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
-        .context(format!("parse snapshot test result failed: {json_str}"))?;
-    let snapshot = expect_failed_to_snapshot_result(pkg_src, e);
-
-    let filename = snapshot.loc.resolve(pkg_src).filename;
+pub fn snapshot_eq(
+    pkg_src: &impl PackageSrcResolver,
+    output: &TestStatistics,
+) -> anyhow::Result<bool> {
+    assert!(output.message.starts_with(SNAPSHOT_TESTING));
+    let snapshot = parse_snapshot_result(pkg_src, output)?;
+    let filename = snapshot.loc.filename;
     let actual = snapshot.actual.clone();
     let expect_file = &snapshot.expect_file;
     let expect_file = dunce::canonicalize(PathBuf::from(&filename))
@@ -1018,16 +1000,12 @@ pub fn snapshot_eq(pkg_src: &impl PackageSrcResolver, msg: &str) -> anyhow::Resu
 
 pub fn render_snapshot_fail(
     pkg_src: &impl PackageSrcResolver,
-    msg: &str,
+    output: &TestStatistics,
 ) -> anyhow::Result<(bool, String, String)> {
-    assert!(msg.starts_with(SNAPSHOT_TESTING));
-    let json_str = &msg[SNAPSHOT_TESTING.len()..];
+    assert!(output.message.starts_with(SNAPSHOT_TESTING));
+    let snapshot = parse_snapshot_result(pkg_src, output)?;
 
-    let e: ExpectFailedRaw = ExpectFailedRaw::from_str(json_str)
-        .context(format!("parse snapshot test result failed: {json_str}"))?;
-    let snapshot = expect_failed_to_snapshot_result(pkg_src, e);
-
-    let loc = snapshot.loc.resolve(pkg_src);
+    let loc = snapshot.loc;
     let actual = snapshot.actual.clone();
     let expect_file = &snapshot.expect_file;
     let expect_file = dunce::canonicalize(PathBuf::from(&loc.filename))
