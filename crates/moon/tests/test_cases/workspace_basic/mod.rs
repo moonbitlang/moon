@@ -55,6 +55,7 @@ fn test_workspace_commands() {
         check(
             get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
             expect![[r#"
+                moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
                 moonfmt ./liba/src/lib/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg
                 cmd /c copy ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg ./liba/src/lib/moon.pkg
                 cmd /c del ./liba/src/lib/moon.pkg.json

@@ -173,15 +173,15 @@ mod tests {
             .source_tgt_dir
             .manifest_path
             .as_ref()
+            .map(dunce::canonicalize)
             .unwrap()
-            .canonicalize()
             .unwrap();
         let expected_manifest_path = member.join(MOON_MOD_JSON);
 
         assert_eq!(cli.source_tgt_dir.cwd, None);
         assert_eq!(
             actual_manifest_path,
-            expected_manifest_path.canonicalize().unwrap()
+            dunce::canonicalize(expected_manifest_path).unwrap()
         );
         assert_eq!(cli.source_tgt_dir.target_dir, None);
         assert!(!root.join(MOON_WORK_JSON).exists());
