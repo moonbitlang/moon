@@ -210,8 +210,56 @@ jobs:
           cargo run --bin moon -- -C ~/.moon/lib/core test --release --target js
           cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm
           cargo run --bin moon -- -C ~/.moon/lib/core test --release --target native
+
+      # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
+      # TODO: Add this back when we add LLVM to nightly
+      # - name: Test core on llvm backend (Unix)
+      #   if: ${{ (matrix.os != 'windows-latest') }}
+      #   run: |
+      #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm
+      #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm --release
+
+  nightly-test-core-windows:
+    needs: [typo-check, license-header-check]
+    runs-on: windows-latest
+    steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: install MoonBit(Windows)
+        run: |
+          $env:MOONBIT_INSTALL_VERSION="nightly"
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build
+        run: cargo build
+
+      - name: Set built binary to PATH (Windows)
+        run: Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\target\debug"
+
+      - name: Versions
+        run: cargo run --bin moon -- version --all
+
+      - name: Bundle core (Windows)
+        run: cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
+
       - name: Test core (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
         run: |
           cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm-gc
           cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target js
@@ -225,16 +273,9 @@ jobs:
       # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
       # TODO: Add this back when we add LLVM to nightly
       # - name: Test core on llvm backend (Windows)
-      #   if: ${{ matrix.os == 'windows-latest' }}
       #   run: |
       #     cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target llvm
       #     cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target llvm --release
-
-      # - name: Test core on llvm backend (Unix)
-      #   if: ${{ (matrix.os != 'windows-latest') }}
-      #   run: |
-      #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm
-      #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm --release
 
   verification-test:
     needs: [typo-check, license-header-check]
