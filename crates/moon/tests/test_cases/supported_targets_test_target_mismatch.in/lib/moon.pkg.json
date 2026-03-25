@@ -1,0 +1,12 @@
+{
+  "supported-targets": [
+    "js",
+    "native"
+  ],
+  "wbtest-import": [
+    "supported/test-target-mismatch/nativedep"
+  ],
+  "test-import": [
+    "supported/test-target-mismatch/nativedep"
+  ]
+}
