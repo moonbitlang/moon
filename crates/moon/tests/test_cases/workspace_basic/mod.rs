@@ -10,6 +10,14 @@ fn assert_requires_target_module(stderr: &str, command: &str) {
     );
 }
 
+fn assert_registry_resolution_failure(stderr: &str) {
+    assert!(
+        stderr
+            .contains("Failed to resolve registry dependency `alice/liba` for module `alice/app`"),
+        "expected registry dependency resolution failure, got:\n{stderr}"
+    );
+}
+
 #[test]
 fn test_workspace_commands() {
     let dir = TestDir::new("workspace_basic.in");
@@ -63,6 +71,7 @@ fn test_workspace_commands() {
         check(
             get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
             expect![[r#"
+                moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
                 moonfmt ./liba/src/lib/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg
                 cp ./_build/wasm-gc/release/format/alice/liba/lib/moon.pkg ./liba/src/lib/moon.pkg
                 rm ./liba/src/lib/moon.pkg.json
@@ -575,14 +584,11 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
         "expected add command to target app module, got:\n{stderr}"
     );
 
-    let stderr = get_stderr(
+    let stderr = get_err_stderr(
         &dir,
         ["--manifest-path", "app/moon.mod.json", "package", "--list"],
     );
-    assert!(
-        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
-        "expected package command to target app module, got:\n{stderr}"
-    );
+    assert_registry_resolution_failure(&stderr);
 
     check(
         std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
@@ -628,11 +634,8 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
 fn test_package_targets_workspace_member_from_member_dir() {
     let dir = TestDir::new("workspace_basic.in");
 
-    let stderr = get_stderr(&dir, ["-C", "app", "package", "--list"]);
-    assert!(
-        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
-        "expected package command to target app module, got:\n{stderr}"
-    );
+    let stderr = get_err_stderr(&dir, ["-C", "app", "package", "--list"]);
+    assert_registry_resolution_failure(&stderr);
 }
 
 #[test]

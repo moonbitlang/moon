@@ -169,7 +169,6 @@ mod tests {
         };
 
         let cli = single_module_mooncake_cli(cli, "package").unwrap();
-        let expected_manifest_path = member.join(MOON_MOD_JSON).canonicalize().unwrap();
         let actual_manifest_path = cli
             .source_tgt_dir
             .manifest_path
@@ -177,9 +176,14 @@ mod tests {
             .unwrap()
             .canonicalize()
             .unwrap();
+        let expected_manifest_path = member.join(MOON_MOD_JSON);
 
         assert_eq!(cli.source_tgt_dir.cwd, None);
-        assert_eq!(actual_manifest_path, expected_manifest_path);
+        assert_eq!(
+            actual_manifest_path,
+            expected_manifest_path.canonicalize().unwrap()
+        );
+        assert_eq!(cli.source_tgt_dir.target_dir, None);
         assert!(!root.join(MOON_WORK_JSON).exists());
     }
 }
