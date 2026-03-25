@@ -132,16 +132,28 @@ pub fn read_workspace(dir: &Path) -> anyhow::Result<Option<MoonWork>> {
         return Ok(None);
     };
 
-    let content = std::fs::read_to_string(&path)
+    read_workspace_file(&path).map(Some)
+}
+
+pub fn read_workspace_file(path: &Path) -> anyhow::Result<MoonWork> {
+    let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
-    let workspace = if path.file_name().and_then(|name| name.to_str()) == Some(MOON_WORK) {
-        parse_workspace_dsl(&content)
-    } else {
-        parse_workspace_json(&content)
+    let workspace = match path.file_name().and_then(|name| name.to_str()) {
+        Some(MOON_WORK) => parse_workspace_dsl(&content),
+        Some(MOON_WORK_JSON) => parse_workspace_json(&content),
+        _ => anyhow::bail!(
+            "expected workspace file to be `{}` or `{}`, got `{}`",
+            MOON_WORK,
+            MOON_WORK_JSON,
+            path.display()
+        ),
     };
-    workspace
-        .with_context(|| format!("failed to parse workspace file `{}`", path.display()))
-        .map(Some)
+    workspace.with_context(|| format!("failed to parse workspace file `{}`", path.display()))
+}
+
+pub fn format_workspace_file(path: &Path) -> anyhow::Result<String> {
+    let workspace = read_workspace_file(path)?;
+    format_workspace_dsl(&workspace)
 }
 
 pub fn write_workspace(dir: &Path, work: &MoonWork) -> anyhow::Result<()> {

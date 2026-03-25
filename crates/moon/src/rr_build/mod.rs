@@ -718,12 +718,14 @@ pub fn plan_build_from_resolved<'a>(
 pub fn plan_fmt(
     resolved: &FmtResolveOutput,
     cfg: &FmtConfig,
+    source_dir: &Path,
     target_dir: &Path,
     selected_packages: &[PackageId],
 ) -> anyhow::Result<BuildInput> {
     let graph = moonbuild_rupes_recta::fmt::build_graph_for_fmt(
         resolved,
         cfg,
+        source_dir,
         target_dir,
         selected_packages,
     )?;
