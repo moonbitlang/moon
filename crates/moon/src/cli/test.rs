@@ -778,56 +778,72 @@ fn calc_user_intent(
             None
         };
 
-        let mut unsupported_paths = Vec::new();
-        let mut supported_paths = 0;
-
-        for path in cmd.explicit_path_filters {
+        if let [path] = cmd.explicit_path_filters {
             let (dir, filename) = canonicalize_with_filename(path)?;
-            debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
-
-            let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
-                if verbose {
-                    warn!(
-                        "skipping path `{}` because it is not a package in the current work context.",
-                        path.display()
-                    );
-                }
-                continue;
-            };
+            let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
 
             if !package_supports_backend(resolve_output, pkg, target_backend) {
-                unsupported_paths.push((path, pkg));
-                continue;
+                ensure_packages_support_backend(resolve_output, [pkg], target_backend)?;
             }
 
-            supported_paths += 1;
             out_filter.add_autodetermine_target(pkg, filename.as_deref(), test_index);
-        }
+            trace!("single explicit path filter applied");
+        } else {
+            let mut unsupported_paths = Vec::new();
+            let mut supported_paths = 0;
 
-        if supported_paths == 0 && !unsupported_paths.is_empty() {
-            let mut unsupported_packages = Vec::new();
-            for (_, pkg_id) in &unsupported_paths {
-                if !unsupported_packages.contains(pkg_id) {
-                    unsupported_packages.push(*pkg_id);
+            for path in cmd.explicit_path_filters {
+                let (dir, filename) = canonicalize_with_filename(path)?;
+                debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
+
+                let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
+                    if verbose {
+                        warn!(
+                            "skipping path `{}` because it is not a package in the current work context.",
+                            path.display()
+                        );
+                    }
+                    continue;
+                };
+
+                if !package_supports_backend(resolve_output, pkg, target_backend) {
+                    unsupported_paths.push((path, pkg));
+                    continue;
+                }
+
+                supported_paths += 1;
+                out_filter.add_autodetermine_target(pkg, filename.as_deref(), test_index);
+            }
+
+            if supported_paths == 0 && !unsupported_paths.is_empty() {
+                let mut unsupported_packages = Vec::new();
+                for (_, pkg_id) in &unsupported_paths {
+                    if !unsupported_packages.contains(pkg_id) {
+                        unsupported_packages.push(*pkg_id);
+                    }
+                }
+                ensure_packages_support_backend(
+                    resolve_output,
+                    unsupported_packages,
+                    target_backend,
+                )?;
+            }
+
+            if verbose {
+                for (path, pkg_id) in unsupported_paths {
+                    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                    warn!(
+                        "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
+                        path.display(),
+                        pkg.fqn,
+                        target_backend,
+                        format_supported_backends(resolve_output, pkg_id),
+                    );
                 }
             }
-            ensure_packages_support_backend(resolve_output, unsupported_packages, target_backend)?;
-        }
 
-        if verbose {
-            for (path, pkg_id) in unsupported_paths {
-                let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-                warn!(
-                    "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
-                    path.display(),
-                    pkg.fqn,
-                    target_backend,
-                    format_supported_backends(resolve_output, pkg_id),
-                );
-            }
+            trace!("explicit path filters applied");
         }
-
-        trace!("explicit path filters applied");
         Default::default()
     } else if let Some(package_filter) = cmd.package {
         let value_tracing = cmd.build_flags.enable_value_tracing;
