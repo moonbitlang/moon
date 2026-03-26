@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
-use colored::Colorize;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::RunMode;
@@ -33,6 +32,7 @@ use crate::filter::{
     package_supports_backend, select_supported_packages,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
+use crate::user_diagnostics::UserDiagnostics;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -89,6 +89,7 @@ pub(crate) struct CheckSubcommand {
 
 #[instrument(skip_all)]
 pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
+    let output = UserDiagnostics::from_flags(cli);
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;
@@ -104,7 +105,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             },
         )?;
         if fmt_exit_code != 0 {
-            eprintln!("{}: formatting code failed", "Warning".yellow().bold());
+            output.warn("formatting code failed");
         }
     }
 
@@ -226,10 +227,12 @@ fn run_check_for_single_file_rr(
     );
 
     // The rest is similar to normal check flow
+    let output = UserDiagnostics::from_flags(cli);
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
         &raw_target_dir,
+        output,
         Box::new(get_user_intents_single_file),
         resolved,
     )
@@ -261,7 +264,12 @@ fn run_check_for_single_file_rr(
         filename.as_deref(),
     )?;
 
-    let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let mut cfg = BuildConfig::from_flags(
+        &cmd.build_flags,
+        &cli.unstable_feature,
+        cli.verbose,
+        UserDiagnostics::from_flags(cli),
+    );
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
 
@@ -380,7 +388,12 @@ fn run_check_normal_internal_rr(
         // Generate metadata for IDE
         rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Check, None)?;
 
-        let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+        let mut cfg = BuildConfig::from_flags(
+            &cmd.build_flags,
+            &cli.unstable_feature,
+            cli.verbose,
+            UserDiagnostics::from_flags(cli),
+        );
         cfg.patch_file = cmd.patch_file.clone();
         cfg.explain_errors |= cmd.explain;
         let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
@@ -409,11 +422,13 @@ pub(crate) fn plan_check_rr_from_resolved(
         target_dir,
         RunMode::Check,
     );
+    let output = UserDiagnostics::from_flags(cli);
 
     rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
         target_dir,
+        output,
         Box::new(|resolved, target_backend| {
             if let Some(filter_path) = cmd.package_path.as_deref() {
                 return calc_user_intent_from_package_path(
@@ -432,7 +447,7 @@ pub(crate) fn plan_check_rr_from_resolved(
                 target_backend,
                 cmd.no_mi,
                 cmd.patch_file.as_deref(),
-                cli.verbose,
+                output,
             )
         }),
         resolve_output,
@@ -465,10 +480,10 @@ fn calc_user_intent(
     target_backend: TargetBackend,
     no_mi: bool,
     patch_file: Option<&Path>,
-    verbose: bool,
+    output: UserDiagnostics,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !paths.is_empty() {
-        let selected = select_supported_packages(resolve_output, paths, target_backend, verbose)?;
+        let selected = select_supported_packages(resolve_output, paths, target_backend, output)?;
         let directive = build_directive_for_selected_packages(&selected, no_mi, patch_file)?;
         Ok((
             selected.into_iter().map(UserIntent::Check).collect(),

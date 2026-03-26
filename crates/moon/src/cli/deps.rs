@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
-use colored::Colorize;
 use mooncake::pkg::{
     add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
 };
@@ -33,6 +32,7 @@ use super::install_binary::{
     GitRef, install_binary, install_from_git, install_from_local, is_git_url, is_local_path,
     parse_package_spec, strip_wildcard_suffix,
 };
+use crate::user_diagnostics::UserDiagnostics;
 
 /// Returns the local filesystem path used for wildcard local install.
 fn local_wildcard_path(source: &str) -> Option<PathBuf> {
@@ -52,12 +52,13 @@ fn local_wildcard_path(source: &str) -> Option<PathBuf> {
 }
 
 pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
+    let output = UserDiagnostics::from_flags(&cli);
+
     // If no package path and no local path, use legacy behavior
     if cmd.source.is_none() && cmd.path.is_none() {
-        eprintln!(
-            "{}: `moon install` without arguments is deprecated and will be removed in a future version. \
+        output.warn(
+            "`moon install` without arguments is deprecated and will be removed in a future version. \
              Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
-            "Warning".yellow().bold()
         );
         let PackageDirs {
             source_dir,
@@ -79,11 +80,10 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
     if let Some(local_path) = cmd.path {
         let local_path_str = local_path.to_string_lossy();
         if strip_wildcard_suffix(local_path_str.as_ref()).is_some() {
-            eprintln!(
-                "{}: `--path` does not support wildcard selectors like `{}`",
-                "Warning".yellow().bold(),
+            output.warn(format!(
+                "`--path` does not support wildcard selectors like `{}`",
                 local_path_str
-            );
+            ));
             anyhow::bail!(
                 "Use positional SOURCE for wildcard install: `moon install {}`",
                 local_path_str
@@ -161,6 +161,7 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
 }
 
 pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
+    let output = UserDiagnostics::from_flags(&cli);
     let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
     let project_root = &dirs.project_root;
     let module_dir = dirs.require_module_dir("add")?;
@@ -178,10 +179,9 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
             Ok(_) => index_updated = true,
             Err(e) => {
                 if had_index {
-                    eprintln!(
-                        "{}: failed to update registry index, continuing with existing index: {e}",
-                        "Warning".yellow().bold(),
-                    );
+                    output.warn(format!(
+                        "failed to update registry index, continuing with existing index: {e}"
+                    ));
                 } else {
                     return Err(e);
                 }

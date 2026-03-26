@@ -26,6 +26,7 @@ use crate::{
     discover::{DiscoverResult, DiscoveredPackage},
     model::{PackageId, TargetKind},
     pkg_solve::model::VirtualUser,
+    user_warning::UserWarning,
 };
 
 /// A grouped environment for resolving dependencies.
@@ -34,13 +35,14 @@ struct ResolveEnv<'a> {
     packages: &'a DiscoverResult,
     res: DepRelationship,
     inject_coverage: bool,
+    user_warnings: Vec<UserWarning>,
 }
 
 pub(super) fn solve_only(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
     enable_coverage: bool,
-) -> Result<DepRelationship, SolveError> {
+) -> Result<(DepRelationship, Vec<UserWarning>), SolveError> {
     debug!(
         "Building dependency resolution structures for {} packages",
         packages.package_count()
@@ -51,6 +53,7 @@ pub(super) fn solve_only(
         packages,
         res: DepRelationship::default(),
         inject_coverage: enable_coverage,
+        user_warnings: Vec::new(),
     };
 
     debug!("Processing packages for dependency resolution");
@@ -78,14 +81,16 @@ pub(super) fn solve_only(
     }
     debug!("Processed packages");
 
-    let res = env.res;
+    let ResolveEnv {
+        res, user_warnings, ..
+    } = env;
 
     debug!(
         "Dependency resolution completed with {} nodes and {} edges",
         res.dep_graph.node_count(),
         res.dep_graph.edge_count()
     );
-    Ok(res)
+    Ok((res, user_warnings))
 }
 
 /// Solve the virtual package implementation (and only this field) for a given package.
@@ -229,7 +234,18 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
     // error instead).
     if let Some((f, t, edge)) = violating {
         let violating_pkg = env.packages.get_package(t.package);
-        warn_about_test_import(pkg_data, violating_pkg);
+        env.user_warnings.push(UserWarning::new(format!(
+            "Duplicate alias `{}` at \"{}\". \
+             \"test-import\" will automatically add \"import\" and current \
+             package as dependency so you don't need to add it manually. \
+             If you're test-importing a dependency with the same default \
+             alias as your current package, considering give it a different \
+             alias than the current package. \
+             Violating import: `{}`",
+            pkg_data.fqn.short_alias(),
+            pkg_data.config_path().display(),
+            violating_pkg.fqn
+        )));
         // replace the existing one's alias with its full name
         let new_alias = arcstr::format!("{}", violating_pkg.fqn);
         trace!(
@@ -254,21 +270,6 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
             short_alias,
             kind: TargetKind::BlackboxTest,
         },
-    );
-}
-
-fn warn_about_test_import(pkg: &DiscoveredPackage, violating: &DiscoveredPackage) {
-    tracing::warn!(
-        "Duplicate alias `{}` at \"{}\". \
-        \"test-import\" will automatically add \"import\" and current \
-        package as dependency so you don't need to add it manually. \
-        If you're test-importing a dependency with the same default \
-        alias as your current package, considering give it a different \
-        alias than the current package. \
-        Violating import: `{}`",
-        pkg.fqn.short_alias(),
-        pkg.config_path().display(),
-        violating.fqn
     );
 }
 

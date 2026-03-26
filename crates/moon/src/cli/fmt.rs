@@ -24,6 +24,7 @@ use moonutil::{common::BlockStyle, dirs::PackageDirs};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
+use crate::user_diagnostics::UserDiagnostics;
 
 use super::UniversalFlags;
 
@@ -69,8 +70,9 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         .context("Failed to resolve environment")?;
 
     let mut selected_packages = Vec::new();
+    let output = UserDiagnostics::from_flags(cli);
 
-    for (_, pkg_id) in select_packages(&cmd.path, cli.verbose, |dir| {
+    for (_, pkg_id) in select_packages(&cmd.path, output, |dir| {
         filter_pkg_by_dir_for_fmt(&resolved, dir)
     })? {
         selected_packages.push(pkg_id);

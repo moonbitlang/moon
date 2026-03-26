@@ -61,6 +61,7 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, PackageId, RunBackend},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
+    user_warning::UserWarning,
 };
 
 mod builders;
@@ -390,7 +391,7 @@ pub fn build_plan(
     input: impl Iterator<Item = BuildPlanNode>,
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
-) -> Result<BuildPlan, BuildPlanConstructError> {
+) -> Result<(BuildPlan, Vec<UserWarning>), BuildPlanConstructError> {
     info!("Constructing build plan");
     debug!(
         "Build environment: backend={:?}, opt_level={:?}",
@@ -404,7 +405,7 @@ pub fn build_plan(
 
     info!(
         "Build plan construction completed with {} total nodes",
-        result.node_count()
+        result.0.node_count()
     );
     Ok(result)
 }

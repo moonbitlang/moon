@@ -36,6 +36,7 @@ use crate::rr_build;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
 use crate::rr_build::preconfig_compile;
+use crate::user_diagnostics::UserDiagnostics;
 use crate::watch::WatchOutput;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::watching;
@@ -162,7 +163,12 @@ fn run_build_rr(
         rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Build)?;
 
         let result = rr_build::execute_build(
-            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose),
+            &BuildConfig::from_flags(
+                &cmd.build_flags,
+                &cli.unstable_feature,
+                cli.verbose,
+                UserDiagnostics::from_flags(cli),
+            ),
             build_graph,
             target_dir,
         )?;
@@ -192,18 +198,20 @@ pub(crate) fn plan_build_rr_from_resolved(
         target_dir,
         RunMode::Build,
     );
+    let output = UserDiagnostics::from_flags(cli);
 
     rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
         target_dir,
+        output,
         Box::new(|resolved, target_backend| {
             calc_user_intent(
                 &cmd.path,
                 cmd.package.as_deref(),
                 resolved,
                 target_backend,
-                cli.verbose,
+                output,
             )
         }),
         resolve_output,
@@ -219,11 +227,11 @@ fn calc_user_intent(
     package_filter: Option<&str>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
-    verbose: bool,
+    output: UserDiagnostics,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !path_filters.is_empty() {
         let selected =
-            select_supported_packages(resolve_output, path_filters, target_backend, verbose)?;
+            select_supported_packages(resolve_output, path_filters, target_backend, output)?;
         Ok(selected
             .into_iter()
             .map(UserIntent::Build)
@@ -234,6 +242,7 @@ fn calc_user_intent(
             resolve_output,
             resolve_output.local_modules(),
             package_filter,
+            output,
         );
         ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
         Ok(pkgs

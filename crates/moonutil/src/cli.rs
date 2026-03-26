@@ -20,8 +20,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::dirs::SourceTargetDirs;
 
-use tracing::warn;
-
 // #[derive(clap::Parser)]
 // pub struct StdInfo {
 //     #[arg(long)]
@@ -63,12 +61,14 @@ pub struct UniversalFlags {
 }
 
 impl UniversalFlags {
-    /// Emit deprecation warnings for deprecated flags
-    pub fn check_deprecations(&self) {
+    /// Collect deprecation warnings for deprecated flags.
+    pub fn deprecation_warnings(&self) -> Vec<&'static str> {
+        let mut warnings = Vec::new();
         if self.build_graph {
-            warn!(
-                "`--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead"
+            warnings.push(
+                "`--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead",
             );
         }
+        warnings
     }
 }

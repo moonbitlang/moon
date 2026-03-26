@@ -28,7 +28,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use log::{debug, info, warn};
+use log::{debug, info};
 use std::str::FromStr;
 
 use mooncake::pkg::sync::{auto_sync, auto_sync_for_single_file_rr};
@@ -47,6 +47,7 @@ use crate::special_cases::CORE_MODULE_TUPLE;
 use crate::{
     discover::{DiscoverError, DiscoverResult, discover_packages},
     pkg_solve::{self, DepRelationship},
+    user_warning::UserWarning,
 };
 
 /// Represents the overall result of a resolve process.
@@ -62,6 +63,8 @@ pub struct ResolveOutput {
     pub pkg_rel: DepRelationship,
     /// Explicit preferred target from `moon.work` or legacy `moon.work.json`, if any.
     pub workspace_preferred_target: Option<TargetBackend>,
+    /// User-facing warnings discovered during resolve.
+    pub user_warnings: Vec<UserWarning>,
 }
 
 impl ResolveOutput {
@@ -315,7 +318,8 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
         discover_result.package_count()
     );
 
-    let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result, cfg.enable_coverage)?;
+    let (dep_relationship, user_warnings) =
+        pkg_solve::solve(&resolved_env, &discover_result, cfg.enable_coverage)?;
 
     info!("Package dependency resolution completed successfully");
     debug!(
@@ -329,6 +333,7 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
         workspace_preferred_target: workspace.and_then(|workspace| workspace.preferred_target),
+        user_warnings,
     })
 }
 
@@ -383,11 +388,12 @@ pub fn resolve_single_file_project(
         .context("Unable to parse target backend from front matter")
         .map_err(ResolveError::SingleFileParseError)?;
 
+    let mut user_warnings = Vec::new();
     if front_matter_config.warn_import_all {
-        warn!(
+        user_warnings.push(UserWarning::new(
             "moonbit.deps without moonbit.import: importing all packages (legacy behavior). \
-Use moonbit.import with 'username/module@version[/package]' entries to opt in to explicit imports."
-        );
+Use moonbit.import with 'username/module@version[/package]' entries to opt in to explicit imports.",
+        ));
     }
 
     // Sync modules as usual
@@ -411,7 +417,9 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     )?;
 
     // Solve package dependency relationship
-    let dep_relationship = pkg_solve::solve(&resolved_env, &discover_result, cfg.enable_coverage)?;
+    let (dep_relationship, mut solve_warnings) =
+        pkg_solve::solve(&resolved_env, &discover_result, cfg.enable_coverage)?;
+    user_warnings.append(&mut solve_warnings);
 
     let res = ResolveOutput {
         module_rel: resolved_env,
@@ -419,6 +427,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
         workspace_preferred_target: None,
+        user_warnings,
     };
     Ok((res, backend))
 }

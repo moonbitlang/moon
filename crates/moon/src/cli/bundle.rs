@@ -28,6 +28,7 @@ use std::path::Path;
 use tracing::instrument;
 
 use crate::rr_build::{self, BuildConfig};
+use crate::user_diagnostics::UserDiagnostics;
 
 use super::BuildFlags;
 
@@ -114,6 +115,7 @@ pub(crate) fn run_bundle_internal_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
+        UserDiagnostics::from_flags(cli),
         Box::new(|r, _tb| {
             Ok(r.local_modules()
                 .iter()
@@ -139,7 +141,12 @@ pub(crate) fn run_bundle_internal_rr(
         rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Bundle, None)?;
 
         let result = rr_build::execute_build(
-            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose),
+            &BuildConfig::from_flags(
+                &cmd.build_flags,
+                &cli.unstable_feature,
+                cli.verbose,
+                UserDiagnostics::from_flags(cli),
+            ),
             build_graph,
             target_dir,
         )?;

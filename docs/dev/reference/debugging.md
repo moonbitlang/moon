@@ -51,10 +51,16 @@ $ moon tool demangle _M0FP38username5hello4lib05hello
 
 ## Logging and tracing
 
-Moon uses standard Rust logging conventions. Control verbosity with `RUST_LOG`:
+Moon separates maintainer-facing diagnostics from user-facing command output.
 
-- Specify a log level to enable more or less verbose logging: `RUST_LOG=info` (or: `debug`, `trace`, etc.)
-- See more details about selective logging filters in [`tracing-subscriber`'s documentation][tracing]
+- `RUST_LOG` configures Moon's `tracing` subscriber, so it controls internal diagnostics and instrumentation.
+- User-facing command output is handled separately by the CLI:
+  - warnings are shown by default;
+  - `-v` also enables informational messages;
+  - these user messages are not controlled by `RUST_LOG`.
+
+Use `RUST_LOG=info` (or `debug`, `trace`, etc.) to enable more or less verbose internal diagnostics.
+See [`tracing-subscriber`'s documentation][tracing] for selective filtering syntax.
 
 For timing/task/thread details, set `MOON_TRACE=<level>`
 (same syntax as `RUST_LOG`) or pass `--trace` (equivalent to `MOON_TRACE=trace`).

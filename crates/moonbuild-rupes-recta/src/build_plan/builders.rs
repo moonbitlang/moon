@@ -44,6 +44,7 @@ use crate::{
     cond_comp::{self, CompileCondition},
     discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
+    user_warning::UserWarning,
 };
 
 use super::{
@@ -508,10 +509,6 @@ impl<'a> BuildPlanConstructor<'a> {
         doctest_files.sort();
         drop(_sort_span);
 
-        if target.kind == BlackboxTest {
-            self.warn_if_main_package_uses_blackbox_inputs(pkg, &regular_files);
-        }
-
         // Populate `warn_list` by concatenating module-level, package-level,
         // and command-line settings.
         let warn_list = cat_opt(
@@ -545,8 +542,8 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    fn warn_if_main_package_uses_blackbox_inputs(
-        &self,
+    pub(super) fn warn_if_main_package_uses_blackbox_inputs(
+        &mut self,
         pkg: &DiscoveredPackage,
         regular_files: &IndexSet<PathBuf>,
     ) {
@@ -577,14 +574,14 @@ impl<'a> BuildPlanConstructor<'a> {
             return;
         }
 
-        warn!(
+        self.user_warnings.push(UserWarning::new(format!(
             "Main package `{}` uses blackbox-only test inputs ({}) in package directory \"{}\". \
-Main packages will stop generating blackbox tests in a future release. \
-Move public behavior into a non-main package and keep the main package as an entrypoint.",
+             Main packages will stop generating blackbox tests in a future release. \
+             Move public behavior into a non-main package and keep the main package as an entrypoint.",
             pkg.fqn,
             blackbox_inputs.join(", "),
             pkg.root_path.display(),
-        );
+        )));
     }
 
     /// Check if a given target needs to check `.mi` against another target.
@@ -1289,24 +1286,24 @@ Move public behavior into a non-main package and keep the main package as an ent
             if (filename.ends_with(".mbt") || filename.ends_with(".mbt.md"))
                 && output.parent() != Some("".as_ref())
             {
-                warn!(
+                self.user_warnings.push(UserWarning::new(format!(
                     "Prebuild output '{}' is not in the package directory of package {}. \
-                    Such behavior is not supported. \
-                    The build system will not add it to the list of MoonBit files to compile. \
-                    If you really intend to generate files for another package, \
-                    please move the prebuild command to that package instead.",
+                     Such behavior is not supported. \
+                     The build system will not add it to the list of MoonBit files to compile. \
+                     If you really intend to generate files for another package, \
+                     please move the prebuild command to that package instead.",
                     output.display(),
                     pkg.fqn
-                );
+                )));
             }
             // If the file looks like a package manifest
             if filename == MOON_MOD_JSON || is_moon_pkg(filename) {
-                warn!(
+                self.user_warnings.push(UserWarning::new(format!(
                     "Prebuild output '{}' of package {} looks like a package manifest file. \
-                    Overwriting package manifests is not supported and may lead to unexpected behavior.",
+                     Overwriting package manifests is not supported and may lead to unexpected behavior.",
                     output.display(),
                     pkg.fqn
-                );
+                )));
             }
         }
 

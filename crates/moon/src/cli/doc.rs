@@ -28,6 +28,7 @@ use super::UniversalFlags;
 
 use crate::cli::BuildFlags;
 use crate::rr_build::{self, BuildConfig, preconfig_compile};
+use crate::user_diagnostics::UserDiagnostics;
 
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
@@ -58,16 +59,17 @@ pub(crate) struct DocSubcommand {
 #[instrument(skip_all)]
 #[allow(deprecated)]
 pub(crate) fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
+    let output = UserDiagnostics::from_flags(&cli);
     if let Some(symbol) = cmd.symbol.as_deref() {
-        return run_doc_query(symbol);
+        return run_doc_query(symbol, output);
     }
 
     run_doc_rr(cli, cmd)
 }
 
 #[instrument(skip_all)]
-fn run_doc_query(symbol: &str) -> anyhow::Result<i32> {
-    eprintln!("Warning: `moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
+fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
+    output.warn("`moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
     let query_result = std::process::Command::new(&*moonutil::BINARIES.moon_ide)
         .arg("doc")
         .arg(symbol)
@@ -108,6 +110,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
+        UserDiagnostics::from_flags(&cli),
         Box::new(move |resolve_output, _| {
             let module_id = selected_doc_module_id(resolve_output, &doc_source_dir_for_intent)?;
             Ok(vec![UserIntent::Doc(module_id)].into())
@@ -139,7 +142,12 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     )?;
 
     // Execute the build
-    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
+    let cfg = BuildConfig::from_flags(
+        &BuildFlags::default(),
+        &cli.unstable_feature,
+        cli.verbose,
+        UserDiagnostics::from_flags(&cli),
+    );
     let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
     result.print_info(cli.quiet, "checking")?;
 

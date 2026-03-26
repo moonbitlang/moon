@@ -314,7 +314,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["check"]),
         expect![[r#"
-            error: Failed to calculate build plan
+            Error: Failed to calculate build plan
 
             Caused by:
                 0: Failed to solve package relationship
@@ -324,7 +324,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["build"]),
         expect![[r#"
-            error: Failed to solve package relationship
+            Error: Failed to solve package relationship
 
             Caused by:
                 Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
@@ -333,7 +333,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["test"]),
         expect![[r#"
-            error: Failed to solve package relationship
+            Error: Failed to solve package relationship
 
             Caused by:
                 Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
@@ -342,7 +342,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["bundle"]),
         expect![[r#"
-            error: Failed to solve package relationship
+            Error: Failed to solve package relationship
 
             Caused by:
                 Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
@@ -424,7 +424,7 @@ fn test_nonexistent_package() {
     check(
         get_err_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            error: Failed to calculate build plan
+            Error: Failed to calculate build plan
 
             Caused by:
                 0: Failed to solve package relationship
@@ -1028,18 +1028,18 @@ fn test_specify_source_dir_with_deps_002() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-             WARN Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
-             WARN Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
-             WARN Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
+            Warning: Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
+            Warning: Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
+            Warning: Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
             Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
     check(
         get_stderr(&dir, ["build"]),
         expect![[r#"
-             WARN Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
-             WARN Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
-             WARN Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
+            Warning: Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
+            Warning: Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
+            Warning: Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
             Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
@@ -2151,7 +2151,7 @@ fn test_diag_loc_map() {
                     wanted   : Int
             ─────╯
             Failed with 0 warnings, 1 errors.
-            error: failed when checking project
+            Error: failed when checking project
         "#]],
     );
 }
@@ -2180,7 +2180,7 @@ fn test_supported_backends_in_pkg_json() {
     check(
         get_err_stderr(&pkg1, ["build"]),
         expect![[r#"
-            error: cannot find a common supported backend for the deps chain: "username/hello1/main: [js, wasm-gc] -> username/hello1/lib: [native]"
+            Error: cannot find a common supported backend for the deps chain: "username/hello1/main: [js, wasm-gc] -> username/hello1/lib: [native]"
         "#]],
     );
 
@@ -2194,7 +2194,7 @@ fn test_supported_backends_in_pkg_json() {
     check(
         get_err_stderr(&pkg3, ["check"]),
         expect![[r#"
-            error: cannot find a common supported backend for the deps chain: "username/hello/main: [wasm-gc] -> username/hello/lib: [js, llvm, native, wasm, wasm-gc] -> username/hello/lib1: [wasm-gc] -> username/hello/lib3: [wasm-gc] -> username/hello/lib7: [js, wasm]"
+            Error: cannot find a common supported backend for the deps chain: "username/hello/main: [wasm-gc] -> username/hello/lib: [js, llvm, native, wasm, wasm-gc] -> username/hello/lib1: [wasm-gc] -> username/hello/lib3: [wasm-gc] -> username/hello/lib7: [js, wasm]"
         "#]],
     );
 }
@@ -2769,7 +2769,7 @@ fn test_in_main_pkg() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-             WARN Main package `username/hello/main` uses blackbox-only test inputs (`_test.mbt` files) in package directory "$ROOT/main". Main packages will stop generating blackbox tests in a future release. Move public behavior into a non-main package and keep the main package as an entrypoint.
+            Warning: Main package `username/hello/main` uses blackbox-only test inputs (`_test.mbt` files) in package directory "$ROOT/main". Main packages will stop generating blackbox tests in a future release. Move public behavior into a non-main package and keep the main package as an entrypoint.
             Warning: [0002]
                ╭─[ $ROOT/lib/1_test.mbt:2:7 ]
                │

@@ -109,6 +109,7 @@ pub mod pkg_solve;
 // High-level actions
 pub mod compile;
 pub mod resolve;
+pub mod user_warning;
 
 // Formatter
 pub mod fmt;
@@ -126,3 +127,4 @@ pub mod util;
 // Reexports
 pub use compile::{CompileConfig, CompileOutput, compile};
 pub use resolve::{ResolveConfig, ResolveOutput, resolve};
+pub use user_warning::UserWarning;

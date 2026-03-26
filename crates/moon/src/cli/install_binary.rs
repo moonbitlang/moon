@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 use crate::{
     cli::BuildFlags,
     rr_build::{self, BuildConfig, plan_build_from_resolved, preconfig_compile},
+    user_diagnostics::UserDiagnostics,
 };
 
 /// Represents a parsed package specification from the command line.
@@ -235,6 +236,7 @@ pub(super) fn install_binary(
     install_all: bool,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
+    let output = UserDiagnostics::from_flags(cli);
 
     let index_dir = moonutil::moon_dir::index();
     let registry_config = RegistryConfig::load();
@@ -242,19 +244,14 @@ pub(super) fn install_binary(
 
     match mooncake::update::update(&index_dir, &registry_config) {
         Ok(_) => {
-            if !quiet {
-                eprintln!("{}: Updated registry index", "Info".cyan());
-            }
+            output.info("Updated registry index");
         }
         Err(e) => {
             if had_index {
-                if !quiet {
-                    eprintln!(
-                        "{}: Failed to update registry index, using cached index: {}",
-                        "Warning".yellow().bold(),
-                        e
-                    );
-                }
+                output.warn(format!(
+                    "Failed to update registry index, using cached index: {}",
+                    e
+                ));
             } else {
                 return Err(e).context("Failed to update registry index");
             }
@@ -275,14 +272,7 @@ pub(super) fn install_binary(
         })?
     };
 
-    if !quiet {
-        eprintln!(
-            "{}: Installing {}@{}",
-            "Info".cyan(),
-            spec.module_name,
-            version
-        );
-    }
+    output.info(format!("Installing {}@{}", spec.module_name, version));
 
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     let module_dir = tmp_dir.path();
@@ -345,11 +335,9 @@ pub(super) fn install_from_git(
     install_dir: &Path,
     install_all: bool,
 ) -> anyhow::Result<i32> {
-    let quiet = cli.quiet;
+    let output = UserDiagnostics::from_flags(cli);
 
-    if !quiet {
-        eprintln!("{}: Cloning `{}`...", "Info".cyan(), git_url);
-    }
+    output.info(format!("Cloning `{}`...", git_url));
 
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     let clone_dir = tmp_dir.path();
@@ -451,6 +439,7 @@ fn build_and_install_packages(
     filter: PackageFilter,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
+    let output = UserDiagnostics::from_flags(cli);
 
     let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, module_dir)?;
@@ -509,11 +498,10 @@ fn build_and_install_packages(
         let mut dry_run_count = 0;
         for pkg in &selected_packages {
             if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
-                eprintln!(
-                    "{}: Cannot install `{}` - name conflicts with MoonBit toolchain binary",
-                    "Error".red().bold(),
+                output.error(format!(
+                    "Cannot install `{}` - name conflicts with MoonBit toolchain binary",
                     pkg.binary_name
-                );
+                ));
                 continue;
             }
             let dst_name = if cfg!(windows) {
@@ -551,17 +539,14 @@ fn build_and_install_packages(
     for pkg in selected_packages {
         // Check if binary name would overwrite a reserved toolchain binary
         if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
-            eprintln!(
-                "{}: Cannot install `{}` - name conflicts with MoonBit toolchain binary",
-                "Error".red().bold(),
+            output.error(format!(
+                "Cannot install `{}` - name conflicts with MoonBit toolchain binary",
                 pkg.binary_name
-            );
+            ));
             continue;
         }
 
-        if !quiet {
-            eprintln!("{}: Building `{}`...", "Info".cyan(), pkg.full_pkg_name);
-        }
+        output.info(format!("Building `{}`...", pkg.full_pkg_name));
 
         let build_flags = BuildFlags {
             release: true,
@@ -581,6 +566,7 @@ fn build_and_install_packages(
             preconfig,
             &cli.unstable_feature,
             &target_dir,
+            UserDiagnostics::from_flags(cli),
             Box::new(move |_, _| Ok(vec![UserIntent::Build(pkg.pkg_id)].into())),
             resolve_output.clone(),
         )?;
@@ -591,11 +577,7 @@ fn build_and_install_packages(
         let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
         if !result.successful() {
             result.print_info(quiet, "building").ok();
-            eprintln!(
-                "{}: Failed to build `{}`",
-                "Error".red().bold(),
-                pkg.full_pkg_name
-            );
+            output.error(format!("Failed to build `{}`", pkg.full_pkg_name));
             continue;
         }
         result.print_info(quiet, "building").ok();

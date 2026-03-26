@@ -25,6 +25,7 @@ use crate::{
     build_plan::{FileDependencyKind, InputDirective},
     model::{BuildPlanNode, BuildTarget, PackageId},
     prebuild::PrebuildOutput,
+    user_warning::UserWarning,
 };
 use indexmap::IndexMap;
 use tracing::{Level, debug, instrument};
@@ -39,6 +40,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) build_env: &'a BuildEnvironment,
     pub(super) input_directive: &'a InputDirective,
     pub(super) prebuild_config: Option<&'a PrebuildOutput>,
+    pub(super) user_warnings: Vec<UserWarning>,
 
     /// The resulting build plan
     pub(super) res: BuildPlan,
@@ -67,6 +69,7 @@ impl<'a> BuildPlanConstructor<'a> {
             build_env,
             input_directive,
             prebuild_config,
+            user_warnings: Vec::new(),
 
             res: BuildPlan::default(),
             pending: Vec::new(),
@@ -77,8 +80,8 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    pub(super) fn finish(self) -> BuildPlan {
-        self.res
+    pub(super) fn finish(self) -> (BuildPlan, Vec<UserWarning>) {
+        (self.res, self.user_warnings)
     }
 
     pub(super) fn build(
@@ -446,6 +449,11 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Resolve the source files
         let info = self.resolve_mbt_files_for_node(target);
+        if target.kind == crate::model::TargetKind::BlackboxTest {
+            let pkg = self.input.pkg_dirs.get_package(target.package);
+            let regular_files = info.regular_files.iter().cloned().collect();
+            self.warn_if_main_package_uses_blackbox_inputs(pkg, &regular_files);
+        }
         self.res.build_target_infos.insert(target, info);
     }
 }

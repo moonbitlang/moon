@@ -25,6 +25,7 @@ mod verify;
 use crate::{
     discover::DiscoverResult,
     pkg_solve::verify::{compute_realizable_supported_targets, verify},
+    user_warning::UserWarning,
 };
 use log::info;
 use moonutil::mooncakes::result::ResolvedEnv;
@@ -40,13 +41,13 @@ pub fn solve(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
     enable_coverage: bool,
-) -> Result<DepRelationship, SolveError> {
+) -> Result<(DepRelationship, Vec<UserWarning>), SolveError> {
     info!("Starting dependency resolution");
 
-    let mut res = solve_only(modules, packages, enable_coverage)?;
+    let (mut res, user_warnings) = solve_only(modules, packages, enable_coverage)?;
     verify(&res, packages)?;
     res.realizable_supported_targets = compute_realizable_supported_targets(&res, packages);
 
     info!("Dependency resolution completed successfully");
-    Ok(res)
+    Ok((res, user_warnings))
 }
