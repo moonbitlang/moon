@@ -99,6 +99,13 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("Build target info should be present for Check nodes");
                 self.lower_check(node, target, info)
             }
+            BuildPlanNode::EmitProof(target) => {
+                let info = self
+                    .build_plan
+                    .get_build_target_info(&target)
+                    .expect("Build target info should be present for EmitProof nodes");
+                self.lower_emit_proof(node, target, info)
+            }
             BuildPlanNode::Prove(target) => {
                 let info = self
                     .build_plan
@@ -196,8 +203,10 @@ impl<'a> BuildPlanLowerContext<'a> {
         // only triggers for `Check` nodes.
         //
         // FIXME: Revisit for other `moonc` invocations, e.g. `BuildCore`.
-        build.can_dirty_on_output =
-            matches!(node, BuildPlanNode::Check(_) | BuildPlanNode::Prove(_));
+        build.can_dirty_on_output = matches!(
+            node,
+            BuildPlanNode::Check(_) | BuildPlanNode::EmitProof(_) | BuildPlanNode::Prove(_)
+        );
 
         self.debug_print_command_and_files(node, &build);
         self.lowered(build).map_err(|e| LoweringError::N2 {
@@ -219,6 +228,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let dominated_by_moonc = matches!(
             node,
             BuildPlanNode::Check(_)
+                | BuildPlanNode::EmitProof(_)
                 | BuildPlanNode::Prove(_)
                 | BuildPlanNode::BuildCore(_)
                 | BuildPlanNode::LinkCore(_)
@@ -296,9 +306,40 @@ impl<'a> BuildPlanLowerContext<'a> {
                     out.push(mi_artifact_path);
                 };
             }
+            BuildPlanNode::EmitProof(target) => {
+                // Proof nodes are queried in two situations:
+                // 1. `ProofArtifacts { .. }` edges from downstream proof consumers,
+                //    which request just the subset they need.
+                // 2. `AllFiles` when lowering the node itself or when collecting
+                //    top-level `BuildMeta.artifacts`, which should list the node's
+                //    full output set.
+                let (mi, mlw) = match edge {
+                    FileDependencyKind::ProofArtifacts { mi, mlw, .. } => (mi, mlw),
+                    FileDependencyKind::AllFiles => (true, true),
+                    _ => panic!("EmitProof only supports ProofArtifacts or AllFiles edges"),
+                };
+                if mi {
+                    out.push(self.layout.emit_proof_mi_path(self.packages, &target));
+                }
+                if mlw {
+                    out.push(self.layout.emit_proof_whyml_path(self.packages, &target));
+                }
+            }
             BuildPlanNode::Prove(target) => {
-                out.push(self.layout.prove_whyml_path(self.packages, &target));
-                out.push(self.layout.prove_report_path(self.packages, &target));
+                let (mi, mlw, report) = match edge {
+                    FileDependencyKind::ProofArtifacts { mi, mlw, report } => (mi, mlw, report),
+                    FileDependencyKind::AllFiles => (true, true, true),
+                    _ => panic!("Prove only supports ProofArtifacts or AllFiles edges"),
+                };
+                if mi {
+                    out.push(self.layout.prove_mi_path(self.packages, &target));
+                }
+                if mlw {
+                    out.push(self.layout.prove_whyml_path(self.packages, &target));
+                }
+                if report {
+                    out.push(self.layout.prove_report_path(self.packages, &target));
+                }
             }
             BuildPlanNode::BuildCore(target) => {
                 let info = self

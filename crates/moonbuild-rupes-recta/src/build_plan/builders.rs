@@ -236,6 +236,35 @@ impl<'a> BuildPlanConstructor<'a> {
         self.add_edge_spec(node, dep_node, edge_kind);
     }
 
+    /// Specify a need on the proof artifacts of a dependency.
+    ///
+    /// Dependency proofs stay modular: dependents only require the dependency's
+    /// proof surface (`.mi` + `.mlw`). If the dependency is one of the selected
+    /// prove targets for this invocation, reuse its `Prove` node; otherwise
+    /// schedule an internal `EmitProof` node.
+    fn need_proof_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget) {
+        // As with normal `.mi` dependencies, stdlib packages are resolved via
+        // the injected stdlib path rather than by planning local nodes.
+        if self.build_env.std && self.input.pkg_dirs.is_stdlib_package(dep.package) {
+            return;
+        }
+
+        let dep_node = if self.res.input_nodes.contains(&BuildPlanNode::Prove(dep)) {
+            self.need_node(BuildPlanNode::Prove(dep))
+        } else {
+            self.need_node(BuildPlanNode::EmitProof(dep))
+        };
+        self.add_edge_spec(
+            node,
+            dep_node,
+            FileDependencyKind::ProofArtifacts {
+                mi: true,
+                mlw: true,
+                report: false,
+            },
+        );
+    }
+
     fn need_virtual_if_necessary(
         &mut self,
         pkg: &DiscoveredPackage,
@@ -255,6 +284,38 @@ impl<'a> BuildPlanConstructor<'a> {
             let dep_node = self.need_node(BuildPlanNode::BuildVirtual(*vpkg_id));
             self.add_edge(node, dep_node);
         }
+    }
+
+    pub(crate) fn build_proof_node(
+        &mut self,
+        node: BuildPlanNode,
+        target: BuildTarget,
+    ) -> Result<(), BuildPlanConstructError> {
+        let pkg = self.input.pkg_dirs.get_package(target.package);
+
+        assert!(
+            pkg.has_implementation(),
+            "Building proof for a virtual package without implementation should use the \
+            `BuildVirtual` action instead"
+        );
+
+        self.need_node(node);
+        for dep in self
+            .input
+            .pkg_rel
+            .dep_graph
+            .neighbors_directed(target, petgraph::Direction::Outgoing)
+        {
+            self.check_backend_compatibility_for_mi_dep(node, dep)?;
+            self.need_proof_of_dep(node, dep);
+        }
+
+        self.need_all_package_prebuild(node, target.package);
+        self.need_virtual_if_necessary(pkg, node, target);
+        self.populate_target_info(target);
+        self.resolved_node(node);
+
+        Ok(())
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
@@ -289,39 +350,6 @@ impl<'a> BuildPlanConstructor<'a> {
         self.need_virtual_if_necessary(pkg, node, target);
         self.populate_target_info(target);
 
-        self.resolved_node(node);
-
-        Ok(())
-    }
-
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn build_prove(
-        &mut self,
-        node: BuildPlanNode,
-        target: BuildTarget,
-    ) -> Result<(), BuildPlanConstructError> {
-        let pkg = self.input.pkg_dirs.get_package(target.package);
-
-        assert!(
-            pkg.has_implementation(),
-            "Proving a virtual package without implementation should use the \
-            `BuildVirtual` action instead"
-        );
-
-        self.need_node(node);
-        for dep in self
-            .input
-            .pkg_rel
-            .dep_graph
-            .neighbors_directed(target, petgraph::Direction::Outgoing)
-        {
-            self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_mi_of_dep(node, dep, true);
-        }
-
-        self.need_all_package_prebuild(node, target.package);
-        self.need_virtual_if_necessary(pkg, node, target);
-        self.populate_target_info(target);
         self.resolved_node(node);
 
         Ok(())

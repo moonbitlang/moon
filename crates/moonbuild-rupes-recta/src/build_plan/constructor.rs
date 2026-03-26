@@ -135,34 +135,86 @@ impl<'a> BuildPlanConstructor<'a> {
     /// is also a fix for the virtual package semantics, because virtual
     /// packages don't know if they will be built or checked.
     fn postprocess_coalesce(&mut self) {
+        fn merge_edge_kind(dst: &mut FileDependencyKind, src: FileDependencyKind) {
+            if matches!(src, FileDependencyKind::AllFiles) {
+                *dst = FileDependencyKind::AllFiles;
+                return;
+            }
+
+            match dst {
+                FileDependencyKind::AllFiles => {
+                    *dst = FileDependencyKind::AllFiles;
+                }
+                FileDependencyKind::BuildCore {
+                    mi: dst_mi,
+                    core: dst_core,
+                } => {
+                    let FileDependencyKind::BuildCore { mi, core } = src else {
+                        panic!(
+                            "Cannot merge incompatible edge kinds: {:?} and {:?}",
+                            dst, src
+                        );
+                    };
+                    *dst_mi |= mi;
+                    *dst_core |= core;
+                }
+                FileDependencyKind::ProofArtifacts {
+                    mi: dst_mi,
+                    mlw: dst_mlw,
+                    report: dst_report,
+                } => {
+                    let FileDependencyKind::ProofArtifacts { mi, mlw, report } = src else {
+                        panic!(
+                            "Cannot merge incompatible edge kinds: {:?} and {:?}",
+                            dst, src
+                        );
+                    };
+                    *dst_mi |= mi;
+                    *dst_mlw |= mlw;
+                    *dst_report |= report;
+                }
+                FileDependencyKind::GenerateTestInfo { meta: dst_meta } => {
+                    let FileDependencyKind::GenerateTestInfo { meta } = src else {
+                        panic!(
+                            "Cannot merge incompatible edge kinds: {:?} and {:?}",
+                            dst, src
+                        );
+                    };
+                    *dst_meta |= meta;
+                }
+            }
+        }
+
         // list of nodes to coalesce and their input/output edges
         let mut plan = IndexMap::new();
         for node in self.res.all_nodes() {
-            if let BuildPlanNode::Check(build_target) = node {
-                // Coalesce to BuildCore if it exists
-                if self
+            let coalesced_to = match node {
+                BuildPlanNode::Check(build_target)
+                    if self
+                        .res
+                        .graph
+                        .contains_node(BuildPlanNode::BuildCore(build_target)) =>
+                {
+                    Some(BuildPlanNode::BuildCore(build_target))
+                }
+                _ => None,
+            };
+
+            if let Some(target_node) = coalesced_to {
+                debug!("Coalescing node {:?} to {:?}", node, target_node);
+                let in_edges = self
                     .res
                     .graph
-                    .contains_node(BuildPlanNode::BuildCore(build_target))
-                {
-                    debug!("Coalescing Check node {:?} to BuildCore", node);
-                    let in_edges = self
-                        .res
-                        .graph
-                        .edges_directed(node, petgraph::Incoming)
-                        .map(|(source, _, _)| source)
-                        .collect::<Vec<_>>();
-                    let out_edges = self
-                        .res
-                        .graph
-                        .edges_directed(node, petgraph::Outgoing)
-                        .map(|(_, target, &edge)| (target, edge))
-                        .collect::<Vec<_>>();
-                    plan.insert(
-                        node,
-                        (BuildPlanNode::BuildCore(build_target), in_edges, out_edges),
-                    );
-                }
+                    .edges_directed(node, petgraph::Incoming)
+                    .map(|(source, _, &edge)| (source, edge))
+                    .collect::<Vec<_>>();
+                let out_edges = self
+                    .res
+                    .graph
+                    .edges_directed(node, petgraph::Outgoing)
+                    .map(|(_, target, &edge)| (target, edge))
+                    .collect::<Vec<_>>();
+                plan.insert(node, (target_node, in_edges, out_edges));
             }
         }
 
@@ -170,7 +222,7 @@ impl<'a> BuildPlanConstructor<'a> {
         for (&from, (to, in_edges, out_edges)) in &plan {
             let to = *to;
             // Input edges
-            for &source in in_edges {
+            for &(source, edge) in in_edges {
                 // Check if source is also coalesced
                 let source = if let Some((new_source, _, _)) = plan.get(&source) {
                     *new_source
@@ -180,21 +232,9 @@ impl<'a> BuildPlanConstructor<'a> {
 
                 // Insert or update the edge
                 if let Some(w) = self.res.graph.edge_weight_mut(source, to) {
-                    if let FileDependencyKind::BuildCore { mi, .. } = w {
-                        *mi = true
-                    } else {
-                        // Already depending on all files
-                    }
+                    merge_edge_kind(w, edge);
                 } else {
-                    // Insert the edge
-                    self.res.graph.add_edge(
-                        source,
-                        to,
-                        crate::build_plan::FileDependencyKind::BuildCore {
-                            mi: true,
-                            core: false,
-                        },
-                    );
+                    self.res.graph.add_edge(source, to, edge);
                 }
             }
 
@@ -269,6 +309,7 @@ impl<'a> BuildPlanConstructor<'a> {
     fn ensure_resolved(&self, node: BuildPlanNode) {
         match node {
             BuildPlanNode::Check(build_target)
+            | BuildPlanNode::EmitProof(build_target)
             | BuildPlanNode::Prove(build_target)
             | BuildPlanNode::BuildCore(build_target)
             | BuildPlanNode::GenerateTestInfo(build_target) => {
@@ -360,6 +401,13 @@ impl<'a> BuildPlanConstructor<'a> {
             (FileDependencyKind::BuildCore { .. }, _) => {
                 panic!("BuildCore edge can only point to BuildCore node")
             }
+            (
+                FileDependencyKind::ProofArtifacts { .. },
+                BuildPlanNode::EmitProof(..) | BuildPlanNode::Prove(..),
+            ) => {}
+            (FileDependencyKind::ProofArtifacts { .. }, _) => {
+                panic!("ProofArtifacts edge can only point to EmitProof or Prove node")
+            }
             _ => (),
         }
 
@@ -408,7 +456,8 @@ impl<'a> BuildPlanConstructor<'a> {
     ) -> Result<(), BuildPlanConstructError> {
         match node {
             BuildPlanNode::Check(target) => self.build_check(node, target),
-            BuildPlanNode::Prove(target) => self.build_prove(node, target),
+            BuildPlanNode::EmitProof(target) => self.build_proof_node(node, target),
+            BuildPlanNode::Prove(target) => self.build_proof_node(node, target),
             BuildPlanNode::BuildCore(target) => self.build_build(node, target),
             BuildPlanNode::BuildCStub(target, index) => {
                 self.build_build_c_stub(node, target, index)

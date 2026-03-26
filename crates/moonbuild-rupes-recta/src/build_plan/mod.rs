@@ -130,6 +130,9 @@ pub enum FileDependencyKind {
     /// Depending on specific files of a `BuildCore` node.
     BuildCore { mi: bool, core: bool },
 
+    /// Depending on proof artifacts of an `EmitProof`/`Prove` node.
+    ProofArtifacts { mi: bool, mlw: bool, report: bool },
+
     /// Depending on specific files of a `GenerateTestInfo` node.
     GenerateTestInfo { meta: bool },
 }
