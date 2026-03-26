@@ -314,7 +314,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["check"]),
         expect![[r#"
-            error: Failed to calculate build plan
+            Error: Failed to calculate build plan
 
             Caused by:
                 0: Failed to solve package relationship
@@ -324,7 +324,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["build"]),
         expect![[r#"
-            error: Failed to solve package relationship
+            Error: Failed to solve package relationship
 
             Caused by:
                 Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
@@ -333,7 +333,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["test"]),
         expect![[r#"
-            error: Failed to solve package relationship
+            Error: Failed to solve package relationship
 
             Caused by:
                 Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
@@ -342,7 +342,7 @@ fn test_validate_import() {
     check(
         get_err_stderr(&dir, ["bundle"]),
         expect![[r#"
-            error: Failed to solve package relationship
+            Error: Failed to solve package relationship
 
             Caused by:
                 Cannot find import 'mbt/core/set' in username/hello/main@0.1.0
@@ -424,7 +424,7 @@ fn test_nonexistent_package() {
     check(
         get_err_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
-            error: Failed to calculate build plan
+            Error: Failed to calculate build plan
 
             Caused by:
                 0: Failed to solve package relationship
@@ -2151,7 +2151,7 @@ fn test_diag_loc_map() {
                     wanted   : Int
             ─────╯
             Failed with 0 warnings, 1 errors.
-            error: failed when checking project
+            Error: failed when checking project
         "#]],
     );
 }
@@ -2180,7 +2180,7 @@ fn test_supported_backends_in_pkg_json() {
     check(
         get_err_stderr(&pkg1, ["build"]),
         expect![[r#"
-            error: cannot find a common supported backend for the deps chain: "username/hello1/main: [js, wasm-gc] -> username/hello1/lib: [native]"
+            Error: cannot find a common supported backend for the deps chain: "username/hello1/main: [js, wasm-gc] -> username/hello1/lib: [native]"
         "#]],
     );
 
@@ -2194,7 +2194,7 @@ fn test_supported_backends_in_pkg_json() {
     check(
         get_err_stderr(&pkg3, ["check"]),
         expect![[r#"
-            error: cannot find a common supported backend for the deps chain: "username/hello/main: [wasm-gc] -> username/hello/lib: [js, llvm, native, wasm, wasm-gc] -> username/hello/lib1: [wasm-gc] -> username/hello/lib3: [wasm-gc] -> username/hello/lib7: [js, wasm]"
+            Error: cannot find a common supported backend for the deps chain: "username/hello/main: [wasm-gc] -> username/hello/lib: [js, llvm, native, wasm, wasm-gc] -> username/hello/lib1: [wasm-gc] -> username/hello/lib3: [wasm-gc] -> username/hello/lib7: [js, wasm]"
         "#]],
     );
 }

@@ -97,7 +97,7 @@ fn test_virtual_pkg_err() {
                │           ╰──────────── Missing implementation for function f2.
             ───╯
             Failed with 0 warnings, 1 errors.
-            error: failed when building project
+            Error: failed when building project
         "#]],
     );
 }
