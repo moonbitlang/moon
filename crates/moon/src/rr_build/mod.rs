@@ -508,7 +508,12 @@ pub fn plan_build_from_resolved<'a>(
     info!("Expanding user intents to build plan nodes");
     let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
     for i in &intent.intents {
-        i.append_nodes(&resolve_output, &mut input_nodes, &intent.directive);
+        i.append_nodes(
+            &resolve_output,
+            &mut input_nodes,
+            &intent.directive,
+            target_backend,
+        );
     }
     let cx = preconfig.into_compile_config(target_backend, is_core, &resolve_output, &input_nodes);
     info!("Begin lowering to build graph");

@@ -306,6 +306,55 @@ fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
 }
 
 #[test]
+fn test_check_skips_unrealizable_test_targets_when_source_supports_backend() {
+    let dir = TestDir::new("supported_targets_test_target_mismatch.in");
+
+    let check_out = get_stdout(
+        &dir,
+        ["check", "--target", "js", "--dry-run", "--sort-input"],
+    );
+    assert_contains_and_absent(
+        &check_out,
+        &["./lib/lib.mbt"],
+        &["./lib/lib_test.mbt", "./lib/lib_wbtest.mbt"],
+    );
+}
+
+#[test]
+fn test_test_skips_unrealizable_test_targets_when_source_supports_backend() {
+    let dir = TestDir::new("supported_targets_test_target_mismatch.in");
+
+    let test_out = get_stdout(&dir, ["test", "--target", "js", "-v", "--no-parallelize"]);
+    assert_contains_and_absent(
+        &test_out,
+        &["inline js test", "Total tests: 1, passed: 1, failed: 0."],
+        &["blackbox should be skipped", "whitebox should be skipped"],
+    );
+}
+
+#[test]
+fn test_check_warns_when_test_target_is_never_realizable() {
+    let dir = TestDir::new("supported_targets_test_target_unrealizable.in");
+
+    let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
+    assert!(stderr.contains("Skipping whitebox tests for package"));
+    assert!(stderr.contains("Skipping blackbox tests for package"));
+    assert!(stderr.contains("supported/test-target-unrealizable/lib"));
+    assert!(stderr.contains("unrealizable on every backend"));
+}
+
+#[test]
+fn test_test_warns_when_test_target_is_never_realizable() {
+    let dir = TestDir::new("supported_targets_test_target_unrealizable.in");
+
+    let stderr = get_stderr(&dir, ["test", "--target", "js", "-v", "--no-parallelize"]);
+    assert!(stderr.contains("Skipping whitebox tests for package"));
+    assert!(stderr.contains("Skipping blackbox tests for package"));
+    assert!(stderr.contains("supported/test-target-unrealizable/lib"));
+    assert!(stderr.contains("unrealizable on every backend"));
+}
+
+#[test]
 fn test_missing_supported_targets_root_warns_when_dep_declares() {
     let dir = TestDir::new("supported_targets_missing_root_warning.in");
     let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);

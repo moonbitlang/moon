@@ -23,13 +23,14 @@
 //! package definition and status. This is for simplifying the CLI command
 //! node generation logic.
 
-use moonutil::mooncakes::ModuleId;
+use moonutil::{common::TargetBackend, mooncakes::ModuleId};
+use tracing::warn;
 
 use crate::{
     build_plan::InputDirective,
     cond_comp::get_file_target_backend,
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, PackageId, TargetKind},
+    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
     resolve::ResolveOutput,
 };
 
@@ -65,6 +66,7 @@ impl UserIntent {
         resolved: &ResolveOutput,
         out: &mut Vec<BuildPlanNode>,
         directive: &InputDirective,
+        target_backend: TargetBackend,
     ) {
         match self {
             UserIntent::Build(pkg) => {
@@ -93,12 +95,19 @@ impl UserIntent {
             UserIntent::Check(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
                 if pkg_info.has_implementation() {
+                    let source_target = pkg.build_target(TargetKind::Source);
+                    // Backend support is target-specific: test-only imports can
+                    // make whitebox/blackbox unrealizable even when the source
+                    // target is still valid for the selected backend.
+                    let source_supports_backend =
+                        target_realizes_backend(resolved, source_target, target_backend);
+
                     // - Always check Source.
                     // - If this package is not a virtual implementation, we can
                     //   check tests (virtual impls cannot be tested).
                     // - When checking tests, always check blackbox tests, and
                     //   only check whitebox if it has related files.
-                    out.push(BuildPlanNode::check(pkg.build_target(TargetKind::Source)));
+                    out.push(BuildPlanNode::check(source_target));
                     if !pkg_info.is_virtual_impl()
                         && resolved.local_modules().contains(&pkg_info.module)
                     {
@@ -107,13 +116,25 @@ impl UserIntent {
                         // its blackbox/whitebox tests
 
                         if has_whitebox_decl(resolved, pkg, directive) {
-                            out.push(BuildPlanNode::check(
-                                pkg.build_target(TargetKind::WhiteboxTest),
-                            ));
+                            let whitebox_target = pkg.build_target(TargetKind::WhiteboxTest);
+                            if !should_skip_test_target(
+                                resolved,
+                                source_supports_backend,
+                                whitebox_target,
+                                target_backend,
+                            ) {
+                                out.push(BuildPlanNode::check(whitebox_target));
+                            }
                         }
-                        out.push(BuildPlanNode::check(
-                            pkg.build_target(TargetKind::BlackboxTest),
-                        ));
+                        let blackbox_target = pkg.build_target(TargetKind::BlackboxTest);
+                        if !should_skip_test_target(
+                            resolved,
+                            source_supports_backend,
+                            blackbox_target,
+                            target_backend,
+                        ) {
+                            out.push(BuildPlanNode::check(blackbox_target));
+                        }
                     }
                 } else {
                     // Pure virtual package: compile its interface
@@ -130,6 +151,15 @@ impl UserIntent {
                 } else if pkg_info.is_virtual_impl() {
                     // Virtual package implementation cannot be tested directly
                 } else {
+                    // `moon test` should still run realizable targets of the
+                    // package even if test-only imports make some test targets
+                    // backend-incompatible.
+                    let source_supports_backend = target_realizes_backend(
+                        resolved,
+                        pkg.build_target(TargetKind::Source),
+                        target_backend,
+                    );
+
                     // Emit paired nodes per test target; skip Whitebox if no *_wbtest.mbt declared.
                     for &k in TargetKind::all_tests() {
                         if k == TargetKind::WhiteboxTest
@@ -138,6 +168,16 @@ impl UserIntent {
                             continue;
                         }
                         let t = pkg.build_target(k);
+                        if matches!(k, TargetKind::WhiteboxTest | TargetKind::BlackboxTest)
+                            && should_skip_test_target(
+                                resolved,
+                                source_supports_backend,
+                                t,
+                                target_backend,
+                            )
+                        {
+                            continue;
+                        }
                         out.push(BuildPlanNode::make_executable(t));
                         out.push(BuildPlanNode::generate_test_info(t));
                     }
@@ -188,4 +228,58 @@ fn has_whitebox_decl(
         let (_, with_target_stripped) = get_file_target_backend(file_stem);
         with_target_stripped.ends_with("_wbtest")
     })
+}
+
+fn should_skip_test_target(
+    resolved: &ResolveOutput,
+    source_supports_backend: bool,
+    target: BuildTarget,
+    target_backend: TargetBackend,
+) -> bool {
+    if !source_supports_backend || target_realizes_backend(resolved, target, target_backend) {
+        return false;
+    }
+
+    warn_if_test_target_is_never_realizable(resolved, target);
+    true
+}
+
+fn target_realizes_backend(
+    resolved: &ResolveOutput,
+    target: BuildTarget,
+    target_backend: TargetBackend,
+) -> bool {
+    resolved
+        .pkg_rel
+        .realizable_supported_targets
+        .get(&target)
+        // Targets without edges are absent from the graph; in that case their
+        // realizable support is just the package-level support.
+        .unwrap_or(
+            &resolved
+                .pkg_dirs
+                .get_package(target.package)
+                .effective_supported_targets,
+        )
+        .contains(&target_backend)
+}
+
+fn warn_if_test_target_is_never_realizable(resolved: &ResolveOutput, target: BuildTarget) {
+    let Some(realizable) = resolved.pkg_rel.realizable_supported_targets.get(&target) else {
+        return;
+    };
+    if !realizable.is_empty() {
+        return;
+    }
+
+    let pkg = resolved.pkg_dirs.get_package(target.package);
+    let test_kind = match target.kind {
+        TargetKind::WhiteboxTest => "whitebox",
+        TargetKind::BlackboxTest => "blackbox",
+        _ => return,
+    };
+    warn!(
+        "Skipping {test_kind} tests for package `{}`: the test target is unrealizable on every backend because its dependency graph has no supported backend intersection",
+        pkg.fqn
+    );
 }
