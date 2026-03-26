@@ -597,11 +597,22 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
         "expected add command to target app module, got:\n{stderr}"
     );
 
-    let stderr = get_err_stderr(
+    let stderr = get_stderr(
         &dir,
         ["--manifest-path", "app/moon.mod.json", "package", "--list"],
     );
-    assert_registry_resolution_failure(&stderr);
+    assert!(
+        stderr.contains("src/main/main.mbt"),
+        "expected package command to list the app member contents, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
+        "expected package command to write the app member archive, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("liba/src/lib/lib.mbt"),
+        "expected package command to target only the app member, got:\n{stderr}"
+    );
 
     check(
         std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
@@ -678,8 +689,19 @@ fn test_workspace_root_keeps_workspace_mode_with_env_override() {
 fn test_package_targets_workspace_member_from_member_dir() {
     let dir = TestDir::new("workspace_basic.in");
 
-    let stderr = get_err_stderr(&dir, ["-C", "app", "package", "--list"]);
-    assert_registry_resolution_failure(&stderr);
+    let stderr = get_stderr(&dir, ["-C", "app", "package", "--list"]);
+    assert!(
+        stderr.contains("src/main/main.mbt"),
+        "expected package command to list the app member contents, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
+        "expected package command to write the app member archive, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("liba/src/lib/lib.mbt"),
+        "expected package command to target only the app member, got:\n{stderr}"
+    );
 }
 
 #[test]
