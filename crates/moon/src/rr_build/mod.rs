@@ -455,6 +455,10 @@ pub(crate) fn plan_build_from_resolved<'a>(
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
     resolve_output: ResolveOutput,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    for warning in &resolve_output.user_warnings {
+        output.warn(warning);
+    }
+
     // A couple of debug things:
     if unstable_features.rr_export_module_graph {
         info!("Exporting module graph DOT file");
@@ -537,6 +541,9 @@ pub(crate) fn plan_build_from_resolved<'a>(
         &intent.directive,
         prebuild_config.as_ref(),
     )?;
+    for warning in &compile_output.user_warnings {
+        output.warn(warning);
+    }
 
     if unstable_features.rr_export_build_plan
         && let Some(plan) = compile_output.build_plan

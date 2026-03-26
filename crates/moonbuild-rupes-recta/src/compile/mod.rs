@@ -35,6 +35,7 @@ use crate::{
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
+    user_warning::UserWarning,
 };
 
 /// The context that encapsulates all the data needed for the building process.
@@ -84,6 +85,9 @@ pub struct CompileOutput {
     /// The final artifacts corresponding to the input nodes
     pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 
+    /// User-facing warnings discovered during planning.
+    pub user_warnings: Vec<UserWarning>,
+
     /// The build plan, but only if we decided to export it.
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
@@ -120,7 +124,7 @@ pub fn compile(
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),
     };
-    let plan = build_plan::build_plan(
+    let (plan, user_warnings) = build_plan::build_plan(
         resolve_output,
         &build_env,
         input_nodes,
@@ -164,6 +168,7 @@ pub fn compile(
     Ok(CompileOutput {
         build_graph: res.build_graph,
         artifacts: res.artifacts,
+        user_warnings,
         build_plan: if cx.debug_export_build_plan {
             Some(Box::new(plan))
         } else {

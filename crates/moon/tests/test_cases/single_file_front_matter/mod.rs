@@ -29,6 +29,26 @@ fn test_single_file_front_matter_import_replaces_import_all() {
 }
 
 #[test]
+fn test_single_file_front_matter_deps_only_keeps_legacy_import_all_with_warning() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let _ = get_stdout(
+        &dir,
+        ["check", "front_matter_deps_only.mbt.md", "--dry-run"],
+    );
+
+    let stderr = get_stderr(
+        &dir,
+        ["check", "front_matter_deps_only.mbt.md", "--dry-run"],
+    );
+    assert!(
+        stderr.contains(
+            "moonbit.deps without moonbit.import: importing all packages (legacy behavior)."
+        ),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn test_single_file_front_matter_import_module_root() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stdout = get_stdout(&dir, ["test", "t.mbt.md", "--no-parallelize"]);
