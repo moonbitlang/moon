@@ -45,6 +45,7 @@ use moonbuild_rupes_recta::{
     intent::UserIntent,
     model::{Artifacts, BuildPlanNode, PackageId, RunBackend, TargetKind},
     prebuild::run_prebuild_config,
+    user_warning::UserWarning,
 };
 use moonutil::{
     cli::UniversalFlags,
@@ -457,8 +458,8 @@ pub(crate) fn plan_build_from_resolved<'a>(
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
     resolve_output: ResolveOutput,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    for warning in &resolve_output.user_warnings {
-        output.warn(warning);
+    for message in &resolve_output.user_warnings {
+        output.user_message(message);
     }
 
     // A couple of debug things:
@@ -520,13 +521,18 @@ pub(crate) fn plan_build_from_resolved<'a>(
     // Expand user intents to concrete BuildPlanNode inputs
     info!("Expanding user intents to build plan nodes");
     let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
+    let mut intent_messages = Vec::new();
     for i in &intent.intents {
         i.append_nodes(
             &resolve_output,
             &mut input_nodes,
+            &mut intent_messages,
             &intent.directive,
             target_backend,
         );
+    }
+    for message in &intent_messages {
+        output.user_message(message);
     }
     let cx = preconfig.into_compile_config(
         target_backend,
@@ -543,8 +549,8 @@ pub(crate) fn plan_build_from_resolved<'a>(
         &intent.directive,
         prebuild_config.as_ref(),
     )?;
-    for warning in &compile_output.user_warnings {
-        output.warn(warning);
+    for message in &compile_output.user_warnings {
+        output.user_message(message);
     }
 
     if unstable_features.rr_export_build_plan
@@ -589,8 +595,8 @@ pub fn plan_fmt(
     target_dir: &Path,
     selected_packages: &[PackageId],
     project_manifest_path: Option<&Path>,
-) -> anyhow::Result<BuildInput> {
-    let graph = moonbuild_rupes_recta::fmt::build_graph_for_fmt(
+) -> anyhow::Result<(BuildInput, Vec<UserWarning>)> {
+    let (graph, user_warnings) = moonbuild_rupes_recta::fmt::build_graph_for_fmt(
         resolved,
         cfg,
         source_dir,
@@ -605,7 +611,7 @@ pub fn plan_fmt(
         RunMode::Format,
     );
     let input = BuildInput { graph, db_path };
-    Ok(input)
+    Ok((input, user_warnings))
 }
 
 /// Check if we can actually run `tcc -run`.

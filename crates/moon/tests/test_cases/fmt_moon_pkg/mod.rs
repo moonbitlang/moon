@@ -24,7 +24,9 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
                 "--sort-input",
             ],
         ),
-        expect![""],
+        expect![[r#"
+            Warning: Migrating to moon.pkg in package 'test/fmt_moon_pkg/lib', deprecated moon.pkg.json is removed.
+        "#]],
     );
 
     let output = get_stdout(
@@ -111,7 +113,10 @@ fn test_fmt_moon_pkg_both_exist() {
                 "--sort-input",
             ],
         ),
-        expect![""],
+        expect![[r#"
+            Warning: Migrating to moon.pkg in package 'test/fmt_moon_pkg_both', deprecated moon.pkg.json is removed.
+            Warning: Both moon.pkg.json and moon.pkg exist in package 'test/fmt_moon_pkg_both/both', using the new format moon.pkg. Please remove the deprecated moon.pkg.json.
+        "#]],
     );
 
     let output = get_stdout(

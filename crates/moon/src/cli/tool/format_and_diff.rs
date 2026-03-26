@@ -69,7 +69,7 @@ pub(crate) fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Resul
     if cmd.warn {
         // This command is executed by n2, so colored message using with
         // `eprintln!` is not displayed correctly.
-        tracing::warn!("File not formatted: {}", cmd.old.display());
+        println!("File not formatted: {}", cmd.old.display());
         return Ok(0);
     }
 

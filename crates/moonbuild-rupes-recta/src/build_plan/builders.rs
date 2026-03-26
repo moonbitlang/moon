@@ -138,10 +138,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 .warned_missing_supported_targets
                 .insert(importer_target.package)
         {
-            warn!(
+            self.user_warnings.push(UserWarning::new(format!(
                 "Package `{}` does not declare `supported_targets`, but depends on `{}` which declares it. Consider declaring `supported_targets` explicitly",
                 importer_pkg.fqn, dependency_pkg.fqn
-            );
+            )));
         }
 
         let dependency_realizable = self

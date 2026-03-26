@@ -32,6 +32,7 @@ use crate::{
         DepEdge,
         model::{DepRelationship, ImportLoop, SolveError},
     },
+    user_warning::UserWarning,
 };
 
 use super::model::MultipleError;
@@ -41,7 +42,11 @@ use super::model::MultipleError;
 /// This function checks the following:
 /// - No loops (except test imports, which don't currently have a workaround)
 /// - Aliases are unique within one package
-pub(super) fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result<(), SolveError> {
+pub(super) fn verify(
+    dep: &DepRelationship,
+    packages: &DiscoverResult,
+    user_warnings: &mut Vec<UserWarning>,
+) -> Result<(), SolveError> {
     debug!("Verifying package dependency graph integrity");
 
     let mut errs = vec![];
@@ -55,7 +60,7 @@ pub(super) fn verify(dep: &DepRelationship, packages: &DiscoverResult) -> Result
     debug!("Done uniqueness verification");
     verify_no_forbidden_internal_imports(dep, packages, &mut errs);
     debug!("Done internal import verification");
-    warn_main_package_dependencies(dep, packages);
+    warn_main_package_dependencies(dep, packages, user_warnings);
     debug!("Done main package deprecation warnings");
 
     debug!("Package dependency graph verification completed successfully");
@@ -259,7 +264,11 @@ fn verify_no_forbidden_internal_imports(
     }
 }
 
-fn warn_main_package_dependencies(dep: &DepRelationship, packages: &DiscoverResult) {
+fn warn_main_package_dependencies(
+    dep: &DepRelationship,
+    packages: &DiscoverResult,
+    user_warnings: &mut Vec<UserWarning>,
+) {
     let mut seen: HashSet<(PackageId, PackageId, TargetKind)> = HashSet::new();
 
     for node in dep.dep_graph.node_identifiers() {
@@ -295,7 +304,7 @@ fn warn_main_package_dependencies(dep: &DepRelationship, packages: &DiscoverResu
                 _ => unreachable!("only package import fields should reach this warning"),
             };
 
-            tracing::warn!(
+            user_warnings.push(UserWarning::new(format!(
                 "Package `{}` depends on main package `{}` via `{}` in package directory \"{}\". \
 This dependency will become an error in a future release. \
 Move reusable APIs into a non-main package and keep main packages as entrypoints.",
@@ -303,7 +312,7 @@ Move reusable APIs into a non-main package and keep main packages as entrypoints
                 dependency_pkg.fqn,
                 import_field,
                 importer_pkg.root_path.display(),
-            );
+            )));
         }
     }
 }

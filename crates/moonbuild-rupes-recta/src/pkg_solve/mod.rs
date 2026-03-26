@@ -41,13 +41,15 @@ pub fn solve(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
     enable_coverage: bool,
-) -> Result<(DepRelationship, Vec<UserWarning>), SolveError> {
+    user_warnings: &mut Vec<UserWarning>,
+) -> Result<DepRelationship, SolveError> {
     info!("Starting dependency resolution");
 
-    let (mut res, user_warnings) = solve_only(modules, packages, enable_coverage)?;
-    verify(&res, packages)?;
+    let (mut res, mut solve_warnings) = solve_only(modules, packages, enable_coverage)?;
+    user_warnings.append(&mut solve_warnings);
+    verify(&res, packages, user_warnings)?;
     res.realizable_supported_targets = compute_realizable_supported_targets(&res, packages);
 
     info!("Dependency resolution completed successfully");
-    Ok((res, user_warnings))
+    Ok(res)
 }

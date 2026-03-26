@@ -94,7 +94,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         migrate_moon_pkg_json: cli.unstable_feature.rr_moon_pkg,
         migrate_moon_work_json: cli.unstable_feature.rr_moon_pkg,
     };
-    let graph = plan_fmt(
+    let (graph, user_warnings) = plan_fmt(
         &resolved,
         &fmt_config,
         &source_dir,
@@ -102,6 +102,9 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         &selected_packages,
         Some(project_manifest_path.as_path()),
     )?;
+    for message in &user_warnings {
+        output.user_message(message);
+    }
 
     if cli.dry_run {
         rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);

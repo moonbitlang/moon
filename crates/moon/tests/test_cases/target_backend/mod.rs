@@ -355,6 +355,19 @@ fn test_test_warns_when_test_target_is_never_realizable() {
 }
 
 #[test]
+fn test_check_skips_backend_mismatched_tests_as_info() {
+    let dir = TestDir::new("supported_targets_test_target_mismatch.in");
+
+    let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);
+    assert!(!stderr.contains("target is not realizable for this backend"));
+
+    let verbose_stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run", "-v"]);
+    assert!(verbose_stderr.contains("Skipping whitebox tests for package"));
+    assert!(verbose_stderr.contains("Skipping blackbox tests for package"));
+    assert!(verbose_stderr.contains("target is not realizable for this backend"));
+}
+
+#[test]
 fn test_missing_supported_targets_root_warns_when_dep_declares() {
     let dir = TestDir::new("supported_targets_missing_root_warning.in");
     let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);

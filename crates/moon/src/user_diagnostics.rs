@@ -20,6 +20,7 @@ use std::fmt::Display;
 
 use colored::{ColoredString, Colorize};
 use moonutil::cli::UniversalFlags;
+use moonutil::user_warning::{UserMessageLevel, UserWarning};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum UserThreshold {
@@ -68,6 +69,13 @@ impl UserDiagnostics {
 
     pub(crate) fn info(self, message: impl Display) {
         self.emit(UserMessageKind::Info, message);
+    }
+
+    pub(crate) fn user_message(self, message: &UserWarning) {
+        match message.level() {
+            UserMessageLevel::Warn => self.warn(message),
+            UserMessageLevel::Info => self.info(message),
+        }
     }
 
     #[allow(dead_code)]

@@ -42,6 +42,7 @@ pub mod platform;
 pub mod render;
 pub mod shlex;
 pub mod supported_targets;
+pub mod user_warning;
 pub mod version;
 pub mod workspace;
 

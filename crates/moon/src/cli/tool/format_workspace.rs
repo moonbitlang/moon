@@ -67,7 +67,7 @@ pub(crate) fn run_format_workspace(cmd: FormatWorkspaceSubcommand) -> anyhow::Re
     }
 
     if cmd.warn {
-        tracing::warn!("File not formatted: {}", cmd.old.display());
+        println!("File not formatted: {}", cmd.old.display());
         return Ok(0);
     }
 
