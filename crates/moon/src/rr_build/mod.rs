@@ -35,7 +35,6 @@ use std::{
 };
 
 use anyhow::Context;
-use colored::Colorize;
 use indexmap::IndexMap;
 use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
@@ -63,6 +62,7 @@ use moonutil::{
 use tracing::{Level, info, instrument, warn};
 
 use crate::build_flags::{BuildFlags, OutputStyle};
+use crate::user_diagnostics::UserDiagnostics;
 
 mod dry_run;
 pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
@@ -111,7 +111,7 @@ impl From<(Vec<UserIntent>, InputDirective)> for CalcUserIntentOutput {
     }
 }
 
-fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput) {
+fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, output: UserDiagnostics) {
     let mut warned = BTreeSet::new();
     for &module_id in resolve_output.local_modules() {
         if let Some(pkgs) = resolve_output.pkg_dirs.packages_for_module(module_id) {
@@ -121,10 +121,10 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput) {
                 }
                 let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
                 if pkg.supported_targets_decl == SupportedTargetsDeclKind::LegacyArray {
-                    warn!(
+                    output.warn(format!(
                         "Package `{}` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead",
                         pkg.fqn
-                    );
+                    ));
                 }
             }
         }
@@ -146,7 +146,10 @@ pub(crate) fn local_packages(
         })
 }
 
-fn workspace_preferred_target(resolve_output: &ResolveOutput) -> Option<TargetBackend> {
+fn workspace_preferred_target(
+    resolve_output: &ResolveOutput,
+    output: UserDiagnostics,
+) -> Option<TargetBackend> {
     if let Some(preferred_target) = resolve_output.workspace_preferred_target {
         return Some(preferred_target);
     }
@@ -163,8 +166,8 @@ fn workspace_preferred_target(resolve_output: &ResolveOutput) -> Option<TargetBa
         .collect::<BTreeSet<_>>();
 
     if preferred.len() > 1 {
-        warn!(
-            "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly"
+        output.warn(
+            "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly",
         );
         None
     } else {
@@ -290,6 +293,7 @@ impl CompilePreConfig {
         is_core: bool,
         resolve_output: &ResolveOutput,
         input_nodes: &[BuildPlanNode],
+        output: UserDiagnostics,
     ) -> CompileConfig {
         info!("Determining compilation configuration");
 
@@ -309,7 +313,8 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
-        let tcc_available = check_tcc_availability(target_backend, resolve_output, input_nodes);
+        let tcc_available =
+            check_tcc_availability(target_backend, resolve_output, input_nodes, output);
         info!("`tcc -run` availability: {}", tcc_available);
 
         let target_backend = match target_backend {
@@ -408,11 +413,12 @@ pub fn preconfig_compile(
 /// execute_build to take ownership of just the graph while callers retain
 /// access to the metadata.
 #[instrument(skip_all)]
-pub fn plan_build<'a>(
+pub(crate) fn plan_build<'a>(
     preconfig: CompilePreConfig,
     unstable_features: &'a FeatureGate,
     source_dir: &'a Path,
     target_dir: &'a Path,
+    output: UserDiagnostics,
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     info!("Starting build planning");
@@ -430,6 +436,7 @@ pub fn plan_build<'a>(
         preconfig,
         unstable_features,
         target_dir,
+        output,
         calc_user_intent,
         resolve_output,
     )
@@ -440,10 +447,11 @@ pub fn plan_build<'a>(
 /// This function exists because [someone demands target determination **after**
 /// resolving completes](crate::cli::tool::build_binary_dep). For most cases,
 /// use [`plan_build`] instead.
-pub fn plan_build_from_resolved<'a>(
+pub(crate) fn plan_build_from_resolved<'a>(
     preconfig: CompilePreConfig,
     unstable_features: &'a FeatureGate,
     target_dir: &'a Path,
+    output: UserDiagnostics,
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
     resolve_output: ResolveOutput,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
@@ -473,7 +481,7 @@ pub fn plan_build_from_resolved<'a>(
     let preferred_target = if preconfig.target_backend.is_some() {
         None
     } else {
-        workspace_preferred_target(&resolve_output)
+        workspace_preferred_target(&resolve_output, output)
     };
     info!("Preferred backend: {:?}", preferred_target);
 
@@ -484,12 +492,11 @@ pub fn plan_build_from_resolved<'a>(
 
     // TODO: remove this once LLVM backend is well supported
     if target_backend == TargetBackend::LLVM {
-        eprintln!(
-            "{}: LLVM backend is experimental and only supported on nightly moonbit toolchain for now",
-            "Warning".yellow()
+        output.warn(
+            "LLVM backend is experimental and only supported on nightly moonbit toolchain for now",
         );
     }
-    warn_local_legacy_supported_targets(&resolve_output);
+    warn_local_legacy_supported_targets(&resolve_output, output);
 
     info!("Calculating user intent");
     let intent = calc_user_intent(&resolve_output, target_backend)?;
@@ -515,7 +522,13 @@ pub fn plan_build_from_resolved<'a>(
             target_backend,
         );
     }
-    let cx = preconfig.into_compile_config(target_backend, is_core, &resolve_output, &input_nodes);
+    let cx = preconfig.into_compile_config(
+        target_backend,
+        is_core,
+        &resolve_output,
+        &input_nodes,
+        output,
+    );
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
@@ -592,6 +605,7 @@ fn check_tcc_availability(
     target_backend: TargetBackend,
     resolve_output: &ResolveOutput,
     input_nodes: &[BuildPlanNode],
+    output: UserDiagnostics,
 ) -> bool {
     // Only for native target. Yes, not even LLVM.
     if target_backend != TargetBackend::Native {
@@ -609,7 +623,7 @@ fn check_tcc_availability(
     let _tcc = match CC::internal_tcc() {
         Ok(t) => t,
         Err(_) => {
-            warn!("Cannot find TCC compiler in the system; disabling `tcc -run`");
+            output.warn("Cannot find TCC compiler in the system; disabling `tcc -run`");
             return false;
         }
     };
@@ -623,24 +637,24 @@ fn check_tcc_availability(
                 continue;
             };
             if native.cc.is_some() {
-                warn!(
+                output.warn(format!(
                     "Package '{}' overrides C/C++ toolchain, `tcc -run` will be disabled",
                     package.fqn
-                );
+                ));
                 return false;
             }
             if native.cc_flags.is_some() {
-                warn!(
+                output.warn(format!(
                     "Package '{}' overrides C/C++ compiler flags, `tcc -run` will be disabled",
                     package.fqn
-                );
+                ));
                 return false;
             }
             if native.cc_link_flags.is_some() {
-                warn!(
+                output.warn(format!(
                     "Package '{}' overrides C/C++ linker flags, `tcc -run` will be disabled",
                     package.fqn
-                );
+                ));
                 return false;
             }
         }
@@ -762,13 +776,19 @@ pub struct BuildConfig {
 
     /// Verbose output for build progress and command echo
     verbose: bool,
+    user_diagnostics: UserDiagnostics,
 
     /// The patch file to use
     pub patch_file: Option<PathBuf>,
 }
 
 impl BuildConfig {
-    pub fn from_flags(flags: &BuildFlags, unstable_features: &FeatureGate, verbose: bool) -> Self {
+    pub(crate) fn from_flags(
+        flags: &BuildFlags,
+        unstable_features: &FeatureGate,
+        verbose: bool,
+        user_diagnostics: UserDiagnostics,
+    ) -> Self {
         BuildConfig {
             parallelism: flags.jobs,
             output_style: flags.output_style(),
@@ -777,6 +797,7 @@ impl BuildConfig {
             explain_errors: false,
             n2_explain: unstable_features.rr_n2_explain,
             verbose,
+            user_diagnostics,
             patch_file: None,
         }
     }
@@ -792,6 +813,7 @@ impl Default for BuildConfig {
             explain_errors: false,
             n2_explain: false,
             verbose: false,
+            user_diagnostics: UserDiagnostics::default(),
             patch_file: None,
         }
     }
@@ -1001,8 +1023,8 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
     }
 
     if !unprocessed.is_empty() {
-        warn!(
-            "Some diagnostics could not be rendered, please run with --no-render to see raw output."
+        cfg.user_diagnostics.warn(
+            "Some diagnostics could not be rendered, please run with --no-render to see raw output.",
         );
     }
 }

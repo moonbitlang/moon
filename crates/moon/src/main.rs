@@ -31,10 +31,12 @@ pub mod rr_build;
 mod run;
 #[cfg(test)]
 mod tests;
+mod user_diagnostics;
 mod watch;
 
-use colored::*;
 use tracing_subscriber::{Layer, layer::SubscriberExt};
+
+use crate::user_diagnostics::UserDiagnostics;
 
 /// Initialize logging and tracing-related functionality.
 ///
@@ -110,16 +112,16 @@ pub fn main() {
 
     let cli = cli::MoonBuildCli::parse();
     let flags = cli.flags;
+    let output = UserDiagnostics::from_flags(&flags);
 
     if let Some(dir) = &flags.source_tgt_dir.cwd {
         // `-C` changes the process working directory early.
         if let Err(err) = std::env::set_current_dir(dir) {
-            eprintln!(
-                "{}: failed to change directory to {}: {}",
-                "error".red().bold(),
+            output.error(format!(
+                "failed to change directory to {}: {}",
                 dir.display(),
                 err
-            );
+            ));
             std::process::exit(-1);
         }
     }
@@ -127,7 +129,9 @@ pub fn main() {
     let _trace_guard = init_tracing(flags.trace);
 
     // Check for deprecated flags and emit warnings (after tracing is initialized)
-    flags.check_deprecations();
+    for warning in flags.deprecation_warnings() {
+        output.warn(warning);
+    }
 
     use MoonBuildSubcommands::*;
     let res = match cli.subcommand {
@@ -170,7 +174,7 @@ pub fn main() {
     match res {
         Ok(code) => std::process::exit(code),
         Err(e) => {
-            eprintln!("{}: {:?}", "error".red().bold(), e);
+            output.error(format!("{:?}", e));
             std::process::exit(-1);
         }
     }

@@ -28,6 +28,7 @@ use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
 use crate::run::{TestFilter, TestIndex, TestOutlineEntry};
+use crate::user_diagnostics::UserDiagnostics;
 use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
@@ -49,9 +50,15 @@ use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
 
 /// Print test summary statistics in the legacy format
-fn print_test_summary(total: usize, passed: usize, quiet: bool, backend_hint: Option<&str>) {
+fn print_test_summary(
+    total: usize,
+    passed: usize,
+    quiet: bool,
+    backend_hint: Option<&str>,
+    output: UserDiagnostics,
+) {
     if total == 0 {
-        eprintln!("{}: no test entry found.", "Warning".yellow().bold());
+        output.warn("no test entry found.");
     }
 
     let failed = total - passed;
@@ -76,9 +83,9 @@ fn print_test_summary(total: usize, passed: usize, quiet: bool, backend_hint: Op
     }
 }
 
-fn print_test_outline(entries: &[TestOutlineEntry]) {
+fn print_test_outline(entries: &[TestOutlineEntry], output: UserDiagnostics) {
     if entries.is_empty() {
-        eprintln!("{}: no test entry found.", "Warning".yellow().bold());
+        output.warn("no test entry found.");
         return;
     }
 
@@ -192,6 +199,7 @@ pub(crate) fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Resu
 
 #[instrument(skip_all)]
 fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
+    let output = UserDiagnostics::from_flags(cli);
     info!(
         update = cmd.update,
         build_only = cmd.build_only,
@@ -226,10 +234,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
     );
 
     if cmd.doc_test {
-        eprintln!(
-            "{}: --doc flag is deprecated and will be removed in the future, please use `moon test` directly",
-            "Warning".yellow(),
-        );
+        output.warn("--doc flag is deprecated and will be removed in the future, please use `moon test` directly");
     }
 
     if cmd.build_flags.target.is_empty() {
@@ -346,6 +351,7 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
         preconfig,
         &cli.unstable_feature,
         &raw_target_dir,
+        UserDiagnostics::from_flags(cli),
         Box::new(|r, _tb| {
             let m_packages = r
                 .pkg_dirs
@@ -533,8 +539,15 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         preconfig,
         &cli.unstable_feature,
         target_dir,
+        UserDiagnostics::from_flags(cli),
         Box::new(|resolved, target_backend| {
-            calc_user_intent(resolved, cmd, &mut filter, target_backend, cli.verbose)
+            calc_user_intent(
+                resolved,
+                cmd,
+                &mut filter,
+                target_backend,
+                UserDiagnostics::from_flags(cli),
+            )
         }),
         resolve_output,
     )?;
@@ -650,6 +663,7 @@ fn apply_list_of_filters(
     value_tracing: bool,
     target_backend: TargetBackend,
     out_filter: &mut TestFilter,
+    output: UserDiagnostics,
 ) -> Result<InputDirective, anyhow::Error> {
     let package_matches = match_packages_with_fuzzy(
         resolve_output,
@@ -720,10 +734,10 @@ fn apply_list_of_filters(
         }
     } else {
         // No package matched
-        warn!(
+        output.warn(format!(
             "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
             package_filter.join(", ")
-        );
+        ));
     }
     trace!("finished building package directive");
 
@@ -745,7 +759,7 @@ fn calc_user_intent(
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     target_backend: moonutil::common::TargetBackend,
-    verbose: bool,
+    output: UserDiagnostics,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let all_affected_packages: Vec<_> = resolve_output
         .local_modules()
@@ -797,12 +811,10 @@ fn calc_user_intent(
                 debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
 
                 let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
-                    if verbose {
-                        warn!(
-                            "skipping path `{}` because it is not a package in the current work context.",
-                            path.display()
-                        );
-                    }
+                    output.info(format!(
+                        "skipping path `{}` because it is not a package in the current work context.",
+                        path.display()
+                    ));
                     continue;
                 };
 
@@ -829,17 +841,15 @@ fn calc_user_intent(
                 )?;
             }
 
-            if verbose {
-                for (path, pkg_id) in unsupported_paths {
-                    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-                    warn!(
-                        "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
-                        path.display(),
-                        pkg.fqn,
-                        target_backend,
-                        format_supported_backends(resolve_output, pkg_id),
-                    );
-                }
+            for (path, pkg_id) in unsupported_paths {
+                let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+                output.info(format!(
+                    "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
+                    path.display(),
+                    pkg.fqn,
+                    target_backend,
+                    format_supported_backends(resolve_output, pkg_id),
+                ));
             }
 
             trace!("explicit path filters applied");
@@ -858,6 +868,7 @@ fn calc_user_intent(
             value_tracing,
             target_backend,
             out_filter,
+            output,
         )?
     } else {
         // No filter: emit one intent per package (Test/Bench)
@@ -918,7 +929,13 @@ fn rr_test_from_plan(
     // before executing the build
     rr_build::generate_all_pkgs_json(target_dir, build_meta, cmd.run_mode)?;
 
-    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let user_diagnostics = UserDiagnostics::from_flags(cli);
+    let build_config = BuildConfig::from_flags(
+        cmd.build_flags,
+        &cli.unstable_feature,
+        cli.verbose,
+        user_diagnostics,
+    );
 
     // since n2 build consumes the graph, we back it up for reruns
     let build_graph_backup = cmd.update.then(|| build_graph.clone());
@@ -940,7 +957,7 @@ fn rr_test_from_plan(
             cmd.include_skipped,
             cmd.run_mode == RunMode::Bench,
         )?;
-        print_test_outline(&entries);
+        print_test_outline(&entries, user_diagnostics);
         return Ok(0);
     }
 
@@ -993,10 +1010,10 @@ fn rr_test_from_plan(
 
             // Apply loop count limits
             if loop_count >= cmd.limit {
-                warn!(
+                user_diagnostics.warn(format!(
                     "reached the limit of {} update passes, stopping further updates.",
                     cmd.limit
-                );
+                ));
                 break;
             }
             loop_count += 1;
@@ -1071,7 +1088,13 @@ fn rr_test_from_plan(
 
     test_result.print_result(build_meta, cli.verbose, cmd.test_failure_json);
     let summary = test_result.summary();
-    print_test_summary(summary.total, summary.passed, cli.quiet, backend_hint);
+    print_test_summary(
+        summary.total,
+        summary.passed,
+        cli.quiet,
+        backend_hint,
+        user_diagnostics,
+    );
 
     if summary.total == summary.passed {
         Ok(0)

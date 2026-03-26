@@ -25,6 +25,7 @@ use moonutil::{
 };
 
 use super::UniversalFlags;
+use crate::user_diagnostics::UserDiagnostics;
 
 #[derive(Debug, clap::Parser)]
 #[clap(
@@ -42,6 +43,7 @@ pub(crate) struct FetchSubcommand {
 }
 
 pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i32> {
+    let output = UserDiagnostics::from_flags(&cli);
     let index_dir = moonutil::moon_dir::index();
     let mut index_updated = false;
 
@@ -52,10 +54,9 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
             Ok(_) => index_updated = true,
             Err(e) => {
                 if had_index {
-                    eprintln!(
-                        "{}: failed to update registry index, continuing with existing index: {e}",
-                        "Warning".yellow().bold(),
-                    );
+                    output.warn(format!(
+                        "failed to update registry index, continuing with existing index: {e}"
+                    ));
                 } else {
                     return Err(e);
                 }

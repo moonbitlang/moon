@@ -35,6 +35,7 @@ use crate::{
         package_supports_backend,
     },
     rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile},
+    user_diagnostics::UserDiagnostics,
 };
 
 /// Prove the current package
@@ -119,6 +120,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         &cli.unstable_feature,
         &project_root,
         &target_dir,
+        UserDiagnostics::from_flags(cli),
         Box::new(move |resolve_output, target_backend| {
             calc_user_intent(
                 path_filter,
@@ -142,7 +144,12 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
 
     let _lock = FileLock::lock(&target_dir)?;
     rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Prove)?;
-    let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
+    let cfg = BuildConfig::from_flags(
+        &build_flags,
+        &cli.unstable_feature,
+        cli.verbose,
+        UserDiagnostics::from_flags(cli),
+    );
     let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
     if !cli.quiet && !build_flags.output_json {
         let _ = print_prove_summary(&project_root, &proof_reports);

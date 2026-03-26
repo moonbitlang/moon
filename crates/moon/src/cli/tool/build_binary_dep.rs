@@ -31,6 +31,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::user_diagnostics::UserDiagnostics;
 use anyhow::Context;
 use moonbuild_rupes_recta::{
     ResolveConfig, discover::DiscoveredPackage, intent::UserIntent, model::PackageId,
@@ -41,7 +42,6 @@ use moonutil::{
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
 };
-use tracing::warn;
 
 use crate::{
     cli::BuildFlags,
@@ -70,6 +70,7 @@ pub(crate) fn run_build_binary_dep(
     cli: &UniversalFlags,
     cmd: &BuildBinaryDepArgs,
 ) -> anyhow::Result<i32> {
+    let output = UserDiagnostics::from_flags(cli);
     let PackageDirs {
         source_dir,
         target_dir,
@@ -105,7 +106,12 @@ pub(crate) fn run_build_binary_dep(
             .pkg_dirs
             .packages_for_module(main_module_id)
             .ok_or_else(|| anyhow::anyhow!("Cannot find the local module!"))?;
-        get_linkable_pkgs_for_bin_dep(&resolve_output, packages.values().cloned(), default_backend)
+        get_linkable_pkgs_for_bin_dep(
+            &resolve_output,
+            packages.values().cloned(),
+            default_backend,
+            output,
+        )
     } else {
         let mut result_pkgs = vec![];
         for pkg_name in cmd.pkg_names.iter() {
@@ -113,11 +119,12 @@ pub(crate) fn run_build_binary_dep(
                 &resolve_output,
                 resolve_output.local_modules(),
                 pkg_name,
+                output,
             );
             for pkg in pkgs {
                 let pkg_ref = resolve_output.pkg_dirs.get_package(pkg);
                 let pkg_bin_target = pkg_ref.raw.bin_target.unwrap_or(default_backend);
-                add_bin_dep(&mut result_pkgs, pkg, pkg_ref, pkg_bin_target);
+                add_bin_dep(&mut result_pkgs, pkg, pkg_ref, pkg_bin_target, output);
             }
         }
         result_pkgs
@@ -144,6 +151,7 @@ pub(crate) fn run_build_binary_dep(
             preconfig,
             &cli.unstable_feature,
             &target_dir,
+            UserDiagnostics::from_flags(cli),
             Box::new(|_, _| Ok(vec![UserIntent::Build(pkg)].into())),
             // FIXME: cloning is not the best way to do this, it takes in this
             // type only to be returned in build meta. We should refactor later.
@@ -167,13 +175,14 @@ fn get_linkable_pkgs_for_bin_dep(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     packages: impl Iterator<Item = PackageId>,
     default_backend: TargetBackend,
+    output: UserDiagnostics,
 ) -> Vec<(PackageId, TargetBackend)> {
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
         let pkg_bin_target = pkg.raw.bin_target.unwrap_or(default_backend);
 
-        add_bin_dep(&mut linkable_pkgs, pkg_id, pkg, pkg_bin_target);
+        add_bin_dep(&mut linkable_pkgs, pkg_id, pkg, pkg_bin_target, output);
     }
     linkable_pkgs
 }
@@ -183,6 +192,7 @@ fn add_bin_dep(
     pkg_id: PackageId,
     pkg: &DiscoveredPackage,
     pkg_bin_target: TargetBackend,
+    output: UserDiagnostics,
 ) {
     if pkg.raw.force_link
         || pkg
@@ -194,10 +204,10 @@ fn add_bin_dep(
     {
         linkable_pkgs.push((pkg_id, pkg_bin_target))
     } else if pkg.raw.bin_target.is_some() {
-        warn!(
+        output.warn(format!(
             "Package {} has bin_target set, but cannot be linked; skipping",
             pkg.fqn
-        );
+        ));
     }
 }
 

@@ -27,7 +27,6 @@ use moonutil::{
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
 };
-use tracing::warn;
 
 use crate::{
     cli::BuildFlags,
@@ -36,6 +35,7 @@ use crate::{
         match_packages_with_fuzzy, package_supports_backend, select_packages,
     },
     rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
+    user_diagnostics::UserDiagnostics,
 };
 
 use super::UniversalFlags;
@@ -69,10 +69,9 @@ pub(crate) struct InfoSubcommand {
 }
 
 pub(crate) fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
+    let output = UserDiagnostics::from_flags(&cli);
     if cmd.no_alias {
-        warn!(
-            "`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092"
-        );
+        output.warn("`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092");
     }
     if cli.dry_run {
         bail!("dry-run is not supported for info")
@@ -153,18 +152,20 @@ pub(crate) fn run_info_rr_internal(
     preconfig.info_no_alias = cmd.no_alias;
     let package_filter = cmd.package.clone();
     let path_filter = cmd.path.clone();
+    let output = UserDiagnostics::from_flags(cli);
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
+        output,
         Box::new(move |resolve_output, tb| {
             calc_user_intent(
                 package_filter.as_deref(),
                 &path_filter,
                 resolve_output,
                 tb,
-                cli.verbose,
+                output,
             )
         }),
     )?;
@@ -173,7 +174,12 @@ pub(crate) fn run_info_rr_internal(
     rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
 
     // TODO: UX: Consider mirroring flags from `moon check`?
-    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
+    let cfg = BuildConfig::from_flags(
+        &BuildFlags::default(),
+        &cli.unstable_feature,
+        cli.verbose,
+        output,
+    );
     let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
     result.print_info(cli.quiet, "generating mbti files")?;
 
@@ -185,7 +191,7 @@ fn calc_user_intent(
     path_filter: &[PathBuf],
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
-    verbose: bool,
+    output: UserDiagnostics,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let package_ids: Vec<_> = resolve_output
         .local_modules()
@@ -206,18 +212,18 @@ fn calc_user_intent(
         if package_supports_backend(resolve_output, pkg, target_backend) {
             vec![UserIntent::Info(pkg)]
         } else {
-            warn!(
+            output.warn(format!(
                 "Skipping package `{}` for `moon info`: it does not support target backend `{}`",
                 resolve_output.pkg_dirs.get_package(pkg).fqn,
                 target_backend
-            );
+            ));
             Vec::new()
         }
     } else if !path_filter.is_empty() {
         let mut filtered = Vec::new();
         let mut unsupported = Vec::new();
 
-        for (path, pkg_id) in select_packages(path_filter, verbose, |dir| {
+        for (path, pkg_id) in select_packages(path_filter, output, |dir| {
             filter_pkg_by_dir(resolve_output, dir)
         })? {
             if package_supports_backend(resolve_output, pkg_id, target_backend) {
@@ -227,24 +233,22 @@ fn calc_user_intent(
             }
         }
 
-        if verbose {
-            for (path, pkg_id) in &unsupported {
-                let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
-                warn!(
-                    "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
-                    path.display(),
-                    pkg.fqn,
-                    target_backend,
-                    format_supported_backends(resolve_output, *pkg_id),
-                );
-            }
+        for (path, pkg_id) in &unsupported {
+            let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
+            output.info(format!(
+                "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
+                path.display(),
+                pkg.fqn,
+                target_backend,
+                format_supported_backends(resolve_output, *pkg_id),
+            ));
         }
 
         if filtered.is_empty() && !unsupported.is_empty() {
-            warn!(
+            output.warn(format!(
                 "No selected package supports target backend `{}` for `moon info`",
                 target_backend
-            );
+            ));
         }
 
         filtered
@@ -263,7 +267,7 @@ fn calc_user_intent(
         }
         if !matches.missing.is_empty() {
             for missing in matches.missing {
-                warn!("Input `{}` did not match any package", missing);
+                output.warn(format!("Input `{}` did not match any package", missing));
             }
         }
 
@@ -273,10 +277,10 @@ fn calc_user_intent(
             .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
             .collect::<Vec<_>>();
         if filtered.is_empty() {
-            warn!(
+            output.warn(format!(
                 "No selected package supports target backend `{}` for `moon info`",
                 target_backend
-            );
+            ));
         }
 
         filtered

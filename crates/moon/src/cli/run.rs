@@ -33,6 +33,7 @@ use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::default_rt;
+use crate::user_diagnostics::UserDiagnostics;
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -208,6 +209,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         preconfig,
         &cli.unstable_feature,
         target_dir,
+        UserDiagnostics::from_flags(cli),
         Box::new(|resolved, target_backend| {
             calc_user_intent(
                 &input_path,
@@ -329,6 +331,7 @@ fn run_single_file_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
         preconfig,
         &cli.unstable_feature,
         &raw_target_dir,
+        UserDiagnostics::from_flags(cli),
         Box::new(move |r, _tb| {
             let m_packages = r
                 .pkg_dirs
@@ -387,8 +390,12 @@ fn rr_run_from_plan(
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(target_dir, build_meta, RunMode::Run)?;
 
-    let build_config =
-        BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let build_config = BuildConfig::from_flags(
+        &cmd.build_flags,
+        &cli.unstable_feature,
+        cli.verbose,
+        UserDiagnostics::from_flags(cli),
+    );
     let build_result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
 
     if !build_result.successful() {
