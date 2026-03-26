@@ -149,9 +149,10 @@ fn test_warn_list_alerts() {
             ],
         ),
         expect![[r#"
-            moonc check $ROOT/b/hello.mbt -w -a -o ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi -pkg username/b -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:$ROOT/b -target wasm-gc -workspace-path $ROOT/b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check ./main.mbt -o ./_build/wasm-gc/debug/check/a.mi -pkg username/a -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a:. -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check -doctest-only ./main.mbt -include-doctests -o ./_build/wasm-gc/debug/check/a.blackbox_test.mi -pkg username/a_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/a.mi:a -i ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a_blackbox_test:. -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check ./b/hello.mbt -o ./_build/wasm-gc/debug/check/username/b/b.mi -pkg username/b -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:./b -target wasm-gc -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check -doctest-only ./b/hello.mbt -include-doctests -o ./_build/wasm-gc/debug/check/username/b/b.blackbox_test.mi -pkg username/b_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b_blackbox_test:./b -target wasm-gc -blackbox-test -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check ./a/main.mbt -o ./_build/wasm-gc/debug/check/username/a/a.mi -pkg username/a -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a:./a -target wasm-gc -workspace-path ./a -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check -doctest-only ./a/main.mbt -include-doctests -o ./_build/wasm-gc/debug/check/username/a/a.blackbox_test.mi -pkg username/a_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/a/a.mi:a -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a_blackbox_test:./a -target wasm-gc -blackbox-test -workspace-path ./a -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
         "#]],
     );
 
@@ -180,7 +181,7 @@ fn test_warn_list_alerts() {
                │   ───────┬───────  
                │          ╰───────── Warning (alert_two): two
             ───╯
-            Finished. moon: ran 3 tasks, now up to date (2 warnings, 0 errors)
+            Finished. moon: ran 4 tasks, now up to date (2 warnings, 0 errors)
         "#]],
     );
 
@@ -190,7 +191,7 @@ fn test_warn_list_alerts() {
             ["test", "--manifest-path", "a/moon.mod.json", "--sort-input"],
         ),
         expect![[r#"
-            Total tests: 0, passed: 0, failed: 0.
+            Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
 }
@@ -211,9 +212,10 @@ fn test_mod_level_warn_list_alerts() {
             ],
         ),
         expect![[r#"
-            moonc check $ROOT/b/hello.mbt -w -a -o ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi -pkg username/b -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:$ROOT/b -target wasm-gc -workspace-path $ROOT/b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check ./main.mbt -w -alert_one-alert_two -o ./_build/wasm-gc/debug/check/a.mi -pkg username/a -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a:. -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
-            moonc check -doctest-only ./main.mbt -include-doctests -w -alert_one-alert_two -o ./_build/wasm-gc/debug/check/a.blackbox_test.mi -pkg username/a_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/a.mi:a -i ./_build/wasm-gc/debug/check/.mooncakes/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a_blackbox_test:. -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check ./b/hello.mbt -o ./_build/wasm-gc/debug/check/username/b/b.mi -pkg username/b -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:./b -target wasm-gc -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check -doctest-only ./b/hello.mbt -include-doctests -o ./_build/wasm-gc/debug/check/username/b/b.blackbox_test.mi -pkg username/b_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b_blackbox_test:./b -target wasm-gc -blackbox-test -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check ./a/main.mbt -w -alert_one-alert_two -o ./_build/wasm-gc/debug/check/username/a/a.mi -pkg username/a -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a:./a -target wasm-gc -workspace-path ./a -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
+            moonc check -doctest-only ./a/main.mbt -include-doctests -w -alert_one-alert_two -o ./_build/wasm-gc/debug/check/username/a/a.blackbox_test.mi -pkg username/a_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/a/a.mi:a -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/a_blackbox_test:./a -target wasm-gc -blackbox-test -workspace-path ./a -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
         "#]],
     );
 }

@@ -23,10 +23,11 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::common::{BUILD_DIR, MOON_MOD_JSON, MOON_WORK, MOON_WORK_JSON};
-use crate::workspace::{canonical_workspace_module_dirs, read_workspace, workspace_manifest_path};
+use crate::workspace::{
+    canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
+};
 
-/// Set to a non-`0` value to keep commands started from inside a module in
-/// single-module mode instead of promoting them into an ancestor workspace.
+/// Set to a non-`0` value to disable workspace mode entirely.
 pub const MOON_NO_WORKSPACE: &str = "MOON_NO_WORKSPACE";
 
 #[derive(Debug, Error)]
@@ -35,8 +36,21 @@ pub enum PackageDirsError {
         "not in a Moon project (no moon.mod.json, moon.work, or moon.work.json found starting from {0} or its ancestors)"
     )]
     NotInProject(PathBuf),
+    #[error(
+        "not in a Moon module (workspace mode is disabled by MOON_NO_WORKSPACE and no moon.mod.json was found starting from {0} or its ancestors)"
+    )]
+    WorkspaceDisabledNotInModule(PathBuf),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+}
+
+impl PackageDirsError {
+    pub fn allows_single_file_fallback(&self) -> bool {
+        matches!(
+            self,
+            Self::NotInProject(_) | Self::WorkspaceDisabledNotInModule(_)
+        )
+    }
 }
 
 #[derive(Debug, clap::Parser, Serialize, Deserialize, Clone)]
@@ -62,89 +76,149 @@ pub struct SourceTargetDirs {
 
 impl SourceTargetDirs {
     pub fn try_into_package_dirs(&self) -> Result<PackageDirs, PackageDirsError> {
-        let project_root = if let Some(manifest_path) = &self.manifest_path {
-            resolve_manifest_root(manifest_path).map_err(PackageDirsError::from)?
-        } else {
-            let start_dir = Self::current_dir()?;
-            let project_root = find_ancestor_with_work(&start_dir)
-                .map_err(PackageDirsError::from)?
-                .or_else(|| find_ancestor_with_mod(&start_dir));
-            project_root.ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?
-        };
+        let project = self.resolve_project_selection()?;
 
-        let target_dir = self.resolve_target_dir(&project_root)?;
+        let target_dir = self.resolve_target_dir(&project.project_root)?;
 
         Ok(PackageDirs {
-            source_dir: project_root,
+            source_dir: project.project_root,
             target_dir,
+            project_manifest_path: project.project_manifest_path,
         })
     }
 
     pub fn try_into_workspace_module_dirs(&self) -> Result<WorkspaceModuleDirs, PackageDirsError> {
-        let (project_root, module_dir) = if let Some(manifest_path) = &self.manifest_path {
-            let manifest_path = dunce::canonicalize(manifest_path)
-                .with_context(|| {
-                    format!(
-                        "failed to resolve manifest path `{}`",
-                        manifest_path.display()
-                    )
-                })
-                .map_err(PackageDirsError::from)?;
+        let project = self.resolve_project_selection()?;
 
-            if manifest_path.is_dir() {
-                return Err(PackageDirsError::from(anyhow::anyhow!(
-                    "`--manifest-path` must point to `{}`, `{}`, or `{}` (got directory `{}`)",
+        let target_dir = self.resolve_target_dir(&project.project_root)?;
+
+        Ok(WorkspaceModuleDirs {
+            project_root: project.project_root,
+            module_dir: project.module_dir,
+            target_dir,
+            project_manifest_path: project.project_manifest_path,
+        })
+    }
+
+    fn resolve_project_selection(&self) -> Result<ProjectSelection, PackageDirsError> {
+        if let Some(manifest_path) = &self.manifest_path {
+            return Self::resolve_project_selection_from_manifest_path(manifest_path);
+        }
+
+        let start_dir = Self::current_dir()?;
+        if disable_workspace_from_env() {
+            return project_selection_with_workspace_disabled(start_dir);
+        }
+
+        let module_dir = find_ancestor_with_mod(&start_dir);
+
+        if let Some(project_manifest_path) =
+            find_applicable_workspace_manifest_path(&start_dir).map_err(PackageDirsError::from)?
+        {
+            let project_root =
+                manifest_root(&project_manifest_path).map_err(PackageDirsError::from)?;
+            return Ok(ProjectSelection {
+                project_root,
+                module_dir,
+                project_manifest_path,
+            });
+        }
+
+        if let Some(module_dir) = module_dir {
+            let project_manifest_path = module_dir.join(MOON_MOD_JSON);
+            return Ok(ProjectSelection {
+                project_root: module_dir.clone(),
+                module_dir: Some(module_dir),
+                project_manifest_path,
+            });
+        }
+
+        Err(PackageDirsError::NotInProject(start_dir))
+    }
+
+    fn resolve_project_selection_from_manifest_path(
+        manifest_path: &Path,
+    ) -> Result<ProjectSelection, PackageDirsError> {
+        let manifest_path = dunce::canonicalize(manifest_path)
+            .with_context(|| {
+                format!(
+                    "failed to resolve manifest path `{}`",
+                    manifest_path.display()
+                )
+            })
+            .map_err(PackageDirsError::from)?;
+
+        if manifest_path.is_dir() {
+            return Err(PackageDirsError::from(anyhow::anyhow!(
+                "`--manifest-path` must point to `{}`, `{}`, or `{}` (got directory `{}`)",
+                MOON_MOD_JSON,
+                MOON_WORK,
+                MOON_WORK_JSON,
+                manifest_path.display()
+            )));
+        }
+
+        let file_name = manifest_path.file_name().and_then(|s| s.to_str());
+        let manifest_dir = manifest_path
+            .parent()
+            .context("manifest path has no parent directory")
+            .map(Path::to_path_buf)
+            .map_err(PackageDirsError::from)?;
+
+        if disable_workspace_from_env() {
+            return match file_name {
+                Some(MOON_MOD_JSON) => Ok(ProjectSelection {
+                    project_root: manifest_dir.clone(),
+                    module_dir: Some(manifest_dir),
+                    project_manifest_path: manifest_path,
+                }),
+                Some(MOON_WORK) | Some(MOON_WORK_JSON) => {
+                    project_selection_with_workspace_disabled(manifest_dir)
+                }
+                _ => Err(PackageDirsError::from(anyhow::anyhow!(
+                    "`--manifest-path` must point to `{}`, `{}`, or `{}` (got `{}`)",
                     MOON_MOD_JSON,
                     MOON_WORK,
                     MOON_WORK_JSON,
                     manifest_path.display()
-                )));
-            }
+                ))),
+            };
+        }
 
-            let file_name = manifest_path.file_name().and_then(|s| s.to_str());
-            let manifest_root = manifest_path
-                .parent()
-                .context("manifest path has no parent directory")
-                .map(Path::to_path_buf)
-                .map_err(PackageDirsError::from)?;
-
-            match file_name {
-                Some(MOON_MOD_JSON) => {
-                    let module_dir = manifest_root;
-                    let project_root = find_ancestor_with_work(&module_dir)
+        match file_name {
+            Some(MOON_MOD_JSON) => {
+                if let Some(project_manifest_path) =
+                    find_applicable_workspace_manifest_path(&manifest_dir)
                         .map_err(PackageDirsError::from)?
-                        .unwrap_or_else(|| module_dir.clone());
-                    (project_root, Some(module_dir))
-                }
-                Some(MOON_WORK) => (manifest_root, None),
-                Some(MOON_WORK_JSON) => (manifest_root, None),
-                _ => {
-                    return Err(PackageDirsError::from(anyhow::anyhow!(
-                        "`--manifest-path` must point to `{}`, `{}`, or `{}` (got `{}`)",
-                        MOON_MOD_JSON,
-                        MOON_WORK,
-                        MOON_WORK_JSON,
-                        manifest_path.display()
-                    )));
+                {
+                    let project_root =
+                        manifest_root(&project_manifest_path).map_err(PackageDirsError::from)?;
+                    Ok(ProjectSelection {
+                        project_root,
+                        module_dir: Some(manifest_dir),
+                        project_manifest_path,
+                    })
+                } else {
+                    Ok(ProjectSelection {
+                        project_root: manifest_dir.clone(),
+                        module_dir: Some(manifest_dir),
+                        project_manifest_path: manifest_path,
+                    })
                 }
             }
-        } else {
-            let start_dir = Self::current_dir()?;
-            let project_root = find_ancestor_with_work(&start_dir)
-                .map_err(PackageDirsError::from)?
-                .or_else(|| find_ancestor_with_mod(&start_dir))
-                .ok_or_else(|| PackageDirsError::NotInProject(start_dir.clone()))?;
-            let module_dir = find_ancestor_with_mod(&start_dir);
-            (project_root, module_dir)
-        };
-
-        let target_dir = self.resolve_target_dir(&project_root)?;
-
-        Ok(WorkspaceModuleDirs {
-            project_root,
-            module_dir,
-            target_dir,
-        })
+            Some(MOON_WORK) | Some(MOON_WORK_JSON) => Ok(ProjectSelection {
+                project_root: manifest_dir,
+                module_dir: None,
+                project_manifest_path: manifest_path,
+            }),
+            _ => Err(PackageDirsError::from(anyhow::anyhow!(
+                "`--manifest-path` must point to `{}`, `{}`, or `{}` (got `{}`)",
+                MOON_MOD_JSON,
+                MOON_WORK,
+                MOON_WORK_JSON,
+                manifest_path.display()
+            ))),
+        }
     }
 
     fn current_dir() -> Result<PathBuf, PackageDirsError> {
@@ -175,6 +249,7 @@ impl SourceTargetDirs {
 pub struct PackageDirs {
     pub source_dir: PathBuf,
     pub target_dir: PathBuf,
+    pub project_manifest_path: PathBuf,
 }
 
 pub struct WorkspaceModuleDirs {
@@ -183,6 +258,7 @@ pub struct WorkspaceModuleDirs {
     /// Selected module root, if the command was invoked from within a module.
     pub module_dir: Option<PathBuf>,
     pub target_dir: PathBuf,
+    pub project_manifest_path: PathBuf,
 }
 
 impl WorkspaceModuleDirs {
@@ -213,47 +289,75 @@ pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
 }
 
 pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
+    if disable_workspace_from_env() {
+        return Ok(None);
+    }
+
+    find_applicable_workspace_manifest_path(source_dir)?
+        .map(|path| manifest_root(&path))
+        .transpose()
+}
+
+fn disable_workspace_from_env() -> bool {
+    match std::env::var(MOON_NO_WORKSPACE) {
+        Ok(value) => value != "0",
+        Err(std::env::VarError::NotPresent) => false,
+        Err(std::env::VarError::NotUnicode(_)) => true,
+    }
+}
+
+fn project_selection_with_workspace_disabled(
+    start_dir: PathBuf,
+) -> Result<ProjectSelection, PackageDirsError> {
+    let Some(module_dir) = find_ancestor_with_mod(&start_dir) else {
+        return Err(PackageDirsError::WorkspaceDisabledNotInModule(start_dir));
+    };
+
+    let project_manifest_path = module_dir.join(MOON_MOD_JSON);
+    Ok(ProjectSelection {
+        project_root: module_dir.clone(),
+        module_dir: Some(module_dir),
+        project_manifest_path,
+    })
+}
+
+struct ProjectSelection {
+    project_root: PathBuf,
+    module_dir: Option<PathBuf>,
+    project_manifest_path: PathBuf,
+}
+
+fn find_applicable_workspace_manifest_path(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
     let mut module_root = None;
-    let disable_workspace_from_module = disable_workspace_from_module_env();
 
     for dir in source_dir.ancestors() {
-        if let Some(workspace_path) = workspace_manifest_path(dir) {
-            let Some(module_root) = module_root else {
-                // A workspace still applies from nested non-module directories.
-                return Ok(Some(dir.to_path_buf()));
-            };
-
-            if disable_workspace_from_module {
-                return Ok(None);
+        let Some(workspace_path) = workspace_manifest_path(dir) else {
+            if module_root.is_none() && check_moon_mod_exists(dir) {
+                module_root = Some(dir);
             }
+            continue;
+        };
 
-            // After we have entered a module, only ancestor workspaces that
-            // explicitly list that module still apply.
-            let workspace = read_workspace(dir)?.context(format!(
-                "failed to parse workspace file `{}`",
-                workspace_path.display()
-            ))?;
-            for member_dir in canonical_workspace_module_dirs(dir, &workspace)? {
-                if member_dir == module_root {
-                    return Ok(Some(dir.to_path_buf()));
-                }
+        let Some(module_root) = module_root else {
+            return Ok(Some(workspace_path));
+        };
+
+        let workspace = read_workspace_file(&workspace_path)?;
+        for member_dir in canonical_workspace_module_dirs(dir, &workspace)? {
+            if member_dir == module_root {
+                return Ok(Some(workspace_path));
             }
-        }
-
-        if module_root.is_none() && check_moon_mod_exists(dir) {
-            module_root = Some(dir);
         }
     }
 
     Ok(None)
 }
 
-fn disable_workspace_from_module_env() -> bool {
-    match std::env::var(MOON_NO_WORKSPACE) {
-        Ok(value) => value != "0",
-        Err(std::env::VarError::NotPresent) => false,
-        Err(std::env::VarError::NotUnicode(_)) => true,
-    }
+fn manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
+    manifest_path
+        .parent()
+        .context("manifest path has no parent directory")
+        .map(Path::to_path_buf)
 }
 
 pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {

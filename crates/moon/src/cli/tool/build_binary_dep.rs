@@ -74,6 +74,7 @@ pub(crate) fn run_build_binary_dep(
     let PackageDirs {
         source_dir,
         target_dir,
+        project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
     if cli.dry_run {
         anyhow::bail!("--dry-run is not supported for `moon tool build-binary-dep`");
@@ -82,7 +83,8 @@ pub(crate) fn run_build_binary_dep(
     // bin-deps have their build target determined in `moon.pkg.json`, so we
     // must resolve the packages before settling on the build config and then
     // running the build plan.
-    let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false);
+    let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false)
+        .with_project_manifest_path(Some(project_manifest_path.as_path()));
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir)?;
 
     // Note: There's a cyclic dependency!

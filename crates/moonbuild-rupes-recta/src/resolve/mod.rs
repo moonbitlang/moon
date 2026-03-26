@@ -83,6 +83,7 @@ pub struct ResolveConfig {
     no_std: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
+    project_manifest_path: Option<std::path::PathBuf>,
 }
 
 struct FrontMatterImports {
@@ -258,6 +259,7 @@ impl ResolveConfig {
             sync_flags: AutoSyncFlags { frozen },
             no_std,
             enable_coverage,
+            project_manifest_path: None,
         }
     }
 
@@ -267,7 +269,13 @@ impl ResolveConfig {
             sync_flags,
             no_std,
             enable_coverage,
+            project_manifest_path: None,
         }
+    }
+
+    pub fn with_project_manifest_path(mut self, project_manifest_path: Option<&Path>) -> Self {
+        self.project_manifest_path = project_manifest_path.map(Path::to_path_buf);
+        self
     }
 }
 
@@ -296,9 +304,14 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
-    let (resolved_env, dir_sync_result, workspace) =
-        auto_sync(source_dir, &cfg.sync_flags, false, cfg.no_std)
-            .map_err(ResolveError::SyncModulesError)?;
+    let (resolved_env, dir_sync_result, workspace) = auto_sync(
+        source_dir,
+        &cfg.sync_flags,
+        false,
+        cfg.no_std,
+        cfg.project_manifest_path.as_deref(),
+    )
+    .map_err(ResolveError::SyncModulesError)?;
 
     info!("Module dependency resolution completed successfully");
     debug!("Resolved {} modules", resolved_env.module_count());

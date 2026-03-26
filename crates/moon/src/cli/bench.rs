@@ -63,10 +63,19 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
     let PackageDirs {
         source_dir,
         target_dir,
+        project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
-        return run_bench_internal(&cli, &cmd, &source_dir, &target_dir, None, None);
+        return run_bench_internal(
+            &cli,
+            &cmd,
+            &source_dir,
+            &target_dir,
+            Some(project_manifest_path.as_path()),
+            None,
+            None,
+        );
     }
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
@@ -79,6 +88,7 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
             &cmd,
             &source_dir,
             &target_dir,
+            Some(project_manifest_path.as_path()),
             display_backend_hint,
             Some(t),
         )
@@ -94,6 +104,7 @@ fn run_bench_internal(
     cmd: &BenchSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -102,6 +113,7 @@ fn run_bench_internal(
         cmd.into(),
         source_dir,
         target_dir,
+        project_manifest_path,
         display_backend_hint,
         selected_target_backend,
     )

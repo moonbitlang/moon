@@ -119,7 +119,7 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
                 }
             }
         }
-        Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
+        Err(e) if e.allows_single_file_fallback() => {
             if is_mbt || is_mbtx {
                 return run_single_file_rr(cli, cmd);
             }
@@ -159,13 +159,15 @@ fn run_run_rr(
     let PackageDirs {
         source_dir,
         target_dir,
+        project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
-    );
+    )
+    .with_project_manifest_path(Some(project_manifest_path.as_path()));
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,

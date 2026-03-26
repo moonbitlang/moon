@@ -1,5 +1,6 @@
 use super::*;
 use moonutil::{common::MBTI_GENERATED, dirs::MOON_NO_WORKSPACE};
+use std::path::Path;
 
 fn assert_requires_target_module(stderr: &str, command: &str) {
     assert!(
@@ -16,6 +17,138 @@ fn assert_registry_resolution_failure(stderr: &str) {
             .contains("Failed to resolve registry dependency `alice/liba` for module `alice/app`"),
         "expected registry dependency resolution failure, got:\n{stderr}"
     );
+}
+
+fn assert_workspace_disabled_without_module(stderr: &str) {
+    assert!(
+        stderr.contains("workspace mode is disabled by MOON_NO_WORKSPACE"),
+        "expected workspace-disabled error, got:\n{stderr}"
+    );
+}
+
+fn write_file(path: &Path, content: &str) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(path, content).unwrap();
+}
+
+fn same_root_workspace_dir() -> TestDir {
+    let dir = TestDir::new_empty();
+
+    write_file(
+        &dir.join("moon.work"),
+        r#"members = [
+  ".",
+  "./dep",
+]
+preferred_target = "wasm-gc"
+"#,
+    );
+    write_file(
+        &dir.join("moon.mod.json"),
+        r#"{
+  "name": "alice/app",
+  "version": "0.1.0",
+  "source": "src",
+  "deps": {
+    "alice/liba": "0.1.0"
+  }
+}
+"#,
+    );
+    write_file(
+        &dir.join("src/main/moon.pkg.json"),
+        r#"{
+  "is-main": true,
+  "import": [
+    "alice/liba/lib"
+  ]
+}
+"#,
+    );
+    write_file(
+        &dir.join("src/main/main.mbt"),
+        r#"fn main {
+  println(@lib.hello())
+}
+"#,
+    );
+    write_file(
+        &dir.join("dep/moon.mod.json"),
+        r#"{
+  "name": "alice/liba",
+  "version": "0.1.1",
+  "source": "src"
+}
+"#,
+    );
+    write_file(&dir.join("dep/src/lib/moon.pkg.json"), "{}\n");
+    write_file(
+        &dir.join("dep/src/lib/lib.mbt"),
+        r#"pub fn hello() -> String {
+  "workspace"
+}
+"#,
+    );
+
+    dir
+}
+
+fn nested_workspace_under_unrelated_module_dir() -> TestDir {
+    let dir = TestDir::new_empty();
+
+    write_file(
+        &dir.join("outer/moon.mod.json"),
+        r#"{
+  "name": "alice/outer",
+  "version": "0.1.0",
+  "source": "src"
+}
+"#,
+    );
+    write_file(&dir.join("outer/src/outer/moon.pkg.json"), "{}\n");
+    write_file(
+        &dir.join("outer/src/outer/outer.mbt"),
+        r#"pub fn outer() -> Int {
+  0
+}
+"#,
+    );
+
+    write_file(
+        &dir.join("outer/ws/moon.work"),
+        r#"members = [
+  "./app",
+]
+preferred_target = "wasm-gc"
+"#,
+    );
+    write_file(
+        &dir.join("outer/ws/app/moon.mod.json"),
+        r#"{
+  "name": "alice/app",
+  "version": "0.1.0",
+  "source": "src"
+}
+"#,
+    );
+    write_file(
+        &dir.join("outer/ws/app/src/main/moon.pkg.json"),
+        r#"{
+  "is-main": true
+}
+"#,
+    );
+    write_file(
+        &dir.join("outer/ws/app/src/main/main.mbt"),
+        r#"fn main {
+  println("app")
+}
+"#,
+    );
+
+    dir
 }
 
 #[test]
@@ -667,21 +800,92 @@ fn test_manifest_path_can_disable_implicit_workspace_mode() {
 }
 
 #[test]
-fn test_workspace_root_keeps_workspace_mode_with_env_override() {
+fn test_workspace_root_cannot_use_workspace_with_env_override() {
     let dir = TestDir::new("workspace_basic.in");
 
-    let stdout = get_stdout_with_envs(
+    let stderr = get_err_stderr_with_envs(
         &dir,
         ["build", "--dry-run", "--sort-input"],
         [(MOON_NO_WORKSPACE, "1")],
     );
+    assert_workspace_disabled_without_module(&stderr);
+}
+
+#[test]
+fn test_same_root_module_can_disable_implicit_workspace_mode() {
+    let dir = same_root_workspace_dir();
+
+    let stderr = get_err_stderr_with_envs(&dir, ["build", "--dry-run"], [(MOON_NO_WORKSPACE, "1")]);
+    assert_registry_resolution_failure(&stderr);
+}
+
+#[test]
+fn test_same_root_manifest_path_can_disable_implicit_workspace_mode() {
+    let dir = same_root_workspace_dir();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["--manifest-path", "moon.mod.json", "build", "--dry-run"],
+        [(MOON_NO_WORKSPACE, "1")],
+    );
+    assert_registry_resolution_failure(&stderr);
+}
+
+#[test]
+fn test_same_root_workspace_manifest_can_disable_workspace_mode_with_env_override() {
+    let dir = same_root_workspace_dir();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "--manifest-path",
+            "moon.work",
+            "build",
+            "--dry-run",
+            "--sort-input",
+        ],
+        [(MOON_NO_WORKSPACE, "1")],
+    );
+    assert_registry_resolution_failure(&stderr);
+}
+
+#[test]
+fn test_workspace_manifest_path_cannot_use_workspace_with_env_override() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "--manifest-path",
+            "moon.work",
+            "build",
+            "--dry-run",
+            "--sort-input",
+        ],
+        [(MOON_NO_WORKSPACE, "1")],
+    );
+    assert_workspace_disabled_without_module(&stderr);
+}
+
+#[test]
+fn test_workspace_root_beats_unrelated_outer_module_boundary() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+
+    let stdout = get_stdout(
+        &dir,
+        ["-C", "outer/ws", "build", "--dry-run", "--sort-input"],
+    );
     assert!(
-        stdout.contains("./liba/src/lib/lib.mbt"),
-        "expected workspace-root build to keep the workspace member graph, got:\n{stdout}"
+        stdout.contains("alice/app/main"),
+        "expected workspace-root build to select the nearer workspace member, got:\n{stdout}"
     );
     assert!(
         stdout.contains("-workspace-path ./app"),
         "expected workspace-root build to keep workspace-aware package layout, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("alice/outer/outer"),
+        "expected workspace-root build to ignore the unrelated outer module, got:\n{stdout}"
     );
 }
 

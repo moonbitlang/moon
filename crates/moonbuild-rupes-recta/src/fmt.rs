@@ -33,7 +33,9 @@
 use log::*;
 use std::{collections::HashSet, path::Path};
 
-use moonutil::common::{MOON_PKG, MOON_PKG_JSON, MOON_WORK, MOON_WORK_JSON};
+use anyhow::Context;
+use moonutil::common::{MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK, MOON_WORK_JSON};
+use moonutil::workspace::workspace_manifest_path;
 use n2::graph::Build;
 
 use crate::{
@@ -52,12 +54,15 @@ pub type FmtResolveOutput = DiscoveredLocalProject;
 ///
 /// This supports either a single module rooted at `source_dir` or a workspace
 /// rooted there via `moon.work` or legacy `moon.work.json`.
-pub fn resolve_for_fmt(source_dir: &Path) -> Result<FmtResolveOutput, ResolveError> {
+pub fn resolve_for_fmt(
+    source_dir: &Path,
+    project_manifest_path: Option<&Path>,
+) -> Result<FmtResolveOutput, ResolveError> {
     info!(
         "Resolving formatter environment for {}",
         source_dir.display()
     );
-    discover_local_project(source_dir).map_err(ResolveError::from)
+    discover_local_project(source_dir, project_manifest_path).map_err(ResolveError::from)
 }
 
 pub struct FmtConfig {
@@ -90,6 +95,7 @@ pub fn build_graph_for_fmt(
     source_dir: &Path,
     target_dir: &Path,
     selected_packages: &[PackageId],
+    project_manifest_path: Option<&Path>,
 ) -> anyhow::Result<n2::graph::Graph> {
     info!(
         "Building format graph for {} root modules",
@@ -115,8 +121,8 @@ pub fn build_graph_for_fmt(
     let mut package_count = 0;
     let selected_packages = (!selected_packages.is_empty())
         .then(|| selected_packages.iter().copied().collect::<HashSet<_>>());
-    let has_workspace_manifest =
-        selected_packages.is_none() && format_workspace_node(&mut graph, cfg, &layout, source_dir)?;
+    let has_workspace_manifest = selected_packages.is_none()
+        && format_workspace_node(&mut graph, cfg, &layout, source_dir, project_manifest_path)?;
 
     for &module_id in &resolved.root_module_ids {
         let Some(packages) = resolved.pkg_dirs.packages_for_module(module_id) else {
@@ -149,53 +155,62 @@ fn format_workspace_node(
     cfg: &FmtConfig,
     layout: &LegacyLayout,
     source_dir: &Path,
+    project_manifest_path: Option<&Path>,
 ) -> anyhow::Result<bool> {
-    let moon_work = source_dir.join(MOON_WORK);
-    let moon_work_json = source_dir.join(MOON_WORK_JSON);
-
-    let has_dsl = moon_work.exists();
-    let has_json = moon_work_json.exists();
-
-    if !has_dsl && !has_json {
-        debug!(
-            "Skipping moon.work formatting for {} - no workspace file exists",
-            source_dir.display()
-        );
+    let workspace_manifest_path = project_manifest_path
+        .map(Path::to_path_buf)
+        .or_else(|| workspace_manifest_path(source_dir));
+    let Some(workspace_manifest_path) = workspace_manifest_path else {
+        return Ok(false);
+    };
+    let file_name = workspace_manifest_path
+        .file_name()
+        .and_then(|name| name.to_str());
+    if file_name == Some(MOON_MOD_JSON) {
         return Ok(false);
     }
+    let source_dir = workspace_manifest_path
+        .parent()
+        .context("workspace manifest path has no parent directory")?;
 
     let target_moon_work = layout.format_root_artifact_path(std::ffi::OsStr::new(MOON_WORK));
-
-    if has_dsl && has_json {
-        warn!(
-            "Both {} and {} exist at workspace root '{}', using the new format {}. Please remove the deprecated {}.",
-            MOON_WORK_JSON,
-            MOON_WORK,
-            source_dir.display(),
-            MOON_WORK,
-            MOON_WORK_JSON
-        );
-        format_moon_work_dsl(graph, cfg, &moon_work, &target_moon_work)?;
-    } else if has_dsl {
-        format_moon_work_dsl(graph, cfg, &moon_work, &target_moon_work)?;
-    } else if cfg.migrate_moon_work_json {
-        format_moon_work_json_migrate(
-            graph,
-            cfg,
-            &moon_work_json,
-            &target_moon_work,
-            &moon_work,
-            source_dir,
-        )?;
-    } else {
-        debug!(
-            "Skipping moon.work.json migration for {} - feature disabled",
-            source_dir.display()
-        );
-        return Ok(false);
+    match file_name {
+        Some(MOON_WORK) => {
+            let moon_work_json = source_dir.join(MOON_WORK_JSON);
+            if moon_work_json.exists() {
+                warn!(
+                    "Both {} and {} exist at workspace root '{}', using the new format {}. Please remove the deprecated {}.",
+                    MOON_WORK_JSON,
+                    MOON_WORK,
+                    source_dir.display(),
+                    MOON_WORK,
+                    MOON_WORK_JSON
+                );
+            }
+            format_moon_work_dsl(graph, cfg, &workspace_manifest_path, &target_moon_work)?;
+            Ok(true)
+        }
+        Some(MOON_WORK_JSON) if cfg.migrate_moon_work_json => {
+            let moon_work = source_dir.join(MOON_WORK);
+            format_moon_work_json_migrate(
+                graph,
+                cfg,
+                &workspace_manifest_path,
+                &target_moon_work,
+                &moon_work,
+                source_dir,
+            )?;
+            Ok(true)
+        }
+        Some(MOON_WORK_JSON) => {
+            debug!(
+                "Skipping moon.work.json migration for {} - feature disabled",
+                source_dir.display()
+            );
+            Ok(false)
+        }
+        _ => Ok(false),
     }
-
-    Ok(true)
 }
 
 fn build_for_package(

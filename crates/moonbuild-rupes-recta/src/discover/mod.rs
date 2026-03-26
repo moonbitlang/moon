@@ -53,7 +53,7 @@ use moonutil::{
     },
     mooncakes::ModuleSourceKind,
     package::resolve_supported_targets,
-    workspace::{canonical_workspace_module_dirs, read_workspace},
+    workspace::{canonical_workspace_module_dirs, read_workspace, read_workspace_file},
 };
 use relative_path::{PathExt, RelativePath};
 use tracing::{Level, instrument, warn};
@@ -106,21 +106,37 @@ pub fn discover_packages(
 /// This supports either a single local module rooted at `source_dir` or a
 /// workspace rooted there via `moon.work` or legacy `moon.work.json`.
 #[instrument(skip_all)]
-pub fn discover_local_project(source_dir: &Path) -> Result<DiscoveredLocalProject, DiscoverError> {
+pub fn discover_local_project(
+    source_dir: &Path,
+    project_manifest_path: Option<&Path>,
+) -> Result<DiscoveredLocalProject, DiscoverError> {
     info!(
         "Starting local project discovery for {}",
         source_dir.display()
     );
 
-    let workspace =
+    let selected_workspace_manifest_path = project_manifest_path
+        .filter(|path| path.file_name().and_then(|name| name.to_str()) != Some(MOON_MOD_JSON));
+    let workspace = if let Some(workspace_manifest_path) = selected_workspace_manifest_path {
+        read_workspace_file(workspace_manifest_path)
+            .map(Some)
+            .map_err(|inner| DiscoverError::CantReadLocalWorkspace {
+                path: workspace_manifest_path.to_owned(),
+                inner,
+            })?
+    } else {
         read_workspace(source_dir).map_err(|inner| DiscoverError::CantReadLocalWorkspace {
             path: source_dir.to_owned(),
             inner,
-        })?;
+        })?
+    };
+    let workspace_root = selected_workspace_manifest_path
+        .and_then(Path::parent)
+        .unwrap_or(source_dir);
     let module_dirs = if let Some(workspace) = workspace.as_ref() {
-        canonical_workspace_module_dirs(source_dir, workspace).map_err(|inner| {
+        canonical_workspace_module_dirs(workspace_root, workspace).map_err(|inner| {
             DiscoverError::CantReadLocalWorkspace {
-                path: source_dir.to_owned(),
+                path: workspace_root.to_owned(),
                 inner,
             }
         })?

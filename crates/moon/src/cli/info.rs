@@ -139,6 +139,7 @@ pub(crate) fn run_info_rr_internal(
     let PackageDirs {
         source_dir,
         target_dir,
+        project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let mut preconfig = rr_build::preconfig_compile(
@@ -159,6 +160,7 @@ pub(crate) fn run_info_rr_internal(
         &source_dir,
         &target_dir,
         output,
+        Some(project_manifest_path.as_path()),
         Box::new(move |resolve_output, tb| {
             calc_user_intent(
                 package_filter.as_deref(),

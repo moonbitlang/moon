@@ -419,6 +419,7 @@ pub(crate) fn plan_build<'a>(
     source_dir: &'a Path,
     target_dir: &'a Path,
     output: UserDiagnostics,
+    project_manifest_path: Option<&'a Path>,
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     info!("Starting build planning");
@@ -427,7 +428,8 @@ pub(crate) fn plan_build<'a>(
         preconfig.frozen,
         !preconfig.use_std,
         preconfig.enable_coverage,
-    );
+    )
+    .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
 
     info!("Resolve completed");
@@ -586,6 +588,7 @@ pub fn plan_fmt(
     source_dir: &Path,
     target_dir: &Path,
     selected_packages: &[PackageId],
+    project_manifest_path: Option<&Path>,
 ) -> anyhow::Result<BuildInput> {
     let graph = moonbuild_rupes_recta::fmt::build_graph_for_fmt(
         resolved,
@@ -593,6 +596,7 @@ pub fn plan_fmt(
         source_dir,
         target_dir,
         selected_packages,
+        project_manifest_path,
     )?;
     let db_path = n2_db_path(
         target_dir,
