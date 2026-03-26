@@ -35,8 +35,10 @@ pub(crate) fn execute_cli<T: Serialize>(
     args: &[&str],
     display_name: &str,
 ) -> anyhow::Result<i32> {
+    let current_moon = std::env::current_exe()?;
     let mut child = Command::new(&*moonutil::BINARIES.mooncake)
         .args(args)
+        .env("MOON_OVERRIDE", current_moon)
         .stdout(Stdio::inherit())
         .stdin(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -66,9 +68,11 @@ pub(crate) fn execute_cli_with_inherit_stdin<T: Serialize>(
     args: &[&str],
     display_name: &str,
 ) -> anyhow::Result<i32> {
+    let current_moon = std::env::current_exe()?;
     let mut child = Command::new(&*moonutil::BINARIES.mooncake)
         .args(args)
         .env("MOONCAKE_ALLOW_DIRECT", "1")
+        .env("MOON_OVERRIDE", current_moon)
         .stdout(Stdio::inherit())
         .stdin(Stdio::inherit())
         .stderr(Stdio::inherit())
