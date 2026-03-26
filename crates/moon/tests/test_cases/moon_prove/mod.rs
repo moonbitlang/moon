@@ -83,7 +83,7 @@ fn test_moon_prove_generates_artifacts() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     expect_file!["snapshots/zzok.run.stdout"].assert_eq(&replace_dir(&stdout, &dir));
 
-    assert_is_file(&dir.join("_build/verif/zzok/zzok.mlw"));
+    assert_is_file(&dir.join("_build/verif/zzok/pkg_8_username_5_prove_4_zzok.mlw"));
     assert_is_file(&dir.join("_build/verif/zzok/zzok.proof.json"));
 }
 
@@ -213,4 +213,62 @@ fn test_invpred_package_prove_succeeds() {
         .success();
 
     assert_is_file(&dir.join("_build/verif/invpred/invpred.proof.json"));
+}
+
+#[test]
+fn test_cross_package_prove_dry_run() {
+    if skip_unless_verification_tests_enabled("test_cross_package_prove_dry_run") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/cross_package.in");
+    let stdout = get_stdout(&dir, ["prove", "downstream", "--dry-run"]);
+    expect_file!["snapshots/cross_package.stdout"].assert_eq(&stdout);
+}
+
+#[test]
+fn test_cross_package_prove_workspace_failure() {
+    if skip_unless_verification_tests_enabled("test_cross_package_prove_workspace_failure") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/cross_package.in");
+    let Some(z3_path) = z3_path() else {
+        eprintln!("skipping cross-package workspace moon_prove test: z3 is not available");
+        return;
+    };
+
+    let output = snapbox::cmd::Command::new(moon_bin())
+        .env("Z3PATH", &z3_path)
+        .current_dir(&dir)
+        .args(["prove", "-j1"])
+        .assert()
+        .failure()
+        .get_output()
+        .to_owned();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    expect_file!["snapshots/cross_package.run.stdout"].assert_eq(&replace_dir(&stdout, &dir));
+}
+
+#[test]
+fn test_cross_package_prove_selected_package_succeeds() {
+    if skip_unless_verification_tests_enabled("test_cross_package_prove_selected_package_succeeds")
+    {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/cross_package.in");
+    let Some(z3_path) = z3_path() else {
+        eprintln!("skipping cross-package selected moon_prove test: z3 is not available");
+        return;
+    };
+
+    let output = snapbox::cmd::Command::new(moon_bin())
+        .env("Z3PATH", &z3_path)
+        .current_dir(&dir)
+        .args(["prove", "downstream", "-j1"])
+        .assert()
+        .success()
+        .get_output()
+        .to_owned();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    expect_file!["snapshots/cross_package.downstream.run.stdout"]
+        .assert_eq(&replace_dir(&stdout, &dir));
 }

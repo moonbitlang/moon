@@ -1,0 +1,3 @@
+predicate target_ok(x : Int) {
+  @dep.dep_ok(@dep.dep_id(x))
+}
