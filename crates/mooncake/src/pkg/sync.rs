@@ -20,16 +20,17 @@
 
 use std::{path::Path, sync::Arc};
 
+use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
-    common::{MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
+    common::{MOON_MOD_JSON, MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
     module::MoonMod,
     mooncakes::{
         DirSyncResult, ModuleSource,
         result::{ResolvedEnv, ResolvedModule, ResolvedRootModules},
         sync::AutoSyncFlags,
     },
-    workspace::{MoonWork, canonical_workspace_module_dirs, read_workspace},
+    workspace::{MoonWork, canonical_workspace_module_dirs, read_workspace, read_workspace_file},
 };
 use semver::Version;
 
@@ -42,8 +43,37 @@ pub fn auto_sync(
     cli: &AutoSyncFlags,
     quiet: bool,
     no_std: bool,
+    project_manifest_path: Option<&Path>,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
-    if let Some(workspace) = read_workspace(source_dir)? {
+    if let Some(project_manifest_path) = project_manifest_path {
+        if project_manifest_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            != Some(MOON_MOD_JSON)
+        {
+            let workspace_root = project_manifest_path
+                .parent()
+                .context("workspace manifest path has no parent directory")?;
+            let workspace = read_workspace_file(project_manifest_path)?;
+            let mut roots = ResolvedRootModules::with_key();
+            for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
+                let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);
+                let source = ModuleSource::from_local_module(&module, &member_dir);
+                roots.insert(ResolvedModule::new(source, module));
+            }
+
+            let (resolved_env, sync_result) = super::install::install_impl(
+                workspace_root,
+                roots,
+                quiet,
+                false,
+                cli.dont_sync(),
+                no_std,
+            )?;
+            log::debug!("Dir sync result: {:?}", sync_result);
+            return Ok((resolved_env, sync_result, Some(workspace)));
+        }
+    } else if let Some(workspace) = read_workspace(source_dir)? {
         let mut roots = ResolvedRootModules::with_key();
         for member_dir in canonical_workspace_module_dirs(source_dir, &workspace)? {
             let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);

@@ -70,18 +70,33 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
     let PackageDirs {
         source_dir,
         target_dir,
+        project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
-        return run_build_internal(cli, &cmd, &source_dir, &target_dir, None);
+        return run_build_internal(
+            cli,
+            &cmd,
+            &source_dir,
+            &target_dir,
+            Some(project_manifest_path.as_path()),
+            None,
+        );
     }
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
 
     let mut ret_value = 0;
     for t in targets {
-        let x = run_build_internal(cli, &cmd, &source_dir, &target_dir, Some(t))
-            .context(format!("failed to run build for target {t:?}"))?;
+        let x = run_build_internal(
+            cli,
+            &cmd,
+            &source_dir,
+            &target_dir,
+            Some(project_manifest_path.as_path()),
+            Some(t),
+        )
+        .context(format!("failed to run build for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -93,6 +108,7 @@ fn run_build_internal(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let f = |watch: bool| {
@@ -101,6 +117,7 @@ fn run_build_internal(
             cmd,
             source_dir,
             target_dir,
+            project_manifest_path,
             watch,
             selected_target_backend,
         )
@@ -122,6 +139,7 @@ fn run_build_rr(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
@@ -129,7 +147,8 @@ fn run_build_rr(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
-    );
+    )
+    .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir)?;
     let (build_meta, build_graph) = plan_build_rr_from_resolved(
         cli,

@@ -115,6 +115,7 @@ fn run_coverage_clean(cli: UniversalFlags) -> Result<i32, anyhow::Error> {
     let PackageDirs {
         source_dir: src,
         target_dir: tgt,
+        ..
     } = cli.source_tgt_dir.try_into_package_dirs()?;
     clean_coverage_artifacts(&src, &tgt)?;
     Ok(0)
@@ -136,6 +137,7 @@ fn run_coverage_report(cli: UniversalFlags, args: CoverageReportSubcommand) -> a
     let PackageDirs {
         source_dir: src,
         target_dir: _tgt,
+        ..
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let res = run_coverage_report_command(args.args, &src, cli.dry_run);

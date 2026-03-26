@@ -28,6 +28,7 @@ use moonutil::{
         BUILD_DIR, CargoPathExt, DEP_PATH, MBTI_GENERATED, MOON_MOD_JSON, StringExt, TargetBackend,
         get_cargo_pkg_version,
     },
+    dirs::MOON_NO_WORKSPACE,
     module::MoonModJSON,
 };
 use walkdir::WalkDir;
@@ -2652,6 +2653,59 @@ fn test_single_file_nonexistent_path_error() {
         run_result.get_output().status.code(),
         Some(101),
         "moon run should not panic for non-existent file"
+    );
+}
+
+#[test]
+fn test_single_file_commands_work_with_workspace_disabled() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+
+    std::fs::write(
+        dir.join("hello.mbt"),
+        r#"fn main {
+  println("hello")
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("test.mbt"),
+        r#"test "x" {
+  assert_true(true)
+}
+"#,
+    )
+    .unwrap();
+
+    let check_result = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(dir)
+        .env(MOON_NO_WORKSPACE, "1")
+        .args(["check", "hello.mbt"])
+        .assert()
+        .success()
+        .get_output()
+        .stderr
+        .clone();
+    check(
+        String::from_utf8(check_result).unwrap(),
+        expect![[r#"
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
+    );
+
+    check(
+        get_stdout_with_envs(&dir, ["test", "test.mbt"], [(MOON_NO_WORKSPACE, "1")]),
+        expect![[r#"
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    check(
+        get_stdout_with_envs(&dir, ["run", "hello.mbt"], [(MOON_NO_WORKSPACE, "1")]),
+        expect![[r#"
+            hello
+        "#]],
     );
 }
 

@@ -41,6 +41,7 @@ pub struct RemoveSubcommand {
 pub fn remove(
     project_root: &Path,
     module_dir: &Path,
+    project_manifest_path: Option<&Path>,
     username: &str,
     pkgname: &str,
 ) -> anyhow::Result<i32> {
@@ -54,7 +55,12 @@ pub fn remove(
         )
     }
     let m = Arc::new(m);
-    let roots = roots_for_selected_module(project_root, module_dir, Arc::clone(&m))?;
+    let roots = roots_for_selected_module(
+        project_root,
+        module_dir,
+        Arc::clone(&m),
+        project_manifest_path,
+    )?;
 
     let resolve_cfg = ResolveConfig {
         registry: registry::default_registry(),

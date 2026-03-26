@@ -47,6 +47,7 @@ pub struct AddSubcommand {
 pub fn add_latest(
     project_root: &Path,
     module_dir: &Path,
+    project_manifest_path: Option<&Path>,
     pkg_name: &ModuleName,
     bin: bool,
     quiet: bool,
@@ -84,6 +85,7 @@ pub fn add_latest(
     add(
         project_root,
         module_dir,
+        project_manifest_path,
         pkg_name,
         bin,
         &latest_version,
@@ -100,6 +102,7 @@ fn test_module_name() {
 pub fn add(
     project_root: &Path,
     module_dir: &Path,
+    project_manifest_path: Option<&Path>,
     pkg_name: &ModuleName,
     bin: bool,
     version: &Version,
@@ -140,7 +143,12 @@ pub fn add(
     }
 
     let m = Arc::new(m);
-    let roots = roots_for_selected_module(project_root, module_dir, Arc::clone(&m))?;
+    let roots = roots_for_selected_module(
+        project_root,
+        module_dir,
+        Arc::clone(&m),
+        project_manifest_path,
+    )?;
     install_impl(project_root, roots, quiet, false, false, true)?;
 
     let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));

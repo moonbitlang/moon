@@ -63,6 +63,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         let PackageDirs {
             source_dir,
             target_dir,
+            ..
         } = cli.source_tgt_dir.try_into_package_dirs()?;
         return mooncake::pkg::install::install(
             &source_dir,
@@ -157,7 +158,13 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
     }
     let username = parts[0];
     let pkgname = parts[1];
-    mooncake::pkg::remove::remove(project_root, module_dir, username, pkgname)
+    mooncake::pkg::remove::remove(
+        project_root,
+        module_dir,
+        Some(dirs.project_manifest_path.as_path()),
+        username,
+        pkgname,
+    )
 }
 
 pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
@@ -210,6 +217,7 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
         mooncake::pkg::add::add(
             project_root,
             module_dir,
+            Some(dirs.project_manifest_path.as_path()),
             &pkg_name,
             cmd.bin,
             &version,
@@ -219,6 +227,7 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
         mooncake::pkg::add::add_latest(
             project_root,
             module_dir,
+            Some(dirs.project_manifest_path.as_path()),
             &pkg_name,
             cmd.bin,
             cli.quiet,

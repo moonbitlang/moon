@@ -211,7 +211,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
     // Check if we're running within a project
     let dirs = match cli.source_tgt_dir.try_into_package_dirs() {
         Ok(dirs) => dirs,
-        Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
+        Err(e) if e.allows_single_file_fallback() => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {
                 [_] => {
@@ -239,7 +239,15 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
 
     if cmd.build_flags.target.is_empty() {
         debug!("no explicit backend target provided; using defaults");
-        return run_test_internal(cli, cmd, &dirs.source_dir, &dirs.target_dir, None, None);
+        return run_test_internal(
+            cli,
+            cmd,
+            &dirs.source_dir,
+            &dirs.target_dir,
+            Some(dirs.project_manifest_path.as_path()),
+            None,
+            None,
+        );
     }
     let surface_targets = &cmd.build_flags.target;
     let targets = lower_surface_targets(surface_targets);
@@ -256,6 +264,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
             cmd,
             &dirs.source_dir,
             &dirs.target_dir,
+            Some(dirs.project_manifest_path.as_path()),
             display_backend_hint,
             Some(t),
         )
@@ -272,6 +281,7 @@ fn run_test_internal(
     cmd: &TestSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -285,6 +295,7 @@ fn run_test_internal(
         cmd.into(),
         source_dir,
         target_dir,
+        project_manifest_path,
         display_backend_hint,
         selected_target_backend,
     )?;
@@ -481,13 +492,15 @@ pub(crate) fn plan_test_or_bench_rr(
     cmd: &TestLikeSubcommand<'_>,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
-    );
+    )
+    .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir)?;
     plan_test_or_bench_rr_from_resolved(
         cli,
@@ -560,6 +573,7 @@ pub(crate) fn run_test_or_bench_internal(
     cmd: TestLikeSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -607,6 +621,7 @@ pub(crate) fn run_test_or_bench_internal(
         &cmd,
         source_dir,
         target_dir,
+        project_manifest_path,
         display_backend_hint,
         selected_target_backend,
     )
@@ -618,12 +633,19 @@ fn run_test_rr(
     cmd: &TestLikeSubcommand<'_>,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<i32, anyhow::Error> {
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
-    let (build_meta, build_graph, filter) =
-        plan_test_or_bench_rr(cli, cmd, source_dir, target_dir, selected_target_backend)?;
+    let (build_meta, build_graph, filter) = plan_test_or_bench_rr(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        project_manifest_path,
+        selected_target_backend,
+    )?;
     debug!(
         artifact_count = build_meta.artifacts.len(),
         "planned rupes-recta build graph"

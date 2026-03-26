@@ -52,6 +52,7 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
     let PackageDirs {
         source_dir,
         target_dir,
+        project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
     let mut surface_targets = cmd.build_flags.target.clone();
@@ -60,15 +61,29 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
     }
 
     if surface_targets.is_empty() {
-        return run_bundle_internal(&cli, &cmd, &source_dir, &target_dir, None);
+        return run_bundle_internal(
+            &cli,
+            &cmd,
+            &source_dir,
+            &target_dir,
+            Some(project_manifest_path.as_path()),
+            None,
+        );
     }
 
     let targets = lower_surface_targets(&surface_targets);
 
     let mut ret_value = 0;
     for t in targets {
-        let x = run_bundle_internal(&cli, &cmd, &source_dir, &target_dir, Some(t))
-            .context(format!("failed to run bundle for target {t:?}"))?;
+        let x = run_bundle_internal(
+            &cli,
+            &cmd,
+            &source_dir,
+            &target_dir,
+            Some(project_manifest_path.as_path()),
+            Some(t),
+        )
+        .context(format!("failed to run bundle for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -80,9 +95,17 @@ pub(crate) fn run_bundle_internal(
     cmd: &BundleSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    run_bundle_internal_rr(cli, cmd, source_dir, target_dir, selected_target_backend)
+    run_bundle_internal_rr(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        project_manifest_path,
+        selected_target_backend,
+    )
 }
 
 #[instrument(skip_all)]
@@ -91,6 +114,7 @@ pub(crate) fn run_bundle_internal_rr(
     cmd: &BundleSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let mut preconfig = rr_build::preconfig_compile(
@@ -116,6 +140,7 @@ pub(crate) fn run_bundle_internal_rr(
         source_dir,
         target_dir,
         UserDiagnostics::from_flags(cli),
+        project_manifest_path,
         Box::new(|r, _tb| {
             Ok(r.local_modules()
                 .iter()

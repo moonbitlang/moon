@@ -110,9 +110,17 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
     }
 
     // Check if we're running within a project
-    let (source_dir, target_dir, single_file) = match cli.source_tgt_dir.try_into_package_dirs() {
-        Ok(dirs) => (dirs.source_dir, dirs.target_dir, false),
-        Err(e @ moonutil::dirs::PackageDirsError::NotInProject(_)) => {
+    let (source_dir, target_dir, single_file, project_manifest_path) = match cli
+        .source_tgt_dir
+        .try_into_package_dirs()
+    {
+        Ok(dirs) => (
+            dirs.source_dir,
+            dirs.target_dir,
+            false,
+            Some(dirs.project_manifest_path),
+        ),
+        Err(e) if e.allows_single_file_fallback() => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {
                 [path] => {
@@ -124,7 +132,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
                         .context("file path must have a parent directory")?
                         .to_path_buf();
                     let target_dir = source_dir.join(BUILD_DIR);
-                    (source_dir, target_dir, true)
+                    (source_dir, target_dir, true, None)
                 }
                 [] => return Err(e.into()),
                 _ => {
@@ -138,15 +146,31 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
     };
 
     if cmd.build_flags.target.is_empty() {
-        return run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, None);
+        return run_check_internal(
+            cli,
+            cmd,
+            &source_dir,
+            &target_dir,
+            single_file,
+            project_manifest_path.as_deref(),
+            None,
+        );
     }
 
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
     let mut ret_value = 0;
     for t in targets {
-        let x = run_check_internal(cli, cmd, &source_dir, &target_dir, single_file, Some(t))
-            .context(format!("failed to run check for target {t:?}"))?;
+        let x = run_check_internal(
+            cli,
+            cmd,
+            &source_dir,
+            &target_dir,
+            single_file,
+            project_manifest_path.as_deref(),
+            Some(t),
+        )
+        .context(format!("failed to run check for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -159,12 +183,20 @@ fn run_check_internal(
     source_dir: &Path,
     target_dir: &Path,
     single_file: bool,
+    project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     if single_file {
         run_check_for_single_file(cli, cmd, selected_target_backend)
     } else {
-        run_check_normal_internal(cli, cmd, source_dir, target_dir, selected_target_backend)
+        run_check_normal_internal(
+            cli,
+            cmd,
+            source_dir,
+            target_dir,
+            project_manifest_path,
+            selected_target_backend,
+        )
     }
 }
 
@@ -302,6 +334,7 @@ fn run_check_normal_internal(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let run_once = |watch: bool, target_dir: &Path| -> anyhow::Result<WatchOutput> {
@@ -310,6 +343,7 @@ fn run_check_normal_internal(
             cmd,
             source_dir,
             target_dir,
+            project_manifest_path,
             watch,
             selected_target_backend,
         )
@@ -340,6 +374,7 @@ fn run_check_normal_internal_rr(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    project_manifest_path: Option<&Path>,
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
@@ -347,7 +382,8 @@ fn run_check_normal_internal_rr(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
-    );
+    )
+    .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir)
         .context("Failed to calculate build plan")?;
     let (build_meta, build_graph) = plan_check_rr_from_resolved(

@@ -18,14 +18,15 @@
 
 use std::{path::Path, sync::Arc};
 
+use anyhow::Context;
 use moonutil::{
-    common::read_module_desc_file_in_dir,
+    common::{MOON_MOD_JSON, read_module_desc_file_in_dir},
     module::MoonMod,
     mooncakes::{
         ModuleSource,
         result::{ResolvedModule, ResolvedRootModules},
     },
-    workspace::{canonical_workspace_module_dirs, read_workspace},
+    workspace::{canonical_workspace_module_dirs, read_workspace, read_workspace_file},
 };
 
 pub mod add;
@@ -41,8 +42,31 @@ pub(crate) fn roots_for_selected_module(
     project_root: &Path,
     module_dir: &Path,
     module: Arc<MoonMod>,
+    project_manifest_path: Option<&Path>,
 ) -> anyhow::Result<ResolvedRootModules> {
-    if let Some(workspace) = read_workspace(project_root)? {
+    if let Some(project_manifest_path) = project_manifest_path {
+        if project_manifest_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            != Some(MOON_MOD_JSON)
+        {
+            let workspace_root = project_manifest_path
+                .parent()
+                .context("workspace manifest path has no parent directory")?;
+            let workspace = read_workspace_file(project_manifest_path)?;
+            let mut roots = ResolvedRootModules::with_key();
+            for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
+                let member = if member_dir == module_dir {
+                    Arc::clone(&module)
+                } else {
+                    Arc::new(read_module_desc_file_in_dir(&member_dir)?)
+                };
+                let source = ModuleSource::from_local_module(&member, &member_dir);
+                roots.insert(ResolvedModule::new(source, member));
+            }
+            return Ok(roots);
+        }
+    } else if let Some(workspace) = read_workspace(project_root)? {
         let mut roots = ResolvedRootModules::with_key();
         for member_dir in canonical_workspace_module_dirs(project_root, &workspace)? {
             let member = if member_dir == module_dir {
@@ -53,10 +77,10 @@ pub(crate) fn roots_for_selected_module(
             let source = ModuleSource::from_local_module(&member, &member_dir);
             roots.insert(ResolvedModule::new(source, member));
         }
-        Ok(roots)
-    } else {
-        let source = ModuleSource::from_local_module(&module, module_dir);
-        let (roots, _) = ResolvedModule::only_one_module(source, module);
-        Ok(roots)
+        return Ok(roots);
     }
+
+    let source = ModuleSource::from_local_module(&module, module_dir);
+    let (roots, _) = ResolvedModule::only_one_module(source, module);
+    Ok(roots)
 }

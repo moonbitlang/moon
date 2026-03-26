@@ -92,6 +92,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     let doc_source_dir = dirs.require_module_dir("doc")?.clone();
     let source_dir = dirs.project_root;
     let target_dir = dirs.target_dir;
+    let project_manifest_path = dirs.project_manifest_path;
 
     // FIXME: This is copied from `moon check`'s code. Share code if possible.
     let mut preconfig = preconfig_compile(
@@ -111,6 +112,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         &source_dir,
         &target_dir,
         UserDiagnostics::from_flags(&cli),
+        Some(project_manifest_path.as_path()),
         Box::new(move |resolve_output, _| {
             let module_id = selected_doc_module_id(resolve_output, &doc_source_dir_for_intent)?;
             Ok(vec![UserIntent::Doc(module_id)].into())

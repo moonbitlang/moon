@@ -97,6 +97,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
     };
     let project_root = dirs.project_root;
     let target_dir = dirs.target_dir;
+    let project_manifest_path = dirs.project_manifest_path;
     let build_flags = cmd.to_build_flags();
     let verif_dir = target_dir.join("verif");
     let why3_config_path = verif_dir.join("why3.conf");
@@ -121,6 +122,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         &project_root,
         &target_dir,
         UserDiagnostics::from_flags(cli),
+        Some(project_manifest_path.as_path()),
         Box::new(move |resolve_output, target_backend| {
             calc_user_intent(
                 path_filter,
