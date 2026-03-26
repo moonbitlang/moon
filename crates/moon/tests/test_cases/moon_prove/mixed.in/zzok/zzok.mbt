@@ -1,6 +1,7 @@
-#requires(sorted(xs))
-#ensures(binary_search_ok(xs, key, result))
-pub fn binary_search(xs : FixedArray[Int], key : Int) -> Int {
+pub fn binary_search(xs : FixedArray[Int], key : Int) -> Int where {
+  proof_require: sorted(xs),
+  proof_ensure: result => binary_search_ok(xs, key, result), 
+} {
   for i = 0, j = xs.length(); i < j; {
     let h = i + (j - i) / 2
     if xs[h] < key {
