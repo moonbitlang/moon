@@ -20,10 +20,7 @@ use moonutil::cli::UniversalFlags;
 use std::{env::current_exe, path::Path};
 
 use anyhow::Context;
-use moonutil::common::{
-    get_moon_version, get_moonc_version, get_moonrun_version, get_program_version,
-};
-use which::which_global;
+use moonutil::common::{get_moon_version, get_moonc_version, get_moonrun_version};
 
 /// Print version information and exit
 #[derive(Debug, clap::Parser)]
@@ -87,14 +84,10 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
             print_unstable_footer(flags);
         }
         (true, false) => {
-            let moon_pilot_path = which_global("moon-pilot");
             if nopath_flag {
                 println!("moon {moon_version}");
                 println!("moonc {}", moonc_version?);
                 println!("moonc {}", moonrun_version?);
-                if let Ok(moon_pilot_path) = moon_pilot_path {
-                    println!("moon-pilot {}", get_program_version(&moon_pilot_path)?);
-                }
             } else {
                 println!("moon {} {}", moon_version, get_moon_path()?);
                 println!(
@@ -107,13 +100,6 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
                     moonrun_version?,
                     replace_home_with_tilde(&moonutil::BINARIES.moonrun)?
                 );
-                if let Ok(moon_pilot_path) = moon_pilot_path {
-                    println!(
-                        "moon-pilot {} {}",
-                        get_program_version(&moon_pilot_path)?,
-                        replace_home_with_tilde(&moon_pilot_path)?
-                    );
-                }
             }
             print_unstable_footer(flags);
         }
