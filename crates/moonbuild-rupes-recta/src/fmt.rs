@@ -46,6 +46,7 @@ use crate::{
     discover::{DiscoveredLocalProject, DiscoveredPackage, discover_local_project},
     model::PackageId,
     resolve::ResolveError,
+    user_warning::UserWarning,
 };
 
 pub type FmtResolveOutput = DiscoveredLocalProject;
@@ -96,7 +97,7 @@ pub fn build_graph_for_fmt(
     target_dir: &Path,
     selected_packages: &[PackageId],
     project_manifest_path: Option<&Path>,
-) -> anyhow::Result<n2::graph::Graph> {
+) -> anyhow::Result<(n2::graph::Graph, Vec<UserWarning>)> {
     info!(
         "Building format graph for {} root modules",
         resolved.root_module_ids.len()
@@ -118,11 +119,19 @@ pub fn build_graph_for_fmt(
     debug!("Layout built for formatting");
 
     let mut graph = n2::graph::Graph::default();
+    let mut user_warnings = Vec::new();
     let mut package_count = 0;
     let selected_packages = (!selected_packages.is_empty())
         .then(|| selected_packages.iter().copied().collect::<HashSet<_>>());
     let has_workspace_manifest = selected_packages.is_none()
-        && format_workspace_node(&mut graph, cfg, &layout, source_dir, project_manifest_path)?;
+        && format_workspace_node(
+            &mut graph,
+            cfg,
+            &layout,
+            source_dir,
+            project_manifest_path,
+            &mut user_warnings,
+        )?;
 
     for &module_id in &resolved.root_module_ids {
         let Some(packages) = resolved.pkg_dirs.packages_for_module(module_id) else {
@@ -138,7 +147,7 @@ pub fn build_graph_for_fmt(
 
             let pkg = resolved.pkg_dirs.get_package(id);
             info!("Processing package {}", pkg.fqn);
-            build_for_package(&mut graph, cfg, &layout, pkg)?;
+            build_for_package(&mut graph, cfg, &layout, pkg, &mut user_warnings)?;
             package_count += 1;
         }
     }
@@ -147,7 +156,7 @@ pub fn build_graph_for_fmt(
         anyhow::bail!("No packages found in workspace to format");
     }
 
-    Ok(graph)
+    Ok((graph, user_warnings))
 }
 
 fn format_workspace_node(
@@ -156,6 +165,7 @@ fn format_workspace_node(
     layout: &LegacyLayout,
     source_dir: &Path,
     project_manifest_path: Option<&Path>,
+    user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<bool> {
     let workspace_manifest_path = project_manifest_path
         .map(Path::to_path_buf)
@@ -178,14 +188,14 @@ fn format_workspace_node(
         Some(MOON_WORK) => {
             let moon_work_json = source_dir.join(MOON_WORK_JSON);
             if moon_work_json.exists() {
-                warn!(
+                user_warnings.push(UserWarning::new(format!(
                     "Both {} and {} exist at workspace root '{}', using the new format {}. Please remove the deprecated {}.",
                     MOON_WORK_JSON,
                     MOON_WORK,
                     source_dir.display(),
                     MOON_WORK,
                     MOON_WORK_JSON
-                );
+                )));
             }
             format_moon_work_dsl(graph, cfg, &workspace_manifest_path, &target_moon_work)?;
             Ok(true)
@@ -199,6 +209,7 @@ fn format_workspace_node(
                 &target_moon_work,
                 &moon_work,
                 source_dir,
+                user_warnings,
             )?;
             Ok(true)
         }
@@ -218,6 +229,7 @@ fn build_for_package(
     cfg: &FmtConfig,
     layout: &LegacyLayout,
     pkg: &DiscoveredPackage,
+    user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<()> {
     let ignore_set = &pkg.raw.formatter.ignore;
     let prebuild_outputs = pkg
@@ -261,7 +273,7 @@ fn build_for_package(
     }
 
     // Always format moon.pkg when present; migration from moon.pkg.json is gated.
-    format_moon_pkg_node(graph, cfg, layout, pkg)?;
+    format_moon_pkg_node(graph, cfg, layout, pkg, user_warnings)?;
 
     Ok(())
 }
@@ -389,13 +401,14 @@ fn format_moon_work_json_migrate(
     target_moon_work: &std::path::Path,
     moon_work: &std::path::Path,
     source_dir: &Path,
+    user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<()> {
-    warn!(
+    user_warnings.push(UserWarning::new(format!(
         "Migrating to {} at workspace root '{}', deprecated {} is removed.",
         MOON_WORK,
         source_dir.display(),
         MOON_WORK_JSON
-    );
+    )));
 
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
@@ -503,6 +516,7 @@ fn format_moon_pkg_node(
     cfg: &FmtConfig,
     layout: &LegacyLayout,
     pkg: &DiscoveredPackage,
+    user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<()> {
     use moonutil::common::{MOON_PKG, MOON_PKG_JSON};
 
@@ -525,10 +539,10 @@ fn format_moon_pkg_node(
 
     if has_dsl && has_json {
         // Both files exist: prefer moon.pkg (new format), warn about duplicate
-        warn!(
+        user_warnings.push(UserWarning::new(format!(
             "Both {} and {} exist in package '{}', using the new format {}. Please remove the deprecated {}.",
             MOON_PKG_JSON, MOON_PKG, pkg.fqn, MOON_PKG, MOON_PKG_JSON
-        );
+        )));
         // Format moon.pkg (new format)
         format_moon_pkg_dsl(graph, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
     } else if has_dsl {
@@ -543,6 +557,7 @@ fn format_moon_pkg_node(
             &target_moon_pkg,
             &moon_pkg_dsl,
             pkg,
+            user_warnings,
         )
     } else {
         debug!(
@@ -633,12 +648,13 @@ fn format_moon_pkg_json_migrate(
     target_moon_pkg: &std::path::Path,
     moon_pkg: &std::path::Path,
     pkg: &DiscoveredPackage,
+    user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<()> {
     // Warn the user about migration and prompt to remove the old config
-    warn!(
+    user_warnings.push(UserWarning::new(format!(
         "Migrating to {} in package '{}', deprecated {} is removed.",
         MOON_PKG, pkg.fqn, MOON_PKG_JSON
-    );
+    )));
 
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare

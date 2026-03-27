@@ -33,7 +33,9 @@ use std::str::FromStr;
 
 use mooncake::pkg::sync::{auto_sync, auto_sync_for_single_file_rr};
 use moonutil::{
-    common::{MOONBITLANG_CORE, MbtMdHeader, TargetBackend, parse_front_matter_config},
+    common::{
+        MBTI_USER_WRITTEN, MOONBITLANG_CORE, MbtMdHeader, TargetBackend, parse_front_matter_config,
+    },
     dependency::{SourceDependencyInfo, SourceDependencyInfoJson},
     mooncakes::{DirSyncResult, ModuleId, result::ResolvedEnv, sync::AutoSyncFlags},
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
@@ -125,6 +127,23 @@ fn extract_front_matter_config(header: Option<&MbtMdHeader>) -> anyhow::Result<F
     }
 
     Ok(config)
+}
+
+fn collect_virtual_mbti_deprecation_warnings(packages: &DiscoverResult) -> Vec<UserWarning> {
+    packages
+        .all_packages(false)
+        .filter_map(|(_pkg_id, pkg)| {
+            let virtual_mbti = pkg.virtual_mbti.as_ref()?;
+            if virtual_mbti.file_name().and_then(|name| name.to_str()) == Some(MBTI_USER_WRITTEN) {
+                return None;
+            }
+            Some(UserWarning::new(format!(
+                "Using package name in MBTI file is deprecated. Please rename {} to {}",
+                virtual_mbti.display(),
+                MBTI_USER_WRITTEN
+            )))
+        })
+        .collect()
 }
 
 fn parse_front_matter_imports(
@@ -288,10 +307,23 @@ pub enum ResolveError {
     DiscoverError(#[from] DiscoverError),
 
     #[error("Failed to solve package relationship")]
-    SolveError(#[from] pkg_solve::SolveError),
+    SolveError {
+        #[source]
+        source: Box<pkg_solve::SolveError>,
+        user_warnings: Vec<UserWarning>,
+    },
 
     #[error("Failed to parse single file front matter configuration")]
     SingleFileParseError(#[source] anyhow::Error),
+}
+
+impl ResolveError {
+    pub fn user_warnings(&self) -> &[UserWarning] {
+        match self {
+            ResolveError::SolveError { user_warnings, .. } => user_warnings,
+            _ => &[],
+        }
+    }
 }
 
 /// Performs the resolving process from a raw working directory, until all of
@@ -331,8 +363,21 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
         discover_result.package_count()
     );
 
-    let (dep_relationship, user_warnings) =
-        pkg_solve::solve(&resolved_env, &discover_result, cfg.enable_coverage)?;
+    let mut user_warnings = collect_virtual_mbti_deprecation_warnings(&discover_result);
+    let dep_relationship = match pkg_solve::solve(
+        &resolved_env,
+        &discover_result,
+        cfg.enable_coverage,
+        &mut user_warnings,
+    ) {
+        Ok(ok) => ok,
+        Err(source) => {
+            return Err(ResolveError::SolveError {
+                source: Box::new(source),
+                user_warnings,
+            });
+        }
+    };
 
     info!("Package dependency resolution completed successfully");
     debug!(
@@ -419,6 +464,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
 
     // Discover all packages in resolved modules
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
+    user_warnings.extend(collect_virtual_mbti_deprecation_warnings(&discover_result));
 
     // Synthesize the single-file package that imports everything from discovered modules
     crate::discover::synth::build_synth_single_file_package(
@@ -430,9 +476,20 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     )?;
 
     // Solve package dependency relationship
-    let (dep_relationship, mut solve_warnings) =
-        pkg_solve::solve(&resolved_env, &discover_result, cfg.enable_coverage)?;
-    user_warnings.append(&mut solve_warnings);
+    let dep_relationship = match pkg_solve::solve(
+        &resolved_env,
+        &discover_result,
+        cfg.enable_coverage,
+        &mut user_warnings,
+    ) {
+        Ok(ok) => ok,
+        Err(source) => {
+            return Err(ResolveError::SolveError {
+                source: Box::new(source),
+                user_warnings,
+            });
+        }
+    };
 
     let res = ResolveOutput {
         module_rel: resolved_env,

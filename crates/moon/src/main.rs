@@ -107,6 +107,20 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     Box::new(chrome_guard)
 }
 
+fn emit_resolve_warnings_from_error_chain(output: UserDiagnostics, err: &anyhow::Error) {
+    for cause in err.chain() {
+        let Some(resolve_err) =
+            cause.downcast_ref::<moonbuild_rupes_recta::resolve::ResolveError>()
+        else {
+            continue;
+        };
+        for warning in resolve_err.user_warnings() {
+            output.user_message(warning);
+        }
+        break;
+    }
+}
+
 pub fn main() {
     panic::setup_panic_hook();
 
@@ -174,6 +188,7 @@ pub fn main() {
     match res {
         Ok(code) => std::process::exit(code),
         Err(e) => {
+            emit_resolve_warnings_from_error_chain(output, &e);
             output.error(format!("{:?}", e));
             std::process::exit(-1);
         }

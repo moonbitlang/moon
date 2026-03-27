@@ -16,19 +16,4 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::fmt::{self, Display, Formatter};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UserWarning(String);
-
-impl UserWarning {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self(message.into())
-    }
-}
-
-impl Display for UserWarning {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
+pub use moonutil::user_warning::{UserMessageLevel, UserWarning};

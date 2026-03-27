@@ -56,7 +56,7 @@ use moonutil::{
     workspace::{canonical_workspace_module_dirs, read_workspace, read_workspace_file},
 };
 use relative_path::{PathExt, RelativePath};
-use tracing::{Level, instrument, warn};
+use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
 use crate::{
@@ -460,11 +460,6 @@ fn discover_virtual_mbti(
         if has_new_mbti {
             Some(new_mbti)
         } else if has_old_mbti {
-            warn!(
-                "Using package name in MBTI file is deprecated. Please rename {} to {}",
-                old_mbti.display(),
-                MBTI_USER_WRITTEN
-            );
             Some(old_mbti)
         } else {
             return Err(DiscoverError::MissingVirtualMbtiFile(fqn.clone().into()));

@@ -49,7 +49,9 @@ fn test_fmt_moon_work_json_migration_dry_run() {
                 "--sort-input",
             ],
         ),
-        expect![""],
+        expect![[r#"
+            Warning: Migrating to moon.work at workspace root '$ROOT', deprecated moon.work.json is removed.
+        "#]],
     );
 
     let output = get_stdout(
