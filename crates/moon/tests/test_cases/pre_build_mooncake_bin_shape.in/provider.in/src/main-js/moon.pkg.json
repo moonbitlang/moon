@@ -1,0 +1,5 @@
+{
+  "is-main": true,
+  "bin-target": "js",
+  "bin-name": "shape-tool"
+}

@@ -25,8 +25,8 @@ use super::*;
 use expect_test::expect;
 use moonutil::{
     common::{
-        BUILD_DIR, CargoPathExt, DEP_PATH, MBTI_GENERATED, MOON_MOD_JSON, StringExt, TargetBackend,
-        get_cargo_pkg_version,
+        BUILD_DIR, CargoPathExt, DEP_PATH, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, StringExt,
+        TargetBackend, get_cargo_pkg_version,
     },
     dirs::MOON_NO_WORKSPACE,
     module::MoonModJSON,
@@ -1357,6 +1357,38 @@ fn test_pre_build() {
               #|
         "#]],
     );
+}
+
+#[test]
+fn test_pre_build_mooncake_bin_shape() {
+    let top_dir = TestDir::new("pre_build_mooncake_bin_shape.in");
+    let dir = top_dir.join("user.in");
+
+    get_stderr(&dir, ["check"]);
+
+    #[cfg(unix)]
+    let launcher = top_dir.join("provider.in").join("shape-tool");
+    #[cfg(target_os = "windows")]
+    let launcher = top_dir.join("provider.in").join("shape-tool.ps1");
+    assert!(launcher.exists(), "expected bin-dep launcher: {launcher:?}");
+
+    let actual_raw = read(dir.join("src/main/mooncake_bin.txt"));
+    let actual_path = actual_raw.trim();
+    let actual_path = actual_path
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(actual_path)
+        .replace("\\\"", "\"")
+        .replace('\\', "/");
+
+    let expected_path = dunce::canonicalize(&dir)
+        .unwrap()
+        .join(DEP_PATH)
+        .join(MOON_BIN_DIR)
+        .to_string_lossy()
+        .replace('\\', "/");
+
+    assert_eq!(actual_path, expected_path);
 }
 
 #[test]
