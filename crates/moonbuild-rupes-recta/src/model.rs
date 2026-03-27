@@ -212,11 +212,6 @@ pub enum BuildPlanNode {
     /// Run the i-th prebuild script in the prebuild script list.
     RunPrebuild(PackageId, u32),
 
-    /// Run the i-th prebuild rule for `moonlex` predefined prebuild.
-    RunMoonLexPrebuild(PackageId, u32),
-    /// Run the i-th prebuild rule for `moonyacc` predefined prebuild.
-    RunMoonYaccPrebuild(PackageId, u32),
-
     /// Docs build for a single selected module.
     ///
     /// The legacy layout does not have a separate folder for different kinds
@@ -266,9 +261,7 @@ impl BuildPlanNode {
             | BuildPlanNode::BuildRuntimeLib
             | BuildPlanNode::BuildDocs(_)
             | BuildPlanNode::BuildVirtual(_)
-            | BuildPlanNode::RunPrebuild(_, _)
-            | BuildPlanNode::RunMoonLexPrebuild(_, _)
-            | BuildPlanNode::RunMoonYaccPrebuild(_, _) => None,
+            | BuildPlanNode::RunPrebuild(_, _) => None,
         }
     }
 
@@ -368,18 +361,6 @@ impl BuildPlanNode {
                 };
                 format!("prebuild script {} {}", packages.fqn(*package_id), joined)
             }
-            BuildPlanNode::RunMoonLexPrebuild(package_id, index) => {
-                let pkg = packages.get_package(*package_id);
-                let input = &pkg.mbt_lex_files[*index as usize];
-                let input_name = file_basename(input.as_path());
-                format!("run moonlex {} {}", packages.fqn(*package_id), input_name)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(package_id, index) => {
-                let pkg = packages.get_package(*package_id);
-                let input = &pkg.mbt_yacc_files[*index as usize];
-                let input_name = file_basename(input.as_path());
-                format!("run moonyacc {} {}", packages.fqn(*package_id), input_name)
-            }
             BuildPlanNode::BuildDocs(module_id) => {
                 let src = env.module_source(*module_id);
                 format!("build docs {}", src)
@@ -439,14 +420,6 @@ impl BuildPlanNode {
             BuildPlanNode::RunPrebuild(pkg, idx) => {
                 let fqn = packages.fqn(*pkg);
                 format!("{}@RunPrebuild_{}", fqn, idx)
-            }
-            BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => {
-                let fqn = packages.fqn(*pkg);
-                format!("{}@RunMoonLexPrebuild_{}", fqn, idx)
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(pkg, idx) => {
-                let fqn = packages.fqn(*pkg);
-                format!("{}@RunMoonYaccPrebuild_{}", fqn, idx)
             }
             BuildPlanNode::BuildDocs(module_id) => {
                 let src = env.module_source(*module_id);

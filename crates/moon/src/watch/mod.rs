@@ -499,56 +499,6 @@ mod tests {
     }
 
     #[test]
-    fn rerun_triggered_for_moonlex_input() {
-        use std::fs;
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
-
-        let file = root.join("src/main/lexer.mbl");
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(&file, "rule token = parse").unwrap();
-
-        let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
-            root,
-            &[event],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
-
-        assert!(result);
-    }
-
-    #[test]
-    fn rerun_triggered_for_moonyacc_input() {
-        use std::fs;
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
-
-        let file = root.join("src/main/parser.mby");
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        fs::write(&file, "%%").unwrap();
-
-        let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
-            root,
-            &[event],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
-
-        assert!(result);
-    }
-
-    #[test]
     fn rerun_triggered_for_explicitly_watched_prebuild_input() {
         use std::fs;
 

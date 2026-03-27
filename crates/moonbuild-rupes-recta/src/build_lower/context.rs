@@ -154,8 +154,6 @@ impl<'a> BuildPlanLowerContext<'a> {
             BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
             BuildPlanNode::BuildDocs(module_id) => self.lower_build_docs(module_id),
             BuildPlanNode::RunPrebuild(pkg, idx) => self.lower_run_prebuild(pkg, idx),
-            BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => self.lower_moon_lex_prebuild(pkg, idx),
-            BuildPlanNode::RunMoonYaccPrebuild(pkg, idx) => self.lower_moon_yacc_prebuild(pkg, idx),
         };
 
         // Collect n2 inputs and outputs.
@@ -434,16 +432,6 @@ impl<'a> BuildPlanLowerContext<'a> {
                     &t,
                     self.opt.target_backend.into(),
                 ));
-            }
-            BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => {
-                let pkg_info = self.packages.get_package(pkg);
-                let mbtlex_file = &pkg_info.mbt_lex_files[idx as usize];
-                out.push(mbtlex_file.with_extension("mbt"));
-            }
-            BuildPlanNode::RunMoonYaccPrebuild(pkg, idx) => {
-                let pkg_info = self.packages.get_package(pkg);
-                let mbtyacc_file = &pkg_info.mbt_yacc_files[idx as usize];
-                out.push(mbtyacc_file.with_extension("mbt"));
             }
         }
     }

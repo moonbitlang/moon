@@ -69,14 +69,6 @@ pub struct DiscoveredPackage {
     /// files, and platform-specific files.
     pub source_files: Vec<PathBuf>,
 
-    /// MoonBit Lex files (`.mbl`) contained by this package.
-    ///
-    /// TODO: Most of these logic are replaced with pre-build tasks, and
-    /// `moonlex`/`moonyacc` bundled with the toolchain is not updated
-    /// frequently. Consider deprecating these fields and related logic.
-    pub mbt_lex_files: Vec<PathBuf>,
-    /// MoonBit Yacc files (`.mby`) contained by this package.
-    pub mbt_yacc_files: Vec<PathBuf>,
     /// Documentation-oriented programming Markdown files (`.mbt.md`) contained
     /// by this package.
     pub mbt_md_files: Vec<PathBuf>,
@@ -337,6 +329,16 @@ pub enum DiscoverError {
         package: PackagePath,
         file: PathBuf,
         inner: anyhow::Error,
+    },
+
+    #[error(
+        "File '{file}' in package '{package}' of module '{module}' uses legacy extension '{extension}', which is no longer supported. Migrate to `pre-build` generation that emits `.mbt` files."
+    )]
+    UnsupportedLegacyGeneratedSource {
+        module: ModuleSource,
+        package: PackagePath,
+        file: PathBuf,
+        extension: &'static str,
     },
 
     #[error(
