@@ -516,9 +516,13 @@ pub(crate) fn plan_build_from_resolved<'a>(
     let is_core = main_module.is_some_and(|module| module.name == MOONBITLANG_CORE);
     info!("is_core: {}", is_core);
 
-    // Run prebuild config if any
-    info!("Running prebuild configuration");
-    let prebuild_config = Some(run_prebuild_config(&resolve_output)?);
+    let prebuild_config = if preconfig.action == RunMode::Check {
+        info!("Skipping prebuild configuration for check run mode");
+        None
+    } else {
+        info!("Running prebuild configuration");
+        Some(run_prebuild_config(&resolve_output)?)
+    };
 
     // Expand user intents to concrete BuildPlanNode inputs
     info!("Expanding user intents to build plan nodes");
