@@ -1068,7 +1068,7 @@ fn moon_test_with_failure_json() {
         &output,
         // should keep in this format, it's used in ide test explorer
         expect![[r#"
-            {"package":"username/hello/lib1","filename":"hello.mbt","index":"0","test_name":"test_1","message":"lib1/hello.mbt:7:3-7:24@username/hello FAILED: test_1 failed"}
+            {"package":"username/hello/lib1","filename":"hello.mbt","index":"0","test_name":"test_1","message":"src/lib1/hello.mbt:7:3-7:24@username/hello FAILED: test_1 failed"}
             Total tests: 2, passed: 1, failed: 1.
         "#]],
     );
