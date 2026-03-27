@@ -1,6 +1,6 @@
 use std::cell::OnceCell;
 
-use crate::{TestDir, get_stdout};
+use crate::{TestDir, assert_success, get_err_stderr, get_stdout};
 
 // Notice the two `this-is-added-by-config-script`
 #[test]
@@ -49,4 +49,33 @@ fn test_prebuild_config_common(dir: TestDir) {
         .get()
         .expect("c stub compilation not found");
     found_link_flags.get().expect("link flags not found");
+}
+
+#[test]
+fn test_prebuild_config_not_run_in_check() {
+    let dir = TestDir::new("prebuild_config_script/check_skip_on_check");
+
+    let build_err = get_err_stderr(&dir, ["build", "--dry-run"]);
+    assert!(
+        build_err.contains("prebuild script `fail.js`"),
+        "expected build to execute prebuild script and fail, got:\n{build_err}"
+    );
+
+    assert_success(&dir, ["check"]);
+}
+
+#[test]
+fn test_prebuild_config_in_bin_dep_runs_for_check_install() {
+    let top_dir = TestDir::new("prebuild_config_script/check_skip_bin_dep.in");
+    let dir = top_dir.join("user.in");
+    let generated_stub = top_dir.join("author.in/src/main/generated_stub.c");
+    assert!(
+        !generated_stub.exists(),
+        "generated stub should not exist before check"
+    );
+    assert_success(&dir, ["check"]);
+    assert!(
+        generated_stub.exists(),
+        "expected bin-dep prebuild to generate required stub during check install"
+    );
 }

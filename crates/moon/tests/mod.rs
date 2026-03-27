@@ -174,6 +174,18 @@ pub fn get_stderr(
 }
 
 #[track_caller]
+pub fn assert_success(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+) {
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(dir)
+        .args(args)
+        .assert()
+        .success();
+}
+
+#[track_caller]
 pub fn get_err_stdout(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
