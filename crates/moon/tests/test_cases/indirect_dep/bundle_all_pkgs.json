@@ -212,6 +212,11 @@
     },
     {
       "root": "moonbitlang/core",
+      "rel": "internal/strconv",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/internal/strconv/strconv.mi"
+    },
+    {
+      "root": "moonbitlang/core",
       "rel": "json",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/json/json.mi"
     },

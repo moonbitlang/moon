@@ -28,7 +28,7 @@ fn test_run_doc_test() {
             +1256
             ----
 
-            [username/hello] test lib/hello.mbt:19 (#2) failed: lib_blackbox_test/hello.mbt:22:5-22:30@username/hello FAILED: this is a failure
+            [username/hello] test lib/hello.mbt:19 (#2) failed: src/lib/hello.mbt:22:5-22:30@username/hello FAILED: this is a failure
             [username/hello] test lib/greet.mbt:18 (#2) failed
             expect test failed at $ROOT/src/lib/greet.mbt:23:7-23:20
             Diff: (- expected, + actual)
@@ -36,7 +36,7 @@ fn test_run_doc_test() {
             +1256
             ----
 
-            [username/hello] test lib/greet.mbt:30 (#3) failed: lib_blackbox_test/greet.mbt:34:7-34:30@username/hello FAILED: another failure
+            [username/hello] test lib/greet.mbt:30 (#3) failed: src/lib/greet.mbt:34:7-34:30@username/hello FAILED: another failure
             [username/hello] test lib/greet.mbt:95 (#8) failed
             expect test failed at $ROOT/src/lib/greet.mbt:99:5-99:40
             Diff: (- expected, + actual)
@@ -90,8 +90,8 @@ fn test_run_doc_test() {
             test block 4
             test block 5
             doc_test 5 from greet.mbt
-            [username/hello] test lib/hello.mbt:21 (#2) failed: lib_blackbox_test/hello.mbt:24:5-24:30@username/hello FAILED: this is a failure
-            [username/hello] test lib/greet.mbt:32 (#3) failed: lib_blackbox_test/greet.mbt:36:7-36:30@username/hello FAILED: another failure
+            [username/hello] test lib/hello.mbt:21 (#2) failed: src/lib/hello.mbt:24:5-24:30@username/hello FAILED: this is a failure
+            [username/hello] test lib/greet.mbt:32 (#3) failed: src/lib/greet.mbt:36:7-36:30@username/hello FAILED: another failure
             Total tests: 16, passed: 14, failed: 2.
         "#]],
     );
