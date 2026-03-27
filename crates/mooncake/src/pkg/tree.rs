@@ -21,9 +21,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use walkdir::WalkDir;
 
-use moonutil::common::{
-    DEP_PATH, MOON_MOD_JSON, read_module_desc_file_in_dir, read_module_from_json,
-};
+use moonutil::common::{MOON_MOD_JSON, read_module_desc_file_in_dir, read_module_from_json};
 
 /// Display the dependency tree
 #[derive(Debug, clap::Parser)]
@@ -37,14 +35,13 @@ fn bold(top: &HashSet<String>, item: &str) -> ColoredString {
     }
 }
 
-pub fn tree(project_root: &Path, module_dir: &Path) -> anyhow::Result<i32> {
+pub fn tree(module_dir: &Path, mooncakes_dir: &Path) -> anyhow::Result<i32> {
     let root_m = read_module_desc_file_in_dir(module_dir)?;
     let mut top = HashSet::new();
     for (name, dep) in root_m.deps {
         top.insert(format!("{}@{}", name, dep.version));
     }
 
-    let mooncakes_dir = project_root.join(DEP_PATH);
     if !mooncakes_dir.exists() {
         return Ok(0);
     }

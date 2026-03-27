@@ -520,7 +520,10 @@ mod tests {
     use super::select_supported_packages;
     use crate::user_diagnostics::UserDiagnostics;
     use moonbuild_rupes_recta::ResolveConfig;
-    use moonutil::common::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK, TargetBackend};
+    use moonutil::{
+        common::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK, TargetBackend},
+        dirs::SourceTargetDirs,
+    };
     use std::path::{Path, PathBuf};
 
     fn write_file(path: &Path, content: &str) {
@@ -536,7 +539,19 @@ mod tests {
 
     fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ResolveOutput {
         let cfg = ResolveConfig::new_with_load_defaults(false, false, false);
-        moonbuild_rupes_recta::resolve(&cfg, source_dir).unwrap()
+        let manifest_path = if source_dir.join(MOON_WORK).exists() {
+            source_dir.join(MOON_WORK)
+        } else {
+            source_dir.join(MOON_MOD_JSON)
+        };
+        let dirs = SourceTargetDirs {
+            cwd: None,
+            manifest_path: Some(manifest_path),
+            target_dir: None,
+        }
+        .try_into_package_dirs()
+        .unwrap();
+        moonbuild_rupes_recta::resolve(&cfg, &dirs.source_dir, &dirs.mooncakes_dir).unwrap()
     }
 
     #[test]

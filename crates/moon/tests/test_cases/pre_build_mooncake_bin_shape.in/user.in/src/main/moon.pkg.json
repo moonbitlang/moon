@@ -1,0 +1,12 @@
+{
+  "is-main": true,
+  "pre-build": [
+    {
+      "input": [],
+      "output": [
+        "mooncake_bin.txt"
+      ],
+      "command": "moon tool write-tcc-rsp-file \"$output\" \"$mooncake_bin\""
+    }
+  ]
+}

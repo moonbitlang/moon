@@ -21,7 +21,7 @@ use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
-use moonutil::common::{BUILD_DIR, lower_surface_targets};
+use moonutil::common::lower_surface_targets;
 use moonutil::common::{FileLock, TargetBackend};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
@@ -110,15 +110,16 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
     }
 
     // Check if we're running within a project
-    let (source_dir, target_dir, single_file, project_manifest_path) = match cli
+    let (source_dir, target_dir, mooncakes_dir, single_file, project_manifest_path) = match cli
         .source_tgt_dir
         .try_into_package_dirs()
     {
         Ok(dirs) => (
             dirs.source_dir,
             dirs.target_dir,
+            dirs.mooncakes_dir,
             false,
-            Some(dirs.project_manifest_path),
+            dirs.project_manifest_path,
         ),
         Err(e) if e.allows_single_file_fallback() => {
             // Now we're talking about real single-file scenario.
@@ -131,8 +132,18 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
                         .parent()
                         .context("file path must have a parent directory")?
                         .to_path_buf();
-                    let target_dir = source_dir.join(BUILD_DIR);
-                    (source_dir, target_dir, true, None)
+                    let single_file_dirs = cli
+                        .source_tgt_dir
+                        .package_dirs_from_source_root(&source_dir)?;
+                    let target_dir = single_file_dirs.target_dir;
+                    let mooncakes_dir = single_file_dirs.mooncakes_dir;
+                    (
+                        single_file_dirs.source_dir,
+                        target_dir,
+                        mooncakes_dir,
+                        true,
+                        None,
+                    )
                 }
                 [] => return Err(e.into()),
                 _ => {
@@ -151,6 +162,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             cmd,
             &source_dir,
             &target_dir,
+            &mooncakes_dir,
             single_file,
             project_manifest_path.as_deref(),
             None,
@@ -166,6 +178,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             cmd,
             &source_dir,
             &target_dir,
+            &mooncakes_dir,
             single_file,
             project_manifest_path.as_deref(),
             Some(t),
@@ -177,23 +190,33 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_check_internal(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     single_file: bool,
     project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     if single_file {
-        run_check_for_single_file(cli, cmd, selected_target_backend)
+        run_check_for_single_file(
+            cli,
+            cmd,
+            source_dir,
+            target_dir,
+            mooncakes_dir,
+            selected_target_backend,
+        )
     } else {
         run_check_normal_internal(
             cli,
             cmd,
             source_dir,
             target_dir,
+            mooncakes_dir,
             project_manifest_path,
             selected_target_backend,
         )
@@ -203,14 +226,27 @@ fn run_check_internal(
 fn run_check_for_single_file(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+    mooncakes_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    run_check_for_single_file_rr(cli, cmd, selected_target_backend)
+    run_check_for_single_file_rr(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        mooncakes_dir,
+        selected_target_backend,
+    )
 }
 
 fn run_check_for_single_file_rr(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+    mooncakes_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     if cmd.no_mi {
@@ -226,12 +262,7 @@ fn run_check_for_single_file_rr(
         .expect("path should be set in single-file mode");
     let single_file_path = dunce::canonicalize(path)
         .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
-    let source_dir = single_file_path
-        .parent()
-        .context("file path must have a parent directory")?
-        .to_path_buf();
-    let raw_target_dir = source_dir.join(BUILD_DIR);
-    std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
+    std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     // Manually synthesize and resolve single file project
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
@@ -241,7 +272,8 @@ fn run_check_for_single_file_rr(
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
-        raw_target_dir.as_path(),
+        target_dir,
+        mooncakes_dir,
         &single_file_path,
         false,
     )?;
@@ -254,17 +286,16 @@ fn run_check_for_single_file_rr(
         cli,
         &cmd.build_flags,
         selected_target_backend,
-        &raw_target_dir,
+        target_dir,
         RunMode::Check,
     );
 
     // The rest is similar to normal check flow
-    let output = UserDiagnostics::from_flags(cli);
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
-        &raw_target_dir,
-        output,
+        target_dir,
+        UserDiagnostics::from_flags(cli),
         Box::new(get_user_intents_single_file),
         resolved,
     )
@@ -274,23 +305,23 @@ fn run_check_for_single_file_rr(
         rr_build::print_dry_run(
             &build_graph,
             build_meta.artifacts.values(),
-            &source_dir,
-            &raw_target_dir,
+            source_dir,
+            target_dir,
         );
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(&raw_target_dir)?;
+    let _lock = FileLock::lock(target_dir)?;
 
     // Generate all_pkgs.json for indirect dependency resolution
-    rr_build::generate_all_pkgs_json(&raw_target_dir, &build_meta, RunMode::Check)?;
+    rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check)?;
     let filename = single_file_path
         .file_name()
         .and_then(|n| n.to_str())
         .map(String::from);
     rr_build::generate_metadata(
-        &source_dir,
-        &raw_target_dir,
+        source_dir,
+        target_dir,
         &build_meta,
         RunMode::Check,
         filename.as_deref(),
@@ -305,7 +336,7 @@ fn run_check_for_single_file_rr(
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
 
-    let result = rr_build::execute_build(&cfg, build_graph, &raw_target_dir)?;
+    let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
     result.print_info(cli.quiet, "checking")?;
 
     Ok(if result.successful() { 0 } else { 1 })
@@ -334,6 +365,7 @@ fn run_check_normal_internal(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -343,6 +375,7 @@ fn run_check_normal_internal(
             cmd,
             source_dir,
             target_dir,
+            mooncakes_dir,
             project_manifest_path,
             watch,
             selected_target_backend,
@@ -369,11 +402,13 @@ fn run_check_normal_internal(
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_check_normal_internal_rr(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
@@ -384,7 +419,7 @@ fn run_check_normal_internal_rr(
         cmd.build_flags.enable_coverage,
     )
     .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir)
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)
         .context("Failed to calculate build plan")?;
     let (build_meta, build_graph) = plan_check_rr_from_resolved(
         cli,
@@ -458,8 +493,8 @@ pub(crate) fn plan_check_rr_from_resolved(
         target_dir,
         RunMode::Check,
     );
-    let output = UserDiagnostics::from_flags(cli);
 
+    let output = UserDiagnostics::from_flags(cli);
     rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,

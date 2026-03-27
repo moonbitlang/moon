@@ -95,6 +95,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
     } else {
         Some(dirs.require_module_dir("prove")?.clone())
     };
+    let mooncakes_dir = dirs.mooncakes_dir;
     let project_root = dirs.project_root;
     let target_dir = dirs.target_dir;
     let project_manifest_path = dirs.project_manifest_path;
@@ -121,8 +122,9 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         &cli.unstable_feature,
         &project_root,
         &target_dir,
+        &mooncakes_dir,
         UserDiagnostics::from_flags(cli),
-        Some(project_manifest_path.as_path()),
+        project_manifest_path.as_deref(),
         Box::new(move |resolve_output, target_backend| {
             calc_user_intent(
                 path_filter,

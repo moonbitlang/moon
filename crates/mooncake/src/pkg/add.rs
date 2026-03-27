@@ -44,10 +44,12 @@ pub struct AddSubcommand {
     pub no_update: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn add_latest(
     project_root: &Path,
     module_dir: &Path,
     project_manifest_path: Option<&Path>,
+    mooncakes_dir: &Path,
     pkg_name: &ModuleName,
     bin: bool,
     quiet: bool,
@@ -86,6 +88,7 @@ pub fn add_latest(
         project_root,
         module_dir,
         project_manifest_path,
+        mooncakes_dir,
         pkg_name,
         bin,
         &latest_version,
@@ -99,10 +102,12 @@ fn test_module_name() {
     assert_eq!(MOONBITLANG_CORE, core_name.to_string());
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn add(
     project_root: &Path,
     module_dir: &Path,
     project_manifest_path: Option<&Path>,
+    mooncakes_dir: &Path,
     pkg_name: &ModuleName,
     bin: bool,
     version: &Version,
@@ -149,7 +154,7 @@ pub fn add(
         Arc::clone(&m),
         project_manifest_path,
     )?;
-    install_impl(project_root, roots, quiet, false, false, true)?;
+    install_impl(mooncakes_dir, roots, quiet, false, false, true)?;
 
     let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
     write_module_json_to_file(&new_j, module_dir)?;

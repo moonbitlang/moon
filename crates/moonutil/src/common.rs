@@ -793,7 +793,7 @@ impl MooncOpt {
     }
 }
 
-pub const DEP_PATH: &str = ".mooncakes";
+pub(crate) const DEP_PATH: &str = ".mooncakes";
 
 pub const BUILD_DIR: &str = "_build";
 

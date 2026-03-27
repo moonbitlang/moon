@@ -21,7 +21,7 @@ use moonbuild_debug::graph::debug_dump_build_graph;
 use std::path::PathBuf;
 
 use moonbuild_rupes_recta::ResolveOutput;
-use moonutil::cli::UniversalFlags;
+use moonutil::{cli::UniversalFlags, common::BUILD_DIR, dirs::PackageDirs};
 
 use crate::cli::{
     BenchSubcommand, BuildSubcommand, CheckSubcommand, MoonBuildCli, MoonBuildSubcommands,
@@ -30,6 +30,7 @@ use crate::cli::{
 
 pub(super) struct PlanningFixture {
     source_dir: PathBuf,
+    target_dir: PathBuf,
     resolve_output: ResolveOutput,
 }
 
@@ -39,11 +40,17 @@ impl PlanningFixture {
         // These planner tests only inspect graph construction, so they can use
         // the checked-in fixture directly without copying it to a temp directory.
         let source_dir = dunce::canonicalize(case_root.join(case))?;
+        let package_dirs =
+            PackageDirs::from_source_and_target(source_dir.clone(), source_dir.join(BUILD_DIR));
+        let target_dir = package_dirs.target_dir;
+        let mooncakes_dir = package_dirs.mooncakes_dir;
         let resolve_cfg =
             moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(true, false, false);
-        let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir)?;
+        let resolve_output =
+            moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
         Ok(Self {
             source_dir,
+            target_dir,
             resolve_output,
         })
     }
@@ -57,7 +64,7 @@ impl PlanningFixture {
         let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
             cli,
             &borrowed,
-            &self.source_dir.join("_build"),
+            &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
@@ -73,7 +80,7 @@ impl PlanningFixture {
         let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
             cli,
             &borrowed,
-            &self.source_dir.join("_build"),
+            &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
@@ -88,7 +95,7 @@ impl PlanningFixture {
         let (build_meta, build_graph) = crate::cli::build::plan_build_rr_from_resolved(
             cli,
             cmd,
-            &self.source_dir.join("_build"),
+            &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
@@ -104,7 +111,7 @@ impl PlanningFixture {
             cli,
             cmd,
             &self.source_dir,
-            &self.source_dir.join("_build"),
+            &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
@@ -120,7 +127,7 @@ impl PlanningFixture {
             cli,
             cmd,
             &self.source_dir,
-            &self.source_dir.join("_build"),
+            &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;

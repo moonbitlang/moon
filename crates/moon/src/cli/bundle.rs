@@ -52,6 +52,7 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
     let PackageDirs {
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
@@ -66,7 +67,8 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
             &cmd,
             &source_dir,
             &target_dir,
-            Some(project_manifest_path.as_path()),
+            &mooncakes_dir,
+            project_manifest_path.as_deref(),
             None,
         );
     }
@@ -80,7 +82,8 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
             &cmd,
             &source_dir,
             &target_dir,
-            Some(project_manifest_path.as_path()),
+            &mooncakes_dir,
+            project_manifest_path.as_deref(),
             Some(t),
         )
         .context(format!("failed to run bundle for target {t:?}"))?;
@@ -95,6 +98,7 @@ pub(crate) fn run_bundle_internal(
     cmd: &BundleSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -103,6 +107,7 @@ pub(crate) fn run_bundle_internal(
         cmd,
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
         selected_target_backend,
     )
@@ -114,6 +119,7 @@ pub(crate) fn run_bundle_internal_rr(
     cmd: &BundleSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -139,6 +145,7 @@ pub(crate) fn run_bundle_internal_rr(
         &cli.unstable_feature,
         source_dir,
         target_dir,
+        mooncakes_dir,
         UserDiagnostics::from_flags(cli),
         project_manifest_path,
         Box::new(|r, _tb| {

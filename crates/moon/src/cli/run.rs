@@ -21,9 +21,7 @@ use std::{io::Read, path::Path};
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::build_plan::InputDirective;
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonutil::common::{
-    BUILD_DIR, FileLock, RunMode, TargetBackend, TestArtifacts, is_moon_pkg_exist,
-};
+use moonutil::common::{FileLock, RunMode, TargetBackend, TestArtifacts, is_moon_pkg_exist};
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use tracing::{Level, instrument};
@@ -90,7 +88,7 @@ fn run_stdin_source_as_single_file(
         auto_sync_flags,
         build_only,
     };
-    let result = run_single_file_rr(cli, cmd);
+    let result = run_single_file_from_arg(cli, cmd);
     drop(temp_dir);
     result
 }
@@ -107,7 +105,7 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     match cli.source_tgt_dir.try_into_package_dirs() {
         Ok(_) => {
             if is_mbtx {
-                return run_single_file_rr(cli, cmd);
+                return run_single_file_from_arg(cli, cmd);
             }
             if is_mbt {
                 let moon_pkg_json_exist = std::env::current_dir()?
@@ -115,13 +113,13 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
                     .parent()
                     .is_some_and(is_moon_pkg_exist);
                 if !moon_pkg_json_exist {
-                    return run_single_file_rr(cli, cmd);
+                    return run_single_file_from_arg(cli, cmd);
                 }
             }
         }
         Err(e) if e.allows_single_file_fallback() => {
             if is_mbt || is_mbtx {
-                return run_single_file_rr(cli, cmd);
+                return run_single_file_from_arg(cli, cmd);
             }
             return Err(e.into());
         }
@@ -159,6 +157,7 @@ fn run_run_rr(
     let PackageDirs {
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
@@ -167,8 +166,8 @@ fn run_run_rr(
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
     )
-    .with_project_manifest_path(Some(project_manifest_path.as_path()));
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir)?;
+    .with_project_manifest_path(project_manifest_path.as_deref());
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
         &cmd,
@@ -292,12 +291,35 @@ fn calc_user_intent(
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn run_single_file_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    let current_dir = std::env::current_dir()?;
-    let input_path = dunce::canonicalize(current_dir.join(&cmd.package_or_mbt_file))?;
+fn run_single_file_from_arg(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+    let input_path = dunce::canonicalize(&cmd.package_or_mbt_file)?;
     let source_dir = input_path.parent().unwrap().to_path_buf();
-    let raw_target_dir = source_dir.join(BUILD_DIR);
-    std::fs::create_dir_all(&raw_target_dir).context("failed to create target directory")?;
+    let single_file_dirs = cli
+        .source_tgt_dir
+        .package_dirs_from_source_root(&source_dir)?;
+    let target_dir = single_file_dirs.target_dir;
+    let mooncakes_dir = single_file_dirs.mooncakes_dir;
+
+    run_single_file_rr(
+        cli,
+        cmd,
+        single_file_dirs.source_dir,
+        target_dir,
+        mooncakes_dir,
+        input_path,
+    )
+}
+
+#[instrument(level = Level::DEBUG, skip_all)]
+fn run_single_file_rr(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    source_dir: std::path::PathBuf,
+    target_dir: std::path::PathBuf,
+    mooncakes_dir: std::path::PathBuf,
+    input_path: std::path::PathBuf,
+) -> anyhow::Result<i32> {
+    std::fs::create_dir_all(&target_dir).context("failed to create target directory")?;
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
@@ -311,7 +333,8 @@ fn run_single_file_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
-        raw_target_dir.as_path(),
+        target_dir.as_path(),
+        &mooncakes_dir,
         &input_path,
         true,
     )?;
@@ -322,7 +345,7 @@ fn run_single_file_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
         cli,
         &cmd.build_flags,
         selected_target_backend,
-        &raw_target_dir,
+        &target_dir,
         RunMode::Run,
     );
     // Match legacy behavior: allow tcc-run for Native debug runs in RR single-file if not dry-run
@@ -332,7 +355,7 @@ fn run_single_file_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
-        &raw_target_dir,
+        &target_dir,
         UserDiagnostics::from_flags(cli),
         Box::new(move |r, _tb| {
             let m_packages = r
@@ -360,7 +383,7 @@ fn run_single_file_rr(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
         cli,
         &cmd,
         &source_dir,
-        &raw_target_dir,
+        &target_dir,
         &build_meta,
         build_graph,
     )

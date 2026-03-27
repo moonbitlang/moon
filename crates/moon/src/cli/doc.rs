@@ -90,6 +90,7 @@ fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
 pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
     let doc_source_dir = dirs.require_module_dir("doc")?.clone();
+    let mooncakes_dir = dirs.mooncakes_dir;
     let source_dir = dirs.project_root;
     let target_dir = dirs.target_dir;
     let project_manifest_path = dirs.project_manifest_path;
@@ -111,8 +112,9 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
+        &mooncakes_dir,
         UserDiagnostics::from_flags(&cli),
-        Some(project_manifest_path.as_path()),
+        project_manifest_path.as_deref(),
         Box::new(move |resolve_output, _| {
             let module_id = selected_doc_module_id(resolve_output, &doc_source_dir_for_intent)?;
             Ok(vec![UserIntent::Doc(module_id)].into())

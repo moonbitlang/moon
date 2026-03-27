@@ -31,7 +31,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::user_diagnostics::UserDiagnostics;
 use anyhow::Context;
 use moonbuild_rupes_recta::{
     ResolveConfig, discover::DiscoveredPackage, intent::UserIntent, model::PackageId,
@@ -47,6 +46,7 @@ use crate::{
     cli::BuildFlags,
     filter::match_packages_by_name_rr,
     rr_build::{self, BuildConfig, BuildMeta, plan_build_from_resolved, preconfig_compile},
+    user_diagnostics::UserDiagnostics,
 };
 
 #[derive(clap::Args, Debug)]
@@ -74,6 +74,7 @@ pub(crate) fn run_build_binary_dep(
     let PackageDirs {
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
     if cli.dry_run {
@@ -84,8 +85,8 @@ pub(crate) fn run_build_binary_dep(
     // must resolve the packages before settling on the build config and then
     // running the build plan.
     let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false)
-        .with_project_manifest_path(Some(project_manifest_path.as_path()));
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir)?;
+        .with_project_manifest_path(project_manifest_path.as_deref());
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
 
     // Note: There's a cyclic dependency!
     //

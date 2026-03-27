@@ -70,6 +70,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
     let PackageDirs {
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
@@ -79,7 +80,8 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
             &cmd,
             &source_dir,
             &target_dir,
-            Some(project_manifest_path.as_path()),
+            &mooncakes_dir,
+            project_manifest_path.as_deref(),
             None,
         );
     }
@@ -93,7 +95,8 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
             &cmd,
             &source_dir,
             &target_dir,
-            Some(project_manifest_path.as_path()),
+            &mooncakes_dir,
+            project_manifest_path.as_deref(),
             Some(t),
         )
         .context(format!("failed to run build for target {t:?}"))?;
@@ -108,6 +111,7 @@ fn run_build_internal(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -117,6 +121,7 @@ fn run_build_internal(
             cmd,
             source_dir,
             target_dir,
+            mooncakes_dir,
             project_manifest_path,
             watch,
             selected_target_backend,
@@ -134,11 +139,13 @@ fn run_build_internal(
 ///
 /// - `_watch`: True if in watch mode, will output ignore paths for prebuild outputs
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_build_rr(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     _watch: bool,
     selected_target_backend: Option<TargetBackend>,
@@ -149,7 +156,7 @@ fn run_build_rr(
         cmd.build_flags.enable_coverage,
     )
     .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir)?;
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
     let (build_meta, build_graph) = plan_build_rr_from_resolved(
         cli,
         cmd,
@@ -217,8 +224,8 @@ pub(crate) fn plan_build_rr_from_resolved(
         target_dir,
         RunMode::Build,
     );
-    let output = UserDiagnostics::from_flags(cli);
 
+    let output = UserDiagnostics::from_flags(cli);
     rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
