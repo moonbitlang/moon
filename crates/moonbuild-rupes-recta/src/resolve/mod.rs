@@ -24,7 +24,7 @@
 //! intermediate steps and provides a single entry point for resolving the
 //! build environment.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use indexmap::IndexMap;
@@ -59,6 +59,8 @@ pub struct ResolveOutput {
     pub module_rel: ResolvedEnv,
     /// Module directories
     pub module_dirs: DirSyncResult,
+    /// Threaded `.mooncakes` directory for this resolve run.
+    pub mooncakes_dir: PathBuf,
     /// Package directories
     pub pkg_dirs: DiscoverResult,
     /// Package dependency relationship
@@ -85,7 +87,7 @@ pub struct ResolveConfig {
     no_std: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
-    project_manifest_path: Option<std::path::PathBuf>,
+    project_manifest_path: Option<PathBuf>,
 }
 
 struct FrontMatterImports {
@@ -329,7 +331,11 @@ impl ResolveError {
 /// Performs the resolving process from a raw working directory, until all of
 /// the modules and packages affected are resolved.
 #[instrument(skip_all)]
-pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, ResolveError> {
+pub fn resolve(
+    cfg: &ResolveConfig,
+    source_dir: &Path,
+    mooncakes_dir: &Path,
+) -> Result<ResolveOutput, ResolveError> {
     info!(
         "Starting resolve process for source directory: {}",
         source_dir.display()
@@ -338,13 +344,13 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
 
     let (resolved_env, dir_sync_result, workspace) = auto_sync(
         source_dir,
+        mooncakes_dir,
         &cfg.sync_flags,
         false,
         cfg.no_std,
         cfg.project_manifest_path.as_deref(),
     )
     .map_err(ResolveError::SyncModulesError)?;
-
     info!("Module dependency resolution completed successfully");
     debug!("Resolved {} modules", resolved_env.module_count());
 
@@ -388,6 +394,7 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
     Ok(ResolveOutput {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
+        mooncakes_dir: mooncakes_dir.to_path_buf(),
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
         workspace_preferred_target: workspace.and_then(|workspace| workspace.preferred_target),
@@ -400,6 +407,7 @@ pub fn resolve(cfg: &ResolveConfig, source_dir: &Path) -> Result<ResolveOutput, 
 pub fn resolve_single_file_project(
     cfg: &ResolveConfig,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     file: &Path,
     run_mode: bool,
 ) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
@@ -457,11 +465,11 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     // Sync modules as usual
     let (resolved_env, dir_sync_result) = auto_sync_for_single_file_rr(
         source_dir,
+        mooncakes_dir,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),
     )
     .map_err(ResolveError::SyncModulesError)?;
-
     // Discover all packages in resolved modules
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
     user_warnings.extend(collect_virtual_mbti_deprecation_warnings(&discover_result));
@@ -494,6 +502,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     let res = ResolveOutput {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
+        mooncakes_dir: mooncakes_dir.to_path_buf(),
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
         workspace_preferred_target: None,

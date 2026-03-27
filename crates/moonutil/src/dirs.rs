@@ -22,7 +22,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::common::{BUILD_DIR, MOON_MOD_JSON, MOON_WORK, MOON_WORK_JSON};
+use crate::common::{BUILD_DIR, DEP_PATH, MOON_MOD_JSON, MOON_WORK, MOON_WORK_JSON};
 use crate::workspace::{
     canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
 };
@@ -77,26 +77,36 @@ pub struct SourceTargetDirs {
 impl SourceTargetDirs {
     pub fn try_into_package_dirs(&self) -> Result<PackageDirs, PackageDirsError> {
         let project = self.resolve_project_selection()?;
-
         let target_dir = self.resolve_target_dir(&project.project_root)?;
 
-        Ok(PackageDirs {
-            source_dir: project.project_root,
+        Ok(PackageDirs::from_source_and_target_with_manifest(
+            project.project_root,
             target_dir,
-            project_manifest_path: project.project_manifest_path,
-        })
+            Some(project.project_manifest_path),
+        ))
+    }
+
+    pub fn package_dirs_from_source_root(
+        &self,
+        source_root: impl AsRef<Path>,
+    ) -> Result<PackageDirs, PackageDirsError> {
+        let source_dir = dunce::canonicalize(source_root.as_ref())
+            .context("failed to resolve source directory")
+            .map_err(PackageDirsError::from)?;
+        let target_dir = self.resolve_target_dir(&source_dir)?;
+        Ok(PackageDirs::from_source_and_target(source_dir, target_dir))
     }
 
     pub fn try_into_workspace_module_dirs(&self) -> Result<WorkspaceModuleDirs, PackageDirsError> {
         let project = self.resolve_project_selection()?;
-
         let target_dir = self.resolve_target_dir(&project.project_root)?;
 
         Ok(WorkspaceModuleDirs {
+            mooncakes_dir: PackageDirs::mooncakes_dir_for_source(&project.project_root),
             project_root: project.project_root,
             module_dir: project.module_dir,
             target_dir,
-            project_manifest_path: project.project_manifest_path,
+            project_manifest_path: Some(project.project_manifest_path),
         })
     }
 
@@ -249,7 +259,31 @@ impl SourceTargetDirs {
 pub struct PackageDirs {
     pub source_dir: PathBuf,
     pub target_dir: PathBuf,
-    pub project_manifest_path: PathBuf,
+    pub mooncakes_dir: PathBuf,
+    pub project_manifest_path: Option<PathBuf>,
+}
+
+impl PackageDirs {
+    pub fn mooncakes_dir_for_source(source_dir: &Path) -> PathBuf {
+        source_dir.join(DEP_PATH)
+    }
+
+    pub fn from_source_and_target(source_dir: PathBuf, target_dir: PathBuf) -> Self {
+        Self::from_source_and_target_with_manifest(source_dir, target_dir, None)
+    }
+
+    pub fn from_source_and_target_with_manifest(
+        source_dir: PathBuf,
+        target_dir: PathBuf,
+        project_manifest_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            source_dir: source_dir.clone(),
+            target_dir,
+            mooncakes_dir: Self::mooncakes_dir_for_source(&source_dir),
+            project_manifest_path,
+        }
+    }
 }
 
 pub struct WorkspaceModuleDirs {
@@ -258,7 +292,8 @@ pub struct WorkspaceModuleDirs {
     /// Selected module root, if the command was invoked from within a module.
     pub module_dir: Option<PathBuf>,
     pub target_dir: PathBuf,
-    pub project_manifest_path: PathBuf,
+    pub mooncakes_dir: PathBuf,
+    pub project_manifest_path: Option<PathBuf>,
 }
 
 impl WorkspaceModuleDirs {
@@ -396,4 +431,28 @@ pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
         .parent()
         .context("manifest path has no parent directory")
         .map(Path::to_path_buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PackageDirs;
+    use crate::common::DEP_PATH;
+    use std::path::PathBuf;
+
+    #[test]
+    fn mooncakes_dir_tracks_project_root() {
+        let project = PathBuf::from("project");
+        assert_eq!(
+            PackageDirs::mooncakes_dir_for_source(&project),
+            project.join(DEP_PATH)
+        );
+    }
+
+    #[test]
+    fn mooncakes_dir_comes_from_source_even_with_custom_target() {
+        let project = PathBuf::from("project");
+        let target = PathBuf::from("tmp-target");
+        let dirs = PackageDirs::from_source_and_target(project.clone(), target);
+        assert_eq!(dirs.mooncakes_dir, project.join(DEP_PATH));
+    }
 }

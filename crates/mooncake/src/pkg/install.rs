@@ -84,7 +84,7 @@ pub struct InstallSubcommand {
 
 pub fn install(
     source_dir: &Path,
-    _target_dir: &Path,
+    mooncakes_dir: &Path,
     quiet: bool,
     verbose: bool,
     no_std: bool,
@@ -93,11 +93,11 @@ pub fn install(
     let m = Arc::new(m);
     let ms = ModuleSource::from_local_module(&m, source_dir);
     let (roots, _) = ResolvedModule::only_one_module(ms, m);
-    install_impl(source_dir, roots, quiet, verbose, false, no_std).map(|_| 0)
+    install_impl(mooncakes_dir, roots, quiet, verbose, false, no_std).map(|_| 0)
 }
 
 pub(crate) fn install_impl(
-    source_dir: &Path,
+    mooncakes_dir: &Path,
     roots: ResolvedRootModules,
     quiet: bool,
     verbose: bool,
@@ -117,7 +117,7 @@ pub(crate) fn install_impl(
     };
 
     let res = resolve_with_default_env_and_resolver(&resolve_config, roots)?;
-    let dep_dir = crate::dep_dir::DepDir::of_source(source_dir);
+    let dep_dir = crate::dep_dir::DepDir::new(mooncakes_dir.to_path_buf());
 
     crate::dep_dir::sync_deps(
         &dep_dir,

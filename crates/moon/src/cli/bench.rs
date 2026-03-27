@@ -63,6 +63,7 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
     let PackageDirs {
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
@@ -72,7 +73,8 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
             &cmd,
             &source_dir,
             &target_dir,
-            Some(project_manifest_path.as_path()),
+            &mooncakes_dir,
+            project_manifest_path.as_deref(),
             None,
             None,
         );
@@ -88,7 +90,8 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
             &cmd,
             &source_dir,
             &target_dir,
-            Some(project_manifest_path.as_path()),
+            &mooncakes_dir,
+            project_manifest_path.as_deref(),
             display_backend_hint,
             Some(t),
         )
@@ -99,11 +102,13 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_bench_internal(
     cli: &UniversalFlags,
     cmd: &BenchSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
@@ -113,6 +118,7 @@ fn run_bench_internal(
         cmd.into(),
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
         display_backend_hint,
         selected_target_backend,

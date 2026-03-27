@@ -440,9 +440,15 @@ fn build_and_install_packages(
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
     let output = UserDiagnostics::from_flags(cli);
+    let package_dirs = cli
+        .source_tgt_dir
+        .package_dirs_from_source_root(module_dir)?;
+    let source_dir = package_dirs.source_dir;
+    let target_dir = package_dirs.target_dir;
+    let mooncakes_dir = package_dirs.mooncakes_dir;
 
     let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, module_dir)?;
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
 
     let main_module_id = resolve_output.local_modules()[0];
     let Some(all_pkgs) = resolve_output.pkg_dirs.packages_for_module(main_module_id) else {
@@ -532,7 +538,6 @@ fn build_and_install_packages(
         )
     })?;
 
-    let target_dir = module_dir.join(moonutil::common::BUILD_DIR);
     std::fs::create_dir_all(&target_dir).context("Failed to create build directory")?;
     let mut installed_count = 0;
 

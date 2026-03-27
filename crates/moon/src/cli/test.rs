@@ -38,13 +38,12 @@ use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
-use moonutil::common::BUILD_DIR;
 use moonutil::common::{
     FileLock, RunMode, TargetBackend, TestArtifacts, TestIndexRange, lower_surface_targets,
 };
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
-use tracing::{Level, debug, info, instrument, trace, warn};
+use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
@@ -214,9 +213,28 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
         Err(e) if e.allows_single_file_fallback() => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {
-                [_] => {
+                [path] => {
+                    let single_file_path = dunce::canonicalize(path).with_context(|| {
+                        format!("failed to resolve file path `{}`", path.display())
+                    })?;
+                    let source_dir = single_file_path
+                        .parent()
+                        .context("file path must have a parent directory")?
+                        .to_path_buf();
+                    let single_file_dirs = cli
+                        .source_tgt_dir
+                        .package_dirs_from_source_root(&source_dir)?;
+                    let target_dir = single_file_dirs.target_dir;
+                    let mooncakes_dir = single_file_dirs.mooncakes_dir;
                     info!("delegating to single-file test runner");
-                    return run_test_in_single_file(cli, cmd);
+                    return run_test_in_single_file(
+                        cli,
+                        cmd,
+                        &single_file_path,
+                        &single_file_dirs.source_dir,
+                        &target_dir,
+                        &mooncakes_dir,
+                    );
                 }
                 [] => return Err(e.into()),
                 _ => anyhow::bail!("standalone single-file `moon test` expects exactly one `PATH`"),
@@ -234,7 +252,9 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
     );
 
     if cmd.doc_test {
-        output.warn("--doc flag is deprecated and will be removed in the future, please use `moon test` directly");
+        output.warn(
+            "--doc flag is deprecated and will be removed in the future, please use `moon test` directly",
+        );
     }
 
     if cmd.build_flags.target.is_empty() {
@@ -244,7 +264,8 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
             cmd,
             &dirs.source_dir,
             &dirs.target_dir,
-            Some(dirs.project_manifest_path.as_path()),
+            &dirs.mooncakes_dir,
+            dirs.project_manifest_path.as_deref(),
             None,
             None,
         );
@@ -264,7 +285,8 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
             cmd,
             &dirs.source_dir,
             &dirs.target_dir,
-            Some(dirs.project_manifest_path.as_path()),
+            &dirs.mooncakes_dir,
+            dirs.project_manifest_path.as_deref(),
             display_backend_hint,
             Some(t),
         )
@@ -276,11 +298,13 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_test_internal(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
@@ -295,6 +319,7 @@ fn run_test_internal(
         cmd.into(),
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
         display_backend_hint,
         selected_target_backend,
@@ -304,27 +329,37 @@ fn run_test_internal(
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn run_test_in_single_file(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
+fn run_test_in_single_file(
+    cli: &UniversalFlags,
+    cmd: &TestSubcommand,
+    single_file_path: &Path,
+    source_dir: &Path,
+    target_dir: &Path,
+    mooncakes_dir: &Path,
+) -> anyhow::Result<i32> {
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
     }
-    run_test_in_single_file_rr(cli, cmd)
+    run_test_in_single_file_rr(
+        cli,
+        cmd,
+        single_file_path,
+        source_dir,
+        target_dir,
+        mooncakes_dir,
+    )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
-    let path = cmd
-        .path
-        .first()
-        .expect("path should be set in single-file mode");
-    let single_file_path = dunce::canonicalize(path)
-        .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
-    let source_dir = single_file_path
-        .parent()
-        .context("file path must have a parent directory")?
-        .to_path_buf();
-    let raw_target_dir = source_dir.join(BUILD_DIR);
-    std::fs::create_dir_all(&raw_target_dir)
+fn run_test_in_single_file_rr(
+    cli: &UniversalFlags,
+    cmd: &TestSubcommand,
+    single_file_path: &Path,
+    source_dir: &Path,
+    target_dir: &Path,
+    mooncakes_dir: &Path,
+) -> anyhow::Result<i32> {
+    std::fs::create_dir_all(target_dir)
         .context("failed to create target directory for single-file test")?;
 
     let mut filter = TestFilter {
@@ -340,8 +375,9 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
-        raw_target_dir.as_path(),
-        &single_file_path,
+        target_dir,
+        mooncakes_dir,
+        single_file_path,
         false,
     )?;
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?.or(backend);
@@ -351,7 +387,7 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
         cli,
         &cmd.build_flags,
         selected_target_backend,
-        &raw_target_dir,
+        target_dir,
         RunMode::Test,
     );
     // Enable tcc-run to match legacy debug test graph shape
@@ -361,7 +397,7 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
-        &raw_target_dir,
+        target_dir,
         UserDiagnostics::from_flags(cli),
         Box::new(|r, _tb| {
             let m_packages = r
@@ -404,8 +440,8 @@ fn run_test_in_single_file_rr(cli: &UniversalFlags, cmd: &TestSubcommand) -> any
     rr_test_from_plan(
         cli,
         &test_cmd,
-        &source_dir,
-        &raw_target_dir,
+        source_dir,
+        target_dir,
         None,
         &build_meta,
         build_graph,
@@ -492,6 +528,7 @@ pub(crate) fn plan_test_or_bench_rr(
     cmd: &TestLikeSubcommand<'_>,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
@@ -501,7 +538,7 @@ pub(crate) fn plan_test_or_bench_rr(
         cmd.build_flags.enable_coverage,
     )
     .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir)?;
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
     plan_test_or_bench_rr_from_resolved(
         cli,
         cmd,
@@ -568,11 +605,13 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_test_or_bench_internal(
     cli: &UniversalFlags,
     cmd: TestLikeSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
@@ -621,6 +660,7 @@ pub(crate) fn run_test_or_bench_internal(
         &cmd,
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
         display_backend_hint,
         selected_target_backend,
@@ -628,11 +668,13 @@ pub(crate) fn run_test_or_bench_internal(
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_test_rr(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     source_dir: &Path,
     target_dir: &Path,
+    mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
     selected_target_backend: Option<TargetBackend>,
@@ -643,6 +685,7 @@ fn run_test_rr(
         cmd,
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
         selected_target_backend,
     )?;

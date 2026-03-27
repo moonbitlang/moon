@@ -139,6 +139,7 @@ pub(crate) fn run_info_rr_internal(
     let PackageDirs {
         source_dir,
         target_dir,
+        mooncakes_dir,
         project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
 
@@ -159,8 +160,9 @@ pub(crate) fn run_info_rr_internal(
         &cli.unstable_feature,
         &source_dir,
         &target_dir,
+        &mooncakes_dir,
         output,
-        Some(project_manifest_path.as_path()),
+        project_manifest_path.as_deref(),
         Box::new(move |resolve_output, tb| {
             calc_user_intent(
                 package_filter.as_deref(),

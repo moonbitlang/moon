@@ -53,7 +53,6 @@ fn local_wildcard_path(source: &str) -> Option<PathBuf> {
 
 pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
     let output = UserDiagnostics::from_flags(&cli);
-
     // If no package path and no local path, use legacy behavior
     if cmd.source.is_none() && cmd.path.is_none() {
         output.warn(
@@ -62,12 +61,12 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         );
         let PackageDirs {
             source_dir,
-            target_dir,
+            mooncakes_dir,
             ..
         } = cli.source_tgt_dir.try_into_package_dirs()?;
         return mooncake::pkg::install::install(
             &source_dir,
-            &target_dir,
+            &mooncakes_dir,
             cli.quiet,
             cli.verbose,
             true,
@@ -161,7 +160,7 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
     mooncake::pkg::remove::remove(
         project_root,
         module_dir,
-        Some(dirs.project_manifest_path.as_path()),
+        dirs.project_manifest_path.as_deref(),
         username,
         pkgname,
     )
@@ -217,7 +216,8 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
         mooncake::pkg::add::add(
             project_root,
             module_dir,
-            Some(dirs.project_manifest_path.as_path()),
+            dirs.project_manifest_path.as_deref(),
+            &dirs.mooncakes_dir,
             &pkg_name,
             cmd.bin,
             &version,
@@ -227,7 +227,8 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
         mooncake::pkg::add::add_latest(
             project_root,
             module_dir,
-            Some(dirs.project_manifest_path.as_path()),
+            dirs.project_manifest_path.as_deref(),
+            &dirs.mooncakes_dir,
             &pkg_name,
             cmd.bin,
             cli.quiet,
@@ -238,9 +239,8 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
 
 pub(crate) fn tree_cli(cli: UniversalFlags, _cmd: TreeSubcommand) -> anyhow::Result<i32> {
     let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
-    let project_root = &dirs.project_root;
     let module_dir = dirs.require_module_dir("tree")?;
-    mooncake::pkg::tree::tree(project_root, module_dir)
+    mooncake::pkg::tree::tree(module_dir, &dirs.mooncakes_dir)
 }
 
 #[cfg(test)]

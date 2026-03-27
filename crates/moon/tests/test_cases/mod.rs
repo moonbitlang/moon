@@ -25,10 +25,10 @@ use super::*;
 use expect_test::expect;
 use moonutil::{
     common::{
-        BUILD_DIR, CargoPathExt, DEP_PATH, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, StringExt,
+        BUILD_DIR, CargoPathExt, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, StringExt,
         TargetBackend, get_cargo_pkg_version,
     },
-    dirs::MOON_NO_WORKSPACE,
+    dirs::{MOON_NO_WORKSPACE, PackageDirs},
     module::MoonModJSON,
 };
 use walkdir::WalkDir;
@@ -471,15 +471,19 @@ fn mooncakes_io_smoke_test() {
     )
     .unwrap();
 
+    let mooncakes_dir =
+        PackageDirs::from_source_and_target(dir.as_ref().to_path_buf(), dir.join(BUILD_DIR))
+            .mooncakes_dir;
+
     assert!(
-        dir.join(DEP_PATH)
+        mooncakes_dir
             .join("lijunchen")
             .join("hello")
             .join(MOON_MOD_JSON)
             .exists()
     );
 
-    std::fs::remove_dir_all(dir.join(DEP_PATH)).unwrap();
+    std::fs::remove_dir_all(&mooncakes_dir).unwrap();
     let out = get_stdout(&dir, ["install"]);
     let mut lines = out.lines().collect::<Vec<_>>();
     lines.sort();
@@ -1381,9 +1385,10 @@ fn test_pre_build_mooncake_bin_shape() {
         .replace("\\\"", "\"")
         .replace('\\', "/");
 
-    let expected_path = dunce::canonicalize(&dir)
-        .unwrap()
-        .join(DEP_PATH)
+    let source_dir = dunce::canonicalize(&dir).unwrap();
+    let dirs = PackageDirs::from_source_and_target(source_dir.clone(), source_dir.join(BUILD_DIR));
+    let expected_path = dirs
+        .mooncakes_dir
         .join(MOON_BIN_DIR)
         .to_string_lossy()
         .replace('\\', "/");

@@ -89,6 +89,7 @@ mod tests {
     use super::*;
 
     use moonbuild_rupes_recta::resolve::{ResolveConfig, resolve};
+    use moonutil::dirs::PackageDirs;
 
     #[test]
     fn rr_get_prebuild_watch_paths_skips_empty_modules() {
@@ -104,6 +105,7 @@ mod tests {
         let resolved = resolve(
             &ResolveConfig::new_with_load_defaults(false, false, false),
             temp_dir.path(),
+            &PackageDirs::mooncakes_dir_for_source(temp_dir.path()),
         )
         .unwrap();
 
@@ -139,6 +141,7 @@ mod tests {
         let resolved = resolve(
             &ResolveConfig::new_with_load_defaults(false, false, false),
             temp_dir.path(),
+            &PackageDirs::mooncakes_dir_for_source(temp_dir.path()),
         )
         .unwrap();
 

@@ -26,17 +26,13 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    common::{DEP_PATH, FileLock, MOONBITLANG_CORE},
+    common::{FileLock, MOONBITLANG_CORE},
     moon_dir::{self},
     mooncakes::{DirSyncResult, ModuleSource, ModuleSourceKind, result::ResolvedEnv},
 };
 use semver::Version;
 
 use crate::registry::Registry;
-
-fn dep_dir_of(source_dir: &Path) -> PathBuf {
-    source_dir.join(DEP_PATH)
-}
 
 type DepDirState = HashMap<ArcStr, HashMap<ArcStr, Option<Version>>>;
 type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
@@ -56,10 +52,8 @@ pub(crate) struct DepDir {
 }
 
 impl DepDir {
-    pub(crate) fn of_source(source_dir: &Path) -> Self {
-        DepDir {
-            path: dep_dir_of(source_dir),
-        }
+    pub(crate) fn new(path: impl Into<PathBuf>) -> Self {
+        DepDir { path: path.into() }
     }
 
     pub(crate) fn path(&self) -> &Path {

@@ -60,7 +60,7 @@ use moonutil::{
     package::SupportedTargetsDeclKind,
     render::MooncDiagnostic,
 };
-use tracing::{Level, info, instrument, warn};
+use tracing::{Level, info, instrument};
 
 use crate::build_flags::{BuildFlags, OutputStyle};
 use crate::user_diagnostics::UserDiagnostics;
@@ -414,11 +414,13 @@ pub fn preconfig_compile(
 /// execute_build to take ownership of just the graph while callers retain
 /// access to the metadata.
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_build<'a>(
     preconfig: CompilePreConfig,
     unstable_features: &'a FeatureGate,
     source_dir: &'a Path,
     target_dir: &'a Path,
+    mooncakes_dir: &'a Path,
     output: UserDiagnostics,
     project_manifest_path: Option<&'a Path>,
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
@@ -431,7 +433,7 @@ pub(crate) fn plan_build<'a>(
         preconfig.enable_coverage,
     )
     .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir)?;
+    let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir, mooncakes_dir)?;
 
     info!("Resolve completed");
 
