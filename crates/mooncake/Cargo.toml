@@ -36,7 +36,6 @@ colored.workspace = true
 reqwest.workspace = true
 bytes.workspace = true
 semver.workspace = true
-tokio.workspace = true
 clap.workspace = true
 sha2.workspace = true
 log.workspace = true
