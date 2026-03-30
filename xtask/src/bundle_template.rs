@@ -175,7 +175,7 @@ fn is_executable(path: &Path, content: &str) -> bool {
 }
 
 #[cfg(not(unix))]
-fn is_executable(path: &Path, content: &str) -> bool {
+fn is_executable(_path: &Path, content: &str) -> bool {
     // On non-Unix platforms, only check for shebang
     has_shebang(content)
 }
