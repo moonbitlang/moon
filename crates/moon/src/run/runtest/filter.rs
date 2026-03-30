@@ -24,7 +24,7 @@ use moonbuild_rupes_recta::{
     cond_comp::FileTestKind,
     model::{BuildTarget, PackageId, TargetKind},
 };
-use moonutil::common::{MbtTestInfo, MooncGenTestInfo, TestIndexRange, glob_match};
+use moonutil::common::{GlobPatternMatcher, MbtTestInfo, MooncGenTestInfo, TestIndexRange};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum TestIndex {
@@ -270,19 +270,16 @@ impl FileFilter {
 fn all_ranges(
     infos: &[MbtTestInfo],
     include_skipped: bool,
-    name_filter: Option<&str>,
+    name_matcher: Option<&GlobPatternMatcher<'_>>,
 ) -> Vec<Range<u32>> {
     // Use actual indices from test metadata instead of assuming contiguous 0..max_index
     let actual_indices: Vec<u32> = infos
         .iter()
         .filter(|t| include_skipped || !t.has_skip())
-        .filter(|t| {
-            // Apply name filter if present
-            match (name_filter, &t.name) {
-                (Some(pattern), Some(name)) => glob_match(pattern, name),
-                (Some(_), None) => false,
-                (None, _) => true,
-            }
+        .filter(|t| match (name_matcher, &t.name) {
+            (Some(matcher), Some(name)) => matcher.is_match(name),
+            (Some(_), None) => false,
+            (None, _) => true,
         })
         .map(|t| t.index)
         .collect();
@@ -297,6 +294,7 @@ pub(crate) fn apply_filter(
     bench: bool,
     name_filter: Option<&str>,
 ) {
+    let name_matcher = name_filter.map(GlobPatternMatcher::new);
     let lists = if bench {
         vec![&meta.with_bench_args_tests]
     } else {
@@ -313,7 +311,8 @@ pub(crate) fn apply_filter(
         None => {
             for test_list in lists {
                 for (filename, test_infos) in test_list {
-                    let this_file_index = all_ranges(test_infos, include_skipped, name_filter);
+                    let this_file_index =
+                        all_ranges(test_infos, include_skipped, name_matcher.as_ref());
                     files_and_index.push((filename.clone(), this_file_index));
                 }
             }
@@ -332,17 +331,15 @@ pub(crate) fn apply_filter(
                                 this_file_index.extend(all_ranges(
                                     tests,
                                     include_skipped,
-                                    name_filter,
+                                    name_matcher.as_ref(),
                                 ));
                             }
                             Some(ixf) => {
                                 for t in tests {
                                     if ixf.contains(t.index) {
                                         // Apply name filter for specific index selection
-                                        let name_matches = match (name_filter, &t.name) {
-                                            (Some(pattern), Some(name)) => {
-                                                glob_match(pattern, name)
-                                            }
+                                        let name_matches = match (name_matcher.as_ref(), &t.name) {
+                                            (Some(matcher), Some(name)) => matcher.is_match(name),
                                             (Some(_), None) => false,
                                             (None, _) => true,
                                         };
