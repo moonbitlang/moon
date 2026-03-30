@@ -1,0 +1,10 @@
+failed: moonc prove -error-format json $ROOT/dep/dep.mbt $ROOT/dep/dep.mbtp --whyml-output-path $ROOT/_build/verif/dep/pkg_8_username_12_prove_ucross_3_dep.mlw --proof-report-output-path $ROOT/_build/verif/dep/dep.proof.json --why3-config $ROOT/_build/verif/why3.conf -pkg username/prove_cross/dep -i $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude -pkg-sources username/prove_cross/dep:$ROOT/dep -workspace-path $ROOT -all-pkgs $ROOT/_build/wasm-gc/debug/prove/all_pkgs.json
+username/prove_cross/dep
+  Failed: 0 goals proved, 1 unknown
+  WhyML: _build/verif/dep/pkg_8_username_12_prove_ucross_3_dep.mlw
+  Report: _build/verif/dep/dep.proof.json
+  Failed goals: 1
+
+Summary:
+  0 of 1 packages proved
+  0 goals proved, 1 unknown

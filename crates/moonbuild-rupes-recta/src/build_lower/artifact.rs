@@ -83,6 +83,30 @@ fn artifact(fqn: &'_ PackageFQN, kind: TargetKind) -> PackageArtifactName<'_> {
     PackageArtifactName { fqn, kind }
 }
 
+fn encode_proof_segment(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for byte in segment.bytes() {
+        match byte {
+            b'a'..=b'z' | b'0'..=b'9' => out.push(byte as char),
+            b'_' => out.push_str("_u"),
+            _ => out.push_str(&format!("_x{byte:02x}")),
+        }
+    }
+    out
+}
+
+pub(crate) fn proof_artifact_stem(fqn: &PackageFQN) -> String {
+    let mut stem = String::from("pkg");
+    for segment in fqn.segments() {
+        let encoded = encode_proof_segment(segment);
+        stem.push('_');
+        stem.push_str(&encoded.len().to_string());
+        stem.push('_');
+        stem.push_str(&encoded);
+    }
+    stem
+}
+
 impl Display for PackageArtifactName<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -403,16 +427,34 @@ impl LegacyLayout {
         self.verif_root().join("why3.conf")
     }
 
-    pub fn prove_whyml_path(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
+    pub fn emit_proof_whyml_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+    ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut dir = self.verif_package_dir(pkg_list, target);
-        dir.push(format!("{}.mlw", artifact(pkg_fqn, target.kind)));
-        dir
+        let mut path = self.verif_package_dir(pkg_list, target);
+        path.push(format!("{}.mlw", proof_artifact_stem(pkg_fqn)));
+        path
+    }
+
+    pub fn emit_proof_mi_path(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
+        let mut path = self.emit_proof_whyml_path(pkg_list, target);
+        path.set_extension("mi");
+        path
+    }
+
+    pub fn prove_whyml_path(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
+        self.emit_proof_whyml_path(pkg_list, target)
+    }
+
+    pub fn prove_mi_path(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
+        self.emit_proof_mi_path(pkg_list, target)
     }
 
     pub fn prove_report_path(&self, pkg_list: &DiscoverResult, target: &BuildTarget) -> PathBuf {
-        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut dir = self.verif_package_dir(pkg_list, target);
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         dir.push(format!("{}.proof.json", artifact(pkg_fqn, target.kind)));
         dir
     }
@@ -754,6 +796,28 @@ mod tests {
         assert_eq!(
             layout.package_dir(&dep_pkg, TargetBackend::WasmGC),
             PathBuf::from("_build/wasm-gc/debug/build/username/world/v2/lib"),
+        );
+    }
+
+    #[test]
+    fn proof_artifact_stem_is_stable_and_distinct() {
+        let module = module("username/hello");
+        let root_pkg = PackageFQN::new(module.clone(), PackagePath::empty());
+        let nested_pkg = PackageFQN::new(
+            module,
+            "dep/internal_name"
+                .parse::<PackagePath>()
+                .expect("test package path should parse"),
+        );
+
+        assert_eq!(proof_artifact_stem(&root_pkg), "pkg_8_username_5_hello");
+        assert_eq!(
+            proof_artifact_stem(&nested_pkg),
+            "pkg_8_username_5_hello_3_dep_14_internal_uname"
+        );
+        assert_ne!(
+            proof_artifact_stem(&root_pkg),
+            proof_artifact_stem(&nested_pkg)
         );
     }
 }

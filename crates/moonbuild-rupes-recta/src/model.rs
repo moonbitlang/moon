@@ -152,6 +152,8 @@ impl PackageId {
 pub enum BuildPlanNode {
     /// Check the given build target
     Check(BuildTarget),
+    /// Emit proof artifacts (`.mlw` + proof-aware `.mi`) without invoking Why3.
+    EmitProof(BuildTarget),
     /// Prove the given build target.
     Prove(BuildTarget),
 
@@ -234,6 +236,10 @@ impl BuildPlanNode {
         Self::Prove(target)
     }
 
+    pub fn emit_proof(target: BuildTarget) -> Self {
+        Self::EmitProof(target)
+    }
+
     pub fn build_core(target: BuildTarget) -> Self {
         Self::BuildCore(target)
     }
@@ -254,6 +260,7 @@ impl BuildPlanNode {
     pub fn extract_target(&self) -> Option<BuildTarget> {
         match *self {
             BuildPlanNode::Check(target)
+            | BuildPlanNode::EmitProof(target)
             | BuildPlanNode::Prove(target)
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::LinkCore(target)
@@ -294,6 +301,10 @@ impl BuildPlanNode {
             BuildPlanNode::Check(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("check {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::EmitProof(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("emit proof {}{}", fqn, kind_suffix(build_target.kind))
             }
             BuildPlanNode::Prove(build_target) => {
                 let fqn = packages.fqn(build_target.package);
@@ -394,6 +405,10 @@ impl BuildPlanNode {
             BuildPlanNode::Check(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@Check", fqn, t.kind)
+            }
+            BuildPlanNode::EmitProof(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@EmitProof", fqn, t.kind)
             }
             BuildPlanNode::Prove(t) => {
                 let fqn = packages.fqn(t.package);

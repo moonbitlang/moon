@@ -18,7 +18,10 @@
 
 //! Loweing implementation for build nodes
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{BTreeSet, HashSet},
+    path::{Path, PathBuf},
+};
 
 use moonutil::{
     compiler_flags::{
@@ -205,6 +208,89 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    fn prove_mi_inputs_of(&self, target: BuildTarget) -> Vec<MiDependency<'a>> {
+        let mut deps: Vec<MiDependency<'a>> = self
+            .rel
+            .dep_graph
+            .edges_directed(target, Direction::Outgoing)
+            .map(|(_, dep, w)| {
+                // `moonc prove` still expects stdlib interfaces as explicit `-i`
+                // inputs, but those come from the injected toolchain location
+                // (for example `$MOON_HOME/lib/core/_build/wasm-gc/.../prelude.mi`)
+                // rather than from proof emission. Non-stdlib proof deps instead
+                // use the emitted proof interface under `_build/verif`, for
+                // example `_build/verif/pkg_<stem>.mi`.
+                let in_file = if self.opt.stdlib_path.is_some()
+                    && self.packages.is_stdlib_package(dep.package)
+                {
+                    self.layout.mi_of_build_target(
+                        self.packages,
+                        &dep,
+                        self.opt.target_backend.into(),
+                    )
+                } else {
+                    self.layout.emit_proof_mi_path(self.packages, &dep)
+                };
+                MiDependency::new(in_file, &w.short_alias)
+            })
+            .collect();
+        deps.sort_by(|x, y| x.alias.cmp(&y.alias));
+        deps
+    }
+
+    fn dep_proofs_of(&self, target: BuildTarget) -> Vec<compiler::DepProof<'a>> {
+        let mut deps = self
+            .rel
+            .dep_graph
+            .edges_directed(target, Direction::Outgoing)
+            // Stdlib deps do not currently participate in `--dep-proof`
+            // mapping: their interfaces are consumed via explicit stdlib `.mi`
+            // paths, and we do not emit/load stdlib proof modules under
+            // `_build/verif`. If stdlib later grows proof-related artifacts of
+            // its own, this filter and the surrounding lowering logic should be
+            // revisited.
+            .filter(|(_, dep, _)| {
+                !(self.opt.stdlib_path.is_some() && self.packages.is_stdlib_package(dep.package))
+            })
+            .map(|(_, dep, _)| {
+                let pkg = self.packages.get_package(dep.package);
+                compiler::DepProof::new(
+                    pkg.fqn.to_string(),
+                    artifact::proof_artifact_stem(&pkg.fqn),
+                )
+            })
+            .collect::<Vec<_>>();
+        deps.sort_by(|x, y| x.package.cmp(&y.package));
+        deps
+    }
+
+    fn proof_loadpaths_of(&self, target: BuildTarget) -> Vec<PathBuf> {
+        let mut visited = HashSet::new();
+        let mut pending = vec![target];
+        let mut loadpaths = BTreeSet::new();
+
+        while let Some(current) = pending.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+
+            for dep in self
+                .rel
+                .dep_graph
+                .neighbors_directed(current, Direction::Outgoing)
+            {
+                if self.opt.stdlib_path.is_some() && self.packages.is_stdlib_package(dep.package) {
+                    continue;
+                }
+
+                loadpaths.insert(self.layout.verif_package_dir(self.packages, &dep));
+                pending.push(dep);
+            }
+        }
+
+        loadpaths.into_iter().collect()
+    }
+
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_check(
         &self,
@@ -282,22 +368,21 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
-    pub(super) fn lower_prove(
+    pub(super) fn lower_emit_proof(
         &self,
-        node: BuildPlanNode,
+        _node: BuildPlanNode,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
         let module = self.modules.module_info(package.module);
-        let mi_inputs = self.mi_inputs_of(node, target);
+        let mi_inputs = self.prove_mi_inputs_of(target);
 
         let files_vec = self.compiler_source_files(info);
 
         let backend = self.opt.target_backend.into();
-        let why3_config = self.layout.why3_config_path();
-        let whyml_output = self.layout.prove_whyml_path(self.packages, &target);
-        let proof_report_output = self.layout.prove_report_path(self.packages, &target);
+        let whyml_output = self.layout.emit_proof_whyml_path(self.packages, &target);
+        let dep_proofs = self.dep_proofs_of(target);
         let cmd = compiler::MooncProve {
             required: BuildCommonInput::new(
                 &files_vec,
@@ -310,9 +395,69 @@ impl<'a> BuildPlanLowerContext<'a> {
                 target.kind,
             ),
             defaults: self.set_build_commons(package, info, package.raw.is_main),
-            why3_config: why3_config.clone().into(),
             whyml_out: whyml_output.clone().into(),
-            proof_report_out: proof_report_output.clone().into(),
+            proof_report_out: None,
+            why3_config: None,
+            why3_loadpaths: Vec::new(),
+            dep_proofs,
+            emit_only: true,
+            single_file: package.is_single_file,
+            extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
+        };
+
+        let mut extra_inputs = files_vec.clone();
+        extra_inputs.extend(info.doctest_files.clone());
+        if !package.is_single_file {
+            extra_inputs.push(package.config_path());
+        }
+        self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
+
+        BuildCommand {
+            extra_inputs,
+            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
+        }
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self, info))]
+    pub(super) fn lower_prove(
+        &self,
+        _node: BuildPlanNode,
+        target: BuildTarget,
+        info: &BuildTargetInfo,
+    ) -> BuildCommand {
+        let package = self.get_package(target);
+        let module = self.modules.module_info(package.module);
+        let mi_inputs = self.prove_mi_inputs_of(target);
+
+        let files_vec = self.compiler_source_files(info);
+
+        let backend = self.opt.target_backend.into();
+        let why3_config = self.layout.why3_config_path();
+        let whyml_output = self.layout.prove_whyml_path(self.packages, &target);
+        let proof_report_output = self.layout.prove_report_path(self.packages, &target);
+        let dep_proofs = self.dep_proofs_of(target);
+        // Why3 needs every reachable non-stdlib proof directory on its loadpath
+        // once emitted proof artifacts live alongside package-local verification
+        // outputs under `_build/verif/<pkg>/...`.
+        let why3_loadpaths = self.proof_loadpaths_of(target);
+        let cmd = compiler::MooncProve {
+            required: BuildCommonInput::new(
+                &files_vec,
+                &info.doctest_files,
+                &mi_inputs,
+                compiler::CompiledPackageName::new(&package.fqn, target.kind),
+                &package.root_path,
+                self.layout.all_pkgs_of_build_target(backend),
+                backend,
+                target.kind,
+            ),
+            defaults: self.set_build_commons(package, info, package.raw.is_main),
+            whyml_out: whyml_output.clone().into(),
+            proof_report_out: Some(proof_report_output.clone().into()),
+            why3_config: Some(why3_config.clone().into()),
+            why3_loadpaths: why3_loadpaths.clone(),
+            dep_proofs,
+            emit_only: false,
             single_file: package.is_single_file,
             extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
         };
@@ -320,6 +465,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let mut extra_inputs = files_vec.clone();
         extra_inputs.extend(info.doctest_files.clone());
         extra_inputs.push(why3_config);
+        extra_inputs.extend(why3_loadpaths);
         if !package.is_single_file {
             extra_inputs.push(package.config_path());
         }

@@ -19,16 +19,21 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, CmdlineAbstraction};
+use crate::build_lower::compiler::{
+    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, DepProof,
+};
 
 /// Abstraction for `moonc prove`.
 #[derive(Debug)]
 pub(crate) struct MooncProve<'a> {
     pub required: BuildCommonInput<'a>,
     pub defaults: BuildCommonConfig<'a>,
-    pub why3_config: Cow<'a, Path>,
     pub whyml_out: Cow<'a, Path>,
-    pub proof_report_out: Cow<'a, Path>,
+    pub proof_report_out: Option<Cow<'a, Path>>,
+    pub why3_config: Option<Cow<'a, Path>>,
+    pub why3_loadpaths: Vec<std::path::PathBuf>,
+    pub dep_proofs: Vec<DepProof<'a>>,
+    pub emit_only: bool,
     pub single_file: bool,
     pub extra_flags: &'a [String],
 }
@@ -48,17 +53,36 @@ impl<'a> CmdlineAbstraction for MooncProve<'a> {
         args.extend([
             "--whyml-output-path".to_string(),
             self.whyml_out.display().to_string(),
-            "--proof-report-output-path".to_string(),
-            self.proof_report_out.display().to_string(),
-            "--why3-config".to_string(),
-            self.why3_config.display().to_string(),
         ]);
+        if let Some(proof_report_out) = &self.proof_report_out {
+            args.extend([
+                "--proof-report-output-path".to_string(),
+                proof_report_out.display().to_string(),
+            ]);
+        }
+        if let Some(why3_config) = &self.why3_config {
+            args.extend([
+                "--why3-config".to_string(),
+                why3_config.display().to_string(),
+            ]);
+        }
+        for loadpath in &self.why3_loadpaths {
+            args.extend([
+                "--why3-loadpath".to_string(),
+                loadpath.display().to_string(),
+            ]);
+        }
+        for dep_proof in &self.dep_proofs {
+            args.extend(["--dep-proof".to_string(), dep_proof.to_arg()]);
+        }
+        if self.emit_only {
+            args.push("--emit-only".to_string());
+        }
         self.required.add_package_config(args);
         self.defaults.add_is_main(args);
         if self.single_file {
             args.push("-single-file".to_string());
         }
-        self.defaults.add_stdlib_path(args);
         self.required.add_mi_dependencies(args);
         self.required.add_package_sources(args);
         self.required.add_test_kind_flags(args);

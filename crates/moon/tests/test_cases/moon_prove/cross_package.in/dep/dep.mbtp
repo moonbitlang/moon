@@ -1,0 +1,3 @@
+pub predicate dep_ok(x : Int) { x >= 0 }
+
+pub fn dep_id(x : Int) -> Int { x }

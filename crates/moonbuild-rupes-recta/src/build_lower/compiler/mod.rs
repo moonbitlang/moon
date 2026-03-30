@@ -96,6 +96,28 @@ impl<'a> MiDependency<'a> {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct DepProof<'a> {
+    pub package: Cow<'a, str>,
+    pub artifact_stem: Cow<'a, str>,
+}
+
+impl<'a> DepProof<'a> {
+    pub(super) fn new(
+        package: impl Into<Cow<'a, str>>,
+        artifact_stem: impl Into<Cow<'a, str>>,
+    ) -> Self {
+        Self {
+            package: package.into(),
+            artifact_stem: artifact_stem.into(),
+        }
+    }
+
+    pub(super) fn to_arg(&self) -> String {
+        format!("{}:{}", self.package, self.artifact_stem)
+    }
+}
+
 /// Represents a package name passed to the compiler. This might add a suffix
 /// to the original package name depending on the target kind.
 ///
