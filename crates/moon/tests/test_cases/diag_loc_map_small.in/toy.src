@@ -1,0 +1,3 @@
+start main
+print "hello"
+end

@@ -127,6 +127,28 @@ impl Position {
     }
 }
 
+/// Source map for diagnostics emitted on generated `.mbt` files.
+///
+/// This is used when a `.mbt` file is produced by a third-party generator
+/// (for example `moonyacc` or other code generators), so we can map diagnostics
+/// back to the original source definition locations.
+///
+/// Small demo of the idea:
+///
+/// ```text
+/// source (toy.src):
+///   start main
+///   print "hello"
+///   end
+///
+/// generated (main.mbt):
+///   fn main {
+///     println("hello")
+///   }
+/// ```
+///
+/// `main.mbt.map.json` then maps spans in `main.mbt` back to `toy.src` so
+/// diagnostics are reported against the source DSL file.
 #[derive(Deserialize)]
 struct SourceMap {
     mappings: Vec<SourceMapping>,

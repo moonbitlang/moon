@@ -61,7 +61,7 @@ Memory and Export Configuration
   - test_import_memory_and_heap_start
   - test_import_shared_memory
   - test_exports_in_native_backend
-  - test_diag_loc_map
+  - test_diag_source_map_remaps_generated_sources
 
 Package Dependencies and Testing
   - test_panic

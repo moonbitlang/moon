@@ -1,0 +1,10 @@
+{
+  "mappings": [
+    {
+      "source": "toy.src",
+      "original_offset": 17,
+      "generated_offset": 26,
+      "length": 16
+    }
+  ]
+}
