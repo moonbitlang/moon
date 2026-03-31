@@ -20,7 +20,7 @@ use anyhow::{Context as _, bail};
 use clap::error::ErrorKind;
 use std::{
     ffi::{OsStr, OsString},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, ExitStatus},
 };
 use which::which_global;
@@ -36,9 +36,14 @@ pub(crate) fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
 
 pub(crate) fn run_external_help(
     subcmd: &str,
+    current_dir: Option<&Path>,
     args: impl IntoIterator<Item = OsString>,
 ) -> anyhow::Result<i32> {
-    run_external_command(resolve_external_subcommand(subcmd)?, args)
+    let mut cmd = Command::new(resolve_external_subcommand(subcmd)?);
+    if let Some(dir) = current_dir {
+        cmd.current_dir(dir);
+    }
+    run_external_command(&mut cmd, args)
         .with_context(|| format!("Unable to get help from `{subcmd}` utility"))?
         .code()
         .ok_or_else(|| anyhow::anyhow!("Unable to get exit code"))
@@ -58,10 +63,10 @@ fn resolve_external_subcommand(subcmd: &str) -> anyhow::Result<PathBuf> {
 }
 
 fn run_external_command(
-    program: impl AsRef<OsStr>,
+    cmd: &mut Command,
     args: impl IntoIterator<Item = OsString>,
 ) -> std::io::Result<ExitStatus> {
-    Command::new(program).args(args).status()
+    cmd.args(args).status()
 }
 
 pub(crate) fn exit_if_ide_help_request(err: &clap::Error, raw_args: &[OsString]) {
@@ -69,10 +74,10 @@ pub(crate) fn exit_if_ide_help_request(err: &clap::Error, raw_args: &[OsString])
         return;
     }
 
-    let Some(args) = ide_help_args(raw_args) else {
+    let Some((current_dir, args)) = ide_help_args(raw_args) else {
         return;
     };
-    match run_external_help("ide", args) {
+    match run_external_help("ide", current_dir.as_deref(), args) {
         Ok(code) => std::process::exit(code),
         Err(err) => {
             eprintln!("Error: {err:?}");
@@ -81,52 +86,23 @@ pub(crate) fn exit_if_ide_help_request(err: &clap::Error, raw_args: &[OsString])
     }
 }
 
-fn ide_help_args(raw_args: &[OsString]) -> Option<Vec<OsString>> {
-    let [_, help, ide, tail @ ..] = raw_args else {
-        return None;
-    };
-    if help != OsStr::new("help") || ide != OsStr::new("ide") {
-        return None;
-    }
-
-    let mut delegated = tail.to_vec();
-    delegated.push(OsString::from("--help"));
-    Some(delegated)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ide_help_args;
-    use std::ffi::OsString;
-
-    fn os(args: &[&str]) -> Vec<OsString> {
-        args.iter().map(OsString::from).collect()
-    }
-
-    #[test]
-    fn delegates_top_level_help_for_ide() {
-        assert_eq!(
-            ide_help_args(&os(&["moon", "help", "ide"])),
-            Some(os(&["--help"]))
-        );
-    }
-
-    #[test]
-    fn delegates_subcommand_help_for_ide() {
-        assert_eq!(
-            ide_help_args(&os(&["moon", "help", "ide", "doc"])),
-            Some(os(&["doc", "--help"]))
-        );
-    }
-
-    #[test]
-    fn ignores_other_help_targets() {
-        assert_eq!(ide_help_args(&os(&["moon", "help", "build"])), None);
-    }
-
-    #[test]
-    fn ignores_regular_ide_execution() {
-        assert_eq!(ide_help_args(&os(&["moon", "ide", "--help"])), None);
+fn ide_help_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
+    match raw_args {
+        [_, help, ide, tail @ ..] if help == OsStr::new("help") && ide == OsStr::new("ide") => {
+            let mut delegated = tail.to_vec();
+            delegated.push(OsString::from("--help"));
+            Some((None, delegated))
+        }
+        [_, chdir, dir, help, ide, tail @ ..]
+            if chdir == OsStr::new("-C")
+                && help == OsStr::new("help")
+                && ide == OsStr::new("ide") =>
+        {
+            let mut delegated = tail.to_vec();
+            delegated.push(OsString::from("--help"));
+            Some((Some(PathBuf::from(dir)), delegated))
+        }
+        _ => None,
     }
 }
 
@@ -154,4 +130,48 @@ fn exec(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
     }
 
     Ok(cmd.status()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ide_help_args;
+    use std::{ffi::OsString, path::PathBuf};
+
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn delegates_top_level_help_for_ide() {
+        assert_eq!(
+            ide_help_args(&os(&["moon", "help", "ide"])),
+            Some((None, os(&["--help"])))
+        );
+    }
+
+    #[test]
+    fn delegates_subcommand_help_for_ide() {
+        assert_eq!(
+            ide_help_args(&os(&["moon", "help", "ide", "doc"])),
+            Some((None, os(&["doc", "--help"])))
+        );
+    }
+
+    #[test]
+    fn delegates_help_for_ide_after_chdir() {
+        assert_eq!(
+            ide_help_args(&os(&["moon", "-C", ".", "help", "ide", "doc"])),
+            Some((Some(PathBuf::from(".")), os(&["doc", "--help"])))
+        );
+    }
+
+    #[test]
+    fn ignores_other_help_targets() {
+        assert_eq!(ide_help_args(&os(&["moon", "help", "build"])), None);
+    }
+
+    #[test]
+    fn ignores_regular_ide_execution() {
+        assert_eq!(ide_help_args(&os(&["moon", "ide", "--help"])), None);
+    }
 }
