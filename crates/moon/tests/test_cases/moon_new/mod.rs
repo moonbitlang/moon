@@ -267,6 +267,7 @@ fn test_moon_new_snapshot() {
         .current_dir(&dir)
         .args(["new", "asdf"])
         .env("MOON_HOME", dir.as_ref())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .assert()
         .success();
 

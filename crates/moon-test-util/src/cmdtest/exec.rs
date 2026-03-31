@@ -41,33 +41,76 @@ fn moon_home() -> Option<PathBuf> {
     home::home_dir().map(|h| h.join(".moon"))
 }
 
-fn normalize_output(output: &str, workdir: &Path) -> String {
+fn detected_toolchain_root() -> Option<PathBuf> {
+    if let Ok(toolchain_root) = std::env::var("MOON_TOOLCHAIN_ROOT") {
+        return Some(PathBuf::from(toolchain_root));
+    }
+
+    let moonc = which::which("moonc").ok()?;
+    let bin_dir = moonc.parent()?;
+    (bin_dir.file_name()? == "bin").then(|| bin_dir.parent().map(Path::to_path_buf))?
+}
+
+fn normalize_output(output: &str, workdir: &Path, toolchain_root: Option<&Path>) -> String {
     let mut redactions = snapbox::Redactions::new();
 
     redactions
         .insert("[WORK_DIR]", canonicalize_or_self(workdir))
         .expect("valid WORK_DIR redaction");
 
-    if let Some(moon_home) = moon_home() {
+    let moon_home = moon_home();
+    let toolchain_root = toolchain_root
+        .map(Path::to_path_buf)
+        .or_else(detected_toolchain_root);
+    let show_toolchain_root = match (&toolchain_root, &moon_home) {
+        (Some(toolchain_root), Some(moon_home)) => {
+            canonicalize_or_self(toolchain_root) != canonicalize_or_self(moon_home)
+        }
+        (Some(_), None) => true,
+        _ => false,
+    };
+
+    if show_toolchain_root && let Some(toolchain_root) = &toolchain_root {
         redactions
-            .insert("[MOON_HOME]", canonicalize_or_self(&moon_home))
+            .insert(
+                "[MOON_TOOLCHAIN_ROOT]",
+                canonicalize_or_self(toolchain_root),
+            )
+            .expect("valid MOON_TOOLCHAIN_ROOT redaction");
+    }
+
+    if let Some(moon_home) = &moon_home {
+        redactions
+            .insert("[MOON_HOME]", canonicalize_or_self(moon_home))
             .expect("valid MOON_HOME redaction");
     }
 
     let normalized = output
         .replace("\\\\", "\\")
-        .replace("${WORK_DIR}", "[WORK_DIR]")
-        .replace("$MOON_HOME", "[MOON_HOME]");
+        .replace("${WORK_DIR}", "[WORK_DIR]");
+    let normalized = if show_toolchain_root {
+        normalized.replace("$MOON_TOOLCHAIN_ROOT", "[MOON_TOOLCHAIN_ROOT]")
+    } else {
+        normalized
+    };
+    let normalized = normalized.replace("$MOON_HOME", "[MOON_HOME]");
 
     redactions.redact(&normalized).replace("\r\n", "\n")
 }
 
-fn run_process(program: &Path, args: &[&str], workdir: &Path) -> CommandOutput {
-    match Command::new(program)
-        .args(args)
-        .current_dir(workdir)
-        .output()
-    {
+fn run_process(
+    program: &Path,
+    args: &[&str],
+    workdir: &Path,
+    toolchain_root: Option<&Path>,
+) -> CommandOutput {
+    let mut command = Command::new(program);
+    command.args(args).current_dir(workdir);
+    if let Some(toolchain_root) = toolchain_root {
+        command.env("MOON_TOOLCHAIN_ROOT", toolchain_root);
+    }
+
+    match command.output() {
         Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let mut stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -135,12 +178,18 @@ fn run_xls(args: &[&str], workdir: &Path) -> CommandOutput {
     }
 }
 
-pub(crate) fn execute_command(cmd: &str, args: &[&str], workdir: &Path, moon_bin: &Path) -> String {
+pub(crate) fn execute_command(
+    cmd: &str,
+    args: &[&str],
+    workdir: &Path,
+    moon_bin: &Path,
+    toolchain_root: Option<&Path>,
+) -> String {
     let output = match cmd {
-        "moon" => run_process(moon_bin, args, workdir),
+        "moon" => run_process(moon_bin, args, workdir, toolchain_root),
         "xcat" => run_xcat(args, workdir),
         "xls" => run_xls(args, workdir),
-        _ => run_process(Path::new(cmd), args, workdir),
+        _ => run_process(Path::new(cmd), args, workdir, toolchain_root),
     };
 
     let actual = if output.stderr.is_empty() {
@@ -154,5 +203,5 @@ pub(crate) fn execute_command(cmd: &str, args: &[&str], workdir: &Path, moon_bin
         actual
     };
 
-    normalize_output(&actual, workdir)
+    normalize_output(&actual, workdir, toolchain_root)
 }

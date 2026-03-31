@@ -1213,6 +1213,7 @@ fn test_moon_update_failed() {
     let out = std::process::Command::new(moon_bin())
         .current_dir(dir)
         .env("MOON_HOME", moon_home)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .args(["update"])
@@ -1242,6 +1243,7 @@ fn test_moon_update_failed() {
     let out = std::process::Command::new(moon_bin())
         .current_dir(dir)
         .env("MOON_HOME", moon_home)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .args(["update"])
@@ -2384,6 +2386,7 @@ fn test_upgrade() -> anyhow::Result<()> {
     let tmp_dir = tempfile::TempDir::new()?;
     let _ = std::process::Command::new(moon_bin())
         .env("MOON_HOME", tmp_dir.path().to_str().unwrap())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .arg("upgrade")
         .arg("--force")
         .arg("--non-interactive")

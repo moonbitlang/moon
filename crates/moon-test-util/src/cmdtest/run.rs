@@ -51,7 +51,7 @@ fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn t(file: &Path, moon_bin: &Path, update: bool) -> i32 {
+pub fn t(file: &Path, moon_bin: &Path, update: bool, toolchain_root: Option<&Path>) -> i32 {
     let p = dunce::canonicalize(file).unwrap();
     let tmpdir = tempfile::tempdir().unwrap();
     let folder_name = p
@@ -74,7 +74,7 @@ pub fn t(file: &Path, moon_bin: &Path, update: bool) -> i32 {
             parse::Block::Command { cmd, content: _ } => {
                 let args = cmd.split_whitespace().collect::<Vec<_>>();
                 let actual = if let Some((command, rest)) = args.split_first() {
-                    execute_command(command, rest, &workdir, moon_bin)
+                    execute_command(command, rest, &workdir, moon_bin, toolchain_root)
                 } else {
                     String::new()
                 };

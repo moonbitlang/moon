@@ -25,7 +25,7 @@ use std::{
     sync::LazyLock,
 };
 
-use moonutil::moon_dir::home;
+use moonutil::moon_dir::{home, toolchain_root};
 use n2::graph::{BuildId, FileId};
 
 pub const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
@@ -177,6 +177,8 @@ pub struct PathNormalizer {
     canonical: Option<PathBuf>,
     replace_table: Vec<(String, String)>,
     binary_file_name_table: Vec<(String, String)>,
+    show_toolchain_root: bool,
+    toolchain_root: String,
     moon_home: String,
 }
 
@@ -194,14 +196,24 @@ impl PathNormalizer {
                 (file_name != *name).then(|| (file_name.to_owned(), (*name).to_owned()))
             })
             .collect();
-        let moon_home = home().to_string_lossy().into_owned();
+        let toolchain_root = toolchain_root();
+        let moon_home = home();
+        let show_toolchain_root = match (
+            dunce::canonicalize(&toolchain_root),
+            dunce::canonicalize(&moon_home),
+        ) {
+            (Ok(toolchain_root), Ok(moon_home)) => toolchain_root != moon_home,
+            _ => toolchain_root != moon_home,
+        };
 
         let canonical = dunce::canonicalize(source_dir).ok();
         PathNormalizer {
             canonical,
             replace_table,
             binary_file_name_table,
-            moon_home,
+            show_toolchain_root,
+            toolchain_root: toolchain_root.to_string_lossy().into_owned(),
+            moon_home: moon_home.to_string_lossy().into_owned(),
         }
     }
 
@@ -227,6 +239,9 @@ impl PathNormalizer {
         for (from, to) in &self.replace_table {
             s = s.replace(from, to);
         }
+        if self.show_toolchain_root {
+            s = s.replace(&self.toolchain_root, "$MOON_TOOLCHAIN_ROOT");
+        }
         s = s.replace(&self.moon_home, "$MOON_HOME");
         s = s.replace('\\', "/");
         s = self.normalize_binary_file_name(s);
@@ -242,6 +257,9 @@ impl PathNormalizer {
             return Self::relative_from_path(stripped);
         }
         let mut path = path.to_owned();
+        if self.show_toolchain_root {
+            path = path.replace(&self.toolchain_root, "$MOON_TOOLCHAIN_ROOT");
+        }
         path = path.replace(&self.moon_home, "$MOON_HOME");
         path = path.replace('\\', "/");
         path = self.normalize_binary_file_name(path);
@@ -284,6 +302,8 @@ mod tests {
             canonical: None,
             replace_table: vec![],
             binary_file_name_table: vec![("moonc.exe".to_owned(), "moonc".to_owned())],
+            show_toolchain_root: true,
+            toolchain_root: "$MOON_TOOLCHAIN_ROOT".to_owned(),
             moon_home: "$MOON_HOME".to_owned(),
         };
 
@@ -295,6 +315,48 @@ mod tests {
         assert_eq!(
             replacer.normalize_path("./_build/native/debug/build/main/main.exe"),
             "./_build/native/debug/build/main/main.exe"
+        );
+    }
+
+    #[test]
+    fn keeps_moon_home_when_roots_match() {
+        let replacer = PathNormalizer {
+            canonical: None,
+            replace_table: vec![],
+            binary_file_name_table: vec![],
+            show_toolchain_root: false,
+            toolchain_root: "/tmp/.moon".to_owned(),
+            moon_home: "/tmp/.moon".to_owned(),
+        };
+
+        assert_eq!(
+            replacer.normalize_command_arg("/tmp/.moon/lib/core/prelude"),
+            "$MOON_HOME/lib/core/prelude"
+        );
+        assert_eq!(
+            replacer.normalize_path("/tmp/.moon/bin/moonc"),
+            "$MOON_HOME/bin/moonc"
+        );
+    }
+
+    #[test]
+    fn keeps_toolchain_root_distinct_when_needed() {
+        let replacer = PathNormalizer {
+            canonical: None,
+            replace_table: vec![],
+            binary_file_name_table: vec![],
+            show_toolchain_root: true,
+            toolchain_root: "/tmp/toolchain".to_owned(),
+            moon_home: "/tmp/home".to_owned(),
+        };
+
+        assert_eq!(
+            replacer.normalize_command_arg("/tmp/toolchain/lib/core/prelude"),
+            "$MOON_TOOLCHAIN_ROOT/lib/core/prelude"
+        );
+        assert_eq!(
+            replacer.normalize_path("/tmp/toolchain/bin/moonc"),
+            "$MOON_TOOLCHAIN_ROOT/bin/moonc"
         );
     }
 }

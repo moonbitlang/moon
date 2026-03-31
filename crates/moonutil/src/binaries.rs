@@ -41,10 +41,10 @@ fn moon_bin(binary_name: &str, env_var: &str) -> PathBuf {
         }
     }
 
-    // Try to find in $MOON_HOME
-    let in_moon_home = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
-    if in_moon_home.exists() {
-        return in_moon_home;
+    // Try to find in the resolved toolchain root.
+    let in_toolchain = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
+    if in_toolchain.exists() {
+        return in_toolchain;
     }
 
     // Try to resolve from PATH. This gives graph inputs a stable absolute path
