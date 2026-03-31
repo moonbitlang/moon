@@ -198,6 +198,7 @@ fn add_ide_completion(mut cmd: Command) -> Command {
 
     let ide_cmd = Command::new("ide")
         .about("IDE utilities")
+        .disable_help_subcommand(true)
         .subcommand(
             Command::new("peek-def")
                 .about("Peek Definition of a symbol")
@@ -219,6 +220,7 @@ fn add_ide_completion(mut cmd: Command) -> Command {
                 .arg(loc_arg),
         )
         .subcommand(Command::new("outline").about("Show outline of specified path"))
+        .subcommand(Command::new("analyze").about("Show public API usage of a package or module"))
         .subcommand(Command::new("doc").about("Show documentation of a symbol"));
 
     cmd = cmd.subcommand(ide_cmd);

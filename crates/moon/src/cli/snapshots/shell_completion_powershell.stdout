@@ -1024,8 +1024,8 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('rename', 'rename', [CompletionResultType]::ParameterValue, 'Rename a symbol')
             [CompletionResult]::new('hover', 'hover', [CompletionResultType]::ParameterValue, 'Show hover information of a symbol')
             [CompletionResult]::new('outline', 'outline', [CompletionResultType]::ParameterValue, 'Show outline of specified path')
+            [CompletionResult]::new('analyze', 'analyze', [CompletionResultType]::ParameterValue, 'Show public API usage of a package or module')
             [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Show documentation of a symbol')
-            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
         'moon;ide;peek-def' {
@@ -1057,40 +1057,14 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
-        'moon;ide;doc' {
+        'moon;ide;analyze' {
             [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
-        'moon;ide;help' {
-            [CompletionResult]::new('peek-def', 'peek-def', [CompletionResultType]::ParameterValue, 'Peek Definition of a symbol')
-            [CompletionResult]::new('find-references', 'find-references', [CompletionResultType]::ParameterValue, 'Find references of a symbol')
-            [CompletionResult]::new('rename', 'rename', [CompletionResultType]::ParameterValue, 'Rename a symbol')
-            [CompletionResult]::new('hover', 'hover', [CompletionResultType]::ParameterValue, 'Show hover information of a symbol')
-            [CompletionResult]::new('outline', 'outline', [CompletionResultType]::ParameterValue, 'Show outline of specified path')
-            [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Show documentation of a symbol')
-            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
-            break
-        }
-        'moon;ide;help;peek-def' {
-            break
-        }
-        'moon;ide;help;find-references' {
-            break
-        }
-        'moon;ide;help;rename' {
-            break
-        }
-        'moon;ide;help;hover' {
-            break
-        }
-        'moon;ide;help;outline' {
-            break
-        }
-        'moon;ide;help;doc' {
-            break
-        }
-        'moon;ide;help;help' {
+        'moon;ide;doc' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
         'moon;help' {
@@ -1276,6 +1250,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('rename', 'rename', [CompletionResultType]::ParameterValue, 'Rename a symbol')
             [CompletionResult]::new('hover', 'hover', [CompletionResultType]::ParameterValue, 'Show hover information of a symbol')
             [CompletionResult]::new('outline', 'outline', [CompletionResultType]::ParameterValue, 'Show outline of specified path')
+            [CompletionResult]::new('analyze', 'analyze', [CompletionResultType]::ParameterValue, 'Show public API usage of a package or module')
             [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Show documentation of a symbol')
             break
         }
@@ -1292,6 +1267,9 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;help;ide;outline' {
+            break
+        }
+        'moon;help;ide;analyze' {
             break
         }
         'moon;help;ide;doc' {
