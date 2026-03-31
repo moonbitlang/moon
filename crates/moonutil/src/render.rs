@@ -190,7 +190,7 @@ impl MooncDiagnostic {
     pub fn render_diagnostics(
         &self,
         use_fancy: bool,
-        check_patch_file: Option<PathBuf>,
+        check_patch_file: Option<&PathBuf>,
         explain: bool,
         render_no_loc_level: DiagnosticLevel,
     ) -> Option<ReportKind<'static>> {
@@ -232,7 +232,7 @@ impl MooncDiagnostic {
                     // if the source file is not found, try to get the content from the check patch file
                     match check_patch_file.and_then(|f| {
                         Self::get_content_and_filename_from_diagnostic_patch_file(
-                            &f,
+                            f,
                             &diagnostic.path,
                         )
                     }) {
@@ -387,11 +387,16 @@ impl MooncDiagnostic {
             }
         }
 
-        diagnostic.render_diagnostics(use_fancy, check_patch_file, explain, render_no_loc_level)
+        diagnostic.render_diagnostics(
+            use_fancy,
+            check_patch_file.as_ref(),
+            explain,
+            render_no_loc_level,
+        )
     }
 
     fn get_content_and_filename_from_diagnostic_patch_file(
-        patch_file: &PathBuf,
+        patch_file: &Path,
         diagnostic_location_path: &str,
     ) -> Option<(String, String)> {
         let patch_content = std::fs::read_to_string(patch_file).ok()?;

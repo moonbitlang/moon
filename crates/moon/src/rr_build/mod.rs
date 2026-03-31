@@ -31,7 +31,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    vec,
 };
 
 use anyhow::Context;
@@ -977,11 +976,12 @@ pub fn execute_build_partial(
 /// later.
 fn capture_diagnostics_callback(catcher: Arc<Mutex<ResultCatcher>>) -> impl Fn(&str) {
     move |output: &str| {
+        let mut catcher = catcher.lock().unwrap();
         output
             .split('\n')
             .filter(|it| !it.is_empty())
             .for_each(|content| {
-                catcher.lock().unwrap().append_content(content, None);
+                catcher.append_content(content, None);
             });
     }
 }
@@ -998,54 +998,79 @@ fn no_render_callback() -> impl Fn(&str) {
 }
 
 fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) {
-    let mut unprocessed = vec![];
-    let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
-    for content in &catcher.content_writer {
-        match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
-            Ok(d) => {
-                // errors/warnings in test driver should be in rare case and
-                // are not expected in normal builds, so we skip rendering them
-                if d.path.contains("__generated_driver_for_") {
-                    unprocessed.push(content.clone());
-                } else {
-                    let file_key = d.path.clone();
-                    by_file
-                        .entry(file_key)
-                        .or_default()
-                        .insert((d, content.clone()));
+    let mut has_unprocessed = false;
+    match cfg.output_style {
+        OutputStyle::Json => {
+            let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
+            for content in &catcher.content_writer {
+                match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
+                    Ok(d) => {
+                        // errors/warnings in test driver should be in rare case and
+                        // are not expected in normal builds, so we skip rendering them
+                        if d.path.contains("__generated_driver_for_") {
+                            has_unprocessed = true;
+                        } else {
+                            let file_key = d.path.clone();
+                            by_file
+                                .entry(file_key)
+                                .or_default()
+                                .insert((d, content.clone()));
+                        }
+                    }
+                    Err(_) => {
+                        // Non-diagnostics output, just print as-is
+                        // This could happen for installing binaries dependencies etc.
+                        eprintln!("{content}");
+                    }
+                };
+            }
+
+            // In JSON mode, just print raw content after dedup.
+            for file_diagnostics in by_file.values() {
+                for (diag, content) in file_diagnostics {
+                    println!("{content}");
+                    catcher.append_diag(diag);
                 }
             }
-            Err(_) => {
-                // Non-diagnostics output, just print as-is
-                // This could happen for installing binaries dependencies etc.
-                eprintln!("{content}");
+        }
+        OutputStyle::Fancy => {
+            let mut by_file = BTreeMap::<String, BTreeSet<MooncDiagnostic>>::new();
+            for content in &catcher.content_writer {
+                match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
+                    Ok(d) => {
+                        // errors/warnings in test driver should be in rare case and
+                        // are not expected in normal builds, so we skip rendering them
+                        if d.path.contains("__generated_driver_for_") {
+                            has_unprocessed = true;
+                        } else {
+                            by_file.entry(d.path.clone()).or_default().insert(d);
+                        }
+                    }
+                    Err(_) => {
+                        // Non-diagnostics output, just print as-is
+                        // This could happen for installing binaries dependencies etc.
+                        eprintln!("{content}");
+                    }
+                };
             }
-        };
-    }
 
-    if cfg.output_style == OutputStyle::Json {
-        // In JSON mode, just print raw content after dedup
-        for file_diagnostics in by_file.values() {
-            for (diag, content) in file_diagnostics {
-                println!("{content}");
-                catcher.append_diag(diag);
+            let patch_file = cfg.patch_file.as_ref();
+            for file_diagnostics in by_file.values() {
+                for diag in file_diagnostics {
+                    let kind = diag.render_diagnostics(
+                        n2::terminal::use_fancy(),
+                        patch_file,
+                        cfg.explain_errors,
+                        cfg.render_no_loc,
+                    );
+                    catcher.append_kind(kind);
+                }
             }
         }
-    } else if cfg.output_style == OutputStyle::Fancy {
-        for file_diagnostics in by_file.values() {
-            for (diag, _content) in file_diagnostics {
-                let kind = diag.render_diagnostics(
-                    n2::terminal::use_fancy(),
-                    cfg.patch_file.clone(),
-                    cfg.explain_errors,
-                    cfg.render_no_loc,
-                );
-                catcher.append_kind(kind);
-            }
-        }
+        OutputStyle::Raw => {}
     }
 
-    if !unprocessed.is_empty() {
+    if has_unprocessed {
         cfg.user_diagnostics.warn(
             "Some diagnostics could not be rendered, please run with --no-render to see raw output.",
         );
