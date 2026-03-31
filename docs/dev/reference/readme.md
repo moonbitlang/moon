@@ -9,6 +9,7 @@ This is a reference documentation of the current MoonBuild behavior.
 * [Workspace](./workspace.md)
 * [Package build process](./build.md)
 * [How binaries are found](./binaries.md)
+* [Toolchain packaging layouts and discovery](./toolchain-layout.md)
 * [Indirect dependency support for compiler](./indirect-dep.md)
 * [Debugging utilities](./debugging.md)
 
