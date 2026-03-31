@@ -959,8 +959,8 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand rename 'Rename a symbol'
             cand hover 'Show hover information of a symbol'
             cand outline 'Show outline of specified path'
+            cand analyze 'Show public API usage of a package or module'
             cand doc 'Show documentation of a symbol'
-            cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'moon;ide;peek-def'= {
             cand --loc 'loc'
@@ -986,32 +986,13 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
         }
-        &'moon;ide;doc'= {
+        &'moon;ide;analyze'= {
             cand -h 'Print help'
             cand --help 'Print help'
         }
-        &'moon;ide;help'= {
-            cand peek-def 'Peek Definition of a symbol'
-            cand find-references 'Find references of a symbol'
-            cand rename 'Rename a symbol'
-            cand hover 'Show hover information of a symbol'
-            cand outline 'Show outline of specified path'
-            cand doc 'Show documentation of a symbol'
-            cand help 'Print this message or the help of the given subcommand(s)'
-        }
-        &'moon;ide;help;peek-def'= {
-        }
-        &'moon;ide;help;find-references'= {
-        }
-        &'moon;ide;help;rename'= {
-        }
-        &'moon;ide;help;hover'= {
-        }
-        &'moon;ide;help;outline'= {
-        }
-        &'moon;ide;help;doc'= {
-        }
-        &'moon;ide;help;help'= {
+        &'moon;ide;doc'= {
+            cand -h 'Print help'
+            cand --help 'Print help'
         }
         &'moon;help'= {
             cand new 'Create a new MoonBit module'
@@ -1152,6 +1133,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand rename 'Rename a symbol'
             cand hover 'Show hover information of a symbol'
             cand outline 'Show outline of specified path'
+            cand analyze 'Show public API usage of a package or module'
             cand doc 'Show documentation of a symbol'
         }
         &'moon;help;ide;peek-def'= {
@@ -1163,6 +1145,8 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;help;ide;hover'= {
         }
         &'moon;help;ide;outline'= {
+        }
+        &'moon;help;ide;analyze'= {
         }
         &'moon;help;ide;doc'= {
         }

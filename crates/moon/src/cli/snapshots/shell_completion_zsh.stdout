@@ -1160,55 +1160,17 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
-(doc)
+(analyze)
 _arguments "${_arguments_options[@]}" : \
 '-h[Print help]' \
 '--help[Print help]' \
 && ret=0
 ;;
-(help)
-_arguments "${_arguments_options[@]}" : \
-":: :_moon__ide__help_commands" \
-"*::: :->help" \
-&& ret=0
-
-    case $state in
-    (help)
-        words=($line[1] "${words[@]}")
-        (( CURRENT += 1 ))
-        curcontext="${curcontext%:*:*}:moon-ide-help-command-$line[1]:"
-        case $line[1] in
-            (peek-def)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-(find-references)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-(rename)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-(hover)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-(outline)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
 (doc)
 _arguments "${_arguments_options[@]}" : \
+'-h[Print help]' \
+'--help[Print help]' \
 && ret=0
-;;
-(help)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-        esac
-    ;;
-esac
 ;;
         esac
     ;;
@@ -1463,6 +1425,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (outline)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(analyze)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1767,9 +1733,15 @@ _moon__help__ide_commands() {
 'rename:Rename a symbol' \
 'hover:Show hover information of a symbol' \
 'outline:Show outline of specified path' \
+'analyze:Show public API usage of a package or module' \
 'doc:Show documentation of a symbol' \
     )
     _describe -t commands 'moon help ide commands' commands "$@"
+}
+(( $+functions[_moon__help__ide__analyze_commands] )) ||
+_moon__help__ide__analyze_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help ide analyze commands' commands "$@"
 }
 (( $+functions[_moon__help__ide__doc_commands] )) ||
 _moon__help__ide__doc_commands() {
@@ -1960,10 +1932,15 @@ _moon__ide_commands() {
 'rename:Rename a symbol' \
 'hover:Show hover information of a symbol' \
 'outline:Show outline of specified path' \
+'analyze:Show public API usage of a package or module' \
 'doc:Show documentation of a symbol' \
-'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'moon ide commands' commands "$@"
+}
+(( $+functions[_moon__ide__analyze_commands] )) ||
+_moon__ide__analyze_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon ide analyze commands' commands "$@"
 }
 (( $+functions[_moon__ide__doc_commands] )) ||
 _moon__ide__doc_commands() {
@@ -1974,54 +1951,6 @@ _moon__ide__doc_commands() {
 _moon__ide__find-references_commands() {
     local commands; commands=()
     _describe -t commands 'moon ide find-references commands' commands "$@"
-}
-(( $+functions[_moon__ide__help_commands] )) ||
-_moon__ide__help_commands() {
-    local commands; commands=(
-'peek-def:Peek Definition of a symbol' \
-'find-references:Find references of a symbol' \
-'rename:Rename a symbol' \
-'hover:Show hover information of a symbol' \
-'outline:Show outline of specified path' \
-'doc:Show documentation of a symbol' \
-'help:Print this message or the help of the given subcommand(s)' \
-    )
-    _describe -t commands 'moon ide help commands' commands "$@"
-}
-(( $+functions[_moon__ide__help__doc_commands] )) ||
-_moon__ide__help__doc_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon ide help doc commands' commands "$@"
-}
-(( $+functions[_moon__ide__help__find-references_commands] )) ||
-_moon__ide__help__find-references_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon ide help find-references commands' commands "$@"
-}
-(( $+functions[_moon__ide__help__help_commands] )) ||
-_moon__ide__help__help_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon ide help help commands' commands "$@"
-}
-(( $+functions[_moon__ide__help__hover_commands] )) ||
-_moon__ide__help__hover_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon ide help hover commands' commands "$@"
-}
-(( $+functions[_moon__ide__help__outline_commands] )) ||
-_moon__ide__help__outline_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon ide help outline commands' commands "$@"
-}
-(( $+functions[_moon__ide__help__peek-def_commands] )) ||
-_moon__ide__help__peek-def_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon ide help peek-def commands' commands "$@"
-}
-(( $+functions[_moon__ide__help__rename_commands] )) ||
-_moon__ide__help__rename_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon ide help rename commands' commands "$@"
 }
 (( $+functions[_moon__ide__hover_commands] )) ||
 _moon__ide__hover_commands() {

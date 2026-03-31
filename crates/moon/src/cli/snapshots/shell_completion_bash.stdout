@@ -243,6 +243,9 @@ _moon() {
             moon__help__coverage,report)
                 cmd="moon__help__coverage__report"
                 ;;
+            moon__help__ide,analyze)
+                cmd="moon__help__ide__analyze"
+                ;;
             moon__help__ide,doc)
                 cmd="moon__help__ide__doc"
                 ;;
@@ -288,14 +291,14 @@ _moon() {
             moon__help__work,use)
                 cmd="moon__help__work__use"
                 ;;
+            moon__ide,analyze)
+                cmd="moon__ide__analyze"
+                ;;
             moon__ide,doc)
                 cmd="moon__ide__doc"
                 ;;
             moon__ide,find-references)
                 cmd="moon__ide__find__references"
-                ;;
-            moon__ide,help)
-                cmd="moon__ide__help"
                 ;;
             moon__ide,hover)
                 cmd="moon__ide__hover"
@@ -308,27 +311,6 @@ _moon() {
                 ;;
             moon__ide,rename)
                 cmd="moon__ide__rename"
-                ;;
-            moon__ide__help,doc)
-                cmd="moon__ide__help__doc"
-                ;;
-            moon__ide__help,find-references)
-                cmd="moon__ide__help__find__references"
-                ;;
-            moon__ide__help,help)
-                cmd="moon__ide__help__help"
-                ;;
-            moon__ide__help,hover)
-                cmd="moon__ide__help__hover"
-                ;;
-            moon__ide__help,outline)
-                cmd="moon__ide__help__outline"
-                ;;
-            moon__ide__help,peek-def)
-                cmd="moon__ide__help__peek__def"
-                ;;
-            moon__ide__help,rename)
-                cmd="moon__ide__help__rename"
                 ;;
             moon__tool,build-binary-dep)
                 cmd="moon__tool__build__binary__dep"
@@ -1291,8 +1273,22 @@ _moon() {
             return 0
             ;;
         moon__help__ide)
-            opts="peek-def find-references rename hover outline doc"
+            opts="peek-def find-references rename hover outline analyze doc"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__ide__analyze)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -1781,8 +1777,22 @@ _moon() {
             return 0
             ;;
         moon__ide)
-            opts="-h --help peek-def find-references rename hover outline doc help"
+            opts="-h --help peek-def find-references rename hover outline analyze doc"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__ide__analyze)
+            opts="-h --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
@@ -1819,118 +1829,6 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__ide__help)
-            opts="peek-def find-references rename hover outline doc help"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__ide__help__doc)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__ide__help__find__references)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__ide__help__help)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__ide__help__hover)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__ide__help__outline)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__ide__help__peek__def)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__ide__help__rename)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
                 *)
                     COMPREPLY=()
                     ;;

@@ -124,7 +124,11 @@ fn emit_resolve_warnings_from_error_chain(output: UserDiagnostics, err: &anyhow:
 pub fn main() {
     panic::setup_panic_hook();
 
-    let cli = cli::MoonBuildCli::parse();
+    let raw_args = std::env::args_os().collect::<Vec<_>>();
+    let cli = cli::MoonBuildCli::try_parse_from(&raw_args).unwrap_or_else(|err| {
+        cli::exit_if_ide_help_request(&err, &raw_args);
+        err.exit();
+    });
     let flags = cli.flags;
     let output = UserDiagnostics::from_flags(&flags);
 
