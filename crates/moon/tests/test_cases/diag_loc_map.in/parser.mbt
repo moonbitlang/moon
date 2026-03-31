@@ -480,7 +480,7 @@ fn[T] yy_parse(
             } else {
               (args[0].1, args[args.length() - 1].2)
             }
-            for i in 0..<count {
+            for _ in 0..<count {
               ignore(data_stack.unsafe_pop())
               state_stack = state_stack.unsafe_tail()
             }
@@ -566,9 +566,9 @@ fn error(
 pub fn start(
   tokens : Array[(Token, Position, Position)],
 ) -> Int raise ParseError {
-  yy_parse(tokens, yy_state_0, fn {
-    YYObj_Int(result) => result
-    _ => panic()
+  yy_parse(tokens, yy_state_0, obj => {
+    guard obj is YYObj_Int(result)
+    result
   })
 }
 

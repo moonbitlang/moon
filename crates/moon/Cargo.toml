@@ -51,7 +51,6 @@ log.workspace = true
 walkdir.workspace = true
 tokio = { workspace = true, features = ["rt", "signal"] }
 tokio-util.workspace = true
-futures.workspace = true
 clap_complete.workspace = true
 indexmap.workspace = true
 petgraph.workspace = true

@@ -198,6 +198,7 @@ fn do_upgrade(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     Ok(0)
 }
 
+#[cfg(unix)]
 fn do_upgrade_unix(cmd: &UpgradeSubcommand, root: &str) -> Result<i32> {
     let exe = "sh";
     let args = [

@@ -127,6 +127,28 @@ impl Position {
     }
 }
 
+/// Source map for diagnostics emitted on generated `.mbt` files.
+///
+/// This is used when a `.mbt` file is produced by a third-party generator
+/// (for example `moonyacc` or other code generators), so we can map diagnostics
+/// back to the original source definition locations.
+///
+/// Small demo of the idea:
+///
+/// ```text
+/// source (toy.src):
+///   start main
+///   print "hello"
+///   end
+///
+/// generated (main.mbt):
+///   fn main {
+///     println("hello")
+///   }
+/// ```
+///
+/// `main.mbt.map.json` then maps spans in `main.mbt` back to `toy.src` so
+/// diagnostics are reported against the source DSL file.
 #[derive(Deserialize)]
 struct SourceMap {
     mappings: Vec<SourceMapping>,
@@ -168,7 +190,7 @@ impl MooncDiagnostic {
     pub fn render_diagnostics(
         &self,
         use_fancy: bool,
-        check_patch_file: Option<PathBuf>,
+        check_patch_file: Option<&PathBuf>,
         explain: bool,
         render_no_loc_level: DiagnosticLevel,
     ) -> Option<ReportKind<'static>> {
@@ -210,7 +232,7 @@ impl MooncDiagnostic {
                     // if the source file is not found, try to get the content from the check patch file
                     match check_patch_file.and_then(|f| {
                         Self::get_content_and_filename_from_diagnostic_patch_file(
-                            &f,
+                            f,
                             &diagnostic.path,
                         )
                     }) {
@@ -365,11 +387,16 @@ impl MooncDiagnostic {
             }
         }
 
-        diagnostic.render_diagnostics(use_fancy, check_patch_file, explain, render_no_loc_level)
+        diagnostic.render_diagnostics(
+            use_fancy,
+            check_patch_file.as_ref(),
+            explain,
+            render_no_loc_level,
+        )
     }
 
     fn get_content_and_filename_from_diagnostic_patch_file(
-        patch_file: &PathBuf,
+        patch_file: &Path,
         diagnostic_location_path: &str,
     ) -> Option<(String, String)> {
         let patch_content = std::fs::read_to_string(patch_file).ok()?;
