@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
@@ -46,19 +46,29 @@ pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|
     }
 });
 
+pub fn is_toolchain_root(root: &Path) -> bool {
+    root.join("include").is_dir()
+        && root.join("lib").join("core").is_dir()
+        && root
+            .join("bin")
+            .join(format!("moonc{}", std::env::consts::EXE_SUFFIX))
+            .is_file()
+}
+
 pub fn toolchain_root() -> PathBuf {
     if let Some(path) = std::env::var_os("MOON_TOOLCHAIN_ROOT") {
         return PathBuf::from(path);
     }
 
-    if let Ok(current_exe) = std::env::current_exe()
-        && let Some(bin_dir) = current_exe.parent()
-        && bin_dir.file_name().is_some_and(|name| name == "bin")
-        && let Some(root) = bin_dir.parent()
-        && root.join("lib").exists()
-        && root.join("include").exists()
-    {
-        return root.to_path_buf();
+    if let Ok(current_exe) = std::env::current_exe() {
+        let current_exe = dunce::canonicalize(&current_exe).unwrap_or(current_exe);
+        if let Some(bin_dir) = current_exe.parent()
+            && bin_dir.file_name().is_some_and(|name| name == "bin")
+            && let Some(root) = bin_dir.parent()
+            && is_toolchain_root(root)
+        {
+            return root.to_path_buf();
+        }
     }
 
     home()
@@ -219,4 +229,30 @@ fn test_moon_dir() {
         ]
     "#]]
     .assert_debug_eq(&toolchain_dirs);
+}
+
+#[test]
+fn detects_toolchain_root_shape() {
+    let dir = std::env::temp_dir().join(format!(
+        "moonutil-toolchain-root-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    std::fs::create_dir_all(dir.join("include")).unwrap();
+    std::fs::create_dir_all(dir.join("lib").join("core")).unwrap();
+    std::fs::write(
+        dir.join("bin")
+            .join(format!("moonc{}", std::env::consts::EXE_SUFFIX)),
+        [],
+    )
+    .unwrap();
+
+    assert!(is_toolchain_root(&dir));
+    assert!(!is_toolchain_root(dir.parent().unwrap()));
+    std::fs::remove_dir_all(&dir).unwrap();
 }

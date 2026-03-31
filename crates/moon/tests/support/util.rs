@@ -34,10 +34,12 @@ pub(crate) fn toolchain_root_for_tests() -> PathBuf {
         return PathBuf::from(path);
     }
 
-    let moonc = moonutil::BINARIES.moonc.clone();
+    let moonc =
+        dunce::canonicalize(&*moonutil::BINARIES.moonc).unwrap_or(moonutil::BINARIES.moonc.clone());
     if let Some(bin_dir) = moonc.parent()
         && bin_dir.file_name().is_some_and(|name| name == "bin")
         && let Some(root) = bin_dir.parent()
+        && moonutil::moon_dir::is_toolchain_root(root)
     {
         return root.to_path_buf();
     }
