@@ -17,7 +17,12 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context as _, bail};
-use std::process::{Command, ExitStatus};
+use clap::error::ErrorKind;
+use std::{
+    ffi::{OsStr, OsString},
+    path::PathBuf,
+    process::{Command, ExitStatus},
+};
 use which::which_global;
 
 pub(crate) fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
@@ -25,6 +30,21 @@ pub(crate) fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
         bail!("no external subcommand provided");
     };
     let subcmd = args.remove(0);
+    let resolved = resolve_external_subcommand(&subcmd)?;
+    Ok(exec(Command::new(resolved).args(args))?.code().unwrap_or(0))
+}
+
+pub(crate) fn run_external_help(
+    subcmd: &str,
+    args: impl IntoIterator<Item = OsString>,
+) -> anyhow::Result<i32> {
+    run_external_command(resolve_external_subcommand(subcmd)?, args)
+        .with_context(|| format!("Unable to get help from `{subcmd}` utility"))?
+        .code()
+        .ok_or_else(|| anyhow::anyhow!("Unable to get exit code"))
+}
+
+fn resolve_external_subcommand(subcmd: &str) -> anyhow::Result<PathBuf> {
     if subcmd == "-" {
         bail!(
             "`-` is only supported in `moon run -`, which reads `.mbtx` source from stdin.\n\
@@ -32,10 +52,82 @@ pub(crate) fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
         );
     }
     let bin = &format!("moon-{subcmd}");
-    let resolved = which_global(bin).context(anyhow::format_err!(
+    which_global(bin).context(anyhow::format_err!(
         "no such subcommand: `{subcmd}`, is `{bin}` a valid executable accessible via your `PATH`?"
-    ))?;
-    Ok(exec(Command::new(resolved).args(args))?.code().unwrap_or(0))
+    ))
+}
+
+fn run_external_command(
+    program: impl AsRef<OsStr>,
+    args: impl IntoIterator<Item = OsString>,
+) -> std::io::Result<ExitStatus> {
+    Command::new(program).args(args).status()
+}
+
+pub(crate) fn exit_if_ide_help_request(err: &clap::Error, raw_args: &[OsString]) {
+    if err.kind() != ErrorKind::InvalidSubcommand {
+        return;
+    }
+
+    let Some(args) = ide_help_args(raw_args) else {
+        return;
+    };
+    match run_external_help("ide", args) {
+        Ok(code) => std::process::exit(code),
+        Err(err) => {
+            eprintln!("Error: {err:?}");
+            std::process::exit(-1);
+        }
+    }
+}
+
+fn ide_help_args(raw_args: &[OsString]) -> Option<Vec<OsString>> {
+    let [_, help, ide, tail @ ..] = raw_args else {
+        return None;
+    };
+    if help != OsStr::new("help") || ide != OsStr::new("ide") {
+        return None;
+    }
+
+    let mut delegated = tail.to_vec();
+    delegated.push(OsString::from("--help"));
+    Some(delegated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ide_help_args;
+    use std::ffi::OsString;
+
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn delegates_top_level_help_for_ide() {
+        assert_eq!(
+            ide_help_args(&os(&["moon", "help", "ide"])),
+            Some(os(&["--help"]))
+        );
+    }
+
+    #[test]
+    fn delegates_subcommand_help_for_ide() {
+        assert_eq!(
+            ide_help_args(&os(&["moon", "help", "ide", "doc"])),
+            Some(os(&["doc", "--help"]))
+        );
+    }
+
+    #[test]
+    fn ignores_other_help_targets() {
+        assert_eq!(ide_help_args(&os(&["moon", "help", "build"])), None);
+    }
+
+    #[test]
+    fn ignores_regular_ide_execution() {
+        assert_eq!(ide_help_args(&os(&["moon", "ide", "--help"])), None);
+    }
 }
 
 #[cfg(unix)]
