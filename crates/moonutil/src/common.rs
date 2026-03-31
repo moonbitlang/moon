@@ -76,8 +76,6 @@ pub const BLACKBOX_TEST_PATCH: &str = "_test.json";
 
 pub const DOT_MBT_DOT_MD: &str = ".mbt.md";
 pub const DOT_MBTP: &str = ".mbtp";
-pub const DOT_MBL: &str = ".mbl";
-pub const DOT_MBY: &str = ".mby";
 
 pub const MOON_BIN_DIR: &str = "__moonbin__";
 
@@ -119,8 +117,6 @@ pub enum PackageSourceFileKind {
     Mbt,
     MbtMd,
     Mbtp,
-    Mbl,
-    Mby,
 }
 
 pub fn package_source_file_kind(filename: &str) -> Option<PackageSourceFileKind> {
@@ -130,10 +126,6 @@ pub fn package_source_file_kind(filename: &str) -> Option<PackageSourceFileKind>
         Some(PackageSourceFileKind::MbtMd)
     } else if filename.ends_with(DOT_MBTP) {
         Some(PackageSourceFileKind::Mbtp)
-    } else if filename.ends_with(DOT_MBL) {
-        Some(PackageSourceFileKind::Mbl)
-    } else if filename.ends_with(DOT_MBY) {
-        Some(PackageSourceFileKind::Mby)
     } else {
         None
     }
@@ -160,14 +152,6 @@ fn package_source_file_kind_detects_supported_package_inputs() {
         package_source_file_kind("proof.mbtp"),
         Some(PackageSourceFileKind::Mbtp)
     );
-    assert_eq!(
-        package_source_file_kind("lexer.mbl"),
-        Some(PackageSourceFileKind::Mbl)
-    );
-    assert_eq!(
-        package_source_file_kind("parser.mby"),
-        Some(PackageSourceFileKind::Mby)
-    );
     assert_eq!(package_source_file_kind("moon.pkg"), None);
 }
 
@@ -178,7 +162,7 @@ fn watch_relevant_project_file_covers_sources_and_manifests() {
     assert!(is_watch_relevant_project_file("moon.work.json"));
     assert!(is_watch_relevant_project_file("moon.pkg"));
     assert!(is_watch_relevant_project_file("moon.pkg.json"));
-    assert!(is_watch_relevant_project_file("lexer.mbl"));
+    assert!(!is_watch_relevant_project_file("lexer.mbl"));
     assert!(!is_watch_relevant_project_file("README.md"));
 }
 

@@ -47,17 +47,6 @@ pub(crate) fn rr_get_prebuild_watch_paths(env: &ResolveOutput) -> PrebuildWatchP
                     &pkg.root_path,
                 );
             }
-
-            ignored_paths.extend(
-                pkg.mbt_lex_files
-                    .iter()
-                    .map(|path| path.with_extension("mbt")),
-            );
-            ignored_paths.extend(
-                pkg.mbt_yacc_files
-                    .iter()
-                    .map(|path| path.with_extension("mbt")),
-            );
         }
     }
 

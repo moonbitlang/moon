@@ -111,15 +111,6 @@ impl<'a> BuildPlanConstructor<'a> {
                 self.add_edge(node, prebuild_node);
             }
         }
-        for i in 0..pkg.mbt_lex_files.len() {
-            let prebuild_node = self.need_node(BuildPlanNode::RunMoonLexPrebuild(pkg_id, i as u32));
-            self.add_edge(node, prebuild_node);
-        }
-        for i in 0..pkg.mbt_yacc_files.len() {
-            let prebuild_node =
-                self.need_node(BuildPlanNode::RunMoonYaccPrebuild(pkg_id, i as u32));
-            self.add_edge(node, prebuild_node);
-        }
     }
 
     fn check_backend_compatibility_for_dep(
@@ -462,24 +453,10 @@ impl<'a> BuildPlanConstructor<'a> {
             })
         });
 
-        // MAINTAINERS: These predefined prebuild operations that have a fixed
-        // meaning. If these are not needed in the future, they can be removed.
-        let mbtlex_iter = pkg
-            .mbt_lex_files
-            .iter()
-            .map(|x| Cow::Owned(x.with_extension("mbt")));
-        let mbtyacc_iter = pkg
-            .mbt_yacc_files
-            .iter()
-            .map(|x| Cow::Owned(x.with_extension("mbt")));
-
         // Filter source files
         let source_files = cond_comp::filter_files(
             &pkg.raw,
-            source_iter
-                .chain(prebuild_output_iter)
-                .chain(mbtlex_iter)
-                .chain(mbtyacc_iter),
+            source_iter.chain(prebuild_output_iter),
             &compile_condition,
         );
 
@@ -1372,27 +1349,6 @@ impl<'a> BuildPlanConstructor<'a> {
             v.push(None);
         }
         v[index as usize] = Some(info);
-    }
-
-    pub(super) fn build_lex_prebuild(
-        &mut self,
-        node: BuildPlanNode,
-    ) -> Result<(), BuildPlanConstructError> {
-        // Not much things to do here, moonlex is straightforward
-        // the hassle is telling the build system we have the files to compile
-        self.need_node(node);
-        self.resolved_node(node);
-        Ok(())
-    }
-
-    pub(super) fn build_yacc_prebuild(
-        &mut self,
-        node: BuildPlanNode,
-    ) -> Result<(), BuildPlanConstructError> {
-        // similar to lex prebuild
-        self.need_node(node);
-        self.resolved_node(node);
-        Ok(())
     }
 }
 

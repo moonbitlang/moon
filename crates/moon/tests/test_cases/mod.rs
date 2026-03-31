@@ -83,7 +83,6 @@ mod native_stub_stability;
 mod no_export_when_test;
 mod output_format;
 mod packages;
-mod prebuild;
 mod prebuild_config_script;
 mod prebuild_link_config_self;
 mod query_symbol;
@@ -2173,7 +2172,7 @@ fn test_exports_in_native_backend() {
 }
 
 #[test]
-#[ignore = "moonyacc is not updated for a long time, and this test case is broken"]
+#[ignore = "known broken test case"]
 fn test_diag_loc_map() {
     let dir = TestDir::new("diag_loc_map.in");
     check(
