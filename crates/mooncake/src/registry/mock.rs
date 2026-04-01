@@ -24,7 +24,7 @@ use std::{
 };
 
 use moonutil::{dependency::SourceDependencyInfo, module::MoonMod, mooncakes::ModuleName};
-use semver::{Version, VersionReq};
+use semver::Version;
 
 use super::Registry;
 
@@ -70,15 +70,11 @@ impl MockRegistry {
                     .modules
                     .contains_key(&dep.0.parse::<ModuleName>().unwrap())
                 {
-                    misses.push((
-                        dep.0.clone(),
-                        format!(
-                            "{}.{}.{}",
-                            dep.1.version.comparators[0].major,
-                            dep.1.version.comparators[0].minor.unwrap(),
-                            dep.1.version.comparators[0].patch.unwrap()
-                        ),
-                    ));
+                    let version = dep
+                        .1
+                        .version()
+                        .expect("mock registry dependency should have a version");
+                    misses.push((dep.0.clone(), version.to_string()));
                 }
             }
         }
@@ -136,10 +132,7 @@ pub(crate) fn create_mock_module<'a>(
             .map(|(name, version)| {
                 (
                     name.to_string(),
-                    SourceDependencyInfo {
-                        version: VersionReq::parse(version).unwrap(),
-                        ..Default::default()
-                    },
+                    SourceDependencyInfo::Simple(Version::parse(version).unwrap()),
                 )
             })
             .collect(),

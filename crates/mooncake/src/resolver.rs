@@ -25,7 +25,7 @@ use moonutil::moon_dir;
 use moonutil::mooncakes::ModuleId;
 use moonutil::mooncakes::result::{ResolvedEnv, ResolvedRootModules};
 use moonutil::mooncakes::{ModuleName, ModuleSource, result};
-use semver::{Version, VersionReq};
+use semver::Version;
 use thiserror::Error;
 
 use crate::registry::Registry;
@@ -53,7 +53,7 @@ pub(crate) enum ResolverError {
     NoSatisfiedVersion {
         dependency: ModuleName,
         dependant: ModuleName,
-        required: VersionReq,
+        required: Version,
     },
     #[error(
         "Failed to resolve local dependency `{dependency}` for module `{dependant}`: local module version `{actual}` does not satisfy requirement `{required}`"
@@ -62,7 +62,7 @@ pub(crate) enum ResolverError {
         dependant: ModuleName,
         dependency: ModuleName,
         actual: Version,
-        required: VersionReq,
+        required: Version,
     },
     #[error("{}", format_version_conflict(.module, .conflicts))]
     ConflictingVersions {

@@ -130,21 +130,13 @@ pub fn add(
         bin_deps.insert(
             pkg_name_str,
             BinaryDependencyInfo {
-                common: SourceDependencyInfo {
-                    version: moonutil::version::as_caret_version_req(version.clone()),
-                    ..Default::default()
-                },
+                common: SourceDependencyInfo::Simple(version.clone()),
                 ..Default::default()
             },
         );
     } else {
-        m.deps.insert(
-            pkg_name_str,
-            SourceDependencyInfo {
-                version: moonutil::version::as_caret_version_req(version.clone()),
-                ..Default::default()
-            },
-        );
+        m.deps
+            .insert(pkg_name_str, SourceDependencyInfo::Simple(version.clone()));
     }
 
     let m = Arc::new(m);

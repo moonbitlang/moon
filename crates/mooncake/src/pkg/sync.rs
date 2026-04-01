@@ -166,7 +166,7 @@ pub fn auto_sync_for_single_mbt_md(
         front_matter_config.and_then(|config| config.moonbit.unwrap_or_default().deps)
     {
         for (k, v) in deps_map.iter() {
-            deps.insert(k.clone(), v.clone().into());
+            deps.insert(k.clone(), v.clone());
         }
     }
 
@@ -196,12 +196,12 @@ pub fn auto_sync_for_single_file_rr(
     source_dir: &Path,
     mooncakes_dir: &Path,
     sync_flags: &AutoSyncFlags,
-    front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfoJson>>,
+    front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let mut synth_deps = IndexMap::new();
     if let Some(deps_map) = front_matter_deps {
         for (k, v) in deps_map.iter() {
-            synth_deps.insert(k.clone(), v.clone().into());
+            synth_deps.insert(k.clone(), v.clone());
         }
     }
 
