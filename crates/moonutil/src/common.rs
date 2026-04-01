@@ -1300,7 +1300,7 @@ pub struct MbtMdHeader {
 
 #[derive(Debug, serde::Deserialize, Default)]
 pub struct MbtMdSection {
-    pub deps: Option<IndexMap<String, crate::dependency::SourceDependencyInfoJson>>,
+    pub deps: Option<IndexMap<String, crate::dependency::SourceDependencyInfo>>,
     pub import: Option<crate::package::PkgJSONImport>,
     pub backend: Option<String>,
 }

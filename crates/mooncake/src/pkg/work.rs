@@ -312,10 +312,10 @@ fn sync_source_dependency(
     ))?;
     let version = Some(resolved_env.module_source(dep_id).version().clone());
 
-    if dep.version == version {
+    if dep.version() == version.as_ref() {
         return Ok(false);
     }
 
-    dep.version = version;
+    dep.set_version(version);
     Ok(true)
 }

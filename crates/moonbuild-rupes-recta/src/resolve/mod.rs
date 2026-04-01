@@ -36,7 +36,7 @@ use moonutil::{
     common::{
         MBTI_USER_WRITTEN, MOONBITLANG_CORE, MbtMdHeader, TargetBackend, parse_front_matter_config,
     },
-    dependency::{SourceDependencyInfo, SourceDependencyInfoJson},
+    dependency::SourceDependencyInfo,
     mooncakes::{DirSyncResult, ModuleId, result::ResolvedEnv, sync::AutoSyncFlags},
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
 };
@@ -91,12 +91,12 @@ pub struct ResolveConfig {
 }
 
 struct FrontMatterImports {
-    deps: IndexMap<String, SourceDependencyInfoJson>,
+    deps: IndexMap<String, SourceDependencyInfo>,
     imports: Vec<Import>,
 }
 
 struct FrontMatterConfig {
-    deps_to_sync: Option<IndexMap<String, SourceDependencyInfoJson>>,
+    deps_to_sync: Option<IndexMap<String, SourceDependencyInfo>>,
     package_imports: Option<Vec<Import>>,
     warn_import_all: bool,
 }
@@ -206,7 +206,7 @@ fn parse_front_matter_imports(
             );
         };
         let version = SourceDependencyInfo::from_str(&version)?;
-        deps.insert(module, SourceDependencyInfoJson::from(version));
+        deps.insert(module, version);
     }
 
     Ok(FrontMatterImports {

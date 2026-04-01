@@ -24,92 +24,146 @@ use schemars::JsonSchema;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-/// Information about a specific dependency
-#[derive(Clone, Serialize, Deserialize, Default, JsonSchema)]
-pub struct SourceDependencyInfo {
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SourceRegistryDependencyInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "String")]
     pub version: Option<Version>,
-    // Other optional fields...
-    /// Local path to the dependency. Overrides the version requirement.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    /// Git repository URL. Overrides the version requirement.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub git: Option<String>,
-    /// Git branch to use.
-    #[serde(skip_serializing_if = "Option::is_none", rename = "branch")]
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SourceLocalDependencyInfo {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub version: Option<Version>,
+}
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SourceGitDependencyInfo {
+    pub git: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "branch")]
     pub git_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
+    pub version: Option<Version>,
+}
+
+/// Information about a specific dependency. This supports both simple string
+/// syntax and detailed object syntax in `moon.mod.json`.
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum SourceDependencyInfo {
+    #[schemars(with = "String")]
+    Simple(Version),
+    Local(SourceLocalDependencyInfo),
+    Git(SourceGitDependencyInfo),
+    Registry(SourceRegistryDependencyInfo),
+}
+
+impl Default for SourceDependencyInfo {
+    fn default() -> Self {
+        Self::Registry(SourceRegistryDependencyInfo { version: None })
+    }
+}
+
+impl SourceDependencyInfo {
+    pub fn version(&self) -> Option<&Version> {
+        match self {
+            SourceDependencyInfo::Simple(version) => Some(version),
+            SourceDependencyInfo::Local(info) => info.version.as_ref(),
+            SourceDependencyInfo::Git(info) => info.version.as_ref(),
+            SourceDependencyInfo::Registry(info) => info.version.as_ref(),
+        }
+    }
+
+    pub fn set_version(&mut self, version: Option<Version>) {
+        match self {
+            SourceDependencyInfo::Simple(existing) => {
+                if let Some(version) = version {
+                    *existing = version;
+                } else {
+                    *self = SourceDependencyInfo::Registry(SourceRegistryDependencyInfo {
+                        version: None,
+                    });
+                }
+            }
+            SourceDependencyInfo::Local(info) => info.version = version,
+            SourceDependencyInfo::Git(info) => info.version = version,
+            SourceDependencyInfo::Registry(info) => info.version = version,
+        }
+    }
+
+    pub fn path(&self) -> Option<&str> {
+        match self {
+            SourceDependencyInfo::Local(info) => Some(info.path.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn git(&self) -> Option<&str> {
+        match self {
+            SourceDependencyInfo::Git(info) => Some(info.git.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn git_branch(&self) -> Option<&str> {
+        match self {
+            SourceDependencyInfo::Git(info) => info.git_branch.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Check if the requirement is simple. That is, it only contains a version requirement.
+    fn is_simple(&self) -> bool {
+        matches!(self, SourceDependencyInfo::Simple(_))
+            || matches!(
+                self,
+                SourceDependencyInfo::Registry(SourceRegistryDependencyInfo { version: Some(_) })
+            )
+    }
 }
 
 impl std::fmt::Debug for SourceDependencyInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_simple() {
-            write!(
-                f,
-                "{}",
-                self.version
-                    .as_ref()
-                    .expect("simple dependency should always have a version")
-            )
-        } else {
-            f.debug_struct("SourceDependencyInfo")
+        if let Some(version) = self.version()
+            && self.path().is_none()
+            && self.git().is_none()
+            && self.git_branch().is_none()
+        {
+            return write!(f, "{version}");
+        }
+
+        match self {
+            SourceDependencyInfo::Simple(version) => write!(f, "{version}"),
+            SourceDependencyInfo::Local(info) => f
+                .debug_struct("SourceDependencyInfo::Local")
+                .field("path", &info.path)
                 .field(
                     "version",
-                    &self.version.as_ref().map(std::string::ToString::to_string),
+                    &info.version.as_ref().map(std::string::ToString::to_string),
                 )
-                .finish()
-        }
-    }
-}
-
-/// The JSON representation of a source dependency info
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum SourceDependencyInfoJson {
-    /// A simple version requirement
-    #[schemars(with = "String")]
-    Simple(Version),
-    /// A detailed dependency info
-    Detailed(SourceDependencyInfo),
-}
-
-impl SourceDependencyInfo {
-    /// Check if the requirement is simple. That is, it only contains a version requirement
-    fn is_simple(&self) -> bool {
-        self.version.is_some()
-            && self.path.is_none()
-            && self.git.is_none()
-            && self.git_branch.is_none()
-    }
-
-    #[allow(clippy::needless_update)] // More fields will be added later
-    fn from_simple(version: Version) -> Self {
-        Self {
-            version: Some(version),
-            ..Default::default()
-        }
-    }
-}
-
-impl From<SourceDependencyInfo> for SourceDependencyInfoJson {
-    fn from(dep: SourceDependencyInfo) -> Self {
-        if dep.is_simple() {
-            SourceDependencyInfoJson::Simple(
-                dep.version
-                    .expect("simple dependency should always have a version"),
-            )
-        } else {
-            SourceDependencyInfoJson::Detailed(dep)
-        }
-    }
-}
-
-impl From<SourceDependencyInfoJson> for SourceDependencyInfo {
-    fn from(dep: SourceDependencyInfoJson) -> Self {
-        match dep {
-            SourceDependencyInfoJson::Simple(v) => SourceDependencyInfo::from_simple(v),
-            SourceDependencyInfoJson::Detailed(d) => d,
+                .finish(),
+            SourceDependencyInfo::Git(info) => f
+                .debug_struct("SourceDependencyInfo::Git")
+                .field("git", &info.git)
+                .field("git_branch", &info.git_branch)
+                .field(
+                    "version",
+                    &info.version.as_ref().map(std::string::ToString::to_string),
+                )
+                .finish(),
+            SourceDependencyInfo::Registry(info) => f
+                .debug_struct("SourceDependencyInfo::Registry")
+                .field(
+                    "version",
+                    &info.version.as_ref().map(std::string::ToString::to_string),
+                )
+                .finish(),
         }
     }
 }
@@ -118,7 +172,7 @@ impl FromStr for SourceDependencyInfo {
     type Err = semver::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(SourceDependencyInfo::from_simple(Version::parse(s)?))
+        Ok(SourceDependencyInfo::Simple(Version::parse(s)?))
     }
 }
 
@@ -153,22 +207,8 @@ impl BinaryDependencyInfo {
     #[allow(clippy::needless_update)] // More fields will be added later
     fn from_simple(version: Version) -> Self {
         Self {
-            common: SourceDependencyInfo::from_simple(version),
+            common: SourceDependencyInfo::Simple(version),
             ..Default::default()
-        }
-    }
-}
-
-impl From<BinaryDependencyInfo> for SourceDependencyInfoJson {
-    fn from(dep: BinaryDependencyInfo) -> Self {
-        if dep.is_simple() {
-            SourceDependencyInfoJson::Simple(
-                dep.common
-                    .version
-                    .expect("simple dependency should always have a version"),
-            )
-        } else {
-            SourceDependencyInfoJson::Detailed(dep.into())
         }
     }
 }
@@ -184,7 +224,8 @@ impl From<BinaryDependencyInfo> for BinaryDependencyInfoJson {
         if dep.is_simple() {
             BinaryDependencyInfoJson::Simple(
                 dep.common
-                    .version
+                    .version()
+                    .cloned()
                     .expect("simple dependency should always have a version"),
             )
         } else {
@@ -210,15 +251,52 @@ mod tests {
     fn detailed_dependency_allows_missing_version() {
         let dep: SourceDependencyInfo =
             serde_json_lenient::from_str(r#"{"path":"../dep"}"#).unwrap();
-        assert!(dep.version.is_none());
-        assert_eq!(dep.path.as_deref(), Some("../dep"));
+        assert!(dep.version().is_none());
+        assert_eq!(dep.path(), Some("../dep"));
     }
 
     #[test]
     fn detailed_dependency_allows_null_version() {
         let dep: SourceDependencyInfo =
             serde_json_lenient::from_str(r#"{"version":null,"path":"../dep"}"#).unwrap();
-        assert!(dep.version.is_none());
-        assert_eq!(dep.path.as_deref(), Some("../dep"));
+        assert!(dep.version().is_none());
+        assert_eq!(dep.path(), Some("../dep"));
+    }
+
+    #[test]
+    fn detailed_dependency_rejects_path_git_mix() {
+        let err = serde_json_lenient::from_str::<SourceDependencyInfo>(
+            r#"{"path":"../dep","git":"https://example.com/dep.git"}"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("did not match any variant"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[test]
+    fn binary_dependency_allows_local_source_with_bin_pkg() {
+        let dep: BinaryDependencyInfoJson =
+            serde_json_lenient::from_str(r#"{"path":"../dep","bin_pkg":["main"]}"#).unwrap();
+        let BinaryDependencyInfoJson::Detailed(dep) = dep else {
+            panic!("expected detailed dependency");
+        };
+        assert_eq!(dep.common.path(), Some("../dep"));
+        assert_eq!(dep.bin_pkg, Some(vec!["main".to_string()]));
+    }
+
+    #[test]
+    fn binary_dependency_allows_git_source_with_bin_pkg() {
+        let dep: BinaryDependencyInfoJson = serde_json_lenient::from_str(
+            r#"{"git":"https://example.com/dep.git","branch":"main","bin_pkg":["tool"]}"#,
+        )
+        .unwrap();
+        let BinaryDependencyInfoJson::Detailed(dep) = dep else {
+            panic!("expected detailed dependency");
+        };
+        assert_eq!(dep.common.git(), Some("https://example.com/dep.git"));
+        assert_eq!(dep.common.git_branch(), Some("main"));
+        assert_eq!(dep.bin_pkg, Some(vec!["tool".to_string()]));
     }
 }

@@ -72,8 +72,7 @@ impl MockRegistry {
                 {
                     let version = dep
                         .1
-                        .version
-                        .as_ref()
+                        .version()
                         .expect("mock registry dependency should have a version");
                     misses.push((dep.0.clone(), version.to_string()));
                 }
@@ -133,10 +132,7 @@ pub(crate) fn create_mock_module<'a>(
             .map(|(name, version)| {
                 (
                     name.to_string(),
-                    SourceDependencyInfo {
-                        version: Some(Version::parse(version).unwrap()),
-                        ..Default::default()
-                    },
+                    SourceDependencyInfo::Simple(Version::parse(version).unwrap()),
                 )
             })
             .collect(),

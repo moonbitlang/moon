@@ -31,7 +31,7 @@
         "null"
       ],
       "additionalProperties": {
-        "$ref": "#/definitions/SourceDependencyInfoJson"
+        "$ref": "#/definitions/SourceDependencyInfo"
       }
     },
     "description": {
@@ -150,6 +150,20 @@
     "BinaryDependencyInfo": {
       "description": "Information about a specific dependency",
       "type": "object",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/SourceLocalDependencyInfo"
+        },
+        {
+          "$ref": "#/definitions/SourceGitDependencyInfo"
+        },
+        {
+          "$ref": "#/definitions/SourceRegistryDependencyInfo"
+        }
+      ],
       "properties": {
         "bin_pkg": {
           "description": "Binary packages to compile.",
@@ -160,30 +174,6 @@
           "items": {
             "type": "string"
           }
-        },
-        "branch": {
-          "description": "Git branch to use.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "git": {
-          "description": "Git repository URL. Overrides the version requirement.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "path": {
-          "description": "Local path to the dependency. Overrides the version requirement.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "version": {
-          "type": "string"
         }
       }
     },
@@ -205,51 +195,66 @@
       ]
     },
     "SourceDependencyInfo": {
-      "description": "Information about a specific dependency",
+      "description": "Information about a specific dependency. This supports both simple string syntax and detailed object syntax in `moon.mod.json`.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/definitions/SourceLocalDependencyInfo"
+        },
+        {
+          "$ref": "#/definitions/SourceGitDependencyInfo"
+        },
+        {
+          "$ref": "#/definitions/SourceRegistryDependencyInfo"
+        }
+      ]
+    },
+    "SourceGitDependencyInfo": {
       "type": "object",
+      "required": [
+        "git"
+      ],
       "properties": {
         "branch": {
-          "description": "Git branch to use.",
           "type": [
             "string",
             "null"
           ]
         },
         "git": {
-          "description": "Git repository URL. Overrides the version requirement.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "path": {
-          "description": "Local path to the dependency. Overrides the version requirement.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
         },
         "version": {
           "type": "string"
         }
-      }
+      },
+      "additionalProperties": false
     },
-    "SourceDependencyInfoJson": {
-      "description": "The JSON representation of a source dependency info",
-      "anyOf": [
-        {
-          "description": "A simple version requirement",
+    "SourceLocalDependencyInfo": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
           "type": "string"
         },
-        {
-          "description": "A detailed dependency info",
-          "allOf": [
-            {
-              "$ref": "#/definitions/SourceDependencyInfo"
-            }
-          ]
+        "version": {
+          "type": "string"
         }
-      ]
+      },
+      "additionalProperties": false
+    },
+    "SourceRegistryDependencyInfo": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     },
     "SupportedTargetsConfig": {
       "anyOf": [

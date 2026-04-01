@@ -56,7 +56,7 @@ fn select_min_version_satisfying<'a>(
     req: &SourceDependencyInfo,
     versions: impl Iterator<Item = &'a Version> + 'a,
 ) -> Result<Version, ResolverError> {
-    let required = req.version.as_ref().ok_or_else(|| {
+    let required = req.version().ok_or_else(|| {
         ResolverError::Other(anyhow!(
             "Registry dependency `{}` for module `{}` must specify a version",
             dependency,
@@ -212,7 +212,7 @@ fn workspace_version_override_warning(
     dependant: &ModuleSource,
     workspace_member: &ModuleSource,
 ) -> Option<String> {
-    let required = req.version.as_ref()?;
+    let required = req.version()?;
     if (semver::Comparator {
         op: semver::Op::Caret,
         major: required.major,
@@ -409,7 +409,7 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
                 let dep_versions = &settled_versions[&dep_name];
                 let resolved = dep_versions
                     .iter()
-                    .find(|v| match req.version.as_ref() {
+                    .find(|v| match req.version() {
                         Some(required) => semver::Comparator {
                             op: semver::Op::Caret,
                             major: required.major,
@@ -474,7 +474,7 @@ fn resolve_pkg(
         return Ok((source.clone(), Arc::clone(module)));
     }
 
-    if let Some(path) = &req.path
+    if let Some(path) = req.path()
         && local_dep_allowed(dependant)
     {
         // Try resolving using local dependency
@@ -523,7 +523,7 @@ fn resolve_pkg(
         );
         // Assert version matches
         if let Some(actual) = &res.version
-            && let Some(required) = &req.version
+            && let Some(required) = req.version()
             && !(semver::Comparator {
                 op: semver::Op::Caret,
                 major: required.major,
@@ -542,9 +542,7 @@ fn resolve_pkg(
         }
         return Ok((ms, res));
     }
-    if let Some(_url) = &req.git
-        && git_dep_allowed(dependant)
-    {
+    if req.git().is_some() && git_dep_allowed(dependant) {
         // TODO: Try resolving using git dependency
     }
     // If neither git nor local dependencies can be resolved (either because the user
@@ -830,10 +828,9 @@ mod test {
             [(
                 "dep/bin".to_string(),
                 moonutil::dependency::BinaryDependencyInfo {
-                    common: moonutil::dependency::SourceDependencyInfo {
-                        version: Some("0.1.0".parse().unwrap()),
-                        ..Default::default()
-                    },
+                    common: moonutil::dependency::SourceDependencyInfo::Simple(
+                        "0.1.0".parse().unwrap(),
+                    ),
                     ..Default::default()
                 },
             )]
@@ -1010,10 +1007,7 @@ mod test {
         let shared = Arc::new(create_mock_module("dep/shared", "0.1.0", []));
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
         let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
-        let req = SourceDependencyInfo {
-            version: Some("0.2.0".parse().unwrap()),
-            ..Default::default()
-        };
+        let req = SourceDependencyInfo::Simple("0.2.0".parse().unwrap());
 
         let warning = workspace_version_override_warning(&req, &app_src, &shared_src)
             .expect("expected mismatch warning");
@@ -1032,10 +1026,7 @@ mod test {
         let shared = Arc::new(create_mock_module("dep/shared", "0.1.1", []));
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
         let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
-        let req = SourceDependencyInfo {
-            version: Some("0.1.0".parse().unwrap()),
-            ..Default::default()
-        };
+        let req = SourceDependencyInfo::Simple("0.1.0".parse().unwrap());
 
         assert!(
             workspace_version_override_warning(&req, &app_src, &shared_src).is_none(),

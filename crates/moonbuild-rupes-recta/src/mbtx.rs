@@ -22,15 +22,11 @@ use std::str::FromStr;
 use anyhow::Context;
 use indexmap::IndexMap;
 use mooncake::registry::Registry;
-use moonutil::{
-    common::MOONBITLANG_CORE,
-    dependency::{SourceDependencyInfo, SourceDependencyInfoJson},
-    package::Import,
-};
+use moonutil::{common::MOONBITLANG_CORE, dependency::SourceDependencyInfo, package::Import};
 
 #[derive(Default)]
 pub(super) struct MbtxFrontMatterImports {
-    pub(super) deps: IndexMap<String, SourceDependencyInfoJson>,
+    pub(super) deps: IndexMap<String, SourceDependencyInfo>,
     pub(super) imports: Vec<Import>,
 }
 
@@ -130,7 +126,7 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
             continue;
         }
         let version = SourceDependencyInfo::from_str(&version)?;
-        deps.insert(module, SourceDependencyInfoJson::from(version));
+        deps.insert(module, version);
     }
 
     Ok(MbtxFrontMatterImports { deps, imports })

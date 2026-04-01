@@ -17,9 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::common::{MoonModJSONFormatErrorKind, NameError, TargetBackend};
-use crate::dependency::{
-    BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo, SourceDependencyInfoJson,
-};
+use crate::dependency::{BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo};
 use crate::package::{PackageJSON, SupportedTargetsConfig, resolve_supported_targets};
 use indexmap::map::IndexMap;
 use schemars::JsonSchema;
@@ -87,8 +85,8 @@ pub struct MoonModJSON {
 
     /// third-party dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(with = "Option<std::collections::HashMap<String, SourceDependencyInfoJson>>")]
-    pub deps: Option<IndexMap<String, SourceDependencyInfoJson>>,
+    #[schemars(with = "Option<std::collections::HashMap<String, SourceDependencyInfo>>")]
+    pub deps: Option<IndexMap<String, SourceDependencyInfo>>,
 
     /// third-party binary dependencies of the module
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -198,7 +196,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
 
         let deps = match j.deps {
             None => IndexMap::new(),
-            Some(d) => d.into_iter().map(|(k, v)| (k, v.into())).collect(),
+            Some(d) => d,
         };
 
         let bin_deps = j
@@ -249,7 +247,7 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
     MoonModJSON {
         name: m.name,
         version: m.version.map(|v| v.to_string()),
-        deps: Some(m.deps.into_iter().map(|(k, v)| (k, v.into())).collect()),
+        deps: Some(m.deps),
         bin_deps: m
             .bin_deps
             .map(|d| d.into_iter().map(|(k, v)| (k, v.into())).collect()),
