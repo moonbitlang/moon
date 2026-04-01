@@ -78,6 +78,20 @@ pub(super) fn compute_realizable_supported_targets(
     dep: &DepRelationship,
     packages: &DiscoverResult,
 ) -> HashMap<BuildTarget, IndexSet<TargetBackend>> {
+    #[inline]
+    fn retain_backends_by_mask(
+        backends: &IndexSet<TargetBackend>,
+        mask: u8,
+    ) -> IndexSet<TargetBackend> {
+        let mut out = IndexSet::with_capacity(backends.len());
+        for &backend in backends {
+            if mask & (1u8 << (backend as u8)) != 0 {
+                out.insert(backend);
+            }
+        }
+        out
+    }
+
     let graph = &dep.dep_graph;
     let mut topo = petgraph::visit::Topo::new(graph);
     let mut topo_order = Vec::new();
@@ -85,22 +99,27 @@ pub(super) fn compute_realizable_supported_targets(
         topo_order.push(node);
     }
 
+    let mut realizable_masks = HashMap::new();
     let mut realizable_supported_targets = HashMap::new();
     for node in topo_order.into_iter().rev() {
-        let mut realizable = packages
+        let declared = &packages
             .get_package(node.package)
-            .effective_supported_targets
-            .clone();
+            .effective_supported_targets;
+        let mut realizable_mask = declared
+            .iter()
+            .fold(0, |acc, backend| acc | (1u8 << (*backend as u8)));
         for dep_target in graph.neighbors(node) {
-            let dep_realizable: &IndexSet<TargetBackend> = realizable_supported_targets
+            let dep_realizable_mask = *realizable_masks
                 .get(&dep_target)
                 .expect("dependency target should be resolved before dependent");
-            realizable.retain(|backend| dep_realizable.contains(backend));
-            if realizable.is_empty() {
+            realizable_mask &= dep_realizable_mask;
+            if realizable_mask == 0 {
                 break;
             }
         }
-        realizable_supported_targets.insert(node, realizable);
+        realizable_masks.insert(node, realizable_mask);
+        realizable_supported_targets
+            .insert(node, retain_backends_by_mask(declared, realizable_mask));
     }
 
     realizable_supported_targets
