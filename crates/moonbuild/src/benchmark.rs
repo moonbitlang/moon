@@ -50,7 +50,7 @@ fn auto_select_unit(ns: f64) -> String {
         format!("{:>6.2} µs", ns / 1e3)
     } else if ns < 1e9 {
         format!("{:>6.2} ms", ns / 1e6)
-    } else if ns < 6e13 {
+    } else if ns < 6e10 {
         format!("{:>6.2} s", ns / 1e9)
     } else {
         format!("{:>6.2} min", ns / 6e10)
