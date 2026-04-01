@@ -240,7 +240,11 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
 pub(crate) fn tree_cli(cli: UniversalFlags, _cmd: TreeSubcommand) -> anyhow::Result<i32> {
     let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
     let module_dir = dirs.require_module_dir("tree")?;
-    mooncake::pkg::tree::tree(module_dir, &dirs.mooncakes_dir)
+    mooncake::pkg::tree::tree(
+        &dirs.project_root,
+        module_dir,
+        dirs.project_manifest_path.as_deref(),
+    )
 }
 
 #[cfg(test)]
