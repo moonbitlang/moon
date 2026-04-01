@@ -670,7 +670,13 @@ fn test_single_module_commands_fail_at_workspace_root() {
 fn test_single_module_commands_from_member_dir_target_member_manifest() {
     let dir = TestDir::new("workspace_basic.in");
 
-    check(get_stdout(&dir, ["-C", "app", "tree"]), expect![[r#""#]]);
+    check(
+        get_stdout(&dir, ["-C", "app", "tree"]),
+        expect![[r#"
+            alice/app@0.1.0 (local $ROOT/app) [workspace member]:
+            └─ alice/liba -> alice/liba@0.1.1 (local $ROOT/liba) [workspace member]
+        "#]],
+    );
 
     let stderr = get_stderr(
         &dir,
