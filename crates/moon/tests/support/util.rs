@@ -29,6 +29,24 @@ pub(crate) fn moon_bin() -> PathBuf {
     snapbox::cargo_bin!("moon").to_owned()
 }
 
+pub(crate) fn toolchain_root_for_tests() -> PathBuf {
+    if let Some(path) = std::env::var_os("MOON_TOOLCHAIN_ROOT") {
+        return PathBuf::from(path);
+    }
+
+    let moonc =
+        dunce::canonicalize(&*moonutil::BINARIES.moonc).unwrap_or(moonutil::BINARIES.moonc.clone());
+    if let Some(bin_dir) = moonc.parent()
+        && bin_dir.file_name().is_some_and(|name| name == "bin")
+        && let Some(root) = bin_dir.parent()
+        && moonutil::moon_dir::is_toolchain_root(root)
+    {
+        return root.to_path_buf();
+    }
+
+    moonutil::moon_dir::toolchain_root()
+}
+
 pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace("\\\\", "\\");
     let s = moonutil::BINARIES
@@ -52,11 +70,44 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     // https://github.com/moonbitlang/moon/actions/runs/10092428950/job/27906057649#step:13:149
     let s = s.replace(&path_str1, "$ROOT");
     let s = s.replace(&path_str2, "$ROOT");
+    let toolchain_root = toolchain_root_for_tests();
+    let moon_home = moonutil::moon_dir::home();
+    let show_toolchain_root = match (
+        dunce::canonicalize(&toolchain_root),
+        dunce::canonicalize(&moon_home),
+    ) {
+        (Ok(toolchain_root), Ok(moon_home)) => toolchain_root != moon_home,
+        _ => toolchain_root != moon_home,
+    };
+    let s = if show_toolchain_root {
+        [
+            (toolchain_root.join("bin"), "$MOON_TOOLCHAIN_ROOT/bin"),
+            (
+                toolchain_root.join("include"),
+                "$MOON_TOOLCHAIN_ROOT/include",
+            ),
+            (toolchain_root.join("lib"), "$MOON_TOOLCHAIN_ROOT/lib"),
+        ]
+        .into_iter()
+        .fold(s, |s, (path, replacement)| {
+            let raw = path.to_string_lossy();
+            let s = s.replace(raw.as_ref(), replacement);
+            let s = s.replace(raw.replace('\\', "/").as_str(), replacement);
+
+            match dunce::canonicalize(path) {
+                Ok(path) => {
+                    let path = path.to_string_lossy();
+                    let s = s.replace(path.as_ref(), replacement);
+                    s.replace(path.replace('\\', "/").as_str(), replacement)
+                }
+                Err(_) => s,
+            }
+        })
+    } else {
+        s
+    };
     let s = s.replace(
-        dunce::canonicalize(moonutil::moon_dir::home())
-            .unwrap()
-            .to_str()
-            .unwrap(),
+        dunce::canonicalize(moon_home).unwrap().to_str().unwrap(),
         "$MOON_HOME",
     );
     let cc_path = CC::default().cc_path;
@@ -116,7 +167,9 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
         .join("moon.test");
 
     let update = std::env::var_os("UPDATE_EXPECT").is_some();
-    let exit_code = moon_test_util::cmdtest::run::t(&test_path, &moon_bin(), update);
+    let toolchain_root = toolchain_root_for_tests();
+    let exit_code =
+        moon_test_util::cmdtest::run::t(&test_path, &moon_bin(), update, Some(&toolchain_root));
 
     assert_eq!(exit_code, 0, "cmdtest failed for {}", test_path.display());
 }

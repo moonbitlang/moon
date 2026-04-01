@@ -59,6 +59,7 @@ fn get_stdout_without_replace(
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
     let out = snapbox::cmd::Command::new(moon_bin())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .envs(envs)
         .current_dir(dir)
         .args(args)
@@ -78,6 +79,7 @@ fn get_stderr_without_replace(
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
     let out = snapbox::cmd::Command::new(moon_bin())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .envs(envs)
         .current_dir(dir)
         .args(args)
@@ -97,6 +99,7 @@ fn get_err_stdout_without_replace(
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
     let out = snapbox::cmd::Command::new(moon_bin())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .envs(envs)
         .current_dir(dir)
         .args(args)
@@ -116,6 +119,7 @@ fn get_err_stderr_without_replace(
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
     let out = snapbox::cmd::Command::new(moon_bin())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .envs(envs)
         .current_dir(dir)
         .args(args)
@@ -179,6 +183,7 @@ pub fn assert_success(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) {
     snapbox::cmd::Command::new(moon_bin())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .current_dir(dir)
         .args(args)
         .assert()

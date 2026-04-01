@@ -1213,6 +1213,7 @@ fn test_moon_update_failed() {
     let out = std::process::Command::new(moon_bin())
         .current_dir(dir)
         .env("MOON_HOME", moon_home)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .args(["update"])
@@ -1242,6 +1243,7 @@ fn test_moon_update_failed() {
     let out = std::process::Command::new(moon_bin())
         .current_dir(dir)
         .env("MOON_HOME", moon_home)
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .args(["update"])
@@ -2384,6 +2386,7 @@ fn test_upgrade() -> anyhow::Result<()> {
     let tmp_dir = tempfile::TempDir::new()?;
     let _ = std::process::Command::new(moon_bin())
         .env("MOON_HOME", tmp_dir.path().to_str().unwrap())
+        .env("MOON_TOOLCHAIN_ROOT", tmp_dir.path().to_str().unwrap())
         .arg("upgrade")
         .arg("--force")
         .arg("--non-interactive")
@@ -2401,6 +2404,37 @@ fn test_upgrade() -> anyhow::Result<()> {
         tmp_dir.path().join("bin").join("moonc.exe").exists(),
     ];
     check(format!("{xs:?}"), expect!["[true, true]"]);
+    Ok(())
+}
+
+#[test]
+fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::TempDir::new()?;
+    let toolchain_root = tempfile::TempDir::new()?;
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "upgrade",
+            "--force",
+            "--non-interactive",
+            "--base-url",
+            "https://example.invalid",
+        ],
+        [
+            ("MOON_HOME", moon_home.path().to_str().unwrap()),
+            (
+                "MOON_TOOLCHAIN_ROOT",
+                toolchain_root.path().to_str().unwrap(),
+            ),
+        ],
+    );
+
+    assert!(stderr.contains("moon upgrade only supports toolchains installed under MOON_HOME."));
+    assert!(stderr.contains(
+        "Please upgrade this installation with the package manager or installer that owns the toolchain."
+    ));
     Ok(())
 }
 
@@ -3087,6 +3121,29 @@ fn test_moon_install_global_local_path() {
     let binary_path = install_dir.join("main");
     #[cfg(target_os = "windows")]
     let binary_path = install_dir.join("main.exe");
+
+    assert!(
+        binary_path.exists(),
+        "Expected binary at {:?} to exist",
+        binary_path
+    );
+}
+
+#[test]
+fn test_moon_install_global_defaults_to_moon_home_bin() {
+    let dir = TestDir::new("moon_install_global.in");
+    let moon_home = tempfile::tempdir().unwrap();
+
+    let _output = get_stdout_with_envs(
+        &dir,
+        ["install", "--path", "src/main"],
+        [("MOON_HOME", moon_home.path().to_string_lossy().into_owned())],
+    );
+
+    #[cfg(unix)]
+    let binary_path = moon_home.path().join("bin").join("main");
+    #[cfg(target_os = "windows")]
+    let binary_path = moon_home.path().join("bin").join("main.exe");
 
     assert!(
         binary_path.exists(),

@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 
@@ -32,9 +32,10 @@ pub struct MoonDirs {
 
 pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|| {
     let moon_home = home();
-    let moon_include_path = moon_home.join("include");
-    let moon_lib_path = moon_home.join("lib");
-    let moon_bin_path = moon_home.join("bin");
+    let toolchain_root = toolchain_root();
+    let moon_include_path = toolchain_root.join("include");
+    let moon_lib_path = toolchain_root.join("lib");
+    let moon_bin_path = toolchain_root.join("bin");
     let internal_tcc_path = moon_bin_path.join("internal").join("tcc");
     MoonDirs {
         moon_home,
@@ -44,6 +45,34 @@ pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|
         internal_tcc_path,
     }
 });
+
+pub fn is_toolchain_root(root: &Path) -> bool {
+    root.join("include").is_dir()
+        && root.join("lib").join("core").is_dir()
+        && root
+            .join("bin")
+            .join(format!("moonc{}", std::env::consts::EXE_SUFFIX))
+            .is_file()
+}
+
+pub fn toolchain_root() -> PathBuf {
+    if let Some(path) = std::env::var_os("MOON_TOOLCHAIN_ROOT") {
+        return PathBuf::from(path);
+    }
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        let current_exe = dunce::canonicalize(&current_exe).unwrap_or(current_exe);
+        if let Some(bin_dir) = current_exe.parent()
+            && bin_dir.file_name().is_some_and(|name| name == "bin")
+            && let Some(root) = bin_dir.parent()
+            && is_toolchain_root(root)
+        {
+            return root.to_path_buf();
+        }
+    }
+
+    home()
+}
 
 pub fn home() -> PathBuf {
     if let Some(moon_home) = std::env::var_os("MOON_HOME") {
@@ -58,15 +87,19 @@ pub fn home() -> PathBuf {
 }
 
 pub fn bin() -> PathBuf {
+    toolchain_root().join("bin")
+}
+
+pub fn user_bin() -> PathBuf {
     home().join("bin")
 }
 
+pub fn include() -> PathBuf {
+    toolchain_root().join("include")
+}
+
 pub fn lib() -> PathBuf {
-    let lib = home().join("lib");
-    if !lib.exists() {
-        std::fs::create_dir_all(&lib).unwrap();
-    }
-    lib
+    toolchain_root().join("lib")
 }
 
 pub fn core() -> PathBuf {
@@ -74,7 +107,7 @@ pub fn core() -> PathBuf {
     if let Some(path) = env_var {
         return PathBuf::from(path);
     }
-    home().join("lib").join("core")
+    lib().join("core")
 }
 
 pub fn core_bundle(backend: TargetBackend) -> PathBuf {
@@ -143,17 +176,17 @@ pub fn moon_tmp_dir() -> anyhow::Result<PathBuf> {
 fn test_moon_dir() {
     use expect_test::expect;
 
-    let dirs = [
+    let home_dirs = [
         home(),
-        core_bundle(TargetBackend::default()),
+        user_bin(),
         cache(),
         index(),
         credentials_json(),
         config_json(),
         moon_tmp_dir().unwrap(),
     ];
-    dbg!(&dirs);
-    let dirs = dirs
+    dbg!(&home_dirs);
+    let home_dirs = home_dirs
         .iter()
         .map(|p| {
             p.strip_prefix(home())
@@ -166,7 +199,7 @@ fn test_moon_dir() {
     expect![[r#"
         [
             "",
-            "lib|core|_build|wasm-gc|release|bundle",
+            "bin",
             "registry|cache",
             "registry|index",
             "credentials.json",
@@ -174,5 +207,58 @@ fn test_moon_dir() {
             "tmp",
         ]
     "#]]
-    .assert_debug_eq(&dirs);
+    .assert_debug_eq(&home_dirs);
+
+    let toolchain_dirs = [
+        bin(),
+        include(),
+        lib(),
+        core_bundle(TargetBackend::default()),
+    ];
+    dbg!(&toolchain_dirs);
+    let toolchain_dirs = toolchain_dirs
+        .iter()
+        .map(|p| {
+            p.strip_prefix(toolchain_root())
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .replace(['\\', '/'], "|")
+        })
+        .collect::<Vec<_>>();
+    expect![[r#"
+        [
+            "bin",
+            "include",
+            "lib",
+            "lib|core|_build|wasm-gc|release|bundle",
+        ]
+    "#]]
+    .assert_debug_eq(&toolchain_dirs);
+}
+
+#[test]
+fn detects_toolchain_root_shape() {
+    let dir = std::env::temp_dir().join(format!(
+        "moonutil-toolchain-root-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    std::fs::create_dir_all(dir.join("include")).unwrap();
+    std::fs::create_dir_all(dir.join("lib").join("core")).unwrap();
+    std::fs::write(
+        dir.join("bin")
+            .join(format!("moonc{}", std::env::consts::EXE_SUFFIX)),
+        [],
+    )
+    .unwrap();
+
+    assert!(is_toolchain_root(&dir));
+    assert!(!is_toolchain_root(dir.parent().unwrap()));
+    std::fs::remove_dir_all(&dir).unwrap();
 }

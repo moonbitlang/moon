@@ -23,6 +23,7 @@ use moonutil::common::{VersionItems, get_moon_version, get_moonc_version, get_mo
 use moonutil::moon_dir::{self};
 use reqwest;
 use reqwest::Client;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::time::timeout;
 
@@ -134,9 +135,26 @@ fn should_upgrade(latest_version_info: &VersionItems) -> Option<bool> {
     Some(should_upgrade)
 }
 
+fn upgrade_home() -> Result<PathBuf> {
+    let home = moon_dir::home();
+    let toolchain_root = moon_dir::toolchain_root();
+    let canonicalize =
+        |path: &Path| dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+
+    if canonicalize(&home) != canonicalize(&toolchain_root) {
+        bail!(
+            "moon upgrade only supports toolchains installed under MOON_HOME. Active toolchain root is `{}`, but MOON_HOME is `{}`. Please upgrade this installation with the package manager or installer that owns the toolchain.",
+            toolchain_root.display(),
+            home.display()
+        );
+    }
+
+    Ok(home)
+}
+
 pub fn upgrade(cmd: UpgradeSubcommand) -> Result<i32> {
+    let h = upgrade_home()?;
     ctrlc::set_handler(upgrade_dialoguer_ctrlc_handler)?;
-    let h = moon_dir::home();
 
     println!("Checking network ...");
     let root = if cmd.base_url.is_none() {
