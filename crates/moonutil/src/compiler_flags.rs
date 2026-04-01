@@ -24,6 +24,7 @@ use std::{
     env,
     ffi::OsStr,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 const ENV_MOON_CC: &str = "MOON_CC";
@@ -52,6 +53,7 @@ pub struct CC {
     pub cc_path: String,
     pub ar_kind: ARKind,
     pub ar_path: String,
+    pub target_triple: Option<String>,
     pub is_env_override: bool, // Whether the cc is set by env MOON_CC
 }
 
@@ -94,13 +96,50 @@ impl CC {
         &self.cc_path
     }
 
-    fn new(cc_kind: CCKind, cc_path: String, ar_kind: ARKind, ar_path: String) -> Self {
+    fn new(
+        cc_kind: CCKind,
+        cc_path: String,
+        ar_kind: ARKind,
+        ar_path: String,
+        target_triple: Option<String>,
+    ) -> Self {
         CC {
             cc_kind,
             cc_path,
             ar_kind,
             ar_path,
+            target_triple,
             is_env_override: false,
+        }
+    }
+
+    fn parse_compiler_name(path: &Path) -> anyhow::Result<String> {
+        let name = path.file_name().and_then(OsStr::to_str).context(
+            "Invalid compiler path: path must point to a file with valid UTF-8 filename",
+        )?;
+        Ok(name.to_ascii_lowercase())
+    }
+
+    fn strip_exe_suffix(name: &str) -> &str {
+        name.strip_suffix(".exe").unwrap_or(name)
+    }
+
+    fn probe_target_triple(cc_path: &Path, cc_kind: CCKind) -> Option<String> {
+        if matches!(cc_kind, CCKind::Msvc) {
+            return None;
+        }
+
+        let output = Command::new(cc_path).arg("-dumpmachine").output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let triple = String::from_utf8_lossy(&output.stdout);
+        let triple = triple.lines().next()?.trim().to_ascii_lowercase();
+        if triple.is_empty() {
+            None
+        } else {
+            Some(triple)
         }
     }
 
@@ -131,28 +170,29 @@ impl CC {
             }
             CCKind::Tcc => (ARKind::TccAr, cc_path.display().to_string()),
         };
+        let target_triple = CC::probe_target_triple(cc_path, cc_kind);
         Ok(CC::new(
             cc_kind,
             cc_path.display().to_string(),
             ar_kind,
             ar_path,
+            target_triple,
         ))
     }
 
     pub fn try_from_path_with_ar(cc: &str, ar: &str) -> anyhow::Result<Self> {
         let path = PathBuf::from(cc);
-        let name = path.file_name().and_then(OsStr::to_str).context(
-            "Invalid compiler path: path must point to a file with valid UTF-8 filename",
-        )?;
-        if name.ends_with("cl") {
+        let name = CC::parse_compiler_name(&path)?;
+        let stem = CC::strip_exe_suffix(&name);
+        if stem.ends_with("cl") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Msvc)
-        } else if name.ends_with("gcc") {
+        } else if stem.ends_with("gcc") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Gcc)
-        } else if name.ends_with("clang") {
+        } else if stem.ends_with("clang") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Clang)
-        } else if name.ends_with("tcc") {
+        } else if stem.ends_with("tcc") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Tcc)
-        } else if name.ends_with("cc") {
+        } else if stem.ends_with("cc") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::SystemCC)
         } else {
             // assume it's a system cc
@@ -162,19 +202,18 @@ impl CC {
 
     pub fn try_from_path(cc: &str) -> anyhow::Result<Self> {
         let path = PathBuf::from(cc);
-        let name = path.file_name().and_then(OsStr::to_str).context(
-            "Invalid compiler path: path must point to a file with valid UTF-8 filename",
-        )?;
+        let name = CC::parse_compiler_name(&path)?;
+        let stem = CC::strip_exe_suffix(&name);
         let replaced_ar = |s: &str| name.replace(s, "ar");
-        if name.ends_with("cl") || name.ends_with("cl.exe") {
+        if stem.ends_with("cl") {
             CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)
-        } else if name.ends_with("gcc") {
+        } else if stem.ends_with("gcc") {
             CC::try_from_cc_path_and_kind(&replaced_ar("gcc"), &path, CCKind::Gcc)
-        } else if name.ends_with("clang") {
+        } else if stem.ends_with("clang") {
             CC::try_from_cc_path_and_kind(&replaced_ar("clang"), &path, CCKind::Clang)
-        } else if name.ends_with("tcc") {
+        } else if stem.ends_with("tcc") {
             CC::try_from_cc_path_and_kind("", &path, CCKind::Tcc)
-        } else if name.ends_with("cc") {
+        } else if stem.ends_with("cc") {
             CC::try_from_cc_path_and_kind(&replaced_ar("cc"), &path, CCKind::SystemCC)
         } else {
             // assume it's a system cc
@@ -199,6 +238,16 @@ impl CC {
 
     pub fn is_tcc(&self) -> bool {
         matches!(self.cc_kind, CCKind::Tcc)
+    }
+
+    pub fn targets_msvc(&self) -> bool {
+        self.target_triple
+            .as_deref()
+            .is_some_and(|target| target.contains("msvc"))
+    }
+
+    pub fn should_link_libm(&self) -> bool {
+        self.is_full_featured_gcc_like() && !self.targets_msvc()
     }
 
     pub fn is_libmoonbitrun_o_available(&self) -> bool {
@@ -539,7 +588,7 @@ fn add_linker_common_libraries<P: AsRef<Path>>(
     config: &LinkerConfig<P>,
 ) {
     if cc.is_gcc_like() {
-        if cc.is_full_featured_gcc_like() {
+        if cc.should_link_libm() {
             buf.push("-lm".to_string());
         }
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
@@ -826,7 +875,7 @@ fn add_cc_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config: &CCCo
 }
 
 fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.is_full_featured_gcc_like() && config.output_ty != OutputType::Object {
+    if cc.should_link_libm() && config.output_ty != OutputType::Object {
         buf.push("-lm".to_string());
     }
 }
@@ -905,4 +954,73 @@ where
     add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
 
     buf
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fake_cc(kind: CCKind, target_triple: Option<&str>) -> CC {
+        CC {
+            cc_kind: kind,
+            cc_path: "cc".to_string(),
+            ar_kind: ARKind::GnuAr,
+            ar_path: "ar".to_string(),
+            target_triple: target_triple.map(str::to_string),
+            is_env_override: false,
+        }
+    }
+
+    fn executable_cc_config() -> CCConfig {
+        CCConfig {
+            debug_info: false,
+            link_moonbitrun: false,
+            no_sys_header: false,
+            output_ty: OutputType::Executable,
+            opt_level: OptLevel::Speed,
+            define_use_shared_runtime_macro: false,
+        }
+    }
+
+    #[test]
+    fn clang_msvc_target_does_not_link_libm() {
+        let cc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));
+
+        let mut cc_flags = vec![];
+        add_cc_common_libraries(&cc, &mut cc_flags, &executable_cc_config());
+        assert!(!cc_flags.iter().any(|f| f == "-lm"));
+
+        let linker_config = LinkerConfig::<&Path> {
+            link_moonbitrun: false,
+            output_ty: OutputType::Executable,
+            link_shared_runtime: None,
+        };
+        let mut linker_flags = vec![];
+        add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
+        assert!(!linker_flags.iter().any(|f| f == "-lm"));
+    }
+
+    #[test]
+    fn clang_gnu_target_keeps_linking_libm() {
+        let cc = fake_cc(CCKind::Clang, Some("x86_64-unknown-linux-gnu"));
+
+        let mut cc_flags = vec![];
+        add_cc_common_libraries(&cc, &mut cc_flags, &executable_cc_config());
+        assert!(cc_flags.iter().any(|f| f == "-lm"));
+
+        let linker_config = LinkerConfig::<&Path> {
+            link_moonbitrun: false,
+            output_ty: OutputType::Executable,
+            link_shared_runtime: None,
+        };
+        let mut linker_flags = vec![];
+        add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
+        assert!(linker_flags.iter().any(|f| f == "-lm"));
+    }
+
+    #[test]
+    fn try_from_path_recognizes_clang_exe() {
+        let cc = CC::try_from_path("C:/llvm/bin/clang.exe").expect("parse clang.exe");
+        assert!(matches!(cc.cc_kind, CCKind::Clang));
+    }
 }
