@@ -3099,6 +3099,29 @@ fn test_moon_install_global_local_path() {
 }
 
 #[test]
+fn test_moon_install_global_defaults_to_moon_home_bin() {
+    let dir = TestDir::new("moon_install_global.in");
+    let moon_home = tempfile::tempdir().unwrap();
+
+    let _output = get_stdout_with_envs(
+        &dir,
+        ["install", "--path", "src/main"],
+        [("MOON_HOME", moon_home.path().to_string_lossy().into_owned())],
+    );
+
+    #[cfg(unix)]
+    let binary_path = moon_home.path().join("bin").join("main");
+    #[cfg(target_os = "windows")]
+    let binary_path = moon_home.path().join("bin").join("main.exe");
+
+    assert!(
+        binary_path.exists(),
+        "Expected binary at {:?} to exist",
+        binary_path
+    );
+}
+
+#[test]
 fn test_moon_install_global_local_path_module_root_is_exact_path() {
     let dir = TestDir::new("moon_install_global.in");
 

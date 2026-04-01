@@ -73,7 +73,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         );
     }
 
-    let install_dir = cmd.bin.unwrap_or_else(moon_dir::bin);
+    let install_dir = cmd.bin.unwrap_or_else(moon_dir::user_bin);
     let has_git_ref = cmd.rev.is_some() || cmd.branch.is_some() || cmd.tag.is_some();
 
     // Explicit --path takes priority

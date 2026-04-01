@@ -90,6 +90,10 @@ pub fn bin() -> PathBuf {
     toolchain_root().join("bin")
 }
 
+pub fn user_bin() -> PathBuf {
+    home().join("bin")
+}
+
 pub fn include() -> PathBuf {
     toolchain_root().join("include")
 }
@@ -174,6 +178,7 @@ fn test_moon_dir() {
 
     let home_dirs = [
         home(),
+        user_bin(),
         cache(),
         index(),
         credentials_json(),
@@ -194,6 +199,7 @@ fn test_moon_dir() {
     expect![[r#"
         [
             "",
+            "bin",
             "registry|cache",
             "registry|index",
             "credentials.json",
