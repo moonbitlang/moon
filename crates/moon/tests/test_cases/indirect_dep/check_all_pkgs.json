@@ -182,6 +182,11 @@
     },
     {
       "root": "moonbitlang/core",
+      "rel": "immut/vector",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/immut/vector/vector.mi"
+    },
+    {
+      "root": "moonbitlang/core",
       "rel": "int",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/int/int.mi"
     },
