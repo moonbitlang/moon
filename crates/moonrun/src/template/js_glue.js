@@ -142,6 +142,8 @@ const __moonbit_backtrace_runtime = globalThis.__moonbit_backtrace_runtime || {
     obj.args_get = args_get
 })(__moonbit_fs_unstable, __moonbit_run_env);
 
+const __moonbit_wasi_unstable = globalThis.__moonbit_wasi_unstable || {};
+
 delete globalThis.__moonbit_run_env;
 delete globalThis.__moonbit_backtrace_runtime;
 
@@ -418,6 +420,7 @@ const spectest = {
     __moonbit_io_unstable: __moonbit_io_unstable,
     __moonbit_sys_unstable: __moonbit_sys_unstable,
     __moonbit_time_unstable: __moonbit_time_unstable,
+    wasi_snapshot_preview1: __moonbit_wasi_unstable,
     moonbit: {
         string_to_js_string() {
             print(arguments[0]);
@@ -454,7 +457,22 @@ try {
         throw new Error(`failed to read wasm module: ${module_name}`);
     }
     let module = new WebAssembly.Module(bytes, { builtins: ['js-string'], importedStringConstants: "_" });
+    const usesWasiSnapshotPreview1 = WebAssembly.Module.imports(module)
+        .some(importItem => importItem.module === "wasi_snapshot_preview1");
     let instance = new WebAssembly.Instance(module, spectest);
+    if (usesWasiSnapshotPreview1) {
+        const memory = instance.exports.memory;
+        if (!(memory instanceof WebAssembly.Memory)) {
+            throw new Error("wasi_snapshot_preview1 requires an exported `memory`");
+        }
+        if (typeof __moonbit_wasi_unstable.set_memory !== "function") {
+            throw new Error("wasi_snapshot_preview1 host missing `set_memory`");
+        }
+        const errno = __moonbit_wasi_unstable.set_memory(memory);
+        if (errno !== 0) {
+            throw new Error(`wasi_snapshot_preview1 set_memory failed: errno ${errno}`);
+        }
+    }
     if (test_mode) {
         for (param of testParams) {
             try {
