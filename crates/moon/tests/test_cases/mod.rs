@@ -2386,7 +2386,7 @@ fn test_upgrade() -> anyhow::Result<()> {
     let tmp_dir = tempfile::TempDir::new()?;
     let _ = std::process::Command::new(moon_bin())
         .env("MOON_HOME", tmp_dir.path().to_str().unwrap())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOON_TOOLCHAIN_ROOT", tmp_dir.path().to_str().unwrap())
         .arg("upgrade")
         .arg("--force")
         .arg("--non-interactive")
@@ -2404,6 +2404,37 @@ fn test_upgrade() -> anyhow::Result<()> {
         tmp_dir.path().join("bin").join("moonc.exe").exists(),
     ];
     check(format!("{xs:?}"), expect!["[true, true]"]);
+    Ok(())
+}
+
+#[test]
+fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::TempDir::new()?;
+    let toolchain_root = tempfile::TempDir::new()?;
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "upgrade",
+            "--force",
+            "--non-interactive",
+            "--base-url",
+            "https://example.invalid",
+        ],
+        [
+            ("MOON_HOME", moon_home.path().to_str().unwrap()),
+            (
+                "MOON_TOOLCHAIN_ROOT",
+                toolchain_root.path().to_str().unwrap(),
+            ),
+        ],
+    );
+
+    assert!(stderr.contains("moon upgrade only supports toolchains installed under MOON_HOME."));
+    assert!(stderr.contains(
+        "Please upgrade this installation with the package manager or installer that owns the toolchain."
+    ));
     Ok(())
 }
 
