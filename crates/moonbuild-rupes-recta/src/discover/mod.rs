@@ -55,7 +55,7 @@ use moonutil::{
     package::resolve_supported_targets,
     workspace::{canonical_workspace_module_dirs, read_workspace, read_workspace_file},
 };
-use relative_path::{PathExt, RelativePath};
+use relative_path::{PathExt, RelativePath, RelativePathBuf};
 use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
@@ -229,11 +229,16 @@ pub(crate) fn discover_packages_for_mod(
             inner: e,
         })?;
 
-    // Recursively walk through the module's directories
+    // Recursively walk through the module's directories.
+    //
+    // We intentionally avoid `WalkDir::sort_by_file_name()` here because that
+    // sorts entries in every visited directory. Discovery only needs a stable
+    // order for package processing, so we collect package directories first
+    // and sort just that list once.
     let mut walkdir = WalkDir::new(&scan_source_root)
-        .sort_by_file_name()
         .into_iter()
         .filter_entry(|x| x.file_type().is_dir());
+    let mut package_dirs: Vec<(PathBuf, RelativePathBuf)> = Vec::new();
     while let Some(entry) = walkdir.next() {
         let entry = entry.map_err(|e| DiscoverError::CantReadModulePackages {
             module: module_source.clone(),
@@ -281,12 +286,18 @@ pub(crate) fn discover_packages_for_mod(
         }
 
         // Begin discovering the package
+        package_dirs.push((abs_path.to_path_buf(), rel_path.to_owned()));
+    }
+
+    package_dirs.sort_unstable_by(|(_, rel_a), (_, rel_b)| rel_a.cmp(rel_b));
+
+    let is_stdlib_pkg = matches!(module_source.source(), ModuleSourceKind::Stdlib(_));
+    for (abs_path, rel_path) in package_dirs {
         debug!("Discovering package at {}", abs_path.display());
-        let is_stdlib_pkg = matches!(module_source.source(), ModuleSourceKind::Stdlib(_));
         let pkg = discover_one_package(
             id,
             module_source,
-            abs_path,
+            &abs_path,
             &rel_path,
             is_core,
             is_stdlib_pkg,
@@ -374,7 +385,6 @@ fn discover_one_package(
             continue;
         }
         trace!("Found file {}", path.display());
-
         let filename = path
             .file_name()
             .expect("We are listing a dir, file should have name");
