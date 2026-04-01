@@ -826,6 +826,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand format-and-diff 'Format the code and print the difference'
             cand format-workspace 'format-workspace'
             cand embed 'embed'
+            cand env-exec 'env-exec'
             cand write-tcc-rsp-file 'write-tcc-rsp-file'
             cand build-binary-dep 'build-binary-dep'
             cand demangle 'Demangle MoonBit symbol names'
@@ -888,6 +889,20 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand -h 'Print help'
             cand --help 'Print help'
         }
+        &'moon;tool;env-exec'= {
+            cand --env-file 'The serialized environment file to merge into the child process'
+            cand --manifest-path 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
+        }
         &'moon;tool;write-tcc-rsp-file'= {
             cand --manifest-path 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
@@ -933,6 +948,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand format-and-diff 'Format the code and print the difference'
             cand format-workspace 'format-workspace'
             cand embed 'embed'
+            cand env-exec 'env-exec'
             cand write-tcc-rsp-file 'write-tcc-rsp-file'
             cand build-binary-dep 'build-binary-dep'
             cand demangle 'Demangle MoonBit symbol names'
@@ -943,6 +959,8 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;tool;help;format-workspace'= {
         }
         &'moon;tool;help;embed'= {
+        }
+        &'moon;tool;help;env-exec'= {
         }
         &'moon;tool;help;write-tcc-rsp-file'= {
         }
@@ -1112,6 +1130,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand format-and-diff 'Format the code and print the difference'
             cand format-workspace 'format-workspace'
             cand embed 'embed'
+            cand env-exec 'env-exec'
             cand write-tcc-rsp-file 'write-tcc-rsp-file'
             cand build-binary-dep 'build-binary-dep'
             cand demangle 'Demangle MoonBit symbol names'
@@ -1121,6 +1140,8 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;help;tool;format-workspace'= {
         }
         &'moon;help;tool;embed'= {
+        }
+        &'moon;help;tool;env-exec'= {
         }
         &'moon;help;tool;write-tcc-rsp-file'= {
         }

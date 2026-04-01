@@ -85,6 +85,8 @@ When a native build step chooses its compiler, the current precedence is:
 - For `cl`, Moon still resolves `lib.exe` next to the compiler, so `MOON_AR` is ignored.
 - For `tcc`, Moon still uses `tcc -ar`, so `MOON_AR` is ignored.
 - `MOON_CC` takes precedence over package-level compiler overrides.
+- Explicit `MOON_CC` values do not receive any synthesized MSVC environment overlay. Moon assumes
+  the caller is intentionally choosing and configuring that toolchain.
 
 This override is global to the current Moon invocation, except for the `NativeTccRun` tool choice.
 
@@ -101,6 +103,9 @@ They are useful as escape hatches, but they are toolchain-specific, not portable
 For example, `cc = "cl"` is MSVC-specific, while `cc = "gcc"` or GNU-style flags are specific to
 other toolchain families.
 
+Package-level compiler overrides also do not receive any synthesized MSVC environment overlay. They
+run in the current process environment, just like other explicit tool choices.
+
 ## Default Auto-Detection
 
 When `MOON_CC` is unset and no package-specific override is being applied to that step, Moon probes
@@ -110,7 +115,18 @@ for a default native toolchain in this order:
 2. `cc`
 3. `gcc`
 4. `clang`
-5. internal `tcc`
+5. on Windows only, `find-msvc-tools` lookup for `cl.exe`
+6. internal `tcc`
+
+The Windows-only `find-msvc-tools` step exists for shells where Visual Studio tools are installed
+but `cl.exe` is not already available on `PATH`.
+
+If that fallback succeeds, Moon records the discovered MSVC environment and scopes it to wrapped
+native C commands only. In practice, the build graph writes a serialized environment file under
+`_build/.moon/` and executes those native commands through `moon tool env-exec`.
+
+This scoped environment is only attached to the auto-detected default MSVC toolchain. It is not
+applied to explicit `MOON_CC` selections or package-level compiler overrides.
 
 ## Compiler Kind Detection
 

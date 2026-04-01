@@ -876,6 +876,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('format-and-diff', 'format-and-diff', [CompletionResultType]::ParameterValue, 'Format the code and print the difference')
             [CompletionResult]::new('format-workspace', 'format-workspace', [CompletionResultType]::ParameterValue, 'format-workspace')
             [CompletionResult]::new('embed', 'embed', [CompletionResultType]::ParameterValue, 'embed')
+            [CompletionResult]::new('env-exec', 'env-exec', [CompletionResultType]::ParameterValue, 'env-exec')
             [CompletionResult]::new('write-tcc-rsp-file', 'write-tcc-rsp-file', [CompletionResultType]::ParameterValue, 'write-tcc-rsp-file')
             [CompletionResult]::new('build-binary-dep', 'build-binary-dep', [CompletionResultType]::ParameterValue, 'build-binary-dep')
             [CompletionResult]::new('demangle', 'demangle', [CompletionResultType]::ParameterValue, 'Demangle MoonBit symbol names')
@@ -942,6 +943,21 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
+        'moon;tool;env-exec' {
+            [CompletionResult]::new('--env-file', 'env-file', [CompletionResultType]::ParameterName, 'The serialized environment file to merge into the child process')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
         'moon;tool;write-tcc-rsp-file' {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
@@ -990,6 +1006,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('format-and-diff', 'format-and-diff', [CompletionResultType]::ParameterValue, 'Format the code and print the difference')
             [CompletionResult]::new('format-workspace', 'format-workspace', [CompletionResultType]::ParameterValue, 'format-workspace')
             [CompletionResult]::new('embed', 'embed', [CompletionResultType]::ParameterValue, 'embed')
+            [CompletionResult]::new('env-exec', 'env-exec', [CompletionResultType]::ParameterValue, 'env-exec')
             [CompletionResult]::new('write-tcc-rsp-file', 'write-tcc-rsp-file', [CompletionResultType]::ParameterValue, 'write-tcc-rsp-file')
             [CompletionResult]::new('build-binary-dep', 'build-binary-dep', [CompletionResultType]::ParameterValue, 'build-binary-dep')
             [CompletionResult]::new('demangle', 'demangle', [CompletionResultType]::ParameterValue, 'Demangle MoonBit symbol names')
@@ -1003,6 +1020,9 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;tool;help;embed' {
+            break
+        }
+        'moon;tool;help;env-exec' {
             break
         }
         'moon;tool;help;write-tcc-rsp-file' {
@@ -1222,6 +1242,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('format-and-diff', 'format-and-diff', [CompletionResultType]::ParameterValue, 'Format the code and print the difference')
             [CompletionResult]::new('format-workspace', 'format-workspace', [CompletionResultType]::ParameterValue, 'format-workspace')
             [CompletionResult]::new('embed', 'embed', [CompletionResultType]::ParameterValue, 'embed')
+            [CompletionResult]::new('env-exec', 'env-exec', [CompletionResultType]::ParameterValue, 'env-exec')
             [CompletionResult]::new('write-tcc-rsp-file', 'write-tcc-rsp-file', [CompletionResultType]::ParameterValue, 'write-tcc-rsp-file')
             [CompletionResult]::new('build-binary-dep', 'build-binary-dep', [CompletionResultType]::ParameterValue, 'build-binary-dep')
             [CompletionResult]::new('demangle', 'demangle', [CompletionResultType]::ParameterValue, 'Demangle MoonBit symbol names')
@@ -1234,6 +1255,9 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;help;tool;embed' {
+            break
+        }
+        'moon;help;tool;env-exec' {
             break
         }
         'moon;help;tool;write-tcc-rsp-file' {

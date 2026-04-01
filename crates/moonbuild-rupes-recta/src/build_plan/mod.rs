@@ -320,6 +320,23 @@ pub struct BuildBundleInfo {
     pub(crate) bundle_targets: Vec<BuildTarget>,
 }
 
+/// The flag syntax expected by the native linker front-end.
+#[derive(Debug, Clone, Copy)]
+pub enum NativeLinkStyle {
+    Msvc,
+    Gnu,
+}
+
+impl NativeLinkStyle {
+    pub fn from_cc(cc: &CC) -> Self {
+        if cc.is_msvc() { Self::Msvc } else { Self::Gnu }
+    }
+
+    pub fn uses_msvc_syntax(self) -> bool {
+        matches!(self, Self::Msvc)
+    }
+}
+
 /// Represents the environment in which the build is being performed.
 pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
@@ -332,6 +349,8 @@ pub struct BuildEnvironment {
     pub std: bool,
     /// Commandline_level warnings to enable/disable
     pub warn_list: Option<String>,
+    /// Fallback native link syntax derived from the compile default toolchain.
+    pub default_native_link_style: NativeLinkStyle,
     // Can have more, e.g. cross compile
 }
 

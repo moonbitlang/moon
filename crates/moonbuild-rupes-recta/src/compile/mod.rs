@@ -16,8 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{path::PathBuf, str::FromStr};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
+use anyhow::Context;
 use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
@@ -30,7 +35,7 @@ use tracing::{Level, instrument};
 
 use crate::{
     build_lower::{self, WarningCondition},
-    build_plan::{self, BuildEnvironment, InputDirective},
+    build_plan::{self, BuildEnvironment, InputDirective, NativeLinkStyle},
     model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
@@ -100,6 +105,8 @@ pub enum CompileGraphError {
     BuildPlanError(#[from] build_plan::BuildPlanConstructError),
     #[error("Failed to lower the build plan")]
     LowerError(#[from] build_lower::LoweringError),
+    #[error("Failed to prepare the MSVC auto-detected environment file")]
+    MsvcEnvFile(#[source] anyhow::Error),
 }
 
 #[instrument(skip_all)]
@@ -126,6 +133,9 @@ pub fn compile(
         action: cx.action,
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),
+        // Planning only needs the fallback flag syntax when no package-level
+        // native.cc override is present, not the full default toolchain state.
+        default_native_link_style: NativeLinkStyle::from_cc(&cx.default_cc),
     };
     let (plan, user_warnings) = build_plan::build_plan(
         resolve_output,
@@ -137,6 +147,9 @@ pub fn compile(
 
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());
+
+    let msvc_auto_env_file = prepare_msvc_auto_env_file(&cx.target_dir, &cx.default_cc)
+        .map_err(CompileGraphError::MsvcEnvFile)?;
 
     let lower_env = build_lower::BuildOptions {
         main_module: match resolve_output.local_modules() {
@@ -160,6 +173,7 @@ pub fn compile(
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
         default_cc: cx.default_cc.clone(),
+        msvc_auto_env_file,
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
         runtime_dot_c_path: MOON_DIRS.moon_lib_path.join("runtime.c"), // FIXME: don't calculate here
     };
@@ -178,6 +192,33 @@ pub fn compile(
             None
         },
     })
+}
+
+fn prepare_msvc_auto_env_file(
+    target_dir: &Path,
+    default_cc: &CC,
+) -> anyhow::Result<Option<PathBuf>> {
+    let Some(auto_msvc_env) = default_cc.auto_msvc_env() else {
+        return Ok(None);
+    };
+
+    let env_dir = target_dir.join(".moon");
+    fs::create_dir_all(&env_dir)
+        .with_context(|| format!("Failed to create {}", env_dir.display()))?;
+
+    let env_file = env_dir.join("msvc-auto-env.json");
+    let serialized =
+        serde_json::to_string_pretty(auto_msvc_env).context("Failed to serialize MSVC env")?;
+
+    match fs::read_to_string(&env_file) {
+        Ok(existing) if existing == serialized => {}
+        Ok(_) | Err(_) => {
+            fs::write(&env_file, serialized)
+                .with_context(|| format!("Failed to write {}", env_file.display()))?;
+        }
+    }
+
+    Ok(Some(env_file))
 }
 
 /// A filter to remove build plan nodes that are invalid. Returns `true` if the

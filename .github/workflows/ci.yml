@@ -162,10 +162,6 @@ jobs:
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
           "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - name: Setup MSVC
-        if: ${{ matrix.os == 'windows-latest' }}
-        uses: ilammy/msvc-dev-cmd@v1
-
       - name: Build
         run: cargo build
 
@@ -243,9 +239,6 @@ jobs:
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
           "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
-
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build
         run: cargo build
@@ -386,10 +379,6 @@ jobs:
         run: |
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
           "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-
-      - name: Setup MSVC
-        if: ${{ matrix.os == 'windows-latest' }}
-        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build
         run: cargo build

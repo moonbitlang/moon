@@ -77,6 +77,9 @@ pub(crate) struct MooncLinkCore<'a> {
 
     /// Extra options passed from user configuration.
     pub extra_link_opts: &'a [String],
+
+    /// Explicit LLVM target override to pass through to `moonc link-core`.
+    pub llvm_target_override: Option<&'a str>,
 }
 
 /// WebAssembly-specific linking configuration
@@ -253,13 +256,12 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // Windows-specific LLVM target workaround
         // FIXME: We should always provide target info for LLVM
-        #[cfg(target_os = "windows")]
-        if self.target_backend == TargetBackend::LLVM {
-            use moonutil::compiler_flags::CC;
-            if CC::default().is_msvc() {
-                args.push("-llvm-target".to_string());
-                args.push("x86_64-pc-windows-msvc".to_string());
-            }
+        if cfg!(target_os = "windows")
+            && self.target_backend == TargetBackend::LLVM
+            && let Some(target) = self.llvm_target_override
+        {
+            args.push("-llvm-target".to_string());
+            args.push(target.to_string());
         }
     }
 }

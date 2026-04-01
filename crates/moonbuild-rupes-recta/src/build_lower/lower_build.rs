@@ -28,7 +28,7 @@ use moonutil::{
     compiler_flags::{
         ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
         OutputType as CCOutputType, make_archiver_command, make_cc_command, make_cc_command_pure,
-        make_linker_command_pure, resolve_cc,
+        make_linker_command_pure, resolve_cc, resolve_cc_ref,
     },
     cond_expr::OptLevel,
     mooncakes::{CORE_MODULE, ModuleId},
@@ -638,6 +638,14 @@ impl<'a> BuildPlanLowerContext<'a> {
             }))
             .collect::<Vec<_>>();
 
+        let llvm_target_override = self
+            .build_plan
+            .get_make_executable_info(&target)
+            .map(|info| resolve_cc_ref(&self.opt.default_cc, info.cc.as_ref()))
+            .unwrap_or(&self.opt.default_cc)
+            .is_msvc()
+            .then_some("x86_64-pc-windows-msvc");
+
         let config_path = package.config_path();
         let cmd = compiler::MooncLinkCore {
             core_deps: &core_input_files,
@@ -656,6 +664,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             js_config: self.get_js_config(target, package),
             exports: package.exported_functions(self.opt.target_backend.into()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
+            llvm_target_override,
         };
 
         // Ensure n2 sees stdlib core bundle changes as inputs
@@ -827,10 +836,11 @@ impl<'a> BuildPlanLowerContext<'a> {
             &output_file.display().to_string(),
         );
 
-        BuildCommand {
-            commandline: cc_cmd.into(),
-            extra_inputs: vec![input_file.clone()],
-        }
+        self.lower_native_command(
+            resolve_cc_ref(&self.opt.default_cc, info.stub_cc.as_ref()),
+            cc_cmd,
+            vec![input_file.clone()],
+        )
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
@@ -898,10 +908,11 @@ impl<'a> BuildPlanLowerContext<'a> {
             &archive.display().to_string(),
         );
 
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: archiver_cmd.into(),
-        }
+        self.lower_native_command(
+            resolve_cc_ref(&self.opt.default_cc, info.stub_cc.as_ref()),
+            archiver_cmd,
+            vec![],
+        )
     }
 
     fn lower_link_c_stubs(
@@ -963,7 +974,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let sources_refs: Vec<&str> = sources.iter().map(|s| s.as_str()).collect();
 
         let cc_cmd = make_linker_command_pure(
-            cc,
+            cc.clone(),
             lcfg,
             &link_flags_refs,
             &sources_refs,
@@ -973,10 +984,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
 
         // Note: Runtime input is tracked in build plan, so no need to add here.
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline: cc_cmd.into(),
-        }
+        self.lower_native_command(&cc, cc_cmd, vec![])
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
@@ -1068,8 +1076,9 @@ impl<'a> BuildPlanLowerContext<'a> {
             c_flags.push(libbacktrace_path.display().to_string());
         }
 
+        let resolved_cc = resolve_cc(&self.opt.default_cc, info.cc.as_ref());
         let cc_cmd = make_cc_command_pure(
-            resolve_cc(&self.opt.default_cc, info.cc.as_ref()),
+            resolved_cc.clone(),
             config,
             &c_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             sources.iter().map(|x| x.display().to_string()),
@@ -1094,9 +1103,14 @@ impl<'a> BuildPlanLowerContext<'a> {
             cc_cmd.into()
         };
 
-        BuildCommand {
-            extra_inputs: vec![],
-            commandline,
+        match commandline {
+            Commandline::Args(commandline) => {
+                self.lower_native_command(&resolved_cc, commandline, vec![])
+            }
+            Commandline::Verbatim(commandline) => BuildCommand {
+                extra_inputs: vec![],
+                commandline: Commandline::Verbatim(commandline),
+            },
         }
     }
 

@@ -21,6 +21,7 @@ use anyhow::Context;
 use colored::Colorize;
 use derive_builder::Builder;
 use std::{
+    collections::BTreeMap,
     env,
     ffi::OsStr,
     path::{Path, PathBuf},
@@ -55,6 +56,7 @@ pub struct CC {
     pub ar_path: String,
     pub target_triple: Option<String>,
     pub is_env_override: bool, // Whether the cc is set by env MOON_CC
+    auto_msvc_env: Option<BTreeMap<String, String>>,
 }
 
 impl Default for CC {
@@ -110,6 +112,7 @@ impl CC {
             ar_path,
             target_triple,
             is_env_override: false,
+            auto_msvc_env: None,
         }
     }
 
@@ -358,6 +361,10 @@ impl CC {
         CAN_USE_MOONBITRUN && !self.is_msvc() && !self.is_env_override
     }
 
+    pub fn auto_msvc_env(&self) -> Option<&BTreeMap<String, String>> {
+        self.auto_msvc_env.as_ref()
+    }
+
     // Constructors for TCC toolchain
 
     /// Create a CC configured for the internal TCC shipped with Moon.
@@ -367,6 +374,55 @@ impl CC {
             which::which(&MOON_DIRS.internal_tcc_path).context("internal tcc not found")?;
         CC::try_from_cc_path_and_kind("", &cc_path, CCKind::Tcc)
     }
+}
+
+#[cfg(windows)]
+fn host_msvc_target_triple() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "x86_64-pc-windows-msvc",
+        "x86" => "i686-pc-windows-msvc",
+        "aarch64" => "aarch64-pc-windows-msvc",
+        _ => "x86_64-pc-windows-msvc",
+    }
+}
+
+#[cfg(windows)]
+fn detect_msvc_with_find_msvc_tools() -> Option<CC> {
+    let tool = find_msvc_tools::find_tool(host_msvc_target_triple(), "cl.exe")?;
+    let auto_msvc_env = tool
+        .env()
+        .into_iter()
+        .map(|(key, value)| {
+            // `find-msvc-tools` already merges path-like variables such as
+            // `PATH`, `LIB`, and `INCLUDE` with the current environment.
+            // Preserve those exact values here so `env-exec` can replay the
+            // detected toolchain environment without duplicating inherited
+            // entries.
+            (
+                key.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    CC::try_from_path(&tool.path().to_string_lossy())
+        .ok()
+        .map(|cc| CC {
+            auto_msvc_env: Some(auto_msvc_env),
+            ..cc
+        })
+}
+
+fn find_detected_cc_path(
+    mut find: impl FnMut(&str) -> Option<PathBuf>,
+) -> Option<(CCKind, PathBuf)> {
+    [
+        (CCKind::Msvc, "cl"),
+        (CCKind::SystemCC, "cc"),
+        (CCKind::Gcc, "gcc"),
+        (CCKind::Clang, "clang"),
+    ]
+    .into_iter()
+    .find_map(|(kind, name)| find(name).map(|path| (kind, path)))
 }
 
 pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(|| {
@@ -397,24 +453,18 @@ pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(||
 });
 
 pub static DETECTED_CC: std::sync::LazyLock<CC> = std::sync::LazyLock::new(|| {
-    use CCKind::*;
-
-    let (cc_kind, cc_path) = if let Ok(cc) = which::which("cl") {
-        (Msvc, cc)
-    } else if let Ok(cc) = which::which("cc") {
-        (SystemCC, cc)
-    } else if let Ok(cc) = which::which("gcc") {
-        (Gcc, cc)
-    } else if let Ok(cc) = which::which("clang") {
-        (Clang, cc)
-    } else {
-        let cc = which::which(&MOON_DIRS.internal_tcc_path)
-            .context("internal tcc not found")
+    if let Some((cc_kind, cc_path)) = find_detected_cc_path(|name| which::which(name).ok()) {
+        return CC::try_from_detected_path(&cc_path, cc_kind)
+            .context("failed to detect native C toolchain")
             .unwrap();
-        (Tcc, cc)
-    };
+    }
 
-    CC::try_from_detected_path(&cc_path, cc_kind)
+    #[cfg(windows)]
+    if let Some(msvc_cc) = detect_msvc_with_find_msvc_tools() {
+        return msvc_cc;
+    }
+
+    CC::internal_tcc()
         .context("failed to detect native C toolchain")
         .unwrap()
 });
@@ -426,6 +476,24 @@ pub fn NATIVE_CC() -> &'static CC {
     } else {
         &DETECTED_CC
     }
+}
+
+fn resolve_cc_ref_with_env<'a>(
+    env_cc: Option<&'a CC>,
+    cc: &'a CC,
+    user_cc: Option<&'a CC>,
+) -> &'a CC {
+    if let Some(env_cc) = env_cc {
+        env_cc
+    } else if let Some(user_cc) = user_cc {
+        user_cc
+    } else {
+        cc
+    }
+}
+
+pub fn resolve_cc_ref<'a>(cc: &'a CC, user_cc: Option<&'a CC>) -> &'a CC {
+    resolve_cc_ref_with_env(ENV_CC.as_ref(), cc, user_cc)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -498,9 +566,7 @@ pub fn resolve_cc(cc: &CC, user_cc: Option<&CC>) -> CC {
             "Warning".yellow().bold(),
         );
     }
-    ENV_CC
-        .clone()
-        .unwrap_or_else(|| user_cc.cloned().unwrap_or_else(|| cc.clone()))
+    resolve_cc_ref(cc, user_cc).clone()
 }
 
 // Struct to hold path configuration for commands
@@ -1073,6 +1139,7 @@ mod tests {
             ar_path: "ar".to_string(),
             target_triple: target_triple.map(str::to_string),
             is_env_override: false,
+            auto_msvc_env: None,
         }
     }
 
@@ -1140,6 +1207,54 @@ mod tests {
         assert_eq!(
             normalize_path_separators(&cc.ar_path),
             "/LLVM/bin/X86_64-W64-MINGW32-ar.ExE"
+        );
+    }
+
+    #[test]
+    fn find_detected_cc_path_uses_documented_probe_order() {
+        let mut looked_up = vec![];
+        let detected = find_detected_cc_path(|name| {
+            looked_up.push(name.to_string());
+            (name == "gcc").then(|| PathBuf::from("gcc-on-path"))
+        });
+
+        assert_eq!(looked_up, ["cl", "cc", "gcc"]);
+        let Some((kind, path)) = detected else {
+            panic!("expected gcc to be selected from the path probes");
+        };
+        assert!(matches!(kind, CCKind::Gcc));
+        assert_eq!(path, PathBuf::from("gcc-on-path"));
+    }
+
+    #[test]
+    fn find_detected_cc_path_checks_all_path_probes_before_falling_back() {
+        let mut looked_up = vec![];
+        let detected = find_detected_cc_path(|name| {
+            looked_up.push(name.to_string());
+            None
+        });
+
+        assert!(detected.is_none());
+        assert_eq!(looked_up, ["cl", "cc", "gcc", "clang"]);
+    }
+
+    #[test]
+    fn resolve_cc_ref_with_env_prefers_env_then_user_then_default() {
+        let default_cc = CC::try_from_path("default-clang").unwrap();
+        let user_cc = CC::try_from_path("user-clang").unwrap();
+        let env_cc = CC::try_from_path("env-clang").unwrap();
+
+        assert_eq!(
+            resolve_cc_ref_with_env(Some(&env_cc), &default_cc, Some(&user_cc)).cc_path(),
+            "env-clang"
+        );
+        assert_eq!(
+            resolve_cc_ref_with_env(None, &default_cc, Some(&user_cc)).cc_path(),
+            "user-clang"
+        );
+        assert_eq!(
+            resolve_cc_ref_with_env(None, &default_cc, None).cc_path(),
+            "default-clang"
         );
     }
 

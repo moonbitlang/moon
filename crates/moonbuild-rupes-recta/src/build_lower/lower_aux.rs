@@ -21,8 +21,8 @@
 use moonutil::{
     common::DriverKind,
     compiler_flags::{
-        CC, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        make_cc_command_pure, resolve_cc,
+        CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType, make_cc_command_pure,
+        resolve_cc,
     },
     mooncakes::{ModuleId, ModuleSourceKind},
 };
@@ -159,7 +159,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             }
         };
 
-        let resolved_cc = resolve_cc(&CC::default(), None);
+        let resolved_cc = resolve_cc(&self.opt.default_cc, None);
         let libbacktrace_path = runtime_c_path
             .parent()
             .expect("runtime_c_path should have a parent")
@@ -182,7 +182,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         }
 
         let cc_cmd = make_cc_command_pure(
-            resolved_cc,
+            resolved_cc.clone(),
             CCConfigBuilder::default()
                 .no_sys_header(true)
                 .output_ty(output_ty)
@@ -199,10 +199,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             &self.opt.compiler_paths,
         );
 
-        BuildCommand {
-            extra_inputs: vec![runtime_c_path],
-            commandline: cc_cmd.into(),
-        }
+        self.lower_native_command(&resolved_cc, cc_cmd, vec![runtime_c_path])
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
