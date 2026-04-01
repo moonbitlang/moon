@@ -32,7 +32,6 @@ use moonutil::{
         ModuleName, ModuleSource, ModuleSourceKind,
         result::{DependencyEdge, DependencyKind, ResolvedEnv},
     },
-    version::as_caret_comparator,
 };
 use semver::Version;
 
@@ -57,20 +56,25 @@ fn select_min_version_satisfying<'a>(
     req: &SourceDependencyInfo,
     versions: impl Iterator<Item = &'a Version> + 'a,
 ) -> Result<Version, ResolverError> {
-    // We only support caret version requirements, per mvs algorithm, so
-    // do a preliminary scan before matching.
-    for it in &req.version.comparators {
-        if it.op != semver::Op::Caret {
-            return Err(ResolverError::Other(anyhow!(
-                "Only caret version requirements are supported; got: {}",
-                req.version
-            )));
-        }
-    }
+    let required = req.version.as_ref().ok_or_else(|| {
+        ResolverError::Other(anyhow!(
+            "Registry dependency `{}` for module `{}` must specify a version",
+            dependency,
+            dependant
+        ))
+    })?;
 
     // From lowest to highest version, find the first version that satisfies the requirement.
     for version in versions {
-        if req.version.matches(version) {
+        if (semver::Comparator {
+            op: semver::Op::Caret,
+            major: required.major,
+            minor: Some(required.minor),
+            patch: Some(required.patch),
+            pre: required.pre.clone(),
+        })
+        .matches(version)
+        {
             return Ok(version.clone());
         }
     }
@@ -82,7 +86,7 @@ fn select_min_version_satisfying<'a>(
     Err(ResolverError::NoSatisfiedVersion {
         dependency: dependency.clone(),
         dependant: dependant.clone(),
-        required: req.version.clone(),
+        required: required.clone(),
     })
 }
 
@@ -208,14 +212,23 @@ fn workspace_version_override_warning(
     dependant: &ModuleSource,
     workspace_member: &ModuleSource,
 ) -> Option<String> {
-    if req.version.comparators.is_empty() || req.version.matches(workspace_member.version()) {
+    let required = req.version.as_ref()?;
+    if (semver::Comparator {
+        op: semver::Op::Caret,
+        major: required.major,
+        minor: Some(required.minor),
+        patch: Some(required.patch),
+        pre: required.pre.clone(),
+    })
+    .matches(workspace_member.version())
+    {
         return None;
     }
 
     Some(format!(
         "Workspace member `{}` overrides dependency requirement `{}` for `{}` from `{}`. This build uses the workspace copy, but resolution outside the workspace may differ.",
         workspace_member,
-        req.version,
+        required,
         workspace_member.name(),
         dependant,
     ))
@@ -314,8 +327,15 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
         let mut curr = versions.next().unwrap();
         log::debug!("---- seen {}", curr);
         for v in versions {
-            let caret_curr = as_caret_comparator(curr.version().clone());
-            if caret_curr.matches(v.version()) {
+            if (semver::Comparator {
+                op: semver::Op::Caret,
+                major: curr.version().major,
+                minor: Some(curr.version().minor),
+                patch: Some(curr.version().patch),
+                pre: curr.version().pre.clone(),
+            })
+            .matches(v.version())
+            {
                 // v >= curr, as implied by btreeset
                 // Emit a warning if the skipped dep is local or git, as they are manually specified
                 warn_about_skipped_local_or_git_dep(&curr);
@@ -389,7 +409,17 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
                 let dep_versions = &settled_versions[&dep_name];
                 let resolved = dep_versions
                     .iter()
-                    .find(|v| req.version.matches(v.0.version()))
+                    .find(|v| match req.version.as_ref() {
+                        Some(required) => semver::Comparator {
+                            op: semver::Op::Caret,
+                            major: required.major,
+                            minor: Some(required.minor),
+                            patch: Some(required.patch),
+                            pre: required.pre.clone(),
+                        }
+                        .matches(v.0.version()),
+                        None => true,
+                    })
                     .expect(
                         "There should be at least one version available, otherwise previous steps will fail",
                     );
@@ -492,14 +522,22 @@ fn resolve_pkg(
             ModuleSourceKind::Local(dep_path),
         );
         // Assert version matches
-        if let Some(v) = &res.version
-            && !req.version.matches(v)
+        if let Some(actual) = &res.version
+            && let Some(required) = &req.version
+            && !(semver::Comparator {
+                op: semver::Op::Caret,
+                major: required.major,
+                minor: Some(required.minor),
+                patch: Some(required.patch),
+                pre: required.pre.clone(),
+            })
+            .matches(actual)
         {
             return Err(ResolverError::LocalDepVersionMismatch {
                 dependant: dependant.name().clone(),
                 dependency: pkg_name.clone(),
-                actual: v.clone(),
-                required: req.version.clone(),
+                actual: actual.clone(),
+                required: required.clone(),
             });
         }
         return Ok((ms, res));
@@ -530,7 +568,6 @@ mod test {
     use moonutil::mooncakes::ModuleId;
     use moonutil::mooncakes::result::{DependencyEdge, ResolvedModule, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
-    use semver::VersionReq;
     use test_log::test;
 
     use super::*;
@@ -598,7 +635,7 @@ mod test {
                     },
                 ),
                 deps: {
-                    "dep/two": ^0.1.0,
+                    "dep/two": 0.1.0,
                 },
                 bin_deps: None,
                 readme: None,
@@ -794,7 +831,7 @@ mod test {
                 "dep/bin".to_string(),
                 moonutil::dependency::BinaryDependencyInfo {
                     common: moonutil::dependency::SourceDependencyInfo {
-                        version: VersionReq::parse("0.1.0").unwrap(),
+                        version: Some("0.1.0".parse().unwrap()),
                         ..Default::default()
                     },
                     ..Default::default()
@@ -974,14 +1011,14 @@ mod test {
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
         let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
         let req = SourceDependencyInfo {
-            version: VersionReq::parse("0.2.0").unwrap(),
+            version: Some("0.2.0".parse().unwrap()),
             ..Default::default()
         };
 
         let warning = workspace_version_override_warning(&req, &app_src, &shared_src)
             .expect("expected mismatch warning");
 
-        expect![[r#"Workspace member `dep/shared@0.1.0 (local /workspace/shared)` overrides dependency requirement `^0.2.0` for `dep/shared` from `workspace/app@0.1.0 (local /workspace/app)`. This build uses the workspace copy, but resolution outside the workspace may differ."#]]
+        expect![[r#"Workspace member `dep/shared@0.1.0 (local /workspace/shared)` overrides dependency requirement `0.2.0` for `dep/shared` from `workspace/app@0.1.0 (local /workspace/app)`. This build uses the workspace copy, but resolution outside the workspace may differ."#]]
         .assert_eq(&warning);
     }
 
@@ -996,7 +1033,7 @@ mod test {
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
         let shared_src = create_mock_workspace_source(&shared, "/workspace/shared");
         let req = SourceDependencyInfo {
-            version: VersionReq::parse("0.1.0").unwrap(),
+            version: Some("0.1.0".parse().unwrap()),
             ..Default::default()
         };
 

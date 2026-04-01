@@ -39,7 +39,12 @@ pub fn tree(module_dir: &Path, mooncakes_dir: &Path) -> anyhow::Result<i32> {
     let root_m = read_module_desc_file_in_dir(module_dir)?;
     let mut top = HashSet::new();
     for (name, dep) in root_m.deps {
-        top.insert(format!("{}@{}", name, dep.version));
+        let item = if let Some(version) = dep.version {
+            format!("{name}@{version}")
+        } else {
+            name
+        };
+        top.insert(item);
     }
 
     if !mooncakes_dir.exists() {
@@ -55,7 +60,12 @@ pub fn tree(module_dir: &Path, mooncakes_dir: &Path) -> anyhow::Result<i32> {
             log::debug!("{:#?}", m);
             let mut deps = vec![];
             for (name, dep) in m.deps.into_iter() {
-                deps.push(format!("{}@{}", name, dep.version));
+                let item = if let Some(version) = dep.version {
+                    format!("{name}@{version}")
+                } else {
+                    name
+                };
+                deps.push(item);
             }
 
             let cur = match m.version {

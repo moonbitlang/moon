@@ -36,7 +36,6 @@ use moonutil::{
             DependencyEdge, DependencyKind, ResolvedEnv, ResolvedModule, ResolvedRootModules,
         },
     },
-    version::as_caret_version_req,
     workspace::{
         MoonWork, canonical_workspace_module_dirs, read_workspace, workspace_manifest_path,
         write_workspace,
@@ -311,7 +310,7 @@ fn sync_source_dependency(
         dep_name,
         resolved_env.module_source(id)
     ))?;
-    let version = as_caret_version_req(resolved_env.module_source(dep_id).version().clone());
+    let version = Some(resolved_env.module_source(dep_id).version().clone());
 
     if dep.version == version {
         return Ok(false);

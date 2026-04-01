@@ -131,7 +131,7 @@ pub fn add(
             pkg_name_str,
             BinaryDependencyInfo {
                 common: SourceDependencyInfo {
-                    version: moonutil::version::as_caret_version_req(version.clone()),
+                    version: Some(version.clone()),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -141,7 +141,7 @@ pub fn add(
         m.deps.insert(
             pkg_name_str,
             SourceDependencyInfo {
-                version: moonutil::version::as_caret_version_req(version.clone()),
+                version: Some(version.clone()),
                 ..Default::default()
             },
         );
