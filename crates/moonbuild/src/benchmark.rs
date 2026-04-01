@@ -43,15 +43,17 @@ pub struct BatchBenchSummaries {
     pub summaries: Vec<BenchSummary>,
 }
 
-fn auto_select_unit(us: f64) -> String {
-    if us < 1e3 {
-        format!("{us:>6.2} µs")
-    } else if us < 1e6 {
-        format!("{:>6.2} ms", us / 1e3)
-    } else if us < 1e9 {
-        format!("{:>6.2} s", us / 1e6)
+fn auto_select_unit(ns: f64) -> String {
+    if ns < 1e3 {
+        format!("{ns:>6.2} ns")
+    } else if ns < 1e6 {
+        format!("{:>6.2} µs", ns / 1e3)
+    } else if ns < 1e9 {
+        format!("{:>6.2} ms", ns / 1e6)
+    } else if ns < 6e13 {
+        format!("{:>6.2} s", ns / 1e9)
     } else {
-        format!("{:>6.2} min", us / 6e10)
+        format!("{:>6.2} min", ns / 6e10)
     }
 }
 
