@@ -42,6 +42,7 @@ const WASI_ERRNO_NOENT: WasiErrno = 44;
 const WASI_ERRNO_NAMETOOLONG: WasiErrno = 37;
 const WASI_ERRNO_NOTDIR: WasiErrno = 54;
 const WASI_ERRNO_NOTEMPTY: WasiErrno = 55;
+const WASI_ERRNO_NOTSUP: WasiErrno = 58;
 const WASI_ERRNO_PIPE: WasiErrno = 64;
 const WASI_ERRNO_NOTCAPABLE: WasiErrno = 76;
 
@@ -61,6 +62,16 @@ const WASI_FILETYPE_REGULAR_FILE: u8 = 4;
 const WASI_FILETYPE_SYMBOLIC_LINK: u8 = 7;
 
 const WASI_FDFLAG_APPEND: i32 = 1;
+const WASI_FDFLAG_DSYNC: i32 = 2;
+const WASI_FDFLAG_NONBLOCK: i32 = 4;
+const WASI_FDFLAG_RSYNC: i32 = 8;
+const WASI_FDFLAG_SYNC: i32 = 16;
+const WASI_KNOWN_FDFLAGS_MASK: i32 = WASI_FDFLAG_APPEND
+    | WASI_FDFLAG_DSYNC
+    | WASI_FDFLAG_NONBLOCK
+    | WASI_FDFLAG_RSYNC
+    | WASI_FDFLAG_SYNC;
+const WASI_SUPPORTED_FDFLAGS_MASK: i32 = WASI_FDFLAG_APPEND;
 
 const WASI_OFLAGS_CREAT: i32 = 1;
 const WASI_OFLAGS_DIRECTORY: i32 = 2;
@@ -68,9 +79,23 @@ const WASI_OFLAGS_EXCL: i32 = 4;
 const WASI_OFLAGS_TRUNC: i32 = 8;
 
 const WASI_LOOKUPFLAG_SYMLINK_FOLLOW: i32 = 1;
+const WASI_KNOWN_LOOKUPFLAGS_MASK: i32 = WASI_LOOKUPFLAG_SYMLINK_FOLLOW;
+const WASI_KNOWN_OFLAGS_MASK: i32 =
+    WASI_OFLAGS_CREAT | WASI_OFLAGS_DIRECTORY | WASI_OFLAGS_EXCL | WASI_OFLAGS_TRUNC;
 
 const WASI_RIGHT_FD_READ: u64 = 1u64 << 1;
 const WASI_RIGHT_FD_WRITE: u64 = 1u64 << 6;
+const WASI_RIGHT_PATH_CREATE_DIRECTORY: u64 = 1u64 << 9;
+const WASI_RIGHT_PATH_OPEN: u64 = 1u64 << 13;
+const WASI_RIGHT_FD_READDIR: u64 = 1u64 << 14;
+const WASI_RIGHT_PATH_READLINK: u64 = 1u64 << 15;
+const WASI_RIGHT_PATH_RENAME_SOURCE: u64 = 1u64 << 16;
+const WASI_RIGHT_PATH_RENAME_TARGET: u64 = 1u64 << 17;
+const WASI_RIGHT_PATH_FILESTAT_GET: u64 = 1u64 << 18;
+const WASI_RIGHT_FD_FILESTAT_GET: u64 = 1u64 << 21;
+const WASI_RIGHT_PATH_REMOVE_DIRECTORY: u64 = 1u64 << 25;
+const WASI_RIGHT_PATH_UNLINK_FILE: u64 = 1u64 << 26;
+const WASI_KNOWN_RIGHTS_MASK: u64 = (1u64 << 30) - 1;
 
 struct DescriptorTable {
     next_fd: i32,
@@ -93,9 +118,15 @@ impl DescriptorTable {
     }
 }
 
-enum Descriptor {
+enum DescriptorKind {
     File(Mutex<fs::File>),
     Directory(PathBuf),
+}
+
+struct Descriptor {
+    kind: DescriptorKind,
+    rights_base: u64,
+    rights_inheriting: u64,
 }
 
 #[repr(i32)]
@@ -308,18 +339,81 @@ fn dir_path_for_fd(context: &WasiContext, fd: i32) -> WasiResult<PathBuf> {
     }
 
     let descriptor = descriptor_for_fd(context, fd)?;
-    match descriptor.as_ref() {
-        Descriptor::Directory(path) => Ok(path.clone()),
+    match &descriptor.kind {
+        DescriptorKind::Directory(path) => Ok(path.clone()),
         _ => Err(WASI_ERRNO_BADF),
     }
 }
 
 fn file_for_fd(context: &WasiContext, fd: i32) -> WasiResult<Arc<Descriptor>> {
     let descriptor = descriptor_for_fd(context, fd)?;
-    if matches!(descriptor.as_ref(), Descriptor::File(_)) {
+    if matches!(&descriptor.kind, DescriptorKind::File(_)) {
         Ok(descriptor)
     } else {
         Err(WASI_ERRNO_BADF)
+    }
+}
+
+fn validate_known_flag_bits(value: i32, mask: i32) -> WasiResult<()> {
+    if (value & !mask) != 0 {
+        Err(WASI_ERRNO_INVAL)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_supported_flag_bits(value: i32, supported: i32) -> WasiResult<()> {
+    if (value & !supported) != 0 {
+        Err(WASI_ERRNO_NOTSUP)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_known_rights(rights: u64) -> WasiResult<()> {
+    if (rights & !WASI_KNOWN_RIGHTS_MASK) != 0 {
+        Err(WASI_ERRNO_INVAL)
+    } else {
+        Ok(())
+    }
+}
+
+fn preopen_rights_base() -> u64 {
+    WASI_RIGHT_PATH_OPEN
+        | WASI_RIGHT_FD_READDIR
+        | WASI_RIGHT_PATH_READLINK
+        | WASI_RIGHT_PATH_RENAME_SOURCE
+        | WASI_RIGHT_PATH_RENAME_TARGET
+        | WASI_RIGHT_PATH_FILESTAT_GET
+        | WASI_RIGHT_PATH_CREATE_DIRECTORY
+        | WASI_RIGHT_PATH_REMOVE_DIRECTORY
+        | WASI_RIGHT_PATH_UNLINK_FILE
+        | WASI_RIGHT_FD_FILESTAT_GET
+}
+
+fn rights_base_for_fd(context: &WasiContext, fd: i32) -> WasiResult<u64> {
+    match fd {
+        WASI_FD_STDIN => Ok(WASI_RIGHT_FD_READ),
+        WASI_FD_STDOUT | WASI_FD_STDERR => Ok(WASI_RIGHT_FD_WRITE),
+        _ if preopen_matches(context, fd) => Ok(preopen_rights_base()),
+        _ => Ok(descriptor_for_fd(context, fd)?.rights_base),
+    }
+}
+
+fn rights_inheriting_for_fd(context: &WasiContext, fd: i32) -> WasiResult<u64> {
+    match fd {
+        WASI_FD_STDIN | WASI_FD_STDOUT | WASI_FD_STDERR => Ok(0),
+        _ if preopen_matches(context, fd) => Ok(WASI_KNOWN_RIGHTS_MASK),
+        _ => Ok(descriptor_for_fd(context, fd)?.rights_inheriting),
+    }
+}
+
+fn require_fd_right(context: &WasiContext, fd: i32, right: u64) -> WasiResult<()> {
+    let rights = rights_base_for_fd(context, fd)?;
+    if (rights & right) == right {
+        Ok(())
+    } else {
+        Err(WASI_ERRNO_NOTCAPABLE)
     }
 }
 
@@ -542,12 +636,12 @@ fn fd_filestat_data(context: &WasiContext, fd: i32) -> WasiResult<FileStatData> 
         }
         _ => {
             let descriptor = descriptor_for_fd(context, fd)?;
-            match descriptor.as_ref() {
-                Descriptor::Directory(path) => {
+            match &descriptor.kind {
+                DescriptorKind::Directory(path) => {
                     let metadata = fs::metadata(path).map_err(|error| io_error_to_errno(&error))?;
                     Ok(stat_data_for_metadata(&metadata))
                 }
-                Descriptor::File(file) => {
+                DescriptorKind::File(file) => {
                     let file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
                     let metadata = file.metadata().map_err(|error| io_error_to_errno(&error))?;
                     Ok(stat_data_for_metadata(&metadata))
@@ -590,6 +684,7 @@ fn fd_filestat_get(
         let fd = read_i32_arg(scope, &args, 0)?;
         let stat_ptr = read_i32_arg(scope, &args, 1)?;
         let context = callback_context(&args);
+        require_fd_right(context, fd, WASI_RIGHT_FD_FILESTAT_GET)?;
         let stat = fd_filestat_data(context, fd)?;
 
         with_wasi_memory_mut(scope, context, |memory| {
@@ -607,23 +702,42 @@ fn path_open(
 ) {
     let result = (|| -> WasiResult<()> {
         let dirfd = read_i32_arg(scope, &args, 0)?;
-        let _dirflags = read_i32_arg(scope, &args, 1)?;
+        let dirflags = read_i32_arg(scope, &args, 1)?;
         let path_ptr = read_i32_arg(scope, &args, 2)?;
         let path_len =
             usize::try_from(read_i32_arg(scope, &args, 3)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let oflags = read_i32_arg(scope, &args, 4)?;
         let rights_base = read_u64_arg(scope, &args, 5)?;
-        let _rights_inheriting = read_u64_arg(scope, &args, 6)?;
+        let rights_inheriting = read_u64_arg(scope, &args, 6)?;
         let fdflags = read_i32_arg(scope, &args, 7)?;
         let opened_fd_ptr = read_i32_arg(scope, &args, 8)?;
         let context = callback_context(&args);
+
+        validate_known_flag_bits(dirflags, WASI_KNOWN_LOOKUPFLAGS_MASK)?;
+        validate_known_flag_bits(oflags, WASI_KNOWN_OFLAGS_MASK)?;
+        validate_known_flag_bits(fdflags, WASI_KNOWN_FDFLAGS_MASK)?;
+        validate_supported_flag_bits(fdflags, WASI_SUPPORTED_FDFLAGS_MASK)?;
+        validate_known_rights(rights_base)?;
+        validate_known_rights(rights_inheriting)?;
+        if dirflags != 0 {
+            return Err(WASI_ERRNO_NOTSUP);
+        }
+
+        require_fd_right(context, dirfd, WASI_RIGHT_PATH_OPEN)?;
+        let parent_inheriting_rights = rights_inheriting_for_fd(context, dirfd)?;
+        if (rights_base & !parent_inheriting_rights) != 0 {
+            return Err(WASI_ERRNO_NOTCAPABLE);
+        }
+        if (rights_inheriting & !parent_inheriting_rights) != 0 {
+            return Err(WASI_ERRNO_NOTCAPABLE);
+        }
 
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         let full_path = resolve_path(context, dirfd, &path)?;
 
-        let descriptor = if (oflags & WASI_OFLAGS_DIRECTORY) != 0 {
+        let descriptor_kind = if (oflags & WASI_OFLAGS_DIRECTORY) != 0 {
             if (oflags & (WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL | WASI_OFLAGS_TRUNC)) != 0 {
                 return Err(WASI_ERRNO_INVAL);
             }
@@ -631,7 +745,7 @@ fn path_open(
             if !metadata.is_dir() {
                 return Err(WASI_ERRNO_NOTDIR);
             }
-            Arc::new(Descriptor::Directory(full_path))
+            DescriptorKind::Directory(full_path)
         } else {
             let wants_read = (rights_base & WASI_RIGHT_FD_READ) != 0;
             let wants_write = (rights_base & WASI_RIGHT_FD_WRITE) != 0;
@@ -648,8 +762,14 @@ fn path_open(
             let file = options
                 .open(full_path)
                 .map_err(|error| io_error_to_errno(&error))?;
-            Arc::new(Descriptor::File(Mutex::new(file)))
+            DescriptorKind::File(Mutex::new(file))
         };
+
+        let descriptor = Arc::new(Descriptor {
+            kind: descriptor_kind,
+            rights_base,
+            rights_inheriting,
+        });
 
         let opened_fd = with_descriptor_table(context, |table| table.insert(descriptor))?;
         let opened_fd = u32::try_from(opened_fd).map_err(|_| WASI_ERRNO_FAULT)?;
@@ -677,6 +797,7 @@ fn path_readlink(
             usize::try_from(read_i32_arg(scope, &args, 4)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let buf_used_ptr = read_i32_arg(scope, &args, 5)?;
         let context = callback_context(&args);
+        require_fd_right(context, dirfd, WASI_RIGHT_PATH_READLINK)?;
 
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
@@ -713,6 +834,7 @@ fn path_create_directory(
         let path_len =
             usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
+        require_fd_right(context, dirfd, WASI_RIGHT_PATH_CREATE_DIRECTORY)?;
 
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
@@ -739,6 +861,8 @@ fn path_rename(
         let new_path_len =
             usize::try_from(read_i32_arg(scope, &args, 5)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
+        require_fd_right(context, old_fd, WASI_RIGHT_PATH_RENAME_SOURCE)?;
+        require_fd_right(context, new_fd, WASI_RIGHT_PATH_RENAME_TARGET)?;
 
         let old_path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, old_path_ptr, old_path_len)
@@ -768,6 +892,8 @@ fn path_filestat_get(
             usize::try_from(read_i32_arg(scope, &args, 3)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let stat_ptr = read_i32_arg(scope, &args, 4)?;
         let context = callback_context(&args);
+        validate_known_flag_bits(flags, WASI_KNOWN_LOOKUPFLAGS_MASK)?;
+        require_fd_right(context, dirfd, WASI_RIGHT_PATH_FILESTAT_GET)?;
 
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
@@ -799,6 +925,7 @@ fn path_remove_directory(
         let path_len =
             usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
+        require_fd_right(context, dirfd, WASI_RIGHT_PATH_REMOVE_DIRECTORY)?;
 
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
@@ -821,6 +948,7 @@ fn path_unlink_file(
         let path_len =
             usize::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
+        require_fd_right(context, dirfd, WASI_RIGHT_PATH_UNLINK_FILE)?;
 
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
@@ -902,6 +1030,7 @@ fn fd_readdir(
         let cookie = read_u64_arg(scope, &args, 3)?;
         let buf_used_ptr = read_i32_arg(scope, &args, 4)?;
         let context = callback_context(&args);
+        require_fd_right(context, fd, WASI_RIGHT_FD_READDIR)?;
         let dir_path = dir_path_for_fd(context, fd)?;
         let entries = collect_directory_entries(&dir_path)?;
         let start = usize::try_from(cookie).map_err(|_| WASI_ERRNO_INVAL)?;
@@ -1060,6 +1189,7 @@ fn fd_write(
             u32::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let nwritten_ptr = read_i32_arg(scope, &args, 3)?;
         let context = callback_context(&args);
+        require_fd_right(context, fd, WASI_RIGHT_FD_WRITE)?;
         let descriptor = if fd > WASI_FD_STDERR {
             Some(file_for_fd(context, fd)?)
         } else {
@@ -1092,7 +1222,7 @@ fn fd_write(
                 }
                 _ => {
                     let descriptor = descriptor.as_ref().ok_or(WASI_ERRNO_BADF)?;
-                    let Descriptor::File(file) = descriptor.as_ref() else {
+                    let DescriptorKind::File(file) = &descriptor.kind else {
                         return Err(WASI_ERRNO_BADF);
                     };
                     let mut file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
@@ -1127,6 +1257,7 @@ fn fd_read(
             u32::try_from(read_i32_arg(scope, &args, 2)?).map_err(|_| WASI_ERRNO_INVAL)?;
         let nread_ptr = read_i32_arg(scope, &args, 3)?;
         let context = callback_context(&args);
+        require_fd_right(context, fd, WASI_RIGHT_FD_READ)?;
         let descriptor = if fd > WASI_FD_STDERR {
             Some(file_for_fd(context, fd)?)
         } else {
@@ -1154,7 +1285,7 @@ fn fd_read(
                 }
                 _ => {
                     let descriptor = descriptor.as_ref().ok_or(WASI_ERRNO_BADF)?;
-                    let Descriptor::File(file) = descriptor.as_ref() else {
+                    let DescriptorKind::File(file) = &descriptor.kind else {
                         return Err(WASI_ERRNO_BADF);
                     };
                     let mut file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
