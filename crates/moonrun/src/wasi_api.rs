@@ -210,6 +210,7 @@ struct PollSubscription {
 
 struct PollEvent {
     userdata: u64,
+    error: WasiErrno,
     event_type: u16,
     nbytes: u64,
     flags: u32,
@@ -553,8 +554,15 @@ fn enforce_preopen_boundary(
         } => match fs::canonicalize(path) {
             Ok(real_path) => ensure_within_preopen_root(context, &real_path),
             Err(error) if error.kind() == ErrorKind::NotFound && allow_missing_final => {
-                let parent_path = canonical_parent_path(path)?;
-                ensure_within_preopen_root(context, &parent_path)
+                match fs::symlink_metadata(path) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => Err(WASI_ERRNO_NOTCAPABLE),
+                    Ok(_) => Err(WASI_ERRNO_NOENT),
+                    Err(metadata_error) if metadata_error.kind() == ErrorKind::NotFound => {
+                        let parent_path = canonical_parent_path(path)?;
+                        ensure_within_preopen_root(context, &parent_path)
+                    }
+                    Err(metadata_error) => Err(io_error_to_errno(&metadata_error)),
+                }
             }
             Err(error) => Err(io_error_to_errno(&error)),
         },
@@ -1298,6 +1306,7 @@ fn collect_poll_events(
                 if now >= deadline {
                     events.push(PollEvent {
                         userdata: subscription.userdata,
+                        error: WASI_ERRNO_SUCCESS,
                         event_type: WASI_EVENTTYPE_CLOCK,
                         nbytes: 0,
                         flags: 0,
@@ -1311,30 +1320,59 @@ fn collect_poll_events(
                 }
             }
             SubscriptionData::FdRead { fd } => {
-                require_fd_right(context, fd, WASI_RIGHT_FD_READ)?;
-                match poll_fd_read_state(context, fd)? {
-                    FdReadPollState::Ready(nbytes) => {
+                let read_result = (|| -> WasiResult<FdReadPollState> {
+                    require_fd_right(context, fd, WASI_RIGHT_FD_READ)?;
+                    poll_fd_read_state(context, fd)
+                })();
+                match read_result {
+                    Ok(FdReadPollState::Ready(nbytes)) => {
                         events.push(PollEvent {
                             userdata: subscription.userdata,
+                            error: WASI_ERRNO_SUCCESS,
                             event_type: WASI_EVENTTYPE_FD_READ,
                             nbytes,
                             flags: 0,
                         });
                     }
-                    FdReadPollState::Pending => {
+                    Ok(FdReadPollState::Pending) => {
                         pending_stdin_read = true;
+                    }
+                    Err(error) => {
+                        events.push(PollEvent {
+                            userdata: subscription.userdata,
+                            error,
+                            event_type: WASI_EVENTTYPE_FD_READ,
+                            nbytes: 0,
+                            flags: 0,
+                        });
                     }
                 }
             }
             SubscriptionData::FdWrite { fd } => {
-                require_fd_right(context, fd, WASI_RIGHT_FD_WRITE)?;
-                let nbytes = poll_fd_write_nbytes(context, fd)?;
-                events.push(PollEvent {
-                    userdata: subscription.userdata,
-                    event_type: WASI_EVENTTYPE_FD_WRITE,
-                    nbytes,
-                    flags: 0,
-                });
+                let write_result = (|| -> WasiResult<u64> {
+                    require_fd_right(context, fd, WASI_RIGHT_FD_WRITE)?;
+                    poll_fd_write_nbytes(context, fd)
+                })();
+                match write_result {
+                    Ok(nbytes) => {
+                        events.push(PollEvent {
+                            userdata: subscription.userdata,
+                            error: WASI_ERRNO_SUCCESS,
+                            event_type: WASI_EVENTTYPE_FD_WRITE,
+                            nbytes,
+                            flags: 0,
+                        });
+                    }
+                    Err(error) => {
+                        events.push(PollEvent {
+                            userdata: subscription.userdata,
+                            error,
+                            event_type: WASI_EVENTTYPE_FD_WRITE,
+                            nbytes: 0,
+                            flags: 0,
+                        });
+                    }
+                }
             }
         }
     }
@@ -1389,7 +1427,8 @@ fn poll_oneoff(
                     .ok_or(WASI_ERRNO_FAULT)?;
                 checked_mut_range(memory, offset, WASI_EVENT_SIZE)?.fill(0);
                 write_u64_at(memory, offset, event.userdata)?;
-                write_u16_at(memory, offset + 8, WASI_ERRNO_SUCCESS as u16)?;
+                let error_code = u16::try_from(event.error).map_err(|_| WASI_ERRNO_FAULT)?;
+                write_u16_at(memory, offset + 8, error_code)?;
                 write_u16_at(memory, offset + 10, event.event_type)?;
                 write_u64_at(memory, offset + 16, event.nbytes)?;
                 write_u32_at(memory, offset + 24, event.flags)?;
