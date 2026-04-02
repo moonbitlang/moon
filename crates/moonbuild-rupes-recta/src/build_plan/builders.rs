@@ -54,6 +54,7 @@ use super::{
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
+const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
 
 impl<'a> BuildPlanConstructor<'a> {
     fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
@@ -545,8 +546,15 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Populate `warn_list` by concatenating module-level, package-level,
         // and command-line settings.
+        let proof_warn_list = (pkg.raw.proof_enabled
+            && !matches!(
+                self.build_env.action,
+                moonutil::common::RunMode::Check | moonutil::common::RunMode::Prove
+            ))
+        .then_some(PROOF_ENABLED_WARN_SUPPRESSIONS);
+        let package_warn_list = cat_opt(pkg.raw.warn_list.clone(), proof_warn_list);
         let warn_list = cat_opt(
-            cat_opt(module.warn_list.clone(), pkg.raw.warn_list.as_deref()),
+            cat_opt(module.warn_list.clone(), package_warn_list.as_deref()),
             self.build_env.warn_list.as_deref(),
         );
 

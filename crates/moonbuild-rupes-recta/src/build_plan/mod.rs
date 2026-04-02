@@ -51,7 +51,10 @@ use std::{
 
 use log::{debug, info};
 use moonutil::{
-    common::TargetBackend, compiler_flags::CC, cond_expr::OptLevel, mooncakes::ModuleId,
+    common::{RunMode, TargetBackend},
+    compiler_flags::CC,
+    cond_expr::OptLevel,
+    mooncakes::ModuleId,
 };
 use petgraph::prelude::DiGraphMap;
 use tracing::instrument;
@@ -322,6 +325,7 @@ pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
     pub target_backend: RunBackend,
     pub opt_level: OptLevel,
+    pub action: RunMode,
     /// Whether compiling requires the standard library.
     ///
     /// MAINTAINERS: Potentially useful to move this to per-package/module.

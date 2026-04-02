@@ -187,6 +187,13 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "warn-list")]
     pub warn_list: Option<String>,
 
+    /// Whether this package participates in proof-oriented workflows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "proof-enabled")]
+    #[serde(rename(serialize = "proof-enabled"))]
+    #[schemars(rename = "proof-enabled")]
+    pub proof_enabled: Option<bool>,
+
     /// Conditional compilation targets
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "targets")]
@@ -616,6 +623,7 @@ pub struct MoonPkg {
 
     pub link: Option<Link>,
     pub warn_list: Option<String>,
+    pub proof_enabled: bool,
 
     pub targets: Option<CondExprs>,
 
@@ -863,6 +871,7 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
             Some(BoolOrLink::Link(l)) => Some(*l),
         },
         warn_list: j.warn_list,
+        proof_enabled: j.proof_enabled.unwrap_or(false),
         targets: j.targets,
         pre_build: j.pre_build,
         bin_name: j.bin_name,
@@ -910,6 +919,36 @@ options(
         vec![Js]
     );
     assert_eq!(decl_kind, SupportedTargetsDeclKind::Expr);
+}
+
+#[test]
+fn convert_pkg_dsl_supports_proof_enabled() {
+    let json = crate::moon_pkg::parse(
+        r#"
+options(
+  "proof-enabled": true,
+)
+"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
+
+    assert!(pkg.proof_enabled);
+}
+
+#[test]
+fn convert_pkg_json_supports_proof_enabled_hyphenated() {
+    let json: MoonPkgJSON = serde_json_lenient::from_str(
+        r#"
+{
+  "proof-enabled": true
+}
+"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_pkg_json_to_package_with_supported_targets_decl(json, true).unwrap();
+
+    assert!(pkg.proof_enabled);
 }
 
 #[test]

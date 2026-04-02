@@ -188,7 +188,15 @@ fn calc_user_intent(
         let (dir, _) = canonicalize_with_filename(path)?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
         ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
-        Ok((vec![UserIntent::Prove(pkg)], directive).into())
+        let intents = resolve_output
+            .pkg_dirs
+            .get_package(pkg)
+            .raw
+            .proof_enabled
+            .then_some(UserIntent::Prove(pkg))
+            .into_iter()
+            .collect::<Vec<_>>();
+        Ok((intents, directive).into())
     } else {
         let main_module_id = selected_main_module_id(resolve_output, selected_module_dir)?;
         let packages = resolve_output
@@ -199,6 +207,7 @@ fn calc_user_intent(
             .values()
             .copied()
             .filter(|&pkg| package_supports_backend(resolve_output, pkg, target_backend))
+            .filter(|&pkg| resolve_output.pkg_dirs.get_package(pkg).raw.proof_enabled)
             .filter(|&pkg| {
                 resolve_output
                     .pkg_dirs

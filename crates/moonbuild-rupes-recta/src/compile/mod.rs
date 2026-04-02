@@ -121,6 +121,7 @@ pub fn compile(
     let build_env = BuildEnvironment {
         target_backend: cx.target_backend,
         opt_level: cx.opt_level,
+        action: cx.action,
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),
     };
