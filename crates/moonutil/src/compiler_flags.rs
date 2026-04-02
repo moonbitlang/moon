@@ -117,7 +117,7 @@ impl CC {
         let name = path.file_name().and_then(OsStr::to_str).context(
             "Invalid compiler path: path must point to a file with valid UTF-8 filename",
         )?;
-        Ok(name.to_ascii_lowercase())
+        Ok(name.to_string())
     }
 
     fn strip_exe_suffix(name: &str) -> &str {
@@ -143,30 +143,108 @@ impl CC {
         }
     }
 
+    fn replace_compiler_suffix(name: &str, from_suffix: &str, to_suffix: &str) -> Option<String> {
+        let name_lower = name.to_ascii_lowercase();
+        let (stem, ext) = if name_lower.ends_with(".exe") {
+            let stem_len = name.len().checked_sub(4)?;
+            let stem = name.get(..stem_len)?;
+            let ext = name.get(stem_len..)?;
+            (stem, ext)
+        } else {
+            (name, "")
+        };
+        let stem_lower = stem.to_ascii_lowercase();
+        if !stem_lower.ends_with(from_suffix) {
+            return None;
+        }
+        let prefix_len = stem.len() - from_suffix.len();
+        let prefix = stem.get(..prefix_len)?;
+        Some(format!("{prefix}{to_suffix}{ext}"))
+    }
+
+    fn resolve_tool_path(cc_path: &Path, tool: &str) -> String {
+        let tool_path = Path::new(tool);
+        let has_non_empty_parent = tool_path
+            .parent()
+            .is_some_and(|parent| !parent.as_os_str().is_empty());
+        if tool_path.is_absolute() || has_non_empty_parent {
+            tool.to_string()
+        } else if let Some(cc_dir) = cc_path.parent() {
+            cc_dir.join(tool).display().to_string()
+        } else {
+            tool.to_string()
+        }
+    }
+
+    fn probe_prog_name(cc_path: &Path, name: &str) -> Option<String> {
+        let output = Command::new(cc_path)
+            .arg(format!("-print-prog-name={name}"))
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let prog = String::from_utf8_lossy(&output.stdout);
+        let prog = prog.lines().next()?.trim();
+        (!prog.is_empty()).then(|| prog.to_string())
+    }
+
+    fn resolve_reported_prog_path(prog: &str) -> Option<String> {
+        let prog_path = Path::new(prog);
+        let has_non_empty_parent = prog_path
+            .parent()
+            .is_some_and(|parent| !parent.as_os_str().is_empty());
+
+        if prog_path.is_absolute() || has_non_empty_parent {
+            if prog_path.is_file() {
+                return Some(prog.to_string());
+            }
+
+            #[cfg(windows)]
+            if prog_path.extension().is_none() {
+                let exe_path = prog_path.with_extension("exe");
+                if exe_path.is_file() {
+                    return Some(exe_path.display().to_string());
+                }
+            }
+
+            return None;
+        }
+
+        which::which(prog)
+            .ok()
+            .map(|path| path.display().to_string())
+    }
+
+    fn probe_existing_prog_name(cc_path: &Path, name: &str) -> Option<String> {
+        let prog = CC::probe_prog_name(cc_path, name)?;
+        CC::resolve_reported_prog_path(&prog)
+    }
+
+    fn is_llvm_ar_name(ar_name_or_path: &str) -> bool {
+        let file_name = Path::new(ar_name_or_path)
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or(ar_name_or_path)
+            .to_ascii_lowercase();
+        CC::strip_exe_suffix(&file_name) == "llvm-ar"
+    }
     pub fn try_from_cc_path_and_kind(
         ar_name: &str,
         cc_path: &Path,
         cc_kind: CCKind,
     ) -> anyhow::Result<Self> {
-        let cc_dir = cc_path
-            .parent()
-            .context("cc_path should have a parent directory")?;
         let (ar_kind, ar_path) = match cc_kind {
-            CCKind::Msvc => {
-                let ar = cc_dir.join("lib");
-                (ARKind::MsvcLib, ar.display().to_string())
-            }
-            CCKind::SystemCC => {
-                let ar = cc_dir.join(ar_name);
-                (ARKind::GnuAr, ar.display().to_string())
-            }
-            CCKind::Gcc => {
-                let ar = cc_dir.join(ar_name);
-                (ARKind::GnuAr, ar.display().to_string())
-            }
+            CCKind::Msvc => (ARKind::MsvcLib, CC::resolve_tool_path(cc_path, "lib")),
+            CCKind::SystemCC => (ARKind::GnuAr, CC::resolve_tool_path(cc_path, ar_name)),
+            CCKind::Gcc => (ARKind::GnuAr, CC::resolve_tool_path(cc_path, ar_name)),
             CCKind::Clang => {
-                let ar = cc_dir.join(ar_name);
-                (ARKind::GnuAr, ar.display().to_string())
+                let ar_kind = if CC::is_llvm_ar_name(ar_name) {
+                    ARKind::LlvmAr
+                } else {
+                    ARKind::GnuAr
+                };
+                (ar_kind, CC::resolve_tool_path(cc_path, ar_name))
             }
             CCKind::Tcc => (ARKind::TccAr, cc_path.display().to_string()),
         };
@@ -183,7 +261,8 @@ impl CC {
     pub fn try_from_path_with_ar(cc: &str, ar: &str) -> anyhow::Result<Self> {
         let path = PathBuf::from(cc);
         let name = CC::parse_compiler_name(&path)?;
-        let stem = CC::strip_exe_suffix(&name);
+        let name_lower = name.to_ascii_lowercase();
+        let stem = CC::strip_exe_suffix(&name_lower);
         if stem.ends_with("cl") {
             CC::try_from_cc_path_and_kind(ar, &path, CCKind::Msvc)
         } else if stem.ends_with("gcc") {
@@ -203,14 +282,22 @@ impl CC {
     pub fn try_from_path(cc: &str) -> anyhow::Result<Self> {
         let path = PathBuf::from(cc);
         let name = CC::parse_compiler_name(&path)?;
-        let stem = CC::strip_exe_suffix(&name);
-        let replaced_ar = |s: &str| name.replace(s, "ar");
+        let name_lower = name.to_ascii_lowercase();
+        let stem = CC::strip_exe_suffix(&name_lower);
+        let replaced_ar =
+            |s: &str| CC::replace_compiler_suffix(&name, s, "ar").unwrap_or_else(|| "ar".into());
         if stem.ends_with("cl") {
             CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)
         } else if stem.ends_with("gcc") {
             CC::try_from_cc_path_and_kind(&replaced_ar("gcc"), &path, CCKind::Gcc)
         } else if stem.ends_with("clang") {
-            CC::try_from_cc_path_and_kind(&replaced_ar("clang"), &path, CCKind::Clang)
+            if let Some(ar) = CC::probe_existing_prog_name(&path, "ar") {
+                CC::try_from_cc_path_and_kind(&ar, &path, CCKind::Clang)
+            } else if let Some(llvm_ar) = CC::probe_existing_prog_name(&path, "llvm-ar") {
+                CC::try_from_cc_path_and_kind(&llvm_ar, &path, CCKind::Clang)
+            } else {
+                CC::try_from_cc_path_and_kind(&replaced_ar("clang"), &path, CCKind::Clang)
+            }
         } else if stem.ends_with("tcc") {
             CC::try_from_cc_path_and_kind("", &path, CCKind::Tcc)
         } else if stem.ends_with("cc") {
@@ -219,6 +306,21 @@ impl CC {
             // assume it's a system cc
             CC::try_from_cc_path_and_kind("ar", &path, CCKind::SystemCC)
         }
+    }
+
+    fn try_from_detected_path(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<Self> {
+        if matches!(cc_kind, CCKind::Clang)
+            && let Some(cc) = cc_path.to_str()
+        {
+            return CC::try_from_path(cc);
+        }
+
+        let ar_name = match cc_kind {
+            CCKind::Msvc => "lib.exe",
+            CCKind::Tcc => "",
+            CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => "ar",
+        };
+        CC::try_from_cc_path_and_kind(ar_name, cc_path, cc_kind)
     }
 
     pub fn is_gcc_like(&self) -> bool {
@@ -312,8 +414,8 @@ pub static DETECTED_CC: std::sync::LazyLock<CC> = std::sync::LazyLock::new(|| {
         (Tcc, cc)
     };
 
-    CC::try_from_cc_path_and_kind("ar", &cc_path, cc_kind)
-        .context("failed to find ar")
+    CC::try_from_detected_path(&cc_path, cc_kind)
+        .context("failed to detect native C toolchain")
         .unwrap()
 });
 
@@ -955,7 +1057,6 @@ where
 
     buf
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1022,5 +1123,73 @@ mod tests {
     fn try_from_path_recognizes_clang_exe() {
         let cc = CC::try_from_path("C:/llvm/bin/clang.exe").expect("parse clang.exe");
         assert!(matches!(cc.cc_kind, CCKind::Clang));
+    }
+
+    fn normalize_path_separators(path: &str) -> String {
+        path.replace('\\', "/")
+    }
+
+    #[test]
+    fn try_from_path_keeps_original_casing_for_fallback_archiver_name() {
+        let cc =
+            CC::try_from_path("/LLVM/bin/X86_64-W64-MINGW32-CLANG.ExE").expect("parse clang path");
+        assert_eq!(
+            normalize_path_separators(&cc.ar_path),
+            "/LLVM/bin/X86_64-W64-MINGW32-ar.ExE"
+        );
+    }
+
+    #[test]
+    fn try_from_path_uses_clang_reported_archiver_when_available() {
+        let clang_path = match which::which("clang") {
+            Ok(path) => path,
+            Err(err) => {
+                if cfg!(windows) {
+                    panic!("clang should exist on Windows CI for this regression test: {err}");
+                }
+                return;
+            }
+        };
+        let Some(clang_path_str) = clang_path.to_str() else {
+            return;
+        };
+        let reported_ar = match CC::probe_existing_prog_name(&clang_path, "ar") {
+            Some(ar) => ar,
+            None => {
+                if cfg!(windows) {
+                    panic!("clang -print-prog-name=ar should work on Windows CI");
+                }
+                return;
+            }
+        };
+
+        let cc = CC::try_from_path(clang_path_str).expect("parse real clang path");
+        assert_eq!(cc.ar_path, CC::resolve_tool_path(&clang_path, &reported_ar));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolve_reported_prog_path_accepts_windows_exe_without_suffix() {
+        let dir = std::env::temp_dir().join(format!(
+            "moonutil-reported-prog-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+
+        let reported = dir.join("bin").join("llvm-ar");
+        let exe_path = reported.with_extension("exe");
+        std::fs::write(&exe_path, []).unwrap();
+
+        assert_eq!(
+            CC::resolve_reported_prog_path(&reported.display().to_string()),
+            Some(exe_path.display().to_string())
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
