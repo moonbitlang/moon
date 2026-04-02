@@ -1,3 +1,7 @@
 import {
   "username/prove_cross/dep" 
 }
+
+options(
+  "proof-enabled": true,
+)

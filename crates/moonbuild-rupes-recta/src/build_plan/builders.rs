@@ -54,6 +54,7 @@ use super::{
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
+const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
 
 impl<'a> BuildPlanConstructor<'a> {
     fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
@@ -517,13 +518,19 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
         let mbtp_files = match target.kind {
-            Source | SubPackage | InlineTest | WhiteboxTest | BlackboxTest => {
+            Source | SubPackage | InlineTest | WhiteboxTest => {
                 // `.mbtp` files are threaded into all moonc-based compilation
-                // and checking commands for this package. We intentionally
-                // ignore prebuild-generated `.mbtp` files for now until their
-                // semantics are designed explicitly.
+                // and checking commands for this package.
+                //
+                // Blackbox targets import the checked package interface, so
+                // threading `.mbtp` through as regular sources there would
+                // redeclare proof-side APIs against the imported package.
+                //
+                // We intentionally ignore prebuild-generated `.mbtp` files for
+                // now until their semantics are designed explicitly.
                 pkg.mbtp_files.clone()
             }
+            BlackboxTest => Vec::new(),
         };
         drop(_filter_span);
 
@@ -539,8 +546,15 @@ impl<'a> BuildPlanConstructor<'a> {
 
         // Populate `warn_list` by concatenating module-level, package-level,
         // and command-line settings.
+        let proof_warn_list = (pkg.raw.proof_enabled
+            && !matches!(
+                self.build_env.action,
+                moonutil::common::RunMode::Check | moonutil::common::RunMode::Prove
+            ))
+        .then_some(PROOF_ENABLED_WARN_SUPPRESSIONS);
+        let package_warn_list = cat_opt(pkg.raw.warn_list.clone(), proof_warn_list);
         let warn_list = cat_opt(
-            cat_opt(module.warn_list.clone(), pkg.raw.warn_list.as_deref()),
+            cat_opt(module.warn_list.clone(), package_warn_list.as_deref()),
             self.build_env.warn_list.as_deref(),
         );
 
@@ -551,6 +565,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .as_ref()
             .filter(|(specify_target, _)| specify_target == &target)
             .map(|(_, path)| path.clone());
+        let why3_config = self.input_directive.prove_why3_config.clone();
 
         let mi_check_target = self.mi_check_target(target, pkg);
 
@@ -562,6 +577,7 @@ impl<'a> BuildPlanConstructor<'a> {
             warn_list,
             specified_no_mi,
             patch_file,
+            why3_config,
             check_mi_against: mi_check_target,
             value_tracing: self
                 .input_directive

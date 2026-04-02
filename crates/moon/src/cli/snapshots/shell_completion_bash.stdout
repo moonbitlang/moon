@@ -2055,12 +2055,16 @@ _moon() {
             return 0
             ;;
         moon__prove)
-            opts="-d -j -q -v -h --frozen --deny-warn --no-render --output-json --warn-list --jobs --render-no-loc --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-d -j -q -v -h --why3-config --frozen --deny-warn --no-render --output-json --warn-list --jobs --render-no-loc --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --why3-config)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --warn-list)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

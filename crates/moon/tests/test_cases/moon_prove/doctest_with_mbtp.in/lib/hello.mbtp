@@ -1,0 +1,3 @@
+pub fn proof_id(x : Int) -> Int {
+  x
+}

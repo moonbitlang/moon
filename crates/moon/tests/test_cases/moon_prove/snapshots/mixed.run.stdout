@@ -1,6 +1,6 @@
-failed: moonc prove -error-format json $ROOT/afail/afail.mbt $ROOT/afail/afail.mbtp --whyml-output-path $ROOT/_build/verif/afail/pkg_8_username_5_prove_5_afail.mlw --proof-report-output-path $ROOT/_build/verif/afail/afail.proof.json --why3-config $ROOT/_build/verif/why3.conf -pkg username/prove/afail -i $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude -pkg-sources username/prove/afail:$ROOT/afail -workspace-path $ROOT -all-pkgs $ROOT/_build/wasm-gc/debug/prove/all_pkgs.json
+failed: moonc prove -error-format json $ROOT/afail/afail.mbt $ROOT/afail/afail.mbtp -whyml-output-path $ROOT/_build/verif/afail/pkg_8_username_5_prove_5_afail.mlw -proof-report-output-path $ROOT/_build/verif/afail/afail.proof.json -why3-config $ROOT/_build/verif/why3.conf -pkg username/prove/afail -i $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude -pkg-sources username/prove/afail:$ROOT/afail -workspace-path $ROOT -all-pkgs $ROOT/_build/wasm-gc/debug/prove/all_pkgs.json
 username/prove/afail
-  Failed: 12 goals proved, 1 timeout
+  Failed: 11 goals proved, 1 timeout
   WhyML: _build/verif/afail/pkg_8_username_5_prove_5_afail.mlw
   Report: _build/verif/afail/afail.proof.json
   Failed goals: 1
@@ -13,4 +13,4 @@ username/prove/zzok
 
 Summary:
   2 of 3 packages proved
-  36 goals proved, 1 timeout
+  35 goals proved, 1 timeout

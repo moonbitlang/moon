@@ -1,5 +1,5 @@
 use crate::{
-    TestDir, get_stdout,
+    TestDir, get_stderr, get_stdout,
     util::{check, moon_bin, replace_dir},
 };
 use expect_test::{expect, expect_file};
@@ -58,6 +58,87 @@ fn test_moon_prove_dry_run() {
     let dir = TestDir::new("moon_prove/mixed.in");
     let stdout = get_stdout(&dir, ["prove", "zzok", "--dry-run"]);
     expect_file!["snapshots/zzok.stdout"].assert_eq(&stdout);
+}
+
+#[test]
+fn test_moon_prove_dry_run_uses_user_supplied_why3_config() {
+    if skip_unless_verification_tests_enabled(
+        "test_moon_prove_dry_run_uses_user_supplied_why3_config",
+    ) {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/mixed.in");
+    let stdout = get_stdout(
+        &dir,
+        [
+            "prove",
+            "zzok",
+            "--why3-config",
+            "custom-why3.conf",
+            "--dry-run",
+        ],
+    );
+    expect_file!["snapshots/zzok.custom-why3-config.stdout"].assert_eq(&stdout);
+    assert!(
+        !stdout.contains("./_build/verif/why3.conf"),
+        "dry-run should not use generated why3.conf when --why3-config is set, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_check_doctest_with_mbtp_uses_imported_proof_api() {
+    let dir = TestDir::new("moon_prove/doctest_with_mbtp.in");
+
+    let check_stderr = get_stderr(&dir, ["check"]);
+    expect_file!["snapshots/doctest_with_mbtp.check_run.stderr"].assert_eq(&check_stderr);
+
+    let stdout = get_stdout(&dir, ["check", "--dry-run"]);
+    expect_file!["snapshots/doctest_with_mbtp.check.stdout"].assert_eq(&stdout);
+}
+
+#[test]
+fn test_moon_prove_skips_packages_without_proof_enabled() {
+    let dir = TestDir::new("moon_prove/selective.in");
+    let stdout = get_stdout(&dir, ["prove", "--dry-run"]);
+    expect_file!["snapshots/selective.stdout"].assert_eq(&stdout);
+    assert!(
+        !stdout.contains("./disabled/disabled.mbt"),
+        "packages without proof-enabled should be skipped by moon prove, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_proof_enabled_suppresses_proof_warnings_for_test_runs() {
+    let dir = TestDir::new("moon_prove/warn_suppression.in");
+
+    let dry_run = get_stdout(&dir, ["test", "lib", "--dry-run", "--sort-input"]);
+    expect_file!["snapshots/warn_suppression.test.stdout"].assert_eq(&dry_run);
+    assert!(
+        dry_run.contains("-w -1-2-3-29"),
+        "proof-enabled packages should pass proof warning suppressions, got:\n{dry_run}"
+    );
+
+    let output = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["test", "lib", "--sort-input", "--no-parallelize"])
+        .assert()
+        .success()
+        .get_output()
+        .to_owned();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    check(
+        replace_dir(&stdout, &dir),
+        expect!["Total tests: 1, passed: 1, failed: 0.\n"],
+    );
+    assert!(
+        !stderr.contains("Warning: [0001]")
+            && !stderr.contains("Warning: [0002]")
+            && !stderr.contains("Warning: [0003]")
+            && !stderr.contains("Warning: [0029]"),
+        "proof-enabled packages should suppress warnings 1, 2, 3, and 29, got:\n{}",
+        replace_dir(&stderr, &dir)
+    );
 }
 
 #[test]

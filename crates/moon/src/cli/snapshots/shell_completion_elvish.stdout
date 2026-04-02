@@ -198,6 +198,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --help 'Print help'
         }
         &'moon;prove'= {
+            cand --why3-config 'Use a user-supplied Why3 configuration file instead of the generated default'
             cand --warn-list 'Warn list config'
             cand -j 'Set the max number of jobs to run in parallel'
             cand --jobs 'Set the max number of jobs to run in parallel'

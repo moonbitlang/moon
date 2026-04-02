@@ -206,6 +206,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;prove' {
+            [CompletionResult]::new('--why3-config', 'why3-config', [CompletionResultType]::ParameterName, 'Use a user-supplied Why3 configuration file instead of the generated default')
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')
             [CompletionResult]::new('--jobs', 'jobs', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')

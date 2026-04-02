@@ -188,6 +188,7 @@ Prove the current package
 
 ###### **Options:**
 
+* `--why3-config <PATH>` — Use a user-supplied Why3 configuration file instead of the generated default
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-d`, `--deny-warn` — Treat all warnings as errors
 * `--no-render` — Don't render diagnostics (in raw human-readable format)

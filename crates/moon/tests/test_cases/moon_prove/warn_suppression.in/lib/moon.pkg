@@ -1,0 +1,8 @@
+import {
+  "username/prove_warns/dep",
+  "username/prove_warns/dep2",
+}
+
+options(
+  "proof-enabled": true,
+)
