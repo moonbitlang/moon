@@ -517,7 +517,13 @@ try {
     let instance = new WebAssembly.Instance(module, spectest);
     if (usesWasiSnapshotPreview1) {
         const memory = instance.exports.memory;
-        setWasiMemory(memory);
+        if (memory instanceof WebAssembly.Memory) {
+            setWasiMemory(memory);
+        } else if (!wasiMemoryInitialized) {
+            throw new Error(
+                "wasi_snapshot_preview1 requires an exported or imported WebAssembly.Memory"
+            );
+        }
     }
     if (test_mode) {
         for (param of testParams) {

@@ -476,18 +476,36 @@ fn require_fd_right(context: &WasiContext, fd: i32, right: u64) -> WasiResult<()
     }
 }
 
-fn read_path_from_memory(memory: &[u8], path_ptr: i32, path_len: usize) -> WasiResult<String> {
-    let path = checked_range(memory, ptr_to_offset(path_ptr)?, path_len)?;
-    let path = std::str::from_utf8(path).map_err(|_| WASI_ERRNO_INVAL)?;
-    if path.contains('\0') {
-        return Err(WASI_ERRNO_INVAL);
-    }
-    Ok(path.to_string())
+#[cfg(unix)]
+fn guest_path_from_bytes(path: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStringExt;
+    PathBuf::from(std::ffi::OsString::from_vec(path.to_vec()))
 }
 
-fn validate_guest_relative_path(path: &str) -> WasiResult<()> {
+#[cfg(not(unix))]
+fn guest_path_from_bytes(path: &[u8]) -> WasiResult<PathBuf> {
+    let path = std::str::from_utf8(path).map_err(|_| WASI_ERRNO_INVAL)?;
+    Ok(PathBuf::from(path))
+}
+
+fn read_path_from_memory(memory: &[u8], path_ptr: i32, path_len: usize) -> WasiResult<PathBuf> {
+    let path = checked_range(memory, ptr_to_offset(path_ptr)?, path_len)?;
+    if path.contains(&0) {
+        return Err(WASI_ERRNO_INVAL);
+    }
+    #[cfg(unix)]
+    {
+        Ok(guest_path_from_bytes(path))
+    }
+    #[cfg(not(unix))]
+    {
+        guest_path_from_bytes(path)
+    }
+}
+
+fn validate_guest_relative_path(path: &Path) -> WasiResult<()> {
     let mut depth = 0i32;
-    for component in Path::new(path).components() {
+    for component in path.components() {
         match component {
             Component::CurDir => {}
             Component::Normal(_) => depth = depth.saturating_add(1),
@@ -503,10 +521,14 @@ fn validate_guest_relative_path(path: &str) -> WasiResult<()> {
     Ok(())
 }
 
-fn resolve_path(context: &WasiContext, dirfd: i32, path: &str) -> WasiResult<PathBuf> {
+fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<PathBuf> {
     validate_guest_relative_path(path)?;
     let base = dir_path_for_fd(context, dirfd)?;
-    let relative = if path.is_empty() { "." } else { path };
+    let relative = if path.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        path
+    };
     Ok(base.join(relative))
 }
 
@@ -920,6 +942,12 @@ fn path_readlink(
         let full_path = resolve_path(context, dirfd, &path)?;
         enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
         let link_target = fs::read_link(&full_path).map_err(|error| io_error_to_errno(&error))?;
+        #[cfg(unix)]
+        let link_bytes = {
+            use std::os::unix::ffi::OsStrExt;
+            link_target.as_os_str().as_bytes().to_vec()
+        };
+        #[cfg(not(unix))]
         let link_bytes = link_target
             .as_os_str()
             .to_string_lossy()
