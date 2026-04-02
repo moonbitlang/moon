@@ -345,21 +345,6 @@ impl CC {
         CAN_USE_MOONBITRUN && !self.is_msvc() && !self.is_env_override
     }
 
-    fn try_from_detected_path(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<Self> {
-        if matches!(cc_kind, CCKind::Clang)
-            && let Some(cc) = cc_path.to_str()
-        {
-            return CC::try_from_path(cc);
-        }
-
-        let ar_name = match cc_kind {
-            CCKind::Msvc => "lib.exe",
-            CCKind::Tcc => "",
-            CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => "ar",
-        };
-        CC::try_from_cc_path_and_kind(ar_name, cc_path, cc_kind)
-    }
-
     // Constructors for TCC toolchain
 
     /// Create a CC configured for the internal TCC shipped with Moon.
