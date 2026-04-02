@@ -24,6 +24,8 @@ use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::thread;
+use std::time::Duration;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 type WasiErrno = i32;
@@ -52,6 +54,8 @@ const WASI_FD_STDERR: i32 = 2;
 const WASI_FD_PREOPEN_DIR: i32 = 3;
 const WASI_FD_DYNAMIC_START: i32 = 4;
 const WASI_IOVEC_SIZE: usize = 8;
+const WASI_SUBSCRIPTION_SIZE: usize = 48;
+const WASI_EVENT_SIZE: usize = 32;
 const WASI_DIRENT_SIZE: usize = 24;
 
 const WASI_PREOPEN_TYPE_DIR: u8 = 0;
@@ -96,6 +100,15 @@ const WASI_RIGHT_FD_FILESTAT_GET: u64 = 1u64 << 21;
 const WASI_RIGHT_PATH_REMOVE_DIRECTORY: u64 = 1u64 << 25;
 const WASI_RIGHT_PATH_UNLINK_FILE: u64 = 1u64 << 26;
 const WASI_KNOWN_RIGHTS_MASK: u64 = (1u64 << 30) - 1;
+
+const WASI_EVENTTYPE_CLOCK: u16 = 0;
+const WASI_EVENTTYPE_FD_READ: u16 = 1;
+const WASI_EVENTTYPE_FD_WRITE: u16 = 2;
+
+const WASI_SUBSCRIPTION_TAG_CLOCK: u32 = 0;
+const WASI_SUBSCRIPTION_TAG_FD_READ: u32 = 1;
+const WASI_SUBSCRIPTION_TAG_FD_WRITE: u32 = 2;
+const WASI_SUBCLOCKFLAG_ABSTIME: u32 = 1;
 
 struct DescriptorTable {
     next_fd: i32,
@@ -175,6 +188,32 @@ struct FileStatData {
     ctim: u64,
 }
 
+enum SubscriptionData {
+    Clock {
+        id: ClockId,
+        timeout_ns: u64,
+        flags: u32,
+    },
+    FdRead {
+        fd: i32,
+    },
+    FdWrite {
+        fd: i32,
+    },
+}
+
+struct PollSubscription {
+    userdata: u64,
+    data: SubscriptionData,
+}
+
+struct PollEvent {
+    userdata: u64,
+    event_type: u16,
+    nbytes: u64,
+    flags: u32,
+}
+
 fn encode_c_string(value: impl Into<String>) -> Vec<u8> {
     let mut bytes = value.into().into_bytes();
     bytes.push(0);
@@ -236,6 +275,11 @@ fn checked_mut_range(memory: &mut [u8], offset: usize, len: usize) -> WasiResult
     memory.get_mut(offset..end).ok_or(WASI_ERRNO_FAULT)
 }
 
+fn write_u16_at(memory: &mut [u8], offset: usize, value: u16) -> WasiResult<()> {
+    checked_mut_range(memory, offset, 2)?.copy_from_slice(&value.to_le_bytes());
+    Ok(())
+}
+
 fn write_u32_at(memory: &mut [u8], offset: usize, value: u32) -> WasiResult<()> {
     checked_mut_range(memory, offset, 4)?.copy_from_slice(&value.to_le_bytes());
     Ok(())
@@ -250,6 +294,14 @@ fn read_u32_at(memory: &[u8], offset: usize) -> WasiResult<u32> {
     let bytes = memory.get(offset..end).ok_or(WASI_ERRNO_FAULT)?;
     Ok(u32::from_le_bytes(
         <[u8; 4]>::try_from(bytes).map_err(|_| WASI_ERRNO_FAULT)?,
+    ))
+}
+
+fn read_u64_at(memory: &[u8], offset: usize) -> WasiResult<u64> {
+    let end = offset.checked_add(8).ok_or(WASI_ERRNO_FAULT)?;
+    let bytes = memory.get(offset..end).ok_or(WASI_ERRNO_FAULT)?;
+    Ok(u64::from_le_bytes(
+        <[u8; 8]>::try_from(bytes).map_err(|_| WASI_ERRNO_FAULT)?,
     ))
 }
 
@@ -960,6 +1012,227 @@ fn path_unlink_file(
     finish_with_result(&mut ret, result);
 }
 
+fn parse_poll_subscriptions(
+    memory: &[u8],
+    in_ptr: i32,
+    nsubscriptions: usize,
+) -> WasiResult<Vec<PollSubscription>> {
+    let base = ptr_to_offset(in_ptr)?;
+    let mut subscriptions = Vec::with_capacity(nsubscriptions);
+
+    for index in 0..nsubscriptions {
+        let offset = base
+            .checked_add(
+                index
+                    .checked_mul(WASI_SUBSCRIPTION_SIZE)
+                    .ok_or(WASI_ERRNO_FAULT)?,
+            )
+            .ok_or(WASI_ERRNO_FAULT)?;
+        let userdata = read_u64_at(memory, offset)?;
+        let tag = read_u32_at(memory, offset + 8)?;
+
+        let data = match tag {
+            WASI_SUBSCRIPTION_TAG_CLOCK => {
+                let clock_id_raw = read_u32_at(memory, offset + 16)?;
+                let clock_id =
+                    ClockId::try_from(i32::try_from(clock_id_raw).map_err(|_| WASI_ERRNO_INVAL)?)?;
+                let timeout_ns = read_u64_at(memory, offset + 24)?;
+                let _precision = read_u64_at(memory, offset + 32)?;
+                let flags = read_u32_at(memory, offset + 40)?;
+                if (flags & !WASI_SUBCLOCKFLAG_ABSTIME) != 0 {
+                    return Err(WASI_ERRNO_INVAL);
+                }
+                SubscriptionData::Clock {
+                    id: clock_id,
+                    timeout_ns,
+                    flags,
+                }
+            }
+            WASI_SUBSCRIPTION_TAG_FD_READ => {
+                let fd_raw = read_u32_at(memory, offset + 16)?;
+                let fd = i32::try_from(fd_raw).map_err(|_| WASI_ERRNO_INVAL)?;
+                SubscriptionData::FdRead { fd }
+            }
+            WASI_SUBSCRIPTION_TAG_FD_WRITE => {
+                let fd_raw = read_u32_at(memory, offset + 16)?;
+                let fd = i32::try_from(fd_raw).map_err(|_| WASI_ERRNO_INVAL)?;
+                SubscriptionData::FdWrite { fd }
+            }
+            _ => return Err(WASI_ERRNO_INVAL),
+        };
+
+        subscriptions.push(PollSubscription { userdata, data });
+    }
+
+    Ok(subscriptions)
+}
+
+fn normalize_poll_subscriptions(
+    context: &WasiContext,
+    subscriptions: &mut [PollSubscription],
+) -> WasiResult<()> {
+    for subscription in subscriptions {
+        if let SubscriptionData::Clock {
+            id,
+            timeout_ns,
+            flags,
+        } = &mut subscription.data
+            && (*flags & WASI_SUBCLOCKFLAG_ABSTIME) == 0
+        {
+            let now = clock_now_ns(context, *id)?;
+            *timeout_ns = now.saturating_add(*timeout_ns);
+            *flags |= WASI_SUBCLOCKFLAG_ABSTIME;
+        }
+    }
+    Ok(())
+}
+
+fn poll_fd_read_nbytes(context: &WasiContext, fd: i32) -> WasiResult<u64> {
+    match fd {
+        WASI_FD_STDIN => Ok(1),
+        WASI_FD_STDOUT | WASI_FD_STDERR => Err(WASI_ERRNO_BADF),
+        _ => {
+            let descriptor = file_for_fd(context, fd)?;
+            let DescriptorKind::File(file) = &descriptor.kind else {
+                return Err(WASI_ERRNO_BADF);
+            };
+            let file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
+            let metadata = file.metadata().map_err(|error| io_error_to_errno(&error))?;
+            Ok(metadata.len().max(1))
+        }
+    }
+}
+
+fn poll_fd_write_nbytes(context: &WasiContext, fd: i32) -> WasiResult<u64> {
+    match fd {
+        WASI_FD_STDIN => Err(WASI_ERRNO_BADF),
+        WASI_FD_STDOUT | WASI_FD_STDERR => Ok(64 * 1024),
+        _ => {
+            let descriptor = file_for_fd(context, fd)?;
+            let DescriptorKind::File(_) = &descriptor.kind else {
+                return Err(WASI_ERRNO_BADF);
+            };
+            Ok(64 * 1024)
+        }
+    }
+}
+
+fn collect_poll_events(
+    context: &WasiContext,
+    subscriptions: &[PollSubscription],
+) -> WasiResult<(Vec<PollEvent>, Option<u64>)> {
+    let mut events = Vec::new();
+    let mut min_remaining_ns: Option<u64> = None;
+
+    for subscription in subscriptions {
+        match subscription.data {
+            SubscriptionData::Clock {
+                id,
+                timeout_ns,
+                flags,
+            } => {
+                let now = clock_now_ns(context, id)?;
+                let deadline = if (flags & WASI_SUBCLOCKFLAG_ABSTIME) != 0 {
+                    timeout_ns
+                } else {
+                    now.saturating_add(timeout_ns)
+                };
+
+                if now >= deadline {
+                    events.push(PollEvent {
+                        userdata: subscription.userdata,
+                        event_type: WASI_EVENTTYPE_CLOCK,
+                        nbytes: 0,
+                        flags: 0,
+                    });
+                } else {
+                    let remaining = deadline - now;
+                    min_remaining_ns = Some(match min_remaining_ns {
+                        Some(current) => current.min(remaining),
+                        None => remaining,
+                    });
+                }
+            }
+            SubscriptionData::FdRead { fd } => {
+                require_fd_right(context, fd, WASI_RIGHT_FD_READ)?;
+                let nbytes = poll_fd_read_nbytes(context, fd)?;
+                events.push(PollEvent {
+                    userdata: subscription.userdata,
+                    event_type: WASI_EVENTTYPE_FD_READ,
+                    nbytes,
+                    flags: 0,
+                });
+            }
+            SubscriptionData::FdWrite { fd } => {
+                require_fd_right(context, fd, WASI_RIGHT_FD_WRITE)?;
+                let nbytes = poll_fd_write_nbytes(context, fd)?;
+                events.push(PollEvent {
+                    userdata: subscription.userdata,
+                    event_type: WASI_EVENTTYPE_FD_WRITE,
+                    nbytes,
+                    flags: 0,
+                });
+            }
+        }
+    }
+
+    Ok((events, min_remaining_ns))
+}
+
+fn poll_oneoff(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let result = (|| -> WasiResult<()> {
+        let in_ptr = read_i32_arg(scope, &args, 0)?;
+        let out_ptr = read_i32_arg(scope, &args, 1)?;
+        let nsubscriptions_i32 = read_i32_arg(scope, &args, 2)?;
+        let nevents_ptr = read_i32_arg(scope, &args, 3)?;
+        if nsubscriptions_i32 <= 0 {
+            return Err(WASI_ERRNO_INVAL);
+        }
+        let nsubscriptions = usize::try_from(nsubscriptions_i32).map_err(|_| WASI_ERRNO_INVAL)?;
+        let context = callback_context(&args);
+
+        let mut subscriptions = with_wasi_memory_mut(scope, context, |memory| {
+            parse_poll_subscriptions(memory, in_ptr, nsubscriptions)
+        })?;
+        normalize_poll_subscriptions(context, &mut subscriptions)?;
+
+        let (mut events, min_remaining_ns) = collect_poll_events(context, &subscriptions)?;
+        if events.is_empty() {
+            if let Some(wait_ns) = min_remaining_ns
+                && wait_ns > 0
+            {
+                thread::sleep(Duration::from_nanos(wait_ns));
+            }
+            let (ready_after_wait, _) = collect_poll_events(context, &subscriptions)?;
+            events = ready_after_wait;
+        }
+
+        with_wasi_memory_mut(scope, context, |memory| {
+            let out_base = ptr_to_offset(out_ptr)?;
+            for (index, event) in events.iter().enumerate() {
+                let offset = out_base
+                    .checked_add(index.checked_mul(WASI_EVENT_SIZE).ok_or(WASI_ERRNO_FAULT)?)
+                    .ok_or(WASI_ERRNO_FAULT)?;
+                checked_mut_range(memory, offset, WASI_EVENT_SIZE)?.fill(0);
+                write_u64_at(memory, offset, event.userdata)?;
+                write_u16_at(memory, offset + 8, WASI_ERRNO_SUCCESS as u16)?;
+                write_u16_at(memory, offset + 10, event.event_type)?;
+                write_u64_at(memory, offset + 16, event.nbytes)?;
+                write_u32_at(memory, offset + 24, event.flags)?;
+            }
+            let nevents = u32::try_from(events.len()).map_err(|_| WASI_ERRNO_FAULT)?;
+            write_u32(memory, nevents_ptr, nevents)?;
+            Ok(())
+        })
+    })();
+
+    finish_with_result(&mut ret, result);
+}
+
 fn fd_prestat_get(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -1439,6 +1712,7 @@ pub(crate) fn init_env<'s>(
     set_wasi_func!(obj, scope, context_ptr, path_filestat_get);
     set_wasi_func!(obj, scope, context_ptr, path_remove_directory);
     set_wasi_func!(obj, scope, context_ptr, path_unlink_file);
+    set_wasi_func!(obj, scope, context_ptr, poll_oneoff);
     set_wasi_func!(obj, scope, context_ptr, random_get);
     set_wasi_func!(obj, scope, context_ptr, proc_exit);
     set_wasi_func!(obj, scope, context_ptr, clock_res_get);
