@@ -517,13 +517,19 @@ impl<'a> BuildPlanConstructor<'a> {
             }
         }
         let mbtp_files = match target.kind {
-            Source | SubPackage | InlineTest | WhiteboxTest | BlackboxTest => {
+            Source | SubPackage | InlineTest | WhiteboxTest => {
                 // `.mbtp` files are threaded into all moonc-based compilation
-                // and checking commands for this package. We intentionally
-                // ignore prebuild-generated `.mbtp` files for now until their
-                // semantics are designed explicitly.
+                // and checking commands for this package.
+                //
+                // Blackbox targets import the checked package interface, so
+                // threading `.mbtp` through as regular sources there would
+                // redeclare proof-side APIs against the imported package.
+                //
+                // We intentionally ignore prebuild-generated `.mbtp` files for
+                // now until their semantics are designed explicitly.
                 pkg.mbtp_files.clone()
             }
+            BlackboxTest => Vec::new(),
         };
         drop(_filter_span);
 
