@@ -285,18 +285,21 @@ pub struct LinkCoreInfo {
 pub struct BuildCStubsInfo {
     /// The C compiler to compile the C stubs
     pub(crate) stub_cc: Option<CC>,
-    /// Additional flags to pass to the C compiler when compiling the C stubs
-    pub(crate) cc_flags: Vec<String>,
-    /// Additional flags to pass to the linker (TCC only)
+    /// Additional args to pass when compiling C stubs into object files.
+    pub(crate) compile_args: Vec<String>,
+    /// Additional args used only when `NativeTccRun` links stub objects into a shared library.
     #[allow(unused)]
-    pub(crate) link_flags: Vec<String>,
+    pub(crate) tcc_run_link_args: Vec<String>,
 }
 
 pub struct MakeExecutableInfo {
-    /// The C compiler to use to compile the package itself
+    /// The C compiler driver to use for the final native executable.
     pub(crate) cc: Option<CC>,
-    /// The flags to pass to the C compiler when compiling the package itself
-    pub(crate) c_flags: Vec<String>,
+    /// Additional args passed to the final compiler-driver invocation.
+    ///
+    /// This may include both compile-style and link-style args because Moon uses
+    /// the compiler driver for the final native link step.
+    pub(crate) driver_args: Vec<String>,
     /// The C stub targets to link with.
     pub(crate) link_c_stubs: Vec<PackageId>,
 }

@@ -778,7 +778,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.opt.default_cc.clone(),
             info.stub_cc.clone(),
             config,
-            &info.cc_flags,
+            &info.compile_args,
             [input_file.display().to_string()],
             &intermediate_dir,
             &output_file.display().to_string(),
@@ -906,23 +906,23 @@ impl<'a> BuildPlanLowerContext<'a> {
             .map(|p| p.display().to_string())
             .collect();
 
-        // User linker flags: stub_cc_link_flags (already parsed) from BuildCStubsInfo
-        let mut link_flags: Vec<String> = info.link_flags.clone();
+        // These args only apply to the `NativeTccRun` shared-library path.
+        let mut link_args: Vec<String> = info.tcc_run_link_args.clone();
 
         // Add libbacktrace.a if it exists
         let libbacktrace_path =
             std::path::Path::new(&self.opt.compiler_paths.lib_path).join("libbacktrace.a");
         if libbacktrace_path.exists() {
-            link_flags.push(libbacktrace_path.display().to_string());
+            link_args.push(libbacktrace_path.display().to_string());
         }
 
-        let link_flags_refs: Vec<&str> = link_flags.iter().map(|s| s.as_str()).collect();
+        let link_args_refs: Vec<&str> = link_args.iter().map(|s| s.as_str()).collect();
         let sources_refs: Vec<&str> = sources.iter().map(|s| s.as_str()).collect();
 
         let cc_cmd = make_linker_command_pure(
             cc,
             lcfg,
-            &link_flags_refs,
+            &link_args_refs,
             &sources_refs,
             &dest_dir,
             &dylib_out.display().to_string(),
@@ -1020,15 +1020,15 @@ impl<'a> BuildPlanLowerContext<'a> {
         let libbacktrace_path =
             std::path::Path::new(&self.opt.compiler_paths.lib_path).join("libbacktrace.a");
 
-        let mut c_flags = info.c_flags.clone();
+        let mut driver_args = info.driver_args.clone();
         if libbacktrace_path.exists() {
-            c_flags.push(libbacktrace_path.display().to_string());
+            driver_args.push(libbacktrace_path.display().to_string());
         }
 
         let cc_cmd = make_cc_command_pure(
             resolve_cc(&self.opt.default_cc, info.cc.as_ref()),
             config,
-            &c_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &driver_args.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             sources.iter().map(|x| x.display().to_string()),
             &pkg_dir,
             Some(&dest),

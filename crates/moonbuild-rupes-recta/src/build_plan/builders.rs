@@ -687,7 +687,7 @@ impl<'a> BuildPlanConstructor<'a> {
             })
             .transpose()?;
 
-        let cc_flags = native_config
+        let compile_args = native_config
             .and_then(|native| native.stub_cc_flags.as_ref())
             .map(|s| self.replace_build_vars(target, pkg.module, s))
             .map(|replaced| {
@@ -698,7 +698,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let mut link_flags = native_config
+        let mut tcc_run_link_args = native_config
             .and_then(|native| native.stub_cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target, pkg.module, s))
             .map(|replaced| {
@@ -709,12 +709,16 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        self.propagate_link_config(stub_cc.as_ref(), std::iter::once(target), &mut link_flags);
+        self.propagate_link_config(
+            stub_cc.as_ref(),
+            std::iter::once(target),
+            &mut tcc_run_link_args,
+        );
 
         let c_info = BuildCStubsInfo {
             stub_cc,
-            cc_flags,
-            link_flags,
+            compile_args,
+            tcc_run_link_args,
         };
         self.res.c_stubs_info.insert(target, c_info);
         self.resolved_node(node);
@@ -798,7 +802,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
-        // Fill auxiliary flags for CC flags
+        // Build the extra args passed to the final compiler-driver invocation.
         let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
         let cc = native_config
@@ -809,7 +813,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
             })
             .transpose()?;
-        let mut c_flags = native_config
+        let mut driver_args = native_config
             .and_then(|native| native.cc_flags.as_ref())
             .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
@@ -820,8 +824,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        // Also include native.cc_link_flags (linker args) in the final native link flags
-        if let Some(mut link_flags) = native_config
+        if let Some(mut link_args) = native_config
             .and_then(|native| native.cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
@@ -831,19 +834,19 @@ impl<'a> BuildPlanConstructor<'a> {
             })
             .transpose()?
         {
-            c_flags.append(&mut link_flags);
+            driver_args.append(&mut link_args);
         }
 
         let mut link_pkgs: Vec<PackageId> = targets.iter().map(|x| x.package).collect();
         if !link_pkgs.contains(&target.package) {
             link_pkgs.push(target.package);
         }
-        self.propagate_link_config(cc.as_ref(), link_pkgs.into_iter(), &mut c_flags);
+        self.propagate_link_config(cc.as_ref(), link_pkgs.into_iter(), &mut driver_args);
 
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             cc,
-            c_flags,
+            driver_args,
         };
         self.res.make_executable_info.insert(target, v);
 
