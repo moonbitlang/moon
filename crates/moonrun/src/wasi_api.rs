@@ -33,7 +33,9 @@ type WasiResult<T> = Result<T, WasiErrno>;
 
 const WASI_ERRNO_SUCCESS: WasiErrno = 0;
 const WASI_ERRNO_AGAIN: WasiErrno = 6;
-const WASI_ERRNO_ACCES: WasiErrno = 2;
+const WASI_ERRNO_ACCESS: WasiErrno = 2;
+// WASI preview1 names this errno `acces`.
+const WASI_ERRNO_ACCES: WasiErrno = WASI_ERRNO_ACCESS;
 const WASI_ERRNO_BADF: WasiErrno = 8;
 const WASI_ERRNO_EXIST: WasiErrno = 20;
 const WASI_ERRNO_FAULT: WasiErrno = 21;
