@@ -295,6 +295,21 @@ impl CC {
         }
     }
 
+    fn try_from_detected_path(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<Self> {
+        if matches!(cc_kind, CCKind::Clang)
+            && let Some(cc) = cc_path.to_str()
+        {
+            return CC::try_from_path(cc);
+        }
+
+        let ar_name = match cc_kind {
+            CCKind::Msvc => "lib.exe",
+            CCKind::Tcc => "",
+            CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => "ar",
+        };
+        CC::try_from_cc_path_and_kind(ar_name, cc_path, cc_kind)
+    }
+
     pub fn is_gcc_like(&self) -> bool {
         matches!(
             self.cc_kind,
