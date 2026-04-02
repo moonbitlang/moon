@@ -258,6 +258,36 @@ mod tests {
     }
 
     #[test]
+    fn resolve_path_latest_prefers_release_over_same_base_prerelease() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("path/to/module", "1.2.0-rc.1", [])
+            .add_module_full("path/to/module", "1.2.0", []);
+
+        let (name, version, full_path) = registry
+            .resolve_path("path/to/module/a/b", true)
+            .expect("module path should resolve");
+        assert_eq!(name.to_string(), "path/to/module");
+        assert_eq!(version, "1.2.0");
+        assert_eq!(full_path, "path/to/module/a/b");
+    }
+
+    #[test]
+    fn resolve_path_latest_uses_prerelease_when_it_is_semver_max() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("path/to/module", "1.2.9", [])
+            .add_module_full("path/to/module", "1.3.0-rc.1", []);
+
+        let (name, version, full_path) = registry
+            .resolve_path("path/to/module/a/b", true)
+            .expect("module path should resolve");
+        assert_eq!(name.to_string(), "path/to/module");
+        assert_eq!(version, "1.3.0-rc.1");
+        assert_eq!(full_path, "path/to/module/a/b");
+    }
+
+    #[test]
     fn resolve_path_longest_prefix() {
         let mut registry = MockRegistry::new();
         registry

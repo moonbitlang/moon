@@ -50,6 +50,21 @@ impl Resolver for MvsSolver {
     }
 }
 
+fn mvs_requirement_matches(required: &Version, candidate: &Version) -> bool {
+    if candidate < required {
+        return false;
+    }
+    if required.major < 2 {
+        candidate.major < 2
+    } else {
+        candidate.major == required.major
+    }
+}
+
+fn same_mvs_compatibility_set(lhs: &Version, rhs: &Version) -> bool {
+    (lhs.major < 2 && rhs.major < 2) || lhs.major == rhs.major
+}
+
 fn select_min_version_satisfying<'a>(
     dependency: &ModuleName,
     dependant: &ModuleName,
@@ -66,15 +81,7 @@ fn select_min_version_satisfying<'a>(
 
     // From lowest to highest version, find the first version that satisfies the requirement.
     for version in versions {
-        if (semver::Comparator {
-            op: semver::Op::Caret,
-            major: required.major,
-            minor: Some(required.minor),
-            patch: Some(required.patch),
-            pre: required.pre.clone(),
-        })
-        .matches(version)
-        {
+        if mvs_requirement_matches(required, version) {
             return Ok(version.clone());
         }
     }
@@ -213,15 +220,7 @@ fn workspace_version_override_warning(
     workspace_member: &ModuleSource,
 ) -> Option<String> {
     let required = req.version()?;
-    if (semver::Comparator {
-        op: semver::Op::Caret,
-        major: required.major,
-        minor: Some(required.minor),
-        patch: Some(required.patch),
-        pre: required.pre.clone(),
-    })
-    .matches(workspace_member.version())
-    {
+    if mvs_requirement_matches(required, workspace_member.version()) {
         return None;
     }
 
@@ -327,15 +326,7 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
         let mut curr = versions.next().unwrap();
         log::debug!("---- seen {}", curr);
         for v in versions {
-            if (semver::Comparator {
-                op: semver::Op::Caret,
-                major: curr.version().major,
-                minor: Some(curr.version().minor),
-                patch: Some(curr.version().patch),
-                pre: curr.version().pre.clone(),
-            })
-            .matches(v.version())
-            {
+            if same_mvs_compatibility_set(curr.version(), v.version()) {
                 // v >= curr, as implied by btreeset
                 // Emit a warning if the skipped dep is local or git, as they are manually specified
                 warn_about_skipped_local_or_git_dep(&curr);
@@ -407,22 +398,25 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
                 source
             } else {
                 let dep_versions = &settled_versions[&dep_name];
-                let resolved = dep_versions
-                    .iter()
-                    .find(|v| match req.version() {
-                        Some(required) => semver::Comparator {
-                            op: semver::Op::Caret,
-                            major: required.major,
-                            minor: Some(required.minor),
-                            patch: Some(required.patch),
-                            pre: required.pre.clone(),
-                        }
-                        .matches(v.0.version()),
-                        None => true,
-                    })
-                    .expect(
-                        "There should be at least one version available, otherwise previous steps will fail",
-                    );
+                let Some(resolved) = dep_versions.iter().find(|v| match req.version() {
+                    Some(required) => mvs_requirement_matches(required, v.0.version()),
+                    None => true,
+                }) else {
+                    if let Some(required) = req.version() {
+                        env.report_error(ResolverError::NoSatisfiedVersion {
+                            dependency: dep_name.clone(),
+                            dependant: pkg.name().clone(),
+                            required: required.clone(),
+                        });
+                    } else {
+                        env.report_error(ResolverError::Other(anyhow!(
+                            "No settled version found for dependency `{}` while building edges for `{}`",
+                            dep_name,
+                            pkg
+                        )));
+                    }
+                    continue;
+                };
                 &resolved.0
             };
 
@@ -448,6 +442,11 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
                 },
             );
         }
+    }
+
+    if env.any_errors() {
+        log::warn!("Errors while building resolved dependency graph, bailing out.");
+        return false;
     }
 
     log::debug!("Finished MVS solving");
@@ -524,14 +523,7 @@ fn resolve_pkg(
         // Assert version matches
         if let Some(actual) = &res.version
             && let Some(required) = req.version()
-            && !(semver::Comparator {
-                op: semver::Op::Caret,
-                major: required.major,
-                minor: Some(required.minor),
-                patch: Some(required.patch),
-                pre: required.pre.clone(),
-            })
-            .matches(actual)
+            && !mvs_requirement_matches(required, actual)
         {
             return Err(ResolverError::LocalDepVersionMismatch {
                 dependant: dependant.name().clone(),
@@ -896,12 +888,12 @@ mod test {
         assert!(status, "Resolve failed");
         let result = result_env;
 
-        // dep/one@0.2.1 is incompatible with dep/two@0.1.1, so there should be
-        // two dep/one instances: one is 0.2.1 depended by root/module, and the other
-        // is 0.1.3 depended by dep/two
+        // For versions below 2.0.0, MVS treats them as one compatible set and picks
+        // the largest selected version in that set.
 
         assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.2.1");
-        assert_depends_on(&result, "dep/two@0.1.1", "dep/one@0.1.3");
+        assert_depends_on(&result, "dep/two@0.1.1", "dep/one@0.2.1");
+        assert_no_depends_on(&result, "dep/two@0.1.1", "dep/one@0.1.3");
     }
 
     #[test]
@@ -936,6 +928,148 @@ mod test {
         assert_depends_on(&result, "dep/two@0.2.0", "dep/one@0.2.0");
         assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.2.0");
         assert_no_depends_on(&result, "root/module@0.1.0", "dep/two@0.2.0");
+    }
+
+    #[test]
+    fn test_pre_v2_req_uses_lower_bound_semantics() {
+        let mut registry = MockRegistry::new();
+        registry.add_module_full("dep/one", "0.2.0", []);
+
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.1")]);
+        let roots = create_mock_root(root);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
+        assert!(status, "Resolve failed");
+        let result = result_env;
+
+        assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.2.0");
+    }
+
+    #[test]
+    fn test_pre_v2_compatibility_crosses_zero_and_one() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("dep/one", "0.9.0", [])
+            .add_module_full("dep/one", "1.2.0", [])
+            .add_module_full("dep/two", "0.1.0", [("dep/one", "1.2.0")]);
+
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            [("dep/one", "0.9.0"), ("dep/two", "0.1.0")],
+        );
+        let roots = create_mock_root(root);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
+        assert!(status, "Resolve failed");
+        let result = result_env;
+
+        assert_depends_on(&result, "root/module@0.1.0", "dep/one@1.2.0");
+        assert_depends_on(&result, "dep/two@0.1.0", "dep/one@1.2.0");
+        assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.9.0");
+    }
+
+    #[test]
+    fn test_post_v2_versions_are_split_by_major() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("dep/one", "1.9.0", [])
+            .add_module_full("dep/one", "2.0.0", [])
+            .add_module_full("dep/alpha", "0.1.0", [("dep/one", "1.9.0")])
+            .add_module_full("dep/beta", "0.1.0", [("dep/one", "2.0.0")]);
+
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            [("dep/alpha", "0.1.0"), ("dep/beta", "0.1.0")],
+        );
+        let roots = create_mock_root(root);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
+        assert!(status, "Resolve failed");
+        let result = result_env;
+
+        assert_depends_on(&result, "dep/alpha@0.1.0", "dep/one@1.9.0");
+        assert_depends_on(&result, "dep/beta@0.1.0", "dep/one@2.0.0");
+        assert_no_depends_on(&result, "dep/alpha@0.1.0", "dep/one@2.0.0");
+        assert_no_depends_on(&result, "dep/beta@0.1.0", "dep/one@1.9.0");
+    }
+
+    #[test]
+    fn test_prerelease_not_selected_by_non_prerelease_floor() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("dep/one", "0.1.0-rc.1", [])
+            .add_module_full("dep/one", "0.1.0", []);
+
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.0")]);
+        let roots = create_mock_root(root);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
+        assert!(status, "Resolve failed");
+        let result = result_env;
+
+        assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0");
+        assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0-rc.1");
+    }
+
+    #[test]
+    fn test_prerelease_selected_when_requested() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("dep/one", "0.1.0-rc.1", [])
+            .add_module_full("dep/one", "0.1.0", []);
+
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.0-rc.1")]);
+        let roots = create_mock_root(root);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
+        assert!(status, "Resolve failed");
+        let result = result_env;
+
+        assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0-rc.1");
+        assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0");
+    }
+
+    #[test]
+    fn test_pre_v2_mixed_stable_and_prerelease_requirements_do_not_crash() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("dep/one", "1.0.0", [])
+            .add_module_full("dep/one", "1.1.0-rc.1", [])
+            .add_module_full("dep/a", "0.1.0", [("dep/one", "1.0.0")])
+            .add_module_full("dep/b", "0.1.0", [("dep/one", "1.1.0-rc.1")]);
+
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            [("dep/a", "0.1.0"), ("dep/b", "0.1.0")],
+        );
+        let roots = create_mock_root(root);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
+        assert!(
+            status,
+            "Resolve failed unexpectedly, errors: {}",
+            ResolverErrors(env.into_errors())
+        );
+        let result = result_env;
+
+        assert_depends_on(&result, "dep/a@0.1.0", "dep/one@1.1.0-rc.1");
+        assert_depends_on(&result, "dep/b@0.1.0", "dep/one@1.1.0-rc.1");
+        assert_no_depends_on(&result, "dep/a@0.1.0", "dep/one@1.0.0");
     }
 
     #[test]

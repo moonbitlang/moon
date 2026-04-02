@@ -207,7 +207,10 @@ Module dependencies in `moon` are resolved using the [MVS][] algorithm,
 the same algorithm that Go used.
 MVS resolves each module dependency to the lowest version that satisfies all requirements.
 Since MoonBit packages follows [SemVer][],
-only the caret version range (all compatible versions) is supported when specifying version requirements.
+only caret version syntax is supported when specifying version requirements.
+The resolver interprets caret requirements with Go-style compatibility buckets:
+versions below `2.0.0` are treated as one compatible set, and versions `>= 2.0.0`
+are split by major version.
 See details in [Modules and packages][mod-pkg].
 
 Current registry configuration behavior today is:
