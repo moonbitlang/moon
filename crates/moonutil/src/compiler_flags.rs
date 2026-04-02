@@ -189,23 +189,36 @@ impl CC {
         (!prog.is_empty()).then(|| prog.to_string())
     }
 
-    fn probe_existing_prog_name(cc_path: &Path, name: &str) -> Option<String> {
-        let prog = CC::probe_prog_name(cc_path, name)?;
-        let prog_path = Path::new(&prog);
+    fn resolve_reported_prog_path(prog: &str) -> Option<String> {
+        let prog_path = Path::new(prog);
         let has_non_empty_parent = prog_path
             .parent()
             .is_some_and(|parent| !parent.as_os_str().is_empty());
 
         if prog_path.is_absolute() || has_non_empty_parent {
             if prog_path.is_file() {
-                return Some(prog);
+                return Some(prog.to_string());
             }
+
+            #[cfg(windows)]
+            if prog_path.extension().is_none() {
+                let exe_path = prog_path.with_extension("exe");
+                if exe_path.is_file() {
+                    return Some(exe_path.display().to_string());
+                }
+            }
+
             return None;
         }
 
-        which::which(&prog)
+        which::which(prog)
             .ok()
             .map(|path| path.display().to_string())
+    }
+
+    fn probe_existing_prog_name(cc_path: &Path, name: &str) -> Option<String> {
+        let prog = CC::probe_prog_name(cc_path, name)?;
+        CC::resolve_reported_prog_path(&prog)
     }
 
     fn is_llvm_ar_name(ar_name_or_path: &str) -> bool {
@@ -1152,5 +1165,31 @@ mod tests {
 
         let cc = CC::try_from_path(clang_path_str).expect("parse real clang path");
         assert_eq!(cc.ar_path, CC::resolve_tool_path(&clang_path, &reported_ar));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolve_reported_prog_path_accepts_windows_exe_without_suffix() {
+        let dir = std::env::temp_dir().join(format!(
+            "moonutil-reported-prog-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("bin")).unwrap();
+
+        let reported = dir.join("bin").join("llvm-ar");
+        let exe_path = reported.with_extension("exe");
+        std::fs::write(&exe_path, []).unwrap();
+
+        assert_eq!(
+            CC::resolve_reported_prog_path(&reported.display().to_string()),
+            Some(exe_path.display().to_string())
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
