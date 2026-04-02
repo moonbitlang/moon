@@ -214,6 +214,11 @@ struct PollEvent {
     flags: u32,
 }
 
+enum FdReadPollState {
+    Ready(u64),
+    Pending,
+}
+
 fn encode_c_string(value: impl Into<String>) -> Vec<u8> {
     let mut bytes = value.into().into_bytes();
     bytes.push(0);
@@ -1087,9 +1092,96 @@ fn normalize_poll_subscriptions(
     Ok(())
 }
 
-fn poll_fd_read_nbytes(context: &WasiContext, fd: i32) -> WasiResult<u64> {
+#[cfg(unix)]
+fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
+    let timeout_ms = match timeout {
+        Some(duration) => {
+            let millis = duration.as_millis();
+            i32::try_from(millis.min(i32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
+        }
+        None => -1,
+    };
+
+    let mut pollfd = libc::pollfd {
+        fd: libc::STDIN_FILENO,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    loop {
+        // SAFETY: `pollfd` points to a valid single-element array for the duration of the call.
+        let ready_count = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+        if ready_count >= 0 {
+            return Ok(ready_count > 0
+                && (pollfd.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR)) != 0);
+        }
+
+        let error = std::io::Error::last_os_error();
+        if error.kind() == ErrorKind::Interrupted {
+            continue;
+        }
+        if let Some(code) = error.raw_os_error()
+            && code == libc::EPERM
+        {
+            return Ok(true);
+        }
+        return Err(io_error_to_errno(&error));
+    }
+}
+
+#[cfg(windows)]
+fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
+    use windows_sys::Win32::Foundation::{
+        INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    };
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE};
+    use windows_sys::Win32::System::Threading::{INFINITE, WaitForSingleObject};
+
+    let timeout_ms = match timeout {
+        Some(duration) => {
+            let millis = duration.as_millis();
+            u32::try_from(millis.min(u32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
+        }
+        None => INFINITE,
+    };
+
+    // SAFETY: We only query the process standard-input handle; no ownership is transferred.
+    let stdin_handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
+    if stdin_handle.is_null() || stdin_handle == INVALID_HANDLE_VALUE {
+        return Err(WASI_ERRNO_IO);
+    }
+
+    // SAFETY: `stdin_handle` is a handle value obtained from `GetStdHandle`.
+    let wait_result = unsafe { WaitForSingleObject(stdin_handle, timeout_ms) };
+    match wait_result {
+        WAIT_OBJECT_0 => Ok(true),
+        WAIT_TIMEOUT => Ok(false),
+        WAIT_FAILED => {
+            let error = std::io::Error::last_os_error();
+            Err(io_error_to_errno(&error))
+        }
+        _ => Ok(true),
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
+    if let Some(duration) = timeout
+        && duration > Duration::ZERO
+    {
+        thread::sleep(duration);
+    }
+    Ok(true)
+}
+
+fn poll_fd_read_state(context: &WasiContext, fd: i32) -> WasiResult<FdReadPollState> {
     match fd {
-        WASI_FD_STDIN => Ok(1),
+        WASI_FD_STDIN => {
+            if poll_stdin_with_timeout(Some(Duration::ZERO))? {
+                Ok(FdReadPollState::Ready(1))
+            } else {
+                Ok(FdReadPollState::Pending)
+            }
+        }
         WASI_FD_STDOUT | WASI_FD_STDERR => Err(WASI_ERRNO_BADF),
         _ => {
             let descriptor = file_for_fd(context, fd)?;
@@ -1098,7 +1190,7 @@ fn poll_fd_read_nbytes(context: &WasiContext, fd: i32) -> WasiResult<u64> {
             };
             let file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
             let metadata = file.metadata().map_err(|error| io_error_to_errno(&error))?;
-            Ok(metadata.len().max(1))
+            Ok(FdReadPollState::Ready(metadata.len().max(1)))
         }
     }
 }
@@ -1120,9 +1212,10 @@ fn poll_fd_write_nbytes(context: &WasiContext, fd: i32) -> WasiResult<u64> {
 fn collect_poll_events(
     context: &WasiContext,
     subscriptions: &[PollSubscription],
-) -> WasiResult<(Vec<PollEvent>, Option<u64>)> {
+) -> WasiResult<(Vec<PollEvent>, Option<u64>, bool)> {
     let mut events = Vec::new();
     let mut min_remaining_ns: Option<u64> = None;
+    let mut pending_stdin_read = false;
 
     for subscription in subscriptions {
         match subscription.data {
@@ -1155,13 +1248,19 @@ fn collect_poll_events(
             }
             SubscriptionData::FdRead { fd } => {
                 require_fd_right(context, fd, WASI_RIGHT_FD_READ)?;
-                let nbytes = poll_fd_read_nbytes(context, fd)?;
-                events.push(PollEvent {
-                    userdata: subscription.userdata,
-                    event_type: WASI_EVENTTYPE_FD_READ,
-                    nbytes,
-                    flags: 0,
-                });
+                match poll_fd_read_state(context, fd)? {
+                    FdReadPollState::Ready(nbytes) => {
+                        events.push(PollEvent {
+                            userdata: subscription.userdata,
+                            event_type: WASI_EVENTTYPE_FD_READ,
+                            nbytes,
+                            flags: 0,
+                        });
+                    }
+                    FdReadPollState::Pending => {
+                        pending_stdin_read = true;
+                    }
+                }
             }
             SubscriptionData::FdWrite { fd } => {
                 require_fd_right(context, fd, WASI_RIGHT_FD_WRITE)?;
@@ -1176,7 +1275,7 @@ fn collect_poll_events(
         }
     }
 
-    Ok((events, min_remaining_ns))
+    Ok((events, min_remaining_ns, pending_stdin_read))
 }
 
 fn poll_oneoff(
@@ -1200,15 +1299,22 @@ fn poll_oneoff(
         })?;
         normalize_poll_subscriptions(context, &mut subscriptions)?;
 
-        let (mut events, min_remaining_ns) = collect_poll_events(context, &subscriptions)?;
-        if events.is_empty() {
-            if let Some(wait_ns) = min_remaining_ns
-                && wait_ns > 0
-            {
-                thread::sleep(Duration::from_nanos(wait_ns));
+        let (mut events, mut min_remaining_ns, mut pending_stdin_read) =
+            collect_poll_events(context, &subscriptions)?;
+        while events.is_empty() {
+            if pending_stdin_read {
+                let timeout = min_remaining_ns.map(Duration::from_nanos);
+                let _ = poll_stdin_with_timeout(timeout)?;
+            } else if let Some(wait_ns) = min_remaining_ns {
+                if wait_ns > 0 {
+                    thread::sleep(Duration::from_nanos(wait_ns));
+                }
+            } else {
+                break;
             }
-            let (ready_after_wait, _) = collect_poll_events(context, &subscriptions)?;
-            events = ready_after_wait;
+
+            (events, min_remaining_ns, pending_stdin_read) =
+                collect_poll_events(context, &subscriptions)?;
         }
 
         with_wasi_memory_mut(scope, context, |memory| {
