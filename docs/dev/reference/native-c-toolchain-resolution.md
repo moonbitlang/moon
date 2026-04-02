@@ -1,6 +1,6 @@
 # Native C Toolchain Resolution
 
-This document explains how Moon resolves and uses the C toolchain for native builds.
+This document explains how Moon currently resolves and uses the native C toolchain.
 
 The resolved toolchain has three roles:
 
@@ -8,7 +8,7 @@ The resolved toolchain has three roles:
 - linker driver (also `cc_path`)
 - archiver (`ar_path`)
 
-Moon does not resolve a standalone linker executable (`ld`, `lld-link`) in this path.
+Moon does not resolve a standalone linker executable such as `ld` or `lld-link` in this path.
 Linking is performed through the selected compiler driver.
 
 ## Standard C Pipeline
@@ -16,18 +16,17 @@ Linking is performed through the selected compiler driver.
 The ordinary C pipeline is:
 
 1. preprocess source files
-2. compile/assemble them into object files
+2. compile or assemble them into object files
 3. link object files and libraries into the final executable or shared library
 
-When a user runs a command such as `clang foo.c -o foo`, these steps are usually fused by a single
-compiler driver invocation. When a user runs `clang -c foo.c -o foo.o`, the pipeline stops at the
-object file step and linking does not happen.
+When a user runs `clang foo.c -o foo`, these steps are usually fused by one compiler-driver
+invocation. When a user runs `clang -c foo.c -o foo.o`, the pipeline stops after object generation.
 
 Moon uses both modes:
 
-- it sometimes compiles a C file directly to an object file
-- it sometimes invokes the compiler driver as a linker driver
-- it sometimes invokes a separate archiver to group multiple object files into a static library
+- it compiles some C files directly to object files
+- it invokes the compiler driver again for final linking
+- it sometimes invokes a separate archiver to group multiple object files into a static archive
 
 ## What Moon Builds
 
@@ -57,19 +56,47 @@ Package C stubs are handled separately:
 
 This is why Moon needs both a compiler driver and an archiver.
 
-## Resolution Order
+## Resolution Layers
 
 Tool resolution starts from `crates/moonutil/src/compiler_flags.rs`.
 
-### 1. Environment override
+There are three distinct sources of C toolchain selection:
+
+1. global environment override
+2. package-level override
+3. default auto-detection
+
+When a native build step chooses its compiler, the current precedence is:
+
+1. `MOON_CC` / `MOON_AR`
+2. package-level override (`link.native.cc` or `link.native.stub_cc`)
+3. detected default toolchain
+
+## Global Environment Override
 
 - If `MOON_CC` is set, Moon uses it as the compiler.
 - If `MOON_AR` is set together with `MOON_CC`, Moon uses it as the archiver directly.
-- `MOON_CC` override takes precedence over user-provided compiler options in command settings.
+- `MOON_CC` takes precedence over package-level compiler overrides.
 
-### 2. Auto-detection (when `MOON_CC` is unset)
+This override is global to the current Moon invocation.
 
-Moon probes in this order:
+## Package-Level Override
+
+`moon.pkg.json` may specify native compiler overrides:
+
+- `link.native.cc`
+- `link.native.stub_cc`
+
+These are parsed into `CC` values during build-plan construction.
+
+They are useful as escape hatches, but they are toolchain-specific, not portable configuration.
+For example, `cc = "cl"` is an MSVC-specific choice, while `cc = "gcc"` or GNU-style flags are
+specific to other toolchain families.
+
+## Default Auto-Detection
+
+When `MOON_CC` is unset and no package-specific override is being applied to that step, Moon probes
+for a default native toolchain in this order:
 
 1. `cl`
 2. `cc`
@@ -77,10 +104,22 @@ Moon probes in this order:
 4. `clang`
 5. internal `tcc`
 
-### 3. Compiler kind detection
+## Compiler Kind Detection
 
-Compiler kind matching is case-insensitive (`cl`, `gcc`, `clang`, `tcc`, `cc`),
-but filename/path text is preserved for path synthesis fallback.
+Compiler kind matching is based on the executable filename and is case-insensitive.
+
+Current recognized suffix families are:
+
+- `...cl`
+- `...gcc`
+- `...clang`
+- `...tcc`
+- `...cc`
+
+This is suffix-based, so prefixed tool names such as `x86_64-w64-mingw32-clang.exe` are still
+recognized as Clang.
+
+Filename text is preserved when Moon later needs a case-preserving fallback path.
 
 ## Archiver Resolution
 
@@ -90,30 +129,35 @@ but filename/path text is preserved for path synthesis fallback.
 
 ### TCC
 
-- Uses `tcc -ar` mode (no separate archiver binary).
+- Uses `tcc -ar` mode.
+- There is no separate archiver binary in this path.
 
-### GCC/System CC
+### GCC and System CC
 
-- Uses suffix-based fallback (`...gcc...`/`...cc...` -> `...ar...`), preserving original filename casing.
+- Uses suffix-based fallback (`...gcc...` or `...cc...` -> `...ar...`).
+- The fallback preserves the original filename casing.
 
 ### Clang
 
-For correctness, Moon first asks Clang for tool paths and validates existence:
+Clang archiver resolution has an extra discovery step:
 
 1. `clang -print-prog-name=ar`
-2. if unresolved or non-existent, `clang -print-prog-name=llvm-ar`
-3. if still unresolved, fallback to suffix conversion (`...clang...` -> `...ar...`, case-preserving)
+2. if that does not resolve to an existing tool, `clang -print-prog-name=llvm-ar`
+3. if that also fails, fallback to suffix conversion (`...clang...` -> `...ar...`)
 
-Validation rule:
+The fallback still preserves the original filename casing.
 
-- If Clang reports an absolute/qualified path, it must exist as a file.
-- If Clang reports a bare executable name, it must be resolvable via `PATH`.
+Moon validates compiler-reported tools before using them:
 
-This avoids trusting non-existent `ar` reports on platforms where only `llvm-ar` is installed.
+- absolute or path-like outputs must resolve to an existing file
+- bare names must be resolvable through `PATH`
+- on Windows, a reported path without `.exe` is also accepted if the corresponding `.exe` exists
 
-## Tool Roles and Compatibility
+This avoids trusting nonexistent `ar` reports on installations where only `llvm-ar` is available.
 
-The main compatibility boundary is not "same operating system" or "same machine".
+## Toolchain Families and Compatibility
+
+The main compatibility boundary is not simply "same operating system" or "same machine".
 The relevant boundary is the target toolchain family and ABI.
 
 In practice, the important dimensions are:
@@ -126,56 +170,30 @@ In practice, the important dimensions are:
 Examples:
 
 - `cl` and `clang-cl` belong to the MSVC-style world
-- `x86_64-w64-mingw32-gcc` belongs to the MinGW/GNU-style world
+- `x86_64-w64-mingw32-gcc` belongs to the MinGW or GNU-style world
 - `clang` can belong to either world depending on its target
 
-This matters because two tools may both run on Windows while still expecting different flags,
+This matters because two tools may both run on Windows while still expect different flags,
 different runtime libraries, or different default link behavior.
 
-### Compiler driver vs linker driver
+## Flags Depend on Both Tool and Target
 
-Moon treats the compiler as the entry point for linking:
-
-- MSVC-style linking goes through `cl ... /link ...`
-- GCC/Clang-style linking goes through `<cc> ... -o ...`
-
-Moon does not currently resolve a standalone linker executable and then synthesize raw linker
-command lines itself.
-
-### Archiver
-
-The archiver is separate from the linker.
-Its role is to combine multiple object files into a static archive:
-
-- GNU-style: `ar` or `llvm-ar`
-- MSVC-style: `lib.exe`
-- TCC-specific: `tcc -ar`
-
-The archive is then consumed later by the linker driver.
-
-## Flags Are Semantic, Not Just Syntactic
-
-Tool selection is only half of the problem.
-Even when two compilers share a similar name, the correct flags depend on the active toolchain
-family and target environment.
+Tool discovery and flag semantics are related but different concerns.
 
 Examples:
 
-- `clang` is generally GCC-like in command-line syntax, but `clang` targeting `*-msvc` should not
-  automatically receive Unix/GNU link assumptions such as `-lm`
-- shared-library flags differ by family (`-shared` vs `/LD`)
-- output flags differ by family (`-o` vs `/Fe...` or `/Fo...`)
-- library search and runtime flags differ by family (`-L...`, `-Wl,...`, `/LIBPATH:...`)
+- `cl` uses MSVC-style flags such as `/Fo`, `/Fe`, `/LD`, and `/link`
+- GCC-like drivers use flags such as `-o`, `-c`, `-shared`, `-L`, and `-Wl,...`
+- `clang` is usually invoked with GCC-like syntax, but a Clang target ending in `msvc` should not
+  automatically receive GNU assumptions such as `-lm`
 
-For this reason, Moon must distinguish at least:
+This is why Moon records both:
 
-- how the tool is invoked
-- what target environment the tool is producing code for
-- whether the current step is compile, archive, or final link
+- the resolved compiler family
+- the probed target triple
 
-The `-lm` fix belongs to this layer.
-It is not primarily a "find the right binary" problem.
-It is a "derive the right link semantics from the target toolchain" problem.
+The `-lm` behavior belongs to this semantic layer.
+It is not only a "find the right executable" problem.
 
 ## Compile, Link, and Archive Usage
 
@@ -188,47 +206,24 @@ It is a "derive the right link semantics from the target toolchain" problem.
 `make_linker_command*` also uses `cc_path` to drive linking:
 
 - MSVC style: `cl ... /link ...`
-- GCC/Clang style: `<cc> ... -o ...`
+- GCC or Clang style: `<cc> ... -o ...`
 
-`-lm` is only added for gcc-like compilers when target triple does not contain `msvc`.
+`-lm` is added only when the selected compiler is full-featured gcc-like and the probed target
+triple does not contain `msvc`.
 
 ### Archive
 
 `make_archiver_command*` uses resolved `ar_path`:
 
-- `lib.exe` (MSVC)
-- `ar`/`llvm-ar` (gcc/clang-like)
-- `tcc -ar` (TCC)
+- `lib.exe` for MSVC
+- `ar` or `llvm-ar` for gcc-like toolchains
+- `tcc -ar` for TCC
 
-## Design Intent
+## Maintenance Notes
 
-Resolution strategy is:
-
-1. explicit user override
-2. compiler-reported tool discovery
-3. compatibility fallback
-
-This ordering prioritizes correctness while preserving compatibility with existing toolchain layouts.
-
-## Recommended Structure for the Implementation
-
-The current implementation already has the right broad responsibilities, but maintainability improves
-if future changes are evaluated in the following layers:
-
-1. Tool discovery
-   Decide which compiler driver and archiver binary to use.
-2. Normalized toolchain description
-   Record tool family, target triple, target environment, and archiver kind in a structured form.
-3. Semantic command construction
-   Build compile/link/archive requests from structured options such as output type, optimization
-   level, debug info, runtime linkage mode, and required system libraries.
-4. Textual flag emission
-   Convert the semantic request into MSVC-style or GCC-style command lines.
-5. User escape hatches
-   Apply raw user-provided flags last, with the understanding that they are not guaranteed to be
-   portable across toolchain families.
-
-This split helps keep two separate classes of bugs from being conflated:
+When changing this area, it helps to keep two classes of bugs separate:
 
 - "we picked the wrong tool"
 - "we picked the right tool but emitted the wrong flags"
+
+Those are different layers and should ideally be reviewed independently.
