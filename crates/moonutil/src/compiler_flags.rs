@@ -1105,6 +1105,7 @@ mod tests {
         add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
         assert!(linker_flags.iter().any(|f| f == "-lm"));
     }
+
     #[test]
     fn try_from_path_recognizes_clang_exe() {
         let cc = CC::try_from_path("C:/llvm/bin/clang.exe").expect("parse clang.exe");
