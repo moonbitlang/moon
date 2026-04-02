@@ -167,6 +167,7 @@ complete -c moon -n "__fish_moon_using_subcommand check" -l trace -d 'Trace the 
 complete -c moon -n "__fish_moon_using_subcommand check" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand check" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand check" -s h -l help -d 'Print help'
+complete -c moon -n "__fish_moon_using_subcommand prove" -l why3-config -d 'Use a user-supplied Why3 configuration file instead of the generated default' -r -F
 complete -c moon -n "__fish_moon_using_subcommand prove" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand prove" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand prove" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"

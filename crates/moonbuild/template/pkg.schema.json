@@ -102,6 +102,13 @@
         "$ref": "#/definitions/MoonPkgGenerate"
       }
     },
+    "proof-enabled": {
+      "description": "Whether this package participates in proof-oriented workflows.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
     "regex-backend": {
       "anyOf": [
         {

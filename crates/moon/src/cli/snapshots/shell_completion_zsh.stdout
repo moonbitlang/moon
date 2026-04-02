@@ -182,6 +182,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (prove)
 _arguments "${_arguments_options[@]}" : \
+'--why3-config=[Use a user-supplied Why3 configuration file instead of the generated default]:PATH:_files' \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \

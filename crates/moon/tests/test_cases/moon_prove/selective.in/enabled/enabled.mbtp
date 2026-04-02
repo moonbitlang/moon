@@ -1,0 +1,1 @@
+pub predicate enabled_ok(x : Int) { x == 0 }
