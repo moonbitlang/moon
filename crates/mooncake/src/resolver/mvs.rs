@@ -33,7 +33,7 @@ use moonutil::{
         result::{DependencyEdge, DependencyKind, ResolvedEnv},
     },
 };
-use semver::{Comparator, Op, Prerelease, Version, VersionReq};
+use semver::Version;
 
 use super::{Resolver, ResolverError, env::ResolverEnv};
 
@@ -50,46 +50,15 @@ impl Resolver for MvsSolver {
     }
 }
 
-fn mvs_caret_lower_bound(version: &Version) -> Comparator {
-    Comparator {
-        op: Op::GreaterEq,
-        major: version.major,
-        minor: Some(version.minor),
-        patch: Some(version.patch),
-        pre: version.pre.clone(),
-    }
-}
-
-fn mvs_caret_upper_bound(version: &Version) -> Option<Comparator> {
-    let upper_major = if version.major < 2 {
-        2
-    } else {
-        version.major.checked_add(1)?
-    };
-    Some(Comparator {
-        op: Op::Less,
-        major: upper_major,
-        minor: Some(0),
-        patch: Some(0),
-        pre: Prerelease::EMPTY,
-    })
-}
-
 fn mvs_requirement_matches(required: &Version, candidate: &Version) -> bool {
-    let Some(upper_bound) = mvs_caret_upper_bound(required) else {
-        return Comparator {
-            op: Op::Caret,
-            major: required.major,
-            minor: Some(required.minor),
-            patch: Some(required.patch),
-            pre: required.pre.clone(),
-        }
-        .matches(candidate);
-    };
-    let req = VersionReq {
-        comparators: vec![mvs_caret_lower_bound(required), upper_bound],
-    };
-    req.matches(candidate)
+    if candidate < required {
+        return false;
+    }
+    if required.major < 2 {
+        candidate.major < 2
+    } else {
+        candidate.major == required.major
+    }
 }
 
 fn same_mvs_compatibility_set(lhs: &Version, rhs: &Version) -> bool {
@@ -429,15 +398,25 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
                 source
             } else {
                 let dep_versions = &settled_versions[&dep_name];
-                let resolved = dep_versions
-                    .iter()
-                    .find(|v| match req.version() {
-                        Some(required) => mvs_requirement_matches(required, v.0.version()),
-                        None => true,
-                    })
-                    .expect(
-                        "There should be at least one version available, otherwise previous steps will fail",
-                    );
+                let Some(resolved) = dep_versions.iter().find(|v| match req.version() {
+                    Some(required) => mvs_requirement_matches(required, v.0.version()),
+                    None => true,
+                }) else {
+                    if let Some(required) = req.version() {
+                        env.report_error(ResolverError::NoSatisfiedVersion {
+                            dependency: dep_name.clone(),
+                            dependant: pkg.name().clone(),
+                            required: required.clone(),
+                        });
+                    } else {
+                        env.report_error(ResolverError::Other(anyhow!(
+                            "No settled version found for dependency `{}` while building edges for `{}`",
+                            dep_name,
+                            pkg
+                        )));
+                    }
+                    continue;
+                };
                 &resolved.0
             };
 
@@ -463,6 +442,11 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
                 },
             );
         }
+    }
+
+    if env.any_errors() {
+        log::warn!("Errors while building resolved dependency graph, bailing out.");
+        return false;
     }
 
     log::debug!("Finished MVS solving");
@@ -1055,6 +1039,37 @@ mod test {
 
         assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0-rc.1");
         assert_no_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.0");
+    }
+
+    #[test]
+    fn test_pre_v2_mixed_stable_and_prerelease_requirements_do_not_crash() {
+        let mut registry = MockRegistry::new();
+        registry
+            .add_module_full("dep/one", "1.0.0", [])
+            .add_module_full("dep/one", "1.1.0-rc.1", [])
+            .add_module_full("dep/a", "0.1.0", [("dep/one", "1.0.0")])
+            .add_module_full("dep/b", "0.1.0", [("dep/one", "1.1.0-rc.1")]);
+
+        let mut env = ResolverEnv::new(&registry);
+        let mut resolver = MvsSolver;
+        let root = create_mock_module(
+            "root/module",
+            "0.1.0",
+            [("dep/a", "0.1.0"), ("dep/b", "0.1.0")],
+        );
+        let roots = create_mock_root(root);
+        let mut result_env = ResolvedEnv::from_root_modules(roots);
+        let status = resolver.resolve(&mut env, &mut result_env);
+        assert!(
+            status,
+            "Resolve failed unexpectedly, errors: {}",
+            ResolverErrors(env.into_errors())
+        );
+        let result = result_env;
+
+        assert_depends_on(&result, "dep/a@0.1.0", "dep/one@1.1.0-rc.1");
+        assert_depends_on(&result, "dep/b@0.1.0", "dep/one@1.1.0-rc.1");
+        assert_no_depends_on(&result, "dep/a@0.1.0", "dep/one@1.0.0");
     }
 
     #[test]
