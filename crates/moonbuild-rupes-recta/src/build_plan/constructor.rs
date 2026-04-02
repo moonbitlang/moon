@@ -30,7 +30,7 @@ use crate::{
 use indexmap::IndexMap;
 use tracing::{Level, debug, instrument};
 
-use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
+use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError, ResolvedNativeOverrides};
 
 /// The struct responsible for holding the states and dependencies used during
 /// the construction of a build plan.
@@ -49,6 +49,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
+    pub(super) resolved_native_overrides: HashMap<PackageId, ResolvedNativeOverrides>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
@@ -75,6 +76,7 @@ impl<'a> BuildPlanConstructor<'a> {
             pending: Vec::new(),
             resolved: HashSet::new(),
             warned_missing_supported_targets: HashSet::new(),
+            resolved_native_overrides: HashMap::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),
         }

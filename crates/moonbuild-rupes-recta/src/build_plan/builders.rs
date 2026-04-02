@@ -49,7 +49,7 @@ use crate::{
 
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
-    constructor::BuildPlanConstructor,
+    ResolvedNativeOverrides, constructor::BuildPlanConstructor,
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -90,6 +90,94 @@ impl<'a> BuildPlanConstructor<'a> {
                     ""
                 })
         })
+    }
+
+    fn resolve_native_overrides(
+        &mut self,
+        package: PackageId,
+    ) -> Result<ResolvedNativeOverrides, BuildPlanConstructError> {
+        if let Some(resolved) = self.resolved_native_overrides.get(&package) {
+            return Ok(resolved.clone());
+        }
+
+        let pkg = self.input.pkg_dirs.get_package(package);
+        let native_config = pkg.raw.link.as_ref().and_then(|link| link.native.as_ref());
+
+        let cc = native_config
+            .and_then(|native| native.cc.as_ref())
+            .map(|value| self.replace_build_vars(package, pkg.module, value))
+            .map(|replaced| {
+                CC::try_from_path(replaced.as_ref())
+                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
+            })
+            .transpose()?;
+
+        let mut driver_args = native_config
+            .and_then(|native| native.cc_flags.as_ref())
+            .map(|value| self.replace_build_vars(package, pkg.module, value))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        if let Some(mut link_args) = native_config
+            .and_then(|native| native.cc_link_flags.as_ref())
+            .map(|value| self.replace_build_vars(package, pkg.module, value))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedCCLinkFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+        {
+            driver_args.append(&mut link_args);
+        }
+
+        let stub_cc = native_config
+            .and_then(|native| native.stub_cc.as_ref())
+            .map(|value| self.replace_build_vars(package, pkg.module, value))
+            .map(|replaced| {
+                CC::try_from_path(replaced.as_ref()).map_err(|e| {
+                    BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?;
+
+        let stub_compile_args = native_config
+            .and_then(|native| native.stub_cc_flags.as_ref())
+            .map(|value| self.replace_build_vars(package, pkg.module, value))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedStubCCFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let stub_tcc_run_link_args = native_config
+            .and_then(|native| native.stub_cc_link_flags.as_ref())
+            .map(|value| self.replace_build_vars(package, pkg.module, value))
+            .map(|replaced| {
+                shlex::split(replaced.as_ref()).ok_or_else(|| {
+                    BuildPlanConstructError::MalformedStubCCLinkFlags(pkg.fqn.clone().into())
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        let resolved = ResolvedNativeOverrides {
+            cc,
+            driver_args,
+            stub_cc,
+            stub_compile_args,
+            stub_tcc_run_link_args,
+        };
+        self.resolved_native_overrides
+            .insert(package, resolved.clone());
+        Ok(resolved)
     }
 
     /// Add need to all prebuild scripts of the given package, and add edge to this node
@@ -674,40 +762,12 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge(node, make_exec_node);
         }
 
-        // Populate C stub info
-        let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
-
-        let stub_cc = native_config
-            .and_then(|native| native.stub_cc.as_ref())
-            .map(|s| self.replace_build_vars(target, pkg.module, s))
-            .map(|replaced| {
-                CC::try_from_path(replaced.as_ref()).map_err(|e| {
-                    BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?;
-
-        let compile_args = native_config
-            .and_then(|native| native.stub_cc_flags.as_ref())
-            .map(|s| self.replace_build_vars(target, pkg.module, s))
-            .map(|replaced| {
-                shlex::split(replaced.as_ref()).ok_or_else(|| {
-                    BuildPlanConstructError::MalformedStubCCFlags(pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?
-            .unwrap_or_default();
-
-        let mut tcc_run_link_args = native_config
-            .and_then(|native| native.stub_cc_link_flags.as_ref())
-            .map(|s| self.replace_build_vars(target, pkg.module, s))
-            .map(|replaced| {
-                shlex::split(replaced.as_ref()).ok_or_else(|| {
-                    BuildPlanConstructError::MalformedStubCCLinkFlags(pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?
-            .unwrap_or_default();
+        let ResolvedNativeOverrides {
+            stub_cc,
+            stub_compile_args: compile_args,
+            stub_tcc_run_link_args: mut tcc_run_link_args,
+            ..
+        } = self.resolve_native_overrides(target)?;
 
         self.propagate_link_config(
             stub_cc.as_ref(),
@@ -802,40 +862,11 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
-        // Build the extra args passed to the final compiler-driver invocation.
-        let pkg = self.input.pkg_dirs.get_package(target.package);
-        let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
-        let cc = native_config
-            .and_then(|native| native.cc.as_ref())
-            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
-            .map(|replaced| {
-                CC::try_from_path(replaced.as_ref())
-                    .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
-            })
-            .transpose()?;
-        let mut driver_args = native_config
-            .and_then(|native| native.cc_flags.as_ref())
-            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
-            .map(|replaced| {
-                shlex::split(replaced.as_ref()).ok_or_else(|| {
-                    BuildPlanConstructError::MalformedCCFlags(pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?
-            .unwrap_or_default();
-
-        if let Some(mut link_args) = native_config
-            .and_then(|native| native.cc_link_flags.as_ref())
-            .map(|s| self.replace_build_vars(target.package, pkg.module, s))
-            .map(|replaced| {
-                shlex::split(replaced.as_ref()).ok_or_else(|| {
-                    BuildPlanConstructError::MalformedCCLinkFlags(pkg.fqn.clone().into())
-                })
-            })
-            .transpose()?
-        {
-            driver_args.append(&mut link_args);
-        }
+        let ResolvedNativeOverrides {
+            cc,
+            mut driver_args,
+            ..
+        } = self.resolve_native_overrides(target.package)?;
 
         let mut link_pkgs: Vec<PackageId> = targets.iter().map(|x| x.package).collect();
         if !link_pkgs.contains(&target.package) {

@@ -292,6 +292,15 @@ pub struct BuildCStubsInfo {
     pub(crate) tcc_run_link_args: Vec<String>,
 }
 
+#[derive(Clone)]
+pub(super) struct ResolvedNativeOverrides {
+    pub(crate) cc: Option<CC>,
+    pub(crate) driver_args: Vec<String>,
+    pub(crate) stub_cc: Option<CC>,
+    pub(crate) stub_compile_args: Vec<String>,
+    pub(crate) stub_tcc_run_link_args: Vec<String>,
+}
+
 pub struct MakeExecutableInfo {
     /// The C compiler driver to use for the final native executable.
     pub(crate) cc: Option<CC>,
