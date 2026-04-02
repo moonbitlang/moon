@@ -30,8 +30,7 @@ Moon uses both modes:
 
 ## What Moon Builds
 
-For native-oriented backends, Moon does not only handle a single generated C file.
-The final native artifact may involve multiple inputs:
+For native-oriented backends, the final artifact may involve multiple inputs:
 
 - the output of `moonc link-core`
 - the runtime implementation built from `runtime.c`
@@ -51,8 +50,11 @@ For native backends, `LinkCore` emits:
 Package C stubs are handled separately:
 
 1. each `stub.c` is compiled to an object file
-2. all stub object files in the package are archived together
+2. usually, all stub object files in the package are archived together
 3. the final executable links against that per-package archive
+
+`NativeTccRun` is the exception: instead of creating a static archive, Moon links the stub objects
+into a shared library so `tcc -run` can load them at runtime.
 
 This is why Moon needs both a compiler driver and an archiver.
 
@@ -60,7 +62,7 @@ This is why Moon needs both a compiler driver and an archiver.
 
 Tool resolution starts from `crates/moonutil/src/compiler_flags.rs`.
 
-There are three distinct sources of C toolchain selection:
+There are three sources of C toolchain selection:
 
 1. global environment override
 2. package-level override
@@ -75,7 +77,9 @@ When a native build step chooses its compiler, the current precedence is:
 ## Global Environment Override
 
 - If `MOON_CC` is set, Moon uses it as the compiler.
-- If `MOON_AR` is set together with `MOON_CC`, Moon uses it as the archiver directly.
+- If `MOON_AR` is set together with `MOON_CC`, Moon passes it into compiler resolution.
+- For `cl`, `cc`, `gcc`, and `clang`, that means the resolved archiver path comes from `MOON_AR`.
+- For `tcc`, Moon still uses `tcc -ar`, so `MOON_AR` is ignored.
 - `MOON_CC` takes precedence over package-level compiler overrides.
 
 This override is global to the current Moon invocation.
@@ -90,8 +94,8 @@ This override is global to the current Moon invocation.
 These are parsed into `CC` values during build-plan construction.
 
 They are useful as escape hatches, but they are toolchain-specific, not portable configuration.
-For example, `cc = "cl"` is an MSVC-specific choice, while `cc = "gcc"` or GNU-style flags are
-specific to other toolchain families.
+For example, `cc = "cl"` is MSVC-specific, while `cc = "gcc"` or GNU-style flags are specific to
+other toolchain families.
 
 ## Default Auto-Detection
 
@@ -192,8 +196,7 @@ This is why Moon records both:
 - the resolved compiler family
 - the probed target triple
 
-The `-lm` behavior belongs to this semantic layer.
-It is not only a "find the right executable" problem.
+The `-lm` behavior belongs to this semantic layer, not just to executable lookup.
 
 ## Compile, Link, and Archive Usage
 
