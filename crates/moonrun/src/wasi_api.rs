@@ -170,6 +170,7 @@ struct WasiContext {
     monotonic_origin: Instant,
     preopen_dir_name: Vec<u8>,
     preopen_dir_host_path: PathBuf,
+    preopen_dir_real_path: PathBuf,
     descriptors: Mutex<DescriptorTable>,
     memory: OnceLock<v8::Global<v8::WasmMemoryObject>>,
 }
@@ -523,6 +524,47 @@ fn io_error_to_errno(error: &std::io::Error) -> WasiErrno {
     }
 }
 
+enum PathBoundaryMode {
+    FollowFinal { allow_missing_final: bool },
+    ParentOnly,
+}
+
+fn canonical_parent_path(path: &Path) -> WasiResult<PathBuf> {
+    let parent = path.parent().unwrap_or(Path::new("."));
+    fs::canonicalize(parent).map_err(|error| io_error_to_errno(&error))
+}
+
+fn ensure_within_preopen_root(context: &WasiContext, path: &Path) -> WasiResult<()> {
+    if path.starts_with(&context.preopen_dir_real_path) {
+        Ok(())
+    } else {
+        Err(WASI_ERRNO_NOTCAPABLE)
+    }
+}
+
+fn enforce_preopen_boundary(
+    context: &WasiContext,
+    path: &Path,
+    mode: PathBoundaryMode,
+) -> WasiResult<()> {
+    match mode {
+        PathBoundaryMode::FollowFinal {
+            allow_missing_final,
+        } => match fs::canonicalize(path) {
+            Ok(real_path) => ensure_within_preopen_root(context, &real_path),
+            Err(error) if error.kind() == ErrorKind::NotFound && allow_missing_final => {
+                let parent_path = canonical_parent_path(path)?;
+                ensure_within_preopen_root(context, &parent_path)
+            }
+            Err(error) => Err(io_error_to_errno(&error)),
+        },
+        PathBoundaryMode::ParentOnly => {
+            let parent_path = canonical_parent_path(path)?;
+            ensure_within_preopen_root(context, &parent_path)
+        }
+    }
+}
+
 fn entry_file_type(file_type: fs::FileType) -> u8 {
     if file_type.is_dir() {
         WASI_FILETYPE_DIRECTORY
@@ -793,6 +835,14 @@ fn path_open(
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         let full_path = resolve_path(context, dirfd, &path)?;
+        let create_requested = (oflags & WASI_OFLAGS_CREAT) != 0;
+        enforce_preopen_boundary(
+            context,
+            &full_path,
+            PathBoundaryMode::FollowFinal {
+                allow_missing_final: create_requested,
+            },
+        )?;
 
         let descriptor_kind = if (oflags & WASI_OFLAGS_DIRECTORY) != 0 {
             if (oflags & (WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL | WASI_OFLAGS_TRUNC)) != 0 {
@@ -812,7 +862,7 @@ fn path_open(
             options.read(wants_read || !wants_write);
             options.write(wants_write || append);
             options.append(append);
-            options.create((oflags & WASI_OFLAGS_CREAT) != 0);
+            options.create(create_requested);
             options.create_new((oflags & WASI_OFLAGS_EXCL) != 0);
             options.truncate((oflags & WASI_OFLAGS_TRUNC) != 0);
 
@@ -860,6 +910,7 @@ fn path_readlink(
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         let full_path = resolve_path(context, dirfd, &path)?;
+        enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
         let link_target = fs::read_link(&full_path).map_err(|error| io_error_to_errno(&error))?;
         let link_bytes = link_target
             .as_os_str()
@@ -897,6 +948,7 @@ fn path_create_directory(
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         let full_path = resolve_path(context, dirfd, &path)?;
+        enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
         fs::create_dir(full_path).map_err(|error| io_error_to_errno(&error))
     })();
 
@@ -930,6 +982,8 @@ fn path_rename(
 
         let old_host_path = resolve_path(context, old_fd, &old_path)?;
         let new_host_path = resolve_path(context, new_fd, &new_path)?;
+        enforce_preopen_boundary(context, &old_host_path, PathBoundaryMode::ParentOnly)?;
+        enforce_preopen_boundary(context, &new_host_path, PathBoundaryMode::ParentOnly)?;
         fs::rename(old_host_path, new_host_path).map_err(|error| io_error_to_errno(&error))
     })();
 
@@ -956,6 +1010,14 @@ fn path_filestat_get(
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         let full_path = resolve_path(context, dirfd, &path)?;
+        let boundary_mode = if (flags & WASI_LOOKUPFLAG_SYMLINK_FOLLOW) != 0 {
+            PathBoundaryMode::FollowFinal {
+                allow_missing_final: false,
+            }
+        } else {
+            PathBoundaryMode::ParentOnly
+        };
+        enforce_preopen_boundary(context, &full_path, boundary_mode)?;
         let metadata = if (flags & WASI_LOOKUPFLAG_SYMLINK_FOLLOW) != 0 {
             fs::metadata(&full_path).map_err(|error| io_error_to_errno(&error))?
         } else {
@@ -988,6 +1050,7 @@ fn path_remove_directory(
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         let full_path = resolve_path(context, dirfd, &path)?;
+        enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
         fs::remove_dir(full_path).map_err(|error| io_error_to_errno(&error))
     })();
 
@@ -1011,6 +1074,7 @@ fn path_unlink_file(
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         let full_path = resolve_path(context, dirfd, &path)?;
+        enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
         fs::remove_file(full_path).map_err(|error| io_error_to_errno(&error))
     })();
 
@@ -1034,7 +1098,7 @@ fn parse_poll_subscriptions(
             )
             .ok_or(WASI_ERRNO_FAULT)?;
         let userdata = read_u64_at(memory, offset)?;
-        let tag = read_u32_at(memory, offset + 8)?;
+        let tag = u32::from(checked_range(memory, offset + 8, 1)?[0]);
 
         let data = match tag {
             WASI_SUBSCRIPTION_TAG_CLOCK => {
@@ -1789,11 +1853,15 @@ pub(crate) fn init_env<'s>(
     args: &[String],
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
+    let preopen_dir_host_path = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let preopen_dir_real_path =
+        fs::canonicalize(&preopen_dir_host_path).unwrap_or_else(|_| preopen_dir_host_path.clone());
     let context = Box::new(WasiContext {
         argv: build_argv(wasm_file_name, args),
         monotonic_origin: Instant::now(),
         preopen_dir_name: preopen_name(),
-        preopen_dir_host_path: PathBuf::from("."),
+        preopen_dir_host_path,
+        preopen_dir_real_path,
         descriptors: Mutex::new(DescriptorTable::new()),
         memory: OnceLock::new(),
     });
