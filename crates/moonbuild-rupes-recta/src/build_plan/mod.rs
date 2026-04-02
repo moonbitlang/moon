@@ -230,6 +230,9 @@ pub struct BuildTargetInfo {
     /// The patch file to supply to this package
     pub(crate) patch_file: Option<PathBuf>,
 
+    /// The Why3 configuration file to supply to proof commands.
+    pub(crate) why3_config: Option<PathBuf>,
+
     /// Check the `.mi` file against the given target. Used in virtual packages.
     /// Also implies that the target must not generate a `.mi` file.
     pub(crate) check_mi_against: Option<BuildTarget>,
@@ -344,6 +347,9 @@ pub struct InputDirective {
     /// `Some(pkg)` so that only `pkg`'s test targets will emit
     /// --enable-value-tracing but not its dependencies' test targets.
     pub value_tracing: Option<PackageId>,
+
+    /// Use the given Why3 config file for `moon prove`.
+    pub prove_why3_config: Option<PathBuf>,
 }
 
 /// Represents errors that may occur during build graph construction.

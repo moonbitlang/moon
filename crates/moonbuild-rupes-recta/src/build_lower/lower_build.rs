@@ -432,7 +432,10 @@ impl<'a> BuildPlanLowerContext<'a> {
         let files_vec = self.compiler_source_files(info);
 
         let backend = self.opt.target_backend.into();
-        let why3_config = self.layout.why3_config_path();
+        let why3_config = info
+            .why3_config
+            .clone()
+            .unwrap_or_else(|| self.layout.why3_config_path());
         let whyml_output = self.layout.prove_whyml_path(self.packages, &target);
         let proof_report_output = self.layout.prove_report_path(self.packages, &target);
         let dep_proofs = self.dep_proofs_of(target);

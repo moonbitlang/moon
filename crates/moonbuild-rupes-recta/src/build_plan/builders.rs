@@ -551,6 +551,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .as_ref()
             .filter(|(specify_target, _)| specify_target == &target)
             .map(|(_, path)| path.clone());
+        let why3_config = self.input_directive.prove_why3_config.clone();
 
         let mi_check_target = self.mi_check_target(target, pkg);
 
@@ -562,6 +563,7 @@ impl<'a> BuildPlanConstructor<'a> {
             warn_list,
             specified_no_mi,
             patch_file,
+            why3_config,
             check_mi_against: mi_check_target,
             value_tracing: self
                 .input_directive

@@ -45,6 +45,10 @@ pub(crate) struct ProveSubcommand {
     #[clap(name = "PATH")]
     pub path: Option<PathBuf>,
 
+    /// Use a user-supplied Why3 configuration file instead of the generated default
+    #[clap(long, value_name = "PATH")]
+    pub why3_config: Option<PathBuf>,
+
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -101,10 +105,15 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
     let project_manifest_path = dirs.project_manifest_path;
     let build_flags = cmd.to_build_flags();
     let verif_dir = target_dir.join("verif");
-    let why3_config_path = verif_dir.join("why3.conf");
+    let why3_config_path = cmd
+        .why3_config
+        .as_deref()
+        .map(canonicalize_why3_config)
+        .transpose()?;
+    let generated_why3_config_path = verif_dir.join("why3.conf");
 
-    if !cli.dry_run {
-        ensure_why3_config(&why3_config_path)?;
+    if !cli.dry_run && why3_config_path.is_none() {
+        ensure_why3_config(&generated_why3_config_path)?;
     }
 
     let preconfig = preconfig_compile(
@@ -116,6 +125,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         RunMode::Prove,
     );
     let path_filter = cmd.path.as_deref();
+    let prove_why3_config = why3_config_path.clone();
 
     let (build_meta, build_graph) = rr_build::plan_build(
         preconfig,
@@ -131,6 +141,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
                 module_dir.as_deref(),
                 resolve_output,
                 target_backend,
+                prove_why3_config.as_deref(),
             )
         }),
     )?;
@@ -166,12 +177,18 @@ fn calc_user_intent(
     selected_module_dir: Option<&Path>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
+    prove_why3_config: Option<&Path>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
+    let directive = moonbuild_rupes_recta::build_plan::InputDirective {
+        prove_why3_config: prove_why3_config.map(Path::to_path_buf),
+        ..Default::default()
+    };
+
     if let Some(path) = path_filter {
         let (dir, _) = canonicalize_with_filename(path)?;
         let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
         ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
-        Ok(vec![UserIntent::Prove(pkg)].into())
+        Ok((vec![UserIntent::Prove(pkg)], directive).into())
     } else {
         let main_module_id = selected_main_module_id(resolve_output, selected_module_dir)?;
         let packages = resolve_output
@@ -190,8 +207,13 @@ fn calc_user_intent(
             })
             .map(UserIntent::Prove)
             .collect::<Vec<_>>();
-        Ok(intents.into())
+        Ok((intents, directive).into())
     }
+}
+
+fn canonicalize_why3_config(path: &Path) -> anyhow::Result<PathBuf> {
+    dunce::canonicalize(path)
+        .with_context(|| format!("failed to resolve why3 config `{}`", path.display()))
 }
 
 fn selected_main_module_id(
@@ -237,11 +259,6 @@ const SOLVER_SPECS: &[SolverSpec] = &[
         env_var: "ALTERGOPATH",
     },
     SolverSpec {
-        name: "CVC4",
-        binary: "cvc4",
-        env_var: "CVC4PATH",
-    },
-    SolverSpec {
         name: "CVC5",
         binary: "cvc5",
         env_var: "CVC5PATH",
@@ -254,7 +271,7 @@ const SOLVER_SPECS: &[SolverSpec] = &[
 ];
 
 /// Priority order for strategy lines (differs from alphabetical).
-const STRATEGY_ORDER: &[&str] = &["Alt-Ergo", "Z3", "CVC5", "CVC4"];
+const STRATEGY_ORDER: &[&str] = &["Alt-Ergo", "Z3", "CVC5"];
 
 #[derive(Debug)]
 struct DetectedSolver {
@@ -293,9 +310,9 @@ fn detect_solvers() -> anyhow::Result<Vec<DetectedSolver>> {
     if solvers.is_empty() {
         bail!(
             "failed to locate any SMT solver for `moon prove`: \
-             searched for `alt-ergo`, `cvc4`, `cvc5`, `z3` in PATH. \
-             You can also set ALTERGOPATH, CVC4PATH, CVC5PATH, or Z3PATH. \
-             Install at least one of: Alt-Ergo, CVC4, CVC5, Z3."
+             searched for `alt-ergo`, `cvc5`, `z3` in PATH. \
+             You can also set ALTERGOPATH, CVC5PATH, or Z3PATH. \
+             Install at least one of: Alt-Ergo, CVC5, Z3."
         );
     }
 
@@ -666,14 +683,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_solver_version_cvc4() {
-        assert_eq!(
-            parse_solver_version("This is CVC4 version 1.8\ncompiled with GCC"),
-            Some("1.8")
-        );
-    }
-
-    #[test]
     fn test_parse_solver_version_cvc5() {
         assert_eq!(
             parse_solver_version("This is cvc5 version 1.3.1\ncompiled with GCC"),
@@ -735,7 +744,6 @@ mod tests {
     fn test_generate_strategy_all_solvers() {
         let solvers = vec![
             make_solver("Alt-Ergo", "/usr/bin/alt-ergo", "2.6.2"),
-            make_solver("CVC4", "/usr/bin/cvc4", "1.8"),
             make_solver("CVC5", "/usr/bin/cvc5", "1.3.1"),
             make_solver("Z3", "/usr/bin/z3", "4.15.3"),
         ];
@@ -745,11 +753,10 @@ mod tests {
             "c Alt-Ergo,2.6.2 .2 1000\n\
              c Z3,4.15.3 .2 1000\n\
              c CVC5,1.3.1 .2 1000\n\
-             c CVC4,1.8 .2 1000\n\
-             c Alt-Ergo,2.6.2 1 1000 | c Z3,4.15.3 1 1000 | c CVC5,1.3.1 1 1000 | c CVC4,1.8 1 1000\n\
+             c Alt-Ergo,2.6.2 1 1000 | c Z3,4.15.3 1 1000 | c CVC5,1.3.1 1 1000\n\
              t compute_specified start\n\
              t split_vc start\n\
-             c Alt-Ergo,2.6.2 2 4000 | c Z3,4.15.3 2 4000 | c CVC5,1.3.1 2 4000 | c CVC4,1.8 2 4000\n"
+             c Alt-Ergo,2.6.2 2 4000 | c Z3,4.15.3 2 4000 | c CVC5,1.3.1 2 4000\n"
         );
     }
 
@@ -766,18 +773,15 @@ mod tests {
     fn test_generate_config_all_solvers() {
         let solvers = vec![
             make_solver("Alt-Ergo", "/usr/bin/alt-ergo", "2.6.2"),
-            make_solver("CVC4", "/usr/bin/cvc4", "1.8"),
             make_solver("CVC5", "/usr/bin/cvc5", "1.3.1"),
             make_solver("Z3", "/usr/bin/z3", "4.15.3"),
         ];
         let config = generate_why3_config(&solvers);
         // All partial_prover sections present in alphabetical order
         let alt_ergo_pos = config.find("name = \"Alt-Ergo\"").unwrap();
-        let cvc4_pos = config.find("name = \"CVC4\"").unwrap();
         let cvc5_pos = config.find("name = \"CVC5\"").unwrap();
         let z3_pos = config.find("name = \"Z3\"").unwrap();
-        assert!(alt_ergo_pos < cvc4_pos);
-        assert!(cvc4_pos < cvc5_pos);
+        assert!(alt_ergo_pos < cvc5_pos);
         assert!(cvc5_pos < z3_pos);
     }
 }
