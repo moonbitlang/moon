@@ -93,13 +93,9 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn resolve_native_overrides(
-        &mut self,
+        &self,
         package: PackageId,
     ) -> Result<ResolvedNativeOverrides, BuildPlanConstructError> {
-        if let Some(resolved) = self.resolved_native_overrides.get(&package) {
-            return Ok(resolved.clone());
-        }
-
         let pkg = self.input.pkg_dirs.get_package(package);
         let native_config = pkg.raw.link.as_ref().and_then(|link| link.native.as_ref());
 
@@ -168,16 +164,13 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        let resolved = ResolvedNativeOverrides {
+        Ok(ResolvedNativeOverrides {
             cc,
             driver_args,
             stub_cc,
             stub_compile_args,
             stub_tcc_run_link_args,
-        };
-        self.resolved_native_overrides
-            .insert(package, resolved.clone());
-        Ok(resolved)
+        })
     }
 
     /// Add need to all prebuild scripts of the given package, and add edge to this node
