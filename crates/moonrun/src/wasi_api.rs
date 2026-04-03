@@ -34,8 +34,6 @@ type WasiResult<T> = Result<T, WasiErrno>;
 const WASI_ERRNO_SUCCESS: WasiErrno = 0;
 const WASI_ERRNO_AGAIN: WasiErrno = 6;
 const WASI_ERRNO_ACCESS: WasiErrno = 2;
-// WASI preview1 names this errno `acces`.
-const WASI_ERRNO_ACCES: WasiErrno = WASI_ERRNO_ACCESS;
 const WASI_ERRNO_BADF: WasiErrno = 8;
 const WASI_ERRNO_EXIST: WasiErrno = 20;
 const WASI_ERRNO_FAULT: WasiErrno = 21;
@@ -537,7 +535,7 @@ fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<Pa
 fn io_error_to_errno(error: &std::io::Error) -> WasiErrno {
     match error.kind() {
         ErrorKind::NotFound => WASI_ERRNO_NOENT,
-        ErrorKind::PermissionDenied => WASI_ERRNO_ACCES,
+        ErrorKind::PermissionDenied => WASI_ERRNO_ACCESS,
         ErrorKind::AlreadyExists => WASI_ERRNO_EXIST,
         ErrorKind::InvalidInput | ErrorKind::InvalidData => WASI_ERRNO_INVAL,
         ErrorKind::NotADirectory => WASI_ERRNO_NOTDIR,
@@ -624,6 +622,12 @@ fn collect_directory_entries(path: &Path) -> WasiResult<Vec<DirectoryEntry>> {
     let host_entries = fs::read_dir(path).map_err(|_| WASI_ERRNO_IO)?;
     for entry in host_entries {
         let entry = entry.map_err(|_| WASI_ERRNO_IO)?;
+        #[cfg(unix)]
+        let name = {
+            use std::os::unix::ffi::OsStrExt;
+            entry.file_name().as_bytes().to_vec()
+        };
+        #[cfg(not(unix))]
         let name = entry
             .file_name()
             .to_string_lossy()
@@ -892,7 +896,8 @@ fn path_open(
 
             let mut options = fs::OpenOptions::new();
             options.read(wants_read || !wants_write);
-            options.write(wants_write || append);
+            // Rust requires write/append when O_CREAT is set. Keep rights enforcement at WASI level.
+            options.write(wants_write || append || create_requested);
             options.append(append);
             options.create(create_requested);
             options.create_new((oflags & WASI_OFLAGS_EXCL) != 0);
