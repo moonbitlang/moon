@@ -287,6 +287,14 @@ fn write_u16_at(memory: &mut [u8], offset: usize, value: u16) -> WasiResult<()> 
     Ok(())
 }
 
+fn read_u16_at(memory: &[u8], offset: usize) -> WasiResult<u16> {
+    let end = offset.checked_add(2).ok_or(WASI_ERRNO_FAULT)?;
+    let bytes = memory.get(offset..end).ok_or(WASI_ERRNO_FAULT)?;
+    Ok(u16::from_le_bytes(
+        <[u8; 2]>::try_from(bytes).map_err(|_| WASI_ERRNO_FAULT)?,
+    ))
+}
+
 fn write_u32_at(memory: &mut [u8], offset: usize, value: u32) -> WasiResult<()> {
     checked_mut_range(memory, offset, 4)?.copy_from_slice(&value.to_le_bytes());
     Ok(())
@@ -1158,7 +1166,7 @@ fn parse_poll_subscriptions(
                     ClockId::try_from(i32::try_from(clock_id_raw).map_err(|_| WASI_ERRNO_INVAL)?)?;
                 let timeout_ns = read_u64_at(memory, offset + 24)?;
                 let _precision = read_u64_at(memory, offset + 32)?;
-                let flags = read_u32_at(memory, offset + 40)?;
+                let flags = u32::from(read_u16_at(memory, offset + 40)?);
                 if (flags & !WASI_SUBCLOCKFLAG_ABSTIME) != 0 {
                     return Err(WASI_ERRNO_INVAL);
                 }
@@ -1851,7 +1859,7 @@ fn fd_read(
 
 fn clock_now_ns(context: &WasiContext, clock_id: ClockId) -> WasiResult<u64> {
     // We intentionally expose only wall-clock and monotonic clocks for now.
-    // WASI CPU-time clocks are accepted as IDs but return NOTSUP.
+    // WASI CPU-time clocks are accepted as IDs but currently return EINVAL.
     match clock_id {
         ClockId::Realtime => {
             let duration = SystemTime::now()
@@ -1863,14 +1871,14 @@ fn clock_now_ns(context: &WasiContext, clock_id: ClockId) -> WasiResult<u64> {
             let elapsed = context.monotonic_origin.elapsed();
             Ok(elapsed.as_nanos().min(u128::from(u64::MAX)) as u64)
         }
-        ClockId::ProcessCpuTime | ClockId::ThreadCpuTime => Err(WASI_ERRNO_NOTSUP),
+        ClockId::ProcessCpuTime | ClockId::ThreadCpuTime => Err(WASI_ERRNO_INVAL),
     }
 }
 
 fn clock_resolution_ns(clock_id: ClockId) -> WasiResult<u64> {
     match clock_id {
         ClockId::Realtime | ClockId::Monotonic => Ok(1),
-        ClockId::ProcessCpuTime | ClockId::ThreadCpuTime => Err(WASI_ERRNO_NOTSUP),
+        ClockId::ProcessCpuTime | ClockId::ThreadCpuTime => Err(WASI_ERRNO_INVAL),
     }
 }
 
