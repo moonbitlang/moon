@@ -258,6 +258,22 @@ fn read_file_to_bytes(
     ret.set(ab.into());
 }
 
+fn decode_utf8(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let bytes = args.get(0);
+    let uint8_array = v8::Local::<v8::Uint8Array>::try_from(bytes).unwrap();
+    let length = uint8_array.byte_length();
+    let mut buffer = vec![0; length];
+    uint8_array.copy_contents(&mut buffer);
+
+    let decoded = String::from_utf8_lossy(&buffer);
+    let decoded = scope.string(&decoded);
+    ret.set(decoded.into());
+}
+
 fn write_char(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -392,6 +408,7 @@ fn init_env(
 
     {
         global_proxy.set_func(scope, "read_file_to_bytes", read_file_to_bytes);
+        global_proxy.set_func(scope, "__moonrun_decode_utf8", decode_utf8);
     }
 
     {
@@ -449,32 +466,58 @@ fn wasm_mode(
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
 
-    let mut script =
-        format!(r#"const BUILTIN_SCRIPT_ORIGIN_PREFIX = "{BUILTIN_SCRIPT_ORIGIN_PREFIX}";"#);
+    let mut script = String::new();
 
     let global_proxy = scope.get_current_context().global(scope);
     let wasm_file_name = match &source {
         Source::File(file) => file.to_string_lossy().to_string(),
         Source::Bytes(_) => "<eval>".to_string(),
     };
+    let launch = v8::Object::new(scope);
+
+    {
+        let key = scope.string("BUILTIN_SCRIPT_ORIGIN_PREFIX").into();
+        let val = scope.string(BUILTIN_SCRIPT_ORIGIN_PREFIX).into();
+        launch.set(scope, key, val);
+    }
+    {
+        let key = scope.string("module_name").into();
+        let val = scope.string(&wasm_file_name).into();
+        launch.set(scope, key, val);
+    }
+    {
+        let key = scope.string("no_stack_trace").into();
+        let val = v8::Boolean::new(scope, no_stack_trace).into();
+        launch.set(scope, key, val);
+    }
+    {
+        let key = scope.string("test_mode").into();
+        let val = v8::Boolean::new(scope, test_args.is_some()).into();
+        launch.set(scope, key, val);
+    }
+    {
+        let key = scope.string("packageName").into();
+        let val = scope.string("").into();
+        launch.set(scope, key, val);
+    }
+    {
+        let key = scope.string("testParams").into();
+        let val = v8::Array::new(scope, 0).into();
+        launch.set(scope, key, val);
+    }
 
     match source {
-        Source::File(file) => {
-            let module_key = scope.string("module_name").into();
-            let module_name = scope.string(file.to_string_lossy().as_ref()).into();
-            global_proxy.set(scope, module_key, module_name);
-            script.push_str("let bytes;");
-        }
+        Source::File(_) => {}
         Source::Bytes(bytes) => {
             let len = bytes.len();
 
-            let bytes_key = scope.string("bytes").into();
             let buf = v8::ArrayBuffer::new_backing_store_from_vec(bytes);
             let buf = v8::ArrayBuffer::with_backing_store(scope, &buf.make_shared());
             let u8arr = v8::Uint8Array::new(scope, buf, 0, len)
                 .expect("Failed to create buffer for WASM program");
 
-            global_proxy.set(scope, bytes_key, u8arr.cast());
+            let key = scope.string("bytes").into();
+            launch.set(scope, key, u8arr.cast());
         }
     }
     let mut dtors = Vec::new();
@@ -492,16 +535,37 @@ fn wasm_mode(
                 }
             }
         }
-        script.push_str(&format!("const packageName = {:?};", test_args.package));
-        script.push_str(&format!("const testParams = {test_params:?};"));
+        let js_test_params = v8::Array::new(scope, test_params.len() as i32);
+        for (i, test_param) in test_params.iter().enumerate() {
+            let pair = v8::Array::new(scope, 2);
+            let file = scope.string(&test_param[0]).into();
+            pair.set_index(scope, 0, file).unwrap();
+            let index = scope.string(&test_param[1]).into();
+            pair.set_index(scope, 1, index).unwrap();
+            js_test_params
+                .set_index(scope, i as u32, pair.into())
+                .unwrap();
+        }
+
+        {
+            let key = scope.string("packageName").into();
+            let val = scope.string(&test_args.package).into();
+            launch.set(scope, key, val);
+        }
+        {
+            let key = scope.string("testParams").into();
+            launch.set(scope, key, js_test_params.into());
+        }
     }
-    script.push_str(&format!("const no_stack_trace = {no_stack_trace};"));
-    script.push_str(&format!("const test_mode = {};", test_args.is_some()));
+    {
+        let key = scope.string("__moonrun_launch").into();
+        global_proxy.set(scope, key, launch.into());
+    }
     script.push_str(demangle_js_template::DEMANGLE_JS_TEMPLATE);
     script.push('\n');
     let js_glue = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/template/js_glue.js"
+        "/src/template/js_glue_core.js"
     ));
     script.push_str(js_glue);
 
