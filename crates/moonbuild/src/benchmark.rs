@@ -43,17 +43,51 @@ pub struct BatchBenchSummaries {
     pub summaries: Vec<BenchSummary>,
 }
 
-fn auto_select_unit(ns: f64) -> String {
-    if ns < 1e3 {
-        format!("{ns:>6.2} ns")
-    } else if ns < 1e6 {
-        format!("{:>6.2} µs", ns / 1e3)
-    } else if ns < 1e9 {
-        format!("{:>6.2} ms", ns / 1e6)
-    } else if ns < 6e10 {
-        format!("{:>6.2} s", ns / 1e9)
+fn auto_select_unit(us: f64) -> String {
+    if us < 1.0 {
+        format!("{:>6.2} ns", us * 1e3)
+    } else if us < 1e3 {
+        format!("{us:>6.2} µs")
+    } else if us < 1e6 {
+        format!("{:>6.2} ms", us / 1e3)
+    } else if us < 6e7 {
+        format!("{:>6.2} s", us / 1e6)
     } else {
-        format!("{:>6.2} min", ns / 6e10)
+        format!("{:>6.2} min", us / 6e7)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_select_unit_nanoseconds() {
+        assert_eq!(auto_select_unit(0.5), "500.00 ns");
+        assert_eq!(auto_select_unit(0.001), "  1.00 ns");
+        assert_eq!(auto_select_unit(0.999), "999.00 ns");
+    }
+
+    #[test]
+    fn auto_select_unit_microseconds() {
+        assert_eq!(auto_select_unit(1.0), "  1.00 µs");
+        assert_eq!(auto_select_unit(500.0), "500.00 µs");
+    }
+
+    #[test]
+    fn auto_select_unit_milliseconds() {
+        assert_eq!(auto_select_unit(1_000.0), "  1.00 ms");
+        assert_eq!(auto_select_unit(500_000.0), "500.00 ms");
+    }
+
+    #[test]
+    fn auto_select_unit_seconds() {
+        assert_eq!(auto_select_unit(1_000_000.0), "  1.00 s");
+    }
+
+    #[test]
+    fn auto_select_unit_minutes() {
+        assert_eq!(auto_select_unit(60_000_001.0), "  1.00 min");
     }
 }
 
