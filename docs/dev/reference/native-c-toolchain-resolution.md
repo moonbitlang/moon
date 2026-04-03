@@ -78,7 +78,8 @@ When a native build step chooses its compiler, the current precedence is:
 
 - If `MOON_CC` is set, Moon uses it as the compiler.
 - If `MOON_AR` is set together with `MOON_CC`, Moon passes it into compiler resolution.
-- For `cl`, `cc`, `gcc`, and `clang`, that means the resolved archiver path comes from `MOON_AR`.
+- For `cc`, `gcc`, and `clang`, that means the resolved archiver path comes from `MOON_AR`.
+- For `cl`, Moon still resolves `lib.exe` next to the compiler, so `MOON_AR` is ignored.
 - For `tcc`, Moon still uses `tcc -ar`, so `MOON_AR` is ignored.
 - `MOON_CC` takes precedence over package-level compiler overrides.
 
