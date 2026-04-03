@@ -452,8 +452,8 @@ fn preopen_rights_base() -> u64 {
 
 fn rights_base_for_fd(context: &WasiContext, fd: i32) -> WasiResult<u64> {
     match fd {
-        WASI_FD_STDIN => Ok(WASI_RIGHT_FD_READ),
-        WASI_FD_STDOUT | WASI_FD_STDERR => Ok(WASI_RIGHT_FD_WRITE),
+        WASI_FD_STDIN => Ok(WASI_RIGHT_FD_READ | WASI_RIGHT_FD_FILESTAT_GET),
+        WASI_FD_STDOUT | WASI_FD_STDERR => Ok(WASI_RIGHT_FD_WRITE | WASI_RIGHT_FD_FILESTAT_GET),
         _ if preopen_matches(context, fd) => Ok(preopen_rights_base()),
         _ => Ok(descriptor_for_fd(context, fd)?.rights_base),
     }
@@ -1834,6 +1834,8 @@ fn fd_read(
 }
 
 fn clock_now_ns(context: &WasiContext, clock_id: ClockId) -> WasiResult<u64> {
+    // We intentionally expose only wall-clock and monotonic clocks for now.
+    // WASI CPU-time clocks are accepted as IDs but return NOTSUP.
     match clock_id {
         ClockId::Realtime => {
             let duration = SystemTime::now()
@@ -1841,19 +1843,18 @@ fn clock_now_ns(context: &WasiContext, clock_id: ClockId) -> WasiResult<u64> {
                 .map_err(|_| WASI_ERRNO_FAULT)?;
             Ok(duration.as_nanos().min(u128::from(u64::MAX)) as u64)
         }
-        ClockId::Monotonic | ClockId::ProcessCpuTime | ClockId::ThreadCpuTime => {
+        ClockId::Monotonic => {
             let elapsed = context.monotonic_origin.elapsed();
             Ok(elapsed.as_nanos().min(u128::from(u64::MAX)) as u64)
         }
+        ClockId::ProcessCpuTime | ClockId::ThreadCpuTime => Err(WASI_ERRNO_NOTSUP),
     }
 }
 
 fn clock_resolution_ns(clock_id: ClockId) -> WasiResult<u64> {
     match clock_id {
-        ClockId::Realtime
-        | ClockId::Monotonic
-        | ClockId::ProcessCpuTime
-        | ClockId::ThreadCpuTime => Ok(1),
+        ClockId::Realtime | ClockId::Monotonic => Ok(1),
+        ClockId::ProcessCpuTime | ClockId::ThreadCpuTime => Err(WASI_ERRNO_NOTSUP),
     }
 }
 
