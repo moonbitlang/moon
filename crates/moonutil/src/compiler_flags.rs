@@ -369,6 +369,27 @@ impl CC {
     }
 }
 
+#[cfg(windows)]
+fn host_msvc_target_triple() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "x86_64-pc-windows-msvc",
+        "x86" => "i686-pc-windows-msvc",
+        "aarch64" => "aarch64-pc-windows-msvc",
+        _ => "x86_64-pc-windows-msvc",
+    }
+}
+
+#[cfg(windows)]
+fn detect_msvc_with_find_msvc_tools() -> Option<CC> {
+    let tool = find_msvc_tools::find_tool(host_msvc_target_triple(), "cl.exe")?;
+    for (key, value) in tool.env() {
+        // Apply the discovered MSVC env once so subsequent compiler/linker invocations
+        // can run without requiring a preconfigured Developer Command Prompt.
+        unsafe { std::env::set_var(key, value) };
+    }
+    CC::try_from_path(&tool.path().to_string_lossy()).ok()
+}
+
 pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(|| {
     let env_cc = env::var(ENV_MOON_CC);
     let env_ar = env::var(ENV_MOON_AR);
@@ -398,6 +419,11 @@ pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(||
 
 pub static DETECTED_CC: std::sync::LazyLock<CC> = std::sync::LazyLock::new(|| {
     use CCKind::*;
+
+    #[cfg(windows)]
+    if let Some(msvc_cc) = detect_msvc_with_find_msvc_tools() {
+        return msvc_cc;
+    }
 
     let (cc_kind, cc_path) = if let Ok(cc) = which::which("cl") {
         (Msvc, cc)

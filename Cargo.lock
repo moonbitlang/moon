@@ -1752,6 +1752,7 @@ dependencies = [
  "dialoguer",
  "dunce",
  "expect-test",
+ "find-msvc-tools",
  "fs4",
  "globset",
  "home",
