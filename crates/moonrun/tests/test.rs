@@ -97,7 +97,6 @@ fn test_moonrun_wasm_stack_trace() {
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[Unit] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @moonbitlang/core/builtin.abort[Unit] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.abort_with_tuple [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.default_abort_chain [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
@@ -110,7 +109,6 @@ RuntimeError: unreachable
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @moonbitlang/core/builtin.abort[Int] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.abort_generic[Int] [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
@@ -122,7 +120,6 @@ RuntimeError: unreachable
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[(Int, String)] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @moonbitlang/core/builtin.abort[(Int, String)] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.abort_generic[(Int, String)] [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
@@ -134,7 +131,6 @@ RuntimeError: unreachable
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[UInt] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @moonbitlang/core/builtin.abort[UInt] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
 
@@ -146,7 +142,6 @@ RuntimeError: unreachable
         .stderr_eq(snapbox::str![[r#"
 RuntimeError: unreachable
     at @moonbitlang/core/abort.abort[Int] [CORE_PATH]/abort/abort.mbt[LINE_NUMBER]
-    at @moonbitlang/core/builtin.abort[Int] [CORE_PATH]/builtin/intrinsics.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
     at @__moonbit_main [..]/main/main.mbt[LINE_NUMBER]
@@ -189,41 +184,45 @@ fn test_moonrun_wasm_stack_trace_in_test_blocks() {
             .arg("wasm-gc")
             .args(args)
     }
+    let redactions = moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref());
+    let assert = snapbox::Assert::new().redact_with(redactions);
 
     moon_test_case(&dir, &["--filter", "stacktrace test abort closure"])
+        .with_assert(assert.clone())
         .assert()
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort closure") failed: Error
     at throw
-    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt:[..]
-    at @moonbitlang/core/builtin.abort[Int] [..]/builtin/intrinsics.mbt:[..]
-    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt:[..]
-    at @username/hello/main.abort_via_closure [..]/main/main.mbt:[..]
-    at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt:[..]
+    at @moonbitlang/core/abort.abort[Int] [..]/abort/abort.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_via_closure.inner[stamp=[..]] [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.abort_via_closure [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.__test_6d61696e2e6d6274_2 [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.__test_6d61696e2e6d6274_2.dyncall
-    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt:[..]
-    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt:[..]
-    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt:[..]
+    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
 Total tests: 1, passed: 0, failed: 1.
 
 "#]]);
 
     moon_test_case(&dir, &["main/main.mbt", "--index", "1"])
+        .with_assert(assert.clone())
         .assert()
         .failure()
         .stdout_eq(snapbox::str![[r#"
 [username/hello] test main/main.mbt:[..] ("stacktrace test abort method") failed: Error
     at throw
-    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt:[..]
-    at @moonbitlang/core/builtin.abort[UInt] [..]/builtin/intrinsics.mbt:[..]
-    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt:[..]
-    at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt:[..]
+    at @moonbitlang/core/abort.abort[UInt] [..]/abort/abort.mbt[LINE_NUMBER]
+    at @username/hello/main.CrashBox::abort_method [..]/main/main.mbt[LINE_NUMBER]
+    at @username/hello/main.__test_6d61696e2e6d6274_1 [..]/main/main.mbt[LINE_NUMBER]
     at @username/hello/main.__test_6d61696e2e6d6274_1.dyncall
-    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt:[..]
-    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt:[..]
-    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt:[..]
-    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt:[..]
+    at @username/hello/main.moonbit_test_driver_internal_catch_error [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @username/hello/main.moonbit_test_driver_internal_execute_wrapper/552 [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
 Total tests: 1, passed: 0, failed: 1.
 
 "#]]);
