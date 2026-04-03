@@ -519,6 +519,113 @@ impl CompilerPaths {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum LinkRequirement {
+    MathLibrary,
+    MoonbitrunObject,
+    SharedRuntime(PathBuf),
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct LinkSemantics {
+    requirements: Vec<LinkRequirement>,
+    warn_tcc_cannot_link_moonbitrun: bool,
+}
+
+fn collect_cc_link_semantics(cc: &CC, config: &CCConfig) -> LinkSemantics {
+    let mut semantics = LinkSemantics::default();
+
+    if config.output_ty == OutputType::Object {
+        return semantics;
+    }
+
+    if config.link_moonbitrun && cc.is_libmoonbitrun_o_available() {
+        if cc.is_tcc() {
+            semantics.warn_tcc_cannot_link_moonbitrun = true;
+        } else {
+            semantics
+                .requirements
+                .push(LinkRequirement::MoonbitrunObject);
+        }
+    }
+
+    if cc.should_link_libm() {
+        semantics.requirements.push(LinkRequirement::MathLibrary);
+    }
+
+    semantics
+}
+
+fn collect_linker_semantics<P: AsRef<Path>>(cc: &CC, config: &LinkerConfig<P>) -> LinkSemantics {
+    let mut semantics = LinkSemantics::default();
+
+    if config.link_moonbitrun && cc.is_libmoonbitrun_o_available() {
+        if cc.is_tcc() {
+            semantics.warn_tcc_cannot_link_moonbitrun = true;
+        } else {
+            semantics
+                .requirements
+                .push(LinkRequirement::MoonbitrunObject);
+        }
+    }
+
+    if cc.should_link_libm() {
+        semantics.requirements.push(LinkRequirement::MathLibrary);
+    }
+
+    if let Some(runtime_dir) = config.link_shared_runtime.as_ref() {
+        semantics.requirements.push(LinkRequirement::SharedRuntime(
+            runtime_dir.as_ref().to_path_buf(),
+        ));
+    }
+
+    semantics
+}
+
+fn moonbitrun_object_path() -> String {
+    MOON_DIRS
+        .moon_lib_path
+        .join("libmoonbitrun.o")
+        .display()
+        .to_string()
+}
+
+fn emit_link_semantics_before_inputs(cc: &CC, buf: &mut Vec<String>, semantics: &LinkSemantics) {
+    if semantics.warn_tcc_cannot_link_moonbitrun {
+        eprintln!(
+            "{}: Cannot link libmoonbitrun.o when using tcc",
+            "Warning".yellow().bold(),
+        );
+    }
+
+    for requirement in &semantics.requirements {
+        match requirement {
+            LinkRequirement::MoonbitrunObject => buf.push(moonbitrun_object_path()),
+            LinkRequirement::SharedRuntime(runtime_dir) if cc.is_gcc_like() => {
+                buf.push(format!("-L{}", runtime_dir.display()));
+            }
+            LinkRequirement::MathLibrary | LinkRequirement::SharedRuntime(_) => {}
+        }
+    }
+}
+
+fn emit_link_semantics_after_inputs(cc: &CC, buf: &mut Vec<String>, semantics: &LinkSemantics) {
+    for requirement in &semantics.requirements {
+        match requirement {
+            LinkRequirement::MathLibrary => buf.push("-lm".to_string()),
+            LinkRequirement::MoonbitrunObject => {}
+            LinkRequirement::SharedRuntime(runtime_dir) => {
+                if cc.is_gcc_like() {
+                    buf.push("-lruntime".to_string());
+                    buf.push(format!("-Wl,-rpath,{}", runtime_dir.display()));
+                } else if cc.is_msvc() {
+                    buf.push(runtime_dir.join("libruntime.lib").display().to_string());
+                }
+            }
+        }
+    }
+}
+
 // Helper functions for archiver command building
 fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
     if cc.is_msvc() {
@@ -616,16 +723,11 @@ fn add_linker_output_flags(
 fn add_linker_library_paths<P: AsRef<Path>>(
     cc: &CC,
     buf: &mut Vec<String>,
-    config: &LinkerConfig<P>,
+    _config: &LinkerConfig<P>,
     lpath: &str,
 ) {
     if cc.is_tcc() {
         buf.push(format!("-L{lpath}"));
-    }
-    if cc.is_gcc_like()
-        && let Some(dyn_lib_path) = config.link_shared_runtime.as_ref()
-    {
-        buf.push(format!("-L{}", dyn_lib_path.as_ref().display()));
     }
 }
 
@@ -660,62 +762,13 @@ fn add_linker_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags
     }
 }
 
-// Linker compiler-specific handling for moonbitrun
-fn add_linker_moonbitrun_with_warnings(
+fn add_linker_msvc_linker_flags<P: AsRef<Path>>(
     cc: &CC,
     buf: &mut Vec<String>,
-    config: &LinkerConfig<impl AsRef<Path>>,
-) {
-    if config.link_moonbitrun && cc.is_libmoonbitrun_o_available() {
-        if cc.is_tcc() {
-            eprintln!(
-                "{}: Cannot link libmoonbitrun.o when using tcc",
-                "Warning".yellow().bold(),
-            );
-        } else {
-            buf.push(
-                MOON_DIRS
-                    .moon_lib_path
-                    .join("libmoonbitrun.o")
-                    .display()
-                    .to_string(),
-            );
-        }
-    }
-}
-
-fn add_linker_common_libraries<P: AsRef<Path>>(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &LinkerConfig<P>,
-) {
-    if cc.is_gcc_like() {
-        if cc.should_link_libm() {
-            buf.push("-lm".to_string());
-        }
-        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push("-lruntime".to_string());
-            buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
-        }
-    }
-}
-
-fn add_linker_msvc_runtime<P: AsRef<Path>>(
-    cc: &CC,
-    buf: &mut Vec<String>,
-    config: &LinkerConfig<P>,
+    _config: &LinkerConfig<P>,
     lpath: &str,
 ) {
     if cc.is_msvc() {
-        if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push(
-                dyn_lib_path
-                    .as_ref()
-                    .join("libruntime.lib")
-                    .display()
-                    .to_string(),
-            );
-        }
         buf.push("/link".to_string());
         buf.push(format!("/LIBPATH:{lpath}"));
     }
@@ -761,6 +814,7 @@ where
     P: AsRef<Path>,
 {
     let mut buf = vec![cc.cc_path.clone()];
+    let link_semantics = collect_linker_semantics(&cc, &config);
     // if user_link_flags is set, we only set necessary flags
     // that are tightly coupled with the paths and output types
     // as user cannot easily specify them in the configuration file
@@ -774,12 +828,12 @@ where
     // Linker compiler-specific flags
     add_linker_msvc_specific_flags(&cc, &mut buf, has_user_flags);
 
-    add_linker_moonbitrun_with_warnings(&cc, &mut buf, &config);
+    emit_link_semantics_before_inputs(&cc, &mut buf, &link_semantics);
 
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
-    add_linker_common_libraries(&cc, &mut buf, &config);
-    add_linker_msvc_runtime(&cc, &mut buf, &config, lpath);
+    emit_link_semantics_after_inputs(&cc, &mut buf, &link_semantics);
+    add_linker_msvc_linker_flags(&cc, &mut buf, &config, lpath);
 
     buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
 
@@ -953,35 +1007,6 @@ fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig
     }
 }
 
-// CC compiler-specific handling for moonbitrun
-fn add_cc_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if config.output_ty != OutputType::Object
-        && config.link_moonbitrun
-        && cc.is_libmoonbitrun_o_available()
-    {
-        if cc.is_tcc() {
-            eprintln!(
-                "{}: Cannot link libmoonbitrun.o when using tcc",
-                "Warning".yellow().bold(),
-            );
-        } else {
-            buf.push(
-                MOON_DIRS
-                    .moon_lib_path
-                    .join("libmoonbitrun.o")
-                    .display()
-                    .to_string(),
-            );
-        }
-    }
-}
-
-fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.should_link_libm() && config.output_ty != OutputType::Object {
-        buf.push("-lm".to_string());
-    }
-}
-
 fn add_cc_msvc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
     if cc.is_msvc() && config.output_ty != OutputType::Object {
         buf.push("/link".to_string());
@@ -1027,6 +1052,7 @@ where
     S: AsRef<str>,
 {
     let mut buf = vec![cc.cc_path.clone()];
+    let link_semantics = collect_cc_link_semantics(&cc, &config);
 
     // if user_cc_flags is set, we only set necessary flags
     // that are tightly coupled with the paths and output types
@@ -1047,11 +1073,11 @@ where
 
     add_cc_optimization_flags(&cc, &mut buf, &config, has_user_flags);
     add_cc_shared_runtime_flags(&cc, &mut buf, &config);
-    add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config);
+    emit_link_semantics_before_inputs(&cc, &mut buf, &link_semantics);
 
     buf.extend(src.into_iter().map(|s| s.into()));
 
-    add_cc_common_libraries(&cc, &mut buf, &config);
+    emit_link_semantics_after_inputs(&cc, &mut buf, &link_semantics);
     buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
     add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
 
@@ -1083,40 +1109,116 @@ mod tests {
         }
     }
 
+    fn find_arg(args: &[String], expected: &str) -> usize {
+        args.iter()
+            .position(|arg| arg == expected)
+            .unwrap_or_else(|| panic!("expected argument `{expected}` in {args:?}"))
+    }
+
     #[test]
     fn clang_msvc_target_does_not_link_libm() {
         let cc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));
 
-        let mut cc_flags = vec![];
-        add_cc_common_libraries(&cc, &mut cc_flags, &executable_cc_config());
-        assert!(!cc_flags.iter().any(|f| f == "-lm"));
+        let cc_semantics = collect_cc_link_semantics(&cc, &executable_cc_config());
+        assert!(
+            !cc_semantics
+                .requirements
+                .contains(&LinkRequirement::MathLibrary)
+        );
 
         let linker_config = LinkerConfig::<&Path> {
             link_moonbitrun: false,
             output_ty: OutputType::Executable,
             link_shared_runtime: None,
         };
-        let mut linker_flags = vec![];
-        add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
-        assert!(!linker_flags.iter().any(|f| f == "-lm"));
+        let linker_semantics = collect_linker_semantics(&cc, &linker_config);
+        assert!(
+            !linker_semantics
+                .requirements
+                .contains(&LinkRequirement::MathLibrary)
+        );
     }
 
     #[test]
     fn clang_gnu_target_keeps_linking_libm() {
         let cc = fake_cc(CCKind::Clang, Some("x86_64-unknown-linux-gnu"));
 
-        let mut cc_flags = vec![];
-        add_cc_common_libraries(&cc, &mut cc_flags, &executable_cc_config());
-        assert!(cc_flags.iter().any(|f| f == "-lm"));
+        let cc_semantics = collect_cc_link_semantics(&cc, &executable_cc_config());
+        assert!(
+            cc_semantics
+                .requirements
+                .contains(&LinkRequirement::MathLibrary)
+        );
 
         let linker_config = LinkerConfig::<&Path> {
             link_moonbitrun: false,
             output_ty: OutputType::Executable,
             link_shared_runtime: None,
         };
-        let mut linker_flags = vec![];
-        add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
-        assert!(linker_flags.iter().any(|f| f == "-lm"));
+        let linker_semantics = collect_linker_semantics(&cc, &linker_config);
+        assert!(
+            linker_semantics
+                .requirements
+                .contains(&LinkRequirement::MathLibrary)
+        );
+    }
+
+    #[test]
+    fn gnu_linker_keeps_shared_runtime_search_path_before_sources() {
+        let cc = fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu"));
+        let runtime_dir = Path::new("/runtime");
+        let config = LinkerConfig {
+            link_moonbitrun: false,
+            output_ty: OutputType::Executable,
+            link_shared_runtime: Some(runtime_dir),
+        };
+
+        let cmd = make_linker_command_pure(
+            cc,
+            config,
+            &[] as &[&str],
+            &["input.o"],
+            ".",
+            "out",
+            "/moon/lib",
+        );
+
+        let runtime_search = find_arg(&cmd, "-L/runtime");
+        let source = find_arg(&cmd, "input.o");
+        let runtime_lib = find_arg(&cmd, "-lruntime");
+        let runtime_rpath = find_arg(&cmd, "-Wl,-rpath,/runtime");
+
+        assert!(runtime_search < source);
+        assert!(runtime_lib > source);
+        assert!(runtime_rpath > source);
+    }
+
+    #[test]
+    fn msvc_linker_keeps_runtime_import_library_after_sources() {
+        let cc = fake_cc(CCKind::Msvc, None);
+        let runtime_dir = Path::new("C:/runtime");
+        let config = LinkerConfig {
+            link_moonbitrun: false,
+            output_ty: OutputType::Executable,
+            link_shared_runtime: Some(runtime_dir),
+        };
+
+        let cmd = make_linker_command_pure(
+            cc,
+            config,
+            &[] as &[&str],
+            &["input.obj"],
+            "obj",
+            "out.exe",
+            "C:/moon/lib",
+        );
+
+        let source = find_arg(&cmd, "input.obj");
+        let runtime_lib = find_arg(&cmd, "C:/runtime/libruntime.lib");
+        let linker_switch = find_arg(&cmd, "/link");
+
+        assert!(runtime_lib > source);
+        assert!(linker_switch > runtime_lib);
     }
 
     #[test]
