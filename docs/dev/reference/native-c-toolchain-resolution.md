@@ -76,14 +76,17 @@ When a native build step chooses its compiler, the current precedence is:
 
 ## Global Environment Override
 
-- If `MOON_CC` is set, Moon uses it as the compiler.
-- If `MOON_AR` is set together with `MOON_CC`, Moon passes it into compiler resolution.
+- If `MOON_CC` is set, Moon uses it as the compiler for the regular native pipeline.
+- `NativeTccRun` is the exception: its run-driver build step and runtime launcher always use the
+  internal `tcc`, so `MOON_CC` does not affect those steps.
+- If `MOON_AR` is set together with `MOON_CC`, Moon passes it into compiler resolution for the
+  regular native pipeline.
 - For `cc`, `gcc`, and `clang`, that means the resolved archiver path comes from `MOON_AR`.
 - For `cl`, Moon still resolves `lib.exe` next to the compiler, so `MOON_AR` is ignored.
 - For `tcc`, Moon still uses `tcc -ar`, so `MOON_AR` is ignored.
 - `MOON_CC` takes precedence over package-level compiler overrides.
 
-This override is global to the current Moon invocation.
+This override is global to the current Moon invocation, except for the `NativeTccRun` tool choice.
 
 ## Package-Level Override
 
