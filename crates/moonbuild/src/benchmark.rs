@@ -57,40 +57,6 @@ fn auto_select_unit(us: f64) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn auto_select_unit_nanoseconds() {
-        assert_eq!(auto_select_unit(0.5), "500.00 ns");
-        assert_eq!(auto_select_unit(0.001), "  1.00 ns");
-        assert_eq!(auto_select_unit(0.999), "999.00 ns");
-    }
-
-    #[test]
-    fn auto_select_unit_microseconds() {
-        assert_eq!(auto_select_unit(1.0), "  1.00 µs");
-        assert_eq!(auto_select_unit(500.0), "500.00 µs");
-    }
-
-    #[test]
-    fn auto_select_unit_milliseconds() {
-        assert_eq!(auto_select_unit(1_000.0), "  1.00 ms");
-        assert_eq!(auto_select_unit(500_000.0), "500.00 ms");
-    }
-
-    #[test]
-    fn auto_select_unit_seconds() {
-        assert_eq!(auto_select_unit(1_000_000.0), "  1.00 s");
-    }
-
-    #[test]
-    fn auto_select_unit_minutes() {
-        assert_eq!(auto_select_unit(60_000_001.0), "  1.00 min");
-    }
-}
-
 pub fn render_batch_bench_summary(msg: &str) {
     assert!(msg.starts_with(BATCHBENCH));
     let msg = &msg[BATCHBENCH.len()..];
@@ -132,5 +98,39 @@ pub fn render_batch_bench_summary(msg: &str) {
                 s.batch_size.to_string().bright_black(),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_select_unit_nanoseconds() {
+        assert_eq!(auto_select_unit(0.5), "500.00 ns");
+        assert_eq!(auto_select_unit(0.001), "  1.00 ns");
+        assert_eq!(auto_select_unit(0.999), "999.00 ns");
+    }
+
+    #[test]
+    fn auto_select_unit_microseconds() {
+        assert_eq!(auto_select_unit(1.0), "  1.00 µs");
+        assert_eq!(auto_select_unit(500.0), "500.00 µs");
+    }
+
+    #[test]
+    fn auto_select_unit_milliseconds() {
+        assert_eq!(auto_select_unit(1_000.0), "  1.00 ms");
+        assert_eq!(auto_select_unit(500_000.0), "500.00 ms");
+    }
+
+    #[test]
+    fn auto_select_unit_seconds() {
+        assert_eq!(auto_select_unit(1_000_000.0), "  1.00 s");
+    }
+
+    #[test]
+    fn auto_select_unit_minutes() {
+        assert_eq!(auto_select_unit(60_000_001.0), "  1.00 min");
     }
 }
