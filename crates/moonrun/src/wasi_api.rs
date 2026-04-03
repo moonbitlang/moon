@@ -21,7 +21,7 @@ use rand::RngCore;
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Seek, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
@@ -393,15 +393,24 @@ fn preopen_matches(context: &WasiContext, fd: i32) -> bool {
 }
 
 fn dir_path_for_fd(context: &WasiContext, fd: i32) -> WasiResult<PathBuf> {
-    if preopen_matches(context, fd) {
-        return Ok(context.preopen_dir_host_path.clone());
-    }
+    let path = if preopen_matches(context, fd) {
+        context.preopen_dir_host_path.clone()
+    } else {
+        let descriptor = descriptor_for_fd(context, fd)?;
+        match &descriptor.kind {
+            DescriptorKind::Directory(path) => path.clone(),
+            _ => return Err(WASI_ERRNO_BADF),
+        }
+    };
 
-    let descriptor = descriptor_for_fd(context, fd)?;
-    match &descriptor.kind {
-        DescriptorKind::Directory(path) => Ok(path.clone()),
-        _ => Err(WASI_ERRNO_BADF),
-    }
+    enforce_preopen_boundary(
+        context,
+        &path,
+        PathBoundaryMode::FollowFinal {
+            allow_missing_final: false,
+        },
+    )?;
+    Ok(path)
 }
 
 fn file_for_fd(context: &WasiContext, fd: i32) -> WasiResult<Arc<Descriptor>> {
@@ -765,15 +774,17 @@ fn fd_filestat_data(context: &WasiContext, fd: i32) -> WasiResult<FileStatData> 
             ctim: 0,
         }),
         _ if preopen_matches(context, fd) => {
-            let metadata = fs::metadata(&context.preopen_dir_host_path)
-                .map_err(|error| io_error_to_errno(&error))?;
+            let dir_path = dir_path_for_fd(context, fd)?;
+            let metadata = fs::metadata(&dir_path).map_err(|error| io_error_to_errno(&error))?;
             Ok(stat_data_for_metadata(&metadata))
         }
         _ => {
             let descriptor = descriptor_for_fd(context, fd)?;
             match &descriptor.kind {
-                DescriptorKind::Directory(path) => {
-                    let metadata = fs::metadata(path).map_err(|error| io_error_to_errno(&error))?;
+                DescriptorKind::Directory(_) => {
+                    let dir_path = dir_path_for_fd(context, fd)?;
+                    let metadata =
+                        fs::metadata(&dir_path).map_err(|error| io_error_to_errno(&error))?;
                     Ok(stat_data_for_metadata(&metadata))
                 }
                 DescriptorKind::File(file) => {
@@ -1295,9 +1306,17 @@ fn poll_fd_read_state(context: &WasiContext, fd: i32) -> WasiResult<FdReadPollSt
             let DescriptorKind::File(file) = &descriptor.kind else {
                 return Err(WASI_ERRNO_BADF);
             };
-            let file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
+            let mut file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
             let metadata = file.metadata().map_err(|error| io_error_to_errno(&error))?;
-            Ok(FdReadPollState::Ready(metadata.len().max(1)))
+            if metadata.is_file() {
+                let position = file
+                    .stream_position()
+                    .map_err(|error| io_error_to_errno(&error))?;
+                let remaining = metadata.len().saturating_sub(position);
+                Ok(FdReadPollState::Ready(remaining))
+            } else {
+                Ok(FdReadPollState::Ready(metadata.len().max(1)))
+            }
         }
     }
 }
