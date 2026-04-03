@@ -865,9 +865,6 @@ fn path_open(
         validate_supported_flag_bits(fdflags, WASI_SUPPORTED_FDFLAGS_MASK)?;
         validate_known_rights(rights_base)?;
         validate_known_rights(rights_inheriting)?;
-        if dirflags != 0 {
-            return Err(WASI_ERRNO_NOTSUP);
-        }
 
         require_fd_right(context, dirfd, WASI_RIGHT_PATH_OPEN)?;
         let parent_inheriting_rights = rights_inheriting_for_fd(context, dirfd)?;
