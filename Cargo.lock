@@ -1725,6 +1725,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "libc",
  "moon-test-util",
  "moonutil",
  "rand 0.8.5",
@@ -1735,6 +1736,7 @@ dependencies = [
  "tracing-subscriber",
  "v8",
  "vergen",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

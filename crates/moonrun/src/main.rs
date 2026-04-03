@@ -29,6 +29,7 @@ mod fs_api_temp;
 mod sys_api;
 mod util;
 mod v8_builder;
+mod wasi_api;
 
 use rand::Rng;
 use rand::SeedableRng;
@@ -380,6 +381,11 @@ fn init_env(
             instant_elapsed_as_secs_f64,
         );
         time.set_func(scope, "now", now);
+    }
+
+    {
+        let wasi = global_proxy.child(scope, "__moonbit_wasi_unstable");
+        wasi_api::init_env(wasi, scope, wasm_file_name, args, dtors);
     }
 
     // API for the fs module
