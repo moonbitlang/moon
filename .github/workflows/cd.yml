@@ -127,9 +127,6 @@ jobs:
   ubuntu-aarch64-build:
     runs-on: ubuntu-22.04-arm
     steps:
-      - name: Install dependencies
-        run: |
-          sudo apt update && sudo apt install -y software-properties-common curl unzip build-essential git sudo coreutils
 
       - name: Configure git
         run: git config --global core.autocrlf false
@@ -161,12 +158,6 @@ jobs:
 
       - name: Build
         run: cargo build --release
-
-      - name: Setup AWS
-        run: |
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          sudo ./aws/install
 
       - name: Upload
         env:
