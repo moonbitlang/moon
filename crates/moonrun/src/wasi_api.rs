@@ -38,6 +38,7 @@ const WASI_ERRNO_FAULT: WasiErrno = 21;
 const WASI_ERRNO_INVAL: WasiErrno = 28;
 const WASI_ERRNO_IO: WasiErrno = 29;
 const WASI_ERRNO_ISDIR: WasiErrno = 31;
+const WASI_ERRNO_LOOP: WasiErrno = 32;
 const WASI_ERRNO_NOENT: WasiErrno = 44;
 const WASI_ERRNO_NAMETOOLONG: WasiErrno = 37;
 const WASI_ERRNO_NOTDIR: WasiErrno = 54;
@@ -87,12 +88,14 @@ const WASI_KNOWN_OFLAGS_MASK: i32 =
 const WASI_RIGHT_FD_READ: u64 = 1u64 << 1;
 const WASI_RIGHT_FD_WRITE: u64 = 1u64 << 6;
 const WASI_RIGHT_PATH_CREATE_DIRECTORY: u64 = 1u64 << 9;
+const WASI_RIGHT_PATH_CREATE_FILE: u64 = 1u64 << 10;
 const WASI_RIGHT_PATH_OPEN: u64 = 1u64 << 13;
 const WASI_RIGHT_FD_READDIR: u64 = 1u64 << 14;
 const WASI_RIGHT_PATH_READLINK: u64 = 1u64 << 15;
 const WASI_RIGHT_PATH_RENAME_SOURCE: u64 = 1u64 << 16;
 const WASI_RIGHT_PATH_RENAME_TARGET: u64 = 1u64 << 17;
 const WASI_RIGHT_PATH_FILESTAT_GET: u64 = 1u64 << 18;
+const WASI_RIGHT_PATH_FILESTAT_SET_SIZE: u64 = 1u64 << 19;
 const WASI_RIGHT_FD_FILESTAT_GET: u64 = 1u64 << 21;
 const WASI_RIGHT_PATH_REMOVE_DIRECTORY: u64 = 1u64 << 25;
 const WASI_RIGHT_PATH_UNLINK_FILE: u64 = 1u64 << 26;
@@ -438,11 +441,13 @@ fn validate_known_rights(rights: u64) -> WasiResult<()> {
 
 fn preopen_rights_base() -> u64 {
     WASI_RIGHT_PATH_OPEN
+        | WASI_RIGHT_PATH_CREATE_FILE
         | WASI_RIGHT_FD_READDIR
         | WASI_RIGHT_PATH_READLINK
         | WASI_RIGHT_PATH_RENAME_SOURCE
         | WASI_RIGHT_PATH_RENAME_TARGET
         | WASI_RIGHT_PATH_FILESTAT_GET
+        | WASI_RIGHT_PATH_FILESTAT_SET_SIZE
         | WASI_RIGHT_PATH_CREATE_DIRECTORY
         | WASI_RIGHT_PATH_REMOVE_DIRECTORY
         | WASI_RIGHT_PATH_UNLINK_FILE
@@ -520,6 +525,29 @@ fn validate_guest_relative_path(path: &Path) -> WasiResult<()> {
     Ok(())
 }
 
+fn validate_guest_entry_path(path: &Path) -> WasiResult<()> {
+    let mut depth = 0i32;
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(_) => depth = depth.saturating_add(1),
+            Component::ParentDir => {
+                if depth == 0 {
+                    return Err(WASI_ERRNO_NOTCAPABLE);
+                }
+                depth -= 1;
+            }
+            Component::RootDir | Component::Prefix(_) => return Err(WASI_ERRNO_NOTCAPABLE),
+        }
+    }
+
+    if depth == 0 {
+        Err(WASI_ERRNO_NOTCAPABLE)
+    } else {
+        Ok(())
+    }
+}
+
 fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<PathBuf> {
     validate_guest_relative_path(path)?;
     let base = dir_path_for_fd(context, dirfd)?;
@@ -554,6 +582,15 @@ enum PathBoundaryMode {
 fn canonical_parent_path(path: &Path) -> WasiResult<PathBuf> {
     let parent = path.parent().unwrap_or(Path::new("."));
     fs::canonicalize(parent).map_err(|error| io_error_to_errno(&error))
+}
+
+fn reject_final_symlink(path: &Path) -> WasiResult<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(WASI_ERRNO_LOOP),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(io_error_to_errno(&error)),
+    }
 }
 
 fn ensure_within_preopen_root(context: &WasiContext, path: &Path) -> WasiResult<()> {
@@ -773,6 +810,12 @@ fn path_open(
         validate_known_rights(rights_inheriting)?;
 
         require_fd_right(context, dirfd, WASI_RIGHT_PATH_OPEN)?;
+        if (oflags & WASI_OFLAGS_CREAT) != 0 {
+            require_fd_right(context, dirfd, WASI_RIGHT_PATH_CREATE_FILE)?;
+        }
+        if (oflags & WASI_OFLAGS_TRUNC) != 0 {
+            require_fd_right(context, dirfd, WASI_RIGHT_PATH_FILESTAT_SET_SIZE)?;
+        }
         let parent_inheriting_rights = rights_inheriting_for_fd(context, dirfd)?;
         if (rights_base & !parent_inheriting_rights) != 0 {
             return Err(WASI_ERRNO_NOTCAPABLE);
@@ -793,6 +836,9 @@ fn path_open(
                 allow_missing_final: create_requested,
             },
         )?;
+        if (dirflags & WASI_LOOKUPFLAG_SYMLINK_FOLLOW) == 0 {
+            reject_final_symlink(&full_path)?;
+        }
 
         let descriptor_kind = if (oflags & WASI_OFLAGS_DIRECTORY) != 0 {
             if (oflags & (WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL | WASI_OFLAGS_TRUNC)) != 0 {
@@ -936,6 +982,8 @@ fn path_rename(
         let new_path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, new_path_ptr, new_path_len)
         })?;
+        validate_guest_entry_path(&old_path)?;
+        validate_guest_entry_path(&new_path)?;
 
         let old_host_path = resolve_path(context, old_fd, &old_path)?;
         let new_host_path = resolve_path(context, new_fd, &new_path)?;
@@ -963,6 +1011,7 @@ fn path_remove_directory(
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
+        validate_guest_entry_path(&path)?;
         let full_path = resolve_path(context, dirfd, &path)?;
         enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
         fs::remove_dir(full_path).map_err(|error| io_error_to_errno(&error))
@@ -987,6 +1036,7 @@ fn path_unlink_file(
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
+        validate_guest_entry_path(&path)?;
         let full_path = resolve_path(context, dirfd, &path)?;
         enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
         fs::remove_file(full_path).map_err(|error| io_error_to_errno(&error))

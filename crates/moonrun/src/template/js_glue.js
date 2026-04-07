@@ -465,12 +465,17 @@ const spectest = {
     },
 };
 
-function findImportedMemory(moduleImports, importObject) {
-    const memoryImport = moduleImports.find(item => item.kind === "memory");
-    if (memoryImport === undefined) {
+function findImportedMemory(moduleImports, moduleExports, importObject) {
+    const memoryImports = moduleImports.filter(item => item.kind === "memory");
+    if (memoryImports.length !== 1) {
         return null;
     }
 
+    if (moduleExports.some(item => item.kind === "memory" && item.name === "memory")) {
+        return null;
+    }
+
+    const memoryImport = memoryImports[0];
     const importedModule = importObject[memoryImport.module];
     if (importedModule === undefined || importedModule === null) {
         return null;
@@ -506,10 +511,11 @@ try {
     }
     let module = new WebAssembly.Module(bytes, { builtins: ['js-string'], importedStringConstants: "_" });
     const moduleImports = WebAssembly.Module.imports(module);
+    const moduleExports = WebAssembly.Module.exports(module);
     const usesWasiSnapshotPreview1 = moduleImports
         .some(importItem => importItem.module === "wasi_snapshot_preview1");
     if (usesWasiSnapshotPreview1) {
-        const importedMemory = findImportedMemory(moduleImports, spectest);
+        const importedMemory = findImportedMemory(moduleImports, moduleExports, spectest);
         if (importedMemory instanceof WebAssembly.Memory) {
             setWasiMemory(importedMemory);
         }
