@@ -108,6 +108,13 @@ fn test_moon_prove_skips_packages_without_proof_enabled() {
 }
 
 #[test]
+fn test_moon_prove_warns_for_explicit_package_without_proof_enabled() {
+    let dir = TestDir::new("moon_prove/selective.in");
+    let stderr = get_stderr(&dir, ["prove", "disabled", "--dry-run"]);
+    expect_file!["snapshots/selective.disabled.stderr"].assert_eq(&stderr);
+}
+
+#[test]
 fn test_proof_enabled_suppresses_proof_warnings_for_test_runs() {
     let dir = TestDir::new("moon_prove/warn_suppression.in");
 
