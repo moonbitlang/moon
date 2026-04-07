@@ -122,6 +122,55 @@ jobs:
           mdbook build docs/manual
           mdbook build docs/manual-zh
 
+  zigbuild-glibc-check:
+    name: zigbuild glibc check
+    runs-on: ubuntu-latest
+    env:
+      ZIG_VERSION: 0.15.2
+      ZIG_GLIBC_VERSION: 2.17
+    steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@1.90.0
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Zig
+        run: |
+          curl -L "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ
+          echo "$GITHUB_WORKSPACE/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          zig version
+
+      - name: Install cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
+
+      - name: Build release binaries with Zig
+        run: |
+          rustup target add x86_64-unknown-linux-gnu
+          cargo zigbuild --release --locked --bin moon --bin moonrun --target x86_64-unknown-linux-gnu.${ZIG_GLIBC_VERSION}
+
+      - name: Verify glibc floor
+        run: |
+          for bin in target/x86_64-unknown-linux-gnu/release/moon target/x86_64-unknown-linux-gnu/release/moonrun; do
+            max_glibc="$(
+              readelf -W --version-info "$bin" \
+                | awk '/Name: GLIBC_/ { sub(/.*Name: GLIBC_/, "", $0); sub(/ .*/, "", $0); print }' \
+                | sort -V \
+                | tail -n 1
+            )"
+            echo "$bin requires GLIBC_${max_glibc}"
+            if [ "$(printf '%s\n%s\n' "$max_glibc" "$ZIG_GLIBC_VERSION" | sort -V | tail -n 1)" != "$ZIG_GLIBC_VERSION" ]; then
+              echo "GLIBC requirement exceeds ${ZIG_GLIBC_VERSION}"
+              exit 1
+            fi
+          done
+
   nightly-test:
     needs: [typo-check, license-header-check]
     strategy:
@@ -156,6 +205,7 @@ jobs:
 
       - name: install MoonBit(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
         run: |
           $env:MOONBIT_INSTALL_VERSION="nightly"
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
@@ -383,6 +433,7 @@ jobs:
 
       - name: install MoonBit(Windows)
         if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
         run: |
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
           "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
