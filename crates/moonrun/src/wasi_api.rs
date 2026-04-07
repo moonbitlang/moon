@@ -225,8 +225,14 @@ fn build_argv(wasm_file_name: &str, args: &[String]) -> Vec<Vec<u8>> {
 }
 
 fn collect_environ() -> Vec<Vec<u8>> {
-    std::env::vars()
-        .map(|(key, value)| encode_c_string(format!("{key}={value}")))
+    std::env::vars_os()
+        .map(|(key, value)| {
+            encode_c_string(format!(
+                "{}={}",
+                key.to_string_lossy(),
+                value.to_string_lossy()
+            ))
+        })
         .collect()
 }
 
@@ -809,8 +815,10 @@ fn path_open(
         validate_known_rights(rights_base)?;
         validate_known_rights(rights_inheriting)?;
 
+        let create_requested = (oflags & (WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL)) != 0;
+
         require_fd_right(context, dirfd, WASI_RIGHT_PATH_OPEN)?;
-        if (oflags & WASI_OFLAGS_CREAT) != 0 {
+        if create_requested {
             require_fd_right(context, dirfd, WASI_RIGHT_PATH_CREATE_FILE)?;
         }
         if (oflags & WASI_OFLAGS_TRUNC) != 0 {
@@ -828,7 +836,6 @@ fn path_open(
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         let full_path = resolve_path(context, dirfd, &path)?;
-        let create_requested = (oflags & WASI_OFLAGS_CREAT) != 0;
         enforce_preopen_boundary(
             context,
             &full_path,
