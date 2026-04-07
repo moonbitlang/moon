@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::v8_builder::ScopeExt;
-use rand::RngCore;
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::fs;
@@ -26,7 +25,6 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 type WasiErrno = i32;
 type WasiResult<T> = Result<T, WasiErrno>;
@@ -60,7 +58,6 @@ const WASI_DIRENT_SIZE: usize = 24;
 
 const WASI_PREOPEN_TYPE_DIR: u8 = 0;
 const WASI_FILETYPE_UNKNOWN: u8 = 0;
-const WASI_FILETYPE_CHARACTER_DEVICE: u8 = 2;
 const WASI_FILETYPE_DIRECTORY: u8 = 3;
 const WASI_FILETYPE_REGULAR_FILE: u8 = 4;
 const WASI_FILETYPE_SYMBOLIC_LINK: u8 = 7;
@@ -167,7 +164,6 @@ impl TryFrom<i32> for ClockId {
 
 struct WasiContext {
     argv: Vec<Vec<u8>>,
-    monotonic_origin: Instant,
     preopen_dir_name: Vec<u8>,
     preopen_dir_host_path: PathBuf,
     preopen_dir_real_path: PathBuf,
@@ -178,15 +174,6 @@ struct WasiContext {
 struct DirectoryEntry {
     name: Vec<u8>,
     file_type: u8,
-}
-
-struct FileStatData {
-    file_type: u8,
-    nlink: u64,
-    size: u64,
-    atim: u64,
-    mtim: u64,
-    ctim: u64,
 }
 
 enum SubscriptionData {
@@ -323,11 +310,6 @@ fn read_u64_at(memory: &[u8], offset: usize) -> WasiResult<u64> {
 fn write_u64_at(memory: &mut [u8], offset: usize, value: u64) -> WasiResult<()> {
     checked_mut_range(memory, offset, 8)?.copy_from_slice(&value.to_le_bytes());
     Ok(())
-}
-
-fn write_u64(memory: &mut [u8], ptr: i32, value: u64) -> WasiResult<()> {
-    let offset = ptr_to_offset(ptr)?;
-    write_u64_at(memory, offset, value)
 }
 
 fn table_bytes_len(values: &[Vec<u8>]) -> WasiResult<u32> {
@@ -674,36 +656,6 @@ fn serialize_dirent(entry_index: usize, entry: &DirectoryEntry) -> WasiResult<Ve
     Ok(bytes)
 }
 
-fn system_time_to_ns(time: std::io::Result<SystemTime>) -> u64 {
-    time.ok()
-        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_nanos().min(u128::from(u64::MAX)) as u64)
-        .unwrap_or(0)
-}
-
-fn stat_data_for_metadata(metadata: &fs::Metadata) -> FileStatData {
-    FileStatData {
-        file_type: entry_file_type(metadata.file_type()),
-        nlink: 1,
-        size: metadata.len(),
-        atim: system_time_to_ns(metadata.accessed()),
-        mtim: system_time_to_ns(metadata.modified()),
-        ctim: system_time_to_ns(metadata.created()),
-    }
-}
-
-fn write_filestat(memory: &mut [u8], buf_ptr: i32, stat: &FileStatData) -> WasiResult<()> {
-    let offset = ptr_to_offset(buf_ptr)?;
-    checked_mut_range(memory, offset, 64)?.fill(0);
-    checked_mut_range(memory, offset + 16, 1)?[0] = stat.file_type;
-    write_u64_at(memory, offset + 24, stat.nlink)?;
-    write_u64_at(memory, offset + 32, stat.size)?;
-    write_u64_at(memory, offset + 40, stat.atim)?;
-    write_u64_at(memory, offset + 48, stat.mtim)?;
-    write_u64_at(memory, offset + 56, stat.ctim)?;
-    Ok(())
-}
-
 fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s WasiContext {
     let data = args.data();
     assert!(data.is_external());
@@ -771,40 +723,6 @@ fn set_memory(
     finish_with_result(&mut ret, result);
 }
 
-fn fd_filestat_data(context: &WasiContext, fd: i32) -> WasiResult<FileStatData> {
-    match fd {
-        WASI_FD_STDIN | WASI_FD_STDOUT | WASI_FD_STDERR => Ok(FileStatData {
-            file_type: WASI_FILETYPE_CHARACTER_DEVICE,
-            nlink: 1,
-            size: 0,
-            atim: 0,
-            mtim: 0,
-            ctim: 0,
-        }),
-        _ if preopen_matches(context, fd) => {
-            let dir_path = dir_path_for_fd(context, fd)?;
-            let metadata = fs::metadata(&dir_path).map_err(|error| io_error_to_errno(&error))?;
-            Ok(stat_data_for_metadata(&metadata))
-        }
-        _ => {
-            let descriptor = descriptor_for_fd(context, fd)?;
-            match &descriptor.kind {
-                DescriptorKind::Directory(_) => {
-                    let dir_path = dir_path_for_fd(context, fd)?;
-                    let metadata =
-                        fs::metadata(&dir_path).map_err(|error| io_error_to_errno(&error))?;
-                    Ok(stat_data_for_metadata(&metadata))
-                }
-                DescriptorKind::File(file) => {
-                    let file = file.lock().map_err(|_| WASI_ERRNO_IO)?;
-                    let metadata = file.metadata().map_err(|error| io_error_to_errno(&error))?;
-                    Ok(stat_data_for_metadata(&metadata))
-                }
-            }
-        }
-    }
-}
-
 fn fd_close(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -830,23 +748,11 @@ fn fd_close(
 }
 
 fn fd_filestat_get(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
+    _scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let result = (|| -> WasiResult<()> {
-        let fd = read_i32_arg(scope, &args, 0)?;
-        let stat_ptr = read_i32_arg(scope, &args, 1)?;
-        let context = callback_context(&args);
-        require_fd_right(context, fd, WASI_RIGHT_FD_FILESTAT_GET)?;
-        let stat = fd_filestat_data(context, fd)?;
-
-        with_wasi_memory_mut(scope, context, |memory| {
-            write_filestat(memory, stat_ptr, &stat)
-        })
-    })();
-
-    finish_with_result(&mut ret, result);
+    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
 }
 
 fn path_open(
@@ -1050,46 +956,11 @@ fn path_rename(
 }
 
 fn path_filestat_get(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
+    _scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let result = (|| -> WasiResult<()> {
-        let dirfd = read_i32_arg(scope, &args, 0)?;
-        let flags = read_i32_arg(scope, &args, 1)?;
-        let path_ptr = read_i32_arg(scope, &args, 2)?;
-        let path_len =
-            usize::try_from(read_i32_arg(scope, &args, 3)?).map_err(|_| WASI_ERRNO_INVAL)?;
-        let stat_ptr = read_i32_arg(scope, &args, 4)?;
-        let context = callback_context(&args);
-        validate_known_flag_bits(flags, WASI_KNOWN_LOOKUPFLAGS_MASK)?;
-        require_fd_right(context, dirfd, WASI_RIGHT_PATH_FILESTAT_GET)?;
-
-        let path = with_wasi_memory_mut(scope, context, |memory| {
-            read_path_from_memory(memory, path_ptr, path_len)
-        })?;
-        let full_path = resolve_path(context, dirfd, &path)?;
-        let boundary_mode = if (flags & WASI_LOOKUPFLAG_SYMLINK_FOLLOW) != 0 {
-            PathBoundaryMode::FollowFinal {
-                allow_missing_final: false,
-            }
-        } else {
-            PathBoundaryMode::ParentOnly
-        };
-        enforce_preopen_boundary(context, &full_path, boundary_mode)?;
-        let metadata = if (flags & WASI_LOOKUPFLAG_SYMLINK_FOLLOW) != 0 {
-            fs::metadata(&full_path).map_err(|error| io_error_to_errno(&error))?
-        } else {
-            fs::symlink_metadata(&full_path).map_err(|error| io_error_to_errno(&error))?
-        };
-        let stat = stat_data_for_metadata(&metadata);
-
-        with_wasi_memory_mut(scope, context, |memory| {
-            write_filestat(memory, stat_ptr, &stat)
-        })
-    })();
-
-    finish_with_result(&mut ret, result);
+    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
 }
 
 fn path_remove_directory(
@@ -1698,24 +1569,11 @@ fn environ_get(
 }
 
 fn random_get(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
+    _scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let result = (|| -> WasiResult<()> {
-        let buf_ptr = read_i32_arg(scope, &args, 0)?;
-        let buf_len =
-            usize::try_from(read_i32_arg(scope, &args, 1)?).map_err(|_| WASI_ERRNO_INVAL)?;
-        let context = callback_context(&args);
-
-        with_wasi_memory_mut(scope, context, |memory| {
-            let buf = checked_mut_range(memory, ptr_to_offset(buf_ptr)?, buf_len)?;
-            rand::thread_rng().fill_bytes(buf);
-            Ok(())
-        })
-    })();
-
-    finish_with_result(&mut ret, result);
+    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
 }
 
 fn proc_exit(
@@ -1866,70 +1724,24 @@ fn fd_read(
     finish_with_result(&mut ret, result);
 }
 
-fn clock_now_ns(context: &WasiContext, clock_id: ClockId) -> WasiResult<u64> {
-    // We intentionally expose only wall-clock and monotonic clocks for now.
-    // WASI CPU-time clocks are accepted as IDs but currently return EINVAL.
-    match clock_id {
-        ClockId::Realtime => {
-            let duration = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|_| WASI_ERRNO_FAULT)?;
-            Ok(duration.as_nanos().min(u128::from(u64::MAX)) as u64)
-        }
-        ClockId::Monotonic => {
-            let elapsed = context.monotonic_origin.elapsed();
-            Ok(elapsed.as_nanos().min(u128::from(u64::MAX)) as u64)
-        }
-        ClockId::ProcessCpuTime | ClockId::ThreadCpuTime => Err(WASI_ERRNO_INVAL),
-    }
-}
-
-fn clock_resolution_ns(clock_id: ClockId) -> WasiResult<u64> {
-    match clock_id {
-        ClockId::Realtime | ClockId::Monotonic => Ok(1),
-        ClockId::ProcessCpuTime | ClockId::ThreadCpuTime => Err(WASI_ERRNO_INVAL),
-    }
+fn clock_now_ns(_context: &WasiContext, _clock_id: ClockId) -> WasiResult<u64> {
+    Err(WASI_ERRNO_NOTSUP)
 }
 
 fn clock_res_get(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
+    _scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let result = (|| -> WasiResult<()> {
-        let clock_id = ClockId::try_from(read_i32_arg(scope, &args, 0)?)?;
-        let resolution_ptr = read_i32_arg(scope, &args, 1)?;
-        let resolution = clock_resolution_ns(clock_id)?;
-        let context = callback_context(&args);
-
-        with_wasi_memory_mut(scope, context, |memory| {
-            write_u64(memory, resolution_ptr, resolution)?;
-            Ok(())
-        })
-    })();
-
-    finish_with_result(&mut ret, result);
+    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
 }
 
 fn clock_time_get(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
+    _scope: &mut v8::HandleScope,
+    _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    let result = (|| -> WasiResult<()> {
-        let clock_id = ClockId::try_from(read_i32_arg(scope, &args, 0)?)?;
-        let time_ptr = read_i32_arg(scope, &args, 2)?;
-
-        let context = callback_context(&args);
-        let now_ns = clock_now_ns(context, clock_id)?;
-
-        with_wasi_memory_mut(scope, context, |memory| {
-            write_u64(memory, time_ptr, now_ns)?;
-            Ok(())
-        })
-    })();
-
-    finish_with_result(&mut ret, result);
+    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
 }
 
 fn set_wasi_func_impl<'s>(
@@ -1966,7 +1778,6 @@ pub(crate) fn init_env<'s>(
         fs::canonicalize(&preopen_dir_host_path).unwrap_or_else(|_| preopen_dir_host_path.clone());
     let context = Box::new(WasiContext {
         argv: build_argv(wasm_file_name, args),
-        monotonic_origin: Instant::now(),
         preopen_dir_name: preopen_name(),
         preopen_dir_host_path,
         preopen_dir_real_path,
