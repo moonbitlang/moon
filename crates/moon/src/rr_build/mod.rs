@@ -88,11 +88,29 @@ pub struct CalcUserIntentOutput {
     pub intents: Vec<UserIntent>,
     /// The input directive that the user wants to apply to the packages
     pub directive: InputDirective,
+    /// User-facing warnings discovered while calculating intent.
+    pub warnings: Vec<UserWarning>,
 }
 
 impl CalcUserIntentOutput {
     pub fn new(intents: Vec<UserIntent>, directive: InputDirective) -> Self {
-        Self { intents, directive }
+        Self {
+            intents,
+            directive,
+            warnings: Vec::new(),
+        }
+    }
+
+    pub fn with_warnings(
+        intents: Vec<UserIntent>,
+        directive: InputDirective,
+        warnings: Vec<UserWarning>,
+    ) -> Self {
+        Self {
+            intents,
+            directive,
+            warnings,
+        }
     }
 }
 
@@ -101,13 +119,18 @@ impl From<Vec<UserIntent>> for CalcUserIntentOutput {
         Self {
             intents,
             directive: InputDirective::default(),
+            warnings: Vec::new(),
         }
     }
 }
 
 impl From<(Vec<UserIntent>, InputDirective)> for CalcUserIntentOutput {
     fn from((intents, directive): (Vec<UserIntent>, InputDirective)) -> Self {
-        Self { intents, directive }
+        Self {
+            intents,
+            directive,
+            warnings: Vec::new(),
+        }
     }
 }
 
@@ -510,6 +533,9 @@ pub(crate) fn plan_build_from_resolved<'a>(
     info!("Calculating user intent");
     let intent = calc_user_intent(&resolve_output, target_backend)?;
     info!("User intent calculated: {:?}", intent.intents);
+    for warning in &intent.warnings {
+        output.user_message(warning);
+    }
 
     // std or no-std?
     // Ultimately we want to determine this from config instead of special cases.
