@@ -747,14 +747,6 @@ fn fd_close(
     finish_with_result(&mut ret, result);
 }
 
-fn fd_filestat_get(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
-}
-
 fn path_open(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -953,14 +945,6 @@ fn path_rename(
     })();
 
     finish_with_result(&mut ret, result);
-}
-
-fn path_filestat_get(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
 }
 
 fn path_remove_directory(
@@ -1373,14 +1357,6 @@ fn poll_oneoff_impl(
     finish_with_result(&mut ret, result);
 }
 
-fn poll_oneoff(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
-}
-
 fn fd_prestat_get(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -1568,14 +1544,6 @@ fn environ_get(
     finish_with_result(&mut ret, result);
 }
 
-fn random_get(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
-}
-
 fn proc_exit(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -1728,22 +1696,6 @@ fn clock_now_ns(_context: &WasiContext, _clock_id: ClockId) -> WasiResult<u64> {
     Err(WASI_ERRNO_NOTSUP)
 }
 
-fn clock_res_get(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
-}
-
-fn clock_time_get(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    finish_with_result(&mut ret, Err(WASI_ERRNO_NOTSUP));
-}
-
 fn set_wasi_func_impl<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
@@ -1794,7 +1746,6 @@ pub(crate) fn init_env<'s>(
     set_wasi_func!(obj, scope, context_ptr, fd_read);
     set_wasi_func!(obj, scope, context_ptr, fd_write);
     set_wasi_func!(obj, scope, context_ptr, fd_close);
-    set_wasi_func!(obj, scope, context_ptr, fd_filestat_get);
     set_wasi_func!(obj, scope, context_ptr, fd_prestat_get);
     set_wasi_func!(obj, scope, context_ptr, fd_prestat_dir_name);
     set_wasi_func!(obj, scope, context_ptr, fd_readdir);
@@ -1802,14 +1753,9 @@ pub(crate) fn init_env<'s>(
     set_wasi_func!(obj, scope, context_ptr, path_readlink);
     set_wasi_func!(obj, scope, context_ptr, path_rename);
     set_wasi_func!(obj, scope, context_ptr, path_create_directory);
-    set_wasi_func!(obj, scope, context_ptr, path_filestat_get);
     set_wasi_func!(obj, scope, context_ptr, path_remove_directory);
     set_wasi_func!(obj, scope, context_ptr, path_unlink_file);
-    set_wasi_func!(obj, scope, context_ptr, poll_oneoff);
-    set_wasi_func!(obj, scope, context_ptr, random_get);
     set_wasi_func!(obj, scope, context_ptr, proc_exit);
-    set_wasi_func!(obj, scope, context_ptr, clock_res_get);
-    set_wasi_func!(obj, scope, context_ptr, clock_time_get);
 
     dtors.push(context);
 }
