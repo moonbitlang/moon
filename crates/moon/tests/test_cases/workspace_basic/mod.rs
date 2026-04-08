@@ -151,6 +151,12 @@ preferred_target = "wasm-gc"
     dir
 }
 
+fn empty_workspace_dir() -> TestDir {
+    let dir = TestDir::new_empty();
+    write_file(&dir.join("moon.work"), "members = []\n");
+    dir
+}
+
 #[test]
 fn test_workspace_commands() {
     let dir = TestDir::new("workspace_basic.in");
@@ -294,6 +300,48 @@ fn test_workspace_commands() {
     assert_eq!(
         artifact_for("alice/liba", "lib"),
         "$ROOT/_build/wasm-gc/debug/check/alice/liba/lib/lib.mi"
+    );
+}
+
+#[test]
+fn test_empty_workspace_commands_do_not_panic() {
+    let dir = empty_workspace_dir();
+
+    check(
+        get_stderr(&dir, ["build"]),
+        expect![[r#"
+            Finished. moon: no work to do
+        "#]],
+    );
+    check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+            Finished. moon: no work to do
+        "#]],
+    );
+    check(
+        get_stderr(&dir, ["test"]),
+        expect![[r#"
+            Warning: no test entry found.
+        "#]],
+    );
+    check(
+        get_stdout(&dir, ["test"]),
+        expect![[r#"
+            Total tests: 0, passed: 0, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_empty_workspace_fmt_formats_workspace_manifest() {
+    let dir = empty_workspace_dir();
+
+    check(
+        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
+        "#]],
     );
 }
 
