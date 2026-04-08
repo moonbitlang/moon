@@ -127,7 +127,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ZIG_VERSION: 0.15.2
-      ZIG_GLIBC_VERSION: 2.17
+      ZIG_GLIBC_VERSION: 2.23
     steps:
       - name: Configure git
         run: git config --global core.autocrlf false

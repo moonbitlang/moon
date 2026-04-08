@@ -26,10 +26,17 @@ on:
 
 jobs:
   build:
+    name: ${{ matrix.name }}
     strategy:
       matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - name: macos-latest
+            runs_on: macos-latest
+          - name: ubuntu-22.04-arm
+            runs_on: ubuntu-22.04-arm
+          - name: windows-latest
+            runs_on: windows-latest
+    runs-on: ${{ matrix.runs_on }}
     steps:
       - name: Configure git
         run: git config --global core.autocrlf false
@@ -47,7 +54,7 @@ jobs:
         run: cargo build --release
 
       - name: Upload(Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
+        if: ${{ runner.os != 'Windows' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -58,7 +65,8 @@ jobs:
           aws s3 cp target/release/moonrun "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
 
       - name: Upload(Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -70,49 +78,52 @@ jobs:
 
   ubuntu-build:
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:16.04
+    env:
+      ZIG_VERSION: 0.15.2
+      ZIG_GLIBC_VERSION: 2.23
     steps:
-      - name: Install dependencies
-        run: |
-          apt update && apt install -y software-properties-common curl unzip build-essential git sudo coreutils
-
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - name: Checkout
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@1.90.0
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Zig version
+        run: zig version
+
+      - name: Install cargo-zigbuild
+        run: cargo install --locked cargo-zigbuild
+
+      - name: Build with Zig
         run: |
-          git clone --depth 1 "https://${{ secrets.MOON_CLONE_PAT }}@github.com/moonbitlang/moon.git" "$GITHUB_WORKSPACE"
-          git submodule update --init --recursive
+          rustup target add x86_64-unknown-linux-gnu
+          cargo zigbuild --release --bin moon --bin moonrun --target x86_64-unknown-linux-gnu.${ZIG_GLIBC_VERSION}
 
-      - name: Install Rustup
+      - name: Verify glibc floor
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf "https://sh.rustup.rs" | sh -s -- --default-toolchain none -y
-          echo ~/.cargo/bin >> $GITHUB_PATH
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install ${{ env.toolchain }} --profile minimal --no-self-update
-        env:
-          toolchain: 1.90.0
-
-      - name: Rust Version
-        run: |
-          cargo version
-          rustc --version
-
-      - run: |
-          git config --global --add safe.directory "$(pwd)"
-          git status
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Setup AWS
-        run: |
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          bash ./aws/install
+          for bin in target/x86_64-unknown-linux-gnu/release/moon target/x86_64-unknown-linux-gnu/release/moonrun; do
+            max_glibc="$(
+              readelf -W --version-info "$bin" \
+                | awk '/Name: GLIBC_/ { sub(/.*Name: GLIBC_/, "", $0); sub(/ .*/, "", $0); print }' \
+                | sort -V \
+                | tail -n 1
+            )"
+            echo "$bin requires GLIBC_${max_glibc}"
+            if [ "$(printf '%s\n%s\n' "$max_glibc" "$ZIG_GLIBC_VERSION" | sort -V | tail -n 1)" != "$ZIG_GLIBC_VERSION" ]; then
+              echo "GLIBC requirement exceeds ${ZIG_GLIBC_VERSION}"
+              exit 1
+            fi
+          done
 
       - name: Upload
         env:
@@ -121,50 +132,5 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         run: |
           version=$(echo "$GITHUB_SHA" | cut -c 1-9)
-          aws s3 cp target/release/moon "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
-          aws s3 cp target/release/moonrun "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
-  
-  ubuntu-aarch64-build:
-    runs-on: ubuntu-22.04-arm
-    steps:
-
-      - name: Configure git
-        run: git config --global core.autocrlf false
-
-      - name: Checkout
-        run: |
-          git clone --depth 1 "https://${{ secrets.MOON_CLONE_PAT }}@github.com/moonbitlang/moon.git" "$GITHUB_WORKSPACE"
-          git submodule update --init --recursive
-
-      - name: Install Rustup
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf "https://sh.rustup.rs" | sh -s -- --default-toolchain none -y
-          echo ~/.cargo/bin >> $GITHUB_PATH
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install ${{ env.toolchain }} --profile minimal --no-self-update
-        env:
-          toolchain: 1.90.0
-
-      - name: Rust Version
-        run: |
-          cargo version
-          rustc --version
-
-      - run: |
-          git config --global --add safe.directory "$(pwd)"
-          git status
-
-      - name: Build
-        run: cargo build --release
-
-      - name: Upload
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-        run: |
-          version=$(echo "$GITHUB_SHA" | cut -c 1-9)
-          aws s3 cp target/release/moon "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
-          aws s3 cp target/release/moonrun "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
+          aws s3 cp target/x86_64-unknown-linux-gnu/release/moon "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/Linux-x86_64/"
+          aws s3 cp target/x86_64-unknown-linux-gnu/release/moonrun "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/Linux-x86_64/"
