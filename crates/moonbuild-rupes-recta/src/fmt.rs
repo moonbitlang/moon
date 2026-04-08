@@ -107,8 +107,7 @@ pub fn build_graph_for_fmt(
         .target_base_dir(target_dir.into())
         .main_module(match resolved.root_module_ids.as_slice() {
             &[module_id] => Some(resolved.root_modules[module_id].source().clone()),
-            [_, ..] => None,
-            [] => anyhow::bail!("No root modules found to format"),
+            _ => None,
         })
         .stdlib_dir(None)
         .opt_level(moonutil::cond_expr::OptLevel::Release) // we don't care

@@ -334,6 +334,18 @@ fn test_empty_workspace_commands_do_not_panic() {
 }
 
 #[test]
+fn test_empty_workspace_fmt_formats_workspace_manifest() {
+    let dir = empty_workspace_dir();
+
+    check(
+        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            moon tool format-workspace --old ./moon.work --write --new ./_build/wasm-gc/release/format/moon.work
+        "#]],
+    );
+}
+
+#[test]
 fn test_workspace_root_path_selector_is_skipped() {
     let dir = TestDir::new("workspace_basic.in");
 
