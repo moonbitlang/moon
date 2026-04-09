@@ -16,7 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode, user_warning::UserWarning};
@@ -111,6 +114,9 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         .map(canonicalize_why3_config)
         .transpose()?;
     let generated_why3_config_path = verif_dir.join("why3.conf");
+    let _why3_env = (!cli.dry_run)
+        .then(configure_why3_environment)
+        .transpose()?;
 
     if !cli.dry_run && why3_config_path.is_none() {
         ensure_why3_config(&generated_why3_config_path)?;
@@ -234,6 +240,77 @@ fn calc_user_intent(
 fn canonicalize_why3_config(path: &Path) -> anyhow::Result<PathBuf> {
     dunce::canonicalize(path)
         .with_context(|| format!("failed to resolve why3 config `{}`", path.display()))
+}
+
+struct ScopedWhy3Env {
+    prev_data: Option<OsString>,
+    prev_lib: Option<OsString>,
+}
+
+impl Drop for ScopedWhy3Env {
+    fn drop(&mut self) {
+        unsafe {
+            restore_env_var("WHY3DATA", self.prev_data.as_ref());
+            restore_env_var("WHY3LIB", self.prev_lib.as_ref());
+        }
+    }
+}
+
+fn configure_why3_environment() -> anyhow::Result<ScopedWhy3Env> {
+    let why3 = which::which("why3").map_err(|_| {
+        anyhow::anyhow!(
+            "failed to locate `why3` required by `moon prove`; install Why3 1.7.2 preferably via opam, and ensure `why3` is available on PATH"
+        )
+    })?;
+    let why3_data = query_why3_path(&why3, "--print-datadir", "data")?;
+    let why3_lib = query_why3_path(&why3, "--print-libdir", "library")?;
+
+    let prev_data = std::env::var_os("WHY3DATA");
+    let prev_lib = std::env::var_os("WHY3LIB");
+    unsafe {
+        std::env::set_var("WHY3DATA", &why3_data);
+        std::env::set_var("WHY3LIB", &why3_lib);
+    }
+
+    Ok(ScopedWhy3Env {
+        prev_data,
+        prev_lib,
+    })
+}
+
+fn query_why3_path(why3: &Path, flag: &str, kind: &str) -> anyhow::Result<PathBuf> {
+    let output = std::process::Command::new(why3)
+        .env_remove("WHY3DATA")
+        .env_remove("WHY3LIB")
+        .arg(flag)
+        .output()
+        .with_context(|| format!("failed to run `why3 {flag}`"))?;
+    if !output.status.success() {
+        bail!("`why3 {flag}` exited with status {}", output.status);
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .with_context(|| format!("`why3 {flag}` returned non-utf8 output"))?;
+    let path = PathBuf::from(stdout.trim());
+    if path.as_os_str().is_empty() {
+        bail!("`why3 {flag}` returned an empty {kind} path");
+    }
+    if !path.is_dir() {
+        bail!(
+            "`why3 {flag}` returned a non-directory {kind} path `{}`",
+            path.display()
+        );
+    }
+
+    Ok(path)
+}
+
+unsafe fn restore_env_var(key: &str, value: Option<&OsString>) {
+    if let Some(value) = value {
+        unsafe { std::env::set_var(key, value) };
+    } else {
+        unsafe { std::env::remove_var(key) };
+    }
 }
 
 fn selected_main_module_id(
