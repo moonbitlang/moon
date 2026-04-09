@@ -24,6 +24,7 @@ use std::{
 };
 
 use moonutil::{
+    common::RunMode,
     compiler_flags::{
         ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
         OutputType as CCOutputType, make_archiver_command, make_cc_command, make_cc_command_pure,
@@ -636,7 +637,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             target_backend: self.opt.target_backend.into(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
-            wasm_config: self.get_wasm_config(package),
+            wasm_config: self.get_wasm_config(target, package),
             js_config: self.get_js_config(target, package),
             exports: package.exported_functions(self.opt.target_backend.into()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
@@ -664,11 +665,12 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
-    fn get_wasm_config<'b>(&self, pkg: &'b DiscoveredPackage) -> compiler::WasmConfig<'b> {
-        let target = self.opt.target_backend;
-
-        // WASM & WASM-GC has different config types, so we need to handle them separately
-        if target == RunBackend::Wasm
+    fn get_wasm_config<'b>(
+        &self,
+        target: BuildTarget,
+        pkg: &'b DiscoveredPackage,
+    ) -> compiler::WasmConfig<'b> {
+        let mut wasm_config = if self.opt.target_backend == RunBackend::Wasm
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref())
         {
             WasmConfig {
@@ -679,7 +681,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 heap_start_address: cfg.heap_start_address,
                 link_flags: cfg.flags.as_deref(),
             }
-        } else if target == RunBackend::WasmGC
+        } else if self.opt.target_backend == RunBackend::WasmGC
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
         {
             WasmConfig {
@@ -692,6 +694,29 @@ impl<'a> BuildPlanLowerContext<'a> {
             }
         } else {
             WasmConfig::default()
+        };
+
+        if self.should_auto_export_wasm_memory(target, pkg)
+            && wasm_config.export_memory_name.is_none()
+        {
+            wasm_config.export_memory_name = Some("memory".into());
+        }
+
+        wasm_config
+    }
+
+    fn should_auto_export_wasm_memory(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> bool {
+        if !self.opt.wasi_auto_export_memory || !self.opt.target_backend.to_target().is_wasm() {
+            return false;
+        }
+
+        match self.opt.action {
+            RunMode::Run | RunMode::Test | RunMode::Bench => true,
+            RunMode::Build => {
+                matches!(target.kind, TargetKind::Source | TargetKind::SubPackage)
+                    && pkg.raw.is_main
+            }
+            RunMode::Check | RunMode::Prove | RunMode::Bundle | RunMode::Format => false,
         }
     }
 

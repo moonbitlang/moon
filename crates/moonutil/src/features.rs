@@ -136,7 +136,8 @@ features! {
     (unstable, rr_export_package_graph, "Export the package dependency graph (only with Rupes Recta)"),
     (unstable, rr_export_build_plan, "Export the build plan graph (only with Rupes Recta)"),
     (unstable, rr_n2_explain, "Ask n2 to explain rerun reasons (only with Rupes Recta)"),
-    (unstable, rr_moon_pkg, "Use moon.pkg files to init and migrate project (only with Rupes Recta)")
+    (unstable, rr_moon_pkg, "Use moon.pkg files to init and migrate project (only with Rupes Recta)"),
+    (unstable, wasi_auto_export_memory, "Automatically export wasm memory as `memory` for wasi-oriented run/test/main builds when package config does not set one")
 }
 
 impl FromStr for FeatureGate {

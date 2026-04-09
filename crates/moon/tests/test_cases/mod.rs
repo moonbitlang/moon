@@ -252,6 +252,106 @@ fn test_export_memory_name() {
 }
 
 #[test]
+fn test_wasi_auto_export_memory() {
+    let dir = TestDir::new("need_link.in");
+
+    check(
+        get_stdout(
+            &dir,
+            [
+                "--unstable-feature",
+                "wasi_auto_export_memory",
+                "build",
+                "--dry-run",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -is-main -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -export-memory-name memory
+            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core -main username/hello/lib -o ./_build/wasm-gc/debug/build/lib/lib.wasm -pkg-config-path ./lib/moon.pkg.json -pkg-sources username/hello/lib:./lib -target wasm-gc -g -O0 -source-map
+        "#]],
+    );
+
+    let _ = get_stdout(
+        &dir,
+        [
+            "--unstable-feature",
+            "wasi_auto_export_memory",
+            "build",
+            "--target",
+            "wasm-gc",
+            "--release",
+            "--output-wat",
+        ],
+    );
+    let main_wat = std::fs::read_to_string(
+        dir.join(BUILD_DIR)
+            .join("wasm-gc")
+            .join("release")
+            .join("build")
+            .join("main")
+            .join("main.wat"),
+    )
+    .unwrap();
+    assert!(main_wat.contains(r#"(export "memory" (memory $moonbit.memory))"#));
+    let lib_wat = std::fs::read_to_string(
+        dir.join(BUILD_DIR)
+            .join("wasm-gc")
+            .join("release")
+            .join("build")
+            .join("lib")
+            .join("lib.wat"),
+    )
+    .unwrap();
+    assert!(!lib_wat.contains(r#"(export "memory""#));
+
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    let output = get_stdout(
+        &dir,
+        [
+            "--unstable-feature",
+            "wasi_auto_export_memory",
+            "run",
+            "main",
+            "--dry-run",
+        ],
+    );
+    assert!(output.contains("-export-memory-name memory"));
+
+    let dir = TestDir::new("no_export_when_test.in");
+    let output = get_stdout(
+        &dir,
+        [
+            "--unstable-feature",
+            "wasi_auto_export_memory",
+            "test",
+            "--dry-run",
+        ],
+    );
+    assert_eq!(output.matches("-export-memory-name memory").count(), 2);
+    assert!(output.contains(
+        "-exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish'"
+    ));
+
+    let dir = TestDir::new("export_memory.in");
+    let output = get_stdout(
+        &dir,
+        [
+            "--unstable-feature",
+            "wasi_auto_export_memory",
+            "build",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert!(output.contains("-export-memory-name awesome_memory"));
+    assert!(!output.contains("-export-memory-name memory"));
+}
+
+#[test]
 fn test_no_block_params() {
     let dir = TestDir::new("no_block_params.in");
     check(

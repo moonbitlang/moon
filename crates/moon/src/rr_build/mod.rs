@@ -295,6 +295,7 @@ pub struct CompilePreConfig {
     debug_symbols: bool,
     use_std: bool,
     debug_export_build_plan: bool,
+    wasi_auto_export_memory: bool,
     enable_coverage: bool,
     output_wat: bool,
     /// Whether to output JSON when compiling with moonc.
@@ -370,6 +371,7 @@ impl CompilePreConfig {
             enable_coverage: self.enable_coverage,
             output_wat: self.output_wat,
             debug_export_build_plan: self.debug_export_build_plan,
+            wasi_auto_export_memory: self.wasi_auto_export_memory,
             moonc_output_json: self.moonc_output_json,
             docs_serve: self.docs_serve,
             warning_condition: self.warning_condition,
@@ -413,6 +415,7 @@ pub fn preconfig_compile(
         enable_coverage: build_flags.enable_coverage,
         output_wat: build_flags.output_wat,
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
+        wasi_auto_export_memory: cli.unstable_feature.wasi_auto_export_memory,
         // In legacy impl, dry run always force no json
         moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
         docs_serve: false,
