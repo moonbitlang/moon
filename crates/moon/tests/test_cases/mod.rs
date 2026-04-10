@@ -3230,6 +3230,41 @@ fn test_moon_install_global_local_path() {
 }
 
 #[test]
+fn test_moon_install_global_local_path_renders_build_errors() {
+    let dir = TestDir::new("moon_install_global_error.in");
+    let install_dir = dir.join("test_bin");
+    std::fs::create_dir_all(&install_dir).unwrap();
+
+    let stderr = get_err_stderr(
+        &dir,
+        [
+            "install",
+            "--path",
+            "src/main",
+            "--bin",
+            install_dir.to_str().unwrap(),
+        ],
+    );
+
+    assert!(
+        stderr.contains("Error: ["),
+        "Expected rendered diagnostic in stderr, got: {stderr}",
+    );
+    assert!(
+        stderr.contains("$ROOT/src/main/main.mbt"),
+        "Expected source location in stderr, got: {stderr}",
+    );
+    assert!(
+        stderr.contains("Expr Type Mismatch"),
+        "Expected compile error message in stderr, got: {stderr}",
+    );
+    assert!(
+        !stderr.contains("\"$message_type\":\"diagnostic\""),
+        "Expected rendered diagnostics instead of raw JSON, got: {stderr}",
+    );
+}
+
+#[test]
 fn test_moon_install_global_defaults_to_moon_home_bin() {
     let dir = TestDir::new("moon_install_global.in");
     let moon_home = tempfile::tempdir().unwrap();

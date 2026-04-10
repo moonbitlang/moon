@@ -579,7 +579,16 @@ fn build_and_install_packages(
         let _lock = FileLock::lock(&target_dir)?;
         rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Build)?;
 
-        let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
+        let result = rr_build::execute_build(
+            &BuildConfig::from_flags(
+                &build_flags,
+                &cli.unstable_feature,
+                cli.verbose,
+                UserDiagnostics::from_flags(cli),
+            ),
+            build_graph,
+            &target_dir,
+        )?;
         if !result.successful() {
             result.print_info(quiet, "building").ok();
             output.error(format!("Failed to build `{}`", pkg.full_pkg_name));
