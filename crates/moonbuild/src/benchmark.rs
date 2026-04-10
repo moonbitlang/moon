@@ -50,10 +50,10 @@ fn auto_select_unit(us: f64) -> String {
         format!("{us:>6.2} µs")
     } else if us < 1e6 {
         format!("{:>6.2} ms", us / 1e3)
-    } else if us < 1e9 {
+    } else if us < 6e7 {
         format!("{:>6.2} s", us / 1e6)
     } else {
-        format!("{:>6.2} min", us / 6e10)
+        format!("{:>6.2} min", us / 6e7)
     }
 }
 
@@ -127,5 +127,11 @@ mod tests {
     #[test]
     fn auto_select_unit_seconds() {
         assert_eq!(auto_select_unit(1_000_000.0), "  1.00 s");
+    }
+
+    #[test]
+    fn auto_select_unit_minutes() {
+        assert_eq!(auto_select_unit(60_000_001.0), "  1.00 min");
+        assert_eq!(auto_select_unit(1_000_000_001.0), " 16.67 min");
     }
 }
