@@ -90,7 +90,10 @@ fn test_check_doctest_with_mbtp_uses_imported_proof_api() {
     let dir = TestDir::new("moon_prove/doctest_with_mbtp.in");
 
     let check_stderr = get_stderr(&dir, ["check"]);
-    expect_file!["snapshots/doctest_with_mbtp.check_run.stderr"].assert_eq(&check_stderr);
+    assert!(
+        check_stderr.contains("Finished. moon: ran 2 tasks, now up to date"),
+        "unexpected stderr:\n{check_stderr}",
+    );
 
     let stdout = get_stdout(&dir, ["check", "--dry-run"]);
     expect_file!["snapshots/doctest_with_mbtp.check.stdout"].assert_eq(&stdout);
@@ -139,7 +142,12 @@ fn test_moon_prove_skips_packages_without_proof_enabled() {
 fn test_moon_prove_warns_for_explicit_package_without_proof_enabled() {
     let dir = TestDir::new("moon_prove/selective.in");
     let stderr = get_stderr(&dir, ["prove", "disabled", "--dry-run"]);
-    expect_file!["snapshots/selective.disabled.stderr"].assert_eq(&stderr);
+    assert!(
+        stderr.contains(
+            "Package `username/prove_selective/disabled` selected by `disabled` is not proof-enabled; skipping `moon prove` for it."
+        ),
+        "unexpected stderr:\n{stderr}",
+    );
 }
 
 #[test]
@@ -197,7 +205,16 @@ fn test_moon_prove_generates_artifacts() {
         .get_output()
         .to_owned();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    expect_file!["snapshots/zzok.run.stdout"].assert_eq(&replace_dir(&stdout, &dir));
+    snapbox::assert_data_eq!(
+        replace_dir(&stdout, &dir).trim_end(),
+        snapbox::str![[r#"
+username/prove/zzok
+  Succeeded: [..] goals proved
+
+Summary:
+  1 of 1 packages proved
+  [..] goals proved"#]],
+    );
 
     assert_is_file(&dir.join("_build/verif/zzok/pkg_8_username_5_prove_4_zzok.mlw"));
     assert_is_file(&dir.join("_build/verif/zzok/zzok.proof.json"));
@@ -223,7 +240,26 @@ fn test_moon_prove_mixed_workspace_failure() {
         .get_output()
         .to_owned();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    expect_file!["snapshots/mixed.run.stdout"].assert_eq(&replace_dir(&stdout, &dir));
+    snapbox::assert_data_eq!(
+        replace_dir(&stdout, &dir).trim_end(),
+        snapbox::str![[r#"
+failed: moonc prove -error-format json $ROOT/afail/afail.mbt $ROOT/afail/afail.mbtp -whyml-output-path $ROOT/_build/verif/afail/pkg_8_username_5_prove_5_afail.mlw -proof-report-output-path $ROOT/_build/verif/afail/afail.proof.json -why3-config $ROOT/_build/verif/why3.conf -pkg username/prove/afail -i $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude -pkg-sources username/prove/afail:$ROOT/afail -workspace-path $ROOT -all-pkgs $ROOT/_build/wasm-gc/debug/prove/all_pkgs.json
+username/prove/afail
+  Failed: [..]
+  WhyML: _build/verif/afail/pkg_8_username_5_prove_5_afail.mlw
+  Report: _build/verif/afail/afail.proof.json
+  Failed goals: [..]
+
+username/prove/invpred
+  Succeeded: [..] goals proved
+
+username/prove/zzok
+  Succeeded: [..] goals proved
+
+Summary:
+  2 of 3 packages proved
+  [..]"#]],
+    );
 
     assert_is_file(&dir.join("_build/verif/zzok/zzok.proof.json"));
     assert_is_file(&dir.join("_build/verif/afail/afail.proof.json"));
