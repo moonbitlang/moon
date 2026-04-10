@@ -139,13 +139,14 @@ pub(crate) fn run_build_binary_dep(
         let package = &*resolve_output.pkg_dirs.get_package(pkg).raw;
         let bin_name = package.bin_name.as_deref();
 
+        let build_flags = BuildFlags {
+            release: true,
+            ..BuildFlags::default()
+        };
         let preconfig = preconfig_compile(
             &AutoSyncFlags { frozen: false },
             cli,
-            &BuildFlags {
-                release: true,
-                ..BuildFlags::default()
-            },
+            &build_flags,
             Some(target),
             &target_dir,
             RunMode::Build,
@@ -165,7 +166,16 @@ pub(crate) fn run_build_binary_dep(
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Build)?;
 
-        let result = rr_build::execute_build(&BuildConfig::default(), build_graph, &target_dir)?;
+        let result = rr_build::execute_build(
+            &BuildConfig::from_flags(
+                &build_flags,
+                &cli.unstable_feature,
+                cli.verbose,
+                UserDiagnostics::from_flags(cli),
+            ),
+            build_graph,
+            &target_dir,
+        )?;
         result.print_info(cli.quiet, "building")?;
 
         install_build_rr(&build_meta, &cmd.install_path, bin_name)?;
