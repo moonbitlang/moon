@@ -97,6 +97,34 @@ fn test_check_doctest_with_mbtp_uses_imported_proof_api() {
 }
 
 #[test]
+fn test_packages_json_includes_mbtp_files() {
+    let dir = TestDir::new("moon_prove/doctest_with_mbtp.in");
+
+    let _ = get_stderr(&dir, ["check"]);
+
+    let packages_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
+            .unwrap();
+    let packages = packages_json["packages"].as_array().unwrap();
+    let package = packages
+        .iter()
+        .find(|pkg| pkg["rel"] == "lib")
+        .expect("expected lib package in packages.json");
+
+    let files = package["files"]
+        .as_object()
+        .expect("expected files object in packages.json");
+    let expected_suffix = std::path::Path::new("lib").join("hello.mbtp");
+    assert!(
+        files
+            .keys()
+            .any(|path| { std::path::Path::new(path).ends_with(expected_suffix.as_path()) }),
+        "expected packages.json files to include lib/hello.mbtp, got:\n{}",
+        serde_json::to_string_pretty(package).unwrap()
+    );
+}
+
+#[test]
 fn test_moon_prove_skips_packages_without_proof_enabled() {
     let dir = TestDir::new("moon_prove/selective.in");
     let stdout = get_stdout(&dir, ["prove", "--dry-run"]);
