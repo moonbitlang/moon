@@ -42,18 +42,19 @@ fn test_bench_driver_build_native() {
 }
 
 #[test]
+#[cfg(not(windows))]
 fn test_bench_displays_nanoseconds() {
     let dir = TestDir::new("moon_bench");
     let moon_home = tempfile::tempdir().expect("failed to create temp MOON_HOME");
     let out = get_stdout_with_envs(
         &dir,
-        ["bench", "--target", "wasm-gc"],
+        ["bench", "--target", "native"],
         [("MOON_HOME", moon_home.path().to_str().unwrap())],
     );
     // The no-op bench ("bench: without error") should complete in sub-microsecond
     // time, so auto_select_unit should display it in nanoseconds.
     assert!(
-        out.contains("ns"),
+        out.contains(" ns"), // "The space before ns distinguishes the unit in 500.00 ns"
         "expected bench output to contain nanosecond display, got:\n{out}"
     );
 }
