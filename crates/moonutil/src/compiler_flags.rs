@@ -831,8 +831,12 @@ fn add_cc_intermediate_dir_flags(
 }
 
 fn add_cc_debug_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if config.debug_info && cc.is_gcc_like() {
-        buf.push("-g".to_string());
+    if config.debug_info {
+        if cc.is_gcc_like() {
+            buf.push("-g".to_string());
+        } else if cc.is_msvc() {
+            buf.push("/Z7".to_string());
+        }
     }
 }
 
