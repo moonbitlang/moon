@@ -123,6 +123,15 @@ fn gen_package_json(
             crate::cond_comp::FileTestKind::Blackbox => test_files.insert(path.to_owned(), cond),
         };
     }
+    for path in &pkg.mbtp_files {
+        files.insert(
+            path.to_owned(),
+            CompileCondition {
+                backend: TargetBackend::all().to_vec(),
+                optlevel: OptLevel::all().to_vec(),
+            },
+        );
+    }
     let mbt_md_files = pkg
         .mbt_md_files
         .iter()
