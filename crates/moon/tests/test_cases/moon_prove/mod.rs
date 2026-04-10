@@ -1,5 +1,5 @@
 use crate::{
-    TestDir, get_stderr, get_stdout,
+    TestDir, assert_success, get_stderr, get_stdout,
     util::{check, moon_bin, replace_dir},
 };
 use expect_test::{expect, expect_file};
@@ -89,11 +89,9 @@ fn test_moon_prove_dry_run_uses_user_supplied_why3_config() {
 fn test_check_doctest_with_mbtp_uses_imported_proof_api() {
     let dir = TestDir::new("moon_prove/doctest_with_mbtp.in");
 
-    let check_stderr = get_stderr(&dir, ["check"]);
-    assert!(
-        check_stderr.contains("Finished. moon: ran 2 tasks, now up to date"),
-        "unexpected stderr:\n{check_stderr}",
-    );
+    assert_success(&dir, ["check"]);
+    assert_is_file(&dir.join("_build/wasm-gc/debug/check/lib/lib.mi"));
+    assert_is_file(&dir.join("_build/wasm-gc/debug/check/lib/lib.blackbox_test.mi"));
 
     let stdout = get_stdout(&dir, ["check", "--dry-run"]);
     expect_file!["snapshots/doctest_with_mbtp.check.stdout"].assert_eq(&stdout);
