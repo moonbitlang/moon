@@ -270,6 +270,10 @@ impl<'a> BuildPlanLowerContext<'a> {
         let mut pending = vec![target];
         let mut loadpaths = BTreeSet::new();
 
+        if let Some(prelude_proof) = self.stdlib_prelude_proof_loadpath() {
+            loadpaths.insert(prelude_proof);
+        }
+
         while let Some(current) = pending.pop() {
             if !visited.insert(current) {
                 continue;
@@ -290,6 +294,17 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
 
         loadpaths.into_iter().collect()
+    }
+
+    fn stdlib_prelude_proof_loadpath(&self) -> Option<PathBuf> {
+        let prelude_proof = self
+            .opt
+            .stdlib_path
+            .as_ref()
+            .and_then(|stdlib_root| stdlib_root.parent())
+            .map(|lib_root| lib_root.join(moonutil::common::PRELUDE_PROOF_DIR))?;
+
+        prelude_proof.is_dir().then_some(prelude_proof)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
