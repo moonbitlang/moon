@@ -24,46 +24,20 @@ use std::{
 };
 
 use anyhow::Context;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer};
 
 use crate::{
-    common::{MOON_WORK, MOON_WORK_JSON, TargetBackend},
+    common::{MOON_WORK, TargetBackend},
     moon_pkg,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MoonWork {
-    pub use_paths: Vec<PathBuf>,
-    pub preferred_target: Option<TargetBackend>,
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct MoonWorkFile {
-    #[serde(
-        rename = "members",
-        alias = "use",
-        deserialize_with = "deserialize_use_paths"
-    )]
-    use_paths: Vec<PathBuf>,
-    #[serde(
-        alias = "preferred-target",
-        default,
-        deserialize_with = "deserialize_preferred_target"
-    )]
-    preferred_target: Option<TargetBackend>,
-}
-
-#[derive(Serialize)]
-struct LegacyMoonWorkFile<'a> {
-    #[serde(rename = "use", serialize_with = "serialize_use_paths")]
-    use_paths: &'a [PathBuf],
-    #[serde(
-        rename = "preferred-target",
-        serialize_with = "serialize_preferred_target",
-        skip_serializing_if = "Option::is_none"
-    )]
-    preferred_target: &'a Option<TargetBackend>,
+pub struct MoonWork {
+    #[serde(rename = "members", deserialize_with = "deserialize_use_paths")]
+    pub use_paths: Vec<PathBuf>,
+    #[serde(default, deserialize_with = "deserialize_preferred_target")]
+    pub preferred_target: Option<TargetBackend>,
 }
 
 fn deserialize_preferred_target<'de, D>(deserializer: D) -> Result<Option<TargetBackend>, D::Error>
@@ -85,30 +59,6 @@ where
     Ok(use_paths.into_iter().map(PathBuf::from).collect())
 }
 
-fn serialize_preferred_target<S>(
-    preferred_target: &Option<TargetBackend>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    match preferred_target {
-        Some(preferred_target) => serializer.serialize_some(preferred_target.to_flag()),
-        None => serializer.serialize_none(),
-    }
-}
-
-fn serialize_use_paths<S>(use_paths: &[PathBuf], serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let use_paths: Vec<String> = use_paths
-        .iter()
-        .map(|path| manifest_path_string(path))
-        .collect();
-    use_paths.serialize(serializer)
-}
-
 fn manifest_path_string(path: &Path) -> String {
     if path.is_absolute() {
         path.to_string_lossy().into_owned()
@@ -119,12 +69,7 @@ fn manifest_path_string(path: &Path) -> String {
 
 pub fn workspace_manifest_path(dir: &Path) -> Option<PathBuf> {
     let dsl = dir.join(MOON_WORK);
-    if dsl.exists() {
-        return Some(dsl);
-    }
-
-    let json = dir.join(MOON_WORK_JSON);
-    json.exists().then_some(json)
+    dsl.exists().then_some(dsl)
 }
 
 pub fn read_workspace(dir: &Path) -> anyhow::Result<Option<MoonWork>> {
@@ -140,11 +85,9 @@ pub fn read_workspace_file(path: &Path) -> anyhow::Result<MoonWork> {
         .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
     let workspace = match path.file_name().and_then(|name| name.to_str()) {
         Some(MOON_WORK) => parse_workspace_dsl(&content),
-        Some(MOON_WORK_JSON) => parse_workspace_json(&content),
         _ => anyhow::bail!(
-            "expected workspace file to be `{}` or `{}`, got `{}`",
+            "expected workspace file to be `{}`, got `{}`",
             MOON_WORK,
-            MOON_WORK_JSON,
             path.display()
         ),
     };
@@ -161,18 +104,6 @@ pub fn write_workspace(dir: &Path, work: &MoonWork) -> anyhow::Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
     write_text_with_trailing_newline(&mut writer, &format_workspace_dsl(work)?)
-}
-
-pub fn write_workspace_legacy_json(dir: &Path, work: &MoonWork) -> anyhow::Result<()> {
-    let path = dir.join(MOON_WORK_JSON);
-    let file = File::create(path)?;
-    let mut writer = BufWriter::new(file);
-    let legacy = LegacyMoonWorkFile {
-        use_paths: &work.use_paths,
-        preferred_target: &work.preferred_target,
-    };
-    let content = serde_json_lenient::to_string_pretty(&legacy)?;
-    write_text_with_trailing_newline(&mut writer, &content)
 }
 
 pub fn canonical_workspace_module_dirs(
@@ -200,21 +131,10 @@ pub fn canonical_workspace_module_dirs(
     Ok(deduped.into_iter().collect())
 }
 
-fn parse_workspace_json(content: &str) -> anyhow::Result<MoonWork> {
-    let file: MoonWorkFile = serde_json_lenient::from_str(content)?;
-    Ok(MoonWork {
-        use_paths: file.use_paths,
-        preferred_target: file.preferred_target,
-    })
-}
-
 fn parse_workspace_dsl(content: &str) -> anyhow::Result<MoonWork> {
     let json = moon_pkg::parse(content)?;
-    let file: MoonWorkFile = serde_json_lenient::from_value(json)?;
-    Ok(MoonWork {
-        use_paths: file.use_paths,
-        preferred_target: file.preferred_target,
-    })
+    let workspace: MoonWork = serde_json_lenient::from_value(json)?;
+    Ok(workspace)
 }
 
 fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
@@ -256,25 +176,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_workspace_json_with_target() {
-        let parsed = parse_workspace_json(
-            r#"
-                {
-                  "preferred-target": "wasm-gc",
-                  "use": ["./app", "./shared lib"]
-                }
-            "#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            parsed.use_paths,
-            vec![PathBuf::from("./app"), PathBuf::from("./shared lib")]
-        );
-        assert_eq!(parsed.preferred_target, Some(TargetBackend::WasmGC));
-    }
-
-    #[test]
     fn parse_workspace_dsl_with_target() {
         let parsed = parse_workspace_dsl(
             r#"
@@ -289,24 +190,6 @@ mod tests {
             vec![PathBuf::from("./app"), PathBuf::from("./shared")]
         );
         assert_eq!(parsed.preferred_target, Some(TargetBackend::WasmGC));
-    }
-
-    #[test]
-    fn parse_workspace_json_without_target() {
-        let parsed = parse_workspace_json(
-            r#"
-                {
-                  "use": ["./app", "./shared"]
-                }
-            "#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            parsed.use_paths,
-            vec![PathBuf::from("./app"), PathBuf::from("./shared")]
-        );
-        assert_eq!(parsed.preferred_target, None);
     }
 
     #[test]
@@ -360,5 +243,13 @@ mod tests {
         let mut out = Vec::new();
         write_text_with_trailing_newline(&mut out, "members = []").unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "members = []\n");
+    }
+
+    #[test]
+    fn workspace_manifest_path_returns_none_without_workspace_file() {
+        let dir =
+            std::env::temp_dir().join(format!("moonutil-workspace-test-{}", std::process::id()));
+
+        assert_eq!(workspace_manifest_path(&dir), None);
     }
 }

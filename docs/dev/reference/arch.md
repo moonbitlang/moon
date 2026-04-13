@@ -128,26 +128,19 @@ In other words, it is the module represented by the closest ancestor directory (
 that contains a `moon.mod.json` file.
 
 `moon build`, `moon check`, `moon test`, `moon fmt`, and `moon info` additionally support an
-explicit workspace root via `moon.work` (with legacy `moon.work.json` still accepted), following the same discovery
-precedence as Go workspaces:
+explicit workspace root via `moon.work`, following the same discovery precedence as Go workspaces:
 
-- Search the current directory and its ancestors for `moon.work`, `moon.work.json`, and `moon.mod.json`.
-- If a `moon.work` or `moon.work.json` is found before any `moon.mod.json`, use it.
+- Search the current directory and its ancestors for `moon.work` and `moon.mod.json`.
+- If a `moon.work` is found before any `moon.mod.json`, use it.
 - If a `moon.mod.json` is found first, keep it as the current module root and continue searching
-  ancestors for `moon.work` or `moon.work.json`.
+  ancestors for `moon.work`.
 - An ancestor workspace manifest found after that only applies if it explicitly lists that module.
 - Otherwise, fall back to that `moon.mod.json`.
 
-The workspace manifest is intentionally small.
-`moon.work` currently supports:
+The workspace manifest is intentionally small. `moon.work` currently supports:
 
 - `members = ["./app", "./lib"]` to list workspace roots.
 - `preferred_target = "wasm-gc"` to set the preferred default target for the workspace.
-
-Legacy `moon.work.json` remains supported with:
-
-- `use: ["./app", "./lib"]`
-- `preferred-target: "wasm-gc"`
 
 When Moon writes `use` entries, relative paths are normalized with `/` separators. Absolute paths
 are kept as absolute OS-specific paths and are not made portable.
@@ -160,7 +153,7 @@ are kept as absolute OS-specific paths and are not made portable.
     them "workspace roots" to avoid confusion with executable `main` packages.
     Much of the CLI still assumes there is only one such root, but `moon build`,
     `moon check`, `moon test`, `moon fmt`, and `moon info` now handle multiple
-    workspace roots when they come from `moon.work` or legacy `moon.work.json`.
+    workspace roots when they come from `moon.work`.
 
 The packages to work with are specified through the command-line arguments.
 The accepted formats slightly varies between subcommands due to historical reasons,

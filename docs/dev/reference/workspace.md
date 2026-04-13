@@ -28,24 +28,16 @@ of truth is the selected manifest path itself.
 
 ## Manifest Model
 
-Moon accepts two workspace manifest formats:
+Moon accepts one workspace manifest format:
 
 - `moon.work`
   - the current DSL form
-- `moon.work.json`
-  - the legacy JSON form
-
-If both exist in the same directory, `moon.work` wins.
-
-New workspace writes go to `moon.work`.
-Legacy `moon.work.json` is read for compatibility, but it is not the preferred
-output format anymore.
 
 A workspace manifest defines:
 
-- `members` / legacy `use`
+- `members`
   - the module directories contained by the workspace
-- `preferred_target` / legacy `preferred-target`
+- `preferred_target`
   - an optional default backend for the workspace
 
 Workspace members are canonicalized relative to the workspace root and deduped.
@@ -57,7 +49,7 @@ The workspace root may or may not also contain a `moon.mod.json`.
 `SourceTargetDirs` resolves command input into:
 
 - `project_manifest_path`
-  - one of `moon.mod.json`, `moon.work`, or `moon.work.json`
+  - one of `moon.mod.json` or `moon.work`
 - `project_root`
   - the parent directory of `project_manifest_path`
 - `module_dir`
@@ -68,7 +60,7 @@ The intended interpretation is simple:
 
 - `project_manifest_path = moon.mod.json`
   - single-module behavior
-- `project_manifest_path = moon.work` or `moon.work.json`
+- `project_manifest_path = moon.work`
   - workspace behavior
 
 `module_dir` is orthogonal:
@@ -168,7 +160,7 @@ Their model is different from normal project commands:
 
 The current design supports:
 
-- workspace roots that contain only `moon.work` / `moon.work.json`
+- workspace roots that contain only `moon.work`
 - workspace roots that also contain `moon.mod.json`
 - selecting a member module from inside the member directory
 - selecting a member module with `--manifest-path <member>/moon.mod.json`
@@ -176,7 +168,6 @@ The current design supports:
 - member-scoped `package` / `publish` / `doc` / `prove` while still using
   workspace-local dependency resolution
 - nested discovery from non-module directories inside a workspace
-- legacy `moon.work.json`
 
 The current design does not support:
 
@@ -208,7 +199,7 @@ working directory.
 If it is set to a non-`0` value:
 
 - implicit workspace discovery is disabled
-- explicit `--manifest-path moon.work` / `moon.work.json` is also disabled
+- explicit `--manifest-path moon.work` is also disabled
 - commands behave as if workspace mode does not exist
 
 This is intentionally close to `GO_WORK=off` in Go.
@@ -252,7 +243,6 @@ The algorithm is:
 
 - `moon.mod.json`
 - `moon.work`
-- `moon.work.json`
 
 The selected manifest path is canonicalized first.
 
@@ -275,7 +265,7 @@ If an enclosing workspace applies, the command keeps:
 That is how member-scoped commands can act on one member while still using the
 workspace's local dependency graph.
 
-### `--manifest-path <...>/moon.work` or `moon.work.json`
+### `--manifest-path <...>/moon.work`
 
 This means "start from this workspace root", but only when workspace mode is
 enabled.
@@ -342,4 +332,4 @@ selection.
 | `--manifest-path moon.work` | select the workspace manifest |
 | inside workspace member + `MOON_NO_WORKSPACE=1` | ignore the workspace and use the nearest ancestor `moon.mod.json` |
 | workspace root with no module + `MOON_NO_WORKSPACE=1` | error: workspace mode is disabled and no module is available |
-| `moon work sync` outside a workspace | error: requires `moon.work` or `moon.work.json` |
+| `moon work sync` outside a workspace | error: requires `moon.work` |

@@ -1,1 +1,0 @@
-{ "use": ["./app"], "preferred-target": "wasm-gc" }

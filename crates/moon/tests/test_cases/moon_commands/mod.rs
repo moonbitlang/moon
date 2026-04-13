@@ -64,7 +64,7 @@ fn test_moon_help() {
               -C <DIR>
                       Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`
                   --manifest-path <PATH>
-                      Path to `moon.mod.json`, `moon.work`, or `moon.work.json` to use as the project manifest (does not change the working directory)
+                      Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)
                   --target-dir <TARGET_DIR>
                       The target directory. Defaults to `<project-root>/_build`
               -q, --quiet
