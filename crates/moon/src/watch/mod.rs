@@ -347,7 +347,7 @@ fn run_and_print(run: impl FnOnce() -> anyhow::Result<WatchOutput>) -> Additiona
 mod tests {
     use super::*;
 
-    use moonutil::common::{BUILD_DIR, MOON_WORK, MOON_WORK_JSON};
+    use moonutil::common::{BUILD_DIR, MOON_WORK};
     use notify::event::{CreateKind, Event, EventKind};
 
     fn build_event(path: &Path) -> notify::Event {
@@ -436,30 +436,6 @@ mod tests {
 
         let file = root.join(MOON_WORK);
         fs::write(&file, "members = [\"./app\"]").unwrap();
-
-        let event = build_event(&file);
-        let result = check_rerun_trigger(
-            &target_dir,
-            root,
-            &[event],
-            &AdditionalWatchPaths::default(),
-        )
-        .unwrap();
-
-        assert!(result);
-    }
-
-    #[test]
-    fn rerun_triggered_for_legacy_workspace_manifest() {
-        use std::fs;
-
-        let temp_dir = tempfile::tempdir().unwrap();
-        let root = temp_dir.path();
-        let target_dir = root.join(BUILD_DIR);
-        std::fs::create_dir_all(&target_dir).unwrap();
-
-        let file = root.join(MOON_WORK_JSON);
-        fs::write(&file, "{ \"use\": [\"./app\"] }").unwrap();
 
         let event = build_event(&file);
         let result = check_rerun_trigger(

@@ -25,7 +25,7 @@ use std::{
 use anyhow::{Context, bail};
 use moonutil::{
     common::{
-        MOON_MOD_JSON, MOON_WORK, MOON_WORK_JSON, MOONBITLANG_CORE, read_module_desc_file_in_dir,
+        MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE, read_module_desc_file_in_dir,
         write_module_json_to_file,
     },
     dependency::SourceDependencyInfo,
@@ -151,9 +151,8 @@ pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> a
 
 pub fn sync_workspace(source_dir: &Path, quiet: bool) -> anyhow::Result<i32> {
     let workspace = read_workspace(source_dir)?.context(format!(
-        "`moon work sync` requires `{}` or `{}` at `{}`",
+        "`moon work sync` requires `{}` at `{}`",
         MOON_WORK,
-        MOON_WORK_JSON,
         source_dir.display()
     ))?;
     let member_dirs = canonical_workspace_module_dirs(source_dir, &workspace)?;

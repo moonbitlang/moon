@@ -133,11 +133,7 @@ fn single_module_mooncake_cli(
 #[cfg(test)]
 mod tests {
     use super::single_module_mooncake_cli;
-    use moonutil::{
-        cli::UniversalFlags,
-        common::{MOON_MOD_JSON, MOON_WORK_JSON},
-        dirs::SourceTargetDirs,
-    };
+    use moonutil::{cli::UniversalFlags, common::MOON_MOD_JSON, dirs::SourceTargetDirs};
     use std::path::Path;
 
     fn write_file(path: &Path, content: &str) {
@@ -148,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn single_module_mooncake_cli_does_not_emit_legacy_workspace_file() {
+    fn single_module_mooncake_cli_targets_the_selected_member_manifest() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
         let member = root.join("app");
@@ -188,6 +184,5 @@ mod tests {
             dunce::canonicalize(expected_manifest_path).unwrap()
         );
         assert_eq!(cli.source_tgt_dir.target_dir, None);
-        assert!(!root.join(MOON_WORK_JSON).exists());
     }
 }

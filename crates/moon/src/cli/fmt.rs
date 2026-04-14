@@ -91,7 +91,6 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         warn_only: cmd.warn,
         extra_args: cmd.args.clone(),
         migrate_moon_pkg_json: cli.unstable_feature.rr_moon_pkg,
-        migrate_moon_work_json: cli.unstable_feature.rr_moon_pkg,
     };
     let (graph, user_warnings) = plan_fmt(
         &resolved,

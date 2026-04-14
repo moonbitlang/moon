@@ -65,7 +65,7 @@ pub struct ResolveOutput {
     pub pkg_dirs: DiscoverResult,
     /// Package dependency relationship
     pub pkg_rel: DepRelationship,
-    /// Explicit preferred target from `moon.work` or legacy `moon.work.json`, if any.
+    /// Explicit preferred target from `moon.work`, if any.
     pub workspace_preferred_target: Option<TargetBackend>,
     /// User-facing warnings discovered during resolve.
     pub user_warnings: Vec<UserWarning>,
