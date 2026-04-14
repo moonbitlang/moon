@@ -222,7 +222,7 @@ Total tests: 1, passed: 0, failed: 1.
     at impl @username/hello/main.MoonBit_Test_Driver for @username/hello/main.MoonBit_Test_Driver_Internal_No_Args with run_test [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
     at @username/hello/main.moonbit_test_driver_internal_do_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
     at @username/hello/main.moonbit_test_driver_internal_execute [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
-    at @username/hello/main.moonbit_test_driver_internal_execute_wrapper/552 [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
+    at @username/hello/main.moonbit_test_driver_internal_execute_wrapper/[..] [..]/main/__generated_driver_for_internal_test.mbt[LINE_NUMBER]
 Total tests: 1, passed: 0, failed: 1.
 
 "#]]);
