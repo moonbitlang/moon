@@ -1,6 +1,6 @@
 use crate::{
     TestDir, assert_success, get_stderr, get_stdout,
-    util::{check, moon_bin, replace_dir},
+    util::{check, moon_bin, replace_dir, toolchain_root_for_tests},
 };
 use expect_test::{expect, expect_file};
 
@@ -44,6 +44,18 @@ fn assert_stdout_contains_mbtp(
     );
 }
 
+fn assert_stdout_contains_prelude_proof(stdout: &str, label: &str) {
+    let prelude_proof = toolchain_root_for_tests().join("lib").join("prelude_proof");
+    if !prelude_proof.is_dir() {
+        return;
+    }
+
+    assert!(
+        stdout.contains("prelude_proof"),
+        "{label} output should include `prelude_proof`, got:\n{stdout}"
+    );
+}
+
 fn assert_invpred_runtime_commands_succeed(dir: &TestDir) {
     let _ = get_stdout(dir, ["check", "invpred"]);
     let _ = get_stdout(dir, ["build", "invpred"]);
@@ -58,6 +70,7 @@ fn test_moon_prove_dry_run() {
     let dir = TestDir::new("moon_prove/mixed.in");
     let stdout = get_stdout(&dir, ["prove", "zzok", "--dry-run"]);
     expect_file!["snapshots/zzok.stdout"].assert_eq(&stdout);
+    assert_stdout_contains_prelude_proof(&stdout, "dry-run");
 }
 
 #[test]
@@ -87,6 +100,11 @@ fn test_moon_prove_dry_run_uses_user_supplied_why3_config() {
 
 #[test]
 fn test_check_doctest_with_mbtp_uses_imported_proof_api() {
+    if skip_unless_verification_tests_enabled(
+        "test_check_doctest_with_mbtp_uses_imported_proof_api",
+    ) {
+        return;
+    }
     let dir = TestDir::new("moon_prove/doctest_with_mbtp.in");
 
     assert_success(&dir, ["check"]);
@@ -99,6 +117,9 @@ fn test_check_doctest_with_mbtp_uses_imported_proof_api() {
 
 #[test]
 fn test_packages_json_includes_mbtp_files() {
+    if skip_unless_verification_tests_enabled("test_packages_json_includes_mbtp_files") {
+        return;
+    }
     let dir = TestDir::new("moon_prove/doctest_with_mbtp.in");
 
     let _ = get_stderr(&dir, ["check"]);
@@ -127,6 +148,11 @@ fn test_packages_json_includes_mbtp_files() {
 
 #[test]
 fn test_moon_prove_skips_packages_without_proof_enabled() {
+    if skip_unless_verification_tests_enabled(
+        "test_moon_prove_skips_packages_without_proof_enabled",
+    ) {
+        return;
+    }
     let dir = TestDir::new("moon_prove/selective.in");
     let stdout = get_stdout(&dir, ["prove", "--dry-run"]);
     expect_file!["snapshots/selective.stdout"].assert_eq(&stdout);
@@ -138,6 +164,11 @@ fn test_moon_prove_skips_packages_without_proof_enabled() {
 
 #[test]
 fn test_moon_prove_warns_for_explicit_package_without_proof_enabled() {
+    if skip_unless_verification_tests_enabled(
+        "test_moon_prove_warns_for_explicit_package_without_proof_enabled",
+    ) {
+        return;
+    }
     let dir = TestDir::new("moon_prove/selective.in");
     let stderr = get_stderr(&dir, ["prove", "disabled", "--dry-run"]);
     assert!(
@@ -150,6 +181,11 @@ fn test_moon_prove_warns_for_explicit_package_without_proof_enabled() {
 
 #[test]
 fn test_proof_enabled_suppresses_proof_warnings_for_test_runs() {
+    if skip_unless_verification_tests_enabled(
+        "test_proof_enabled_suppresses_proof_warnings_for_test_runs",
+    ) {
+        return;
+    }
     let dir = TestDir::new("moon_prove/warn_suppression.in");
 
     let dry_run = get_stdout(&dir, ["test", "lib", "--dry-run", "--sort-input"]);
@@ -241,7 +277,7 @@ fn test_moon_prove_mixed_workspace_failure() {
     snapbox::assert_data_eq!(
         replace_dir(&stdout, &dir).trim_end(),
         snapbox::str![[r#"
-failed: moonc prove -error-format json $ROOT/afail/afail.mbt $ROOT/afail/afail.mbtp -whyml-output-path $ROOT/_build/verif/afail/pkg_8_username_5_prove_5_afail.mlw -proof-report-output-path $ROOT/_build/verif/afail/afail.proof.json -why3-config $ROOT/_build/verif/why3.conf -pkg username/prove/afail -i $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude -pkg-sources username/prove/afail:$ROOT/afail -workspace-path $ROOT -all-pkgs $ROOT/_build/wasm-gc/debug/prove/all_pkgs.json
+failed: moonc prove -error-format json $ROOT/afail/afail.mbt $ROOT/afail/afail.mbtp -whyml-output-path $ROOT/_build/verif/afail/pkg_8_username_5_prove_5_afail.mlw -proof-report-output-path $ROOT/_build/verif/afail/afail.proof.json -why3-config $ROOT/_build/verif/why3.conf -why3-loadpath $MOON_HOME/lib/prelude_proof -pkg username/prove/afail -i $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude -pkg-sources username/prove/afail:$ROOT/afail -workspace-path $ROOT -all-pkgs $ROOT/_build/wasm-gc/debug/prove/all_pkgs.json
 username/prove/afail
   Failed: [..]
   WhyML: _build/verif/afail/pkg_8_username_5_prove_5_afail.mlw
