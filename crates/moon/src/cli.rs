@@ -25,6 +25,7 @@ pub(crate) mod clean;
 pub(crate) mod coverage;
 pub(crate) mod deps;
 pub(crate) mod doc;
+pub(crate) mod explain;
 pub(crate) mod external;
 pub(crate) mod fetch;
 pub(crate) mod fmt;
@@ -53,6 +54,7 @@ pub(crate) use clean::*;
 pub(crate) use coverage::*;
 pub(crate) use deps::*;
 pub(crate) use doc::*;
+pub(crate) use explain::*;
 pub(crate) use external::*;
 pub(crate) use fetch::*;
 pub(crate) use fmt::*;
@@ -106,6 +108,7 @@ pub(crate) enum MoonBuildSubcommands {
     Clean(CleanSubcommand),
     Fmt(FmtSubcommand),
     Doc(DocSubcommand),
+    Explain(ExplainSubcommand),
     Info(InfoSubcommand),
     Bench(BenchSubcommand),
 

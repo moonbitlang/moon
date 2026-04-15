@@ -388,6 +388,22 @@ _arguments "${_arguments_options[@]}" : \
 '::symbol -- \[Deprecated\] The symbol to query documentation for. Use `moon ide doc <SYMBOL>` instead.:' \
 && ret=0
 ;;
+(explain)
+_arguments "${_arguments_options[@]}" : \
+'--diagnostics=[Explain diagnostics. Without a query, list warning mnemonics and IDs from \`moonc\`]' \
+'--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
+'--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
+'-q[Suppress output]' \
+'--quiet[Suppress output]' \
+'-v[Increase verbosity]' \
+'--verbose[Increase verbosity]' \
+'--trace[Trace the execution of the program]' \
+'--dry-run[Do not actually run the command]' \
+'(--dry-run)--build-graph[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+&& ret=0
+;;
 (info)
 _arguments "${_arguments_options[@]}" : \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
@@ -1233,6 +1249,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(explain)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (info)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1468,6 +1488,7 @@ _moon_commands() {
 'clean:Remove the _build directory' \
 'fmt:Format source code' \
 'doc:Generate documentation or searching documentation for a symbol' \
+'explain:Explain diagnostics from the compiler' \
 'info:Generate public interface (\`.mbti\`) files for all packages in the module or workspace' \
 'bench:Run benchmarks in the current package' \
 'add:Add a dependency' \
@@ -1583,6 +1604,11 @@ _moon__doc_commands() {
     local commands; commands=()
     _describe -t commands 'moon doc commands' commands "$@"
 }
+(( $+functions[_moon__explain_commands] )) ||
+_moon__explain_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon explain commands' commands "$@"
+}
 (( $+functions[_moon__fetch_commands] )) ||
 _moon__fetch_commands() {
     local commands; commands=()
@@ -1617,6 +1643,7 @@ _moon__help_commands() {
 'clean:Remove the _build directory' \
 'fmt:Format source code' \
 'doc:Generate documentation or searching documentation for a symbol' \
+'explain:Explain diagnostics from the compiler' \
 'info:Generate public interface (\`.mbti\`) files for all packages in the module or workspace' \
 'bench:Run benchmarks in the current package' \
 'add:Add a dependency' \
@@ -1700,6 +1727,11 @@ _moon__help__coverage__report_commands() {
 _moon__help__doc_commands() {
     local commands; commands=()
     _describe -t commands 'moon help doc commands' commands "$@"
+}
+(( $+functions[_moon__help__explain_commands] )) ||
+_moon__help__explain_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help explain commands' commands "$@"
 }
 (( $+functions[_moon__help__fetch_commands] )) ||
 _moon__help__fetch_commands() {
