@@ -61,7 +61,6 @@ derive_builder.workspace = true
 sha2.workspace = true
 similar.workspace = true
 
-notify.workspace = true
 ignore.workspace = true
 
 tracing.workspace = true
@@ -77,6 +76,12 @@ features = [
     "Win32_System_Threading",
 ]
 version = "0.59.0"
+
+[target."cfg(not(target_os = \"macos\"))".dependencies]
+notify = "6.1.1"
+
+[target."cfg(target_os = \"macos\")".dependencies]
+notify = { version = "6.1.1", default-features = false, features = ["crossbeam-channel", "macos_kqueue"] }
 
 [target."cfg(windows)".dependencies]
 junction = "1"
