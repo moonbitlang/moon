@@ -267,6 +267,10 @@ impl LegacyLayout {
             ));
         }
 
+        if self.run_mode == RunMode::Prove {
+            return MiPathResult::Regular(self.emit_proof_mi_path(pkg_list, target));
+        }
+
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
         base_dir.push(format!(

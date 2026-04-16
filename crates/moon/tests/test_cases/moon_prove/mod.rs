@@ -62,6 +62,29 @@ fn assert_invpred_runtime_commands_succeed(dir: &TestDir) {
     let _ = get_stdout(dir, ["bench", "-p", "invpred", "--build-only"]);
 }
 
+fn assert_prove_all_pkgs_artifact_uses_verif(dir: &TestDir, rel: &str) {
+    let all_pkgs_path = dir.join("_build/wasm-gc/debug/prove/all_pkgs.json");
+    let all_pkgs: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&all_pkgs_path).unwrap()).unwrap();
+    let artifact = all_pkgs["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pkg| pkg["root"] == "username/prove_indirect" && pkg["rel"] == rel)
+        .and_then(|pkg| pkg["artifact"].as_str())
+        .unwrap_or_else(|| panic!("expected package `{rel}` in {}", all_pkgs_path.display()))
+        .replace('\\', "/");
+
+    assert!(
+        artifact.contains(&format!("/_build/verif/{rel}/pkg_")),
+        "prove all_pkgs should point `{rel}` at its verification interface, got `{artifact}`",
+    );
+    assert!(
+        !artifact.contains("/_build/wasm-gc/debug/prove/"),
+        "prove all_pkgs should not point `{rel}` at normal backend interfaces, got `{artifact}`",
+    );
+}
+
 #[test]
 fn test_moon_prove_dry_run() {
     if skip_unless_verification_tests_enabled("test_moon_prove_dry_run") {
@@ -457,4 +480,27 @@ fn test_cross_package_prove_selected_package_succeeds() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     expect_file!["snapshots/cross_package.downstream.run.stdout"]
         .assert_eq(&replace_dir(&stdout, &dir));
+}
+
+#[test]
+fn test_indirect_prove_all_pkgs_uses_verif_artifacts() {
+    if skip_unless_verification_tests_enabled("test_indirect_prove_all_pkgs_uses_verif_artifacts") {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/indirect.in");
+    let Some(z3_path) = z3_path() else {
+        eprintln!("skipping indirect moon_prove test: z3 is not available");
+        return;
+    };
+
+    snapbox::cmd::Command::new(moon_bin())
+        .env("Z3PATH", &z3_path)
+        .current_dir(&dir)
+        .args(["prove", "downstream"])
+        .assert()
+        .success();
+
+    assert_prove_all_pkgs_artifact_uses_verif(&dir, "base");
+    assert_prove_all_pkgs_artifact_uses_verif(&dir, "dep");
+    assert_prove_all_pkgs_artifact_uses_verif(&dir, "downstream");
 }
