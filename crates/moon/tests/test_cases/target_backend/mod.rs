@@ -1,5 +1,7 @@
 use super::*;
 
+const PREFERRED_TARGET_CONFLICT_WARNING: &str = "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly";
+
 #[test]
 fn test_target_backend_cli_wiring_smoke() {
     let dir = TestDir::new("target_backend");
@@ -38,6 +40,42 @@ fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
             "expected output to not contain `{needle}`, got:\n{output}"
         );
     }
+}
+
+fn assert_preferred_target_conflict_warning(stderr: &str) {
+    assert!(
+        stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {stderr}"
+    );
+}
+
+fn assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
+    command: &str,
+    stdout: &str,
+    stderr: &str,
+) {
+    assert_preferred_target_conflict_warning(stderr);
+    assert_contains_and_absent(
+        stdout,
+        &[
+            "./_build/wasm-gc/",
+            "-target wasm-gc",
+            "./js_preferred/src/lib/extra.wasm-gc.mbt",
+            "./native_preferred/src/lib/extra.wasm-gc.mbt",
+        ],
+        &[
+            "./js_preferred/src/lib/extra.js.mbt",
+            "./native_preferred/src/lib/extra.native.mbt",
+        ],
+    );
+    assert!(
+        stdout.contains("./js_preferred/src/lib/lib.mbt"),
+        "{command} output did not include js_preferred sources:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("./native_preferred/src/lib/lib.mbt"),
+        "{command} output did not include native_preferred sources:\n{stdout}"
+    );
 }
 
 #[test]
@@ -385,19 +423,68 @@ fn test_legacy_supported_targets_warning_is_local_only() {
 }
 
 #[test]
-fn test_explicit_target_suppresses_mixed_preferred_target_warning() {
-    let dir = TestDir::new("workspace_mixed_preferred_targets.in");
-    let warning = "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly";
+fn test_explicit_target_suppresses_conflicting_workspace_preferred_target_warning() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["check", "--dry-run", "--sort-input"]);
-    assert!(default_stderr.contains(warning), "stderr: {default_stderr}");
+    assert_preferred_target_conflict_warning(&default_stderr);
 
     let explicit_stderr = get_stderr(
         &dir,
         ["check", "--target", "js", "--dry-run", "--sort-input"],
     );
     assert!(
-        !explicit_stderr.contains(warning),
+        !explicit_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
         "stderr: {explicit_stderr}"
+    );
+}
+
+#[test]
+fn test_conflicting_workspace_preferred_targets_default_to_wasm_gc_across_commands() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    let commands = [
+        ("build", &["build", "--dry-run", "--sort-input"][..]),
+        ("check", &["check", "--dry-run", "--sort-input"][..]),
+        ("test", &["test", "--dry-run", "--sort-input"][..]),
+        ("bundle", &["bundle", "--dry-run", "--sort-input"][..]),
+        ("bench", &["bench", "--dry-run", "--sort-input"][..]),
+    ];
+
+    for (command, args) in commands {
+        let stdout = get_stdout(&dir, args.iter().copied());
+        let stderr = get_stderr(&dir, args.iter().copied());
+        assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
+            command, &stdout, &stderr,
+        );
+    }
+}
+
+#[test]
+fn test_conflicting_workspace_preferred_targets_info_defaults_to_wasm_gc() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let stderr = get_stderr(&dir, ["info"]);
+    assert_preferred_target_conflict_warning(&stderr);
+
+    let js_mbti =
+        std::fs::read_to_string(dir.join("js_preferred/src/lib").join(MBTI_GENERATED)).unwrap();
+    assert_contains_and_absent(
+        &js_mbti,
+        &[
+            "pub fn js_value() -> Int",
+            "pub fn js_wasm_gc_extra() -> Int",
+        ],
+        &["js_extra", "native_extra", "native_wasm_gc_extra"],
+    );
+
+    let native_mbti =
+        std::fs::read_to_string(dir.join("native_preferred/src/lib").join(MBTI_GENERATED)).unwrap();
+    assert_contains_and_absent(
+        &native_mbti,
+        &[
+            "pub fn native_value() -> Int",
+            "pub fn native_wasm_gc_extra() -> Int",
+        ],
+        &["native_extra", "js_extra", "js_wasm_gc_extra"],
     );
 }
