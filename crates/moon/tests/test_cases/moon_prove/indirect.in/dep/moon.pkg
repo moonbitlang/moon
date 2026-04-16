@@ -1,0 +1,7 @@
+import {
+  "username/prove_indirect/base"
+}
+
+options(
+  "proof-enabled": true,
+)

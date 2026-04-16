@@ -1,0 +1,7 @@
+import {
+  "username/prove_indirect/dep"
+}
+
+options(
+  "proof-enabled": true,
+)
