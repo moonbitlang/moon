@@ -115,6 +115,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace(&ar_path, CC::default().ar_name());
     let s = s.replace(&cc_path, CC::default().cc_name());
     let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
+    let s = s.replace("moon.exe", "moon");
     let s = moonutil::BINARIES
         .node
         .as_ref()

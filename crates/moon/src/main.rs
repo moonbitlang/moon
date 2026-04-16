@@ -168,6 +168,7 @@ pub fn main() {
         GenerateBuildMatrix(b) => cli::generate_build_matrix(&flags, b),
         GenerateTestDriver(g) => cli::generate_test_driver(flags, g),
         Info(i) => cli::run_info(flags, i),
+        Explain(e) => cli::run_explain(&flags, e),
         Install(i) => cli::install_cli(flags, i),
         Login(l) => cli::mooncake_adapter::login_cli(flags, l),
         Whoami(w) => cli::run_whoami(&flags, w),

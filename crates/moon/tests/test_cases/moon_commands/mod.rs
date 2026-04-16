@@ -36,6 +36,7 @@ fn test_moon_help() {
               clean                  Remove the _build directory
               fmt                    Format source code
               doc                    Generate documentation or searching documentation for a symbol
+              explain                Explain diagnostics from the compiler
               info                   Generate public interface (`.mbti`) files for all packages in the module or workspace
               bench                  Run benchmarks in the current package
               add                    Add a dependency
@@ -77,6 +78,63 @@ fn test_moon_help() {
                       Do not actually run the command
               -Z, --unstable-feature <UNSTABLE_FEATURE>
                       Unstable flags to MoonBuild [env: MOON_UNSTABLE=] [default: ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_explain_diagnostics_lists_warnings() {
+    let dir = TestDir::new_empty();
+    let output = get_stdout(&dir, ["explain", "--diagnostics"]);
+    assert!(output.starts_with("Available warnings: \n"));
+    assert!(output.contains("unused_value               Unused variable or function."));
+    assert!(output.contains("partial_match              Partial pattern matching."));
+}
+
+#[test]
+fn test_moon_explain_diagnostics_number_uses_integrated_docs() {
+    let dir = TestDir::new_empty();
+    let output = get_stdout(&dir, ["explain", "--diagnostics", "2"]);
+    assert!(output.starts_with("# E0002\n"));
+    assert!(output.contains("Warning name: `unused_value`"));
+    assert!(output.contains("Unused variable."));
+}
+
+#[test]
+fn test_moon_explain_diagnostics_mnemonic_uses_integrated_docs() {
+    let dir = TestDir::new_empty();
+    let output = get_stdout(&dir, ["explain", "--diagnostics", "unused_value"]);
+    assert!(output.contains("# E0001"));
+    assert!(output.contains("# E0002"));
+}
+
+#[test]
+fn test_moon_explain_without_flags_shows_guidance() {
+    let dir = TestDir::new_empty();
+    check(
+        get_err_stderr(&dir, ["explain"]),
+        expect![[r#"
+            Explain diagnostics from the compiler
+
+            Usage: moon explain [OPTIONS]
+
+            Options:
+                  --diagnostics [<ID_OR_MNEMONIC>]  Explain diagnostics. Without a query, list warning mnemonics and IDs from `moonc`
+              -h, --help                            Print help
+
+            Common Options:
+                  --manifest-path <PATH>     Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)
+                  --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`
+              -q, --quiet                    Suppress output
+              -v, --verbose                  Increase verbosity
+                  --trace                    Trace the execution of the program
+                  --dry-run                  Do not actually run the command
+
+            Resources:
+                Docs: https://docs.moonbitlang.com
+                Skills: https://github.com/moonbitlang/skills
+
+                Use `moon explain --diagnostics` to list warning mnemonics and IDs.
         "#]],
     );
 }

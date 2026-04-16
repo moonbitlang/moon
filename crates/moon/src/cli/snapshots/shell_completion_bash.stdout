@@ -36,6 +36,9 @@ _moon() {
             moon,doc)
                 cmd="moon__doc"
                 ;;
+            moon,explain)
+                cmd="moon__explain"
+                ;;
             moon,fetch)
                 cmd="moon__fetch"
                 ;;
@@ -158,6 +161,9 @@ _moon() {
                 ;;
             moon__help,doc)
                 cmd="moon__help__doc"
+                ;;
+            moon__help,explain)
+                cmd="moon__help__explain"
                 ;;
             moon__help,fetch)
                 cmd="moon__help__fetch"
@@ -385,7 +391,7 @@ _moon() {
 
     case "${cmd}" in
         moon)
-            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
+            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -878,6 +884,32 @@ _moon() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
+        moon__explain)
+            opts="-q -v -h --diagnostics --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                --diagnostics)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --manifest-path)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --target-dir)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
         moon__fetch)
             opts="-q -v -h --no-update --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <MODULE[@VERSION]>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
@@ -1035,7 +1067,7 @@ _moon() {
             return 0
             ;;
         moon__help)
-            opts="new bundle build check prove run test generate-test-driver clean fmt doc info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
+            opts="new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1189,6 +1221,20 @@ _moon() {
             return 0
             ;;
         moon__help__doc)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__explain)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )

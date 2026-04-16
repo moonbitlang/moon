@@ -46,6 +46,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the _build directory')
             [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
             [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Generate documentation or searching documentation for a symbol')
+            [CompletionResult]::new('explain', 'explain', [CompletionResultType]::ParameterValue, 'Explain diagnostics from the compiler')
             [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Generate public interface (`.mbti`) files for all packages in the module or workspace')
             [CompletionResult]::new('bench', 'bench', [CompletionResultType]::ParameterValue, 'Run benchmarks in the current package')
             [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add a dependency')
@@ -388,6 +389,21 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--serve', 'serve', [CompletionResultType]::ParameterName, 'Start a web server to serve the documentation')
             [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;explain' {
+            [CompletionResult]::new('--diagnostics', 'diagnostics', [CompletionResultType]::ParameterName, 'Explain diagnostics. Without a query, list warning mnemonics and IDs from `moonc`')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -1080,6 +1096,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the _build directory')
             [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
             [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Generate documentation or searching documentation for a symbol')
+            [CompletionResult]::new('explain', 'explain', [CompletionResultType]::ParameterValue, 'Explain diagnostics from the compiler')
             [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Generate public interface (`.mbti`) files for all packages in the module or workspace')
             [CompletionResult]::new('bench', 'bench', [CompletionResultType]::ParameterValue, 'Run benchmarks in the current package')
             [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add a dependency')
@@ -1135,6 +1152,9 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;help;doc' {
+            break
+        }
+        'moon;help;explain' {
             break
         }
         'moon;help;info' {

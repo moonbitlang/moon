@@ -1,0 +1,70 @@
+0001	unused_value	Unused variable or function.
+0002	unused_value	Unused variable.
+0003	unused_type_declaration	Unused type declaration.
+0004	missing_priv	Unused abstract type.
+0005	unused_type_variable	Unused type variable.
+0006	unused_constructor	Unused constructor.
+0007	unused_field	Unused field or constructor argument.
+0008	redundant_modifier	Redundant modifier.
+0009	struct_never_constructed	Struct never constructed.
+0010	unused_pattern	Unused pattern.
+0011	partial_match	Partial pattern matching.
+0012	unreachable_code	Unreachable code.
+0013	unresolved_type_variable	Unresolved type variable.
+0014	alert or alert_<category>	All alerts or alerts with specific category.
+0015	unused_mut	Unused mutability.
+0016	parser_inconsistency	Parser inconsistency check.
+0017	ambiguous_loop_argument	Ambiguous usage of loop argument.
+0018	useless_loop	Useless loop expression.
+0020	deprecated	Deprecated API usage.
+0021	missing_pattern_arguments	Some arguments of constructor are omitted in pattern.
+0022	ambiguous_block	Ambiguous block.
+0023	unused_try	Useless try expression.
+0024	unused_error_type	Useless error type.
+0025	test_unqualified_package	Using implicitly imported API in test.
+0026	unused_catch_all	Useless catch all.
+0027	deprecated_syntax	Deprecated syntax.
+0028	todo	Todo
+0029	unused_package	Unused package.
+0030	missing_package_alias	Empty package alias.
+0031	unused_optional_argument	Optional argument never supplied.
+0032	unused_default_value	Default value of optional argument never used.
+0033	text_segment_excceed	Text segment exceed the line or column limits.
+0034	implicit_use_builtin	Implicit use of definitions from `moonbitlang/core/builtin`.
+0035	reserved_keyword	Reserved keyword.
+0036	loop_label_shadowing	Loop label shadows another label.
+0037	unused_loop_label	Unused loop label.
+0038	missing_invariant	For-loop is missing an invariant.
+0039	missing_reasoning	For-loop is missing a proof_reasoning.
+0040	multiline_string_escape	Deprecated escape sequence in multiline string.
+0041	missing_rest_mark	Missing `..` in map pattern.
+0042	invalid_attribute	Invalid attribute.
+0043	unused_attribute	Unused attribute.
+0044	invalid_inline_wasm	Invalid inline-wasm.
+0046	unused_rest_mark	Useless `..` in pattern
+0047	invalid_mbti	Invalid mbti file
+0049	missing_definition	Unused pub definition because it does not exist in mbti file.
+0050	method_shadowing	Local method shadows upstream method
+0051	ambiguous_precedence	Ambiguous operator precedence
+0052	unused_loop_variable	Loop variable not updated in loop
+0053	unused_trait_bound	Unused trait bound
+0054	ambiguous_range_direction	Ambiguous looping direction for range e1..=e2
+0055	unannotated_ffi	Unannotated FFI param type
+0056	missing_pattern_field	Missing field in struct pattern
+0057	missing_pattern_payload	Constructor pattern expect payload
+0059	unaligned_byte_access	Unaligned byte access in bits pattern
+0060	unused_struct_update	Unused struct update
+0061	duplicate_test	Duplicate test name
+0062	invalid_cascade	Calling method with non-unit return type via `..`
+0063	syntax_lint	Syntax lint warning
+0064	unannotated_toplevel_array	Unannotated toplevel array
+0065	prefer_readonly_array	Suggest ReadOnlyArray for read-only array literal
+0066	prefer_fixed_array	Suggest FixedArray for mutated array literal
+0067	unused_async	Useless `async` annotation
+0068	declaration_unimplemented	Declaration is unimplemented
+0069	declaration_implemented	Declaration is already implemented
+0070	deprecated_for_in_method	using `iterator()` method for `for .. in` loop.
+0071	core_package_not_imported	Packages in `moonbitlang/core` need to be explicitly imported.
+0072	unqualified_local_using	unqualified local using
+0073	unnecessary_annotation	unnecessary type annotation
+0074	missing_doc	Missing documentation for public definition
