@@ -1,4 +1,0 @@
-members = [
-  "./jsmod",
-  "./nativemod",
-]
