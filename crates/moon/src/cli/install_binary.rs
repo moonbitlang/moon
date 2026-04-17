@@ -679,9 +679,8 @@ fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
     match tmp.persist(dst) {
         Ok(_) => Ok(()),
         #[cfg(windows)]
-        Err(err) if windows::is_sharing_violation(&err.error) => {
-            windows::rename_away_and_persist(err.file, dst)
-        }
+        Err(err) => windows::rename_away_and_persist(err.file, dst),
+        #[cfg(not(windows))]
         Err(err) => Err(err.error).with_context(|| {
             format!("Failed to install binary to `{}`", dst.display())
         }),
@@ -694,16 +693,6 @@ mod windows {
 
     use anyhow::Context;
     use colored::Colorize;
-
-    /// Windows error codes that indicate the destination is locked by a
-    /// running executable (or otherwise non-deletable).
-    ///
-    /// - 5  = ERROR_ACCESS_DENIED (typical for a running `.exe`)
-    /// - 32 = ERROR_SHARING_VIOLATION
-    /// - 33 = ERROR_LOCK_VIOLATION
-    pub fn is_sharing_violation(error: &std::io::Error) -> bool {
-        matches!(error.raw_os_error(), Some(5 | 32 | 33))
-    }
 
     pub fn rename_away_and_persist(
         tmp: tempfile::NamedTempFile,
