@@ -910,15 +910,21 @@ mod windows {
     /// not an option — TxF is deprecated (see MS Learn: "Alternatives
     /// to using Transactional NTFS"). If the delete fails for any
     /// reason (filter drivers, older Windows, network filesystems),
-    /// we warn and leave the `.old-<nonce>` file; the next install
-    /// can sweep it up.
+    /// we silently leave the `.old-<nonce>` file; it'll either get
+    /// cleaned up by a later install, or the user can remove it
+    /// manually. The failure is logged at `debug` level for anyone
+    /// debugging the install machinery.
     fn cleanup_backup(backup: &Path) {
+        // Best-effort. If it fails, the file lingers until the next
+        // install sweeps it or the user clears it manually — not worth
+        // surfacing to anyone who isn't actively debugging the install
+        // machinery.
         if let Err(e) = std::fs::remove_file(backup) {
-            eprintln!(
-                "{}: could not remove leftover `{}`: {}",
-                "Warning".yellow().bold(),
-                backup.display(),
-                e
+            tracing::debug!(
+                backup = %backup.display(),
+                err = %e,
+                code = ?e.raw_os_error(),
+                "could not remove backup file"
             );
         }
     }
