@@ -610,39 +610,7 @@ fn build_and_install_packages(
         };
         let binary_dst = install_dir.join(dst_name);
 
-        // Copy into a sibling tempfile and atomically rename into place.
-        // Overwriting the destination with `fs::copy` would truncate it via
-        // `O_TRUNC`; on macOS the kernel SIGKILLs any process still executing
-        // the old inode as soon as it pages in a code-signature page whose
-        // bytes have changed underneath it.
-        let tmp = tempfile::NamedTempFile::new_in(install_dir).with_context(|| {
-            format!(
-                "Failed to create temporary file in `{}`",
-                install_dir.display()
-            )
-        })?;
-
-        std::fs::copy(&binary_src, tmp.path()).with_context(|| {
-            format!(
-                "Failed to copy binary from `{}` to `{}`",
-                binary_src.display(),
-                tmp.path().display()
-            )
-        })?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(tmp.path())?.permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(tmp.path(), perms)?;
-        }
-
-        tmp.persist(&binary_dst)
-            .map_err(|e| e.error)
-            .with_context(|| {
-                format!("Failed to install binary to `{}`", binary_dst.display())
-            })?;
+        install_file(&binary_src, &binary_dst)?;
 
         if !quiet {
             eprintln!(
@@ -661,6 +629,166 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// Copy `src` onto `dst` by writing to a sibling tempfile and atomically
+/// renaming it into place.
+///
+/// Overwriting the destination with `fs::copy` would truncate it via
+/// `O_TRUNC`; on macOS the kernel SIGKILLs any process that re-execs the
+/// modified inode because the code-signature cache no longer matches the
+/// on-disk bytes. On Linux, O_TRUNC on a running text segment returns
+/// `ETXTBSY` and the install fails outright. Renaming a fresh file into
+/// place avoids both — the old inode is unlinked but remains alive for
+/// the running process, and new executions resolve to the new inode.
+///
+/// On Windows the file is held by the image loader and cannot be
+/// overwritten; we fall back to the rename-away pattern (move the old
+/// file aside, drop the new one in place, then try `DeleteFileW` — the
+/// loader grants `FILE_SHARE_DELETE`, so the stray file is unlinked
+/// immediately and its contents disappear when the running target
+/// exits; only if that fails do we fall back to scheduling deletion
+/// on next reboot).
+fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    let install_dir = dst.parent().ok_or_else(|| {
+        anyhow::anyhow!("Install path `{}` has no parent directory", dst.display())
+    })?;
+
+    let tmp = tempfile::NamedTempFile::new_in(install_dir).with_context(|| {
+        format!(
+            "Failed to create temporary file in `{}`",
+            install_dir.display()
+        )
+    })?;
+
+    std::fs::copy(src, tmp.path()).with_context(|| {
+        format!(
+            "Failed to copy binary from `{}` to `{}`",
+            src.display(),
+            tmp.path().display()
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(tmp.path())?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(tmp.path(), perms)?;
+    }
+
+    match tmp.persist(dst) {
+        Ok(_) => Ok(()),
+        #[cfg(windows)]
+        Err(err) if windows::is_sharing_violation(&err.error) => {
+            windows::rename_away_and_persist(err.file, dst)
+        }
+        Err(err) => Err(err.error).with_context(|| {
+            format!("Failed to install binary to `{}`", dst.display())
+        }),
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use std::path::{Path, PathBuf};
+
+    use anyhow::Context;
+    use colored::Colorize;
+
+    /// Windows error codes that indicate the destination is locked by a
+    /// running executable (or otherwise non-deletable).
+    ///
+    /// - 5  = ERROR_ACCESS_DENIED (typical for a running `.exe`)
+    /// - 32 = ERROR_SHARING_VIOLATION
+    /// - 33 = ERROR_LOCK_VIOLATION
+    pub fn is_sharing_violation(error: &std::io::Error) -> bool {
+        matches!(error.raw_os_error(), Some(5 | 32 | 33))
+    }
+
+    pub fn rename_away_and_persist(
+        tmp: tempfile::NamedTempFile,
+        dst: &Path,
+    ) -> anyhow::Result<()> {
+        let backup = backup_path_for(dst);
+
+        std::fs::rename(dst, &backup).with_context(|| {
+            format!(
+                "Failed to rename running binary `{}` aside",
+                dst.display()
+            )
+        })?;
+
+        if let Err(err) = tmp.persist(dst) {
+            // Second rename failed for an unexpected reason — put the
+            // original back so the user isn't left without a binary.
+            let _ = std::fs::rename(&backup, dst);
+            return Err(err.error).with_context(|| {
+                format!("Failed to place new binary at `{}`", dst.display())
+            });
+        }
+
+        cleanup_backup(&backup);
+
+        Ok(())
+    }
+
+    /// Best-effort cleanup of the renamed-aside file.
+    ///
+    /// First try an immediate `DeleteFileW` (via `remove_file`). The image
+    /// loader holds the file with `FILE_SHARE_DELETE`, so this succeeds —
+    /// the directory entry disappears now and the contents are reclaimed
+    /// when the running target process exits. Only if that somehow fails
+    /// do we schedule deletion on next reboot. Either way, failure is
+    /// non-fatal.
+    fn cleanup_backup(backup: &Path) {
+        if std::fs::remove_file(backup).is_ok() {
+            return;
+        }
+        if let Err(e) = schedule_delete_on_reboot(backup) {
+            eprintln!(
+                "{}: could not schedule `{}` for deletion on reboot: {}",
+                "Warning".yellow().bold(),
+                backup.display(),
+                e
+            );
+        }
+    }
+
+    fn backup_path_for(dst: &Path) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let mut s = dst.as_os_str().to_owned();
+        s.push(format!(".old-{nonce}"));
+        PathBuf::from(s)
+    }
+
+    fn schedule_delete_on_reboot(path: &Path) -> std::io::Result<()> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW,
+        };
+
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        // Passing NULL as the destination with DELAY_UNTIL_REBOOT tells
+        // Windows to delete the file on next startup.
+        let ok = unsafe {
+            MoveFileExW(wide.as_ptr(), std::ptr::null(), MOVEFILE_DELAY_UNTIL_REBOOT)
+        };
+        if ok == 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
