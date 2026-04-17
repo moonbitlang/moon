@@ -644,11 +644,10 @@ fn build_and_install_packages(
 ///
 /// On Windows the file is held by the image loader and cannot be
 /// overwritten; we fall back to the rename-away pattern (move the old
-/// file aside, drop the new one in place, then try `DeleteFileW` — the
-/// loader grants `FILE_SHARE_DELETE`, so the stray file is unlinked
-/// immediately and its contents disappear when the running target
-/// exits; only if that fails do we fall back to scheduling deletion
-/// on next reboot).
+/// file aside, drop the new one in place, then `DeleteFileW` the
+/// stray file — the loader grants `FILE_SHARE_DELETE`, so the
+/// directory entry is unlinked immediately and its contents are
+/// reclaimed when the running target exits).
 fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
     let install_dir = dst.parent().ok_or_else(|| {
         anyhow::anyhow!("Install path `{}` has no parent directory", dst.display())
@@ -735,19 +734,16 @@ mod windows {
 
     /// Best-effort cleanup of the renamed-aside file.
     ///
-    /// First try an immediate `DeleteFileW` (via `remove_file`). The image
-    /// loader holds the file with `FILE_SHARE_DELETE`, so this succeeds —
-    /// the directory entry disappears now and the contents are reclaimed
-    /// when the running target process exits. Only if that somehow fails
-    /// do we schedule deletion on next reboot. Either way, failure is
-    /// non-fatal.
+    /// `DeleteFileW` (via `remove_file`) succeeds even while the target
+    /// is still running, because the image loader opens executables
+    /// with `FILE_SHARE_DELETE`. The directory entry is unlinked
+    /// immediately and the contents are reclaimed when the running
+    /// target exits. Failure is non-fatal — we just leave the file on
+    /// disk with a warning; the next install will sweep it up.
     fn cleanup_backup(backup: &Path) {
-        if std::fs::remove_file(backup).is_ok() {
-            return;
-        }
-        if let Err(e) = schedule_delete_on_reboot(backup) {
+        if let Err(e) = std::fs::remove_file(backup) {
             eprintln!(
-                "{}: could not schedule `{}` for deletion on reboot: {}",
+                "{}: could not remove leftover `{}`: {}",
                 "Warning".yellow().bold(),
                 backup.display(),
                 e
@@ -764,30 +760,6 @@ mod windows {
         let mut s = dst.as_os_str().to_owned();
         s.push(format!(".old-{nonce}"));
         PathBuf::from(s)
-    }
-
-    fn schedule_delete_on_reboot(path: &Path) -> std::io::Result<()> {
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::Storage::FileSystem::{
-            MOVEFILE_DELAY_UNTIL_REBOOT, MoveFileExW,
-        };
-
-        let wide: Vec<u16> = path
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-
-        // Passing NULL as the destination with DELAY_UNTIL_REBOOT tells
-        // Windows to delete the file on next startup.
-        let ok = unsafe {
-            MoveFileExW(wide.as_ptr(), std::ptr::null(), MOVEFILE_DELAY_UNTIL_REBOOT)
-        };
-        if ok == 0 {
-            Err(std::io::Error::last_os_error())
-        } else {
-            Ok(())
-        }
     }
 }
 
