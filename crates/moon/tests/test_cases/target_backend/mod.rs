@@ -217,34 +217,30 @@ fn test_mixed_backend_split_check_keeps_single_package_patch_file_rule() {
 fn test_mixed_backend_run_info_bundle_are_target_aware() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
-    get_stdout(&dir, ["info", "--target", "js"]);
-    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
-    assert!(dir.join("web").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
-
-    for pkg in ["shared", "web", "server"] {
-        let path = dir.join(pkg).join(MBTI_GENERATED);
-        if path.exists() {
-            std::fs::remove_file(path).unwrap();
-        }
-    }
-
-    get_stdout(&dir, ["info", "--target", "native"]);
-    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
-    assert!(dir.join("server").join(MBTI_GENERATED).exists());
+    let info_js = get_stdout(&dir, ["info", "--target", "js"]);
+    assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
     assert!(!dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(info_js.contains("Package mixed/localdep/shared has no canonical interface"));
+    assert!(info_js.contains("pub fn shared_banner() -> String"));
+    assert!(info_js.contains("pub fn web_banner() -> String"));
 
-    for pkg in ["shared", "web", "server"] {
-        let path = dir.join(pkg).join(MBTI_GENERATED);
-        if path.exists() {
-            std::fs::remove_file(path).unwrap();
-        }
-    }
+    let info_native = get_stdout(&dir, ["info", "--target", "native"]);
+    assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(info_native.contains("Package mixed/localdep/shared has no canonical interface"));
+    assert!(info_native.contains("pub fn shared_banner() -> String"));
+    assert!(info_native.contains("pub fn server_banner() -> String"));
 
-    get_stdout(&dir, ["info", "--target", "js,native"]);
-    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
-    assert!(dir.join("web").join(MBTI_GENERATED).exists());
-    assert!(dir.join("server").join(MBTI_GENERATED).exists());
+    let info_both = get_stdout(&dir, ["info", "--target", "js,native"]);
+    assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(info_both.contains("Package mixed/localdep/shared has no canonical interface"));
+    assert!(info_both.contains("pub fn shared_banner() -> String"));
+    assert!(info_both.contains("pub fn web_banner() -> String"));
+    assert!(info_both.contains("pub fn server_banner() -> String"));
 
     let bundle_js = get_stdout(
         &dir,

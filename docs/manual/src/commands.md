@@ -378,6 +378,12 @@ Generate public interface (`.mbti`) files for all packages in the module or work
 
 **Usage:** `moon info [OPTIONS] [PATH]...`
 
+`moon info` writes `pkg.generated.mbti` only from each package's canonical backend:
+the module `preferred-backend`, otherwise the workspace preferred backend,
+otherwise `wasm-gc`. Requested `--target` backends are still built for
+inspection, and differing non-canonical interfaces are printed to stdout as
+diffs or full interface dumps.
+
 ###### **Arguments:**
 
 * `<PATH>` — The file-system path to the package or file in package to emit `mbti` files for
