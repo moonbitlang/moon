@@ -18,6 +18,7 @@
 
 use anyhow::{Context, bail};
 use colored::Colorize;
+use tracing::debug;
 use moonbuild_rupes_recta::{
     ResolveConfig,
     intent::UserIntent,
@@ -685,8 +686,9 @@ fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
     // `src` and `install_dir` share a filesystem. On cross-filesystem
     // we get `EXDEV` / `ERROR_NOT_SAME_DEVICE` and fall back to a copy.
     match std::fs::rename(src, &tmp_path) {
-        Ok(()) => {}
+        Ok(()) => debug!(src = %src.display(), "staged via same-fs rename"),
         Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            debug!(src = %src.display(), "staging via copy (cross-fs)");
             std::fs::copy(src, &tmp_path).with_context(|| {
                 format!(
                     "Failed to copy binary from `{}` to `{}`",
@@ -724,17 +726,35 @@ fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
         // older Windows this returns `ERROR_INVALID_PARAMETER` (the
         // info class isn't recognized); any other error just falls
         // through to the legacy persist + rename-away pattern.
-        if windows::posix_replace(&tmp_path, dst).is_ok() {
-            // File was moved; drop on the TempPath is a harmless no-op.
-            drop(tmp_path);
-            return Ok(());
+        match windows::posix_replace(&tmp_path, dst) {
+            Ok(()) => {
+                debug!(dst = %dst.display(), "installed via FileRenameInfoEx (POSIX rename)");
+                // File was moved; drop on the TempPath is a harmless no-op.
+                drop(tmp_path);
+                return Ok(());
+            }
+            Err(e) => {
+                debug!(
+                    err = %e,
+                    "FileRenameInfoEx rejected, falling through to persist"
+                );
+            }
         }
     }
 
     match tmp_path.persist(dst) {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            debug!(dst = %dst.display(), "installed via std::fs::rename (persist)");
+            Ok(())
+        }
         #[cfg(windows)]
-        Err(err) => windows::rename_away_and_persist(err.path, dst),
+        Err(err) => {
+            debug!(
+                err = %err.error,
+                "persist failed, engaging rename-away fallback"
+            );
+            windows::rename_away_and_persist(err.path, dst)
+        }
         #[cfg(not(windows))]
         Err(err) => Err(err.error).with_context(|| {
             format!("Failed to install binary to `{}`", dst.display())
@@ -847,6 +867,11 @@ mod windows {
         dst: &Path,
     ) -> anyhow::Result<()> {
         let backup = backup_path_for(dst);
+        tracing::debug!(
+            dst = %dst.display(),
+            backup = %backup.display(),
+            "rename-away: moving running binary aside before install"
+        );
 
         std::fs::rename(dst, &backup).with_context(|| {
             format!(
