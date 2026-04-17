@@ -407,7 +407,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (info)
 _arguments "${_arguments_options[@]}" : \
-'*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
+'*--target=[Inspect one or more target backends without changing the canonical \`pkg.generated.mbti\` output]:TARGET:(wasm wasm-gc js native llvm all)' \
 '-p+[The full or subset of name of the package to emit \`mbti\` files for]:PACKAGE: ' \
 '--package=[The full or subset of name of the package to emit \`mbti\` files for]:PACKAGE: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \

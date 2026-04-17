@@ -401,7 +401,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --help 'Print help'
         }
         &'moon;info'= {
-            cand --target 'Select output target'
+            cand --target 'Inspect one or more target backends without changing the canonical `pkg.generated.mbti` output'
             cand -p 'The full or subset of name of the package to emit `mbti` files for'
             cand --package 'The full or subset of name of the package to emit `mbti` files for'
             cand --manifest-path 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)'
