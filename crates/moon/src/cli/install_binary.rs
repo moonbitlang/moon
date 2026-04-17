@@ -910,10 +910,10 @@ mod windows {
     /// not an option — TxF is deprecated (see MS Learn: "Alternatives
     /// to using Transactional NTFS"). If the delete fails for any
     /// reason (filter drivers, older Windows, network filesystems),
-    /// we silently leave the `.old` file; the next install's
-    /// rename-aside naturally overwrites it, so at most one backup
-    /// ever lingers. The failure is logged at `debug` level for
-    /// anyone debugging the install machinery.
+    /// we silently leave the `.old-<nonce>` file; it'll either get
+    /// cleaned up by a later install, or the user can remove it
+    /// manually. The failure is logged at `debug` level for anyone
+    /// debugging the install machinery.
     fn cleanup_backup(backup: &Path) {
         // Best-effort. If it fails, the file lingers until the next
         // install sweeps it or the user clears it manually — not worth
@@ -929,14 +929,14 @@ mod windows {
         }
     }
 
-    /// A fixed backup slot next to `dst`. `std::fs::rename` replaces an
-    /// existing target on both Unix and Windows, so using a single
-    /// name means any lingering backup from a previous install is
-    /// naturally overwritten — at most one `.old` file ever sits in
-    /// `install_dir`.
     fn backup_path_for(dst: &Path) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
         let mut s = dst.as_os_str().to_owned();
-        s.push(".old");
+        s.push(format!(".old-{nonce}"));
         PathBuf::from(s)
     }
 }
