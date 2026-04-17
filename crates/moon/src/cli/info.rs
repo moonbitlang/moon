@@ -43,6 +43,13 @@ use crate::{
 use super::UniversalFlags;
 
 /// Generate public interface (`.mbti`) files for all packages in the module or workspace
+///
+/// By default, `moon info` writes `pkg.generated.mbti` from each selected package's
+/// canonical backend: module `preferred-backend`, then workspace
+/// `preferred-backend`, then `wasm-gc`.
+///
+/// `--target` inspects backend-specific interfaces and reports differences, but
+/// does not change which backend is written to `pkg.generated.mbti`.
 #[derive(Debug, clap::Parser)]
 pub(crate) struct InfoSubcommand {
     #[clap(flatten)]
@@ -55,7 +62,8 @@ pub(crate) struct InfoSubcommand {
     #[clap(long, hide = true)]
     pub no_alias: bool,
 
-    /// Select output target
+    /// Inspect one or more target backends without changing the canonical
+    /// `pkg.generated.mbti` output
     #[clap(long, value_delimiter = ',')]
     pub target: Option<Vec<SurfaceTarget>>,
 
