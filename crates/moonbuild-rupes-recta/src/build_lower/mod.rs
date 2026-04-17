@@ -24,7 +24,7 @@ use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
     common::RunMode,
-    compiler_flags::{CC, CompilerPaths},
+    compiler_flags::{CompilerPaths, Toolchain},
     cond_expr::OptLevel,
     mooncakes::ModuleSource,
 };
@@ -75,8 +75,8 @@ pub struct BuildOptions {
     pub stdlib_path: Option<PathBuf>,
     pub runtime_dot_c_path: PathBuf,
     pub compiler_paths: CompilerPaths,
-    /// Preferred default C/C++ toolchain to use (overrides CC::default()).
-    pub default_cc: CC,
+    /// Selected native toolchain for this invocation.
+    pub selected_native_toolchain: Toolchain,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

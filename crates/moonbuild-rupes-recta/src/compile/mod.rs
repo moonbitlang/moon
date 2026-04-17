@@ -22,7 +22,7 @@ use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
     common::RunMode,
-    compiler_flags::{CC, CompilerPaths},
+    compiler_flags::{CC, CompilerPaths, Toolchain},
     cond_expr::OptLevel,
     moon_dir::MOON_DIRS,
 };
@@ -126,6 +126,7 @@ pub fn compile(
         action: cx.action,
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),
+        selected_native_toolchain: Toolchain::from_cc(cx.default_cc.clone()),
     };
     let (plan, user_warnings) = build_plan::build_plan(
         resolve_output,
@@ -159,7 +160,7 @@ pub fn compile(
 
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
-        default_cc: cx.default_cc.clone(),
+        selected_native_toolchain: Toolchain::from_cc(cx.default_cc.clone()),
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
         runtime_dot_c_path: MOON_DIRS.moon_lib_path.join("runtime.c"), // FIXME: don't calculate here
     };
