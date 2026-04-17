@@ -491,6 +491,74 @@ fn test_conflicting_workspace_preferred_targets_info_uses_module_defaults() {
 }
 
 #[test]
+fn test_conflicting_workspace_preferred_targets_check_validates_single_package_flags_before_grouping()
+ {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let no_mi_err = get_err_stderr(
+        &dir,
+        [
+            "check",
+            "js_preferred/src/lib",
+            "native_preferred/src/lib",
+            "--no-mi",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        no_mi_err.contains("`--no-mi` requires the selector to resolve to a single package"),
+        "stderr: {no_mi_err}"
+    );
+
+    let patch_err = get_err_stderr(
+        &dir,
+        [
+            "check",
+            "js_preferred/src/lib",
+            "native_preferred/src/lib",
+            "--patch-file",
+            "patch.json",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        patch_err.contains("`--patch-file` requires the selector to resolve to a single package"),
+        "stderr: {patch_err}"
+    );
+}
+
+#[test]
+fn test_conflicting_workspace_preferred_targets_test_validates_package_filters_before_grouping() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let file_err = get_err_stderr(&dir, ["test", "-p", "lib", "-f", "asdf", "--dry-run"]);
+    assert!(
+        file_err.contains("Cannot filter by file or index when multiple packages are specified"),
+        "stderr: {file_err}"
+    );
+    assert!(file_err.contains("workspace/js_preferred/lib"));
+    assert!(file_err.contains("workspace/native_preferred/lib"));
+
+    let patch_err = get_err_stderr(
+        &dir,
+        [
+            "test",
+            "-p",
+            "lib",
+            "--patch-file",
+            "patch.json",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        patch_err.contains("Cannot apply patch file when multiple packages are specified"),
+        "stderr: {patch_err}"
+    );
+    assert!(patch_err.contains("workspace/js_preferred/lib"));
+    assert!(patch_err.contains("workspace/native_preferred/lib"));
+}
+
+#[test]
 fn test_workspace_member_run_defaults_to_selected_module_preferred_target() {
     let dir = TestDir::new("workspace_member_preferred_targets.in");
 

@@ -779,9 +779,18 @@ fn resolve_check_groups(
         let selected = select_packages(&cmd.path, output, |dir| {
             filter_pkg_by_dir(resolve_output, dir)
         })?;
+        let selected_packages = selected
+            .into_iter()
+            .map(|(_, pkg_id)| pkg_id)
+            .collect::<Vec<_>>();
+        build_directive_for_selected_packages(
+            &selected_packages,
+            cmd.no_mi,
+            cmd.patch_file.as_deref(),
+        )?;
         return Ok(group_check_packages_by_default_target(
             resolve_output,
-            selected.into_iter().map(|(_, pkg_id)| pkg_id),
+            selected_packages,
         ));
     }
 

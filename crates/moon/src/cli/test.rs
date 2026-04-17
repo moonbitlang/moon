@@ -850,6 +850,14 @@ fn apply_selected_package_filters(
         filtered_package_ids.iter().copied(),
         target_backend,
     )?;
+    validate_multi_package_test_filters(
+        filtered_package_ids,
+        resolve_output,
+        file_filter,
+        index_filter,
+        doc_index_filter,
+        patch_file,
+    )?;
     trace!(
         filtered_packages = filtered_package_ids.len(),
         "package filters resolved"
@@ -880,30 +888,45 @@ fn apply_selected_package_filters(
             rr_build::build_patch_directive_for_package(pkg_id, false, trace_pkg, patch_file, true)
                 .context("failed to build input directive")?;
     } else if filtered_package_ids.len() > 1 {
-        let package_names = || {
-            filtered_package_ids
-                .iter()
-                .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
-                .collect::<Vec<_>>()
-        };
-        if file_filter.is_some() || index_filter.is_some() || doc_index_filter.is_some() {
-            bail!(
-                "Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}",
-                package_names()
-            );
-        }
-        if patch_file.is_some() {
-            bail!(
-                "Cannot apply patch file when multiple packages are specified. Matched packages: {:?}",
-                package_names()
-            );
-        }
         for &pkg_id in filtered_package_ids {
             out_filter.add_autodetermine_target(pkg_id, None, None);
         }
     }
     trace!("finished building package directive");
     Ok(input_directive)
+}
+
+fn validate_multi_package_test_filters(
+    filtered_package_ids: &[PackageId],
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    file_filter: Option<&str>,
+    index_filter: Option<TestIndexRange>,
+    doc_index_filter: Option<u32>,
+    patch_file: Option<&Path>,
+) -> anyhow::Result<()> {
+    if filtered_package_ids.len() <= 1 {
+        return Ok(());
+    }
+
+    let package_names = filtered_package_ids
+        .iter()
+        .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+        .collect::<Vec<_>>();
+
+    if file_filter.is_some() || index_filter.is_some() || doc_index_filter.is_some() {
+        bail!(
+            "Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}",
+            package_names
+        );
+    }
+    if patch_file.is_some() {
+        bail!(
+            "Cannot apply patch file when multiple packages are specified. Matched packages: {:?}",
+            package_names
+        );
+    }
+
+    Ok(())
 }
 
 /// Calculate the user intent for the build system to construct.
@@ -1178,6 +1201,14 @@ fn resolve_test_target_groups(
             ));
             return Ok(Vec::new());
         }
+        validate_multi_package_test_filters(
+            &package_matches.matched,
+            resolve_output,
+            cmd.file.as_deref(),
+            *cmd.index,
+            *cmd.doc_index,
+            cmd.patch_file.as_deref(),
+        )?;
 
         let mut grouped = std::collections::BTreeMap::<TargetBackend, Vec<PackageId>>::new();
         for pkg_id in package_matches.matched {
