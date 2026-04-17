@@ -652,9 +652,14 @@ fn build_and_install_packages(
 /// the running process, and new executions resolve to the new inode.
 ///
 /// On Windows the file is held by the image loader and cannot be
-/// overwritten; we fall back to the rename-away pattern (move the old
+/// atomically replaced by `MoveFileExW(REPLACE_EXISTING)`. The fast
+/// path uses `SetFileInformationByHandle(FileRenameInfoEx)` with
+/// `FILE_RENAME_FLAG_POSIX_SEMANTICS`, available on Windows 10 1709+
+/// — it behaves like Unix `rename(2)` and succeeds even against a
+/// running target. If that syscall isn't recognized (older Windows)
+/// we fall through to the legacy rename-away pattern: move the old
 /// file aside, drop the new one in place, then best-effort
-/// `DeleteFileW` the stray file). On contemporary Windows the
+/// `DeleteFileW` the stray file. On contemporary Windows the
 /// loader's handle usually permits shared delete, so the stray is
 /// unlinked immediately and its contents are reclaimed when the
 /// running target exits; if that assumption fails, the delete fails
@@ -709,6 +714,23 @@ fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
         std::fs::set_permissions(&tmp_path, perms)?;
     }
 
+    #[cfg(windows)]
+    {
+        // Fast path on Windows 10 1709+: a single atomic syscall that
+        // atomically replaces `dst` with `tmp_path` using POSIX rename
+        // semantics — the existing `dst` inode is unlinked but kept
+        // alive for any process currently executing from it, and
+        // future executions resolve the name to the new file. On
+        // older Windows this returns `ERROR_INVALID_PARAMETER` (the
+        // info class isn't recognized); any other error just falls
+        // through to the legacy persist + rename-away pattern.
+        if windows::posix_replace(&tmp_path, dst).is_ok() {
+            // File was moved; drop on the TempPath is a harmless no-op.
+            drop(tmp_path);
+            return Ok(());
+        }
+    }
+
     match tmp_path.persist(dst) {
         Ok(()) => Ok(()),
         #[cfg(windows)]
@@ -726,6 +748,99 @@ mod windows {
 
     use anyhow::Context;
     use colored::Colorize;
+
+    /// Atomically replace `dst` with `src` using `FileRenameInfoEx` and
+    /// `FILE_RENAME_FLAG_POSIX_SEMANTICS`.
+    ///
+    /// Available on Windows 10 1709 (Fall Creators Update) and later.
+    /// Unlike `MoveFileExW(REPLACE_EXISTING)`, this succeeds even when
+    /// `dst` is currently mapped by the image loader: the destination
+    /// inode is unlinked-but-kept-alive for any process holding a
+    /// handle, and the source's directory entry takes the destination's
+    /// name. Future `CreateProcess` / `execve` calls resolve the name
+    /// to the new file.
+    ///
+    /// On older Windows this returns `ERROR_INVALID_PARAMETER` because
+    /// the `FileRenameInfoEx` info class isn't recognized; the caller
+    /// falls back to the manual rename-away pattern.
+    pub fn posix_replace(src: &Path, dst: &Path) -> std::io::Result<()> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, DELETE, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            FileRenameInfoEx, OPEN_EXISTING, SetFileInformationByHandle,
+        };
+
+        const FILE_RENAME_FLAG_REPLACE_IF_EXISTS: u32 = 0x1;
+        const FILE_RENAME_FLAG_POSIX_SEMANTICS: u32 = 0x2;
+
+        // Open `src` with `DELETE` access (required to rename it).
+        // Grant full share modes so concurrent readers don't trip us.
+        let src_wide: Vec<u16> = src
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let handle = unsafe {
+            CreateFileW(
+                src_wide.as_ptr(),
+                DELETE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // FILE_RENAME_INFO layout (x86_64):
+        //   0..4   Flags         (u32)
+        //   4..8   padding       (for HANDLE alignment)
+        //   8..16  RootDirectory (HANDLE, null here)
+        //   16..20 FileNameLength (u32, bytes not chars)
+        //   20..   FileName      (WCHAR[])
+        #[cfg(target_pointer_width = "64")]
+        const HEADER_SIZE: usize = 20;
+        #[cfg(target_pointer_width = "32")]
+        const HEADER_SIZE: usize = 12;
+
+        let dst_wide: Vec<u16> = dst.as_os_str().encode_wide().collect();
+        let name_byte_len = dst_wide.len() * 2;
+        let total_size = HEADER_SIZE + name_byte_len;
+        let mut buffer = vec![0u8; total_size];
+
+        let flags = FILE_RENAME_FLAG_POSIX_SEMANTICS | FILE_RENAME_FLAG_REPLACE_IF_EXISTS;
+        buffer[0..4].copy_from_slice(&flags.to_le_bytes());
+        // RootDirectory stays zero (null).
+        let name_len_offset = HEADER_SIZE - 4;
+        buffer[name_len_offset..HEADER_SIZE]
+            .copy_from_slice(&(name_byte_len as u32).to_le_bytes());
+        for (i, &wc) in dst_wide.iter().enumerate() {
+            buffer[HEADER_SIZE + i * 2..HEADER_SIZE + i * 2 + 2]
+                .copy_from_slice(&wc.to_le_bytes());
+        }
+
+        let ok = unsafe {
+            SetFileInformationByHandle(
+                handle,
+                FileRenameInfoEx,
+                buffer.as_ptr().cast(),
+                total_size as u32,
+            )
+        };
+        let err = (ok == 0).then(std::io::Error::last_os_error);
+        unsafe {
+            CloseHandle(handle);
+        }
+        match err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
 
     pub fn rename_away_and_persist(
         tmp: tempfile::TempPath,
