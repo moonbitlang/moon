@@ -664,33 +664,55 @@ fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
         anyhow::anyhow!("Install path `{}` has no parent directory", dst.display())
     })?;
 
-    let tmp = tempfile::NamedTempFile::new_in(install_dir).with_context(|| {
-        format!(
-            "Failed to create temporary file in `{}`",
-            install_dir.display()
-        )
-    })?;
+    // A `TempPath` (not `NamedTempFile`) so the file has no lingering
+    // handle — on Windows we need to be able to rename over it, which
+    // fails while a write handle is still open.
+    let tmp_path = tempfile::NamedTempFile::new_in(install_dir)
+        .with_context(|| {
+            format!(
+                "Failed to create temporary file in `{}`",
+                install_dir.display()
+            )
+        })?
+        .into_temp_path();
 
-    std::fs::copy(src, tmp.path()).with_context(|| {
-        format!(
-            "Failed to copy binary from `{}` to `{}`",
-            src.display(),
-            tmp.path().display()
-        )
-    })?;
+    // Try to move `src` into place without copying bytes. Works when
+    // `src` and `install_dir` share a filesystem. On cross-filesystem
+    // we get `EXDEV` / `ERROR_NOT_SAME_DEVICE` and fall back to a copy.
+    match std::fs::rename(src, &tmp_path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            std::fs::copy(src, &tmp_path).with_context(|| {
+                format!(
+                    "Failed to copy binary from `{}` to `{}`",
+                    src.display(),
+                    tmp_path.display()
+                )
+            })?;
+        }
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!(
+                    "Failed to stage binary from `{}` to `{}`",
+                    src.display(),
+                    tmp_path.display()
+                )
+            });
+        }
+    }
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(tmp.path())?.permissions();
+        let mut perms = std::fs::metadata(&tmp_path)?.permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(tmp.path(), perms)?;
+        std::fs::set_permissions(&tmp_path, perms)?;
     }
 
-    match tmp.persist(dst) {
-        Ok(_) => Ok(()),
+    match tmp_path.persist(dst) {
+        Ok(()) => Ok(()),
         #[cfg(windows)]
-        Err(err) => windows::rename_away_and_persist(err.file, dst),
+        Err(err) => windows::rename_away_and_persist(err.path, dst),
         #[cfg(not(windows))]
         Err(err) => Err(err.error).with_context(|| {
             format!("Failed to install binary to `{}`", dst.display())
@@ -706,7 +728,7 @@ mod windows {
     use colored::Colorize;
 
     pub fn rename_away_and_persist(
-        tmp: tempfile::NamedTempFile,
+        tmp: tempfile::TempPath,
         dst: &Path,
     ) -> anyhow::Result<()> {
         let backup = backup_path_for(dst);
