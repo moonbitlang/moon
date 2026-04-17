@@ -47,9 +47,15 @@ enum InfoScope {
     Packages(Vec<PackageId>),
 }
 
+#[derive(Clone, Debug, Default)]
+struct InfoPlanOverrides {
+    module_scope: Option<Vec<ModuleId>>,
+    selected_packages: Option<Vec<PackageId>>,
+}
+
 struct InfoGroup {
     target_backend: TargetBackend,
-    scope: InfoScope,
+    overrides: InfoPlanOverrides,
 }
 
 /// Generate public interface (`.mbti`) files for all packages in the module or workspace
@@ -107,7 +113,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
     // If there's zero or one target, just run normally and promote the results
     if lowered_targets.len() <= 1 {
         let target_backend = lowered_targets.first().cloned();
-        let (success, meta) = run_info_rr_internal(&cli, &cmd, target_backend, None, None)?;
+        let (success, meta) = run_info_rr_internal(&cli, &cmd, target_backend)?;
         if success {
             imp::promote_info_results(&meta);
             return Ok(0);
@@ -128,7 +134,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
 
     let mut all_meta = vec![];
     for &tgt in &lowered_targets {
-        let (success, meta) = run_info_rr_internal(&cli, &cmd, Some(tgt), None, None)?;
+        let (success, meta) = run_info_rr_internal(&cli, &cmd, Some(tgt))?;
         if !success {
             bail!("moon info failed for target {:?}", tgt);
         }
@@ -161,20 +167,12 @@ fn run_info_rr_grouped_default(cli: UniversalFlags, cmd: InfoSubcommand) -> anyh
 
     let mut ok = true;
     for group in groups {
-        let module_scope = match &group.scope {
-            InfoScope::Modules(modules) => Some(modules.as_slice()),
-            InfoScope::Packages(_) => None,
-        };
-        let selected_packages = match &group.scope {
-            InfoScope::Modules(_) => None,
-            InfoScope::Packages(packages) => Some(packages.as_slice()),
-        };
-        let (success, meta) = run_info_rr_internal(
+        let (success, meta) = run_info_rr_from_resolved(
             &cli,
             &cmd,
             Some(group.target_backend),
-            module_scope,
-            selected_packages,
+            &group.overrides,
+            resolve_output.clone(),
         )?;
         ok &= success;
         if success {
@@ -192,16 +190,38 @@ pub(crate) fn run_info_rr_internal(
     cli: &UniversalFlags,
     cmd: &InfoSubcommand,
     target: Option<TargetBackend>,
-    module_scope: Option<&[ModuleId]>,
-    selected_packages: Option<&[PackageId]>,
 ) -> anyhow::Result<(bool, BuildMeta)> {
     let PackageDirs {
         source_dir,
-        target_dir,
         mooncakes_dir,
         project_manifest_path,
+        ..
     } = cli.source_tgt_dir.try_into_package_dirs()?;
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        false,
+        false,
+    )
+    .with_project_manifest_path(project_manifest_path.as_deref());
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
 
+    run_info_rr_from_resolved(
+        cli,
+        cmd,
+        target,
+        &InfoPlanOverrides::default(),
+        resolve_output,
+    )
+}
+
+fn run_info_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &InfoSubcommand,
+    target: Option<TargetBackend>,
+    overrides: &InfoPlanOverrides,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<(bool, BuildMeta)> {
+    let PackageDirs { target_dir, .. } = cli.source_tgt_dir.try_into_package_dirs()?;
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
@@ -213,14 +233,8 @@ pub(crate) fn run_info_rr_internal(
     preconfig.info_no_alias = cmd.no_alias;
     let package_filter = cmd.package.clone();
     let path_filter = cmd.path.clone();
+    let overrides = overrides.clone();
     let output = UserDiagnostics::from_flags(cli);
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
-        cmd.auto_sync_flags.frozen,
-        false,
-        false,
-    )
-    .with_project_manifest_path(project_manifest_path.as_deref());
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
@@ -230,8 +244,11 @@ pub(crate) fn run_info_rr_internal(
             calc_user_intent(
                 package_filter.as_deref(),
                 &path_filter,
-                module_scope.unwrap_or(resolve_output.local_modules()),
-                selected_packages,
+                overrides
+                    .module_scope
+                    .as_deref()
+                    .unwrap_or(resolve_output.local_modules()),
+                overrides.selected_packages.as_deref(),
                 resolve_output,
                 tb,
                 output,
@@ -421,9 +438,8 @@ fn resolve_info_groups(
     Ok(
         rr_build::group_modules_by_default_target(resolve_output, resolve_output.local_modules())
             .into_iter()
-            .map(|(target_backend, modules)| InfoGroup {
-                target_backend,
-                scope: InfoScope::Modules(modules),
+            .map(|(target_backend, scope)| {
+                info_group_from_scope(target_backend, InfoScope::Modules(scope))
             })
             .collect(),
     )
@@ -446,9 +462,25 @@ fn group_info_packages_by_default_target(
     }
     grouped
         .into_iter()
-        .map(|(target_backend, packages)| InfoGroup {
-            target_backend,
-            scope: InfoScope::Packages(packages),
+        .map(|(target_backend, scope)| {
+            info_group_from_scope(target_backend, InfoScope::Packages(scope))
         })
         .collect()
+}
+
+fn info_group_from_scope(target_backend: TargetBackend, scope: InfoScope) -> InfoGroup {
+    let overrides = match scope {
+        InfoScope::Modules(module_scope) => InfoPlanOverrides {
+            module_scope: Some(module_scope),
+            selected_packages: None,
+        },
+        InfoScope::Packages(selected_packages) => InfoPlanOverrides {
+            module_scope: None,
+            selected_packages: Some(selected_packages),
+        },
+    };
+    InfoGroup {
+        target_backend,
+        overrides,
+    }
 }

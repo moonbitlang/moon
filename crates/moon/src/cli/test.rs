@@ -466,6 +466,7 @@ fn run_test_in_single_file_rr(
         &build_meta,
         build_graph,
         filter,
+        true,
     )
 }
 
@@ -706,7 +707,12 @@ pub(crate) fn run_test_or_bench_internal(
             anyhow::bail!("cannot update test on multiple targets");
         }
         let display_backend_hint = if groups.len() > 1 { Some(()) } else { None };
+        let aggregate_build_only_output = cmd.build_only && groups.len() > 1 && !cli.dry_run;
         let mut ret = 0;
+        let mut build_only_artifacts = TestArtifacts {
+            artifacts_path: Vec::new(),
+            test_filter_args: Vec::new(),
+        };
         for group in groups {
             let (build_meta, build_graph, filter) = plan_test_or_bench_rr_from_resolved(
                 cli,
@@ -716,7 +722,8 @@ pub(crate) fn run_test_or_bench_internal(
                 Some(&group.overrides),
                 resolve_output.clone(),
             )?;
-            ret = ret.max(rr_test_from_plan(
+            let filter_for_build_only = aggregate_build_only_output.then(|| filter.clone());
+            let code = rr_test_from_plan(
                 cli,
                 &cmd,
                 source_dir,
@@ -725,7 +732,29 @@ pub(crate) fn run_test_or_bench_internal(
                 &build_meta,
                 build_graph,
                 filter,
-            )?);
+                !aggregate_build_only_output,
+            )?;
+            ret = ret.max(code);
+            if let Some(filter) = filter_for_build_only.as_ref()
+                && code == 0
+            {
+                let group_artifacts = collect_test_artifacts_for_build_only(
+                    &build_meta,
+                    target_dir,
+                    filter,
+                    cmd.include_skipped,
+                    cmd.run_mode == RunMode::Bench,
+                )?;
+                build_only_artifacts
+                    .artifacts_path
+                    .extend(group_artifacts.artifacts_path);
+                build_only_artifacts
+                    .test_filter_args
+                    .extend(group_artifacts.test_filter_args);
+            }
+        }
+        if aggregate_build_only_output && ret == 0 {
+            println!("{}", serde_json_lenient::to_string(&build_only_artifacts)?);
         }
         return Ok(ret);
     }
@@ -779,6 +808,7 @@ fn run_test_rr(
         &build_meta,
         build_graph,
         filter,
+        true,
     )
 }
 
@@ -1258,6 +1288,7 @@ fn rr_test_from_plan(
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
     filter: TestFilter,
+    print_build_only_json: bool,
 ) -> Result<i32, anyhow::Error> {
     // Dry-run: share the same routine
     if cli.dry_run {
@@ -1317,7 +1348,9 @@ fn rr_test_from_plan(
             cmd.include_skipped,
             cmd.run_mode == RunMode::Bench,
         )?;
-        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+        if print_build_only_json {
+            println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+        }
         return Ok(0);
     }
 

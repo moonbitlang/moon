@@ -559,6 +559,21 @@ fn test_conflicting_workspace_preferred_targets_test_validates_package_filters_b
 }
 
 #[test]
+fn test_conflicting_workspace_preferred_targets_build_only_emits_single_json_document() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let test_stdout = get_stdout(&dir, ["test", "--build-only"]);
+    let test_artifacts: serde_json::Value = serde_json::from_str(&test_stdout)
+        .unwrap_or_else(|err| panic!("invalid test --build-only JSON: {err}\n{test_stdout}"));
+    assert_eq!(test_artifacts, serde_json::json!({ "artifacts_path": [] }));
+
+    let bench_stdout = get_stdout(&dir, ["bench", "--build-only"]);
+    let bench_artifacts: serde_json::Value = serde_json::from_str(&bench_stdout)
+        .unwrap_or_else(|err| panic!("invalid bench --build-only JSON: {err}\n{bench_stdout}"));
+    assert_eq!(bench_artifacts, serde_json::json!({ "artifacts_path": [] }));
+}
+
+#[test]
 fn test_workspace_member_run_defaults_to_selected_module_preferred_target() {
     let dir = TestDir::new("workspace_member_preferred_targets.in");
 
