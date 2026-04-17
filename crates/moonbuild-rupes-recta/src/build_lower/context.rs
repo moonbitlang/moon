@@ -21,7 +21,11 @@
 use std::path::PathBuf;
 
 use log::debug;
-use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
+use moonutil::{
+    BINARIES,
+    compiler_flags::CC,
+    mooncakes::{DirSyncResult, result::ResolvedEnv},
+};
 use n2::graph::{Build, Graph as N2Graph};
 use tracing::{Level, instrument};
 
@@ -33,11 +37,11 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, RunBackend},
     pkg_solve::DepRelationship,
 };
-use moonutil::BINARIES;
 
 use super::{
-    BuildOptions, LoweringError,
+    BuildCommand, BuildOptions, LoweringError,
     utils::{build_ins, build_n2_fileloc, build_outs},
+    wrap_with_env_exec,
 };
 
 pub(crate) struct BuildPlanLowerContext<'a> {
@@ -82,6 +86,36 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     pub(super) fn get_package(&self, target: BuildTarget) -> &DiscoveredPackage {
         self.packages.get_package(target.package)
+    }
+
+    pub(super) fn lower_native_command(
+        &self,
+        cc: &CC,
+        commandline: Vec<String>,
+        mut extra_inputs: Vec<PathBuf>,
+    ) -> BuildCommand {
+        // Only the auto-detected default MSVC toolchain carries a scoped env overlay.
+        if cc.auto_msvc_env().is_none() {
+            return BuildCommand {
+                extra_inputs,
+                commandline: commandline.into(),
+            };
+        }
+
+        let Some(env_file) = self.opt.msvc_auto_env_file.as_ref() else {
+            return BuildCommand {
+                extra_inputs,
+                commandline: commandline.into(),
+            };
+        };
+
+        extra_inputs.push(env_file.clone());
+        extra_inputs.push(BINARIES.moonbuild.clone());
+
+        BuildCommand {
+            extra_inputs,
+            commandline: wrap_with_env_exec(commandline, env_file, &BINARIES.moonbuild).into(),
+        }
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]

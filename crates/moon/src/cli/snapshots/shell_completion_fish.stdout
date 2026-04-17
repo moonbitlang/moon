@@ -584,21 +584,22 @@ complete -c moon -n "__fish_moon_using_subcommand version" -l trace -d 'Trace th
 complete -c moon -n "__fish_moon_using_subcommand version" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand version" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand version" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -s q -l quiet -d 'Suppress output'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -s v -l verbose -d 'Increase verbosity'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -l trace -d 'Trace the execution of the program'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -l dry-run -d 'Do not actually run the command'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -l build-graph
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "format-and-diff" -d 'Format the code and print the difference'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "format-workspace"
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "embed"
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "write-tcc-rsp-file"
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "build-binary-dep"
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "demangle" -d 'Demangle MoonBit symbol names'
-complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed write-tcc-rsp-file build-binary-dep demangle help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -s q -l quiet -d 'Suppress output'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -s v -l verbose -d 'Increase verbosity'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -l trace -d 'Trace the execution of the program'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -l dry-run -d 'Do not actually run the command'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -l build-graph
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -s h -l help -d 'Print help'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -f -a "format-and-diff" -d 'Format the code and print the difference'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -f -a "format-workspace"
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -f -a "embed"
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -f -a "env-exec"
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -f -a "write-tcc-rsp-file"
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -f -a "build-binary-dep"
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -f -a "demangle" -d 'Demangle MoonBit symbol names'
+complete -c moon -n "__fish_moon_using_subcommand tool; and not __fish_seen_subcommand_from format-and-diff format-workspace embed env-exec write-tcc-rsp-file build-binary-dep demangle help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l old -d 'The source path of the code which needs to be formatted' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l new -d 'The target path of the formatted code' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
@@ -638,6 +639,15 @@ complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcomma
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from embed" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from embed" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from embed" -s h -l help -d 'Print help'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from env-exec" -l env-file -d 'The serialized environment file to merge into the child process' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from env-exec" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from env-exec" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from env-exec" -s q -l quiet -d 'Suppress output'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from env-exec" -s v -l verbose -d 'Increase verbosity'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from env-exec" -l trace -d 'Trace the execution of the program'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from env-exec" -l dry-run -d 'Do not actually run the command'
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from env-exec" -l build-graph
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from env-exec" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from write-tcc-rsp-file" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from write-tcc-rsp-file" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from write-tcc-rsp-file" -s q -l quiet -d 'Suppress output'
@@ -667,6 +677,7 @@ complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcomma
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "format-and-diff" -d 'Format the code and print the difference'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "format-workspace"
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "embed"
+complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "env-exec"
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "write-tcc-rsp-file"
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "build-binary-dep"
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from help" -f -a "demangle" -d 'Demangle MoonBit symbol names'
@@ -733,6 +744,7 @@ complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcomma
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "format-and-diff" -d 'Format the code and print the difference'
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "format-workspace"
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "embed"
+complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "env-exec"
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "write-tcc-rsp-file"
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "build-binary-dep"
 complete -c moon -n "__fish_moon_using_subcommand help; and __fish_seen_subcommand_from tool" -f -a "demangle" -d 'Demangle MoonBit symbol names'

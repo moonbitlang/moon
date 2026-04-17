@@ -18,7 +18,7 @@
 
 //! Lowers a [Build plan](crate::build_plan) into `n2`'s Build graph
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use log::{debug, info};
@@ -77,6 +77,8 @@ pub struct BuildOptions {
     pub compiler_paths: CompilerPaths,
     /// Preferred default C/C++ toolchain to use (overrides CC::default()).
     pub default_cc: CC,
+    /// Serialized MSVC auto-detected environment shared by wrapped native C commands.
+    pub msvc_auto_env_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -187,6 +189,19 @@ struct BuildCommand {
     commandline: Commandline,
 }
 
+fn wrap_with_env_exec(commandline: Vec<String>, env_file: &Path, moon_bin: &Path) -> Vec<String> {
+    let mut wrapped = vec![
+        moon_bin.display().to_string(),
+        "tool".to_string(),
+        "env-exec".to_string(),
+        "--env-file".to_string(),
+        env_file.display().to_string(),
+        "--".to_string(),
+    ];
+    wrapped.extend(commandline);
+    wrapped
+}
+
 /// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
 #[instrument(skip_all)]
 pub fn lower_build_plan(
@@ -234,4 +249,35 @@ pub fn lower_build_plan(
         build_graph: ctx.graph,
         artifacts: out_artifcts,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::wrap_with_env_exec;
+
+    #[test]
+    fn wrap_with_env_exec_prefixes_helper_command() {
+        let wrapped = wrap_with_env_exec(
+            vec!["cl.exe".into(), "/c".into(), "main.c".into()],
+            Path::new("_build/native/.moon/msvc-auto-env.json"),
+            Path::new("/toolchain/bin/moon"),
+        );
+
+        assert_eq!(
+            wrapped,
+            vec![
+                "/toolchain/bin/moon",
+                "tool",
+                "env-exec",
+                "--env-file",
+                "_build/native/.moon/msvc-auto-env.json",
+                "--",
+                "cl.exe",
+                "/c",
+                "main.c",
+            ]
+        );
+    }
 }

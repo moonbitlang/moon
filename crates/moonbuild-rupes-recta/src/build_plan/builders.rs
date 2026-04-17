@@ -32,7 +32,7 @@ use moonutil::{
         DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOON_BIN_DIR, MOON_MOD_JSON, MOONCAKE_BIN,
         PKG_DIR, TargetBackend, is_moon_pkg, is_moon_script_ignored,
     },
-    compiler_flags::{CC, DETECTED_CC},
+    compiler_flags::CC,
     mooncakes::ModuleId,
     package::SupportedTargetsDeclKind,
 };
@@ -49,7 +49,7 @@ use crate::{
 
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
-    constructor::BuildPlanConstructor,
+    NativeLinkStyle, constructor::BuildPlanConstructor,
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -693,7 +693,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Populate C stub info
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
 
-        let stub_cc = native_config
+        let stub_cc_override = native_config
             .and_then(|native| native.stub_cc.as_ref())
             .map(|s| self.replace_build_vars(target, pkg.module, s))
             .map(|replaced| {
@@ -725,10 +725,14 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        self.propagate_link_config(stub_cc.as_ref(), std::iter::once(target), &mut link_flags);
+        self.propagate_link_config(
+            stub_cc_override.as_ref(),
+            std::iter::once(target),
+            &mut link_flags,
+        );
 
         let c_info = BuildCStubsInfo {
-            stub_cc,
+            stub_cc: stub_cc_override,
             cc_flags,
             link_flags,
         };
@@ -817,7 +821,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Fill auxiliary flags for CC flags
         let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
-        let cc = native_config
+        let cc_override = native_config
             .and_then(|native| native.cc.as_ref())
             .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
@@ -854,11 +858,11 @@ impl<'a> BuildPlanConstructor<'a> {
         if !link_pkgs.contains(&target.package) {
             link_pkgs.push(target.package);
         }
-        self.propagate_link_config(cc.as_ref(), link_pkgs.into_iter(), &mut c_flags);
+        self.propagate_link_config(cc_override.as_ref(), link_pkgs.into_iter(), &mut c_flags);
 
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
-            cc,
+            cc: cc_override,
             c_flags,
         };
         self.res.make_executable_info.insert(target, v);
@@ -1035,14 +1039,18 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Propagate the link configuration of the packages in dependency to the output list
     fn propagate_link_config(
         &self,
-        cc: Option<&CC>,
+        package_cc_override: Option<&CC>,
         pkgs: impl Iterator<Item = PackageId>,
         out: &mut Vec<String>,
     ) {
         let Some(prebuild) = self.prebuild_config else {
             return;
         };
-        let is_msvc_like = cc.unwrap_or(&*DETECTED_CC).is_msvc();
+        let link_style = match package_cc_override {
+            Some(package_cc_override) => NativeLinkStyle::from_cc(package_cc_override),
+            None => self.build_env.default_native_link_style,
+        };
+        let uses_msvc_syntax = link_style.uses_msvc_syntax();
         for pkg in pkgs {
             let Some(link_config) = prebuild.package_configs.get(&pkg) else {
                 continue;
@@ -1057,7 +1065,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
 
             for lib in &link_config.link_libs {
-                if is_msvc_like {
+                if uses_msvc_syntax {
                     out.push(format!("{lib}.lib"));
                 } else {
                     out.push(format!("-l{lib}"));
@@ -1065,7 +1073,7 @@ impl<'a> BuildPlanConstructor<'a> {
             }
 
             for path in &link_config.link_search_paths {
-                if is_msvc_like {
+                if uses_msvc_syntax {
                     out.push(format!("/LIBPATH:{path}"));
                 } else {
                     out.push(format!("-L{path}"));

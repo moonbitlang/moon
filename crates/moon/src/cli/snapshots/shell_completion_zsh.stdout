@@ -1030,6 +1030,23 @@ _arguments "${_arguments_options[@]}" : \
 '--help[Print help]' \
 && ret=0
 ;;
+(env-exec)
+_arguments "${_arguments_options[@]}" : \
+'--env-file=[The serialized environment file to merge into the child process]:PATH:_files' \
+'--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
+'--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
+'-q[Suppress output]' \
+'--quiet[Suppress output]' \
+'-v[Increase verbosity]' \
+'--verbose[Increase verbosity]' \
+'--trace[Trace the execution of the program]' \
+'--dry-run[Do not actually run the command]' \
+'(--dry-run)--build-graph[]' \
+'-h[Print help]' \
+'--help[Print help]' \
+'*::args -- The command to run after applying the detected environment:' \
+&& ret=0
+;;
 (write-tcc-rsp-file)
 _arguments "${_arguments_options[@]}" : \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
@@ -1102,6 +1119,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (embed)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(env-exec)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1398,6 +1419,10 @@ _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
 (embed)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(env-exec)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
@@ -1872,6 +1897,7 @@ _moon__help__tool_commands() {
 'format-and-diff:Format the code and print the difference' \
 'format-workspace:' \
 'embed:' \
+'env-exec:' \
 'write-tcc-rsp-file:' \
 'build-binary-dep:' \
 'demangle:Demangle MoonBit symbol names' \
@@ -1892,6 +1918,11 @@ _moon__help__tool__demangle_commands() {
 _moon__help__tool__embed_commands() {
     local commands; commands=()
     _describe -t commands 'moon help tool embed commands' commands "$@"
+}
+(( $+functions[_moon__help__tool__env-exec_commands] )) ||
+_moon__help__tool__env-exec_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help tool env-exec commands' commands "$@"
 }
 (( $+functions[_moon__help__tool__format-and-diff_commands] )) ||
 _moon__help__tool__format-and-diff_commands() {
@@ -2071,6 +2102,7 @@ _moon__tool_commands() {
 'format-and-diff:Format the code and print the difference' \
 'format-workspace:' \
 'embed:' \
+'env-exec:' \
 'write-tcc-rsp-file:' \
 'build-binary-dep:' \
 'demangle:Demangle MoonBit symbol names' \
@@ -2093,6 +2125,11 @@ _moon__tool__embed_commands() {
     local commands; commands=()
     _describe -t commands 'moon tool embed commands' commands "$@"
 }
+(( $+functions[_moon__tool__env-exec_commands] )) ||
+_moon__tool__env-exec_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool env-exec commands' commands "$@"
+}
 (( $+functions[_moon__tool__format-and-diff_commands] )) ||
 _moon__tool__format-and-diff_commands() {
     local commands; commands=()
@@ -2109,6 +2146,7 @@ _moon__tool__help_commands() {
 'format-and-diff:Format the code and print the difference' \
 'format-workspace:' \
 'embed:' \
+'env-exec:' \
 'write-tcc-rsp-file:' \
 'build-binary-dep:' \
 'demangle:Demangle MoonBit symbol names' \
@@ -2130,6 +2168,11 @@ _moon__tool__help__demangle_commands() {
 _moon__tool__help__embed_commands() {
     local commands; commands=()
     _describe -t commands 'moon tool help embed commands' commands "$@"
+}
+(( $+functions[_moon__tool__help__env-exec_commands] )) ||
+_moon__tool__help__env-exec_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon tool help env-exec commands' commands "$@"
 }
 (( $+functions[_moon__tool__help__format-and-diff_commands] )) ||
 _moon__tool__help__format-and-diff_commands() {
