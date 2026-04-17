@@ -736,6 +736,7 @@ fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
             Err(e) => {
                 debug!(
                     err = %e,
+                    code = ?e.raw_os_error(),
                     "FileRenameInfoEx rejected, falling through to persist"
                 );
             }
@@ -783,7 +784,51 @@ mod windows {
     /// On older Windows this returns `ERROR_INVALID_PARAMETER` because
     /// the `FileRenameInfoEx` info class isn't recognized; the caller
     /// falls back to the manual rename-away pattern.
+    ///
+    /// Windows Defender and similar real-time scanners routinely open
+    /// recently-touched executables for inspection without granting
+    /// `FILE_SHARE_DELETE`, causing transient `ERROR_ACCESS_DENIED`
+    /// when we try to replace `dst`. We retry a few times with short
+    /// backoff to ride out the scan window; if it still fails, the
+    /// caller falls through to the legacy path.
     pub fn posix_replace(src: &Path, dst: &Path) -> std::io::Result<()> {
+        // Short backoffs tuned for AV-scan windows (typically < 100ms).
+        const RETRY_DELAYS_MS: &[u64] = &[25, 75, 200];
+
+        let mut last_err = None;
+        for (attempt, &delay_ms) in std::iter::once(&0u64)
+            .chain(RETRY_DELAYS_MS.iter())
+            .enumerate()
+        {
+            if delay_ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            }
+            match posix_replace_once(src, dst) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    // Only retry transient sharing-violation-class errors.
+                    // Other errors (INVALID_PARAMETER on old Windows,
+                    // DISK_FULL, etc.) won't recover from a retry.
+                    let code = e.raw_os_error();
+                    let transient = matches!(code, Some(5 | 32 | 33));
+                    if !transient || attempt == RETRY_DELAYS_MS.len() {
+                        return Err(e);
+                    }
+                    tracing::debug!(
+                        attempt = attempt + 1,
+                        code = ?code,
+                        "posix_replace transient error, retrying"
+                    );
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::Other, "posix_replace retry loop exited unexpectedly")
+        }))
+    }
+
+    fn posix_replace_once(src: &Path, dst: &Path) -> std::io::Result<()> {
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
         use windows_sys::Win32::Storage::FileSystem::{
@@ -791,11 +836,13 @@ mod windows {
             FileRenameInfoEx, OPEN_EXISTING, SetFileInformationByHandle,
         };
 
+        // Some Windows builds are picky about DELETE alone on a
+        // synchronous handle — request SYNCHRONIZE explicitly even
+        // though it's normally implicit for non-overlapped opens.
+        const SYNCHRONIZE: u32 = 0x0010_0000;
         const FILE_RENAME_FLAG_REPLACE_IF_EXISTS: u32 = 0x1;
         const FILE_RENAME_FLAG_POSIX_SEMANTICS: u32 = 0x2;
 
-        // Open `src` with `DELETE` access (required to rename it).
-        // Grant full share modes so concurrent readers don't trip us.
         let src_wide: Vec<u16> = src
             .as_os_str()
             .encode_wide()
@@ -805,7 +852,7 @@ mod windows {
         let handle = unsafe {
             CreateFileW(
                 src_wide.as_ptr(),
-                DELETE,
+                DELETE | SYNCHRONIZE,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                 std::ptr::null(),
                 OPEN_EXISTING,
