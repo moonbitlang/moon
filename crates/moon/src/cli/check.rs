@@ -598,6 +598,7 @@ fn run_check_normal_internal_rr(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_check_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -682,6 +683,7 @@ fn calc_user_intent_from_package_path(
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     paths: &[PathBuf],

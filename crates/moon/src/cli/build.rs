@@ -459,10 +459,7 @@ fn resolve_build_groups(
             package_filter,
             output,
         );
-        return Ok(group_packages_by_default_target(
-            resolve_output,
-            pkgs.into_iter(),
-        ));
+        return Ok(group_packages_by_default_target(resolve_output, pkgs));
     }
 
     Ok(
