@@ -2214,11 +2214,12 @@ fn test_strip_debug() {
 #[test]
 fn test_diff_mbti() {
     let dir = TestDir::new("diff_mbti.in");
-    let content = get_err_stdout(&dir, ["info", "--target", "all"]);
+    let content = get_stdout(&dir, ["info", "--target", "all"]);
     assert!(content.contains("$ROOT/_build/wasm-gc/debug/check/lib/lib.mbti"));
     assert!(content.contains("$ROOT/_build/js/debug/check/lib/lib.mbti"));
     assert!(content.contains("-pub fn aaa() -> String"));
     assert!(content.contains("+pub fn a() -> String"));
+    assert!(dir.join("src/lib").join(MBTI_GENERATED).exists());
 }
 
 #[test]

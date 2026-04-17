@@ -174,34 +174,30 @@ fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode()
 fn test_mixed_backend_run_info_bundle_are_target_aware() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
-    get_stdout(&dir, ["info", "--target", "js"]);
-    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
-    assert!(dir.join("web").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
-
-    for pkg in ["shared", "web", "server"] {
-        let path = dir.join(pkg).join(MBTI_GENERATED);
-        if path.exists() {
-            std::fs::remove_file(path).unwrap();
-        }
-    }
-
-    get_stdout(&dir, ["info", "--target", "native"]);
-    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
-    assert!(dir.join("server").join(MBTI_GENERATED).exists());
+    let info_js = get_stdout(&dir, ["info", "--target", "js"]);
+    assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
     assert!(!dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(info_js.contains("Package mixed/localdep/shared has no canonical interface"));
+    assert!(info_js.contains("pub fn shared_banner() -> String"));
+    assert!(info_js.contains("pub fn web_banner() -> String"));
 
-    for pkg in ["shared", "web", "server"] {
-        let path = dir.join(pkg).join(MBTI_GENERATED);
-        if path.exists() {
-            std::fs::remove_file(path).unwrap();
-        }
-    }
+    let info_native = get_stdout(&dir, ["info", "--target", "native"]);
+    assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(info_native.contains("Package mixed/localdep/shared has no canonical interface"));
+    assert!(info_native.contains("pub fn shared_banner() -> String"));
+    assert!(info_native.contains("pub fn server_banner() -> String"));
 
-    get_stdout(&dir, ["info", "--target", "js,native"]);
-    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
-    assert!(dir.join("web").join(MBTI_GENERATED).exists());
-    assert!(dir.join("server").join(MBTI_GENERATED).exists());
+    let info_both = get_stdout(&dir, ["info", "--target", "js,native"]);
+    assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(info_both.contains("Package mixed/localdep/shared has no canonical interface"));
+    assert!(info_both.contains("pub fn shared_banner() -> String"));
+    assert!(info_both.contains("pub fn web_banner() -> String"));
+    assert!(info_both.contains("pub fn server_banner() -> String"));
 
     let bundle_js = get_stdout(
         &dir,
@@ -460,21 +456,21 @@ fn test_conflicting_workspace_preferred_targets_default_to_wasm_gc_across_comman
 }
 
 #[test]
-fn test_conflicting_workspace_preferred_targets_info_defaults_to_wasm_gc() {
+fn test_conflicting_workspace_preferred_targets_info_uses_module_preferred_targets() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
     let stderr = get_stderr(&dir, ["info"]);
-    assert_preferred_target_conflict_warning(&stderr);
+    assert!(
+        !stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {stderr}"
+    );
 
     let js_mbti =
         std::fs::read_to_string(dir.join("js_preferred/src/lib").join(MBTI_GENERATED)).unwrap();
     assert_contains_and_absent(
         &js_mbti,
-        &[
-            "pub fn js_value() -> Int",
-            "pub fn js_wasm_gc_extra() -> Int",
-        ],
-        &["js_extra", "native_extra", "native_wasm_gc_extra"],
+        &["pub fn js_value() -> Int", "pub fn js_extra() -> Int"],
+        &["js_wasm_gc_extra", "native_extra", "native_wasm_gc_extra"],
     );
 
     let native_mbti =
@@ -483,8 +479,8 @@ fn test_conflicting_workspace_preferred_targets_info_defaults_to_wasm_gc() {
         &native_mbti,
         &[
             "pub fn native_value() -> Int",
-            "pub fn native_wasm_gc_extra() -> Int",
+            "pub fn native_extra() -> Int",
         ],
-        &["native_extra", "js_extra", "js_wasm_gc_extra"],
+        &["native_wasm_gc_extra", "js_extra", "js_wasm_gc_extra"],
     );
 }
