@@ -27,8 +27,8 @@ use moonutil::{
     common::RunMode,
     compiler_flags::{
         ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
-        OutputType as CCOutputType, make_archiver_command, make_cc_command, make_cc_command_pure,
-        make_linker_command_pure, resolve_cc,
+        OutputType as CCOutputType, make_archiver_command_pure, make_cc_command_pure,
+        make_linker_command_pure,
     },
     cond_expr::OptLevel,
     mooncakes::{CORE_MODULE, ModuleId},
@@ -817,14 +817,15 @@ impl<'a> BuildPlanLowerContext<'a> {
             .display()
             .to_string();
 
-        let cc_cmd = make_cc_command(
-            self.opt.default_cc.clone(),
-            info.stub_cc.clone(),
+        let cc = info.effective_native_toolchain.cc().clone();
+        let cc_cmd = make_cc_command_pure(
+            cc,
             config,
             &info.cc_flags,
             [input_file.display().to_string()],
             &intermediate_dir,
-            &output_file.display().to_string(),
+            Some(&output_file.display().to_string()),
+            &self.opt.compiler_paths,
         );
 
         BuildCommand {
@@ -887,9 +888,9 @@ impl<'a> BuildPlanLowerContext<'a> {
             .build()
             .expect("Failed to build archiver configuration");
 
-        let archiver_cmd = make_archiver_command(
-            self.opt.default_cc.clone(),
-            info.stub_cc.clone(), // TODO: no clone
+        let cc = info.effective_native_toolchain.cc().clone();
+        let archiver_cmd = make_archiver_command_pure(
+            cc,
             config,
             &object_files
                 .iter()
@@ -932,8 +933,8 @@ impl<'a> BuildPlanLowerContext<'a> {
             .parent()
             .expect("runtime dylib should have a parent directory");
 
-        // Resolve CC: prefer stub_cc if provided, otherwise use default.
-        let cc = resolve_cc(&self.opt.default_cc, info.stub_cc.as_ref());
+        // Use the effective toolchain (already resolved at planning time)
+        let cc = info.effective_native_toolchain.cc().clone();
 
         // Build linker config: shared lib, no libmoonbitrun, and link shared runtime dir
         let lcfg = LinkerConfigBuilder::<&Path>::default()
@@ -1068,8 +1069,9 @@ impl<'a> BuildPlanLowerContext<'a> {
             c_flags.push(libbacktrace_path.display().to_string());
         }
 
+        let cc = info.effective_native_toolchain.cc().clone();
         let cc_cmd = make_cc_command_pure(
-            resolve_cc(&self.opt.default_cc, info.cc.as_ref()),
+            cc,
             config,
             &c_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             sources.iter().map(|x| x.display().to_string()),

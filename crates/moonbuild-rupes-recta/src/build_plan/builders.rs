@@ -32,7 +32,7 @@ use moonutil::{
         DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOON_BIN_DIR, MOON_MOD_JSON, MOONCAKE_BIN,
         PKG_DIR, TargetBackend, is_moon_pkg, is_moon_script_ignored,
     },
-    compiler_flags::{CC, DETECTED_CC},
+    compiler_flags::{CC, Toolchain},
     mooncakes::ModuleId,
     package::SupportedTargetsDeclKind,
 };
@@ -725,10 +725,19 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        self.propagate_link_config(stub_cc.as_ref(), std::iter::once(target), &mut link_flags);
+        let effective_native_toolchain = self
+            .build_env
+            .selected_native_toolchain
+            .with_package_override(stub_cc.as_ref());
+
+        self.propagate_link_config(
+            &effective_native_toolchain,
+            std::iter::once(target),
+            &mut link_flags,
+        );
 
         let c_info = BuildCStubsInfo {
-            stub_cc,
+            effective_native_toolchain,
             cc_flags,
             link_flags,
         };
@@ -854,11 +863,21 @@ impl<'a> BuildPlanConstructor<'a> {
         if !link_pkgs.contains(&target.package) {
             link_pkgs.push(target.package);
         }
-        self.propagate_link_config(cc.as_ref(), link_pkgs.into_iter(), &mut c_flags);
+
+        let effective_native_toolchain = self
+            .build_env
+            .selected_native_toolchain
+            .with_package_override(cc.as_ref());
+
+        self.propagate_link_config(
+            &effective_native_toolchain,
+            link_pkgs.into_iter(),
+            &mut c_flags,
+        );
 
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
-            cc,
+            effective_native_toolchain,
             c_flags,
         };
         self.res.make_executable_info.insert(target, v);
@@ -1035,14 +1054,14 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Propagate the link configuration of the packages in dependency to the output list
     fn propagate_link_config(
         &self,
-        cc: Option<&CC>,
+        toolchain: &Toolchain,
         pkgs: impl Iterator<Item = PackageId>,
         out: &mut Vec<String>,
     ) {
         let Some(prebuild) = self.prebuild_config else {
             return;
         };
-        let is_msvc_like = cc.unwrap_or(&*DETECTED_CC).is_msvc();
+        let is_msvc_like = toolchain.cc().is_msvc();
         for pkg in pkgs {
             let Some(link_config) = prebuild.package_configs.get(&pkg) else {
                 continue;

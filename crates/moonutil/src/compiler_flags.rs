@@ -30,7 +30,7 @@ use std::{
 const ENV_MOON_CC: &str = "MOON_CC";
 const ENV_MOON_AR: &str = "MOON_AR";
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum CCKind {
     Msvc,     // cl.exe
     SystemCC, // cc
@@ -39,7 +39,7 @@ pub enum CCKind {
     Tcc,      // tcc
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum ARKind {
     MsvcLib, // lib.exe
     GnuAr,   // ar
@@ -47,7 +47,7 @@ pub enum ARKind {
     TccAr,   // tcc -ar
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CC {
     pub cc_kind: CCKind,
     pub cc_path: String,
@@ -60,6 +60,76 @@ pub struct CC {
 impl Default for CC {
     fn default() -> Self {
         NATIVE_CC().clone()
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ToolchainSource {
+    EnvOverride,
+    PathProbe,
+    PackageOverride,
+}
+
+#[derive(Clone, Debug)]
+pub struct Toolchain {
+    cc: CC,
+    source: ToolchainSource,
+}
+
+impl Toolchain {
+    pub fn from_env_override(cc: CC) -> Self {
+        Self {
+            cc,
+            source: ToolchainSource::EnvOverride,
+        }
+    }
+
+    pub fn from_path_probe(cc: CC) -> Self {
+        Self {
+            cc,
+            source: ToolchainSource::PathProbe,
+        }
+    }
+
+    pub fn from_package_override(cc: CC) -> Self {
+        Self {
+            cc,
+            source: ToolchainSource::PackageOverride,
+        }
+    }
+
+    pub fn from_cc(cc: CC) -> Self {
+        if cc.is_env_override {
+            Toolchain::from_env_override(cc)
+        } else {
+            Toolchain::from_path_probe(cc)
+        }
+    }
+
+    pub fn cc(&self) -> &CC {
+        &self.cc
+    }
+
+    pub fn source(&self) -> ToolchainSource {
+        self.source
+    }
+
+    pub fn with_package_override(&self, package_cc: Option<&CC>) -> Toolchain {
+        match (self.source, package_cc) {
+            (ToolchainSource::EnvOverride, Some(_)) => {
+                static WARN_ONCE: std::sync::Once = std::sync::Once::new();
+                WARN_ONCE.call_once(|| {
+                    eprintln!(
+                        "{}: Both MOON_CC environment variable and user-specified CC are provided. \
+                        MOON_CC takes precedence.",
+                        "Warning".yellow().bold(),
+                    );
+                });
+                self.clone()
+            }
+            (ToolchainSource::EnvOverride, None) | (_, None) => self.clone(),
+            (_, Some(package_cc)) => Toolchain::from_package_override(package_cc.clone()),
+        }
     }
 }
 

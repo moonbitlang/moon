@@ -52,7 +52,7 @@ use std::{
 use log::{debug, info};
 use moonutil::{
     common::{RunMode, TargetBackend},
-    compiler_flags::CC,
+    compiler_flags::Toolchain,
     cond_expr::OptLevel,
     mooncakes::ModuleId,
 };
@@ -289,8 +289,8 @@ pub struct LinkCoreInfo {
 }
 
 pub struct BuildCStubsInfo {
-    /// The C compiler to compile the C stubs
-    pub(crate) stub_cc: Option<CC>,
+    /// The effective native toolchain for compiling the C stubs
+    pub(crate) effective_native_toolchain: Toolchain,
     /// Additional flags to pass to the C compiler when compiling the C stubs
     pub(crate) cc_flags: Vec<String>,
     /// Additional flags to pass to the linker (TCC only)
@@ -299,8 +299,8 @@ pub struct BuildCStubsInfo {
 }
 
 pub struct MakeExecutableInfo {
-    /// The C compiler to use to compile the package itself
-    pub(crate) cc: Option<CC>,
+    /// The effective native toolchain for this executable step
+    pub(crate) effective_native_toolchain: Toolchain,
     /// The flags to pass to the C compiler when compiling the package itself
     pub(crate) c_flags: Vec<String>,
     /// The C stub targets to link with.
@@ -332,7 +332,8 @@ pub struct BuildEnvironment {
     pub std: bool,
     /// Commandline_level warnings to enable/disable
     pub warn_list: Option<String>,
-    // Can have more, e.g. cross compile
+    /// Selected native toolchain for this invocation.
+    pub selected_native_toolchain: Toolchain,
 }
 
 /// Directives provided along the input actions.
