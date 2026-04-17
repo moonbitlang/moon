@@ -634,6 +634,15 @@ fn build_and_install_packages(
 /// Copy `src` onto `dst` by writing to a sibling tempfile and atomically
 /// renaming it into place.
 ///
+/// The tempfile is created *inside* `install_dir` (a sibling of `dst`)
+/// rather than renaming `src` straight to `dst`, because `src` lives
+/// under the build tree and may sit on a different filesystem from
+/// `install_dir` — think external drives, network mounts, or a
+/// tmpfs-backed target dir. A cross-filesystem rename fails with
+/// `EXDEV` on Unix / `ERROR_NOT_SAME_DEVICE` on Windows; copying the
+/// bytes first guarantees the final rename is same-filesystem and
+/// therefore atomic.
+///
 /// Overwriting the destination with `fs::copy` would truncate it via
 /// `O_TRUNC`; on macOS the kernel SIGKILLs any process that re-execs the
 /// modified inode because the code-signature cache no longer matches the
