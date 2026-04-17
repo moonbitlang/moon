@@ -18,7 +18,6 @@
 
 use anyhow::{Context, bail};
 use colored::Colorize;
-use tracing::debug;
 use moonbuild_rupes_recta::{
     ResolveConfig,
     intent::UserIntent,
@@ -32,6 +31,7 @@ use moonutil::{
 };
 use semver::Version;
 use std::path::{Path, PathBuf};
+use tracing::debug;
 
 use crate::{
     cli::BuildFlags,
@@ -756,9 +756,8 @@ fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
             windows::rename_away_and_persist(err.path, dst)
         }
         #[cfg(not(windows))]
-        Err(err) => Err(err.error).with_context(|| {
-            format!("Failed to install binary to `{}`", dst.display())
-        }),
+        Err(err) => Err(err.error)
+            .with_context(|| format!("Failed to install binary to `{}`", dst.display())),
     }
 }
 
@@ -837,11 +836,9 @@ mod windows {
         buffer[0..4].copy_from_slice(&flags.to_le_bytes());
         // RootDirectory stays zero (null).
         let name_len_offset = HEADER_SIZE - 4;
-        buffer[name_len_offset..HEADER_SIZE]
-            .copy_from_slice(&(name_byte_len as u32).to_le_bytes());
+        buffer[name_len_offset..HEADER_SIZE].copy_from_slice(&(name_byte_len as u32).to_le_bytes());
         for (i, &wc) in dst_wide.iter().enumerate() {
-            buffer[HEADER_SIZE + i * 2..HEADER_SIZE + i * 2 + 2]
-                .copy_from_slice(&wc.to_le_bytes());
+            buffer[HEADER_SIZE + i * 2..HEADER_SIZE + i * 2 + 2].copy_from_slice(&wc.to_le_bytes());
         }
 
         let ok = unsafe {
@@ -862,10 +859,7 @@ mod windows {
         }
     }
 
-    pub fn rename_away_and_persist(
-        tmp: tempfile::TempPath,
-        dst: &Path,
-    ) -> anyhow::Result<()> {
+    pub fn rename_away_and_persist(tmp: tempfile::TempPath, dst: &Path) -> anyhow::Result<()> {
         let backup = backup_path_for(dst);
         tracing::debug!(
             dst = %dst.display(),
@@ -874,19 +868,15 @@ mod windows {
         );
 
         std::fs::rename(dst, &backup).with_context(|| {
-            format!(
-                "Failed to rename running binary `{}` aside",
-                dst.display()
-            )
+            format!("Failed to rename running binary `{}` aside", dst.display())
         })?;
 
         if let Err(err) = tmp.persist(dst) {
             // Second rename failed for an unexpected reason — put the
             // original back so the user isn't left without a binary.
             let _ = std::fs::rename(&backup, dst);
-            return Err(err.error).with_context(|| {
-                format!("Failed to place new binary at `{}`", dst.display())
-            });
+            return Err(err.error)
+                .with_context(|| format!("Failed to place new binary at `{}`", dst.display()));
         }
 
         cleanup_backup(&backup);
