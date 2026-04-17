@@ -38,11 +38,23 @@ A workspace manifest defines:
 - `members`
   - the module directories contained by the workspace
 - `preferred_target`
-  - an optional default backend for the workspace
+  - an optional workspace-wide default backend
 
 Workspace members are canonicalized relative to the workspace root and deduped.
 
 The workspace root may or may not also contain a `moon.mod.json`.
+
+## Default Backend Resolution
+
+When a command needs a backend target, Moon resolves it in this order:
+
+1. explicit `--target`
+2. workspace `preferred_target`, if present
+3. the selected module's `preferred-target`
+4. `wasm-gc`
+
+If `moon.work` omits `preferred_target`, different workspace members may still
+resolve to different default backends.
 
 ## Selection Result
 
@@ -86,6 +98,8 @@ Representative examples:
 - `moon build`
 - `moon check`
 - `moon test`
+- `moon bench`
+- `moon bundle`
 - `moon fmt`
 - `moon info`
 
@@ -100,6 +114,20 @@ the whole workspace. They can be run from:
 
 They do not need an implicit default member.
 
+For project-scoped commands that consume a backend (`build`, `check`, `test`,
+`bench`, `bundle`, `info`):
+
+- with explicit `--target`, Moon keeps the existing single-backend behavior
+- without `--target`, Moon uses the workspace default rules above
+- if local modules resolve to different default backends, Moon runs one
+  backend-specific subplan per group instead of warning and falling back to
+  `wasm-gc`
+- explicit package/path filters are grouped by the owning module in the same
+  way
+
+`moon test --update` still requires one backend and errors if the default
+grouping would span multiple backends.
+
 ### Member-Scoped Commands
 
 These commands need one concrete module even when the selected project is a
@@ -107,6 +135,7 @@ workspace.
 
 Current examples:
 
+- `moon run`
 - `moon add`
 - `moon remove`
 - `moon tree`
@@ -123,16 +152,20 @@ These commands are still workspace-aware:
 
 But they are not workspace-wide commands.
 
-At a workspace root, they fail unless Moon can determine a member module from
-context. In practice, that means:
+When these commands omit `--target`, Moon uses the selected member module's
+effective default backend.
 
-- running them directly at the workspace root is not supported
+At a workspace root, they fail unless Moon can determine a member module from
+context or from the command input. In practice, that means:
+
+- `moon run` can infer the member from its required package/path selector
 - running them from a member directory is supported
 - passing `--manifest-path <member>/moon.mod.json` is supported
 
-This is why `publish`, `package`, `doc`, and `prove` only work for one selected
-module at a time today. There is no "publish the whole workspace" or "generate
-docs for the whole workspace" mode in the current design.
+This is why `run`, `publish`, `package`, `doc`, and `prove` only work for one
+selected module at a time today. There is no "publish the whole workspace",
+"generate docs for the whole workspace", or "run the whole workspace" mode in
+the current design.
 
 ### Workspace Maintenance Commands
 
@@ -164,7 +197,12 @@ The current design supports:
 - workspace roots that also contain `moon.mod.json`
 - selecting a member module from inside the member directory
 - selecting a member module with `--manifest-path <member>/moon.mod.json`
-- whole-workspace `build` / `check` / `test` / `fmt` / `info`
+- whole-workspace `build` / `check` / `test` / `bench` / `bundle` / `fmt` /
+  `info`
+- no-`--target` project-scoped execution in mixed-default workspaces by running
+  one backend-specific subplan per effective default backend
+- `run` selecting a workspace member from its package/path input while still
+  using workspace-local dependency resolution
 - member-scoped `package` / `publish` / `doc` / `prove` while still using
   workspace-local dependency resolution
 - nested discovery from non-module directories inside a workspace
@@ -324,7 +362,8 @@ selection.
 
 | Start point / flags | Result |
 | --- | --- |
-| workspace root + `build` / `check` / `test` / `fmt` / `info` | operate on the whole workspace |
+| workspace root + `build` / `check` / `test` / `bench` / `bundle` / `fmt` / `info` | operate on the whole workspace; without `--target`, backend-consuming commands may run one plan per effective default backend |
+| workspace root + `run <selector>` | select the member from the selector and use that member's effective default backend when `--target` is omitted |
 | workspace root + `add` / `remove` / `tree` / `package` / `publish` / `doc` / `prove` | error: no target member can be inferred |
 | member directory + member-scoped command | target that member and keep workspace context |
 | `--manifest-path app/moon.mod.json` | start from `app`, then allow workspace promotion |

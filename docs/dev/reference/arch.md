@@ -140,7 +140,9 @@ explicit workspace root via `moon.work`, following the same discovery precedence
 The workspace manifest is intentionally small. `moon.work` currently supports:
 
 - `members = ["./app", "./lib"]` to list workspace roots.
-- `preferred_target = "wasm-gc"` to set the preferred default target for the workspace.
+- `preferred_target = "wasm-gc"` to set a workspace-wide default target. When it is omitted,
+  commands without `--target` fall back to each member module's `preferred-target`, then
+  to `wasm-gc`.
 
 When Moon writes `use` entries, relative paths are normalized with `/` separators. Absolute paths
 are kept as absolute OS-specific paths and are not made portable.

@@ -123,66 +123,84 @@ pub(crate) fn run_bundle_internal_rr(
     project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    let mut preconfig = rr_build::preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &cmd.build_flags,
-        selected_target_backend,
-        target_dir,
-        RunMode::Bundle,
-    );
-
-    // Allow warn in `moon bundle`, different from other run modes, to reduce
-    // commandline clutter on installation
-    preconfig.warning_condition = if cmd.build_flags.deny_warn {
-        WarningCondition::Deny
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+    )
+    .with_project_manifest_path(project_manifest_path);
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
+    let groups = if let Some(target_backend) = selected_target_backend {
+        vec![(target_backend, resolve_output.local_modules().to_vec())]
     } else {
-        WarningCondition::Allow
+        rr_build::group_modules_by_default_target(&resolve_output, resolve_output.local_modules())
     };
 
-    let (build_meta, build_graph) = rr_build::plan_build(
-        preconfig,
-        &cli.unstable_feature,
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        UserDiagnostics::from_flags(cli),
-        project_manifest_path,
-        Box::new(|r, _tb| {
-            Ok(r.local_modules()
-                .iter()
-                .map(|&mid| UserIntent::Bundle(mid))
-                .collect::<Vec<_>>()
-                .into())
-        }),
-    )?;
+    let mut planned = Vec::new();
+    for (target_backend, module_scope) in groups {
+        let mut preconfig = rr_build::preconfig_compile(
+            &cmd.auto_sync_flags,
+            cli,
+            &cmd.build_flags,
+            Some(target_backend),
+            target_dir,
+            RunMode::Bundle,
+        );
+        preconfig.warning_condition = if cmd.build_flags.deny_warn {
+            WarningCondition::Deny
+        } else {
+            WarningCondition::Allow
+        };
+
+        let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+            preconfig,
+            &cli.unstable_feature,
+            target_dir,
+            UserDiagnostics::from_flags(cli),
+            Box::new(move |_, _tb| {
+                Ok(module_scope
+                    .iter()
+                    .map(|&mid| UserIntent::Bundle(mid))
+                    .collect::<Vec<_>>()
+                    .into())
+            }),
+            resolve_output.clone(),
+        )?;
+        planned.push((build_meta, build_graph));
+    }
 
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
+        for (build_meta, build_graph) in &planned {
+            rr_build::print_dry_run(
+                build_graph,
+                build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            );
+        }
         Ok(0)
     } else {
         let _lock = FileLock::lock(target_dir)?;
-        // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Bundle)?;
-        // Generate metadata for IDE & bundler
-        rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Bundle, None)?;
-
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(
-                &cmd.build_flags,
-                &cli.unstable_feature,
-                cli.verbose,
-                UserDiagnostics::from_flags(cli),
-            ),
-            build_graph,
-            target_dir,
-        )?;
-        result.print_info(cli.quiet, "bundling")?;
-        Ok(result.return_code_for_success())
+        let build_config = BuildConfig::from_flags(
+            &cmd.build_flags,
+            &cli.unstable_feature,
+            cli.verbose,
+            UserDiagnostics::from_flags(cli),
+        );
+        let mut ret = 0;
+        for (build_meta, build_graph) in planned {
+            rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Bundle)?;
+            rr_build::generate_metadata(
+                source_dir,
+                target_dir,
+                &build_meta,
+                RunMode::Bundle,
+                None,
+            )?;
+            let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
+            result.print_info(cli.quiet, "bundling")?;
+            ret = ret.max(result.return_code_for_success());
+        }
+        Ok(ret)
     }
 }

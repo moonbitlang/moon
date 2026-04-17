@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::Context;
+use moonbuild::entry::N2RunStats;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::common::FileLock;
@@ -24,13 +25,14 @@ use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
 use moonutil::common::lower_surface_targets;
 use moonutil::dirs::PackageDirs;
+use moonutil::mooncakes::ModuleId;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
     ensure_packages_support_backend, match_packages_by_name_rr, package_supports_backend,
-    select_supported_packages,
+    select_packages, select_supported_packages,
 };
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
@@ -42,6 +44,16 @@ use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_pa
 use crate::watch::watching;
 
 use super::{BuildFlags, UniversalFlags};
+
+enum BuildScope {
+    Modules(Vec<ModuleId>),
+    Packages(Vec<PackageId>),
+}
+
+struct BuildGroup {
+    target_backend: TargetBackend,
+    scope: BuildScope,
+}
 
 /// Build the current package
 #[derive(Debug, clap::Parser)]
@@ -157,50 +169,137 @@ fn run_build_rr(
     )
     .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
-    let (build_meta, build_graph) = plan_build_rr_from_resolved(
-        cli,
-        cmd,
-        target_dir,
-        selected_target_backend,
-        resolve_output,
-    )?;
+    if let Some(target_backend) = selected_target_backend {
+        let (build_meta, build_graph) = plan_build_rr_from_resolved(
+            cli,
+            cmd,
+            target_dir,
+            Some(target_backend),
+            None,
+            None,
+            resolve_output,
+        )?;
 
-    // Prepare for `watch` mode
-    let prebuild_list = if _watch {
-        rr_get_prebuild_watch_paths(&build_meta.resolve_output)
-    } else {
-        PrebuildWatchPaths {
-            ignored_paths: Vec::new(),
-            watched_paths: Vec::new(),
-        }
+        let prebuild_list = if _watch {
+            rr_get_prebuild_watch_paths(&build_meta.resolve_output)
+        } else {
+            PrebuildWatchPaths {
+                ignored_paths: Vec::new(),
+                watched_paths: Vec::new(),
+            }
+        };
+
+        let ok = if cli.dry_run {
+            rr_build::print_dry_run(
+                &build_graph,
+                build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            );
+            true
+        } else {
+            let _lock = FileLock::lock(target_dir)?;
+            rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Build)?;
+            let result = rr_build::execute_build(
+                &BuildConfig::from_flags(
+                    &cmd.build_flags,
+                    &cli.unstable_feature,
+                    cli.verbose,
+                    UserDiagnostics::from_flags(cli),
+                ),
+                build_graph,
+                target_dir,
+            )?;
+            result.print_info(cli.quiet, "building")?;
+            result.successful()
+        };
+        return Ok(WatchOutput {
+            ok,
+            additional_ignored_paths: prebuild_list.ignored_paths,
+            additional_watched_paths: prebuild_list.watched_paths,
+        });
+    }
+
+    let groups = resolve_build_groups(&resolve_output, cmd, UserDiagnostics::from_flags(cli))?;
+
+    let mut prebuild_list = PrebuildWatchPaths {
+        ignored_paths: Vec::new(),
+        watched_paths: Vec::new(),
     };
+    let mut planned = Vec::new();
+
+    for group in groups {
+        let module_scope = match &group.scope {
+            BuildScope::Modules(modules) => Some(modules.as_slice()),
+            BuildScope::Packages(_) => None,
+        };
+        let selected_packages = match &group.scope {
+            BuildScope::Modules(_) => None,
+            BuildScope::Packages(packages) => Some(packages.as_slice()),
+        };
+        let (build_meta, build_graph) = plan_build_rr_from_resolved(
+            cli,
+            cmd,
+            target_dir,
+            Some(group.target_backend),
+            module_scope,
+            selected_packages,
+            resolve_output.clone(),
+        )?;
+        if _watch {
+            let group_paths = rr_get_prebuild_watch_paths(&build_meta.resolve_output);
+            prebuild_list
+                .ignored_paths
+                .extend(group_paths.ignored_paths);
+            prebuild_list
+                .watched_paths
+                .extend(group_paths.watched_paths);
+        }
+        planned.push((build_meta, build_graph));
+    }
+
+    if planned.is_empty() {
+        if !cli.dry_run {
+            N2RunStats {
+                n_tasks_executed: Some(0),
+                n_errors: 0,
+                n_warnings: 0,
+            }
+            .print_info(cli.quiet, "building")?;
+        }
+        return Ok(WatchOutput {
+            ok: true,
+            additional_ignored_paths: prebuild_list.ignored_paths,
+            additional_watched_paths: prebuild_list.watched_paths,
+        });
+    }
 
     let ok = if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
+        for (build_meta, build_graph) in &planned {
+            rr_build::print_dry_run(
+                build_graph,
+                build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            );
+        }
         true
     } else {
         let _lock = FileLock::lock(target_dir)?;
-        // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Build)?;
-
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(
-                &cmd.build_flags,
-                &cli.unstable_feature,
-                cli.verbose,
-                UserDiagnostics::from_flags(cli),
-            ),
-            build_graph,
-            target_dir,
-        )?;
-        result.print_info(cli.quiet, "building")?;
-
-        result.successful()
+        let build_config = BuildConfig::from_flags(
+            &cmd.build_flags,
+            &cli.unstable_feature,
+            cli.verbose,
+            UserDiagnostics::from_flags(cli),
+        );
+        let mut ok = true;
+        for (build_meta, build_graph) in planned {
+            rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Build)?;
+            let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
+            result.print_info(cli.quiet, "building")?;
+            ok &= result.successful();
+        }
+        ok
     };
     Ok(WatchOutput {
         ok,
@@ -214,6 +313,8 @@ pub(crate) fn plan_build_rr_from_resolved(
     cmd: &BuildSubcommand,
     target_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
+    module_scope: Option<&[ModuleId]>,
+    selected_packages: Option<&[PackageId]>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = preconfig_compile(
@@ -235,6 +336,8 @@ pub(crate) fn plan_build_rr_from_resolved(
             calc_user_intent(
                 &cmd.path,
                 cmd.package.as_deref(),
+                module_scope.unwrap_or(resolved.local_modules()),
+                selected_packages,
                 resolved,
                 target_backend,
                 output,
@@ -251,11 +354,25 @@ pub(crate) fn plan_build_rr_from_resolved(
 fn calc_user_intent(
     path_filters: &[PathBuf],
     package_filter: Option<&str>,
+    module_scope: &[ModuleId],
+    selected_packages: Option<&[PackageId]>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
     output: UserDiagnostics,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    if !path_filters.is_empty() {
+    if let Some(selected_packages) = selected_packages {
+        ensure_packages_support_backend(
+            resolve_output,
+            selected_packages.iter().copied(),
+            target_backend,
+        )?;
+        Ok(selected_packages
+            .iter()
+            .copied()
+            .map(UserIntent::Build)
+            .collect::<Vec<_>>()
+            .into())
+    } else if !path_filters.is_empty() {
         let selected =
             select_supported_packages(resolve_output, path_filters, target_backend, output)?;
         Ok(selected
@@ -264,12 +381,7 @@ fn calc_user_intent(
             .collect::<Vec<_>>()
             .into())
     } else if let Some(package_filter) = package_filter {
-        let pkgs = match_packages_by_name_rr(
-            resolve_output,
-            resolve_output.local_modules(),
-            package_filter,
-            output,
-        );
+        let pkgs = match_packages_by_name_rr(resolve_output, module_scope, package_filter, output);
         ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
         Ok(pkgs
             .into_iter()
@@ -277,7 +389,7 @@ fn calc_user_intent(
             .collect::<Vec<_>>()
             .into())
     } else {
-        let supported_packages = rr_build::local_packages(resolve_output)
+        let supported_packages = rr_build::local_packages_in_modules(resolve_output, module_scope)
             .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
             .collect::<Vec<_>>();
         let linkable_pkgs = get_linkable_pkgs(
@@ -323,4 +435,67 @@ fn get_linkable_pkgs(
         }
     }
     linkable_pkgs
+}
+
+fn resolve_build_groups(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &BuildSubcommand,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<BuildGroup>> {
+    if !cmd.path.is_empty() {
+        let selected = select_packages(&cmd.path, output, |dir| {
+            crate::filter::filter_pkg_by_dir(resolve_output, dir)
+        })?;
+        return Ok(group_packages_by_default_target(
+            resolve_output,
+            selected.into_iter().map(|(_, pkg_id)| pkg_id),
+        ));
+    }
+
+    if let Some(package_filter) = cmd.package.as_deref() {
+        let pkgs = match_packages_by_name_rr(
+            resolve_output,
+            resolve_output.local_modules(),
+            package_filter,
+            output,
+        );
+        return Ok(group_packages_by_default_target(
+            resolve_output,
+            pkgs.into_iter(),
+        ));
+    }
+
+    Ok(
+        rr_build::group_modules_by_default_target(resolve_output, resolve_output.local_modules())
+            .into_iter()
+            .map(|(target_backend, modules)| BuildGroup {
+                target_backend,
+                scope: BuildScope::Modules(modules),
+            })
+            .collect(),
+    )
+}
+
+fn group_packages_by_default_target(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    packages: impl IntoIterator<Item = PackageId>,
+) -> Vec<BuildGroup> {
+    let mut grouped = std::collections::BTreeMap::<TargetBackend, Vec<PackageId>>::new();
+    for pkg_id in packages {
+        let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
+        grouped
+            .entry(rr_build::default_target_for_module(
+                resolve_output,
+                module_id,
+            ))
+            .or_default()
+            .push(pkg_id);
+    }
+    grouped
+        .into_iter()
+        .map(|(target_backend, packages)| BuildGroup {
+            target_backend,
+            scope: BuildScope::Packages(packages),
+        })
+        .collect()
 }

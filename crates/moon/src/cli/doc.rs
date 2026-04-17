@@ -94,31 +94,38 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     let source_dir = dirs.project_root;
     let target_dir = dirs.target_dir;
     let project_manifest_path = dirs.project_manifest_path;
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        false,
+        false,
+    )
+    .with_project_manifest_path(project_manifest_path.as_deref());
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+    let module_id = selected_doc_module_id(&resolve_output, &doc_source_dir)?;
+    let target_backend = rr_build::default_target_for_module(&resolve_output, module_id);
 
     // FIXME: This is copied from `moon check`'s code. Share code if possible.
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         &cli,
         &BuildFlags::default(),
-        None,
+        Some(target_backend),
         &target_dir,
         RunMode::Check,
     );
     preconfig.docs_serve = cmd.serve;
 
     let doc_source_dir_for_intent = doc_source_dir.clone();
-    let (build_meta, build_graph) = rr_build::plan_build(
+    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
-        &source_dir,
         &target_dir,
-        &mooncakes_dir,
         UserDiagnostics::from_flags(&cli),
-        project_manifest_path.as_deref(),
         Box::new(move |resolve_output, _| {
             let module_id = selected_doc_module_id(resolve_output, &doc_source_dir_for_intent)?;
             Ok(vec![UserIntent::Doc(module_id)].into())
         }),
+        resolve_output,
     )?;
 
     // Early exit for dry-run
@@ -170,7 +177,6 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
                 static_dir.display()
             );
         }
-        let module_id = selected_doc_module_id(&build_meta.resolve_output, &doc_source_dir)?;
         let full_name = build_meta
             .resolve_output
             .module_rel

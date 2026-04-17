@@ -62,6 +62,30 @@ Effective package support is:
 Note: file-level conditional compilation `targets` (map keyed by filename) is a
 separate feature and unchanged.
 
+## Default backend selection
+
+If the user passes `--target`, that explicit backend selection wins.
+
+Without `--target`, Moon resolves an effective default backend for each local
+module in this order:
+
+1. workspace `preferred_target` from `moon.work`, if present
+2. otherwise that module's `preferred-target`
+3. otherwise `wasm-gc`
+
+Member-scoped commands that act on one module, such as `moon run`,
+`moon doc`, and `moon prove`, use the selected module's effective default
+backend.
+
+Project-scoped commands that consume a backend, such as `moon build`,
+`moon check`, `moon test`, `moon bench`, `moon bundle`, and `moon info`,
+group local modules or explicitly selected packages/paths by effective default
+backend and run one backend-specific plan per group.
+
+`moon test --update` still requires one backend. If grouped defaults would span
+multiple backends, Moon errors until the user narrows the selection or passes
+`--target`.
+
 ## Command behavior matrix
 
 `B` means the backend selected for this invocation.
@@ -97,7 +121,7 @@ MVP does **not** include:
 
 * backend-scoped dependency declarations (`import` per backend), 
 * transitive constraint propagation or inference (deduce `supported_targets` based on dependencies), 
-* package-based backend guessing when `--target` is not provided.
+* one mixed-backend build graph across multiple backends in a single planner invocation.
 
 ## Mixed-backend usage pattern
 
@@ -116,3 +140,9 @@ my_app/
     web/      # is-main: true, supported-targets: ["js"]
     server/   # is-main: true, supported-targets: ["native"]
 ```
+
+In a multi-module workspace, if member modules choose different
+`preferred-target` values, project-scoped commands without `--target` run one
+plan per backend group instead of warning and falling back to `wasm-gc`.
+A workspace `preferred_target` overrides those member defaults and restores one
+uniform default backend.

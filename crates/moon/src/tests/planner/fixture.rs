@@ -66,6 +66,7 @@ impl PlanningFixture {
             &borrowed,
             &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
+            None,
             self.resolve_output.clone(),
         )?;
         self.dump_plan(build_meta, build_graph)
@@ -82,6 +83,7 @@ impl PlanningFixture {
             &borrowed,
             &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
+            None,
             self.resolve_output.clone(),
         )?;
         self.dump_plan(build_meta, build_graph)
@@ -97,6 +99,8 @@ impl PlanningFixture {
             cmd,
             &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
+            None,
+            None,
             self.resolve_output.clone(),
         )?;
         self.dump_plan(build_meta, build_graph)
@@ -113,6 +117,8 @@ impl PlanningFixture {
             &self.source_dir,
             &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
+            None,
+            None,
             self.resolve_output.clone(),
         )?;
         self.dump_plan(build_meta, build_graph)

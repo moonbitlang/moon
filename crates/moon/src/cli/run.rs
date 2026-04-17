@@ -168,6 +168,11 @@ fn run_run_rr(
     )
     .with_project_manifest_path(project_manifest_path.as_deref());
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+    let selected_target_backend = selected_target_backend.or_else(|| {
+        selected_module_for_run_input(&cmd.package_or_mbt_file, &source_dir, &resolve_output)
+            .ok()
+            .map(|module_id| rr_build::default_target_for_module(&resolve_output, module_id))
+    });
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
         &cmd,
@@ -184,6 +189,22 @@ fn run_run_rr(
         &build_meta,
         build_graph,
     )
+}
+
+fn selected_module_for_run_input(
+    input_path: &str,
+    source_dir: &Path,
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<moonutil::mooncakes::ModuleId> {
+    let (dir, _) = match crate::filter::canonicalize_with_filename(Path::new(input_path)) {
+        Ok((dir, filename)) => (dir, filename),
+        Err(_) => {
+            let backup_path = source_dir.join(input_path);
+            crate::filter::canonicalize_with_filename(&backup_path)?
+        }
+    };
+    let pkg = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
+    Ok(resolve_output.pkg_dirs.get_package(pkg).module)
 }
 
 pub(crate) fn plan_run_rr_from_resolved(

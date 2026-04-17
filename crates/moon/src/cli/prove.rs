@@ -122,25 +122,45 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         ensure_why3_config(&generated_why3_config_path)?;
     }
 
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        false,
+        false,
+    )
+    .with_project_manifest_path(project_manifest_path.as_deref());
+    let resolve_output =
+        moonbuild_rupes_recta::resolve(&resolve_cfg, &project_root, &mooncakes_dir)?;
+    let selected_target_backend = if let Some(path) = cmd.path.as_deref() {
+        let (dir, _) = canonicalize_with_filename(path)?;
+        let pkg = filter_pkg_by_dir(&resolve_output, &dir)?;
+        Some(rr_build::default_target_for_module(
+            &resolve_output,
+            resolve_output.pkg_dirs.get_package(pkg).module,
+        ))
+    } else {
+        let main_module_id = selected_main_module_id(&resolve_output, module_dir.as_deref())?;
+        Some(rr_build::default_target_for_module(
+            &resolve_output,
+            main_module_id,
+        ))
+    };
+
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &build_flags,
-        None,
+        selected_target_backend,
         &target_dir,
         RunMode::Prove,
     );
     let path_filter = cmd.path.as_deref();
     let prove_why3_config = why3_config_path.clone();
 
-    let (build_meta, build_graph) = rr_build::plan_build(
+    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
-        &project_root,
         &target_dir,
-        &mooncakes_dir,
         UserDiagnostics::from_flags(cli),
-        project_manifest_path.as_deref(),
         Box::new(move |resolve_output, target_backend| {
             calc_user_intent(
                 path_filter,
@@ -150,6 +170,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
                 prove_why3_config.as_deref(),
             )
         }),
+        resolve_output,
     )?;
     let proof_reports = planned_proof_reports(&build_meta);
 

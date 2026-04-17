@@ -41,12 +41,32 @@ use moonbuild_rupes_recta::model::PackageId;
 use moonutil::common::{
     FileLock, RunMode, TargetBackend, TestArtifacts, TestIndexRange, lower_surface_targets,
 };
+use moonutil::mooncakes::ModuleId;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
+
+#[derive(Clone, Debug)]
+struct ResolvedTestPathFilter {
+    path: PathBuf,
+    package: PackageId,
+    filename: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct TestPlanOverrides {
+    module_scope: Option<Vec<ModuleId>>,
+    selected_packages: Option<Vec<PackageId>>,
+    resolved_paths: Option<Vec<ResolvedTestPathFilter>>,
+}
+
+struct TestTargetGroup {
+    target_backend: TargetBackend,
+    overrides: TestPlanOverrides,
+}
 
 /// Print test summary statistics in the legacy format
 fn print_test_summary(
@@ -544,6 +564,7 @@ pub(crate) fn plan_test_or_bench_rr(
         cmd,
         target_dir,
         selected_target_backend,
+        None,
         resolve_output,
     )
 }
@@ -553,6 +574,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
+    overrides: Option<&TestPlanOverrides>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
     // Keep the planning flow explicit:
@@ -585,6 +607,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         name_filter: cmd.filter.clone(),
         ..Default::default()
     };
+    let overrides = overrides.cloned().unwrap_or_default();
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
@@ -597,6 +620,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
                 &mut filter,
                 target_backend,
                 UserDiagnostics::from_flags(cli),
+                &overrides,
             )
         }),
         resolve_output,
@@ -616,6 +640,7 @@ pub(crate) fn run_test_or_bench_internal(
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
+    let output = UserDiagnostics::from_flags(cli);
     debug!(
         run_mode = ?cmd.run_mode,
         update = cmd.update,
@@ -652,6 +677,57 @@ pub(crate) fn run_test_or_bench_internal(
     }
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
+    }
+
+    if selected_target_backend.is_none() {
+        let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+            cmd.auto_sync_flags.frozen,
+            !cmd.build_flags.std(),
+            cmd.build_flags.enable_coverage,
+        )
+        .with_project_manifest_path(project_manifest_path);
+        let resolve_output =
+            moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
+        let groups = resolve_test_target_groups(&resolve_output, &cmd, output)?;
+        if groups.is_empty() {
+            if cli.dry_run {
+                return Ok(0);
+            }
+            if cmd.outline {
+                print_test_outline(&[], output);
+            } else if cmd.build_only {
+                println!("[]");
+            } else {
+                print_test_summary(0, 0, cli.quiet, None, output);
+            }
+            return Ok(0);
+        }
+        if cmd.update && groups.len() > 1 {
+            anyhow::bail!("cannot update test on multiple targets");
+        }
+        let display_backend_hint = if groups.len() > 1 { Some(()) } else { None };
+        let mut ret = 0;
+        for group in groups {
+            let (build_meta, build_graph, filter) = plan_test_or_bench_rr_from_resolved(
+                cli,
+                &cmd,
+                target_dir,
+                Some(group.target_backend),
+                Some(&group.overrides),
+                resolve_output.clone(),
+            )?;
+            ret = ret.max(rr_test_from_plan(
+                cli,
+                &cmd,
+                source_dir,
+                target_dir,
+                display_backend_hint,
+                &build_meta,
+                build_graph,
+                filter,
+            )?);
+        }
+        return Ok(ret);
     }
 
     debug!("selecting test runner implementation");
@@ -735,7 +811,40 @@ fn apply_list_of_filters(
         affected_packages.iter().copied(),
         package_filter,
     );
-    let filtered_package_ids = package_matches.matched;
+    if package_matches.matched.is_empty() {
+        // No package matched
+        output.warn(format!(
+            "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
+            package_filter.join(", ")
+        ));
+        return Ok(InputDirective::default());
+    }
+
+    apply_selected_package_filters(
+        &package_matches.matched,
+        resolve_output,
+        file_filter,
+        index_filter,
+        doc_index_filter,
+        patch_file,
+        value_tracing,
+        target_backend,
+        out_filter,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_selected_package_filters(
+    filtered_package_ids: &[PackageId],
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    file_filter: Option<&str>,
+    index_filter: Option<TestIndexRange>,
+    doc_index_filter: Option<u32>,
+    patch_file: Option<&Path>,
+    value_tracing: bool,
+    target_backend: TargetBackend,
+    out_filter: &mut TestFilter,
+) -> Result<InputDirective, anyhow::Error> {
     ensure_packages_support_backend(
         resolve_output,
         filtered_package_ids.iter().copied(),
@@ -746,11 +855,9 @@ fn apply_list_of_filters(
         "package filters resolved"
     );
 
-    // Calculate resulting filter & target list
     let mut input_directive = InputDirective::default();
     #[allow(clippy::comparison_chain)]
     if filtered_package_ids.len() == 1 {
-        // Single filtered package, can apply file/index filtering
         let pkg_id = filtered_package_ids[0];
         if let Some(range) = index_filter {
             out_filter.add_autodetermine_target(
@@ -768,8 +875,6 @@ fn apply_list_of_filters(
         } else {
             out_filter.add_autodetermine_target(pkg_id, file_filter, None);
         }
-        // Currently, value tracing is only supported for single package testing
-        // It's not sure whether we should support it for multiple packages
         let trace_pkg = if value_tracing { Some(pkg_id) } else { None };
         input_directive =
             rr_build::build_patch_directive_for_package(pkg_id, false, trace_pkg, patch_file, true)
@@ -781,7 +886,6 @@ fn apply_list_of_filters(
                 .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
                 .collect::<Vec<_>>()
         };
-        // Multiple filtered package, check if file/index filtering is applied
         if file_filter.is_some() || index_filter.is_some() || doc_index_filter.is_some() {
             bail!(
                 "Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}",
@@ -794,18 +898,11 @@ fn apply_list_of_filters(
                 package_names()
             );
         }
-        for &pkg_id in &filtered_package_ids {
+        for &pkg_id in filtered_package_ids {
             out_filter.add_autodetermine_target(pkg_id, None, None);
         }
-    } else {
-        // No package matched
-        output.warn(format!(
-            "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
-            package_filter.join(", ")
-        ));
     }
     trace!("finished building package directive");
-
     Ok(input_directive)
 }
 
@@ -825,21 +922,17 @@ fn calc_user_intent(
     out_filter: &mut TestFilter,
     target_backend: moonutil::common::TargetBackend,
     output: UserDiagnostics,
+    overrides: &TestPlanOverrides,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let all_affected_packages: Vec<_> = resolve_output
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            resolve_output
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
-        .collect();
+    let module_scope = overrides
+        .module_scope
+        .as_deref()
+        .unwrap_or(resolve_output.local_modules());
+    let all_affected_packages: Vec<_> =
+        rr_build::local_packages_in_modules(resolve_output, module_scope).collect();
     debug!(
         package_count = all_affected_packages.len(),
-        module_count = resolve_output.local_modules().len(),
+        module_count = module_scope.len(),
         "calculating user intent for workspace"
     );
     let backend_affected_packages = all_affected_packages
@@ -848,7 +941,40 @@ fn calc_user_intent(
         .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
         .collect::<Vec<_>>();
 
-    let directive = if !cmd.explicit_path_filters.is_empty() {
+    let directive = if let Some(resolved_paths) = overrides.resolved_paths.as_deref() {
+        let test_index = if let Some(index) = cmd.index {
+            Some(TestIndex::Regular(*index))
+        } else if let Some(id) = cmd.doc_index {
+            Some(TestIndex::DocTest(TestIndexRange::from_single(*id)?))
+        } else {
+            None
+        };
+
+        let mut unsupported_packages = Vec::new();
+        let mut supported_paths = 0;
+        for path in resolved_paths {
+            if !package_supports_backend(resolve_output, path.package, target_backend) {
+                if !unsupported_packages.contains(&path.package) {
+                    unsupported_packages.push(path.package);
+                }
+                output.info(format!(
+                    "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
+                    path.path.display(),
+                    resolve_output.pkg_dirs.get_package(path.package).fqn,
+                    target_backend,
+                    format_supported_backends(resolve_output, path.package),
+                ));
+                continue;
+            }
+            supported_paths += 1;
+            out_filter.add_autodetermine_target(path.package, path.filename.as_deref(), test_index);
+        }
+
+        if supported_paths == 0 && !unsupported_packages.is_empty() {
+            ensure_packages_support_backend(resolve_output, unsupported_packages, target_backend)?;
+        }
+        Default::default()
+    } else if !cmd.explicit_path_filters.is_empty() {
         let test_index = if let Some(index) = cmd.index {
             Some(TestIndex::Regular(*index))
         } else if let Some(id) = cmd.doc_index {
@@ -920,6 +1046,18 @@ fn calc_user_intent(
             trace!("explicit path filters applied");
         }
         Default::default()
+    } else if let Some(selected_packages) = overrides.selected_packages.as_deref() {
+        apply_selected_package_filters(
+            selected_packages,
+            resolve_output,
+            cmd.file.as_deref(),
+            *cmd.index,
+            *cmd.doc_index,
+            cmd.patch_file.as_deref(),
+            cmd.build_flags.enable_value_tracing,
+            target_backend,
+            out_filter,
+        )?
     } else if let Some(package_filter) = cmd.package {
         let value_tracing = cmd.build_flags.enable_value_tracing;
         apply_list_of_filters(
@@ -963,6 +1101,107 @@ fn calc_user_intent(
     };
     debug!(intent_count = intents.len(), "calculated user intent");
     Ok((intents, directive).into())
+}
+
+fn resolve_test_target_groups(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &TestLikeSubcommand<'_>,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<TestTargetGroup>> {
+    if !cmd.explicit_path_filters.is_empty() {
+        let mut grouped =
+            std::collections::BTreeMap::<TargetBackend, Vec<ResolvedTestPathFilter>>::new();
+        for path in cmd.explicit_path_filters {
+            let (dir, filename) = canonicalize_with_filename(path)?;
+            let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
+                output.info(format!(
+                    "skipping path `{}` because it is not a package in the current work context.",
+                    path.display()
+                ));
+                continue;
+            };
+            let module_id = resolve_output.pkg_dirs.get_package(pkg).module;
+            grouped
+                .entry(rr_build::default_target_for_module(
+                    resolve_output,
+                    module_id,
+                ))
+                .or_default()
+                .push(ResolvedTestPathFilter {
+                    path: path.clone(),
+                    package: pkg,
+                    filename,
+                });
+        }
+        return Ok(grouped
+            .into_iter()
+            .map(|(target_backend, resolved_paths)| TestTargetGroup {
+                target_backend,
+                overrides: TestPlanOverrides {
+                    resolved_paths: Some(resolved_paths),
+                    ..Default::default()
+                },
+            })
+            .collect());
+    }
+
+    if let Some(package_filter) = cmd.package {
+        let all_affected_packages: Vec<_> =
+            rr_build::local_packages_in_modules(resolve_output, resolve_output.local_modules())
+                .collect();
+        let package_matches = match_packages_with_fuzzy(
+            resolve_output,
+            all_affected_packages.iter().copied(),
+            package_filter,
+        );
+        if !package_matches.missing.is_empty() {
+            for missing in package_matches.missing {
+                output.warn(format!("Input `{}` did not match any package", missing));
+            }
+        }
+        if package_matches.matched.is_empty() {
+            output.warn(format!(
+                "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
+                package_filter.join(", ")
+            ));
+            return Ok(Vec::new());
+        }
+
+        let mut grouped = std::collections::BTreeMap::<TargetBackend, Vec<PackageId>>::new();
+        for pkg_id in package_matches.matched {
+            let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
+            grouped
+                .entry(rr_build::default_target_for_module(
+                    resolve_output,
+                    module_id,
+                ))
+                .or_default()
+                .push(pkg_id);
+        }
+        return Ok(grouped
+            .into_iter()
+            .map(|(target_backend, selected_packages)| TestTargetGroup {
+                target_backend,
+                overrides: TestPlanOverrides {
+                    selected_packages: Some(selected_packages),
+                    ..Default::default()
+                },
+            })
+            .collect());
+    }
+
+    Ok(
+        rr_build::group_modules_by_default_target(resolve_output, resolve_output.local_modules())
+            .into_iter()
+            .map(|(target_backend, modules)| TestTargetGroup {
+                target_backend,
+                overrides: TestPlanOverrides {
+                    module_scope: Some(modules),
+                    ..Default::default()
+                },
+            })
+            .collect(),
+    )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]

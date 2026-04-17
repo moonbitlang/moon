@@ -37,7 +37,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
-    CompileConfig, ResolveConfig, ResolveOutput,
+    CompileConfig, ResolveOutput,
     build_lower::{WarningCondition, artifact::n2_db_path},
     build_plan::InputDirective,
     fmt::{FmtConfig, FmtResolveOutput},
@@ -154,47 +154,58 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, output: U
     }
 }
 
-pub(crate) fn local_packages(
-    resolve_output: &ResolveOutput,
-) -> impl Iterator<Item = PackageId> + '_ {
-    resolve_output
-        .local_modules()
-        .iter()
-        .flat_map(|&module_id| {
-            resolve_output
-                .pkg_dirs
-                .packages_for_module(module_id)
-                .into_iter()
-                .flat_map(|packages| packages.values().copied())
-        })
+pub(crate) fn local_packages_in_modules<'a>(
+    resolve_output: &'a ResolveOutput,
+    module_ids: &'a [moonutil::mooncakes::ModuleId],
+) -> impl Iterator<Item = PackageId> + 'a {
+    module_ids.iter().flat_map(|&module_id| {
+        resolve_output
+            .pkg_dirs
+            .packages_for_module(module_id)
+            .into_iter()
+            .flat_map(|packages| packages.values().copied())
+    })
 }
 
-fn workspace_preferred_target(
+pub(crate) fn default_target_for_module(
     resolve_output: &ResolveOutput,
-    output: UserDiagnostics,
-) -> Option<TargetBackend> {
-    if let Some(preferred_target) = resolve_output.workspace_preferred_target {
-        return Some(preferred_target);
-    }
+    module_id: moonutil::mooncakes::ModuleId,
+) -> TargetBackend {
+    resolve_output
+        .workspace_preferred_target
+        .or(resolve_output
+            .module_rel
+            .module_info(module_id)
+            .preferred_target)
+        .unwrap_or_default()
+}
 
+pub(crate) fn group_modules_by_default_target(
+    resolve_output: &ResolveOutput,
+    module_ids: &[moonutil::mooncakes::ModuleId],
+) -> Vec<(TargetBackend, Vec<moonutil::mooncakes::ModuleId>)> {
+    let mut grouped = BTreeMap::<TargetBackend, Vec<_>>::new();
+    for &module_id in module_ids {
+        grouped
+            .entry(default_target_for_module(resolve_output, module_id))
+            .or_default()
+            .push(module_id);
+    }
+    grouped.into_iter().collect()
+}
+
+fn uniform_default_target_for_local_modules(
+    resolve_output: &ResolveOutput,
+) -> Option<TargetBackend> {
     let preferred = resolve_output
         .local_modules()
         .iter()
-        .filter_map(|&module_id| {
-            resolve_output
-                .module_rel
-                .module_info(module_id)
-                .preferred_target
-        })
+        .map(|&module_id| default_target_for_module(resolve_output, module_id))
         .collect::<BTreeSet<_>>();
-
-    if preferred.len() > 1 {
-        output.warn(
-            "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly",
-        );
-        None
-    } else {
-        preferred.into_iter().next()
+    match preferred.len() {
+        0 => None,
+        1 => preferred.into_iter().next(),
+        _ => None,
     }
 }
 
@@ -288,7 +299,6 @@ impl BuildResult {
 /// This type might be subject to change.
 #[derive(Debug)]
 pub struct CompilePreConfig {
-    frozen: bool,
     target_backend: Option<TargetBackend>,
     opt_level: BuildProfile,
     action: RunMode,
@@ -395,7 +405,7 @@ impl CompilePreConfig {
 ///   debug; `moon bench`/`bundle` default to release).
 #[instrument(level = Level::DEBUG, skip_all)]
 pub fn preconfig_compile(
-    auto_sync_flags: &AutoSyncFlags,
+    _auto_sync_flags: &AutoSyncFlags,
     cli: &UniversalFlags,
     build_flags: &BuildFlags,
     selected_target_backend: Option<TargetBackend>,
@@ -405,7 +415,6 @@ pub fn preconfig_compile(
     let opt_level = build_flags.effective_profile(action);
 
     CompilePreConfig {
-        frozen: auto_sync_flags.frozen,
         target_dir: target_dir.to_owned(),
         target_backend: selected_target_backend,
         opt_level,
@@ -428,49 +437,6 @@ pub fn preconfig_compile(
         },
         warn_list: build_flags.warn_list.clone(),
     }
-}
-
-/// Plan the build process without executing it.
-///
-/// This function performs all the preparation steps: resolve dependencies,
-/// calculate user intent, and create the build graph, but does not execute
-/// the actual build tasks.
-///
-/// Returns the execution plan (metadata) and build graph separately, allowing
-/// execute_build to take ownership of just the graph while callers retain
-/// access to the metadata.
-#[instrument(skip_all)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_build<'a>(
-    preconfig: CompilePreConfig,
-    unstable_features: &'a FeatureGate,
-    source_dir: &'a Path,
-    target_dir: &'a Path,
-    mooncakes_dir: &'a Path,
-    output: UserDiagnostics,
-    project_manifest_path: Option<&'a Path>,
-    calc_user_intent: Box<CalcUserIntentFn<'a>>,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    info!("Starting build planning");
-
-    let cfg = ResolveConfig::new_with_load_defaults(
-        preconfig.frozen,
-        !preconfig.use_std,
-        preconfig.enable_coverage,
-    )
-    .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir, mooncakes_dir)?;
-
-    info!("Resolve completed");
-
-    plan_build_from_resolved(
-        preconfig,
-        unstable_features,
-        target_dir,
-        output,
-        calc_user_intent,
-        resolve_output,
-    )
 }
 
 /// Plan the build process from an already resolved environment.
@@ -516,7 +482,7 @@ pub(crate) fn plan_build_from_resolved<'a>(
     let preferred_target = if preconfig.target_backend.is_some() {
         None
     } else {
-        workspace_preferred_target(&resolve_output, output)
+        uniform_default_target_for_local_modules(&resolve_output)
     };
     info!("Preferred backend: {:?}", preferred_target);
 

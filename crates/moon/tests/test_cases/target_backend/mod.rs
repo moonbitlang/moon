@@ -1,7 +1,5 @@
 use super::*;
 
-const PREFERRED_TARGET_CONFLICT_WARNING: &str = "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly";
-
 #[test]
 fn test_target_backend_cli_wiring_smoke() {
     let dir = TestDir::new("target_backend");
@@ -42,30 +40,30 @@ fn assert_contains_and_absent(output: &str, present: &[&str], absent: &[&str]) {
     }
 }
 
-fn assert_preferred_target_conflict_warning(stderr: &str) {
-    assert!(
-        stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
-        "stderr: {stderr}"
-    );
-}
-
-fn assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
+fn assert_conflicting_workspace_preferred_targets_use_module_defaults(
     command: &str,
     stdout: &str,
     stderr: &str,
 ) {
-    assert_preferred_target_conflict_warning(stderr);
+    assert!(
+        !stderr.contains("Multiple local modules specify different preferred targets"),
+        "stderr: {stderr}"
+    );
     assert_contains_and_absent(
         stdout,
+        &[
+            "./_build/js/",
+            "./_build/native/",
+            "-target js",
+            "-target native",
+            "./js_preferred/src/lib/extra.js.mbt",
+            "./native_preferred/src/lib/extra.native.mbt",
+        ],
         &[
             "./_build/wasm-gc/",
             "-target wasm-gc",
             "./js_preferred/src/lib/extra.wasm-gc.mbt",
             "./native_preferred/src/lib/extra.wasm-gc.mbt",
-        ],
-        &[
-            "./js_preferred/src/lib/extra.js.mbt",
-            "./native_preferred/src/lib/extra.native.mbt",
         ],
     );
     assert!(
@@ -427,20 +425,23 @@ fn test_explicit_target_suppresses_conflicting_workspace_preferred_target_warnin
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
     let default_stderr = get_stderr(&dir, ["check", "--dry-run", "--sort-input"]);
-    assert_preferred_target_conflict_warning(&default_stderr);
+    assert!(
+        !default_stderr.contains("Multiple local modules specify different preferred targets"),
+        "stderr: {default_stderr}"
+    );
 
     let explicit_stderr = get_stderr(
         &dir,
         ["check", "--target", "js", "--dry-run", "--sort-input"],
     );
     assert!(
-        !explicit_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        !explicit_stderr.contains("Multiple local modules specify different preferred targets"),
         "stderr: {explicit_stderr}"
     );
 }
 
 #[test]
-fn test_conflicting_workspace_preferred_targets_default_to_wasm_gc_across_commands() {
+fn test_conflicting_workspace_preferred_targets_use_module_defaults_across_commands() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
     let commands = [
         ("build", &["build", "--dry-run", "--sort-input"][..]),
@@ -453,28 +454,28 @@ fn test_conflicting_workspace_preferred_targets_default_to_wasm_gc_across_comman
     for (command, args) in commands {
         let stdout = get_stdout(&dir, args.iter().copied());
         let stderr = get_stderr(&dir, args.iter().copied());
-        assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
+        assert_conflicting_workspace_preferred_targets_use_module_defaults(
             command, &stdout, &stderr,
         );
     }
 }
 
 #[test]
-fn test_conflicting_workspace_preferred_targets_info_defaults_to_wasm_gc() {
+fn test_conflicting_workspace_preferred_targets_info_uses_module_defaults() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
     let stderr = get_stderr(&dir, ["info"]);
-    assert_preferred_target_conflict_warning(&stderr);
+    assert!(
+        !stderr.contains("Multiple local modules specify different preferred targets"),
+        "stderr: {stderr}"
+    );
 
     let js_mbti =
         std::fs::read_to_string(dir.join("js_preferred/src/lib").join(MBTI_GENERATED)).unwrap();
     assert_contains_and_absent(
         &js_mbti,
-        &[
-            "pub fn js_value() -> Int",
-            "pub fn js_wasm_gc_extra() -> Int",
-        ],
-        &["js_extra", "native_extra", "native_wasm_gc_extra"],
+        &["pub fn js_value() -> Int", "pub fn js_extra() -> Int"],
+        &["js_wasm_gc_extra", "native_extra", "native_wasm_gc_extra"],
     );
 
     let native_mbti =
@@ -483,8 +484,27 @@ fn test_conflicting_workspace_preferred_targets_info_defaults_to_wasm_gc() {
         &native_mbti,
         &[
             "pub fn native_value() -> Int",
-            "pub fn native_wasm_gc_extra() -> Int",
+            "pub fn native_extra() -> Int",
         ],
-        &["native_extra", "js_extra", "js_wasm_gc_extra"],
+        &["native_wasm_gc_extra", "js_extra", "js_wasm_gc_extra"],
+    );
+}
+
+#[test]
+fn test_workspace_member_run_defaults_to_selected_module_preferred_target() {
+    let dir = TestDir::new("workspace_member_preferred_targets.in");
+
+    let js_out = get_stdout(&dir.join("js_app"), ["run", "main", "--dry-run"]);
+    assert_contains_and_absent(
+        &js_out,
+        &["./_build/js/", "-target js"],
+        &["./_build/native/", "-target native", "-target wasm-gc"],
+    );
+
+    let native_out = get_stdout(&dir.join("native_app"), ["run", "main", "--dry-run"]);
+    assert_contains_and_absent(
+        &native_out,
+        &["./_build/native/", "-target native"],
+        &["./_build/js/", "-target js", "-target wasm-gc"],
     );
 }
