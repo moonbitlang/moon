@@ -156,19 +156,30 @@ impl PackageSelection {
     }
 }
 
+struct InfoIntentContext<'a> {
+    selection: &'a PackageSelection,
+    output_plan: &'a imp::InfoOutputPlan,
+    target_kind: imp::TargetKind,
+    output: UserDiagnostics,
+}
+
 fn calc_user_intent_for_info(
-    selection: &PackageSelection,
+    ctx: &InfoIntentContext,
     resolve_output: &ResolveOutput,
     target_backend: TargetBackend,
-    output: UserDiagnostics,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    let intents = match &selection.mode {
+    let is_canonical_run = matches!(ctx.target_kind, imp::TargetKind::Canonical);
+
+    let intents = match &ctx.selection.mode {
         SelectionMode::SinglePath => {
-            let package = selection.package_ids[0];
-            if package_supports_backend(resolve_output, package, target_backend) {
+            let package = ctx.selection.package_ids[0];
+            let canonical = ctx.output_plan.canonical_backend_for(&package) == Some(target_backend);
+            let supported = package_supports_backend(resolve_output, package, target_backend);
+
+            if (canonical || !is_canonical_run) && supported {
                 vec![UserIntent::Info(package)]
             } else {
-                output.warn(format!(
+                ctx.output.warn(format!(
                     "Skipping package `{}` for `moon info`: it does not support target backend `{}`",
                     resolve_output.pkg_dirs.get_package(package).fqn,
                     target_backend
@@ -180,8 +191,13 @@ fn calc_user_intent_for_info(
             let mut filtered = Vec::new();
             let mut unsupported = Vec::new();
 
-            for (path, pkg_id) in &selection.path_packages {
-                if package_supports_backend(resolve_output, *pkg_id, target_backend) {
+            for (path, pkg_id) in &ctx.selection.path_packages {
+                let canonical =
+                    ctx.output_plan.canonical_backend_for(pkg_id) == Some(target_backend);
+                let supported = package_supports_backend(resolve_output, *pkg_id, target_backend);
+                let should_include = (canonical || !is_canonical_run) && supported;
+
+                if should_include {
                     filtered.push(UserIntent::Info(*pkg_id));
                 } else {
                     unsupported.push((path.clone(), *pkg_id));
@@ -190,7 +206,7 @@ fn calc_user_intent_for_info(
 
             for (path, pkg_id) in &unsupported {
                 let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
-                output.info(format!(
+                ctx.output.info(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,
@@ -200,7 +216,7 @@ fn calc_user_intent_for_info(
             }
 
             if filtered.is_empty() && !unsupported.is_empty() {
-                output.warn(format!(
+                ctx.output.warn(format!(
                     "No selected package supports target backend `{}` for `moon info`",
                     target_backend
                 ));
@@ -209,15 +225,22 @@ fn calc_user_intent_for_info(
             filtered
         }
         SelectionMode::Packages | SelectionMode::All => {
-            let filtered = selection
+            let filtered: Vec<_> = ctx
+                .selection
                 .package_ids
                 .iter()
                 .copied()
-                .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
-                .collect::<Vec<_>>();
+                .filter(|&pkg_id| {
+                    let canonical =
+                        ctx.output_plan.canonical_backend_for(&pkg_id) == Some(target_backend);
+                    let supported =
+                        package_supports_backend(resolve_output, pkg_id, target_backend);
+                    (canonical || !is_canonical_run) && supported
+                })
+                .collect();
 
             if filtered.is_empty() {
-                output.warn(format!(
+                ctx.output.warn(format!(
                     "No selected package supports target backend `{}` for `moon info`",
                     target_backend
                 ));
@@ -271,14 +294,16 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
     let execution_targets = output_plan.execution_targets(&requested_targets);
 
     let mut all_meta = vec![];
-    for tgt in execution_targets {
+    for (tgt, target_kind) in execution_targets {
         let (success, meta) = run_info_rr_internal(
             &cli,
             &cmd,
             tgt,
+            target_kind,
             &target_dir,
             resolve_output.clone(),
             &selection,
+            &output_plan,
         )?;
         if !success {
             bail!("moon info failed for target {:?}", tgt);
@@ -294,13 +319,16 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
 /// Run `moon info` for the given target.
 ///
 /// Returns `(success, build metadata if not dry-run)`.
+#[allow(clippy::too_many_arguments)]
 fn run_info_rr_internal(
     cli: &UniversalFlags,
     cmd: &InfoSubcommand,
     target: TargetBackend,
+    target_kind: imp::TargetKind,
     target_dir: &std::path::Path,
     resolve_output: ResolveOutput,
     selection: &PackageSelection,
+    output_plan: &imp::InfoOutputPlan,
 ) -> anyhow::Result<(bool, BuildMeta)> {
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
@@ -312,14 +340,18 @@ fn run_info_rr_internal(
     );
     preconfig.info_no_alias = cmd.no_alias;
     let output = UserDiagnostics::from_flags(cli);
+    let ctx = InfoIntentContext {
+        selection,
+        output_plan,
+        target_kind,
+        output,
+    };
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
         target_dir,
         output,
-        Box::new(move |resolve_output, tb| {
-            calc_user_intent_for_info(selection, resolve_output, tb, output)
-        }),
+        Box::new(move |resolve_output, tb| calc_user_intent_for_info(&ctx, resolve_output, tb)),
         resolve_output,
     )?;
     // Generate the all_pkgs.json for indirect dependency resolution

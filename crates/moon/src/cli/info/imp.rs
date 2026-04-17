@@ -60,6 +60,21 @@ impl PackageOutputPlan {
             canonical_backend,
         }
     }
+
+    pub(super) fn canonical_backend(&self) -> TargetBackend {
+        self.canonical_backend
+    }
+}
+
+impl InfoOutputPlan {
+    pub(super) fn canonical_backend_for(&self, package_id: &PackageId) -> Option<TargetBackend> {
+        self.packages.get(package_id).map(|p| p.canonical_backend())
+    }
+}
+
+pub(super) enum TargetKind {
+    Canonical,
+    Requested,
 }
 
 struct PackageOutputGroup<'a> {
@@ -106,19 +121,43 @@ pub(super) fn plan_info_outputs(
     InfoOutputPlan { packages: planned }
 }
 
+/// Determine the canonical backend for writing `.mbti` files:
+///
+/// 1. Module's `preferred-backend` (if set in `moon.mod.json`)
+/// 2. Workspace's `preferred-backend` (if set in `moon.work`)
+/// 3. `wasm-gc` (default fallback)
+///
+/// Note: If a package's `supported-targets` does NOT include the canonical backend,
+/// no `.mbti` file will be written. Users should set `preferred-backend` on the
+/// module or workspace to match their supported targets.
 impl InfoOutputPlan {
     pub(super) fn execution_targets(
         &self,
         requested_backends: &[TargetBackend],
-    ) -> Vec<TargetBackend> {
+    ) -> Vec<(TargetBackend, TargetKind)> {
         if self.packages.is_empty() {
             return Vec::new();
         }
 
-        let mut targets = BTreeSet::new();
-        targets.extend(requested_backends.iter().copied());
-        targets.extend(self.packages.values().map(|plan| plan.canonical_backend));
-        targets.into_iter().collect()
+        let canonical_backends: BTreeSet<_> = self
+            .packages
+            .values()
+            .map(|plan| plan.canonical_backend)
+            .collect();
+
+        let mut targets: Vec<(TargetBackend, TargetKind)> = Vec::new();
+
+        for &backend in requested_backends {
+            targets.push((backend, TargetKind::Requested));
+        }
+
+        for backend in canonical_backends {
+            if !requested_backends.contains(&backend) {
+                targets.push((backend, TargetKind::Canonical));
+            }
+        }
+
+        targets
     }
 }
 
