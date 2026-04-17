@@ -377,11 +377,6 @@ Generate public interface (`.mbti`) files for all packages in the module or work
 
 **Usage:** `moon info [OPTIONS] [PATH]...`
 
-`moon info` 只会把每个包的规范后端结果写入 `pkg.generated.mbti`：
-优先使用模块的 `preferred-backend`，否则使用工作区的首选后端，
-再否则回退到 `wasm-gc`。`--target` 请求的其他后端仍会参与生成用于检查，
-若与规范后端不同，会在标准输出中显示 diff 或完整接口内容。
-
 ###### **Arguments:**
 
 * `<PATH>` — The file-system path to the package or file in package to emit `mbti` files for
