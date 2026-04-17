@@ -644,10 +644,12 @@ fn build_and_install_packages(
 ///
 /// On Windows the file is held by the image loader and cannot be
 /// overwritten; we fall back to the rename-away pattern (move the old
-/// file aside, drop the new one in place, then `DeleteFileW` the
-/// stray file — the loader grants `FILE_SHARE_DELETE`, so the
-/// directory entry is unlinked immediately and its contents are
-/// reclaimed when the running target exits).
+/// file aside, drop the new one in place, then best-effort
+/// `DeleteFileW` the stray file). On contemporary Windows the
+/// loader's handle usually permits shared delete, so the stray is
+/// unlinked immediately and its contents are reclaimed when the
+/// running target exits; if that assumption fails, the delete fails
+/// and we warn rather than abort.
 fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
     let install_dir = dst.parent().ok_or_else(|| {
         anyhow::anyhow!("Install path `{}` has no parent directory", dst.display())
@@ -723,12 +725,22 @@ mod windows {
 
     /// Best-effort cleanup of the renamed-aside file.
     ///
-    /// `DeleteFileW` (via `remove_file`) succeeds even while the target
-    /// is still running, because the image loader opens executables
-    /// with `FILE_SHARE_DELETE`. The directory entry is unlinked
-    /// immediately and the contents are reclaimed when the running
-    /// target exits. Failure is non-fatal — we just leave the file on
-    /// disk with a warning; the next install will sweep it up.
+    /// On contemporary Windows, `DeleteFileW` (via `remove_file`)
+    /// generally succeeds on the renamed-aside file even while the
+    /// target is still running — the directory entry is unlinked
+    /// immediately, and the contents are reclaimed when the running
+    /// process releases its handle. This depends on the image loader
+    /// opening executables with a share mode that permits delete,
+    /// which is an undocumented implementation detail rather than an
+    /// API contract. Empirical evidence: `ren running.exe other.exe`
+    /// also works on Windows, and rename requires `DELETE` access,
+    /// which requires `FILE_SHARE_DELETE` on every existing handle.
+    /// Transactional alternatives like `DeleteFileTransactedW` are
+    /// not an option — TxF is deprecated (see MS Learn: "Alternatives
+    /// to using Transactional NTFS"). If the delete fails for any
+    /// reason (filter drivers, older Windows, network filesystems),
+    /// we warn and leave the `.old-<nonce>` file; the next install
+    /// can sweep it up.
     fn cleanup_backup(backup: &Path) {
         if let Err(e) = std::fs::remove_file(backup) {
             eprintln!(
