@@ -1109,6 +1109,23 @@ fn resolve_test_target_groups(
     output: UserDiagnostics,
 ) -> anyhow::Result<Vec<TestTargetGroup>> {
     if !cmd.explicit_path_filters.is_empty() {
+        if let [path] = cmd.explicit_path_filters {
+            let (dir, filename) = canonicalize_with_filename(path)?;
+            let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+            let module_id = resolve_output.pkg_dirs.get_package(pkg).module;
+            return Ok(vec![TestTargetGroup {
+                target_backend: rr_build::default_target_for_module(resolve_output, module_id),
+                overrides: TestPlanOverrides {
+                    resolved_paths: Some(vec![ResolvedTestPathFilter {
+                        path: path.clone(),
+                        package: pkg,
+                        filename,
+                    }]),
+                    ..Default::default()
+                },
+            }]);
+        }
+
         let mut grouped =
             std::collections::BTreeMap::<TargetBackend, Vec<ResolvedTestPathFilter>>::new();
         for path in cmd.explicit_path_filters {
@@ -1154,11 +1171,6 @@ fn resolve_test_target_groups(
             all_affected_packages.iter().copied(),
             package_filter,
         );
-        if !package_matches.missing.is_empty() {
-            for missing in package_matches.missing {
-                output.warn(format!("Input `{}` did not match any package", missing));
-            }
-        }
         if package_matches.matched.is_empty() {
             output.warn(format!(
                 "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",

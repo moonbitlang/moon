@@ -499,6 +499,10 @@ fn run_check_normal_internal_rr(
     )
     .context("Failed to determine default target groups")?;
 
+    if groups.is_empty() {
+        build_directive_for_selected_packages(&[], cmd.no_mi, cmd.patch_file.as_deref())?;
+    }
+
     let mut planned = Vec::new();
     let mut prebuild_list = PrebuildWatchPaths {
         ignored_paths: Vec::new(),
