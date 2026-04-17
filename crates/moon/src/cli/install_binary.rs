@@ -610,21 +610,39 @@ fn build_and_install_packages(
         };
         let binary_dst = install_dir.join(dst_name);
 
-        std::fs::copy(&binary_src, &binary_dst).with_context(|| {
+        // Copy into a sibling tempfile and atomically rename into place.
+        // Overwriting the destination with `fs::copy` would truncate it via
+        // `O_TRUNC`; on macOS the kernel SIGKILLs any process still executing
+        // the old inode as soon as it pages in a code-signature page whose
+        // bytes have changed underneath it.
+        let tmp = tempfile::NamedTempFile::new_in(install_dir).with_context(|| {
+            format!(
+                "Failed to create temporary file in `{}`",
+                install_dir.display()
+            )
+        })?;
+
+        std::fs::copy(&binary_src, tmp.path()).with_context(|| {
             format!(
                 "Failed to copy binary from `{}` to `{}`",
                 binary_src.display(),
-                binary_dst.display()
+                tmp.path().display()
             )
         })?;
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&binary_dst)?.permissions();
+            let mut perms = std::fs::metadata(tmp.path())?.permissions();
             perms.set_mode(0o755);
-            std::fs::set_permissions(&binary_dst, perms)?;
+            std::fs::set_permissions(tmp.path(), perms)?;
         }
+
+        tmp.persist(&binary_dst)
+            .map_err(|e| e.error)
+            .with_context(|| {
+                format!("Failed to install binary to `{}`", binary_dst.display())
+            })?;
 
         if !quiet {
             eprintln!(
