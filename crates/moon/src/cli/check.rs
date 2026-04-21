@@ -16,8 +16,22 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+//! Workflow overview for `moon check`:
+//!
+//! 1. Parse the CLI selector (`PATH`, `-p`, or whole workspace).
+//! 2. Resolve packages and decide which backend(s) to check:
+//!    - explicit `--target` keeps one backend;
+//!    - otherwise local packages are grouped by
+//!      `module preferred -> workspace preferred -> default backend`.
+//! 3. `plan_check_rr_from_resolved_all` turns those backend groups into an
+//!    ordered list of single-backend RR plans.
+//! 4. `plan_check_rr_from_resolved` still plans exactly one backend group.
+//! 5. The runtime executes planned runs in order; the last run updates
+//!    `packages.json`.
+//!
 use anyhow::Context;
 use moonbuild_rupes_recta::intent::UserIntent;
+use moonbuild_rupes_recta::model::PackageId;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
@@ -28,8 +42,9 @@ use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    canonicalize_with_filename, ensure_package_supports_backend, filter_pkg_by_dir,
-    package_supports_backend, select_supported_packages,
+    canonicalize_with_filename, ensure_package_supports_backend, ensure_packages_support_backend,
+    filter_pkg_by_dir, format_supported_backends, package_supports_backend, select_packages,
+    select_supported_packages,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::user_diagnostics::UserDiagnostics;
@@ -38,8 +53,14 @@ use crate::watch::{WatchOutput, watching};
 
 use super::BuildFlags;
 
+#[derive(Debug)]
+pub(crate) struct CheckTargetSelection {
+    pub target_backend: TargetBackend,
+    pub packages: Vec<PackageId>,
+}
+
 /// Check the current package, but don't build object files
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("package_selector").multiple(false))]
 pub(crate) struct CheckSubcommand {
     #[clap(flatten)]
@@ -410,7 +431,7 @@ fn run_check_normal_internal_rr(
     target_dir: &Path,
     mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
-    _watch: bool,
+    watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
@@ -421,7 +442,15 @@ fn run_check_normal_internal_rr(
     .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)
         .context("Failed to calculate build plan")?;
-    let (build_meta, build_graph) = plan_check_rr_from_resolved(
+    let prebuild_list = if watch {
+        rr_get_prebuild_watch_paths(&resolve_output)
+    } else {
+        PrebuildWatchPaths {
+            ignored_paths: Vec::new(),
+            watched_paths: Vec::new(),
+        }
+    };
+    let planned_runs = plan_check_rr_from_resolved_all(
         cli,
         cmd,
         source_dir,
@@ -431,34 +460,18 @@ fn run_check_normal_internal_rr(
     )
     .context("Failed to calculate build plan")?;
 
-    let prebuild_list = if _watch {
-        rr_get_prebuild_watch_paths(&build_meta.resolve_output)
-    } else {
-        PrebuildWatchPaths {
-            ignored_paths: Vec::new(),
-            watched_paths: Vec::new(),
+    let ok = if cli.dry_run {
+        for (build_meta, build_graph) in planned_runs {
+            rr_build::print_dry_run(
+                &build_graph,
+                build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            );
         }
-    };
-
-    if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
-        Ok(WatchOutput {
-            ok: true,
-            additional_ignored_paths: prebuild_list.ignored_paths,
-            additional_watched_paths: prebuild_list.watched_paths,
-        })
+        true
     } else {
         let _lock = FileLock::lock(target_dir)?;
-        // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check)?;
-        // Generate metadata for IDE
-        rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Check, None)?;
-
         let mut cfg = BuildConfig::from_flags(
             &cmd.build_flags,
             &cli.unstable_feature,
@@ -467,16 +480,73 @@ fn run_check_normal_internal_rr(
         );
         cfg.patch_file = cmd.patch_file.clone();
         cfg.explain_errors |= cmd.explain;
-        let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
-        result.print_info(cli.quiet, "checking")?;
-        Ok(WatchOutput {
-            ok: result.successful(),
-            additional_ignored_paths: prebuild_list.ignored_paths,
-            additional_watched_paths: prebuild_list.watched_paths,
-        })
-    }
+        let mut ok = true;
+        for (build_meta, build_graph) in planned_runs {
+            // Generate all_pkgs.json for indirect dependency resolution
+            rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check)?;
+            // Generate metadata for IDE. The last executed backend wins.
+            rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Check, None)?;
+
+            let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
+            result.print_info(cli.quiet, "checking")?;
+            ok &= result.successful();
+        }
+        ok
+    };
+
+    Ok(WatchOutput {
+        ok,
+        additional_ignored_paths: prebuild_list.ignored_paths,
+        additional_watched_paths: prebuild_list.watched_paths,
+    })
 }
 
+pub(crate) fn plan_check_rr_from_resolved_all(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
+    let selections = resolve_check_target_selections(
+        &resolve_output,
+        cmd,
+        source_dir,
+        selected_target_backend,
+        UserDiagnostics::from_flags(cli),
+    )?;
+
+    if selections.is_empty() {
+        return plan_check_rr_from_resolved(
+            cli,
+            cmd,
+            source_dir,
+            target_dir,
+            selected_target_backend,
+            resolve_output,
+        )
+        .map(|plan| vec![plan]);
+    }
+
+    selections
+        .into_iter()
+        .map(|selection| {
+            let (scoped_cmd, target_backend) =
+                narrow_check_request_to_selection(cmd, &resolve_output, &selection);
+            plan_check_rr_from_resolved(
+                cli,
+                &scoped_cmd,
+                source_dir,
+                target_dir,
+                Some(target_backend),
+                resolve_output.clone(),
+            )
+        })
+        .collect()
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn plan_check_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -525,9 +595,179 @@ pub(crate) fn plan_check_rr_from_resolved(
     )
 }
 
-/// Generate user intent of checking all packages in the current workspace.
-///
-#[instrument(level = Level::DEBUG, skip_all)]
+fn narrow_check_request_to_selection(
+    cmd: &CheckSubcommand,
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    selection: &CheckTargetSelection,
+) -> (CheckSubcommand, TargetBackend) {
+    let mut scoped_cmd = cmd.clone();
+    scoped_cmd.package_path = None;
+    scoped_cmd.path = selection_package_roots(resolve_output, &selection.packages);
+    (scoped_cmd, selection.target_backend)
+}
+
+pub(crate) fn resolve_check_target_selections(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &CheckSubcommand,
+    source_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<CheckTargetSelection>> {
+    if let Some(target_backend) = selected_target_backend {
+        let packages = resolve_selected_packages(
+            resolve_output,
+            cmd,
+            source_dir,
+            Some(target_backend),
+            output,
+        )?;
+        return Ok(vec![CheckTargetSelection {
+            target_backend,
+            packages,
+        }]);
+    }
+
+    let selected = resolve_selected_packages(resolve_output, cmd, source_dir, None, output)?;
+    let mut selections = Vec::new();
+
+    for pkg in selected {
+        let target_backend = module_preferred_target_backend(resolve_output, pkg);
+        let Some(index) = selections
+            .iter()
+            .position(|selection: &CheckTargetSelection| {
+                selection.target_backend == target_backend
+            })
+        else {
+            selections.push(CheckTargetSelection {
+                target_backend,
+                packages: vec![pkg],
+            });
+            continue;
+        };
+        selections[index].packages.push(pkg);
+    }
+
+    let mut filtered = Vec::new();
+    for selection in selections {
+        let packages = filter_packages_for_backend(
+            resolve_output,
+            selection.packages,
+            selection.target_backend,
+            output,
+        )?;
+        if !packages.is_empty() {
+            filtered.push(CheckTargetSelection {
+                target_backend: selection.target_backend,
+                packages,
+            });
+        }
+    }
+
+    Ok(filtered)
+}
+
+fn resolve_selected_packages(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_backend: Option<TargetBackend>,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<PackageId>> {
+    if let Some(filter_path) = cmd.package_path.as_deref() {
+        let (dir, _) = canonicalize_with_filename(&source_dir.join(filter_path))?;
+        let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
+        if let Some(target_backend) = target_backend {
+            ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
+        }
+        return Ok(vec![pkg]);
+    }
+
+    if !cmd.path.is_empty() {
+        if let Some(target_backend) = target_backend {
+            return select_supported_packages(resolve_output, &cmd.path, target_backend, output);
+        }
+        return Ok(select_packages(&cmd.path, output, |dir| {
+            filter_pkg_by_dir(resolve_output, dir)
+        })?
+        .into_iter()
+        .map(|(_, pkg_id)| pkg_id)
+        .collect());
+    }
+
+    Ok(rr_build::local_packages(resolve_output)
+        .filter(|&pkg| {
+            target_backend
+                .is_none_or(|backend| package_supports_backend(resolve_output, pkg, backend))
+        })
+        .collect())
+}
+
+fn module_preferred_target_backend(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    pkg: PackageId,
+) -> TargetBackend {
+    let module_id = resolve_output.pkg_dirs.get_package(pkg).module;
+    resolve_output
+        .module_rel
+        .module_info(module_id)
+        .preferred_target
+        .or(resolve_output.workspace_preferred_target)
+        .unwrap_or_default()
+}
+
+fn filter_packages_for_backend(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    packages: Vec<PackageId>,
+    target_backend: TargetBackend,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<PackageId>> {
+    let mut supported = Vec::new();
+    let mut unsupported = Vec::new();
+
+    for pkg in packages {
+        if package_supports_backend(resolve_output, pkg, target_backend) {
+            supported.push(pkg);
+        } else {
+            unsupported.push(pkg);
+        }
+    }
+
+    if supported.is_empty() && !unsupported.is_empty() {
+        if let [pkg] = unsupported.as_slice() {
+            ensure_package_supports_backend(resolve_output, *pkg, target_backend)?;
+        } else {
+            ensure_packages_support_backend(
+                resolve_output,
+                unsupported.iter().copied(),
+                target_backend,
+            )?;
+        }
+    }
+
+    for pkg in unsupported {
+        let pkg_id = pkg;
+        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        output.info(format!(
+            "skipping package `{}` because it does not support the selected target backend `{}`. Supported backends: {}",
+            pkg.fqn,
+            target_backend,
+            format_supported_backends(resolve_output, pkg_id),
+        ));
+    }
+
+    Ok(supported)
+}
+
+fn selection_package_roots(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    packages: &[PackageId],
+) -> Vec<PathBuf> {
+    packages
+        .iter()
+        .map(|pkg| resolve_output.pkg_dirs.get_package(*pkg).root_path.clone())
+        .collect()
+}
+
 fn calc_user_intent_from_package_path(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     source_dir: &Path,
@@ -575,29 +815,15 @@ fn build_directive_for_selected_packages(
     no_mi: bool,
     patch_file: Option<&Path>,
 ) -> anyhow::Result<moonbuild_rupes_recta::build_plan::InputDirective> {
-    match selected {
-        [pkg] => rr_build::build_patch_directive_for_package(*pkg, no_mi, None, patch_file, false),
-        [] => {
-            if no_mi {
-                anyhow::bail!("`--no-mi` requires the selector to resolve to a single package");
-            }
-            if patch_file.is_some() {
-                anyhow::bail!(
-                    "`--patch-file` requires the selector to resolve to a single package"
-                );
-            }
-            Ok(Default::default())
-        }
-        _ => {
-            if no_mi {
-                anyhow::bail!("`--no-mi` requires the selector to resolve to a single package");
-            }
-            if patch_file.is_some() {
-                anyhow::bail!(
-                    "`--patch-file` requires the selector to resolve to a single package"
-                );
-            }
-            Ok(Default::default())
-        }
+    if let [pkg] = selected {
+        return rr_build::build_patch_directive_for_package(*pkg, no_mi, None, patch_file, false);
     }
+
+    if no_mi {
+        anyhow::bail!("`--no-mi` requires the selector to resolve to a single package");
+    }
+    if patch_file.is_some() {
+        anyhow::bail!("`--patch-file` requires the selector to resolve to a single package");
+    }
+    Ok(Default::default())
 }
