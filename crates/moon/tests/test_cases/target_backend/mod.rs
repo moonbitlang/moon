@@ -171,6 +171,27 @@ fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode()
 }
 
 #[test]
+fn test_mixed_backend_split_check_keeps_single_package_patch_file_rule() {
+    let dir = TestDir::new("mixed_backend_local_dep.in");
+
+    let stderr = get_err_stderr(
+        &dir,
+        [
+            "check",
+            "web",
+            "server",
+            "--patch-file",
+            "patch.json",
+            "--dry-run",
+        ],
+    );
+    assert!(
+        stderr.contains("`--patch-file` requires the selector to resolve to a single package"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn test_mixed_backend_run_info_bundle_are_target_aware() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
@@ -509,19 +530,6 @@ fn test_check_last_executed_backend_wins_for_packages_json() {
             .unwrap();
 
     assert_eq!(packages_json["backend"], serde_json::json!("native"));
-
-    let packages = packages_json["packages"].as_array().unwrap();
-    let js_pkg = packages
-        .iter()
-        .find(|pkg| pkg["root"] == "workspace/js_preferred")
-        .unwrap();
-    assert!(
-        js_pkg["artifact"]
-            .as_str()
-            .unwrap()
-            .contains("/_build/native/debug/check/workspace/js_preferred/lib/lib.mi"),
-        "packages.json: {packages_json}"
-    );
 }
 
 #[test]

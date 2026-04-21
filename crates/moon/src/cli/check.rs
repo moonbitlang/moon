@@ -111,6 +111,9 @@ pub(crate) struct CheckSubcommand {
 #[instrument(skip_all)]
 pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
     let output = UserDiagnostics::from_flags(cli);
+    if cmd.no_mi {
+        output.warn("`moon check --no-mi` is deprecated");
+    }
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;
@@ -509,6 +512,14 @@ pub(crate) fn plan_check_rr_from_resolved_all(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
+    validate_selector_flags_before_split(
+        &resolve_output,
+        cmd,
+        source_dir,
+        selected_target_backend,
+        UserDiagnostics::from_flags(cli),
+    )?;
+
     let selections = resolve_check_target_selections(
         &resolve_output,
         cmd,
@@ -544,6 +555,28 @@ pub(crate) fn plan_check_rr_from_resolved_all(
             )
         })
         .collect()
+}
+
+fn validate_selector_flags_before_split(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &CheckSubcommand,
+    source_dir: &Path,
+    target_backend: Option<TargetBackend>,
+    output: UserDiagnostics,
+) -> anyhow::Result<()> {
+    if !cmd.no_mi && cmd.patch_file.is_none() {
+        return Ok(());
+    }
+
+    let selected =
+        resolve_selected_packages(resolve_output, cmd, source_dir, target_backend, output)?;
+    if cmd.no_mi && selected.len() != 1 {
+        anyhow::bail!("`--no-mi` requires the selector to resolve to a single package");
+    }
+    if cmd.patch_file.is_some() && selected.len() != 1 {
+        anyhow::bail!("`--patch-file` requires the selector to resolve to a single package");
+    }
+    Ok(())
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -662,6 +695,8 @@ pub(crate) fn resolve_check_target_selections(
             });
         }
     }
+
+    filtered.sort_by_key(|selection| selection.target_backend);
 
     Ok(filtered)
 }
