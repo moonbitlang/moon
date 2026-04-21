@@ -86,7 +86,9 @@ fn test_moon_info_help_explains_target_and_default_behavior() {
     let output = get_stdout(&dir, ["help", "info"]);
     assert!(output.contains("By default, `moon info` writes `pkg.generated.mbti`"));
     assert!(output.contains("canonical backend: module `preferred-backend`, then workspace"));
-    assert!(output.contains("`--target` inspects backend-specific interfaces and reports differences"));
+    assert!(
+        output.contains("`--target` inspects backend-specific interfaces and reports differences")
+    );
     assert!(output.contains("Inspect one or more target backends without changing the canonical"));
 }
 
