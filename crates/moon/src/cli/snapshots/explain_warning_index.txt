@@ -68,3 +68,4 @@
 0072	unqualified_local_using	unqualified local using
 0073	unnecessary_annotation	unnecessary type annotation
 0074	missing_doc	Missing documentation for public definition
+0075	unnecessary_view_op	Unnecessary `[:]` view operator

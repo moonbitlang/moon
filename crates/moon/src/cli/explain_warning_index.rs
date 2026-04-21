@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-04-15.
+// Snapshot generated from `moonc check -warn-help` on 2026-04-21.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -390,6 +390,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "missing_doc",
         description: "Missing documentation for public definition",
         id: 74,
+    },
+    WarningEntry {
+        mnemonic: "unnecessary_view_op",
+        description: "Unnecessary `[:]` view operator",
+        id: 75,
     },
 ];
 
