@@ -416,7 +416,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;info' {
-            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Inspect one or more target backends without changing the canonical `pkg.generated.mbti` output')
             [CompletionResult]::new('-p', 'p', [CompletionResultType]::ParameterName, 'The full or subset of name of the package to emit `mbti` files for')
             [CompletionResult]::new('--package', 'package', [CompletionResultType]::ParameterName, 'The full or subset of name of the package to emit `mbti` files for')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
