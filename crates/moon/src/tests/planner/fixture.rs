@@ -118,6 +118,21 @@ impl PlanningFixture {
         self.dump_plan(build_meta, build_graph)
     }
 
+    pub(super) fn plan_check_all_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &CheckSubcommand,
+    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+        crate::cli::check::plan_check_rr_from_resolved_all(
+            cli,
+            cmd,
+            &self.source_dir,
+            &self.target_dir,
+            cmd.build_flags.resolve_single_target_backend()?,
+            self.resolve_output.clone(),
+        )
+    }
+
     pub(super) fn plan_run_with_cli(
         &self,
         cli: &UniversalFlags,
