@@ -731,6 +731,7 @@ fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
                 debug!(dst = %dst.display(), "installed via FileRenameInfoEx (POSIX rename)");
                 // File was moved; drop on the TempPath is a harmless no-op.
                 drop(tmp_path);
+                windows::sweep_stale_backups(dst);
                 return Ok(());
             }
             Err(e) => {
@@ -745,6 +746,8 @@ fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
     match tmp_path.persist(dst) {
         Ok(()) => {
             debug!(dst = %dst.display(), "installed via std::fs::rename (persist)");
+            #[cfg(windows)]
+            windows::sweep_stale_backups(dst);
             Ok(())
         }
         #[cfg(windows)]
@@ -879,43 +882,72 @@ mod windows {
                 .with_context(|| format!("Failed to place new binary at `{}`", dst.display()));
         }
 
-        cleanup_backup(&backup);
+        sweep_stale_backups(dst);
 
         Ok(())
     }
 
-    /// Best-effort cleanup of the renamed-aside file.
+    /// Best-effort cleanup of every `<dst_filename>.old-*` sibling.
     ///
-    /// On contemporary Windows, `DeleteFileW` (via `remove_file`)
-    /// generally succeeds on the renamed-aside file even while the
-    /// target is still running — the directory entry is unlinked
-    /// immediately, and the contents are reclaimed when the running
-    /// process releases its handle. This depends on the image loader
-    /// opening executables with a share mode that permits delete,
-    /// which is an undocumented implementation detail rather than an
-    /// API contract. Empirical evidence: `ren running.exe other.exe`
-    /// also works on Windows, and rename requires `DELETE` access,
-    /// which requires `FILE_SHARE_DELETE` on every existing handle.
-    /// Transactional alternatives like `DeleteFileTransactedW` are
-    /// not an option — TxF is deprecated (see MS Learn: "Alternatives
-    /// to using Transactional NTFS"). If the delete fails for any
-    /// reason (filter drivers, older Windows, network filesystems),
-    /// we silently leave the `.old-<nonce>` file; it'll either get
-    /// cleaned up by a later install, or the user can remove it
-    /// manually. The failure is logged at `debug` level for anyone
-    /// debugging the install machinery.
-    fn cleanup_backup(backup: &Path) {
-        // Best-effort. If it fails, the file lingers until the next
-        // install sweeps it or the user clears it manually — not worth
-        // surfacing to anyone who isn't actively debugging the install
-        // machinery.
-        if let Err(e) = std::fs::remove_file(backup) {
-            tracing::debug!(
-                backup = %backup.display(),
-                err = %e,
-                code = ?e.raw_os_error(),
-                "could not remove backup file"
-            );
+    /// Each rename-away install mints a fresh `.old-<nonce>` name so
+    /// concurrent installs can't fight over a single backup slot. The
+    /// trade-off is that if the post-install delete fails (filter
+    /// drivers, older Windows, network filesystems, an AV holding a
+    /// scan), the orphan would be pinned forever: the next install
+    /// picks a new nonce and never revisits the old name. Retrying
+    /// every matching sibling on every successful install gives
+    /// orphaned backups another chance, so cleanup is self-healing.
+    ///
+    /// This runs on every Windows install path — FileRenameInfoEx,
+    /// plain `persist`, and `rename_away_and_persist` — because even
+    /// the paths that don't create a backup need to clear orphans
+    /// left behind by earlier rename-away runs.
+    ///
+    /// `DeleteFileW` on a currently-executing target usually succeeds
+    /// on contemporary Windows because the image loader opens
+    /// executables with `FILE_SHARE_DELETE`; that's an undocumented
+    /// implementation detail rather than an API contract (see the
+    /// MS Learn note on "Alternatives to using Transactional NTFS",
+    /// which steers callers away from `DeleteFileTransactedW`). When
+    /// the delete is refused we log at `debug` and keep going — the
+    /// next install sweeps again.
+    pub fn sweep_stale_backups(dst: &Path) {
+        let Some(parent) = dst.parent() else { return };
+        let Some(dst_name) = dst.file_name() else {
+            return;
+        };
+
+        let mut prefix = dst_name.to_owned();
+        prefix.push(".old-");
+        let prefix_bytes = prefix.as_encoded_bytes();
+
+        let entries = match std::fs::read_dir(parent) {
+            Ok(it) => it,
+            Err(e) => {
+                tracing::debug!(
+                    dir = %parent.display(),
+                    err = %e,
+                    "could not enumerate install dir for backup sweep"
+                );
+                return;
+            }
+        };
+
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if !name.as_encoded_bytes().starts_with(prefix_bytes) {
+                continue;
+            }
+            let path = entry.path();
+            match std::fs::remove_file(&path) {
+                Ok(()) => tracing::debug!(path = %path.display(), "swept stale backup"),
+                Err(e) => tracing::debug!(
+                    path = %path.display(),
+                    err = %e,
+                    code = ?e.raw_os_error(),
+                    "could not sweep stale backup"
+                ),
+            }
         }
     }
 
