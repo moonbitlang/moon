@@ -251,9 +251,17 @@ fn sync_workspace_manifests(resolved_env: &ResolvedEnv) -> anyhow::Result<Vec<Pa
         }
 
         let new_json = convert_module_to_mod_json(module);
-        let manifest_path = module_dir.join(MOON_MOD_JSON);
-        write_module_json_to_file(&new_json, module_dir)
-            .context(format!("failed to write `{}`", manifest_path.display()))?;
+        let manifest_path = if module_dir.join(MOON_MOD).exists() {
+            let manifest_path = module_dir.join(MOON_MOD);
+            write_module_dsl_to_file(&new_json, module_dir)
+                .context(format!("failed to write `{}`", manifest_path.display()))?;
+            manifest_path
+        } else {
+            let manifest_path = module_dir.join(MOON_MOD_JSON);
+            write_module_json_to_file(&new_json, module_dir)
+                .context(format!("failed to write `{}`", manifest_path.display()))?;
+            manifest_path
+        };
         updated.push(manifest_path);
     }
 
