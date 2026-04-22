@@ -85,20 +85,35 @@ fn test_fmt_without_moon_mod_feature() {
 fn test_fmt_with_new_moon_mod_env() {
     let dir = TestDir::new("fmt_moon_mod.in");
 
-    check(
-        get_stdout_with_envs(
-            &dir,
-            ["fmt", "--dry-run", "--sort-input"],
-            [("NEW_MOON_MOD", "1")],
-        ),
-        expect![[r#"
-            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-            moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
-            cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
-            rm ./moon.mod.json
-            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-        "#]],
+    let output = get_stdout_with_envs(
+        &dir,
+        ["fmt", "--dry-run", "--sort-input"],
+        [("NEW_MOON_MOD", "1")],
     );
+
+    if cfg!(windows) {
+        check(
+            output,
+            expect![[r#"
+                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
+                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
+                cmd /c del ./moon.mod.json
+                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
+            "#]],
+        );
+    } else {
+        check(
+            output,
+            expect![[r#"
+                moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
+                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
+                rm ./moon.mod.json
+                moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
+            "#]],
+        );
+    }
 }
 
 #[test]
