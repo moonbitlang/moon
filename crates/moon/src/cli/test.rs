@@ -22,6 +22,7 @@ use crate::filter::filter_pkg_by_dir;
 use crate::filter::format_supported_backends;
 use crate::filter::match_packages_with_fuzzy;
 use crate::filter::package_supports_backend;
+use crate::filter::select_packages;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
@@ -47,6 +48,17 @@ use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
+
+#[derive(Debug)]
+pub(crate) struct TestTargetSelection {
+    pub target_backend: TargetBackend,
+    pub packages: Vec<PackageId>,
+}
+
+struct TestSelectionOverride {
+    explicit_path_filters: Option<Vec<PathBuf>>,
+    package: Option<Vec<String>>,
+}
 
 /// Print test summary statistics in the legacy format
 fn print_test_summary(
@@ -446,6 +458,7 @@ fn run_test_in_single_file_rr(
         &build_meta,
         build_graph,
         filter,
+        None,
     )
 }
 
@@ -518,36 +531,6 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
     }
 }
 
-/// Plan `moon test`/`moon bench` once and return the pieces needed for either
-/// execution or inspection.
-///
-/// The normal CLI path resolves and plans here, while unit tests can skip the
-/// resolve step and reuse [`plan_test_or_bench_rr_from_resolved`].
-pub(crate) fn plan_test_or_bench_rr(
-    cli: &UniversalFlags,
-    cmd: &TestLikeSubcommand<'_>,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
-    selected_target_backend: Option<TargetBackend>,
-) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
-    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
-        cmd.auto_sync_flags.frozen,
-        !cmd.build_flags.std(),
-        cmd.build_flags.enable_coverage,
-    )
-    .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
-    plan_test_or_bench_rr_from_resolved(
-        cli,
-        cmd,
-        target_dir,
-        selected_target_backend,
-        resolve_output,
-    )
-}
-
 pub(crate) fn plan_test_or_bench_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
@@ -597,6 +580,136 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
                 &mut filter,
                 target_backend,
                 UserDiagnostics::from_flags(cli),
+            )
+        }),
+        resolve_output,
+    )?;
+    Ok((build_meta, build_graph, filter))
+}
+
+pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter)>, anyhow::Error> {
+    if let Some(target_backend) = selected_target_backend {
+        return plan_test_or_bench_rr_from_resolved(
+            cli,
+            cmd,
+            target_dir,
+            Some(target_backend),
+            resolve_output,
+        )
+        .map(|plan| vec![plan]);
+    }
+
+    let selections =
+        resolve_test_target_selections(&resolve_output, cmd, UserDiagnostics::from_flags(cli))?;
+
+    if has_explicit_test_selector(cmd) {
+        if selections.is_empty() {
+            return plan_test_or_bench_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
+                .map(|plan| vec![plan]);
+        }
+
+        return selections
+            .into_iter()
+            .map(|selection| {
+                let selection_override =
+                    narrow_test_request_to_selection(cmd, &resolve_output, &selection);
+                plan_test_or_bench_rr_from_resolved_scoped(
+                    cli,
+                    cmd,
+                    target_dir,
+                    selection.target_backend,
+                    resolve_output.clone(),
+                    selection.packages,
+                    Some(selection_override),
+                )
+            })
+            .collect();
+    }
+
+    if selections.is_empty() {
+        return plan_test_or_bench_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
+            .map(|plan| vec![plan]);
+    }
+
+    selections
+        .into_iter()
+        .map(|selection| {
+            plan_test_or_bench_rr_from_resolved_scoped(
+                cli,
+                cmd,
+                target_dir,
+                selection.target_backend,
+                resolve_output.clone(),
+                selection.packages,
+                None,
+            )
+        })
+        .collect()
+}
+
+fn plan_test_or_bench_rr_from_resolved_scoped(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    target_dir: &Path,
+    target_backend: TargetBackend,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    scoped_packages: Vec<PackageId>,
+    selection_override: Option<TestSelectionOverride>,
+) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
+    let build_flags = BuildFlags {
+        no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
+        ..cmd.build_flags.clone()
+    };
+    let mut preconfig = preconfig_compile(
+        cmd.auto_sync_flags,
+        cli,
+        &build_flags,
+        Some(target_backend),
+        target_dir,
+        if cmd.run_mode == RunMode::Bench {
+            RunMode::Bench
+        } else {
+            RunMode::Test
+        },
+    );
+
+    if cmd.run_mode != RunMode::Bench {
+        preconfig.try_tcc_run = true;
+    }
+
+    let mut filter = TestFilter {
+        name_filter: cmd.filter.clone(),
+        ..Default::default()
+    };
+    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+        preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        UserDiagnostics::from_flags(cli),
+        Box::new(|resolved, target_backend| {
+            let explicit_path_filters = selection_override
+                .as_ref()
+                .and_then(|selection| selection.explicit_path_filters.as_deref())
+                .unwrap_or(cmd.explicit_path_filters);
+            let package_filter = selection_override
+                .as_ref()
+                .and_then(|selection| selection.package.as_deref())
+                .or(cmd.package.as_deref());
+            calc_user_intent_from_packages(
+                resolved,
+                cmd,
+                &mut filter,
+                &scoped_packages,
+                target_backend,
+                UserDiagnostics::from_flags(cli),
+                explicit_path_filters,
+                package_filter,
             )
         }),
         resolve_output,
@@ -680,30 +793,56 @@ fn run_test_rr(
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<i32, anyhow::Error> {
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
-    let (build_meta, build_graph, filter) = plan_test_or_bench_rr(
+    let planned_runs = plan_test_or_bench_rr_from_resolved_all(
         cli,
         cmd,
-        source_dir,
         target_dir,
-        mooncakes_dir,
-        project_manifest_path,
         selected_target_backend,
+        moonbuild_rupes_recta::resolve(
+            &moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+                cmd.auto_sync_flags.frozen,
+                !cmd.build_flags.std(),
+                cmd.build_flags.enable_coverage,
+            )
+            .with_project_manifest_path(project_manifest_path),
+            source_dir,
+            mooncakes_dir,
+        )?,
     )?;
-    debug!(
-        artifact_count = build_meta.artifacts.len(),
-        "planned rupes-recta build graph"
-    );
+    let effective_display_backend_hint = if planned_runs.len() > 1 {
+        Some(())
+    } else {
+        display_backend_hint
+    };
 
-    rr_test_from_plan(
-        cli,
-        cmd,
-        source_dir,
-        target_dir,
-        display_backend_hint,
-        &build_meta,
-        build_graph,
-        filter,
-    )
+    let mut build_only_artifacts = cmd.build_only.then_some(TestArtifacts {
+        artifacts_path: Vec::new(),
+        test_filter_args: Vec::new(),
+    });
+    let mut exit_code = 0;
+    for (build_meta, build_graph, filter) in planned_runs {
+        debug!(
+            artifact_count = build_meta.artifacts.len(),
+            backend = ?build_meta.target_backend,
+            "planned rupes-recta build graph"
+        );
+
+        exit_code = exit_code.max(rr_test_from_plan(
+            cli,
+            cmd,
+            source_dir,
+            target_dir,
+            effective_display_backend_hint,
+            &build_meta,
+            build_graph,
+            filter,
+            build_only_artifacts.as_mut(),
+        )?);
+    }
+    if let Some(test_artifacts) = build_only_artifacts {
+        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+    }
+    Ok(exit_code)
 }
 
 /// The nodes wanted to run a test for a build target
@@ -837,6 +976,28 @@ fn calc_user_intent(
                 .flat_map(|packages| packages.values().copied())
         })
         .collect();
+    calc_user_intent_from_packages(
+        resolve_output,
+        cmd,
+        out_filter,
+        &all_affected_packages,
+        target_backend,
+        output,
+        cmd.explicit_path_filters,
+        cmd.package.as_deref(),
+    )
+}
+
+fn calc_user_intent_from_packages(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &TestLikeSubcommand<'_>,
+    out_filter: &mut TestFilter,
+    all_affected_packages: &[PackageId],
+    target_backend: moonutil::common::TargetBackend,
+    output: UserDiagnostics,
+    explicit_path_filters: &[PathBuf],
+    package_filter: Option<&[String]>,
+) -> Result<CalcUserIntentOutput, anyhow::Error> {
     debug!(
         package_count = all_affected_packages.len(),
         module_count = resolve_output.local_modules().len(),
@@ -848,7 +1009,7 @@ fn calc_user_intent(
         .filter(|&pkg_id| package_supports_backend(resolve_output, pkg_id, target_backend))
         .collect::<Vec<_>>();
 
-    let directive = if !cmd.explicit_path_filters.is_empty() {
+    let directive = if !explicit_path_filters.is_empty() {
         let test_index = if let Some(index) = cmd.index {
             Some(TestIndex::Regular(*index))
         } else if let Some(id) = cmd.doc_index {
@@ -857,7 +1018,7 @@ fn calc_user_intent(
             None
         };
 
-        if let [path] = cmd.explicit_path_filters {
+        if let [path] = explicit_path_filters {
             let (dir, filename) = canonicalize_with_filename(path)?;
             let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
 
@@ -871,7 +1032,7 @@ fn calc_user_intent(
             let mut unsupported_paths = Vec::new();
             let mut supported_paths = 0;
 
-            for path in cmd.explicit_path_filters {
+            for path in explicit_path_filters {
                 let (dir, filename) = canonicalize_with_filename(path)?;
                 debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
 
@@ -920,12 +1081,12 @@ fn calc_user_intent(
             trace!("explicit path filters applied");
         }
         Default::default()
-    } else if let Some(package_filter) = cmd.package {
+    } else if let Some(package_filter) = package_filter {
         let value_tracing = cmd.build_flags.enable_value_tracing;
         apply_list_of_filters(
-            &all_affected_packages,
+            all_affected_packages,
             resolve_output,
-            package_filter.as_slice(),
+            package_filter,
             cmd.file.as_deref(),
             *cmd.index,
             *cmd.doc_index,
@@ -965,6 +1126,133 @@ fn calc_user_intent(
     Ok((intents, directive).into())
 }
 
+fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
+    !cmd.explicit_path_filters.is_empty() || cmd.package.is_some()
+}
+
+fn narrow_test_request_to_selection(
+    cmd: &TestLikeSubcommand<'_>,
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    selection: &TestTargetSelection,
+) -> TestSelectionOverride {
+    let explicit_path_filters = (!cmd.explicit_path_filters.is_empty()).then(|| {
+        cmd.explicit_path_filters
+            .iter()
+            .filter(|path| {
+                let Ok((dir, _)) = canonicalize_with_filename(path) else {
+                    return false;
+                };
+                let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
+                    return false;
+                };
+                selection.packages.contains(&pkg)
+            })
+            .cloned()
+            .collect()
+    });
+    let package = cmd.package.as_ref().map(|_| {
+        selection
+            .packages
+            .iter()
+            .map(|pkg| resolve_output.pkg_dirs.get_package(*pkg).fqn.to_string())
+            .collect()
+    });
+    TestSelectionOverride {
+        explicit_path_filters,
+        package,
+    }
+}
+
+fn resolve_test_target_selections(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &TestLikeSubcommand<'_>,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<TestTargetSelection>> {
+    let selected = resolve_selected_test_packages(resolve_output, cmd, output)?;
+    let mut selections = Vec::new();
+
+    for pkg in selected {
+        let module_id = resolve_output.pkg_dirs.get_package(pkg).module;
+        let target_backend = resolve_output
+            .module_rel
+            .module_info(module_id)
+            .preferred_target
+            .or(resolve_output.workspace_preferred_target)
+            .unwrap_or_default();
+        let Some(index) = selections
+            .iter()
+            .position(|selection: &TestTargetSelection| selection.target_backend == target_backend)
+        else {
+            selections.push(TestTargetSelection {
+                target_backend,
+                packages: vec![pkg],
+            });
+            continue;
+        };
+        selections[index].packages.push(pkg);
+    }
+
+    for selection in &mut selections {
+        selection.packages = selection
+            .packages
+            .iter()
+            .copied()
+            .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
+            .collect();
+    }
+    selections.retain(|selection| !selection.packages.is_empty());
+    selections.sort_by_key(|selection| selection.target_backend);
+
+    Ok(selections)
+}
+
+fn resolve_selected_test_packages(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &TestLikeSubcommand<'_>,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<PackageId>> {
+    if !cmd.explicit_path_filters.is_empty() {
+        return Ok(select_packages(cmd.explicit_path_filters, output, |dir| {
+            filter_pkg_by_dir(resolve_output, dir)
+        })?
+        .into_iter()
+        .map(|(_, pkg_id)| pkg_id)
+        .collect());
+    }
+
+    if let Some(package_filter) = cmd.package.as_deref() {
+        let all_affected_packages: Vec<_> = resolve_output
+            .local_modules()
+            .iter()
+            .flat_map(|&module_id| {
+                resolve_output
+                    .pkg_dirs
+                    .packages_for_module(module_id)
+                    .into_iter()
+                    .flat_map(|packages| packages.values().copied())
+            })
+            .collect();
+        return Ok(match_packages_with_fuzzy(
+            resolve_output,
+            all_affected_packages,
+            package_filter,
+        )
+        .matched);
+    }
+
+    Ok(resolve_output
+        .local_modules()
+        .iter()
+        .flat_map(|&module_id| {
+            resolve_output
+                .pkg_dirs
+                .packages_for_module(module_id)
+                .into_iter()
+                .flat_map(|packages| packages.values().copied())
+        })
+        .collect())
+}
+
 #[instrument(level = Level::DEBUG, skip_all)]
 #[allow(clippy::too_many_arguments)] // FIXME
 fn rr_test_from_plan(
@@ -976,6 +1264,7 @@ fn rr_test_from_plan(
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
     filter: TestFilter,
+    build_only_artifacts: Option<&mut TestArtifacts>,
 ) -> Result<i32, anyhow::Error> {
     // Dry-run: share the same routine
     if cli.dry_run {
@@ -1035,7 +1324,16 @@ fn rr_test_from_plan(
             cmd.include_skipped,
             cmd.run_mode == RunMode::Bench,
         )?;
-        println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+        if let Some(artifacts) = build_only_artifacts {
+            artifacts
+                .artifacts_path
+                .extend(test_artifacts.artifacts_path);
+            artifacts
+                .test_filter_args
+                .extend(test_artifacts.test_filter_args);
+        } else {
+            println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
+        }
         return Ok(0);
     }
 
