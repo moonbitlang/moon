@@ -100,6 +100,25 @@ the whole workspace. They can be run from:
 
 They do not need an implicit default member.
 
+Within this category, it helps to distinguish two subgroups:
+
+- **Workspace-wide planning commands**:
+  `moon build`, `moon check`
+- **Workspace-wide inspection or transformation commands**:
+  `moon test`, `moon fmt`, `moon info`
+
+All of them operate on the selected project rather than a single member, but
+`build` and `check` now have a more explicit workspace-wide planning model:
+
+- they accept package/path selectors across the selected project,
+- they may split one invocation into multiple backend-specific runs when
+  `--target` is omitted,
+- and they use `module preferred_target -> workspace preferred_target ->
+  default backend` to decide those runs.
+
+That makes them more than just "project-scoped"; they are the current
+workspace-wide target-planning commands.
+
 ### Member-Scoped Commands
 
 These commands need one concrete module even when the selected project is a
