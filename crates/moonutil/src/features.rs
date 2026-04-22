@@ -147,6 +147,10 @@ impl FromStr for FeatureGate {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut this = Self::parse_features_internal(s)?;
 
+        if let Ok("1") = std::env::var("NEW_MOON_MOD").as_deref() {
+            this.rr_moon_mod = true;
+        }
+
         // By default, enable rr_moon_pkg unless NEW_MOON_PKG=0 is set
         this.rr_moon_pkg = true;
         if let Ok("0") = std::env::var("NEW_MOON_PKG").as_deref() {

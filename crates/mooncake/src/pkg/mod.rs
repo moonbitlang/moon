@@ -20,7 +20,7 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
 use moonutil::{
-    common::{MOON_MOD_JSON, read_module_desc_file_in_dir},
+    common::{MOON_WORK, read_module_desc_file_in_dir},
     module::MoonMod,
     mooncakes::{
         ModuleSource,
@@ -48,7 +48,7 @@ pub(crate) fn roots_for_selected_module(
         if project_manifest_path
             .file_name()
             .and_then(|name| name.to_str())
-            != Some(MOON_MOD_JSON)
+            == Some(MOON_WORK)
         {
             let workspace_root = project_manifest_path
                 .parent()

@@ -23,7 +23,7 @@ use std::{path::Path, sync::Arc};
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
-    common::{MOON_MOD_JSON, MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
+    common::{MOON_WORK, MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
     dirs::{MOON_NO_WORKSPACE, find_ancestor_with_work},
     module::MoonMod,
     mooncakes::{
@@ -66,7 +66,7 @@ pub fn auto_sync(
         if project_manifest_path
             .file_name()
             .and_then(|name| name.to_str())
-            != Some(MOON_MOD_JSON)
+            == Some(MOON_WORK)
             && !disable_workspace
         {
             let workspace_root = manifest_dir.as_path();

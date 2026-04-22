@@ -25,8 +25,8 @@ use std::{
 use anyhow::{Context, bail};
 use moonutil::{
     common::{
-        MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE, read_module_desc_file_in_dir,
-        write_module_json_to_file,
+        MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE, read_module_desc_file_in_dir,
+        write_module_dsl_to_file, write_module_json_to_file,
     },
     dependency::SourceDependencyInfo,
     module::{MoonMod, convert_module_to_mod_json},
@@ -183,8 +183,9 @@ fn resolve_workspace_member(path: &Path) -> anyhow::Result<PathBuf> {
     }
     read_module_desc_file_in_dir(&member_dir).with_context(|| {
         format!(
-            "workspace member `{}` does not contain `{}`",
+            "workspace member `{}` does not contain `{}` or `{}`",
             path.display(),
+            MOON_MOD,
             MOON_MOD_JSON
         )
     })?;

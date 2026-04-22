@@ -112,6 +112,10 @@ pub fn is_moon_pkg(filename: &str) -> bool {
     filename == MOON_PKG || filename == MOON_PKG_JSON
 }
 
+pub fn is_moon_mod_exist(dir: &Path) -> bool {
+    dir.join(MOON_MOD).exists() || dir.join(MOON_MOD_JSON).exists()
+}
+
 pub fn is_moon_mod(filename: &str) -> bool {
     filename == MOON_MOD || filename == MOON_MOD_JSON
 }
