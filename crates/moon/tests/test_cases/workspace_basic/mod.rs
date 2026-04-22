@@ -828,6 +828,86 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
 }
 
 #[test]
+fn test_manifest_path_targets_dsl_member_for_tree() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    std::fs::write(
+        dir.join("app/moon.mod"),
+        r#"name = "alice/app"
+
+version = "0.1.0"
+
+import {
+  "alice/liba@0.1.0",
+}
+
+options(
+  source: "src",
+)
+"#,
+    )
+    .unwrap();
+
+    let tree = get_stdout(&dir, ["--manifest-path", "app/moon.mod", "tree"]);
+    assert!(
+        tree.contains("alice/app@0.1.0"),
+        "expected app module in tree output, got:\n{tree}"
+    );
+    assert!(
+        tree.contains("alice/liba@0.1.1"),
+        "expected workspace member dependency in tree output, got:\n{tree}"
+    );
+    assert!(
+        tree.contains("[workspace member]"),
+        "expected workspace member marker in tree output, got:\n{tree}"
+    );
+}
+
+#[test]
+fn test_manifest_path_targets_dsl_member_for_remove() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    std::fs::write(
+        dir.join("app/moon.mod"),
+        r#"name = "alice/app"
+
+version = "0.1.0"
+
+import {
+  "alice/liba@0.1.0",
+}
+
+options(
+  source: "src",
+)
+"#,
+    )
+    .unwrap();
+
+    check(
+        get_stdout(
+            &dir,
+            ["--manifest-path", "app/moon.mod", "remove", "alice/liba"],
+        ),
+        expect![[r#""#]],
+    );
+
+    assert!(dir.join("app/moon.mod").exists());
+    assert!(!dir.join("app/moon.mod.json").exists());
+    check(
+        std::fs::read_to_string(dir.join("app/moon.mod")).unwrap(),
+        expect![[r#"
+            name = "alice/app"
+
+            version = "0.1.0"
+
+            options(
+              source: "src",
+            )"#]],
+    );
+}
+
+#[test]
 fn test_manifest_path_can_disable_implicit_workspace_mode() {
     let dir = TestDir::new("workspace_basic.in");
 

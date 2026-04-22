@@ -22,6 +22,20 @@ fn test_fmt_existing_moon_mod_dry_run() {
 }
 
 #[test]
+fn test_check_existing_moon_mod_dry_run() {
+    let dir = TestDir::new("fmt_moon_mod_existing.in");
+    std::fs::write(
+        dir.join("moon.mod"),
+        "name = \"test/check_moon_mod\"\n\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+
+    let output = get_stdout(&dir, ["check", "--dry-run", "--sort-input"]);
+
+    assert!(output.contains("moonc check ./main/main.mbt"), "{output}");
+}
+
+#[test]
 fn test_fmt_existing_moon_mod_formats_in_place() {
     let dir = TestDir::new("fmt_moon_mod_existing.in");
 
@@ -62,6 +76,26 @@ fn test_fmt_without_moon_mod_feature() {
         get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
+        "#]],
+    );
+}
+
+#[test]
+fn test_fmt_with_new_moon_mod_env() {
+    let dir = TestDir::new("fmt_moon_mod.in");
+
+    check(
+        get_stdout_with_envs(
+            &dir,
+            ["fmt", "--dry-run", "--sort-input"],
+            [("NEW_MOON_MOD", "1")],
+        ),
+        expect![[r#"
+            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+            moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
+            cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
+            rm ./moon.mod.json
             moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
         "#]],
     );

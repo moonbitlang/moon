@@ -158,6 +158,49 @@ mod tests {
         let member = root.join("app");
         write_file(&root.join("moon.work"), "members = [\n  \"./app\",\n]\n");
         write_file(
+            &member.join(MOON_MOD),
+            "name = \"alice/app\"\n\nversion = \"0.1.0\"\n",
+        );
+
+        let cli = UniversalFlags {
+            source_tgt_dir: SourceTargetDirs {
+                cwd: None,
+                manifest_path: Some(member.join(MOON_MOD)),
+                target_dir: None,
+            },
+            quiet: false,
+            verbose: false,
+            trace: false,
+            dry_run: false,
+            build_graph: false,
+            unstable_feature: Box::default(),
+        };
+
+        let cli = single_module_mooncake_cli(cli, "package").unwrap();
+        let actual_manifest_path = cli
+            .source_tgt_dir
+            .manifest_path
+            .as_ref()
+            .map(dunce::canonicalize)
+            .unwrap()
+            .unwrap();
+        let expected_manifest_path = member.join(MOON_MOD);
+
+        assert_eq!(cli.source_tgt_dir.cwd, None);
+        assert_eq!(
+            actual_manifest_path,
+            dunce::canonicalize(expected_manifest_path).unwrap()
+        );
+        assert_eq!(cli.source_tgt_dir.target_dir, None);
+    }
+
+    #[test]
+    fn single_module_mooncake_cli_falls_back_to_json_manifest() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let member = root.join("app");
+        write_file(&root.join("moon.work"), "members = [\n  \"./app\",\n]\n");
+        write_file(
             &member.join(MOON_MOD_JSON),
             "{\n  \"name\": \"alice/app\",\n  \"version\": \"0.1.0\"\n}\n",
         );
