@@ -280,6 +280,77 @@ fn test_moon_run_dash_reads_stdin() {
 }
 
 #[test]
+fn test_moon_run_command_string_reads_inline_script() {
+    let dir = TestDir::new_empty();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("run")
+        .arg("-c")
+        .arg(
+            r#"fn main {
+  println("hello from run -c")
+}
+"#,
+        )
+        .assert()
+        .success()
+        .stdout_eq("hello from run -c\n");
+}
+
+#[test]
+fn test_moon_run_command_string_short_alias_e_reads_inline_script() {
+    let dir = TestDir::new_empty();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("run")
+        .arg("-e")
+        .arg(
+            r#"fn main {
+  println("hello from run -e")
+}
+"#,
+        )
+        .assert()
+        .success()
+        .stdout_eq("hello from run -e\n");
+}
+
+#[test]
+fn test_moon_run_command_string_conflicts_with_other_inputs() {
+    let dir = TestDir::new_empty();
+
+    let dash_stderr = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("run")
+        .arg("-c")
+        .arg(r#"fn main { println("hello") }"#)
+        .arg("-")
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .to_owned();
+    let dash_stderr = String::from_utf8_lossy(&dash_stderr);
+    assert!(dash_stderr.contains("cannot be used with"));
+    assert!(dash_stderr.contains("-c"));
+
+    let path_stderr = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("run")
+        .arg("-c")
+        .arg(r#"fn main { println("hello") }"#)
+        .arg("main")
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .to_owned();
+    let path_stderr = String::from_utf8_lossy(&path_stderr);
+    assert!(path_stderr.contains("cannot be used with"));
+    assert!(path_stderr.contains("-c"));
+}
+
+#[test]
 fn test_moon_run_dash_reads_stdin_with_common_flags() {
     let dir = TestDir::new_empty();
     let subdir = dir.join("subdir");

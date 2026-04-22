@@ -2209,12 +2209,16 @@ _moon() {
             return 0
             ;;
         moon__run)
-            opts="-g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --build-only --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE_OR_MBT_FILE> [ARGS]..."
+            opts="-c -g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --build-only --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PACKAGE_OR_MBT_FILE] [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                -c)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --target)
                     COMPREPLY=($(compgen -W "wasm wasm-gc js native llvm all" -- "${cur}"))
                     return 0

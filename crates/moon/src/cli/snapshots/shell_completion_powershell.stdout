@@ -231,6 +231,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;run' {
+            [CompletionResult]::new('-c', 'c', [CompletionResultType]::ParameterName, 'Run `.mbtx` source passed in as a string')
             [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Select output target')
             [CompletionResult]::new('--warn-list', 'warn-list', [CompletionResultType]::ParameterName, 'Warn list config')
             [CompletionResult]::new('-j', 'j', [CompletionResultType]::ParameterName, 'Set the max number of jobs to run in parallel')

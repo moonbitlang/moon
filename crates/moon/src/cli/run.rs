@@ -37,14 +37,26 @@ use super::{BuildFlags, UniversalFlags};
 
 /// Run a main package
 #[derive(Debug, clap::Parser)]
+#[clap(group = clap::ArgGroup::new("run_source").required(true).multiple(false))]
 pub(crate) struct RunSubcommand {
     /// The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
-    pub package_or_mbt_file: String,
+    #[clap(group = "run_source")]
+    pub package_or_mbt_file: Option<String>,
+
+    /// Run `.mbtx` source passed in as a string
+    #[clap(
+        short = 'c',
+        short_alias = 'e',
+        value_name = "SCRIPT",
+        group = "run_source"
+    )]
+    pub command: Option<String>,
 
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
     /// The arguments provided to the program to be run
+    #[clap(trailing_var_arg = true, num_args = 0.., allow_hyphen_values = true)]
     pub args: Vec<String>,
 
     #[clap(flatten)]
@@ -64,17 +76,40 @@ fn run_stdin_source_as_single_file(
         .read_to_string(&mut source)
         .context("failed to read `.mbtx` source from stdin")?;
 
-    let temp_dir =
-        tempfile::TempDir::new().context("failed to create temporary directory for stdin run")?;
-    let input_path = temp_dir.path().join("stdin.mbtx");
+    run_source_as_single_file(cli, cmd, source, "stdin.mbtx", "stdin")
+}
+
+fn run_inline_source_as_single_file(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+) -> anyhow::Result<i32> {
+    let source = cmd
+        .command
+        .clone()
+        .expect("inline script should be present when `moon run -c` is selected");
+
+    run_source_as_single_file(cli, cmd, source, "command.mbtx", "command")
+}
+
+fn run_source_as_single_file(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    source: String,
+    temp_name: &str,
+    source_name: &str,
+) -> anyhow::Result<i32> {
+    let temp_dir = tempfile::TempDir::new()
+        .with_context(|| format!("failed to create temporary directory for {source_name} run"))?;
+    let input_path = temp_dir.path().join(temp_name);
     std::fs::write(&input_path, source).with_context(|| {
         format!(
-            "failed to write temporary stdin source file: {}",
+            "failed to write temporary {source_name} source file: {}",
             input_path.display()
         )
     })?;
 
     let RunSubcommand {
+        command: _,
         build_flags,
         args,
         auto_sync_flags,
@@ -82,7 +117,8 @@ fn run_stdin_source_as_single_file(
         ..
     } = cmd;
     let cmd = RunSubcommand {
-        package_or_mbt_file: input_path.to_string_lossy().into_owned(),
+        package_or_mbt_file: Some(input_path.to_string_lossy().into_owned()),
+        command: None,
         build_flags,
         args,
         auto_sync_flags,
@@ -95,7 +131,14 @@ fn run_stdin_source_as_single_file(
 
 #[instrument(skip_all)]
 pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    let input = cmd.package_or_mbt_file.as_str();
+    if cmd.command.is_some() {
+        return run_inline_source_as_single_file(cli, cmd);
+    }
+
+    let input = cmd
+        .package_or_mbt_file
+        .as_deref()
+        .expect("run source is required by clap");
     if input == "-" {
         return run_stdin_source_as_single_file(cli, cmd);
     }
@@ -204,7 +247,10 @@ pub(crate) fn plan_run_rr_from_resolved(
     );
     preconfig.try_tcc_run = !cli.dry_run;
 
-    let input_path = cmd.package_or_mbt_file.clone();
+    let input_path = cmd
+        .package_or_mbt_file
+        .clone()
+        .expect("package run planning requires a positional input");
     let value_tracing = cmd.build_flags.enable_value_tracing;
     rr_build::plan_build_from_resolved(
         preconfig,
@@ -292,7 +338,11 @@ fn calc_user_intent(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_single_file_from_arg(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    let input_path = dunce::canonicalize(&cmd.package_or_mbt_file)?;
+    let input_path = dunce::canonicalize(
+        cmd.package_or_mbt_file
+            .as_deref()
+            .expect("single-file run from arg requires a positional input path"),
+    )?;
     let source_dir = input_path.parent().unwrap().to_path_buf();
     let single_file_dirs = cli
         .source_tgt_dir

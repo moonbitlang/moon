@@ -208,6 +208,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (run)
 _arguments "${_arguments_options[@]}" : \
+'-c+[Run \`.mbtx\` source passed in as a string]:SCRIPT: ' \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
 '--warn-list=[Warn list config]:WARN_LIST: ' \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
@@ -242,7 +243,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help]' \
 '--help[Print help]' \
-':package_or_mbt_file -- The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin:' \
+'::package_or_mbt_file -- The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin:' \
 '*::args -- The arguments provided to the program to be run:' \
 && ret=0
 ;;
