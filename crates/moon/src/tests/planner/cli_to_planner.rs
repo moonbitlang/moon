@@ -18,7 +18,80 @@
 
 use expect_test::expect;
 
-use super::fixture::{PlanningFixture, parse_test_command};
+use super::fixture::{PlanningFixture, parse_run_command, parse_test_command};
+
+#[test]
+fn command_string_run_parses_as_expected() {
+    let (cli, cmd) = parse_run_command(&["run", "-c", r#"fn main { println("hello") }"#]);
+
+    expect![[r#"
+        (
+            UniversalFlags {
+                source_tgt_dir: SourceTargetDirs {
+                    cwd: None,
+                    manifest_path: None,
+                    target_dir: None,
+                },
+                quiet: false,
+                verbose: false,
+                trace: false,
+                dry_run: false,
+                build_graph: false,
+                unstable_feature: FeatureGate {
+                    rr_export_module_graph: false,
+                    rr_export_package_graph: false,
+                    rr_export_build_plan: false,
+                    rr_n2_explain: false,
+                    rr_moon_pkg: true,
+                    wasi_auto_export_memory: false,
+                },
+            },
+            RunSubcommand {
+                package_or_mbt_file: None,
+                command: Some(
+                    "fn main { println(\"hello\") }",
+                ),
+                build_flags: BuildFlags {
+                    std: false,
+                    no_std: false,
+                    debug: false,
+                    release: false,
+                    strip: false,
+                    no_strip: false,
+                    target: [],
+                    serial: false,
+                    enable_coverage: false,
+                    sort_input: false,
+                    output_wat: false,
+                    deny_warn: false,
+                    no_render: false,
+                    output_json: false,
+                    warn_list: None,
+                    enable_value_tracing: false,
+                    jobs: None,
+                    render_no_loc: Error,
+                },
+                args: [],
+                auto_sync_flags: AutoSyncFlags {
+                    frozen: false,
+                },
+                build_only: false,
+            },
+        )
+    "#]]
+    .assert_debug_eq(&(cli, cmd));
+}
+
+#[test]
+fn command_string_run_short_alias_e_still_parses() {
+    let (_, cmd) = parse_run_command(&["run", "-e", r#"fn main { println("hello") }"#]);
+
+    assert_eq!(
+        cmd.command.as_deref(),
+        Some(r#"fn main { println("hello") }"#)
+    );
+    assert_eq!(cmd.package_or_mbt_file, None);
+}
 
 #[test]
 fn native_target_dry_run_test_command_parses_as_expected() {

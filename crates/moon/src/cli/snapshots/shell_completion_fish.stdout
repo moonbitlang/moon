@@ -184,6 +184,7 @@ complete -c moon -n "__fish_moon_using_subcommand prove" -l trace -d 'Trace the 
 complete -c moon -n "__fish_moon_using_subcommand prove" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand prove" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand prove" -s h -l help -d 'Print help'
+complete -c moon -n "__fish_moon_using_subcommand run" -s c -d 'Run `.mbtx` source passed in as a string' -r
 complete -c moon -n "__fish_moon_using_subcommand run" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand run" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand run" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r

@@ -59,7 +59,7 @@ fn profile_flags_conflict_in_cli() {
         expect![[r#"
             error: the argument '--debug' cannot be used with '--release'
 
-            Usage: moon run --debug <PACKAGE_OR_MBT_FILE> [ARGS]...
+            Usage: moon run --debug <PACKAGE_OR_MBT_FILE|-c <SCRIPT>> [ARGS]...
 
             For more information, try '--help'.
         "#]],

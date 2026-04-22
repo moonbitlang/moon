@@ -210,7 +210,7 @@ Prove the current package
 
 Run a main package
 
-**Usage:** `moon run [OPTIONS] <PACKAGE_OR_MBT_FILE> [ARGS]...`
+**Usage:** `moon run [OPTIONS] <PACKAGE_OR_MBT_FILE|-c <SCRIPT>> [ARGS]...`
 
 ###### **Arguments:**
 
@@ -219,6 +219,7 @@ Run a main package
 
 ###### **Options:**
 
+* `-c <SCRIPT>` — Run `.mbtx` source passed in as a string
 * `-g`, `--debug` — Emit debug information
 * `--release` — Compile in release mode
 * `--strip` — Enable stripping debug information

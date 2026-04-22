@@ -222,6 +222,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --help 'Print help'
         }
         &'moon;run'= {
+            cand -c 'Run `.mbtx` source passed in as a string'
             cand --target 'Select output target'
             cand --warn-list 'Warn list config'
             cand -j 'Set the max number of jobs to run in parallel'
