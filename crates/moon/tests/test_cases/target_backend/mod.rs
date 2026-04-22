@@ -613,11 +613,7 @@ fn test_check_last_executed_backend_wins_for_packages_json() {
 #[test]
 fn test_conflicting_workspace_preferred_targets_default_to_wasm_gc_across_other_commands() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
-    let commands = [
-        ("test", &["test", "--dry-run", "--sort-input"][..]),
-        ("bundle", &["bundle", "--dry-run", "--sort-input"][..]),
-        ("bench", &["bench", "--dry-run", "--sort-input"][..]),
-    ];
+    let commands = [("bundle", &["bundle", "--dry-run", "--sort-input"][..])];
 
     for (command, args) in commands {
         let stdout = get_stdout(&dir, args.iter().copied());
@@ -626,6 +622,155 @@ fn test_conflicting_workspace_preferred_targets_default_to_wasm_gc_across_other_
             command, &stdout, &stderr,
         );
     }
+}
+
+#[test]
+fn test_test_conflicting_workspace_preferred_targets_do_not_warn() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let default_stderr = get_stderr(&dir, ["test", "--dry-run", "--sort-input"]);
+    assert!(
+        !default_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {default_stderr}"
+    );
+
+    let explicit_stderr = get_stderr(
+        &dir,
+        ["test", "--target", "js", "--dry-run", "--sort-input"],
+    );
+    assert!(
+        !explicit_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {explicit_stderr}"
+    );
+}
+
+#[test]
+fn test_bench_conflicting_workspace_preferred_targets_do_not_warn() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let default_stderr = get_stderr(&dir, ["bench", "--dry-run", "--sort-input"]);
+    assert!(
+        !default_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {default_stderr}"
+    );
+
+    let explicit_stderr = get_stderr(
+        &dir,
+        ["bench", "--target", "js", "--dry-run", "--sort-input"],
+    );
+    assert!(
+        !explicit_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {explicit_stderr}"
+    );
+}
+
+#[test]
+fn test_bench_without_target_respects_module_preferred_targets() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let stdout = get_stdout(&dir, ["bench", "--dry-run", "--sort-input"]);
+    let stderr = get_stderr(&dir, ["bench", "--dry-run", "--sort-input"]);
+    assert!(
+        !stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {stderr}"
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &[
+            "./_build/js/",
+            "./_build/native/",
+            "-target js",
+            "-target native",
+            "./js_preferred/src/lib/extra.js.mbt",
+            "./native_preferred/src/lib/extra.native.mbt",
+        ],
+        &[
+            "./_build/wasm-gc/",
+            "-target wasm-gc",
+            "./js_preferred/src/lib/extra.wasm-gc.mbt",
+            "./native_preferred/src/lib/extra.wasm-gc.mbt",
+        ],
+    );
+}
+
+#[test]
+fn test_test_without_target_respects_module_preferred_targets() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let stdout = get_stdout(&dir, ["test", "--dry-run", "--sort-input"]);
+    let stderr = get_stderr(&dir, ["test", "--dry-run", "--sort-input"]);
+    assert!(
+        !stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {stderr}"
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &[
+            "./_build/js/",
+            "./_build/native/",
+            "-target js",
+            "-target native",
+            "./js_preferred/src/lib/extra.js.mbt",
+            "./native_preferred/src/lib/extra.native.mbt",
+        ],
+        &[
+            "./_build/wasm-gc/",
+            "-target wasm-gc",
+            "./js_preferred/src/lib/extra.wasm-gc.mbt",
+            "./native_preferred/src/lib/extra.wasm-gc.mbt",
+        ],
+    );
+}
+
+#[test]
+fn test_test_split_package_selection_keeps_multi_package_file_guard() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let stderr = get_err_stderr(
+        &dir,
+        [
+            "test",
+            "-p",
+            "workspace/js_preferred/lib",
+            "workspace/native_preferred/lib",
+            "--file",
+            "lib.mbt",
+            "--dry-run",
+        ],
+    );
+
+    assert!(
+        stderr.contains("Cannot filter by file or index when multiple packages are specified."),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_test_paths_split_by_module_preferred_targets() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "test",
+            "js_preferred/src/lib",
+            "native_preferred/src/lib",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &[
+            "./_build/js/",
+            "./_build/native/",
+            "-target js",
+            "-target native",
+            "./js_preferred/src/lib/extra.js.mbt",
+            "./native_preferred/src/lib/extra.native.mbt",
+        ],
+        &["./_build/wasm-gc/", "-target wasm-gc"],
+    );
 }
 
 #[test]

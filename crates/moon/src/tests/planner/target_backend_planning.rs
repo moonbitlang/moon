@@ -17,7 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::fixture::{
-    PlanningFixture, parse_build_command, parse_check_command, parse_run_command,
+    PlanningFixture, parse_bench_command, parse_build_command, parse_check_command,
+    parse_run_command, parse_test_command,
 };
 use moonutil::common::TargetBackend;
 
@@ -97,6 +98,45 @@ fn assert_check_runs(
                             .to_string(),
                     ),
                     _ => None,
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            (meta.target_backend.into(), packages)
+        })
+        .collect::<Vec<_>>();
+    let expected = expected
+        .iter()
+        .map(|(backend, packages)| {
+            (
+                *backend,
+                packages
+                    .iter()
+                    .map(|pkg| (*pkg).to_string())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+}
+
+fn assert_test_runs(
+    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
+    expected: &[(TargetBackend, &[&str])],
+) {
+    let actual = runs
+        .into_iter()
+        .map(|(meta, _)| {
+            let packages = meta
+                .artifacts
+                .keys()
+                .filter_map(|node| node.extract_target().map(|target| target.package))
+                .map(|pkg_id| {
+                    meta.resolve_output
+                        .pkg_dirs
+                        .get_package(pkg_id)
+                        .fqn
+                        .to_string()
                 })
                 .collect::<std::collections::BTreeSet<_>>()
                 .into_iter()
@@ -212,6 +252,113 @@ fn explicit_build_target_keeps_single_backend_selection() {
         .expect("explicit js build plans should resolve");
 
     assert_build_runs(
+        runs,
+        &[(
+            TargetBackend::Js,
+            &[
+                "workspace/js_preferred/lib",
+                "workspace/native_preferred/lib",
+            ],
+        )],
+    );
+}
+
+#[test]
+fn conflicting_workspace_preferred_targets_test_selection_splits_by_module_backend() {
+    let fixture = PlanningFixture::new("workspace_conflicting_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) = parse_test_command(&["test", "--dry-run", "--sort-input"]);
+    let runs = fixture
+        .plan_test_all_with_cli(&cli, &cmd)
+        .expect("default test plans should resolve");
+
+    assert_test_runs(
+        runs,
+        &[
+            (TargetBackend::Js, &["workspace/js_preferred/lib"]),
+            (TargetBackend::Native, &["workspace/native_preferred/lib"]),
+        ],
+    );
+}
+
+#[test]
+fn conflicting_workspace_preferred_targets_test_path_selection_uses_module_backend() {
+    let fixture = PlanningFixture::new("workspace_conflicting_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let js_path = fixture.case_dir().join("js_preferred/src/lib");
+    let native_path = fixture.case_dir().join("native_preferred/src/lib");
+    let js_path = js_path.to_str().expect("fixture path should be UTF-8");
+    let native_path = native_path.to_str().expect("fixture path should be UTF-8");
+
+    let (cli, cmd) =
+        parse_test_command(&["test", js_path, native_path, "--dry-run", "--sort-input"]);
+    let runs = fixture
+        .plan_test_all_with_cli(&cli, &cmd)
+        .expect("path-selected test plans should resolve");
+
+    assert_test_runs(
+        runs,
+        &[
+            (TargetBackend::Js, &["workspace/js_preferred/lib"]),
+            (TargetBackend::Native, &["workspace/native_preferred/lib"]),
+        ],
+    );
+}
+
+#[test]
+fn explicit_test_target_keeps_single_backend_selection() {
+    let fixture = PlanningFixture::new("workspace_conflicting_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) = parse_test_command(&["test", "--target", "js", "--dry-run", "--sort-input"]);
+    let runs = fixture
+        .plan_test_all_with_cli(&cli, &cmd)
+        .expect("explicit js test plans should resolve");
+
+    assert_test_runs(
+        runs,
+        &[(
+            TargetBackend::Js,
+            &[
+                "workspace/js_preferred/lib",
+                "workspace/native_preferred/lib",
+            ],
+        )],
+    );
+}
+
+#[test]
+fn conflicting_workspace_preferred_targets_bench_selection_splits_by_module_backend() {
+    let fixture = PlanningFixture::new("workspace_conflicting_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) = parse_bench_command(&["bench", "--dry-run", "--sort-input"]);
+    let runs = fixture
+        .plan_bench_all_with_cli(&cli, &cmd)
+        .expect("default bench plans should resolve");
+
+    assert_test_runs(
+        runs,
+        &[
+            (TargetBackend::Js, &["workspace/js_preferred/lib"]),
+            (TargetBackend::Native, &["workspace/native_preferred/lib"]),
+        ],
+    );
+}
+
+#[test]
+fn explicit_bench_target_keeps_single_backend_selection() {
+    let fixture = PlanningFixture::new("workspace_conflicting_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) = parse_bench_command(&["bench", "--target", "js", "--dry-run", "--sort-input"]);
+    let runs = fixture
+        .plan_bench_all_with_cli(&cli, &cmd)
+        .expect("explicit js bench plans should resolve");
+
+    assert_test_runs(
         runs,
         &[(
             TargetBackend::Js,

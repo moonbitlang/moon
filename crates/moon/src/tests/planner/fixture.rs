@@ -71,6 +71,27 @@ impl PlanningFixture {
         self.dump_plan(build_meta, build_graph)
     }
 
+    pub(super) fn plan_test_all_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &TestSubcommand,
+    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+        let borrowed: TestLikeSubcommand<'_> = cmd.into();
+        crate::cli::test::plan_test_or_bench_rr_from_resolved_all(
+            cli,
+            &borrowed,
+            &self.target_dir,
+            cmd.build_flags.resolve_single_target_backend()?,
+            self.resolve_output.clone(),
+        )
+        .map(|plans| {
+            plans
+                .into_iter()
+                .map(|(meta, graph, _filter)| (meta, graph))
+                .collect()
+        })
+    }
+
     pub(super) fn plan_bench_with_cli(
         &self,
         cli: &UniversalFlags,
@@ -85,6 +106,27 @@ impl PlanningFixture {
             self.resolve_output.clone(),
         )?;
         self.dump_plan(build_meta, build_graph)
+    }
+
+    pub(super) fn plan_bench_all_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &BenchSubcommand,
+    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+        let borrowed: TestLikeSubcommand<'_> = cmd.into();
+        crate::cli::test::plan_test_or_bench_rr_from_resolved_all(
+            cli,
+            &borrowed,
+            &self.target_dir,
+            cmd.build_flags.resolve_single_target_backend()?,
+            self.resolve_output.clone(),
+        )
+        .map(|plans| {
+            plans
+                .into_iter()
+                .map(|(meta, graph, _filter)| (meta, graph))
+                .collect()
+        })
     }
 
     pub(super) fn plan_build_with_cli(
