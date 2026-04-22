@@ -723,6 +723,29 @@ fn test_test_without_target_respects_module_preferred_targets() {
 }
 
 #[test]
+fn test_test_split_package_selection_keeps_multi_package_file_guard() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    let stderr = get_err_stderr(
+        &dir,
+        [
+            "test",
+            "-p",
+            "workspace/js_preferred/lib",
+            "workspace/native_preferred/lib",
+            "--file",
+            "lib.mbt",
+            "--dry-run",
+        ],
+    );
+
+    assert!(
+        stderr.contains("Cannot filter by file or index when multiple packages are specified."),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn test_test_paths_split_by_module_preferred_targets() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 

@@ -605,6 +605,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
         .map(|plan| vec![plan]);
     }
 
+    validate_original_package_selection_filters(&resolve_output, cmd)?;
     let selections =
         resolve_test_target_selections(&resolve_output, cmd, UserDiagnostics::from_flags(cli))?;
 
@@ -988,6 +989,7 @@ fn calc_user_intent(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn calc_user_intent_from_packages(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     cmd: &TestLikeSubcommand<'_>,
@@ -1251,6 +1253,65 @@ fn resolve_selected_test_packages(
                 .flat_map(|packages| packages.values().copied())
         })
         .collect())
+}
+
+fn validate_original_package_selection_filters(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &TestLikeSubcommand<'_>,
+) -> anyhow::Result<()> {
+    let Some(package_filter) = cmd.package.as_deref() else {
+        return Ok(());
+    };
+
+    if cmd.file.is_none()
+        && cmd.index.is_none()
+        && cmd.doc_index.is_none()
+        && cmd.patch_file.is_none()
+    {
+        return Ok(());
+    }
+
+    let matched_packages = match_packages_with_fuzzy(
+        resolve_output,
+        resolve_output
+            .local_modules()
+            .iter()
+            .flat_map(|&module_id| {
+                resolve_output
+                    .pkg_dirs
+                    .packages_for_module(module_id)
+                    .into_iter()
+                    .flat_map(|packages| packages.values().copied())
+            }),
+        package_filter,
+    )
+    .matched;
+
+    if matched_packages.len() <= 1 {
+        return Ok(());
+    }
+
+    let package_names = || {
+        matched_packages
+            .iter()
+            .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+            .collect::<Vec<_>>()
+    };
+
+    if cmd.file.is_some() || cmd.index.is_some() || cmd.doc_index.is_some() {
+        bail!(
+            "Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}",
+            package_names()
+        );
+    }
+    if cmd.patch_file.is_some() {
+        bail!(
+            "Cannot apply patch file when multiple packages are specified. Matched packages: {:?}",
+            package_names()
+        );
+    }
+
+    Ok(())
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
