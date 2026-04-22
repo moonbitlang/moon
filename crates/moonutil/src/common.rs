@@ -355,6 +355,7 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
             let imports = map.remove("import");
             let mut deps = match map.remove("deps") {
                 Some(serde_json_lenient::Value::Object(deps)) => deps,
+                Some(_) => bail!("`deps` in `moon.mod` must be an object"),
                 _ => serde_json_lenient::Map::new(),
             };
 
