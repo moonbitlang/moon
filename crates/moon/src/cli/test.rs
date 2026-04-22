@@ -840,7 +840,9 @@ fn run_test_rr(
             build_only_artifacts.as_mut(),
         )?);
     }
-    if let Some(test_artifacts) = build_only_artifacts {
+    if !cli.dry_run
+        && let Some(test_artifacts) = build_only_artifacts
+    {
         println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
     }
     Ok(exit_code)
