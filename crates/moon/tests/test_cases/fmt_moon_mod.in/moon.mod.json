@@ -1,0 +1,9 @@
+{
+  "name": "test/fmt_moon_mod_json",
+  "version": "0.0.1",
+  "deps": {
+    "example/dep": "0.1.0"
+  },
+  "warn-list": "+w1-w2",
+  "readme": "README.md"
+}
