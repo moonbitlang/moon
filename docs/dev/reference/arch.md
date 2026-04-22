@@ -283,7 +283,8 @@ that allows CLI subcommands to describe the action they want to perform on packa
 without committing to the details of which nodes to use.
 
 User intents are specified on individual packages.
-For project-wide subcommands like `moon check`, an intent is emitted for each individual package.
+For project-wide subcommands like `moon check` and `moon build`, an intent is
+emitted for each individual package.
 Filtering packages in subcommands operate by only emitting the intents of the target packages,
 instead of emitting for every (applicable) package in the project.
 
@@ -295,6 +296,11 @@ it will map into "check package source", "check package whitebox text" and "chec
 However, if the package does not contain whitebox test files,
 the "check whitebox" node will be omitted.
 If the package is virtual, then a list of virtual package checking nodes will be used instead.
+
+For `moon check` and `moon build` without an explicit `--target`, CLI planning
+may first split selected packages into multiple backend groups using
+`module preferred_target -> workspace preferred_target -> default backend`,
+then emit intents separately for each backend group.
 
 This mapping is also on a migration path for main packages: release N keeps the
 current nodes so warnings can be surfaced, while release N+1 will omit blackbox
