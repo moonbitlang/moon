@@ -39,6 +39,45 @@ fn assert_contains_and_absent(graph: &str, present: &[&str], absent: &[&str]) {
     }
 }
 
+fn assert_build_runs(
+    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
+    expected: &[(TargetBackend, &[&str])],
+) {
+    let actual = runs
+        .into_iter()
+        .map(|(meta, _)| {
+            let packages = meta
+                .artifacts
+                .keys()
+                .filter_map(|node| node.extract_target().map(|target| target.package))
+                .map(|pkg_id| {
+                    meta.resolve_output
+                        .pkg_dirs
+                        .get_package(pkg_id)
+                        .fqn
+                        .to_string()
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            (meta.target_backend.into(), packages)
+        })
+        .collect::<Vec<_>>();
+    let expected = expected
+        .iter()
+        .map(|(backend, packages)| {
+            (
+                *backend,
+                packages
+                    .iter()
+                    .map(|pkg| pkg.to_string())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+}
+
 fn assert_check_runs(
     runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
     expected: &[(TargetBackend, &[&str])],
@@ -115,6 +154,72 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
             "./_build/wasm-gc/debug/build/main/main.wasm",
             "-target wasm-gc",
         ],
+    );
+}
+
+#[test]
+fn conflicting_workspace_preferred_targets_build_selection_splits_by_module_backend() {
+    let fixture = PlanningFixture::new("workspace_conflicting_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--sort-input"]);
+    let runs = fixture
+        .plan_build_all_with_cli(&cli, &cmd)
+        .expect("default build plans should resolve");
+
+    assert_build_runs(
+        runs,
+        &[
+            (TargetBackend::Js, &["workspace/js_preferred/lib"]),
+            (TargetBackend::Native, &["workspace/native_preferred/lib"]),
+        ],
+    );
+}
+
+#[test]
+fn conflicting_workspace_preferred_targets_build_path_selection_uses_module_backend() {
+    let fixture = PlanningFixture::new("workspace_conflicting_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let js_path = fixture.case_dir().join("js_preferred/src/lib");
+    let native_path = fixture.case_dir().join("native_preferred/src/lib");
+    let js_path = js_path.to_str().expect("fixture path should be UTF-8");
+    let native_path = native_path.to_str().expect("fixture path should be UTF-8");
+
+    let (cli, cmd) =
+        parse_build_command(&["build", js_path, native_path, "--dry-run", "--sort-input"]);
+    let runs = fixture
+        .plan_build_all_with_cli(&cli, &cmd)
+        .expect("path-selected build plans should resolve");
+
+    assert_build_runs(
+        runs,
+        &[
+            (TargetBackend::Js, &["workspace/js_preferred/lib"]),
+            (TargetBackend::Native, &["workspace/native_preferred/lib"]),
+        ],
+    );
+}
+
+#[test]
+fn explicit_build_target_keeps_single_backend_selection() {
+    let fixture = PlanningFixture::new("workspace_conflicting_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) = parse_build_command(&["build", "--target", "js", "--dry-run", "--sort-input"]);
+    let runs = fixture
+        .plan_build_all_with_cli(&cli, &cmd)
+        .expect("explicit js build plans should resolve");
+
+    assert_build_runs(
+        runs,
+        &[(
+            TargetBackend::Js,
+            &[
+                "workspace/js_preferred/lib",
+                "workspace/native_preferred/lib",
+            ],
+        )],
     );
 }
 

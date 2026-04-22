@@ -174,6 +174,13 @@ fn check_path_selector_smoke() {
     }
 }
 
+#[test]
+fn build_explicit_empty_selection_does_not_expand_to_workspace() {
+    let dir = TestDir::new("debug_flag_test");
+    let stdout = get_stdout(&dir, ["build", "notes", "--target", "js", "--dry-run"]);
+    assert!(!stdout.contains("moonc build-package"), "stdout: {stdout}");
+}
+
 fn assert_moonrun_line(output: &str, release: bool) {
     let empty: &[&str] = &[];
     let line = line_with(output, "moonrun", empty);
