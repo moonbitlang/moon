@@ -41,6 +41,7 @@ use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+pub const MOON_MOD: &str = "moon.mod";
 pub const MOON_MOD_JSON: &str = "moon.mod.json";
 pub const MOON_PKG_JSON: &str = "moon.pkg.json";
 pub const MOON_WORK: &str = "moon.work";
@@ -111,6 +112,10 @@ pub fn is_moon_pkg(filename: &str) -> bool {
     filename == MOON_PKG || filename == MOON_PKG_JSON
 }
 
+pub fn is_moon_mod(filename: &str) -> bool {
+    filename == MOON_MOD || filename == MOON_MOD_JSON
+}
+
 pub fn is_moon_work(filename: &str) -> bool {
     filename == MOON_WORK
 }
@@ -143,7 +148,7 @@ pub fn package_source_file_kind(filename: &str) -> Option<PackageSourceFileKind>
 pub fn is_watch_relevant_project_file(filename: &str) -> bool {
     package_source_file_kind(filename).is_some()
         || is_moon_pkg(filename)
-        || filename == MOON_MOD_JSON
+        || is_moon_mod(filename)
         || is_moon_work(filename)
 }
 
@@ -174,6 +179,7 @@ fn package_source_file_kind_detects_supported_package_inputs() {
 
 #[test]
 fn watch_relevant_project_file_covers_sources_and_manifests() {
+    assert!(is_watch_relevant_project_file("moon.mod"));
     assert!(is_watch_relevant_project_file("moon.mod.json"));
     assert!(is_watch_relevant_project_file("moon.work"));
     assert!(is_watch_relevant_project_file("moon.pkg"));
@@ -246,6 +252,162 @@ pub enum MoonModJSONFormatErrorKind {
     SupportedTargets(anyhow::Error),
 }
 
+fn validate_module_dsl_deps(
+    deps: Option<&IndexMap<String, crate::dependency::SourceDependencyInfo>>,
+) -> anyhow::Result<()> {
+    use crate::dependency::SourceDependencyInfo;
+
+    for (name, dep) in deps.into_iter().flatten() {
+        match dep {
+            SourceDependencyInfo::Simple(_) => {}
+            SourceDependencyInfo::Registry(info) if info.version.is_some() => {}
+            SourceDependencyInfo::Registry(_) => {
+                bail!(
+                    "moon.mod only supports versioned registry dependencies in `import`, found `{}`",
+                    name
+                );
+            }
+            SourceDependencyInfo::Local(_) => {
+                bail!(
+                    "moon.mod does not support local dependency `{}` in `import`; use workspace configuration in `moon.work` instead",
+                    name
+                );
+            }
+            SourceDependencyInfo::Git(_) => {
+                bail!(
+                    "moon.mod only supports registry dependencies in `import`, found structured dependency `{}`",
+                    name
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
+    let file = File::open(path).with_context(|| format!("failed to load `{}`", path.display()))?;
+    let contents = std::io::read_to_string(file)
+        .with_context(|| format!("failed to load `{}`", path.display()))?;
+
+    let json = moon_pkg::parse(&contents)
+        .with_context(|| format!("failed to load `{}`", path.display()))?;
+    let allowed_toplevel_keys = [
+        "import",
+        "options",
+        "warnings",
+        "name",
+        "version",
+        "supported_targets",
+    ];
+    let json = match json {
+        serde_json_lenient::Value::Object(mut map) => {
+            for key in map.keys() {
+                if !allowed_toplevel_keys.contains(&key.as_str()) {
+                    bail!("Unexpected key '{}' found in moon.mod.", key);
+                }
+            }
+
+            if let serde_json_lenient::Value::Object(options) =
+                map.remove("options").unwrap_or_default()
+            {
+                for (key, value) in options {
+                    map.insert(key, value);
+                }
+            }
+
+            if let Some(warnings) = map.remove("warnings") {
+                let warnings = match warnings {
+                    serde_json_lenient::Value::String(s) => s,
+                    _ => String::new(),
+                };
+                let legacy_warn_list = match map.remove("warn-list") {
+                    Some(serde_json_lenient::Value::String(s)) => s,
+                    _ => String::new(),
+                };
+                let merged = format!("{warnings}{legacy_warn_list}");
+                if !merged.is_empty() {
+                    map.insert(
+                        String::from("warn-list"),
+                        serde_json_lenient::Value::String(merged),
+                    );
+                }
+            }
+            let supported_targets = map.remove("supported_targets");
+            let legacy_supported_targets = map.remove("supported-targets");
+            match (supported_targets, legacy_supported_targets) {
+                (Some(supported_targets), Some(_)) => {
+                    map.insert(String::from("supported-targets"), supported_targets);
+                }
+                (Some(supported_targets), None) => {
+                    map.insert(String::from("supported-targets"), supported_targets);
+                }
+                (None, Some(legacy_supported_targets)) => {
+                    map.insert(String::from("supported-targets"), legacy_supported_targets);
+                }
+                (None, None) => {}
+            }
+
+            let imports = map.remove("import");
+            let mut deps = match map.remove("deps") {
+                Some(serde_json_lenient::Value::Object(deps)) => deps,
+                _ => serde_json_lenient::Map::new(),
+            };
+
+            // Invariant: The moon_pkg parser lowers `import {}` to a JSON array.
+            if let Some(serde_json_lenient::Value::Array(imports)) = imports {
+                for item in imports {
+                    let spec = match item {
+                        serde_json_lenient::Value::String(spec) => spec,
+                        serde_json_lenient::Value::Object(_) => {
+                            bail!("\"xxx\"@pkg is not supported in moon.mod");
+                        }
+                        _ => {
+                            // Invariant: `moon_pkg::parse` only produces string or object entries for `import`.
+                            unreachable!("unexpected non-string import entry");
+                        }
+                    };
+                    if let Some((name, version)) = spec.rsplit_once('@')
+                        && !name.is_empty()
+                        && !version.is_empty()
+                    {
+                        deps.insert(
+                            name.to_string(),
+                            serde_json_lenient::Value::String(version.to_string()),
+                        );
+                    } else {
+                        bail!(
+                            "moon.mod only supports versioned registry dependencies in `import`, found `{}`",
+                            spec
+                        );
+                    }
+                }
+            }
+
+            // Convert `import {}` in `moon.mod` to `deps`. This differs from `moon.pkg`'s import configuration.
+            map.insert(
+                String::from("deps"),
+                serde_json_lenient::Value::Object(deps),
+            );
+
+            serde_json_lenient::Value::Object(map)
+        }
+        other => other,
+    };
+
+    let j: MoonModJSON = serde_json_lenient::from_value(json)
+        .with_context(|| format!("failed to load `{}`", path.display()))?;
+    validate_module_dsl_deps(j.deps.as_ref())?;
+
+    if let Some(src) = &j.source {
+        is_valid_folder_name(src).map_err(anyhow::Error::new)?;
+        if src.starts_with('/') || src.starts_with('\\') {
+            return Err(anyhow::Error::new(SourceError::NotSubdirectory));
+        }
+    }
+    j.try_into().map_err(anyhow::Error::new)
+}
+
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {
     let file = File::open(path).map_err(|e| MoonModJSONFormatError {
         path: path.into(),
@@ -313,6 +475,48 @@ pub fn write_module_json_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::
     Ok(())
 }
 
+pub fn write_module_dsl_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    validate_module_dsl_deps(m.deps.as_ref())?;
+
+    let input = serde_json_lenient::to_string_pretty(m)?;
+    let mut child = Command::new(&*crate::BINARIES.moonfmt)
+        .arg("-file-type")
+        .arg("mod_json")
+        .arg("-")
+        .arg("-o")
+        .arg(source_dir.join(MOON_MOD))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("failed to run moonfmt for moon.mod generation")?;
+
+    let mut stdin = child
+        .stdin
+        .take()
+        .context("failed to open moonfmt stdin for moon.mod generation")?;
+    let write_result = stdin.write_all(input.as_bytes());
+    drop(stdin);
+    if let Err(err) = write_result {
+        let _ = child.wait();
+        return Err(err).context("failed to write moon.mod.json to moonfmt stdin");
+    }
+
+    let output = child
+        .wait_with_output()
+        .context("failed to run moonfmt for moon.mod generation")?;
+    if !output.status.success() {
+        bail!(
+            "failed to write moon.mod: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
 pub fn write_package_json_to_file(pkg: &MoonPkgJSON, path: &Path) -> anyhow::Result<()> {
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
@@ -321,14 +525,21 @@ pub fn write_package_json_to_file(pkg: &MoonPkgJSON, path: &Path) -> anyhow::Res
 }
 
 pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
-    if !dir.join(MOON_MOD_JSON).exists() {
+    let mod_path = dir.join(MOON_MOD);
+    if mod_path.exists() {
+        return read_module_from_dsl(&mod_path);
+    }
+
+    let mod_json_path = dir.join(MOON_MOD_JSON);
+    if !mod_json_path.exists() {
         bail!(
-            "Failed to find `{}` for module at path `{}`",
+            "Failed to find `{}` or `{}` for module at path `{}`",
+            MOON_MOD,
             MOON_MOD_JSON,
             dir.display()
         );
     }
-    Ok(read_module_from_json(&dir.join(MOON_MOD_JSON))?)
+    Ok(read_module_from_json(&mod_json_path)?)
 }
 
 pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
