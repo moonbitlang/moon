@@ -31,6 +31,7 @@ use moonutil::{
 };
 use semver::Version;
 use std::path::{Path, PathBuf};
+use tracing::debug;
 
 use crate::{
     cli::BuildFlags,
@@ -610,21 +611,7 @@ fn build_and_install_packages(
         };
         let binary_dst = install_dir.join(dst_name);
 
-        std::fs::copy(&binary_src, &binary_dst).with_context(|| {
-            format!(
-                "Failed to copy binary from `{}` to `{}`",
-                binary_src.display(),
-                binary_dst.display()
-            )
-        })?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&binary_dst)?.permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&binary_dst, perms)?;
-        }
+        install_file(&binary_src, &binary_dst)?;
 
         if !quiet {
             eprintln!(
@@ -643,6 +630,337 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// Copy `src` onto `dst` by writing to a sibling tempfile and atomically
+/// renaming it into place.
+///
+/// The tempfile is created *inside* `install_dir` (a sibling of `dst`)
+/// rather than renaming `src` straight to `dst`, because `src` lives
+/// under the build tree and may sit on a different filesystem from
+/// `install_dir` — think external drives, network mounts, or a
+/// tmpfs-backed target dir. A cross-filesystem rename fails with
+/// `EXDEV` on Unix / `ERROR_NOT_SAME_DEVICE` on Windows; copying the
+/// bytes first guarantees the final rename is same-filesystem and
+/// therefore atomic.
+///
+/// Overwriting the destination with `fs::copy` would truncate it via
+/// `O_TRUNC`; on macOS the kernel SIGKILLs any process that re-execs the
+/// modified inode because the code-signature cache no longer matches the
+/// on-disk bytes. On Linux, O_TRUNC on a running text segment returns
+/// `ETXTBSY` and the install fails outright. Renaming a fresh file into
+/// place avoids both — the old inode is unlinked but remains alive for
+/// the running process, and new executions resolve to the new inode.
+///
+/// On Windows the file is held by the image loader and cannot be
+/// atomically replaced by `MoveFileExW(REPLACE_EXISTING)`. The fast
+/// path uses `SetFileInformationByHandle(FileRenameInfoEx)` with
+/// `FILE_RENAME_FLAG_POSIX_SEMANTICS`, available on Windows 10 1709+
+/// — it behaves like Unix `rename(2)` and succeeds even against a
+/// running target. If that syscall isn't recognized (older Windows)
+/// we fall through to the legacy rename-away pattern: move the old
+/// file aside, drop the new one in place, then best-effort
+/// `DeleteFileW` the stray file. On contemporary Windows the
+/// loader's handle usually permits shared delete, so the stray is
+/// unlinked immediately and its contents are reclaimed when the
+/// running target exits; if that assumption fails, the delete fails
+/// and we warn rather than abort.
+fn install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    let install_dir = dst.parent().ok_or_else(|| {
+        anyhow::anyhow!("Install path `{}` has no parent directory", dst.display())
+    })?;
+
+    // A `TempPath` (not `NamedTempFile`) so the file has no lingering
+    // handle — on Windows we need to be able to rename over it, which
+    // fails while a write handle is still open.
+    let tmp_path = tempfile::NamedTempFile::new_in(install_dir)
+        .with_context(|| {
+            format!(
+                "Failed to create temporary file in `{}`",
+                install_dir.display()
+            )
+        })?
+        .into_temp_path();
+
+    // Try to move `src` into place without copying bytes. Works when
+    // `src` and `install_dir` share a filesystem. On cross-filesystem
+    // we get `EXDEV` / `ERROR_NOT_SAME_DEVICE` and fall back to a copy.
+    match std::fs::rename(src, &tmp_path) {
+        Ok(()) => debug!(src = %src.display(), "staged via same-fs rename"),
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            debug!(src = %src.display(), "staging via copy (cross-fs)");
+            std::fs::copy(src, &tmp_path).with_context(|| {
+                format!(
+                    "Failed to copy binary from `{}` to `{}`",
+                    src.display(),
+                    tmp_path.display()
+                )
+            })?;
+        }
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!(
+                    "Failed to stage binary from `{}` to `{}`",
+                    src.display(),
+                    tmp_path.display()
+                )
+            });
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&tmp_path)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&tmp_path, perms)?;
+    }
+
+    #[cfg(windows)]
+    {
+        // Fast path on Windows 10 1709+: a single atomic syscall that
+        // atomically replaces `dst` with `tmp_path` using POSIX rename
+        // semantics — the existing `dst` inode is unlinked but kept
+        // alive for any process currently executing from it, and
+        // future executions resolve the name to the new file. On
+        // older Windows this returns `ERROR_INVALID_PARAMETER` (the
+        // info class isn't recognized); any other error just falls
+        // through to the legacy persist + rename-away pattern.
+        match windows::posix_replace(&tmp_path, dst) {
+            Ok(()) => {
+                debug!(dst = %dst.display(), "installed via FileRenameInfoEx (POSIX rename)");
+                // File was moved; drop on the TempPath is a harmless no-op.
+                drop(tmp_path);
+                windows::sweep_stale_backups(dst);
+                return Ok(());
+            }
+            Err(e) => {
+                debug!(
+                    err = %e,
+                    "FileRenameInfoEx rejected, falling through to persist"
+                );
+            }
+        }
+    }
+
+    match tmp_path.persist(dst) {
+        Ok(()) => {
+            debug!(dst = %dst.display(), "installed via std::fs::rename (persist)");
+            #[cfg(windows)]
+            windows::sweep_stale_backups(dst);
+            Ok(())
+        }
+        #[cfg(windows)]
+        Err(err) => {
+            debug!(
+                err = %err.error,
+                "persist failed, engaging rename-away fallback"
+            );
+            windows::rename_away_and_persist(err.path, dst)
+        }
+        #[cfg(not(windows))]
+        Err(err) => Err(err.error)
+            .with_context(|| format!("Failed to install binary to `{}`", dst.display())),
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use std::path::{Path, PathBuf};
+
+    use anyhow::Context;
+    use colored::Colorize;
+
+    /// Atomically replace `dst` with `src` using `FileRenameInfoEx` and
+    /// `FILE_RENAME_FLAG_POSIX_SEMANTICS`.
+    ///
+    /// Available on Windows 10 1709 (Fall Creators Update) and later.
+    /// Unlike `MoveFileExW(REPLACE_EXISTING)`, this succeeds even when
+    /// `dst` is currently mapped by the image loader: the destination
+    /// inode is unlinked-but-kept-alive for any process holding a
+    /// handle, and the source's directory entry takes the destination's
+    /// name. Future `CreateProcess` / `execve` calls resolve the name
+    /// to the new file.
+    ///
+    /// On older Windows this returns `ERROR_INVALID_PARAMETER` because
+    /// the `FileRenameInfoEx` info class isn't recognized; the caller
+    /// falls back to the manual rename-away pattern.
+    pub fn posix_replace(src: &Path, dst: &Path) -> std::io::Result<()> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::Storage::FileSystem::{
+            CreateFileW, DELETE, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+            FileRenameInfoEx, OPEN_EXISTING, SetFileInformationByHandle,
+        };
+
+        const FILE_RENAME_FLAG_REPLACE_IF_EXISTS: u32 = 0x1;
+        const FILE_RENAME_FLAG_POSIX_SEMANTICS: u32 = 0x2;
+
+        // Open `src` with `DELETE` access (required to rename it).
+        // Grant full share modes so concurrent readers don't trip us.
+        let src_wide: Vec<u16> = src
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let handle = unsafe {
+            CreateFileW(
+                src_wide.as_ptr(),
+                DELETE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
+            )
+        };
+        if handle == INVALID_HANDLE_VALUE {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        // FILE_RENAME_INFO layout (x86_64):
+        //   0..4   Flags         (u32)
+        //   4..8   padding       (for HANDLE alignment)
+        //   8..16  RootDirectory (HANDLE, null here)
+        //   16..20 FileNameLength (u32, bytes not chars)
+        //   20..   FileName      (WCHAR[])
+        #[cfg(target_pointer_width = "64")]
+        const HEADER_SIZE: usize = 20;
+        #[cfg(target_pointer_width = "32")]
+        const HEADER_SIZE: usize = 12;
+
+        let dst_wide: Vec<u16> = dst.as_os_str().encode_wide().collect();
+        let name_byte_len = dst_wide.len() * 2;
+        let total_size = HEADER_SIZE + name_byte_len;
+        let mut buffer = vec![0u8; total_size];
+
+        let flags = FILE_RENAME_FLAG_POSIX_SEMANTICS | FILE_RENAME_FLAG_REPLACE_IF_EXISTS;
+        buffer[0..4].copy_from_slice(&flags.to_le_bytes());
+        // RootDirectory stays zero (null).
+        let name_len_offset = HEADER_SIZE - 4;
+        buffer[name_len_offset..HEADER_SIZE].copy_from_slice(&(name_byte_len as u32).to_le_bytes());
+        for (i, &wc) in dst_wide.iter().enumerate() {
+            buffer[HEADER_SIZE + i * 2..HEADER_SIZE + i * 2 + 2].copy_from_slice(&wc.to_le_bytes());
+        }
+
+        let ok = unsafe {
+            SetFileInformationByHandle(
+                handle,
+                FileRenameInfoEx,
+                buffer.as_ptr().cast(),
+                total_size as u32,
+            )
+        };
+        let err = (ok == 0).then(std::io::Error::last_os_error);
+        unsafe {
+            CloseHandle(handle);
+        }
+        match err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
+    pub fn rename_away_and_persist(tmp: tempfile::TempPath, dst: &Path) -> anyhow::Result<()> {
+        let backup = backup_path_for(dst);
+        tracing::debug!(
+            dst = %dst.display(),
+            backup = %backup.display(),
+            "rename-away: moving running binary aside before install"
+        );
+
+        std::fs::rename(dst, &backup).with_context(|| {
+            format!("Failed to rename running binary `{}` aside", dst.display())
+        })?;
+
+        if let Err(err) = tmp.persist(dst) {
+            // Second rename failed for an unexpected reason — put the
+            // original back so the user isn't left without a binary.
+            let _ = std::fs::rename(&backup, dst);
+            return Err(err.error)
+                .with_context(|| format!("Failed to place new binary at `{}`", dst.display()));
+        }
+
+        sweep_stale_backups(dst);
+
+        Ok(())
+    }
+
+    /// Best-effort cleanup of every `<dst_filename>.old-*` sibling.
+    ///
+    /// Each rename-away install mints a fresh `.old-<nonce>` name so
+    /// concurrent installs can't fight over a single backup slot. The
+    /// trade-off is that if the post-install delete fails (filter
+    /// drivers, older Windows, network filesystems, an AV holding a
+    /// scan), the orphan would be pinned forever: the next install
+    /// picks a new nonce and never revisits the old name. Retrying
+    /// every matching sibling on every successful install gives
+    /// orphaned backups another chance, so cleanup is self-healing.
+    ///
+    /// This runs on every Windows install path — FileRenameInfoEx,
+    /// plain `persist`, and `rename_away_and_persist` — because even
+    /// the paths that don't create a backup need to clear orphans
+    /// left behind by earlier rename-away runs.
+    ///
+    /// `DeleteFileW` on a currently-executing target usually succeeds
+    /// on contemporary Windows because the image loader opens
+    /// executables with `FILE_SHARE_DELETE`; that's an undocumented
+    /// implementation detail rather than an API contract (see the
+    /// MS Learn note on "Alternatives to using Transactional NTFS",
+    /// which steers callers away from `DeleteFileTransactedW`). When
+    /// the delete is refused we log at `debug` and keep going — the
+    /// next install sweeps again.
+    pub fn sweep_stale_backups(dst: &Path) {
+        let Some(parent) = dst.parent() else { return };
+        let Some(dst_name) = dst.file_name() else {
+            return;
+        };
+
+        let mut prefix = dst_name.to_owned();
+        prefix.push(".old-");
+        let prefix_bytes = prefix.as_encoded_bytes();
+
+        let entries = match std::fs::read_dir(parent) {
+            Ok(it) => it,
+            Err(e) => {
+                tracing::debug!(
+                    dir = %parent.display(),
+                    err = %e,
+                    "could not enumerate install dir for backup sweep"
+                );
+                return;
+            }
+        };
+
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if !name.as_encoded_bytes().starts_with(prefix_bytes) {
+                continue;
+            }
+            let path = entry.path();
+            match std::fs::remove_file(&path) {
+                Ok(()) => tracing::debug!(path = %path.display(), "swept stale backup"),
+                Err(e) => tracing::debug!(
+                    path = %path.display(),
+                    err = %e,
+                    code = ?e.raw_os_error(),
+                    "could not sweep stale backup"
+                ),
+            }
+        }
+    }
+
+    fn backup_path_for(dst: &Path) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let mut s = dst.as_os_str().to_owned();
+        s.push(format!(".old-{nonce}"));
+        PathBuf::from(s)
+    }
 }
 
 #[cfg(test)]
