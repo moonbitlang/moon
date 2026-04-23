@@ -346,6 +346,51 @@ fn test_empty_workspace_fmt_formats_workspace_manifest() {
 }
 
 #[test]
+fn test_workspace_fmt_places_moon_mod_under_module_name() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    std::fs::remove_file(dir.join("liba/moon.mod.json")).unwrap();
+    std::fs::write(
+        dir.join("app/moon.mod"),
+        r#"name = "alice/app"
+
+version = "0.1.0"
+
+import {
+  "alice/liba@0.1.0",
+}
+
+options(
+  source: "src",
+)
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("liba/moon.mod"),
+        r#"name = "alice/liba"
+
+version = "0.1.1"
+
+options(
+  source: "src",
+)
+"#,
+    )
+    .unwrap();
+
+    let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
+    assert!(
+        output.contains("./_build/wasm-gc/release/format/alice/app/moon.mod"),
+        "{output}"
+    );
+    assert!(
+        output.contains("./_build/wasm-gc/release/format/alice/liba/moon.mod"),
+        "{output}"
+    );
+}
+
+#[test]
 fn test_workspace_root_path_selector_is_skipped() {
     let dir = TestDir::new("workspace_basic.in");
 

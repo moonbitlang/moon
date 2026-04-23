@@ -46,6 +46,7 @@ use crate::{
     },
     discover::{DiscoveredLocalProject, DiscoveredPackage, discover_local_project},
     model::PackageId,
+    pkg_name::{PackageFQN, PackagePath},
     resolve::ResolveError,
     user_warning::UserWarning,
 };
@@ -136,7 +137,7 @@ pub fn build_graph_for_fmt(
                         &mut graph,
                         cfg,
                         &layout,
-                        source_dir,
+                        resolved.root_modules[module_id].source(),
                         path,
                         &mut user_warnings,
                     )?
@@ -178,7 +179,7 @@ fn format_moon_mod_node(
     graph: &mut n2::graph::Graph,
     cfg: &FmtConfig,
     layout: &LegacyLayout,
-    source_dir: &Path,
+    module_source: &moonutil::mooncakes::ModuleSource,
     module_dir: &Path,
     user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<bool> {
@@ -191,17 +192,10 @@ fn format_moon_mod_node(
         return Ok(false);
     }
 
-    let target_root = layout
-        .format_root_artifact_path(OsStr::new(MOON_MOD))
-        .parent()
-        .context("format root artifact path has no parent directory")?
-        .to_path_buf();
-    let target_moon_mod = match module_dir.strip_prefix(source_dir) {
-        Ok(relative) if !relative.as_os_str().is_empty() => {
-            target_root.join(relative).join(MOON_MOD)
-        }
-        _ => target_root.join(MOON_MOD),
-    };
+    let target_moon_mod = layout.format_artifact_path(
+        &PackageFQN::new(module_source.clone(), PackagePath::empty()),
+        OsStr::new(MOON_MOD),
+    );
 
     if has_dsl && has_json {
         user_warnings.push(UserWarning::new(format!(
