@@ -24,7 +24,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
     common::{MOON_WORK, MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
-    dirs::{MOON_NO_WORKSPACE, find_ancestor_with_work},
+    dirs::{WorkspaceEnv, current_workspace_env, find_ancestor_with_work},
     module::MoonMod,
     mooncakes::{
         DirSyncResult, ModuleSource,
@@ -47,7 +47,7 @@ pub fn auto_sync(
     no_std: bool,
     project_manifest_path: Option<&Path>,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
-    let disable_workspace = disable_workspace_from_env();
+    let workspace_env = current_workspace_env()?;
     if let Some(project_manifest_path) = project_manifest_path {
         let manifest_dir = project_manifest_path
             .parent()
@@ -67,70 +67,36 @@ pub fn auto_sync(
             .file_name()
             .and_then(|name| name.to_str())
             == Some(MOON_WORK)
-            && !disable_workspace
+            && !matches!(workspace_env, WorkspaceEnv::Off)
         {
-            let workspace_root = manifest_dir.as_path();
-            let workspace = read_workspace_file(project_manifest_path)?;
-            let mut roots = ResolvedRootModules::with_key();
-            for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
-                let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);
-                let source = ModuleSource::from_local_module(&module, &member_dir);
-                roots.insert(ResolvedModule::new(source, module));
-            }
-
-            let (resolved_env, sync_result) = super::install::install_impl(
+            return resolve_workspace_sync(
                 mooncakes_dir,
-                roots,
+                cli,
                 quiet,
-                false,
-                cli.dont_sync(),
                 no_std,
-            )?;
-            log::debug!("Dir sync result: {:?}", sync_result);
-            return Ok((resolved_env, sync_result, Some(workspace)));
-        } else if !disable_workspace
+                manifest_dir.as_path(),
+                read_workspace_file(project_manifest_path)?,
+            );
+        } else if !matches!(workspace_env, WorkspaceEnv::Off)
             && let Some(workspace_root) = find_ancestor_with_work(&manifest_dir)?
         {
             let workspace = read_workspace(&workspace_root)?.context(format!(
                 "failed to parse workspace file under `{}`",
                 workspace_root.display()
             ))?;
-            let mut roots = ResolvedRootModules::with_key();
-            for member_dir in canonical_workspace_module_dirs(&workspace_root, &workspace)? {
-                let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);
-                let source = ModuleSource::from_local_module(&module, &member_dir);
-                roots.insert(ResolvedModule::new(source, module));
-            }
-
-            let (resolved_env, sync_result) = super::install::install_impl(
+            return resolve_workspace_sync(
                 mooncakes_dir,
-                roots,
+                cli,
                 quiet,
-                false,
-                cli.dont_sync(),
                 no_std,
-            )?;
-            log::debug!("Dir sync result: {:?}", sync_result);
-            return Ok((resolved_env, sync_result, Some(workspace)));
+                &workspace_root,
+                workspace,
+            );
         }
-    } else if !disable_workspace && let Some(workspace) = read_workspace(source_dir)? {
-        let mut roots = ResolvedRootModules::with_key();
-        for member_dir in canonical_workspace_module_dirs(source_dir, &workspace)? {
-            let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);
-            let source = ModuleSource::from_local_module(&module, &member_dir);
-            roots.insert(ResolvedModule::new(source, module));
-        }
-
-        let (resolved_env, sync_result) = super::install::install_impl(
-            mooncakes_dir,
-            roots,
-            quiet,
-            false,
-            cli.dont_sync(),
-            no_std,
-        )?;
-        log::debug!("Dir sync result: {:?}", sync_result);
-        return Ok((resolved_env, sync_result, Some(workspace)));
+    } else if !matches!(workspace_env, WorkspaceEnv::Off)
+        && let Some(workspace) = read_workspace(source_dir)?
+    {
+        return resolve_workspace_sync(mooncakes_dir, cli, quiet, no_std, source_dir, workspace);
     }
 
     let module = Arc::new(read_module_desc_file_in_dir(source_dir)?);
@@ -143,12 +109,25 @@ pub fn auto_sync(
     Ok((resolved_env, sync_result, None))
 }
 
-fn disable_workspace_from_env() -> bool {
-    match std::env::var(MOON_NO_WORKSPACE) {
-        Ok(value) => value != "0",
-        Err(std::env::VarError::NotPresent) => false,
-        Err(std::env::VarError::NotUnicode(_)) => true,
+fn resolve_workspace_sync(
+    mooncakes_dir: &Path,
+    cli: &AutoSyncFlags,
+    quiet: bool,
+    no_std: bool,
+    workspace_root: &Path,
+    workspace: MoonWork,
+) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
+    let mut roots = ResolvedRootModules::with_key();
+    for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
+        let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);
+        let source = ModuleSource::from_local_module(&module, &member_dir);
+        roots.insert(ResolvedModule::new(source, module));
     }
+
+    let (resolved_env, sync_result) =
+        super::install::install_impl(mooncakes_dir, roots, quiet, false, cli.dont_sync(), no_std)?;
+    log::debug!("Dir sync result: {:?}", sync_result);
+    Ok((resolved_env, sync_result, Some(workspace)))
 }
 
 pub fn auto_sync_for_single_mbt_md(
