@@ -97,6 +97,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
 
     // If there's zero or one target, just run normally and promote the results
     if lowered_targets.len() <= 1 {
+        let build_flags = BuildFlags::default();
         let PackageDirs {
             source_dir,
             target_dir,
@@ -105,8 +106,8 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         } = cli.source_tgt_dir.try_into_package_dirs()?;
         let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
             cmd.auto_sync_flags.frozen,
-            true,
-            false,
+            !build_flags.std(),
+            build_flags.enable_coverage,
         )
         .with_project_manifest_path(project_manifest_path.as_deref());
         let resolve_output =
@@ -120,11 +121,17 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         )?;
 
         let mut ok = true;
+        let mut successful_meta = Vec::new();
         for (build_meta, build_graph) in planned_runs {
             let (success, meta) = execute_info_rr_plan(&cli, &target_dir, build_meta, build_graph)?;
             ok &= success;
             if success {
-                imp::promote_info_results(&meta);
+                successful_meta.push(meta);
+            }
+        }
+        if ok {
+            for meta in &successful_meta {
+                imp::promote_info_results(meta);
             }
         }
         return Ok(if ok { 0 } else { 1 });
@@ -166,6 +173,7 @@ pub(crate) fn run_info_rr_internal(
     cmd: &InfoSubcommand,
     target: Option<TargetBackend>,
 ) -> anyhow::Result<(bool, BuildMeta)> {
+    let build_flags = BuildFlags::default();
     let PackageDirs {
         source_dir,
         target_dir,
@@ -174,8 +182,8 @@ pub(crate) fn run_info_rr_internal(
     } = cli.source_tgt_dir.try_into_package_dirs()?;
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
-        true,
-        false,
+        !build_flags.std(),
+        build_flags.enable_coverage,
     )
     .with_project_manifest_path(project_manifest_path.as_deref());
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
