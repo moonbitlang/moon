@@ -36,7 +36,7 @@ use crate::user_diagnostics::UserDiagnostics;
 use super::{BuildFlags, UniversalFlags};
 
 /// Run a main package
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("run_source").required(true).multiple(false))]
 pub(crate) struct RunSubcommand {
     /// The package, .mbt/.mbtx file, or `-` to read `.mbtx` source from stdin
