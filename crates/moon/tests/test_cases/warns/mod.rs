@@ -167,6 +167,7 @@ fn test_warn_list_alerts() {
             ],
         ),
         expect![[r#"
+            Warning: `--manifest-path` is deprecated. Prefer `-C <project-dir>` to select a different project.
             Warning: [0014]
                ╭─[ $ROOT/a/main.mbt:2:3 ]
                │

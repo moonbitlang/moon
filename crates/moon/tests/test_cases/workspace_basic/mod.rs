@@ -9,6 +9,10 @@ fn assert_requires_target_module(stderr: &str, command: &str) {
         )),
         "expected missing target module error, got:\n{stderr}"
     );
+    assert!(
+        stderr.contains(&format!("use `moon -C <member> {command} ...`")),
+        "expected -C guidance, got:\n{stderr}"
+    );
 }
 
 fn assert_registry_resolution_failure(stderr: &str) {
@@ -961,7 +965,7 @@ fn test_manifest_path_can_disable_implicit_workspace_mode() {
         ["--manifest-path", "app/moon.mod.json", "build", "--dry-run"],
         [(MOON_NO_WORKSPACE, "1")],
     );
-    assert_registry_resolution_failure(&stderr);
+    assert_workspace_disabled_without_module(&stderr);
 }
 
 #[test]

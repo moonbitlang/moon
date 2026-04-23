@@ -150,6 +150,11 @@ pub fn main() {
     for warning in flags.deprecation_warnings() {
         output.warn(warning);
     }
+    if flags.source_tgt_dir.manifest_path.is_some() && !matches!(cli.subcommand, Run(_)) {
+        output.warn(
+            "`--manifest-path` is deprecated. Prefer `-C <project-dir>` to select a different project.",
+        );
+    }
 
     use MoonBuildSubcommands::*;
     let res = match cli.subcommand {

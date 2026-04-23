@@ -65,7 +65,12 @@ pub struct SourceTargetDirs {
     pub cwd: Option<PathBuf>,
 
     /// Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory).
-    #[arg(long = "manifest-path", global = true, value_name = "PATH")]
+    #[arg(
+        long = "manifest-path",
+        global = true,
+        value_name = "PATH",
+        hide = true
+    )]
     pub manifest_path: Option<PathBuf>,
 
     /// The target directory. Defaults to `<project-root>/_build`.
@@ -75,7 +80,21 @@ pub struct SourceTargetDirs {
 
 impl SourceTargetDirs {
     pub fn try_into_package_dirs(&self) -> Result<PackageDirs, PackageDirsError> {
-        let project = self.resolve_project_selection()?;
+        self.package_dirs_from(Self::current_dir()?)
+    }
+
+    pub fn package_dirs_from(
+        &self,
+        start_dir: impl AsRef<Path>,
+    ) -> Result<PackageDirs, PackageDirsError> {
+        let start_dir = dunce::canonicalize(start_dir.as_ref())
+            .context("failed to resolve source directory")
+            .map_err(PackageDirsError::from)?;
+        let project = if let Some(manifest_path) = &self.manifest_path {
+            Self::resolve_project_selection_from_manifest_path(manifest_path)?
+        } else {
+            self.resolve_project_selection_from(start_dir)?
+        };
         let target_dir = self.resolve_target_dir(&project.project_root)?;
 
         Ok(PackageDirs::from_source_and_target_with_manifest(
@@ -114,7 +133,13 @@ impl SourceTargetDirs {
             return Self::resolve_project_selection_from_manifest_path(manifest_path);
         }
 
-        let start_dir = Self::current_dir()?;
+        self.resolve_project_selection_from(Self::current_dir()?)
+    }
+
+    fn resolve_project_selection_from(
+        &self,
+        start_dir: PathBuf,
+    ) -> Result<ProjectSelection, PackageDirsError> {
         if disable_workspace_from_env() {
             return project_selection_with_workspace_disabled(start_dir);
         }
@@ -297,9 +322,8 @@ impl WorkspaceModuleDirs {
     pub fn require_module_dir(&self, command: &str) -> anyhow::Result<&PathBuf> {
         self.module_dir.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
-                "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or pass `--manifest-path <member>/{}`.",
+                "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> {command} ...`.",
                 self.project_root.display(),
-                MOON_MOD
             )
         })
     }

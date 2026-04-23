@@ -95,8 +95,7 @@ the whole workspace. They can be run from:
 - the workspace root
 - a workspace member directory
 - a nested non-module directory under the workspace
-- `--manifest-path <member>/moon.mod.json`
-- `--manifest-path moon.work`
+- `-C <member>`
 
 They do not need an implicit default member.
 
@@ -147,7 +146,7 @@ context. In practice, that means:
 
 - running them directly at the workspace root is not supported
 - running them from a member directory is supported
-- passing `--manifest-path <member>/moon.mod.json` is supported
+- passing `-C <member>` is supported
 
 This is why `publish`, `package`, `doc`, and `prove` only work for one selected
 module at a time today. There is no "publish the whole workspace" or "generate
@@ -182,7 +181,7 @@ The current design supports:
 - workspace roots that contain only `moon.work`
 - workspace roots that also contain `moon.mod.json`
 - selecting a member module from inside the member directory
-- selecting a member module with `--manifest-path <member>/moon.mod.json`
+- selecting a member module with `-C <member>`
 - whole-workspace `build` / `check` / `test` / `fmt` / `info`
 - member-scoped `package` / `publish` / `doc` / `prove` while still using
   workspace-local dependency resolution
@@ -205,11 +204,7 @@ Those commands need a selected member and will fail at workspace root with the
 Project selection depends on:
 
 - the working directory after `-C`
-- `--manifest-path`
 - `MOON_NO_WORKSPACE`
-
-`--manifest-path` pins manifest resolution, but does not change the process
-working directory.
 
 ## `MOON_NO_WORKSPACE`
 
@@ -218,7 +213,6 @@ working directory.
 If it is set to a non-`0` value:
 
 - implicit workspace discovery is disabled
-- explicit `--manifest-path moon.work` is also disabled
 - commands behave as if workspace mode does not exist
 
 This is intentionally close to `GO_WORK=off` in Go.
@@ -232,14 +226,18 @@ The resulting behavior is:
 This applies even when:
 
 - `moon.work` and `moon.mod.json` are colocated at the same root
-- `--manifest-path` explicitly points to a workspace manifest
 
 So `MOON_NO_WORKSPACE` does not mean "disable only implicit promotion into a
 workspace". It disables workspace behavior completely.
 
-## Selection Without `--manifest-path`
+## Selection
 
-Without `--manifest-path`, Moon starts from the current directory after `-C`.
+Most commands start from the current directory after `-C`.
+
+`moon run` is the exception: it resolves its positional selector path first,
+then discovers the project from that selector location. That lets
+`moon run path/to/pkg` and `moon run path/to/file.mbt` work even when invoked
+outside the target project.
 
 The algorithm is:
 
@@ -256,45 +254,8 @@ The algorithm is:
    `moon.mod.json`.
 6. If neither exists, fail with "not in a Moon project".
 
-## Selection With `--manifest-path`
-
-`--manifest-path` accepts exactly:
-
-- `moon.mod.json`
-- `moon.work`
-
-The selected manifest path is canonicalized first.
-
-### `--manifest-path <...>/moon.mod.json`
-
-This means "start from this module".
-
-- if `MOON_NO_WORKSPACE` is enabled, the command stays in single-module mode
-- otherwise, Moon may still promote to an enclosing applicable workspace
-
-This is important: `--manifest-path moon.mod.json` does not mean "force
-single-module mode". It means "select this module as the starting point".
-
-If an enclosing workspace applies, the command keeps:
-
-- `project_manifest_path = workspace manifest`
-- `project_root = workspace root`
-- `module_dir = selected module`
-
-That is how member-scoped commands can act on one member while still using the
-workspace's local dependency graph.
-
-### `--manifest-path <...>/moon.work`
-
-This means "start from this workspace root", but only when workspace mode is
-enabled.
-
-If `MOON_NO_WORKSPACE` is enabled:
-
-- Moon ignores the workspace manifest
-- Moon falls back to the nearest ancestor `moon.mod.json`, if any
-- otherwise the command fails because workspace mode is disabled and no module
-  is available
+`--manifest-path` still exists as a deprecated compatibility flag for
+non-`run` commands, but the public recommendation is to use `-C` instead.
 
 ## How Moon Decides Whether A Workspace Applies
 
@@ -346,9 +307,9 @@ selection.
 | workspace root + `build` / `check` / `test` / `fmt` / `info` | operate on the whole workspace |
 | workspace root + `add` / `remove` / `tree` / `package` / `publish` / `doc` / `prove` | error: no target member can be inferred |
 | member directory + member-scoped command | target that member and keep workspace context |
-| `--manifest-path app/moon.mod.json` | start from `app`, then allow workspace promotion |
-| `--manifest-path app/moon.mod.json` + member-scoped command | act on `app`, but keep workspace-local deps/layout if a workspace applies |
-| `--manifest-path moon.work` | select the workspace manifest |
+| `-C app` | start from `app`, then allow workspace promotion |
+| `-C app` + member-scoped command | act on `app`, but keep workspace-local deps/layout if a workspace applies |
+| `moon run path/to/app` from outside the project | discover the project from `path/to/app` |
 | inside workspace member + `MOON_NO_WORKSPACE=1` | ignore the workspace and use the nearest ancestor `moon.mod.json` |
 | workspace root with no module + `MOON_NO_WORKSPACE=1` | error: workspace mode is disabled and no module is available |
 | `moon work sync` outside a workspace | error: requires `moon.work` |

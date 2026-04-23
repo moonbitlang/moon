@@ -129,8 +129,32 @@ fn run_source_as_single_file(
     result
 }
 
+fn reject_manifest_path_for_run(cli: &UniversalFlags) -> anyhow::Result<()> {
+    if cli.source_tgt_dir.manifest_path.is_some() {
+        bail!(
+            "`--manifest-path` is no longer supported for `moon run`. Use `moon -C <project-dir> run ...` instead."
+        );
+    }
+    Ok(())
+}
+
+fn resolve_run_start_dir(input: &str) -> anyhow::Result<std::path::PathBuf> {
+    let input_path =
+        dunce::canonicalize(input).with_context(|| format!("failed to resolve path `{input}`"))?;
+    if input_path.is_dir() {
+        Ok(input_path)
+    } else {
+        input_path
+            .parent()
+            .context("run input path has no parent directory")
+            .map(Path::to_path_buf)
+    }
+}
+
 #[instrument(skip_all)]
 pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+    reject_manifest_path_for_run(cli)?;
+
     if cmd.command.is_some() {
         return run_inline_source_as_single_file(cli, cmd);
     }
@@ -144,17 +168,16 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     }
     let is_mbt = input.ends_with(".mbt");
     let is_mbtx = input.ends_with(".mbtx");
+    let run_start_dir = resolve_run_start_dir(input)?;
 
-    match cli.source_tgt_dir.try_into_package_dirs() {
+    match cli.source_tgt_dir.package_dirs_from(&run_start_dir) {
         Ok(_) => {
             if is_mbtx {
                 return run_single_file_from_arg(cli, cmd);
             }
             if is_mbt {
-                let moon_pkg_json_exist = std::env::current_dir()?
-                    .join(input)
-                    .parent()
-                    .is_some_and(is_moon_pkg_exist);
+                let moon_pkg_json_exist =
+                    std::fs::metadata(input)?.is_file() && is_moon_pkg_exist(&run_start_dir);
                 if !moon_pkg_json_exist {
                     return run_single_file_from_arg(cli, cmd);
                 }
@@ -197,12 +220,17 @@ fn run_run_rr(
     cmd: RunSubcommand,
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<i32, anyhow::Error> {
+    let run_start_dir = resolve_run_start_dir(
+        cmd.package_or_mbt_file
+            .as_deref()
+            .expect("package run planning requires a positional input"),
+    )?;
     let PackageDirs {
         source_dir,
         target_dir,
         mooncakes_dir,
         project_manifest_path,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    } = cli.source_tgt_dir.package_dirs_from(&run_start_dir)?;
 
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
@@ -288,31 +316,12 @@ fn get_run_cmd(build_meta: &rr_build::BuildMeta, argv: &[String]) -> tokio::proc
 #[instrument(level = Level::DEBUG, skip_all)]
 fn calc_user_intent(
     input_path: &str,
-    source_dir: &Path,
+    _source_dir: &Path,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     value_tracing: bool,
     target_backend: TargetBackend,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
-    // The legacy impl says the input path is based on `source_dir`, while
-    // if we want to match the behavior of other commands we need it to be based
-    // on current dir. We temporarily accept both behaviors here.
-    // TODO: Decide on one behavior and remove the other.
-    let (dir, _filename) = match crate::filter::canonicalize_with_filename(Path::new(input_path)) {
-        Ok((dir, filename)) => (dir, filename),
-        Err(e) => {
-            let backup_path = source_dir.join(input_path);
-            crate::filter::canonicalize_with_filename(&backup_path).map_err(|e2| {
-                anyhow::anyhow!(
-                    "Failed to canonicalize input path based on current working directory: {}\n\
-                    Also failed to canonicalize based on source directory `{}`: {}\n\
-                    Please make sure the path exists.",
-                    e,
-                    source_dir.display(),
-                    e2
-                )
-            })?
-        }
-    };
+    let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
     let pkg = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
 
     // check whether it's a main package
