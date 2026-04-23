@@ -22,6 +22,7 @@ use std::path::PathBuf;
 
 use anyhow::bail;
 use moonbuild_rupes_recta::intent::UserIntent;
+use moonbuild_rupes_recta::model::PackageId;
 use moonutil::{
     common::{RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
     dirs::PackageDirs,
@@ -40,8 +41,14 @@ use crate::{
 
 use super::UniversalFlags;
 
+#[derive(Debug)]
+pub(crate) struct InfoTargetSelection {
+    pub target_backend: TargetBackend,
+    pub packages: Vec<PackageId>,
+}
+
 /// Generate public interface (`.mbti`) files for all packages in the module or workspace
-#[derive(Debug, clap::Parser)]
+#[derive(Debug, Clone, clap::Parser)]
 pub(crate) struct InfoSubcommand {
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
@@ -90,14 +97,44 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
 
     // If there's zero or one target, just run normally and promote the results
     if lowered_targets.len() <= 1 {
-        let target_backend = lowered_targets.first().cloned();
-        let (success, meta) = run_info_rr_internal(&cli, &cmd, target_backend)?;
-        if success {
-            imp::promote_info_results(&meta);
-            return Ok(0);
-        } else {
-            return Ok(1);
+        let build_flags = BuildFlags::default();
+        let PackageDirs {
+            source_dir,
+            target_dir,
+            mooncakes_dir,
+            project_manifest_path,
+        } = cli.source_tgt_dir.try_into_package_dirs()?;
+        let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+            cmd.auto_sync_flags.frozen,
+            !build_flags.std(),
+            build_flags.enable_coverage,
+        )
+        .with_project_manifest_path(project_manifest_path.as_deref());
+        let resolve_output =
+            moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+        let planned_runs = plan_info_rr_from_resolved_all(
+            &cli,
+            &cmd,
+            &target_dir,
+            lowered_targets.first().copied(),
+            resolve_output,
+        )?;
+
+        let mut ok = true;
+        let mut successful_meta = Vec::new();
+        for (build_meta, build_graph) in planned_runs {
+            let (success, meta) = execute_info_rr_plan(&cli, &target_dir, build_meta, build_graph)?;
+            ok &= success;
+            if success {
+                successful_meta.push(meta);
+            }
         }
+        if ok {
+            for meta in &successful_meta {
+                imp::promote_info_results(meta);
+            }
+        }
+        return Ok(if ok { 0 } else { 1 });
     }
 
     // For multiple targets, we would like to run them one by one, and then
@@ -136,33 +173,84 @@ pub(crate) fn run_info_rr_internal(
     cmd: &InfoSubcommand,
     target: Option<TargetBackend>,
 ) -> anyhow::Result<(bool, BuildMeta)> {
+    let build_flags = BuildFlags::default();
     let PackageDirs {
         source_dir,
         target_dir,
         mooncakes_dir,
         project_manifest_path,
     } = cli.source_tgt_dir.try_into_package_dirs()?;
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        !build_flags.std(),
+        build_flags.enable_coverage,
+    )
+    .with_project_manifest_path(project_manifest_path.as_deref());
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
 
+    run_info_rr_from_resolved(cli, cmd, &target_dir, target, resolve_output)
+}
+
+pub(crate) fn run_info_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &InfoSubcommand,
+    target_dir: &std::path::Path,
+    target: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<(bool, BuildMeta)> {
+    let (build_meta, build_graph) =
+        plan_info_rr_from_resolved(cli, cmd, target_dir, target, resolve_output)?;
+    execute_info_rr_plan(cli, target_dir, build_meta, build_graph)
+}
+
+fn execute_info_rr_plan(
+    cli: &UniversalFlags,
+    target_dir: &std::path::Path,
+    build_meta: BuildMeta,
+    build_graph: rr_build::BuildInput,
+) -> anyhow::Result<(bool, BuildMeta)> {
+    // Generate the all_pkgs.json for indirect dependency resolution
+    // before executing the build
+    rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check)?;
+
+    let output = UserDiagnostics::from_flags(cli);
+    // TODO: UX: Consider mirroring flags from `moon check`?
+    let cfg = BuildConfig::from_flags(
+        &BuildFlags::default(),
+        &cli.unstable_feature,
+        cli.verbose,
+        output,
+    );
+    let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
+    result.print_info(cli.quiet, "generating mbti files")?;
+
+    Ok((result.successful(), build_meta))
+}
+
+pub(crate) fn plan_info_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &InfoSubcommand,
+    target_dir: &std::path::Path,
+    target: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<(BuildMeta, rr_build::BuildInput)> {
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &BuildFlags::default(),
         target,
-        &target_dir,
+        target_dir,
         RunMode::Check,
     );
     preconfig.info_no_alias = cmd.no_alias;
     let package_filter = cmd.package.clone();
     let path_filter = cmd.path.clone();
     let output = UserDiagnostics::from_flags(cli);
-    let (build_meta, build_graph) = rr_build::plan_build(
+    rr_build::plan_build_from_resolved(
         preconfig,
         &cli.unstable_feature,
-        &source_dir,
-        &target_dir,
-        &mooncakes_dir,
+        target_dir,
         output,
-        project_manifest_path.as_deref(),
         Box::new(move |resolve_output, tb| {
             calc_user_intent(
                 package_filter.as_deref(),
@@ -172,22 +260,8 @@ pub(crate) fn run_info_rr_internal(
                 output,
             )
         }),
-    )?;
-    // Generate the all_pkgs.json for indirect dependency resolution
-    // before executing the build
-    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Check)?;
-
-    // TODO: UX: Consider mirroring flags from `moon check`?
-    let cfg = BuildConfig::from_flags(
-        &BuildFlags::default(),
-        &cli.unstable_feature,
-        cli.verbose,
-        output,
-    );
-    let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
-    result.print_info(cli.quiet, "generating mbti files")?;
-
-    Ok((result.successful(), build_meta))
+        resolve_output,
+    )
 }
 
 fn calc_user_intent(
@@ -300,4 +374,139 @@ fn calc_user_intent(
     };
 
     Ok(intents.into())
+}
+
+pub(crate) fn plan_info_rr_from_resolved_all(
+    cli: &UniversalFlags,
+    cmd: &InfoSubcommand,
+    target_dir: &std::path::Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<Vec<(BuildMeta, rr_build::BuildInput)>> {
+    if let Some(target_backend) = selected_target_backend {
+        return plan_info_rr_from_resolved(
+            cli,
+            cmd,
+            target_dir,
+            Some(target_backend),
+            resolve_output,
+        )
+        .map(|plan| vec![plan]);
+    }
+
+    let selections =
+        resolve_info_target_selections(&resolve_output, cmd, UserDiagnostics::from_flags(cli))?;
+
+    if selections.is_empty() {
+        return plan_info_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
+            .map(|plan| vec![plan]);
+    }
+
+    selections
+        .into_iter()
+        .map(|selection| {
+            let scoped_cmd = narrow_info_request_to_selection(cmd, &resolve_output, &selection);
+            plan_info_rr_from_resolved(
+                cli,
+                &scoped_cmd,
+                target_dir,
+                Some(selection.target_backend),
+                resolve_output.clone(),
+            )
+        })
+        .collect()
+}
+
+fn resolve_info_target_selections(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &InfoSubcommand,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<InfoTargetSelection>> {
+    let selected = resolve_selected_info_packages(resolve_output, cmd, output)?;
+    let mut selections = Vec::new();
+
+    for pkg in selected {
+        let module_id = resolve_output.pkg_dirs.get_package(pkg).module;
+        let target_backend = resolve_output
+            .module_rel
+            .module_info(module_id)
+            .preferred_target
+            .or(resolve_output.workspace_preferred_target)
+            .unwrap_or_default();
+        let Some(index) = selections
+            .iter()
+            .position(|selection: &InfoTargetSelection| selection.target_backend == target_backend)
+        else {
+            selections.push(InfoTargetSelection {
+                target_backend,
+                packages: vec![pkg],
+            });
+            continue;
+        };
+        selections[index].packages.push(pkg);
+    }
+
+    selections.sort_by_key(|selection| selection.target_backend);
+
+    Ok(selections)
+}
+
+fn resolve_selected_info_packages(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &InfoSubcommand,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<PackageId>> {
+    if !cmd.path.is_empty() {
+        return Ok(select_packages(&cmd.path, output, |dir| {
+            filter_pkg_by_dir(resolve_output, dir)
+        })?
+        .into_iter()
+        .map(|(_, pkg_id)| pkg_id)
+        .collect());
+    }
+
+    if let Some(filter) = cmd.package.as_deref() {
+        let matches = match_packages_with_fuzzy(
+            resolve_output,
+            rr_build::local_packages(resolve_output),
+            std::iter::once(filter),
+        );
+
+        if matches.matched.is_empty() {
+            bail!(
+                "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
+                filter
+            );
+        }
+        if !matches.missing.is_empty() {
+            for missing in matches.missing {
+                output.warn(format!("Input `{}` did not match any package", missing));
+            }
+        }
+
+        return Ok(matches.matched);
+    }
+
+    Ok(rr_build::local_packages(resolve_output).collect())
+}
+
+fn narrow_info_request_to_selection(
+    cmd: &InfoSubcommand,
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    selection: &InfoTargetSelection,
+) -> InfoSubcommand {
+    let mut scoped_cmd = cmd.clone();
+    scoped_cmd.package = None;
+    scoped_cmd.path = selection
+        .packages
+        .iter()
+        .map(|pkg_id| {
+            resolve_output
+                .pkg_dirs
+                .get_package(*pkg_id)
+                .root_path
+                .to_path_buf()
+        })
+        .collect();
+    scoped_cmd
 }

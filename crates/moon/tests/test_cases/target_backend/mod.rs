@@ -774,21 +774,21 @@ fn test_test_paths_split_by_module_preferred_targets() {
 }
 
 #[test]
-fn test_conflicting_workspace_preferred_targets_info_defaults_to_wasm_gc() {
+fn test_info_without_target_respects_module_preferred_targets() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
     let stderr = get_stderr(&dir, ["info"]);
-    assert_preferred_target_conflict_warning(&stderr);
+    assert!(
+        !stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {stderr}"
+    );
 
     let js_mbti =
         std::fs::read_to_string(dir.join("js_preferred/src/lib").join(MBTI_GENERATED)).unwrap();
     assert_contains_and_absent(
         &js_mbti,
-        &[
-            "pub fn js_value() -> Int",
-            "pub fn js_wasm_gc_extra() -> Int",
-        ],
-        &["js_extra", "native_extra", "native_wasm_gc_extra"],
+        &["pub fn js_value() -> Int", "pub fn js_extra() -> Int"],
+        &["js_wasm_gc_extra", "native_extra", "native_wasm_gc_extra"],
     );
 
     let native_mbti =
@@ -797,8 +797,37 @@ fn test_conflicting_workspace_preferred_targets_info_defaults_to_wasm_gc() {
         &native_mbti,
         &[
             "pub fn native_value() -> Int",
-            "pub fn native_wasm_gc_extra() -> Int",
+            "pub fn native_extra() -> Int",
         ],
-        &["native_extra", "js_extra", "js_wasm_gc_extra"],
+        &["native_wasm_gc_extra", "js_extra", "js_wasm_gc_extra"],
+    );
+}
+
+#[test]
+fn test_info_paths_split_by_module_preferred_targets() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+
+    get_stdout(
+        &dir,
+        ["info", "js_preferred/src/lib", "native_preferred/src/lib"],
+    );
+
+    let js_mbti =
+        std::fs::read_to_string(dir.join("js_preferred/src/lib").join(MBTI_GENERATED)).unwrap();
+    assert_contains_and_absent(
+        &js_mbti,
+        &["pub fn js_value() -> Int", "pub fn js_extra() -> Int"],
+        &["js_wasm_gc_extra", "native_extra", "native_wasm_gc_extra"],
+    );
+
+    let native_mbti =
+        std::fs::read_to_string(dir.join("native_preferred/src/lib").join(MBTI_GENERATED)).unwrap();
+    assert_contains_and_absent(
+        &native_mbti,
+        &[
+            "pub fn native_value() -> Int",
+            "pub fn native_extra() -> Int",
+        ],
+        &["native_wasm_gc_extra", "js_extra", "js_wasm_gc_extra"],
     );
 }
