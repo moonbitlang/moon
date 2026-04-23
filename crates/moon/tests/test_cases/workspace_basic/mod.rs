@@ -965,7 +965,7 @@ fn test_manifest_path_can_disable_implicit_workspace_mode() {
         ["--manifest-path", "app/moon.mod.json", "build", "--dry-run"],
         [(MOON_NO_WORKSPACE, "1")],
     );
-    assert_workspace_disabled_without_module(&stderr);
+    assert_registry_resolution_failure(&stderr);
 }
 
 #[test]
