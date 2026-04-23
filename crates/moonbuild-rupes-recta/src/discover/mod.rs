@@ -31,7 +31,9 @@ pub mod special_case;
 pub mod synth;
 
 pub use model::{DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage};
-use moonutil::common::{PackageSourceFileKind, is_moon_pkg_exist, package_source_file_kind};
+use moonutil::common::{
+    PackageSourceFileKind, is_moon_mod, is_moon_pkg_exist, package_source_file_kind,
+};
 
 use std::{
     path::{Path, PathBuf},
@@ -48,7 +50,7 @@ use moonutil::mooncakes::{
 use moonutil::package::MoonPkg;
 use moonutil::{
     common::{
-        IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD_JSON, MOON_PKG_JSON, MOONBITLANG_ABORT,
+        IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOONBITLANG_ABORT,
         read_module_desc_file_in_dir, read_package_desc_file_in_dir_with_supported_targets_decl,
     },
     mooncakes::ModuleSourceKind,
@@ -115,8 +117,12 @@ pub fn discover_local_project(
         source_dir.display()
     );
 
-    let selected_workspace_manifest_path = project_manifest_path
-        .filter(|path| path.file_name().and_then(|name| name.to_str()) != Some(MOON_MOD_JSON));
+    let selected_workspace_manifest_path = project_manifest_path.filter(|path| {
+        !matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some(name) if is_moon_mod(name)
+        )
+    });
     let workspace = if let Some(workspace_manifest_path) = selected_workspace_manifest_path {
         read_workspace_file(workspace_manifest_path)
             .map(Some)
@@ -259,12 +265,12 @@ pub(crate) fn discover_packages_for_mod(
         }
 
         // Avoid descending into another module
+        let mod_path = abs_path.join(MOON_MOD);
         let mod_json_path = abs_path.join(MOON_MOD_JSON);
-        if mod_json_path.exists() && rel_path != "" {
+        if (mod_path.exists() || mod_json_path.exists()) && rel_path != "" {
             debug!(
-                "Skipping {} recursively because it contains {}",
-                abs_path.display(),
-                MOON_MOD_JSON
+                "Skipping {} recursively because it contains a module configuration file",
+                abs_path.display()
             );
             walkdir.skip_current_dir();
             continue;
@@ -273,9 +279,8 @@ pub(crate) fn discover_packages_for_mod(
         // Check if this directory is a package
         if !is_moon_pkg_exist(abs_path) {
             debug!(
-                "Skipping {} because it does not contain {}",
-                abs_path.display(),
-                MOON_PKG_JSON
+                "Skipping {} because it does not contain a package configuration file",
+                abs_path.display()
             );
             continue;
         }

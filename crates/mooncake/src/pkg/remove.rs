@@ -20,7 +20,9 @@ use anyhow::bail;
 use std::{path::Path, sync::Arc};
 
 use moonutil::{
-    common::{read_module_desc_file_in_dir, write_module_json_to_file},
+    common::{
+        MOON_MOD, read_module_desc_file_in_dir, write_module_dsl_to_file, write_module_json_to_file,
+    },
     module::convert_module_to_mod_json,
 };
 
@@ -69,6 +71,10 @@ pub fn remove(
     resolve_with_default_env_and_resolver(&resolve_cfg, roots)?;
 
     let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
-    write_module_json_to_file(&new_j, module_dir)?;
+    if module_dir.join(MOON_MOD).exists() {
+        write_module_dsl_to_file(&new_j, module_dir)?;
+    } else {
+        write_module_json_to_file(&new_j, module_dir)?;
+    }
     Ok(0)
 }

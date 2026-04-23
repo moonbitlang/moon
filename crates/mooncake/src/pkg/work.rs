@@ -25,8 +25,8 @@ use std::{
 use anyhow::{Context, bail};
 use moonutil::{
     common::{
-        MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE, read_module_desc_file_in_dir,
-        write_module_json_to_file,
+        MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE, read_module_desc_file_in_dir,
+        write_module_dsl_to_file, write_module_json_to_file,
     },
     dependency::SourceDependencyInfo,
     module::{MoonMod, convert_module_to_mod_json},
@@ -183,8 +183,9 @@ fn resolve_workspace_member(path: &Path) -> anyhow::Result<PathBuf> {
     }
     read_module_desc_file_in_dir(&member_dir).with_context(|| {
         format!(
-            "workspace member `{}` does not contain `{}`",
+            "workspace member `{}` does not contain `{}` or `{}`",
             path.display(),
+            MOON_MOD,
             MOON_MOD_JSON
         )
     })?;
@@ -250,9 +251,17 @@ fn sync_workspace_manifests(resolved_env: &ResolvedEnv) -> anyhow::Result<Vec<Pa
         }
 
         let new_json = convert_module_to_mod_json(module);
-        let manifest_path = module_dir.join(MOON_MOD_JSON);
-        write_module_json_to_file(&new_json, module_dir)
-            .context(format!("failed to write `{}`", manifest_path.display()))?;
+        let manifest_path = if module_dir.join(MOON_MOD).exists() {
+            let manifest_path = module_dir.join(MOON_MOD);
+            write_module_dsl_to_file(&new_json, module_dir)
+                .context(format!("failed to write `{}`", manifest_path.display()))?;
+            manifest_path
+        } else {
+            let manifest_path = module_dir.join(MOON_MOD_JSON);
+            write_module_json_to_file(&new_json, module_dir)
+                .context(format!("failed to write `{}`", manifest_path.display()))?;
+            manifest_path
+        };
         updated.push(manifest_path);
     }
 

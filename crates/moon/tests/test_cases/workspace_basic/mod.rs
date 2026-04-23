@@ -346,6 +346,51 @@ fn test_empty_workspace_fmt_formats_workspace_manifest() {
 }
 
 #[test]
+fn test_workspace_fmt_places_moon_mod_under_module_name() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    std::fs::remove_file(dir.join("liba/moon.mod.json")).unwrap();
+    std::fs::write(
+        dir.join("app/moon.mod"),
+        r#"name = "alice/app"
+
+version = "0.1.0"
+
+import {
+  "alice/liba@0.1.0",
+}
+
+options(
+  source: "src",
+)
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("liba/moon.mod"),
+        r#"name = "alice/liba"
+
+version = "0.1.1"
+
+options(
+  source: "src",
+)
+"#,
+    )
+    .unwrap();
+
+    let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
+    assert!(
+        output.contains("./_build/wasm-gc/release/format/alice/app/moon.mod"),
+        "{output}"
+    );
+    assert!(
+        output.contains("./_build/wasm-gc/release/format/alice/liba/moon.mod"),
+        "{output}"
+    );
+}
+
+#[test]
 fn test_workspace_root_path_selector_is_skipped() {
     let dir = TestDir::new("workspace_basic.in");
 
@@ -824,6 +869,86 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
               "deps": {},
               "source": "src"
             }"#]],
+    );
+}
+
+#[test]
+fn test_manifest_path_targets_dsl_member_for_tree() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    std::fs::write(
+        dir.join("app/moon.mod"),
+        r#"name = "alice/app"
+
+version = "0.1.0"
+
+import {
+  "alice/liba@0.1.0",
+}
+
+options(
+  source: "src",
+)
+"#,
+    )
+    .unwrap();
+
+    let tree = get_stdout(&dir, ["--manifest-path", "app/moon.mod", "tree"]);
+    assert!(
+        tree.contains("alice/app@0.1.0"),
+        "expected app module in tree output, got:\n{tree}"
+    );
+    assert!(
+        tree.contains("alice/liba@0.1.1"),
+        "expected workspace member dependency in tree output, got:\n{tree}"
+    );
+    assert!(
+        tree.contains("[workspace member]"),
+        "expected workspace member marker in tree output, got:\n{tree}"
+    );
+}
+
+#[test]
+fn test_manifest_path_targets_dsl_member_for_remove() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    std::fs::write(
+        dir.join("app/moon.mod"),
+        r#"name = "alice/app"
+
+version = "0.1.0"
+
+import {
+  "alice/liba@0.1.0",
+}
+
+options(
+  source: "src",
+)
+"#,
+    )
+    .unwrap();
+
+    check(
+        get_stdout(
+            &dir,
+            ["--manifest-path", "app/moon.mod", "remove", "alice/liba"],
+        ),
+        expect![[r#""#]],
+    );
+
+    assert!(dir.join("app/moon.mod").exists());
+    assert!(!dir.join("app/moon.mod.json").exists());
+    check(
+        std::fs::read_to_string(dir.join("app/moon.mod")).unwrap(),
+        expect![[r#"
+            name = "alice/app"
+
+            version = "0.1.0"
+
+            options(
+              source: "src",
+            )"#]],
     );
 }
 

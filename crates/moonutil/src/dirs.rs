@@ -22,7 +22,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::common::{BUILD_DIR, DEP_PATH, MOON_MOD_JSON, MOON_WORK};
+use crate::common::{BUILD_DIR, DEP_PATH, MOON_MOD, MOON_MOD_JSON, MOON_WORK};
 use crate::workspace::{
     canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
 };
@@ -33,11 +33,11 @@ pub const MOON_NO_WORKSPACE: &str = "MOON_NO_WORKSPACE";
 #[derive(Debug, Error)]
 pub enum PackageDirsError {
     #[error(
-        "not in a Moon project (no moon.mod.json or moon.work found starting from {0} or its ancestors)"
+        "not in a Moon project (no moon.mod, moon.mod.json, or moon.work found starting from {0} or its ancestors)"
     )]
     NotInProject(PathBuf),
     #[error(
-        "not in a Moon module (workspace mode is disabled by MOON_NO_WORKSPACE and no moon.mod.json was found starting from {0} or its ancestors)"
+        "not in a Moon module (workspace mode is disabled by MOON_NO_WORKSPACE and no moon.mod or moon.mod.json was found starting from {0} or its ancestors)"
     )]
     WorkspaceDisabledNotInModule(PathBuf),
     #[error(transparent)]
@@ -134,7 +134,7 @@ impl SourceTargetDirs {
         }
 
         if let Some(module_dir) = module_dir {
-            let project_manifest_path = module_dir.join(MOON_MOD_JSON);
+            let project_manifest_path = module_manifest_path(&module_dir);
             return Ok(ProjectSelection {
                 project_root: module_dir.clone(),
                 module_dir: Some(module_dir),
@@ -159,7 +159,8 @@ impl SourceTargetDirs {
 
         if manifest_path.is_dir() {
             return Err(PackageDirsError::from(anyhow::anyhow!(
-                "`--manifest-path` must point to `{}` or `{}` (got directory `{}`)",
+                "`--manifest-path` must point to `{}`, `{}`, or `{}` (got directory `{}`)",
+                MOON_MOD,
                 MOON_MOD_JSON,
                 MOON_WORK,
                 manifest_path.display()
@@ -175,14 +176,15 @@ impl SourceTargetDirs {
 
         if disable_workspace_from_env() {
             return match file_name {
-                Some(MOON_MOD_JSON) => Ok(ProjectSelection {
+                Some(MOON_MOD | MOON_MOD_JSON) => Ok(ProjectSelection {
                     project_root: manifest_dir.clone(),
                     module_dir: Some(manifest_dir),
                     project_manifest_path: manifest_path,
                 }),
                 Some(MOON_WORK) => project_selection_with_workspace_disabled(manifest_dir),
                 _ => Err(PackageDirsError::from(anyhow::anyhow!(
-                    "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
+                    "`--manifest-path` must point to `{}`, `{}`, or `{}` (got `{}`)",
+                    MOON_MOD,
                     MOON_MOD_JSON,
                     MOON_WORK,
                     manifest_path.display()
@@ -191,7 +193,7 @@ impl SourceTargetDirs {
         }
 
         match file_name {
-            Some(MOON_MOD_JSON) => {
+            Some(MOON_MOD | MOON_MOD_JSON) => {
                 if let Some(project_manifest_path) =
                     find_applicable_workspace_manifest_path(&manifest_dir)
                         .map_err(PackageDirsError::from)?
@@ -217,7 +219,8 @@ impl SourceTargetDirs {
                 project_manifest_path: manifest_path,
             }),
             _ => Err(PackageDirsError::from(anyhow::anyhow!(
-                "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
+                "`--manifest-path` must point to `{}`, `{}`, or `{}` (got `{}`)",
+                MOON_MOD,
                 MOON_MOD_JSON,
                 MOON_WORK,
                 manifest_path.display()
@@ -296,14 +299,14 @@ impl WorkspaceModuleDirs {
             anyhow::anyhow!(
                 "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or pass `--manifest-path <member>/{}`.",
                 self.project_root.display(),
-                MOON_MOD_JSON
+                MOON_MOD
             )
         })
     }
 }
 
 pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
-    source_dir.join(MOON_MOD_JSON).exists()
+    source_dir.join(MOON_MOD).exists() || source_dir.join(MOON_MOD_JSON).exists()
 }
 
 pub fn check_moon_work_exists(source_dir: &Path) -> bool {
@@ -342,7 +345,7 @@ fn project_selection_with_workspace_disabled(
         return Err(PackageDirsError::WorkspaceDisabledNotInModule(start_dir));
     };
 
-    let project_manifest_path = module_dir.join(MOON_MOD_JSON);
+    let project_manifest_path = module_manifest_path(&module_dir);
     Ok(ProjectSelection {
         project_root: module_dir.clone(),
         module_dir: Some(module_dir),
@@ -354,6 +357,14 @@ struct ProjectSelection {
     project_root: PathBuf,
     module_dir: Option<PathBuf>,
     project_manifest_path: PathBuf,
+}
+
+fn module_manifest_path(module_dir: &Path) -> PathBuf {
+    if module_dir.join(MOON_MOD).exists() {
+        module_dir.join(MOON_MOD)
+    } else {
+        module_dir.join(MOON_MOD_JSON)
+    }
 }
 
 fn find_applicable_workspace_manifest_path(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
@@ -399,7 +410,8 @@ pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
 
     if manifest_path.is_dir() {
         anyhow::bail!(
-            "`--manifest-path` must point to `{}` or `{}` (got directory `{}`)",
+            "`--manifest-path` must point to `{}`, `{}`, or `{}` (got directory `{}`)",
+            MOON_MOD,
             MOON_MOD_JSON,
             MOON_WORK,
             manifest_path.display()
@@ -407,9 +419,13 @@ pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
     }
 
     let file_name = manifest_path.file_name().and_then(|s| s.to_str());
-    if file_name != Some(MOON_MOD_JSON) && file_name != Some(MOON_WORK) {
+    if file_name != Some(MOON_MOD)
+        && file_name != Some(MOON_MOD_JSON)
+        && file_name != Some(MOON_WORK)
+    {
         anyhow::bail!(
-            "`--manifest-path` must point to `{}` or `{}` (got `{}`)",
+            "`--manifest-path` must point to `{}`, `{}`, or `{}` (got `{}`)",
+            MOON_MOD,
             MOON_MOD_JSON,
             MOON_WORK,
             manifest_path.display()

@@ -26,7 +26,7 @@ use moonbuild_rupes_recta::{
 use mooncake::registry::{OnlineRegistry, Registry};
 use moonutil::{
     cli::UniversalFlags,
-    common::{FileLock, RunMode, TargetBackend},
+    common::{FileLock, MOON_MOD, MOON_MOD_JSON, RunMode, TargetBackend},
     mooncakes::{ModuleName, RegistryConfig},
 };
 use semver::Version;
@@ -301,9 +301,10 @@ pub(super) fn install_from_local(
 
     let module_root = moonutil::dirs::find_ancestor_with_mod(&input_path).ok_or_else(|| {
         anyhow::anyhow!(
-            "Path `{}` is not in a MoonBit module (no {} found in ancestors)",
+            "Path `{}` is not in a MoonBit module (no {} or {} found in ancestors)",
             input_path.display(),
-            moonutil::common::MOON_MOD_JSON
+            MOON_MOD,
+            MOON_MOD_JSON
         )
     })?;
 
@@ -420,7 +421,7 @@ pub(super) fn install_from_git(
 
     // Find module root
     let module_root = moonutil::dirs::find_ancestor_with_mod(&target_path).ok_or_else(|| {
-        anyhow::anyhow!("No {} found in repository", moonutil::common::MOON_MOD_JSON)
+        anyhow::anyhow!("No {} or {} found in repository", MOON_MOD, MOON_MOD_JSON)
     })?;
 
     let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;

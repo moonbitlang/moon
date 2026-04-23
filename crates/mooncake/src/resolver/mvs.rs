@@ -25,7 +25,7 @@ use std::{
 use anyhow::anyhow;
 use colored::Colorize;
 use moonutil::{
-    common::MOON_MOD_JSON,
+    common::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
     dependency::SourceDependencyInfo,
     module::MoonMod,
     mooncakes::{
@@ -494,9 +494,10 @@ fn resolve_pkg(
                 err
             ))
         })?;
-        if !dep_path.join(MOON_MOD_JSON).exists() {
+        if !is_moon_mod_exist(&dep_path) {
             return Err(ResolverError::Other(anyhow!(
-                "Failed to find `{}` for local dependency `{}` of module `{}` at path `{}`",
+                "Failed to find `{}` or `{}` for local dependency `{}` of module `{}` at path `{}`",
+                MOON_MOD,
                 MOON_MOD_JSON,
                 pkg_name,
                 dependant.name(),

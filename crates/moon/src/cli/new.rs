@@ -20,7 +20,7 @@ use std::{fs::File, io::BufReader, path::PathBuf};
 
 use anyhow::bail;
 use moonutil::{
-    common::{MOON_MOD_JSON, is_moon_pkg_exist},
+    common::{is_moon_mod_exist, is_moon_pkg_exist},
     moon_dir,
     mooncakes::{Credentials, validate_username},
 };
@@ -76,7 +76,7 @@ pub(crate) fn run_new(cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Resul
 
     let path = PathBuf::from(cmd.path);
 
-    if path.exists() && (path.join(MOON_MOD_JSON).exists() || is_moon_pkg_exist(&path)) {
+    if path.exists() && (is_moon_mod_exist(&path)) || is_moon_pkg_exist(&path) {
         bail!("A MoonBit project already exists in `{}`.", path.display());
     }
 
