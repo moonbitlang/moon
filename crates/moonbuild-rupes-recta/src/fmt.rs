@@ -127,24 +127,28 @@ pub fn build_graph_for_fmt(
         && format_workspace_node(&mut graph, cfg, &layout, source_dir, project_manifest_path)?;
     let mut has_module_manifest = false;
 
-    for &module_id in &resolved.root_module_ids {
-        // find out moon.mod/moon.mod.json and format
-        match resolved.root_modules[module_id].source().source() {
-            ModuleSourceKind::Local(path) | ModuleSourceKind::Stdlib(path) => {
-                has_module_manifest |= format_moon_mod_node(
-                    &mut graph,
-                    cfg,
-                    &layout,
-                    source_dir,
-                    path,
-                    &mut user_warnings,
-                )?
-            }
-            ModuleSourceKind::Registry
-            | ModuleSourceKind::Git(_)
-            | ModuleSourceKind::SingleFile(_) => (),
-        };
+    // If no path filter is provided, find and format `moon.mod`/`moon.mod.json`.
+    if selected_packages.is_none() {
+        for &module_id in &resolved.root_module_ids {
+            match resolved.root_modules[module_id].source().source() {
+                ModuleSourceKind::Local(path) | ModuleSourceKind::Stdlib(path) => {
+                    has_module_manifest |= format_moon_mod_node(
+                        &mut graph,
+                        cfg,
+                        &layout,
+                        source_dir,
+                        path,
+                        &mut user_warnings,
+                    )?
+                }
+                ModuleSourceKind::Registry
+                | ModuleSourceKind::Git(_)
+                | ModuleSourceKind::SingleFile(_) => (),
+            };
+        }
+    }
 
+    for &module_id in &resolved.root_module_ids {
         let Some(packages) = resolved.pkg_dirs.packages_for_module(module_id) else {
             continue;
         };
