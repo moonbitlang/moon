@@ -64,8 +64,6 @@ fn test_moon_help() {
             Common Options:
               -C <DIR>
                       Change to DIR before doing anything else (must appear before the subcommand). Relative paths in other options and arguments are interpreted relative to DIR. Example: `moon -C a run .` runs the same as invoking `moon run .` from within `a`
-                  --manifest-path <PATH>
-                      Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)
                   --target-dir <TARGET_DIR>
                       The target directory. Defaults to `<project-root>/_build`
               -q, --quiet
@@ -123,7 +121,6 @@ fn test_moon_explain_without_flags_shows_guidance() {
               -h, --help                            Print help
 
             Common Options:
-                  --manifest-path <PATH>     Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)
                   --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`
               -q, --quiet                    Suppress output
               -v, --verbose                  Increase verbosity
@@ -483,6 +480,33 @@ fn test_moon_add_help_includes_no_update() {
 }
 
 #[test]
+fn test_manifest_path_deprecation_warning_for_non_run_commands() {
+    let dir = TestDir::new("moon_commands");
+    let stderr = get_stderr(
+        &dir,
+        ["check", "--manifest-path", "moon.mod.json", "--dry-run"],
+    );
+    assert!(
+        stderr.contains("`--manifest-path` is deprecated"),
+        "expected deprecation warning, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_run_rejects_manifest_path() {
+    let dir = TestDir::new("moon_commands");
+    let stderr = get_err_stderr(&dir, ["run", "--manifest-path", "moon.mod.json", "main1"]);
+    assert!(
+        stderr.contains("`--manifest-path` is no longer supported for `moon run`"),
+        "expected moon run manifest-path rejection, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("Use `moon -C <project-dir> run ...` instead"),
+        "expected moon run manifest-path guidance, got:\n{stderr}"
+    );
+}
+
+#[test]
 #[ignore]
 #[cfg(unix)]
 fn test_bench4() {
@@ -492,9 +516,9 @@ fn test_bench4() {
         get_stdout(
             &dir,
             [
+                "-C",
+                "./bench4",
                 "run",
-                "--manifest-path",
-                "./bench4/moon.mod.json",
                 "--target-dir",
                 "./bench4/target",
                 "main",
@@ -508,9 +532,9 @@ fn test_bench4() {
     get_stdout(
         &dir,
         [
+            "-C",
+            "./bench4",
             "run",
-            "--manifest-path",
-            "./bench4/moon.mod.json",
             "--target-dir",
             "./bench4/target",
             "--trace",

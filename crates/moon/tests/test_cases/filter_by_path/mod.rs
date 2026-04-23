@@ -288,16 +288,38 @@ fn test_moon_run_filter_by_path_success() {
     "#]],
     );
 
-    // FIXME: `moon run` paths are based on project root, thus cwd-based
-    // paths like below are not supported yet.
-    //
-    // // Test run from inside package directory
-    // check(
-    //     get_stdout(&dir.join("main"), ["run", "."]),
-    //     expect![[r#"
-    //     Hello, world!
-    // "#]],
-    // );
+    // Test run from inside package directory
+    check(
+        get_stdout(&dir.join("main"), ["run", "."]),
+        expect![[r#"
+        Hello, world!
+    "#]],
+    );
+}
+
+#[test]
+fn test_moon_run_filter_by_path_from_outside_project() {
+    let dir = TestDir::new("test_filter/test_filter");
+
+    check(
+        get_stdout(
+            &std::env::temp_dir(),
+            ["run", dir.join("main").to_str().unwrap()],
+        ),
+        expect![[r#"
+        Hello, world!
+    "#]],
+    );
+
+    check(
+        get_stdout(
+            &std::env::temp_dir(),
+            ["run", dir.join("main/main.mbt").to_str().unwrap()],
+        ),
+        expect![[r#"
+        Hello, world!
+    "#]],
+    );
 }
 
 #[test]

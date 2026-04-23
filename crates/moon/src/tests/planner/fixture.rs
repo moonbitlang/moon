@@ -195,9 +195,18 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &RunSubcommand,
     ) -> anyhow::Result<String> {
+        let mut cmd = cmd.clone();
+        if cmd.command.is_none()
+            && let Some(input) = cmd.package_or_mbt_file.as_deref()
+        {
+            let input_path = PathBuf::from(input);
+            if input_path.is_relative() {
+                cmd.package_or_mbt_file = Some(self.source_dir.join(input).display().to_string());
+            }
+        }
         let (build_meta, build_graph) = crate::cli::run::plan_run_rr_from_resolved(
             cli,
-            cmd,
+            &cmd,
             &self.source_dir,
             &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
