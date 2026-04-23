@@ -155,6 +155,9 @@ pub fn main() {
             "`--manifest-path` is deprecated. Prefer `-C <project-dir>` to select a different project.",
         );
     }
+    if let Some(warning) = moonutil::dirs::workspace_env_deprecation_warning() {
+        output.warn(warning);
+    }
 
     use MoonBuildSubcommands::*;
     let res = match cli.subcommand {

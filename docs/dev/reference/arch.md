@@ -137,6 +137,14 @@ explicit workspace root via `moon.work`, following the same discovery precedence
 - An ancestor workspace manifest found after that only applies if it explicitly lists that module.
 - Otherwise, fall back to that `moon.mod.json`.
 
+`MOON_WORK` can override this selection:
+
+- unset, empty, or `auto`: use the discovery rules above
+- `off`: disable workspace mode and stay in single-module mode
+- a path to `moon.work`: pin selection to that workspace
+
+`MOON_NO_WORKSPACE` remains as a deprecated alias for `MOON_WORK=off`.
+
 The workspace manifest is intentionally small. `moon.work` currently supports:
 
 - `members = ["./app", "./lib"]` to list workspace roots.
