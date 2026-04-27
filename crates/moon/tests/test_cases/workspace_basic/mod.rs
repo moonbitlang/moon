@@ -1,5 +1,8 @@
 use super::*;
-use moonutil::{common::MBTI_GENERATED, dirs::MOON_NO_WORKSPACE};
+use moonutil::{
+    common::MBTI_GENERATED,
+    dirs::{MOON_NO_WORKSPACE, MOON_WORK_ENV},
+};
 use std::path::Path;
 
 fn assert_requires_target_module(stderr: &str, command: &str) {
@@ -25,7 +28,7 @@ fn assert_registry_resolution_failure(stderr: &str) {
 
 fn assert_workspace_disabled_without_module(stderr: &str) {
     assert!(
-        stderr.contains("workspace mode is disabled by MOON_NO_WORKSPACE"),
+        stderr.contains("workspace mode is disabled by MOON_WORK=off"),
         "expected workspace-disabled error, got:\n{stderr}"
     );
 }
@@ -153,6 +156,26 @@ preferred_target = "wasm-gc"
     );
 
     dir
+}
+
+fn add_unlisted_nested_workspace_module(dir: &TestDir) {
+    write_file(
+        &dir.join("outer/ws/tools/moon.mod.json"),
+        r#"{
+  "name": "alice/tools",
+  "version": "0.1.0",
+  "source": "src"
+}
+"#,
+    );
+    write_file(&dir.join("outer/ws/tools/src/tool/moon.pkg.json"), "{}\n");
+    write_file(
+        &dir.join("outer/ws/tools/src/tool/tool.mbt"),
+        r#"pub fn tool() -> Int {
+  0
+}
+"#,
+    );
 }
 
 fn empty_workspace_dir() -> TestDir {
@@ -795,7 +818,7 @@ fn test_member_dir_can_disable_implicit_workspace_mode() {
     let stderr = get_err_stderr_with_envs(
         &dir,
         ["-C", "app", "build", "--dry-run"],
-        [(MOON_NO_WORKSPACE, "1")],
+        [(MOON_WORK_ENV, "off")],
     );
     assert_registry_resolution_failure(&stderr);
 }
@@ -963,7 +986,7 @@ fn test_manifest_path_can_disable_implicit_workspace_mode() {
     let stderr = get_err_stderr_with_envs(
         &dir,
         ["--manifest-path", "app/moon.mod.json", "build", "--dry-run"],
-        [(MOON_NO_WORKSPACE, "1")],
+        [(MOON_WORK_ENV, "off")],
     );
     assert_registry_resolution_failure(&stderr);
 }
@@ -975,7 +998,7 @@ fn test_workspace_root_cannot_use_workspace_with_env_override() {
     let stderr = get_err_stderr_with_envs(
         &dir,
         ["build", "--dry-run", "--sort-input"],
-        [(MOON_NO_WORKSPACE, "1")],
+        [(MOON_WORK_ENV, "off")],
     );
     assert_workspace_disabled_without_module(&stderr);
 }
@@ -984,7 +1007,7 @@ fn test_workspace_root_cannot_use_workspace_with_env_override() {
 fn test_same_root_module_can_disable_implicit_workspace_mode() {
     let dir = same_root_workspace_dir();
 
-    let stderr = get_err_stderr_with_envs(&dir, ["build", "--dry-run"], [(MOON_NO_WORKSPACE, "1")]);
+    let stderr = get_err_stderr_with_envs(&dir, ["build", "--dry-run"], [(MOON_WORK_ENV, "off")]);
     assert_registry_resolution_failure(&stderr);
 }
 
@@ -995,7 +1018,7 @@ fn test_same_root_manifest_path_can_disable_implicit_workspace_mode() {
     let stderr = get_err_stderr_with_envs(
         &dir,
         ["--manifest-path", "moon.mod.json", "build", "--dry-run"],
-        [(MOON_NO_WORKSPACE, "1")],
+        [(MOON_WORK_ENV, "off")],
     );
     assert_registry_resolution_failure(&stderr);
 }
@@ -1013,7 +1036,7 @@ fn test_same_root_workspace_manifest_can_disable_workspace_mode_with_env_overrid
             "--dry-run",
             "--sort-input",
         ],
-        [(MOON_NO_WORKSPACE, "1")],
+        [(MOON_WORK_ENV, "off")],
     );
     assert_registry_resolution_failure(&stderr);
 }
@@ -1031,9 +1054,255 @@ fn test_workspace_manifest_path_cannot_use_workspace_with_env_override() {
             "--dry-run",
             "--sort-input",
         ],
-        [(MOON_NO_WORKSPACE, "1")],
+        [(MOON_WORK_ENV, "off")],
     );
     assert_workspace_disabled_without_module(&stderr);
+}
+
+#[test]
+fn test_pinned_workspace_path_builds_from_outside_workspace() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stdout = get_stdout_with_envs(
+        &dir.join(".."),
+        ["build", "--dry-run", "--sort-input"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("moon.work").to_string_lossy().into_owned(),
+        )],
+    );
+
+    assert!(
+        stdout.contains("alice/app/main"),
+        "expected pinned workspace build to select workspace members, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-workspace-path ./app"),
+        "expected pinned workspace build to keep workspace layout, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_rejects_unlisted_outer_module() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["-C", "outer", "build", "--dry-run"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("outer/ws/moon.work")
+                .to_string_lossy()
+                .into_owned(),
+        )],
+    );
+
+    assert!(
+        stderr.contains(
+            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer`"
+        ),
+        "expected pinned workspace membership error, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_accepts_nested_workspace_root() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["-C", "outer/ws", "build", "--dry-run", "--sort-input"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("outer/ws/moon.work")
+                .to_string_lossy()
+                .into_owned(),
+        )],
+    );
+
+    assert!(
+        stdout.contains("alice/app/main"),
+        "expected pinned workspace root to build the pinned workspace, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-workspace-path ./app"),
+        "expected pinned workspace root to keep workspace-aware package layout, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("alice/outer/outer"),
+        "expected pinned workspace root to ignore the unrelated outer module, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_reuses_nested_workspace_root_for_work_use() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+
+    check(
+        get_stdout_with_envs(
+            &dir,
+            ["-C", "outer/ws", "work", "use", "./app"],
+            [(
+                MOON_WORK_ENV,
+                dir.join("outer/ws/moon.work")
+                    .to_string_lossy()
+                    .into_owned(),
+            )],
+        ),
+        expect![[r#"
+            moon.work is already up to date
+        "#]],
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_rejects_unlisted_module_under_workspace_root() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+    add_unlisted_nested_workspace_module(&dir);
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["-C", "outer/ws/tools", "build", "--dry-run"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("outer/ws/moon.work")
+                .to_string_lossy()
+                .into_owned(),
+        )],
+    );
+
+    assert!(
+        stderr.contains(
+            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer/ws/tools`"
+        ),
+        "expected pinned workspace membership error, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_rejects_work_use_from_unlisted_outer_module() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["-C", "outer", "work", "use", "ws/app"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("outer/ws/moon.work")
+                .to_string_lossy()
+                .into_owned(),
+        )],
+    );
+
+    assert!(
+        stderr.contains(
+            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer`"
+        ),
+        "expected pinned workspace membership error, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_selects_outer_module_when_listed() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+    write_file(
+        &dir.join("outer/ws/moon.work"),
+        r#"members = [
+  "../",
+]
+preferred_target = "wasm-gc"
+"#,
+    );
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["-C", "outer/ws", "build", "--dry-run", "--sort-input"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("outer/ws/moon.work")
+                .to_string_lossy()
+                .into_owned(),
+        )],
+    );
+
+    assert!(
+        stdout.contains("alice/outer/outer"),
+        "expected pinned workspace root to select the listed outer module, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("alice/app/main"),
+        "expected pinned workspace root to avoid unlisted app module, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_rejects_unlisted_manifest_path_module() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["--manifest-path", "outer/moon.mod.json", "tree"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("outer/ws/moon.work")
+                .to_string_lossy()
+                .into_owned(),
+        )],
+    );
+
+    assert!(
+        stderr.contains(
+            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer`"
+        ),
+        "expected pinned workspace membership error, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_legacy_workspace_disable_env_warns_and_still_works() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["build", "--dry-run", "--sort-input"],
+        [(MOON_NO_WORKSPACE, "1")],
+    );
+
+    assert!(
+        stderr.contains(
+            "`MOON_NO_WORKSPACE` is deprecated. Use `MOON_WORK=off` to disable workspace mode."
+        ),
+        "expected deprecation warning, got:\n{stderr}"
+    );
+    assert_workspace_disabled_without_module(&stderr);
+}
+
+#[test]
+fn test_moon_work_wins_over_legacy_workspace_disable_env() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["build", "--dry-run", "--sort-input"],
+        [(MOON_WORK_ENV, "auto"), (MOON_NO_WORKSPACE, "1")],
+    );
+
+    assert!(
+        stdout.contains("alice/app/main"),
+        "expected MOON_WORK to override deprecated env, got:\n{stdout}"
+    );
+
+    let stderr = get_stderr_without_replace(
+        &dir,
+        ["build", "--dry-run", "--sort-input"],
+        [(MOON_WORK_ENV, "auto"), (MOON_NO_WORKSPACE, "1")],
+    );
+    let stderr = replace_dir(&stderr, &dir);
+    assert!(
+        stderr
+            .contains("`MOON_NO_WORKSPACE` is deprecated and ignored because `MOON_WORK` is set."),
+        "expected precedence warning, got:\n{stderr}"
+    );
 }
 
 #[test]

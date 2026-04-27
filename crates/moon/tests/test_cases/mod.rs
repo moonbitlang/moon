@@ -28,7 +28,7 @@ use moonutil::{
         BUILD_DIR, CargoPathExt, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, StringExt,
         TargetBackend, get_cargo_pkg_version,
     },
-    dirs::{MOON_NO_WORKSPACE, PackageDirs},
+    dirs::{MOON_NO_WORKSPACE, MOON_WORK_ENV, PackageDirs},
     module::MoonModJSON,
 };
 use walkdir::WalkDir;
@@ -2882,6 +2882,7 @@ fn test_single_file_commands_work_with_workspace_disabled() {
     check(
         String::from_utf8(check_result).unwrap(),
         expect![[r#"
+            Warning: `MOON_NO_WORKSPACE` is deprecated. Use `MOON_WORK=off` to disable workspace mode.
             Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
@@ -2895,6 +2896,13 @@ fn test_single_file_commands_work_with_workspace_disabled() {
 
     check(
         get_stdout_with_envs(&dir, ["run", "hello.mbt"], [(MOON_NO_WORKSPACE, "1")]),
+        expect![[r#"
+            hello
+        "#]],
+    );
+
+    check(
+        get_stdout_with_envs(&dir, ["run", "hello.mbt"], [(MOON_WORK_ENV, "off")]),
         expect![[r#"
             hello
         "#]],
