@@ -221,7 +221,9 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
     assert!(!dir.join("web").join(MBTI_GENERATED).exists());
     assert!(!dir.join("server").join(MBTI_GENERATED).exists());
-    assert!(info_js.contains("Package mixed/localdep/shared has no canonical interface"));
+    assert!(info_js.contains(
+        "Package mixed/localdep/shared has requested interfaces different from canonical backend"
+    ));
     assert!(info_js.contains("pub fn shared_banner() -> String"));
     assert!(info_js.contains("pub fn web_banner() -> String"));
 
@@ -229,7 +231,9 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
     assert!(!dir.join("web").join(MBTI_GENERATED).exists());
     assert!(!dir.join("server").join(MBTI_GENERATED).exists());
-    assert!(info_native.contains("Package mixed/localdep/shared has no canonical interface"));
+    assert!(info_native.contains(
+        "Package mixed/localdep/shared has requested interfaces different from canonical backend"
+    ));
     assert!(info_native.contains("pub fn shared_banner() -> String"));
     assert!(info_native.contains("pub fn server_banner() -> String"));
 
@@ -237,7 +241,9 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
     assert!(!dir.join("web").join(MBTI_GENERATED).exists());
     assert!(!dir.join("server").join(MBTI_GENERATED).exists());
-    assert!(info_both.contains("Package mixed/localdep/shared has no canonical interface"));
+    assert!(info_both.contains(
+        "Package mixed/localdep/shared has requested interfaces different from canonical backend"
+    ));
     assert!(info_both.contains("pub fn shared_banner() -> String"));
     assert!(info_both.contains("pub fn web_banner() -> String"));
     assert!(info_both.contains("pub fn server_banner() -> String"));

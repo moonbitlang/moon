@@ -237,10 +237,12 @@ fn collect_package_output_groups<'a>(
     transposed
 }
 
+type ContentHash = [u8; 32];
+
 struct MbtiOutput<'a> {
     filename: &'a Path,
     content: String,
-    hash: [u8; 32],
+    hash: ContentHash,
 }
 
 fn read_backend_contents<'a>(
@@ -257,9 +259,7 @@ fn read_backend_contents<'a>(
             )
         })?;
 
-        let hash0 = sha2::Sha256::digest(&content);
-        let mut hash = [0u8; 32];
-        hash.copy_from_slice(&hash0);
+        let hash = content_hash(&content);
 
         backend_contents.insert(
             *backend,
@@ -290,45 +290,37 @@ fn report_info_output_for_package(
     }
 
     let canonical_backend = group.plan.canonical_backend;
-    let Some(canonical) = backend_contents.get(&canonical_backend) else {
-        return report_requested_outputs_without_canonical(
-            backend_contents,
-            requested_outputs,
-            group,
-        );
-    };
+    let canonical = backend_contents.get(&canonical_backend);
+    let baseline_content = canonical
+        .map(|output| output.content.as_str())
+        .unwrap_or("");
+    let baseline_hash = canonical
+        .map(|output| output.hash)
+        .unwrap_or_else(|| content_hash(""));
+    let baseline_file_label = canonical
+        .map(|output| format!("({})", output.filename.display()))
+        .unwrap_or_else(|| "(no generated interface)".to_string());
+    let hash_groups =
+        group_requested_outputs_by_hash(&backend_contents, requested_outputs, canonical_backend)?;
 
-    let mut hash_groups: IndexMap<[u8; 32], Vec<TargetBackend>> = IndexMap::new();
-    for backend in requested_outputs {
-        if backend == canonical_backend {
-            continue;
-        }
-
-        let actual = backend_contents
-            .get(&backend)
-            .context("Requested backend output not found")?;
-        hash_groups.entry(actual.hash).or_default().push(backend);
-    }
-
-    let mut has_difference = false;
-    for hash in hash_groups.keys() {
-        if hash != &canonical.hash {
-            has_difference = true;
-            break;
-        }
-    }
-
-    if !has_difference {
+    if hash_groups.keys().all(|hash| hash == &baseline_hash) {
         return Ok(());
     }
 
-    println!(
-        "#\n# Package {} has diverging interfaces across backends:",
-        group.plan.pkg_name
-    );
+    if canonical.is_some() {
+        println!(
+            "#\n# Package {} has diverging interfaces across backends:",
+            group.plan.pkg_name
+        );
+    } else {
+        println!(
+            "#\n# Package {} has requested interfaces different from canonical backend {:?}:",
+            group.plan.pkg_name, canonical_backend
+        );
+    }
 
     for (hash, backends) in hash_groups {
-        if hash == canonical.hash {
+        if hash == baseline_hash {
             continue;
         }
 
@@ -342,7 +334,7 @@ fn report_info_output_for_package(
             "---".bright_red(),
             group.plan.pkg_name,
             canonical_backend,
-            format!("({})", canonical.filename.display()).bright_black(),
+            baseline_file_label.bright_black(),
         );
         for backend in &backends {
             let actual = backend_contents
@@ -357,52 +349,39 @@ fn report_info_output_for_package(
             );
         }
 
-        write_diff(&canonical.content, &actual.content, 1, 2, std::io::stdout())?;
+        write_diff(baseline_content, &actual.content, 1, 2, std::io::stdout())?;
     }
 
     println!("# ------");
     Ok(())
 }
 
-fn report_requested_outputs_without_canonical(
-    backend_contents: IndexMap<TargetBackend, MbtiOutput<'_>>,
+fn content_hash(content: &str) -> ContentHash {
+    let hash0 = sha2::Sha256::digest(content);
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&hash0);
+    hash
+}
+
+fn group_requested_outputs_by_hash(
+    backend_contents: &IndexMap<TargetBackend, MbtiOutput<'_>>,
     requested_outputs: Vec<TargetBackend>,
-    group: &PackageOutputGroup,
-) -> anyhow::Result<()> {
-    let mut hash_groups: IndexMap<[u8; 32], Vec<TargetBackend>> = IndexMap::new();
+    canonical_backend: TargetBackend,
+) -> anyhow::Result<IndexMap<ContentHash, Vec<TargetBackend>>> {
+    // Use a compact content hash as the grouping key so identical backend
+    // interfaces share one diff in the report.
+    let mut hash_groups: IndexMap<ContentHash, Vec<TargetBackend>> = IndexMap::new();
+
     for backend in requested_outputs {
+        if backend == canonical_backend {
+            continue;
+        }
+
         let actual = backend_contents
             .get(&backend)
             .context("Requested backend output not found")?;
         hash_groups.entry(actual.hash).or_default().push(backend);
     }
 
-    println!(
-        "#\n# Package {} has no canonical interface for backend {:?}; showing requested outputs:",
-        group.plan.pkg_name, group.plan.canonical_backend
-    );
-
-    for backends in hash_groups.values() {
-        let actual = backend_contents
-            .get(&backends[0])
-            .context("Backend output not found")?;
-
-        println!("#\n# ---");
-        for backend in backends {
-            println!(
-                "{} {} {:?} {}",
-                "---".bright_green(),
-                group.plan.pkg_name,
-                backend,
-                format!("({})", actual.filename.display()).bright_black(),
-            );
-        }
-        print!("{}", actual.content);
-        if !actual.content.ends_with('\n') {
-            println!();
-        }
-    }
-
-    println!("# ------");
-    Ok(())
+    Ok(hash_groups)
 }
