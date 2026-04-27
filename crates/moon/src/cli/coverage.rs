@@ -116,7 +116,7 @@ fn run_coverage_clean(cli: UniversalFlags) -> Result<i32, anyhow::Error> {
         source_dir: src,
         target_dir: tgt,
         ..
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    } = cli.source_tgt_dir.query()?.package_dirs()?;
     clean_coverage_artifacts(&src, &tgt)?;
     Ok(0)
 }
@@ -138,7 +138,7 @@ fn run_coverage_report(cli: UniversalFlags, args: CoverageReportSubcommand) -> a
         source_dir: src,
         target_dir: _tgt,
         ..
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    } = cli.source_tgt_dir.query()?.package_dirs()?;
 
     let res = run_coverage_report_command(args.args, &src, cli.dry_run);
     res.context("Unable to run coverage report")?

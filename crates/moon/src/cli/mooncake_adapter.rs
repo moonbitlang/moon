@@ -123,8 +123,17 @@ fn single_module_mooncake_cli(
     mut cli: UniversalFlags,
     command: &str,
 ) -> anyhow::Result<UniversalFlags> {
-    let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
-    let module_dir = dirs.require_module_dir(command)?;
+    let mut query = cli.source_tgt_dir.query()?;
+    let project = query.project()?;
+    let module_dir = project
+        .selected_module()
+        .map(|module| module.root.clone())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> {command} ...`.",
+                project.root().display(),
+            )
+        })?;
     cli.source_tgt_dir.cwd = None;
     cli.source_tgt_dir.manifest_path = Some(if module_dir.join(MOON_MOD).exists() {
         module_dir.join(MOON_MOD)

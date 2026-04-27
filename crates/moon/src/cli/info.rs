@@ -279,7 +279,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         target_dir,
         mooncakes_dir,
         project_manifest_path,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    } = cli.source_tgt_dir.query()?.package_dirs()?;
 
     let build_flags = BuildFlags::default();
     let resolve_cfg = ResolveConfig::new_with_load_defaults(

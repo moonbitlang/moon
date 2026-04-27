@@ -28,7 +28,7 @@ pub(crate) fn run_clean(cli: &UniversalFlags) -> anyhow::Result<i32> {
         bail!("dry-run is not supported for clean");
     }
 
-    let src_tgt = cli.source_tgt_dir.try_into_package_dirs()?;
+    let src_tgt = cli.source_tgt_dir.query()?.package_dirs()?;
 
     let _lock = FileLock::lock(&src_tgt.target_dir)?;
 

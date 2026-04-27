@@ -549,7 +549,9 @@ mod tests {
             manifest_path: Some(manifest_path),
             target_dir: None,
         }
-        .try_into_package_dirs()
+        .query()
+        .unwrap()
+        .package_dirs()
         .unwrap();
         moonbuild_rupes_recta::resolve(&cfg, &dirs.source_dir, &dirs.mooncakes_dir).unwrap()
     }

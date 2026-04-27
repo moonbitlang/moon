@@ -22,7 +22,7 @@ use anyhow::{Context, bail};
 use moonbuild_rupes_recta::build_plan::InputDirective;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::common::{FileLock, RunMode, TargetBackend, TestArtifacts, is_moon_pkg_exist};
-use moonutil::dirs::PackageDirs;
+use moonutil::dirs::{PackageDirs, ProjectProbe};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use tracing::{Level, instrument};
 
@@ -170,8 +170,9 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     let is_mbtx = input.ends_with(".mbtx");
     let run_start_dir = resolve_run_start_dir(input)?;
 
-    match cli.source_tgt_dir.package_dirs_from(&run_start_dir) {
-        Ok(_) => {
+    let mut query = cli.source_tgt_dir.query_from(&run_start_dir)?;
+    match query.probe_project()? {
+        ProjectProbe::Found(_) => {
             if is_mbtx {
                 return run_single_file_from_arg(cli, cmd);
             }
@@ -183,13 +184,12 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
                 }
             }
         }
-        Err(e) if e.allows_single_file_fallback() => {
+        ProjectProbe::NotFound(not_found) => {
             if is_mbt || is_mbtx {
                 return run_single_file_from_arg(cli, cmd);
             }
-            return Err(e.into());
+            return Err(not_found.into_error().into());
         }
-        Err(e) => return Err(e.into()),
     }
 
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
@@ -230,7 +230,10 @@ fn run_run_rr(
         target_dir,
         mooncakes_dir,
         project_manifest_path,
-    } = cli.source_tgt_dir.package_dirs_from(&run_start_dir)?;
+    } = cli
+        .source_tgt_dir
+        .query_from(&run_start_dir)?
+        .package_dirs()?;
 
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
@@ -347,25 +350,21 @@ fn calc_user_intent(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_single_file_from_arg(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    let input_path = dunce::canonicalize(
+    let single_file_dirs = cli.source_tgt_dir.single_file_package_dirs(
         cmd.package_or_mbt_file
             .as_deref()
             .expect("single-file run from arg requires a positional input path"),
     )?;
-    let source_dir = input_path.parent().unwrap().to_path_buf();
-    let single_file_dirs = cli
-        .source_tgt_dir
-        .package_dirs_from_source_root(&source_dir)?;
-    let target_dir = single_file_dirs.target_dir;
-    let mooncakes_dir = single_file_dirs.mooncakes_dir;
+    let target_dir = single_file_dirs.package_dirs.target_dir;
+    let mooncakes_dir = single_file_dirs.package_dirs.mooncakes_dir;
 
     run_single_file_rr(
         cli,
         cmd,
-        single_file_dirs.source_dir,
+        single_file_dirs.package_dirs.source_dir,
         target_dir,
         mooncakes_dir,
-        input_path,
+        single_file_dirs.file_path,
     )
 }
 

@@ -21,6 +21,7 @@ use std::path::Path;
 use anyhow::{Context as _, bail};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::common::{FileLock, RunMode};
+use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::{ModuleId, sync::AutoSyncFlags};
 use tracing::instrument;
 
@@ -88,12 +89,23 @@ fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
 
 #[instrument(skip_all)]
 pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
-    let doc_source_dir = dirs.require_module_dir("doc")?.clone();
-    let mooncakes_dir = dirs.mooncakes_dir;
-    let source_dir = dirs.project_root;
-    let target_dir = dirs.target_dir;
-    let project_manifest_path = dirs.project_manifest_path;
+    let mut query = cli.source_tgt_dir.query()?;
+    let project = query.project()?;
+    let doc_source_dir = project
+        .selected_module()
+        .map(|module| module.root.clone())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "`moon doc` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> doc ...`.",
+                project.root().display(),
+            )
+        })?;
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        mooncakes_dir,
+        project_manifest_path,
+    } = query.package_dirs()?;
 
     // FIXME: This is copied from `moon check`'s code. Share code if possible.
     let mut preconfig = preconfig_compile(

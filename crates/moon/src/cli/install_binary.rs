@@ -441,9 +441,7 @@ fn build_and_install_packages(
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
     let output = UserDiagnostics::from_flags(cli);
-    let package_dirs = cli
-        .source_tgt_dir
-        .package_dirs_from_source_root(module_dir)?;
+    let package_dirs = cli.source_tgt_dir.source_root_package_dirs(module_dir)?;
     let source_dir = package_dirs.source_dir;
     let target_dir = package_dirs.target_dir;
     let mooncakes_dir = package_dirs.mooncakes_dir;
