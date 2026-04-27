@@ -29,6 +29,7 @@ pub use crate::supported_targets::resolve_supported_targets;
 use crate::{
     common::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     cond_expr::{CompileCondition, CondExprs},
+    moon_pkg,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -670,85 +671,97 @@ impl Import {
 }
 
 /// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
-pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
-    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(json, true)?.0)
+pub fn convert_pkg_dsl_to_package(dsl: moon_pkg::Dsl) -> anyhow::Result<MoonPkg> {
+    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, true)?.0)
 }
 
 pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
-    json: Value,
+    dsl: moon_pkg::Dsl,
     emit_warnings: bool,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     // It will validate the top-level keys and merge `options` into the root level.
     // Might be removed in the future, after we remove the moon.pkg.json and have an
     // AST to represent moon.pkg files.
-    let allowed_toplevel_keys = [
-        "import",
-        "wbtest-import",
-        "test-import",
-        "options",
-        "warnings",
-        "supported_targets",
-    ];
-    let json = match json {
-        Value::Object(mut map) => {
-            for key in map.keys() {
-                if !allowed_toplevel_keys.contains(&key.as_str()) {
-                    bail!("Unexpected key '{}' found in moon.pkg.", key,);
-                }
+
+    // Top-level DSL keys accepted in `moon.pkg`; the boolean says whether
+    // repeated entries should be collected as a JSON array instead of rejected.
+    let toplevel_keys = std::collections::HashMap::from([
+        ("import", false),
+        ("wbtest-import", false),
+        ("test-import", false),
+        ("options", false),
+        ("warnings", false),
+        ("supported_targets", false),
+    ]);
+    let mut map = serde_json_lenient::Map::new();
+    for (key, value) in dsl.iter() {
+        let Some(&allow_duplicate) = toplevel_keys.get(key) else {
+            bail!("Unexpected key '{}' found in moon.pkg.", key);
+        };
+        if allow_duplicate {
+            match map
+                .entry(key.to_string())
+                .or_insert_with(|| Value::Array(Vec::new()))
+            {
+                Value::Array(values) => values.push(value.clone()),
+                _ => unreachable!("duplicate key should be initialized as array"),
             }
-            if let Value::Object(options) = map.remove("options").unwrap_or_default() {
-                for (k, v) in options {
-                    map.insert(k, v);
-                }
-            }
-            if let Some(warnings) = map.remove("warnings") {
-                let warnings = match warnings {
-                    Value::String(s) => s,
-                    _ => String::new(),
-                };
-                let legacy_warn_list = match map.remove("warn-list") {
-                    Some(Value::String(s)) => s,
-                    _ => String::new(),
-                };
-                let merged = format!("{warnings}{legacy_warn_list}");
-                if !merged.is_empty() {
-                    map.insert(String::from("warn-list"), Value::String(merged));
-                }
-            }
-            let supported_targets = map.remove("supported_targets");
-            let legacy_supported_targets = map.remove("supported-targets");
-            match (supported_targets, legacy_supported_targets) {
-                (Some(supported_targets), Some(_)) => {
-                    if emit_warnings {
-                        eprintln!(
-                            "{}",
-                            "Warning: Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value."
-                                .yellow()
-                                .bold()
-                        );
-                    }
-                    map.insert(String::from("supported-targets"), supported_targets);
-                }
-                (Some(supported_targets), None) => {
-                    map.insert(String::from("supported-targets"), supported_targets);
-                }
-                (None, Some(legacy_supported_targets)) => {
-                    if emit_warnings {
-                        eprintln!(
-                            "{}",
-                            "Warning: `options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
-                                .yellow()
-                                .bold()
-                        );
-                    }
-                    map.insert(String::from("supported-targets"), legacy_supported_targets);
-                }
-                (None, None) => {}
-            }
-            Value::Object(map)
+            continue;
         }
-        _ => json,
-    };
+        if map.insert(key.to_string(), value.clone()).is_some() {
+            bail!("Duplicate key '{}' found in moon.pkg.", key);
+        }
+    }
+    if let Value::Object(options) = map.remove("options").unwrap_or_default() {
+        for (k, v) in options {
+            map.insert(k, v);
+        }
+    }
+    if let Some(warnings) = map.remove("warnings") {
+        let warnings = match warnings {
+            Value::String(s) => s,
+            _ => String::new(),
+        };
+        let legacy_warn_list = match map.remove("warn-list") {
+            Some(Value::String(s)) => s,
+            _ => String::new(),
+        };
+        let merged = format!("{warnings}{legacy_warn_list}");
+        if !merged.is_empty() {
+            map.insert(String::from("warn-list"), Value::String(merged));
+        }
+    }
+    let supported_targets = map.remove("supported_targets");
+    let legacy_supported_targets = map.remove("supported-targets");
+    match (supported_targets, legacy_supported_targets) {
+        (Some(supported_targets), Some(_)) => {
+            if emit_warnings {
+                eprintln!(
+                    "{}",
+                    "Warning: Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value."
+                        .yellow()
+                        .bold()
+                );
+            }
+            map.insert(String::from("supported-targets"), supported_targets);
+        }
+        (Some(supported_targets), None) => {
+            map.insert(String::from("supported-targets"), supported_targets);
+        }
+        (None, Some(legacy_supported_targets)) => {
+            if emit_warnings {
+                eprintln!(
+                    "{}",
+                    "Warning: `options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
+                        .yellow()
+                        .bold()
+                );
+            }
+            map.insert(String::from("supported-targets"), legacy_supported_targets);
+        }
+        (None, None) => {}
+    }
+    let json = Value::Object(map);
     let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
     convert_pkg_json_to_package_with_supported_targets_decl(pkg_json, emit_warnings)
 }

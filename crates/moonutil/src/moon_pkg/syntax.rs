@@ -16,9 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod lexer;
-mod parser;
-mod syntax;
-pub use lexer::*;
-pub use parser::*;
-pub use syntax::*;
+#[derive(Debug)]
+pub struct Dsl {
+    pub(super) entries: Vec<(String, serde_json_lenient::Value)>,
+}
+
+impl Dsl {
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &serde_json_lenient::Value)> {
+        self.entries.iter().map(|(k, v)| (k.as_str(), v))
+    }
+}

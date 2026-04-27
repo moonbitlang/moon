@@ -295,111 +295,120 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
     let contents = std::io::read_to_string(file)
         .with_context(|| format!("failed to load `{}`", path.display()))?;
 
-    let json = moon_pkg::parse(&contents)
+    let dsl = moon_pkg::parse(&contents)
         .with_context(|| format!("failed to load `{}`", path.display()))?;
-    let allowed_toplevel_keys = [
-        "import",
-        "options",
-        "warnings",
-        "name",
-        "version",
-        "supported_targets",
-    ];
-    let json = match json {
-        serde_json_lenient::Value::Object(mut map) => {
-            for key in map.keys() {
-                if !allowed_toplevel_keys.contains(&key.as_str()) {
-                    bail!("Unexpected key '{}' found in moon.mod.", key);
-                }
-            }
-
-            if let serde_json_lenient::Value::Object(options) =
-                map.remove("options").unwrap_or_default()
+    // Top-level DSL keys accepted in `moon.mod`; the boolean says whether
+    // repeated entries should be collected as a JSON array instead of rejected.
+    let toplevel_keys = std::collections::HashMap::from([
+        ("import", false),
+        ("options", false),
+        ("warnings", false),
+        ("name", false),
+        ("version", false),
+        ("supported_targets", false),
+    ]);
+    let mut map = serde_json_lenient::Map::new();
+    for (key, value) in dsl.iter() {
+        let Some(&allow_duplicate) = toplevel_keys.get(key) else {
+            bail!("Unexpected key '{}' found in moon.mod.", key);
+        };
+        if allow_duplicate {
+            match map
+                .entry(key.to_string())
+                .or_insert_with(|| serde_json_lenient::Value::Array(Vec::new()))
             {
-                for (key, value) in options {
-                    map.insert(key, value);
-                }
+                serde_json_lenient::Value::Array(values) => values.push(value.clone()),
+                _ => unreachable!("duplicate key should be initialized as array"),
             }
-
-            if let Some(warnings) = map.remove("warnings") {
-                let warnings = match warnings {
-                    serde_json_lenient::Value::String(s) => s,
-                    _ => String::new(),
-                };
-                let legacy_warn_list = match map.remove("warn-list") {
-                    Some(serde_json_lenient::Value::String(s)) => s,
-                    _ => String::new(),
-                };
-                let merged = format!("{warnings}{legacy_warn_list}");
-                if !merged.is_empty() {
-                    map.insert(
-                        String::from("warn-list"),
-                        serde_json_lenient::Value::String(merged),
-                    );
-                }
-            }
-            let supported_targets = map.remove("supported_targets");
-            let legacy_supported_targets = map.remove("supported-targets");
-            match (supported_targets, legacy_supported_targets) {
-                (Some(supported_targets), Some(_)) => {
-                    map.insert(String::from("supported-targets"), supported_targets);
-                }
-                (Some(supported_targets), None) => {
-                    map.insert(String::from("supported-targets"), supported_targets);
-                }
-                (None, Some(legacy_supported_targets)) => {
-                    map.insert(String::from("supported-targets"), legacy_supported_targets);
-                }
-                (None, None) => {}
-            }
-
-            let imports = map.remove("import");
-            let mut deps = match map.remove("deps") {
-                Some(serde_json_lenient::Value::Object(deps)) => deps,
-                Some(_) => bail!("`deps` in `moon.mod` must be an object"),
-                _ => serde_json_lenient::Map::new(),
-            };
-
-            // Invariant: The moon_pkg parser lowers `import {}` to a JSON array.
-            if let Some(serde_json_lenient::Value::Array(imports)) = imports {
-                for item in imports {
-                    let spec = match item {
-                        serde_json_lenient::Value::String(spec) => spec,
-                        serde_json_lenient::Value::Object(_) => {
-                            bail!("\"xxx\"@pkg is not supported in moon.mod");
-                        }
-                        _ => {
-                            // Invariant: `moon_pkg::parse` only produces string or object entries for `import`.
-                            unreachable!("unexpected non-string import entry");
-                        }
-                    };
-                    if let Some((name, version)) = spec.rsplit_once('@')
-                        && !name.is_empty()
-                        && !version.is_empty()
-                    {
-                        deps.insert(
-                            name.to_string(),
-                            serde_json_lenient::Value::String(version.to_string()),
-                        );
-                    } else {
-                        bail!(
-                            "moon.mod only supports versioned registry dependencies in `import`, found `{}`",
-                            spec
-                        );
-                    }
-                }
-            }
-
-            // Convert `import {}` in `moon.mod` to `deps`. This differs from `moon.pkg`'s import configuration.
-            map.insert(
-                String::from("deps"),
-                serde_json_lenient::Value::Object(deps),
-            );
-
-            serde_json_lenient::Value::Object(map)
+            continue;
         }
-        other => other,
+        if map.insert(key.to_string(), value.clone()).is_some() {
+            bail!("Duplicate key '{}' found in moon.mod.", key);
+        }
+    }
+
+    if let serde_json_lenient::Value::Object(options) = map.remove("options").unwrap_or_default() {
+        for (key, value) in options {
+            map.insert(key, value);
+        }
+    }
+
+    if let Some(warnings) = map.remove("warnings") {
+        let warnings = match warnings {
+            serde_json_lenient::Value::String(s) => s,
+            _ => String::new(),
+        };
+        let legacy_warn_list = match map.remove("warn-list") {
+            Some(serde_json_lenient::Value::String(s)) => s,
+            _ => String::new(),
+        };
+        let merged = format!("{warnings}{legacy_warn_list}");
+        if !merged.is_empty() {
+            map.insert(
+                String::from("warn-list"),
+                serde_json_lenient::Value::String(merged),
+            );
+        }
+    }
+    let supported_targets = map.remove("supported_targets");
+    let legacy_supported_targets = map.remove("supported-targets");
+    match (supported_targets, legacy_supported_targets) {
+        (Some(supported_targets), Some(_)) => {
+            map.insert(String::from("supported-targets"), supported_targets);
+        }
+        (Some(supported_targets), None) => {
+            map.insert(String::from("supported-targets"), supported_targets);
+        }
+        (None, Some(legacy_supported_targets)) => {
+            map.insert(String::from("supported-targets"), legacy_supported_targets);
+        }
+        (None, None) => {}
+    }
+
+    let imports = map.remove("import");
+    let mut deps = match map.remove("deps") {
+        Some(serde_json_lenient::Value::Object(deps)) => deps,
+        Some(_) => bail!("`deps` in `moon.mod` must be an object"),
+        _ => serde_json_lenient::Map::new(),
     };
+
+    // Invariant: The moon_pkg parser lowers `import {}` to a JSON array.
+    if let Some(serde_json_lenient::Value::Array(imports)) = imports {
+        for item in imports {
+            let spec = match item {
+                serde_json_lenient::Value::String(spec) => spec,
+                serde_json_lenient::Value::Object(_) => {
+                    bail!("\"xxx\"@pkg is not supported in moon.mod");
+                }
+                _ => {
+                    // Invariant: `moon_pkg::parse` only produces string or object entries for `import`.
+                    unreachable!("unexpected non-string import entry");
+                }
+            };
+            if let Some((name, version)) = spec.rsplit_once('@')
+                && !name.is_empty()
+                && !version.is_empty()
+            {
+                deps.insert(
+                    name.to_string(),
+                    serde_json_lenient::Value::String(version.to_string()),
+                );
+            } else {
+                bail!(
+                    "moon.mod only supports versioned registry dependencies in `import`, found `{}`",
+                    spec
+                );
+            }
+        }
+    };
+
+    // Convert `import {}` in `moon.mod` to `deps`. This differs from `moon.pkg`'s import configuration.
+    map.insert(
+        String::from("deps"),
+        serde_json_lenient::Value::Object(deps),
+    );
+
+    let json = serde_json_lenient::Value::Object(map);
 
     let j: MoonModJSON = serde_json_lenient::from_value(json)
         .with_context(|| format!("failed to load `{}`", path.display()))?;
@@ -460,10 +469,9 @@ fn read_package_from_dsl_with_supported_targets_decl(
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let file = File::open(path)?;
     let str = std::io::read_to_string(file)?;
-    let json = moon_pkg::parse(&str)?;
-    let j = serde_json_lenient::from_value(json)?;
+    let dsl = moon_pkg::parse(&str)?;
     let emit_warnings = should_warn_pkg(path);
-    convert_pkg_dsl_to_package_with_supported_targets_decl(j, emit_warnings)
+    convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, emit_warnings)
 }
 
 /// avoid emit warnings for moon.pkg in .mooncakes
