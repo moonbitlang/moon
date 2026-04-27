@@ -2281,7 +2281,7 @@ _moon() {
             return 0
             ;;
         moon__test)
-            opts="-g -d -j -p -f -i -u -l -F -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --package --file --index --doc-index --update --limit --frozen --build-only --no-parallelize --outline --test-failure-json --patch-file --doc --include-skipped --filter --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
+            opts="-g -d -j -p -i -u -l -f -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --package --file --index --doc-index --update --limit --frozen --build-only --no-parallelize --outline --test-failure-json --patch-file --doc --include-skipped --filter --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2319,10 +2319,6 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                -f)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
                 --index)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -2351,7 +2347,7 @@ _moon() {
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
-                -F)
+                -f)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
