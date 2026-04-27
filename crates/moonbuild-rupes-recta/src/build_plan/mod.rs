@@ -303,6 +303,8 @@ pub struct MakeExecutableInfo {
     pub(crate) effective_native_toolchain: Toolchain,
     /// The flags to pass to the C compiler when compiling the package itself
     pub(crate) c_flags: Vec<String>,
+    /// The flags to pass to the C compiler driver when linking the executable
+    pub(crate) link_flags: Vec<String>,
     /// The C stub targets to link with.
     pub(crate) link_c_stubs: Vec<PackageId>,
 }

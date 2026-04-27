@@ -834,7 +834,7 @@ impl<'a> BuildPlanConstructor<'a> {
                     .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))
             })
             .transpose()?;
-        let mut c_flags = native_config
+        let c_flags = native_config
             .and_then(|native| native.cc_flags.as_ref())
             .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
@@ -845,8 +845,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .transpose()?
             .unwrap_or_default();
 
-        // Also include native.cc_link_flags (linker args) in the final native link flags
-        if let Some(mut link_flags) = native_config
+        let mut link_flags = native_config
             .and_then(|native| native.cc_link_flags.as_ref())
             .map(|s| self.replace_build_vars(target.package, pkg.module, s))
             .map(|replaced| {
@@ -855,9 +854,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 })
             })
             .transpose()?
-        {
-            c_flags.append(&mut link_flags);
-        }
+            .unwrap_or_default();
 
         let mut link_pkgs: Vec<PackageId> = targets.iter().map(|x| x.package).collect();
         if !link_pkgs.contains(&target.package) {
@@ -872,13 +869,14 @@ impl<'a> BuildPlanConstructor<'a> {
         self.propagate_link_config(
             &effective_native_toolchain,
             link_pkgs.into_iter(),
-            &mut c_flags,
+            &mut link_flags,
         );
 
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             effective_native_toolchain,
             c_flags,
+            link_flags,
         };
         self.res.make_executable_info.insert(target, v);
 
