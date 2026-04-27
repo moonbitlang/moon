@@ -123,6 +123,34 @@ fn test_moon_info_filter_by_path_failure() {
 }
 
 #[test]
+fn test_moon_info_compile_failure_exits_with_status_1() {
+    let dir = TestDir::new_empty();
+    let lib = dir.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(dir.join("moon.mod.json"), r#"{"name":"username/hello"}"#).unwrap();
+    std::fs::write(lib.join("moon.pkg.json"), "{}").unwrap();
+    std::fs::write(lib.join("bad.mbt"), "pub fn bad() -> Int { true }\n").unwrap();
+
+    let assert = snapbox::cmd::Command::new(moon_bin())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .current_dir(&dir)
+        .args(["info"])
+        .assert()
+        .failure();
+
+    assert_eq!(assert.get_output().status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(
+        !stderr.contains("moon info failed for target"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Error: failed when generating mbti files project"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn test_moon_info_filter_by_multiple_paths_success() {
     let dir = TestDir::new("test_filter/test_filter");
 

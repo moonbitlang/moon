@@ -302,6 +302,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
     let execution_targets = output_plan.execution_targets(&requested_targets);
 
     let mut all_meta = vec![];
+    let mut ok = true;
     for (tgt, target_kind) in execution_targets {
         let (success, meta) = run_info_rr_internal(
             &cli,
@@ -314,9 +315,14 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
             &output_plan,
         )?;
         if !success {
-            bail!("moon info failed for target {:?}", tgt);
+            ok = false;
+            continue;
         }
         all_meta.push((tgt, meta));
+    }
+
+    if !ok {
+        return Ok(1);
     }
 
     imp::promote_info_results(&output_plan, all_meta.iter());
@@ -374,7 +380,11 @@ fn run_info_rr_internal(
         output,
     );
     let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
-    result.print_info(cli.quiet, "generating mbti files")?;
+    let success = result.successful();
+    let print_result = result.print_info(cli.quiet, "generating mbti files");
+    if success {
+        print_result?;
+    }
 
-    Ok((result.successful(), build_meta))
+    Ok((success, build_meta))
 }
