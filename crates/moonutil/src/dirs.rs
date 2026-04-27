@@ -469,7 +469,7 @@ fn resolve_project_selection_from_start_dir(
             }
 
             if let Some(module_dir) = module_dir {
-                let project_manifest_path = module_dir.join(MOON_MOD_JSON);
+                let project_manifest_path = module_manifest_path(&module_dir);
                 return Ok(ProjectSelection {
                     project_root: module_dir.clone(),
                     module_dir: Some(module_dir),
@@ -651,9 +651,15 @@ pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PackageDirs, WorkspaceEnv, parse_workspace_env};
-    use crate::common::DEP_PATH;
-    use std::{ffi::OsString, path::PathBuf};
+    use super::{
+        PackageDirs, WorkspaceEnv, parse_workspace_env, resolve_project_selection_from_start_dir,
+    };
+    use crate::common::{DEP_PATH, MOON_MOD};
+    use std::{
+        ffi::OsString,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn mooncakes_dir_tracks_project_root() {
@@ -670,6 +676,33 @@ mod tests {
         let target = PathBuf::from("tmp-target");
         let dirs = PackageDirs::from_source_and_target(project.clone(), target);
         assert_eq!(dirs.mooncakes_dir, project.join(DEP_PATH));
+    }
+
+    #[test]
+    fn auto_selection_preserves_dsl_module_manifest_path() {
+        let test_root = std::env::temp_dir().join(format!(
+            "moonutil-dirs-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&test_root).unwrap();
+        std::fs::write(
+            test_root.join(MOON_MOD),
+            r#"name = "alice/app"
+
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let project =
+            resolve_project_selection_from_start_dir(test_root.clone(), &WorkspaceEnv::Auto)
+                .unwrap();
+        assert_eq!(project.project_manifest_path, test_root.join(MOON_MOD));
+
+        std::fs::remove_dir_all(test_root).unwrap();
     }
 
     #[test]
