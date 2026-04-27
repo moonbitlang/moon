@@ -314,7 +314,7 @@ complete -c moon -n "__fish_moon_using_subcommand explain" -l trace -d 'Trace th
 complete -c moon -n "__fish_moon_using_subcommand explain" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand explain" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand explain" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand info" -l target -d 'Select output target' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
+complete -c moon -n "__fish_moon_using_subcommand info" -l target -d 'Inspect one or more target backends without changing the canonical `pkg.generated.mbti` output' -r -f -a "{wasm\t'',wasm-gc\t'',js\t'',native\t'',llvm\t'',all\t''}"
 complete -c moon -n "__fish_moon_using_subcommand info" -s p -l package -d 'The full or subset of name of the package to emit `mbti` files for' -r
 complete -c moon -n "__fish_moon_using_subcommand info" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand info" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
