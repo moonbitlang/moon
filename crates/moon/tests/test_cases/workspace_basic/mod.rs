@@ -1063,10 +1063,10 @@ fn test_pinned_workspace_path_builds_from_outside_workspace() {
 }
 
 #[test]
-fn test_pinned_workspace_path_ignores_unlisted_outer_module() {
+fn test_pinned_workspace_path_rejects_unlisted_outer_module() {
     let dir = nested_workspace_under_unrelated_module_dir();
 
-    let stdout = get_stdout_with_envs(
+    let stderr = get_err_stderr_with_envs(
         &dir,
         ["-C", "outer", "build", "--dry-run"],
         [(
@@ -1078,12 +1078,10 @@ fn test_pinned_workspace_path_ignores_unlisted_outer_module() {
     );
 
     assert!(
-        stdout.contains("alice/app/main"),
-        "expected pinned workspace to build the listed workspace member, got:\n{stdout}"
-    );
-    assert!(
-        !stdout.contains("alice/outer/outer"),
-        "expected pinned workspace to ignore the unlisted outer module, got:\n{stdout}"
+        stderr.contains(
+            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer`"
+        ),
+        "expected pinned workspace membership error, got:\n{stderr}"
     );
 }
 
@@ -1117,6 +1115,50 @@ fn test_pinned_workspace_path_accepts_nested_workspace_root() {
 }
 
 #[test]
+fn test_pinned_workspace_path_reuses_nested_workspace_root_for_work_use() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+
+    check(
+        get_stdout_with_envs(
+            &dir,
+            ["-C", "outer/ws", "work", "use", "./app"],
+            [(
+                MOON_WORK_ENV,
+                dir.join("outer/ws/moon.work")
+                    .to_string_lossy()
+                    .into_owned(),
+            )],
+        ),
+        expect![[r#"
+            moon.work is already up to date
+        "#]],
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_rejects_work_use_from_unlisted_outer_module() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["-C", "outer", "work", "use", "ws/app"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("outer/ws/moon.work")
+                .to_string_lossy()
+                .into_owned(),
+        )],
+    );
+
+    assert!(
+        stderr.contains(
+            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer`"
+        ),
+        "expected pinned workspace membership error, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn test_pinned_workspace_path_selects_outer_module_when_listed() {
     let dir = nested_workspace_under_unrelated_module_dir();
     write_file(
@@ -1146,6 +1188,29 @@ preferred_target = "wasm-gc"
     assert!(
         !stdout.contains("alice/app/main"),
         "expected pinned workspace root to avoid unlisted app module, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_rejects_unlisted_manifest_path_module() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["--manifest-path", "outer/moon.mod.json", "tree"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("outer/ws/moon.work")
+                .to_string_lossy()
+                .into_owned(),
+        )],
+    );
+
+    assert!(
+        stderr.contains(
+            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer`"
+        ),
+        "expected pinned workspace membership error, got:\n{stderr}"
     );
 }
 

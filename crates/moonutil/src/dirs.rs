@@ -344,20 +344,27 @@ pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathB
             .transpose(),
         WorkspaceEnv::Pinned(workspace_path) => {
             let workspace_root = manifest_root(&workspace_path)?;
+            if source_dir.starts_with(&workspace_root) {
+                return Ok(Some(workspace_root));
+            }
+
             let workspace = read_workspace_file(&workspace_path)?;
             let member_dirs = canonical_workspace_module_dirs(&workspace_root, &workspace)?;
-            if let Some(module_dir) = find_ancestor_with_mod(source_dir)
-                && !member_dirs
-                    .iter()
-                    .any(|member_dir| member_dir == &module_dir)
+            let Some(module_dir) = find_ancestor_with_mod(source_dir) else {
+                return Ok(Some(workspace_root));
+            };
+            if member_dirs
+                .iter()
+                .any(|member_dir| member_dir == &module_dir)
             {
-                return Err(PackageDirsError::PinnedWorkspaceDoesNotApply {
+                Ok(Some(workspace_root))
+            } else {
+                Err(PackageDirsError::PinnedWorkspaceDoesNotApply {
                     workspace: workspace_path.to_path_buf(),
                     module: module_dir,
                 }
-                .into());
+                .into())
             }
-            Ok(Some(manifest_root(&workspace_path)?))
         }
     }
 }
@@ -402,12 +409,32 @@ fn resolve_project_selection_from_start_dir(
             let workspace = read_workspace_file(workspace_path).map_err(PackageDirsError::from)?;
             let member_dirs = canonical_workspace_module_dirs(&project_root, &workspace)
                 .map_err(PackageDirsError::from)?;
-            let module_dir = find_ancestor_with_mod(&start_dir).filter(|module_dir| {
-                member_dirs
+            let module_dir = if start_dir.starts_with(&project_root) {
+                find_ancestor_with_mod(&start_dir).filter(|module_dir| {
+                    member_dirs
+                        .iter()
+                        .any(|member_dir| member_dir == module_dir)
+                })
+            } else if let Some(module_dir) = find_ancestor_with_mod(&start_dir) {
+                if member_dirs
                     .iter()
-                    .any(|member_dir| member_dir == module_dir)
-            });
-            project_selection_from_pinned_workspace(workspace_path, module_dir)
+                    .any(|member_dir| member_dir == &module_dir)
+                {
+                    Some(module_dir)
+                } else {
+                    return Err(PackageDirsError::PinnedWorkspaceDoesNotApply {
+                        workspace: workspace_path.to_path_buf(),
+                        module: module_dir,
+                    });
+                }
+            } else {
+                None
+            };
+            Ok(ProjectSelection {
+                project_root,
+                module_dir,
+                project_manifest_path: workspace_path.to_path_buf(),
+            })
         }
         WorkspaceEnv::Auto => {
             let module_dir = find_ancestor_with_mod(&start_dir);
@@ -443,6 +470,20 @@ fn project_selection_from_pinned_workspace(
     module_dir: Option<PathBuf>,
 ) -> Result<ProjectSelection, PackageDirsError> {
     let project_root = manifest_root(workspace_path).map_err(PackageDirsError::from)?;
+    let workspace = read_workspace_file(workspace_path).map_err(PackageDirsError::from)?;
+    let member_dirs = canonical_workspace_module_dirs(&project_root, &workspace)
+        .map_err(PackageDirsError::from)?;
+    if let Some(module_dir) = &module_dir
+        && !member_dirs
+            .iter()
+            .any(|member_dir| member_dir == module_dir)
+    {
+        return Err(PackageDirsError::PinnedWorkspaceDoesNotApply {
+            workspace: workspace_path.to_path_buf(),
+            module: module_dir.to_path_buf(),
+        });
+    }
+
     Ok(ProjectSelection {
         project_root,
         module_dir,
