@@ -28,7 +28,7 @@ use moonutil::{
     compiler_flags::{
         ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
         OutputType as CCOutputType, make_archiver_command_pure, make_cc_command_pure,
-        make_linker_command_pure,
+        make_cc_command_with_link_flags_pure, make_linker_command_pure,
     },
     cond_expr::OptLevel,
     mooncakes::{CORE_MODULE, ModuleId},
@@ -1064,16 +1064,17 @@ impl<'a> BuildPlanLowerContext<'a> {
         let libbacktrace_path =
             std::path::Path::new(&self.opt.compiler_paths.lib_path).join("libbacktrace.a");
 
-        let mut c_flags = info.c_flags.clone();
+        let mut link_flags = info.link_flags.clone();
         if libbacktrace_path.exists() {
-            c_flags.push(libbacktrace_path.display().to_string());
+            link_flags.push(libbacktrace_path.display().to_string());
         }
 
         let cc = info.effective_native_toolchain.cc().clone();
-        let cc_cmd = make_cc_command_pure(
+        let cc_cmd = make_cc_command_with_link_flags_pure(
             cc,
             config,
-            &c_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &info.c_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &link_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
             sources.iter().map(|x| x.display().to_string()),
             &pkg_dir,
             Some(&dest),

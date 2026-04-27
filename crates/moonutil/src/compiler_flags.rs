@@ -1100,11 +1100,39 @@ pub fn make_cc_command_pure<S>(
 where
     S: AsRef<str>,
 {
+    make_cc_command_with_link_flags_pure(
+        cc,
+        config,
+        user_cc_flags,
+        &[] as &[&str],
+        src,
+        intermediate_dir,
+        dest,
+        paths,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn make_cc_command_with_link_flags_pure<S, L>(
+    cc: CC,
+    config: CCConfig,
+    user_cc_flags: &[S],
+    user_link_flags: &[L],
+    src: impl IntoIterator<Item = impl Into<String>>,
+    intermediate_dir: &str,
+    dest: Option<&str>,
+    paths: &CompilerPaths,
+) -> Vec<String>
+where
+    S: AsRef<str>,
+    L: AsRef<str>,
+{
     let mut buf = vec![cc.cc_path.clone()];
 
-    // if user_cc_flags is set, we only set necessary flags
+    // If user_cc_flags is set, we only set necessary flags
     // that are tightly coupled with the paths and output types
     // as user cannot easily specify them in the configuration file
+    // Link-only flags should not affect compiler defaults.
     let has_user_flags = !user_cc_flags.is_empty();
 
     add_cc_output_flags(&cc, &mut buf, &config, dest);
@@ -1127,6 +1155,7 @@ where
 
     add_cc_common_libraries(&cc, &mut buf, &config);
     buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
+    buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
     add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
 
     buf
@@ -1191,6 +1220,50 @@ mod tests {
         let mut linker_flags = vec![];
         add_linker_common_libraries(&cc, &mut linker_flags, &linker_config);
         assert!(linker_flags.iter().any(|f| f == "-lm"));
+    }
+
+    #[test]
+    fn link_flags_do_not_disable_default_optimization_flags() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+
+        let command = make_cc_command_with_link_flags_pure(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            executable_cc_config(),
+            &[] as &[&str],
+            &["-lcustom"],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|flag| flag == "-O2"));
+        assert!(command.iter().any(|flag| flag == "-lcustom"));
+    }
+
+    #[test]
+    fn compile_flags_still_disable_default_optimization_flags() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+
+        let command = make_cc_command_with_link_flags_pure(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            executable_cc_config(),
+            &["-O3"],
+            &[] as &[&str],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main"),
+            &paths,
+        );
+
+        assert!(!command.iter().any(|flag| flag == "-O2"));
+        assert!(command.iter().any(|flag| flag == "-O3"));
     }
 
     #[test]
