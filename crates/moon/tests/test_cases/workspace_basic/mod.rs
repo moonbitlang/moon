@@ -158,6 +158,26 @@ preferred_target = "wasm-gc"
     dir
 }
 
+fn add_unlisted_nested_workspace_module(dir: &TestDir) {
+    write_file(
+        &dir.join("outer/ws/tools/moon.mod.json"),
+        r#"{
+  "name": "alice/tools",
+  "version": "0.1.0",
+  "source": "src"
+}
+"#,
+    );
+    write_file(&dir.join("outer/ws/tools/src/tool/moon.pkg.json"), "{}\n");
+    write_file(
+        &dir.join("outer/ws/tools/src/tool/tool.mbt"),
+        r#"pub fn tool() -> Int {
+  0
+}
+"#,
+    );
+}
+
 fn empty_workspace_dir() -> TestDir {
     let dir = TestDir::new_empty();
     write_file(&dir.join("moon.work"), "members = []\n");
@@ -1132,6 +1152,30 @@ fn test_pinned_workspace_path_reuses_nested_workspace_root_for_work_use() {
         expect![[r#"
             moon.work is already up to date
         "#]],
+    );
+}
+
+#[test]
+fn test_pinned_workspace_path_rejects_unlisted_module_under_workspace_root() {
+    let dir = nested_workspace_under_unrelated_module_dir();
+    add_unlisted_nested_workspace_module(&dir);
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["-C", "outer/ws/tools", "build", "--dry-run"],
+        [(
+            MOON_WORK_ENV,
+            dir.join("outer/ws/moon.work")
+                .to_string_lossy()
+                .into_owned(),
+        )],
+    );
+
+    assert!(
+        stderr.contains(
+            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer/ws/tools`"
+        ),
+        "expected pinned workspace membership error, got:\n{stderr}"
     );
 }
 
