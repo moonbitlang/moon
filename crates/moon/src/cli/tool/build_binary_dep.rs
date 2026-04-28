@@ -76,7 +76,7 @@ pub(crate) fn run_build_binary_dep(
         target_dir,
         mooncakes_dir,
         project_manifest_path,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    } = cli.source_tgt_dir.query()?.package_dirs()?;
     if cli.dry_run {
         anyhow::bail!("--dry-run is not supported for `moon tool build-binary-dep`");
     }

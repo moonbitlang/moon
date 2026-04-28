@@ -37,6 +37,7 @@ use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::{FileLock, TargetBackend};
+use moonutil::dirs::ProjectProbe;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
@@ -134,49 +135,40 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
     }
 
     // Check if we're running within a project
-    let (source_dir, target_dir, mooncakes_dir, single_file, project_manifest_path) = match cli
-        .source_tgt_dir
-        .try_into_package_dirs()
+    let mut query = cli.source_tgt_dir.query()?;
+    let (source_dir, target_dir, mooncakes_dir, single_file, project_manifest_path) = match query
+        .probe_project()?
     {
-        Ok(dirs) => (
-            dirs.source_dir,
-            dirs.target_dir,
-            dirs.mooncakes_dir,
-            false,
-            dirs.project_manifest_path,
-        ),
-        Err(e) if e.allows_single_file_fallback() => {
+        ProjectProbe::Found(_) => {
+            let dirs = query.package_dirs()?;
+            (
+                dirs.source_dir,
+                dirs.target_dir,
+                dirs.mooncakes_dir,
+                false,
+                dirs.project_manifest_path,
+            )
+        }
+        ProjectProbe::NotFound(not_found) => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {
                 [path] => {
-                    let single_file_path = dunce::canonicalize(path).with_context(|| {
-                        format!("failed to resolve file path `{}`", path.display())
-                    })?;
-                    let source_dir = single_file_path
-                        .parent()
-                        .context("file path must have a parent directory")?
-                        .to_path_buf();
-                    let single_file_dirs = cli
-                        .source_tgt_dir
-                        .package_dirs_from_source_root(&source_dir)?;
-                    let target_dir = single_file_dirs.target_dir;
-                    let mooncakes_dir = single_file_dirs.mooncakes_dir;
+                    let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+                    let target_dir = single_file.package_dirs.target_dir;
+                    let mooncakes_dir = single_file.package_dirs.mooncakes_dir;
                     (
-                        single_file_dirs.source_dir,
+                        single_file.package_dirs.source_dir,
                         target_dir,
                         mooncakes_dir,
                         true,
                         None,
                     )
                 }
-                [] => return Err(e.into()),
+                [] => return Err(not_found.into_error().into()),
                 _ => {
                     anyhow::bail!("standalone single-file `moon check` expects exactly one `PATH`");
                 }
             }
-        }
-        Err(e) => {
-            return Err(e.into());
         }
     };
 

@@ -54,7 +54,7 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
         target_dir,
         mooncakes_dir,
         project_manifest_path,
-    } = cli.source_tgt_dir.try_into_package_dirs()?;
+    } = cli.source_tgt_dir.query()?.package_dirs()?;
 
     let mut surface_targets = cmd.build_flags.target.clone();
     if cmd.all {

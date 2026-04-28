@@ -26,6 +26,7 @@ use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode, user_warni
 use moonutil::{
     cli::UniversalFlags,
     common::{DiagnosticLevel, FileLock, RunMode, TargetBackend},
+    dirs::PackageDirs,
     mooncakes::{ModuleId, sync::AutoSyncFlags},
 };
 use serde::Deserialize;
@@ -96,16 +97,29 @@ impl ProveSubcommand {
 
 #[instrument(skip_all)]
 pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::Result<i32> {
-    let dirs = cli.source_tgt_dir.try_into_workspace_module_dirs()?;
+    let mut query = cli.source_tgt_dir.query()?;
+    let project = query.project()?;
     let module_dir = if cmd.path.is_some() {
-        dirs.module_dir.clone()
+        project.selected_module().map(|module| module.root.clone())
     } else {
-        Some(dirs.require_module_dir("prove")?.clone())
+        Some(
+            project
+                .selected_module()
+                .map(|module| module.root.clone())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "`moon prove` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> prove ...`.",
+                        project.root().display(),
+                    )
+                })?,
+        )
     };
-    let mooncakes_dir = dirs.mooncakes_dir;
-    let project_root = dirs.project_root;
-    let target_dir = dirs.target_dir;
-    let project_manifest_path = dirs.project_manifest_path;
+    let PackageDirs {
+        source_dir: project_root,
+        target_dir,
+        mooncakes_dir,
+        project_manifest_path,
+    } = query.package_dirs()?;
     let build_flags = cmd.to_build_flags();
     let verif_dir = target_dir.join("verif");
     let why3_config_path = cmd

@@ -19,9 +19,7 @@
 use std::path::PathBuf;
 
 use anyhow::bail;
-use moonutil::dirs::{
-    PackageDirs, find_ancestor_with_mod, find_ancestor_with_work, resolve_manifest_root,
-};
+use moonutil::dirs::PackageDirs;
 
 use super::UniversalFlags;
 
@@ -78,29 +76,12 @@ pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Resu
                 bail!("dry-run is not supported for work sync")
             }
 
-            let PackageDirs { source_dir, .. } = cli.source_tgt_dir.try_into_package_dirs()?;
+            let PackageDirs { source_dir, .. } = cli.source_tgt_dir.query()?.package_dirs()?;
             mooncake::pkg::sync_workspace(&source_dir, cli.quiet)
         }
     }
 }
 
 fn work_root(cli: &UniversalFlags, prefer_existing_workspace: bool) -> anyhow::Result<PathBuf> {
-    let root = if let Some(manifest_path) = &cli.source_tgt_dir.manifest_path {
-        resolve_manifest_root(manifest_path)?
-    } else {
-        std::env::current_dir()?
-    };
-    let root = dunce::canonicalize(root)?;
-
-    // `work use` should extend the current workspace when the current module is
-    // already a member, but should otherwise stay local to the current module.
-    if prefer_existing_workspace && let Some(work_root) = find_ancestor_with_work(&root)? {
-        return Ok(work_root);
-    }
-
-    if let Some(module_root) = find_ancestor_with_mod(&root) {
-        Ok(module_root)
-    } else {
-        Ok(root)
-    }
+    Ok(cli.source_tgt_dir.work_root(prefer_existing_workspace)?)
 }

@@ -42,6 +42,7 @@ use moonbuild_rupes_recta::model::PackageId;
 use moonutil::common::{
     FileLock, RunMode, TargetBackend, TestArtifacts, TestIndexRange, lower_surface_targets,
 };
+use moonutil::dirs::ProjectProbe;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, debug, info, instrument, trace};
@@ -220,40 +221,29 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
         "starting moon test command"
     );
     // Check if we're running within a project
-    let dirs = match cli.source_tgt_dir.try_into_package_dirs() {
-        Ok(dirs) => dirs,
-        Err(e) if e.allows_single_file_fallback() => {
+    let mut query = cli.source_tgt_dir.query()?;
+    let dirs = match query.probe_project()? {
+        ProjectProbe::Found(_) => query.package_dirs()?,
+        ProjectProbe::NotFound(not_found) => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {
                 [path] => {
-                    let single_file_path = dunce::canonicalize(path).with_context(|| {
-                        format!("failed to resolve file path `{}`", path.display())
-                    })?;
-                    let source_dir = single_file_path
-                        .parent()
-                        .context("file path must have a parent directory")?
-                        .to_path_buf();
-                    let single_file_dirs = cli
-                        .source_tgt_dir
-                        .package_dirs_from_source_root(&source_dir)?;
-                    let target_dir = single_file_dirs.target_dir;
-                    let mooncakes_dir = single_file_dirs.mooncakes_dir;
+                    let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+                    let target_dir = single_file.package_dirs.target_dir;
+                    let mooncakes_dir = single_file.package_dirs.mooncakes_dir;
                     info!("delegating to single-file test runner");
                     return run_test_in_single_file(
                         cli,
                         cmd,
-                        &single_file_path,
-                        &single_file_dirs.source_dir,
+                        &single_file.file_path,
+                        &single_file.package_dirs.source_dir,
                         &target_dir,
                         &mooncakes_dir,
                     );
                 }
-                [] => return Err(e.into()),
+                [] => return Err(not_found.into_error().into()),
                 _ => anyhow::bail!("standalone single-file `moon test` expects exactly one `PATH`"),
             }
-        }
-        Err(e) => {
-            return Err(e.into());
         }
     };
 

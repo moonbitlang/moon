@@ -107,7 +107,11 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
     };
 
     // If we are under a project, put it into `.repos` next to `.mooncakes`
-    let source_dir = match cli.source_tgt_dir.try_into_package_dirs() {
+    let source_dir = match cli
+        .source_tgt_dir
+        .query()
+        .and_then(|mut query| query.package_dirs())
+    {
         Ok(PackageDirs { source_dir, .. }) => source_dir,
         Err(_) => std::env::current_dir()?,
     };
