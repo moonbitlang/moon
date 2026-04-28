@@ -391,7 +391,7 @@ _moon() {
 
     case "${cmd}" in
         moon)
-            opts="-C -q -v -Z -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
+            opts="-V -C -q -v -Z -h --version --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

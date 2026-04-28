@@ -59,7 +59,8 @@ fn test_moon_help() {
               help                   Print this message or the help of the given subcommand(s)
 
             Options:
-              -h, --help  Print help
+              -V, --version  Print all version information and exit
+              -h, --help     Print help
 
             Common Options:
               -C <DIR>
@@ -146,6 +147,71 @@ fn test_moon_explain_without_flags_shows_guidance() {
                 Use `moon explain --diagnostics` to list warning mnemonics and IDs.
         "#]],
     );
+}
+
+#[test]
+fn test_moon_version_flag() {
+    let dir = TestDir::new_empty();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moon [..]
+moonc [..]
+moonrun [..]
+...
+"#]])
+        .stderr_eq("");
+}
+
+#[test]
+fn test_moon_version_flag_reports_unstable_features() {
+    let dir = TestDir::new_empty();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["-Z", "rr_moon_pkg", "--version"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moon [..]
+moonc [..]
+moonrun [..]
+
+Feature flags enabled: rr_moon_pkg
+
+"#]])
+        .stderr_eq("");
+}
+
+#[test]
+fn test_moon_flag_without_subcommand_shows_help() {
+    let dir = TestDir::new_empty();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("-q")
+        .assert()
+        .code(2)
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+The build system and package manager for MoonBit.
+
+Usage: moon [OPTIONS] <COMMAND>
+
+Commands:
+...
+  version                Print version information and exit
+  help                   Print this message or the help of the given subcommand(s)
+
+Options:
+  -V, --version
+          Print all version information and exit
+...
+Common Options:
+...
+
+"#]]);
 }
 
 #[test]

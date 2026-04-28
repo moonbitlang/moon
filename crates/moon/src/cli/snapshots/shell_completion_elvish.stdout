@@ -23,6 +23,8 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -Z 'Unstable flags to MoonBuild'
             cand --unstable-feature 'Unstable flags to MoonBuild'
+            cand -V 'Print all version information and exit'
+            cand --version 'Print all version information and exit'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
