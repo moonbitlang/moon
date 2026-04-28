@@ -460,8 +460,8 @@ pub(crate) fn plan_build<'a>(
         preconfig.frozen,
         !preconfig.use_std,
         preconfig.enable_coverage,
+        preconfig.workspace_env.clone(),
     )
-    .with_workspace_env(preconfig.workspace_env.clone())
     .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir, mooncakes_dir)?;
 

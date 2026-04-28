@@ -285,8 +285,8 @@ fn run_check_for_single_file_rr(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
-    )
-    .with_workspace_env(cli.workspace_env.clone());
+        cli.workspace_env.clone(),
+    );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         target_dir,
@@ -434,8 +434,8 @@ fn run_check_normal_internal_rr(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
     )
-    .with_workspace_env(cli.workspace_env.clone())
     .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)
         .context("Failed to calculate build plan")?;

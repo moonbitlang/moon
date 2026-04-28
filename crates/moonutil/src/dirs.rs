@@ -25,14 +25,12 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::common::{BUILD_DIR, DEP_PATH, MOON_MOD, MOON_MOD_JSON, MOON_WORK};
+use crate::common::{
+    BUILD_DIR, DEP_PATH, MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK, MOON_WORK_ENV,
+};
 use crate::workspace::{
     canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
 };
-
-/// Set to a non-`0` value to disable workspace mode entirely.
-pub const MOON_NO_WORKSPACE: &str = "MOON_NO_WORKSPACE";
-pub const MOON_WORK_ENV: &str = "MOON_WORK";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceEnv {
@@ -64,7 +62,7 @@ pub enum PackageDirsError {
 }
 
 impl PackageDirsError {
-    pub fn allows_single_file_fallback(&self) -> bool {
+    fn allows_single_file_fallback(&self) -> bool {
         matches!(
             self,
             Self::NotInProject(_) | Self::WorkspaceDisabledNotInModule(_)
@@ -125,6 +123,20 @@ impl SourceTargetDirs {
         Ok(PackageDirs::from_source_and_target(source_dir, target_dir))
     }
 
+    pub fn source_module_package_dirs(
+        &self,
+        source_path: impl AsRef<Path>,
+    ) -> Result<Option<SourceModulePackageDirs>, PackageDirsError> {
+        let Some(module_root) = find_enclosing_module_root(source_path.as_ref()) else {
+            return Ok(None);
+        };
+        let package_dirs = self.source_root_package_dirs(&module_root)?;
+        Ok(Some(SourceModulePackageDirs {
+            module_root,
+            package_dirs,
+        }))
+    }
+
     pub fn single_file_package_dirs(
         &self,
         file_path: impl AsRef<Path>,
@@ -153,16 +165,16 @@ impl SourceTargetDirs {
 
     pub fn work_root(
         &self,
-        prefer_existing_workspace: bool,
+        selection: WorkRootSelection,
         workspace_env: WorkspaceEnv,
     ) -> Result<PathBuf, PackageDirsError> {
         let start_dir = Self::current_dir()?;
-        let mut query = if prefer_existing_workspace {
+        let mut query = if selection.prefers_existing_workspace() {
             self.query_from(&start_dir, workspace_env)?
         } else {
             self.query_from(&start_dir, WorkspaceEnv::Off)?
         };
-        query.work_root(prefer_existing_workspace)
+        query.work_root(selection)
     }
 
     fn deprecated_manifest_override(
@@ -210,15 +222,15 @@ pub struct PackageDirs {
 }
 
 impl PackageDirs {
-    pub fn mooncakes_dir_for_source(source_dir: &Path) -> PathBuf {
+    fn mooncakes_dir_for_source(source_dir: &Path) -> PathBuf {
         source_dir.join(DEP_PATH)
     }
 
-    pub fn from_source_and_target(source_dir: PathBuf, target_dir: PathBuf) -> Self {
+    fn from_source_and_target(source_dir: PathBuf, target_dir: PathBuf) -> Self {
         Self::from_source_and_target_with_manifest(source_dir, target_dir, None)
     }
 
-    pub fn from_source_and_target_with_manifest(
+    fn from_source_and_target_with_manifest(
         source_dir: PathBuf,
         target_dir: PathBuf,
         project_manifest_path: Option<PathBuf>,
@@ -235,6 +247,23 @@ impl PackageDirs {
 pub struct SingleFilePackageDirs {
     pub file_path: PathBuf,
     pub package_dirs: PackageDirs,
+}
+
+pub struct SourceModulePackageDirs {
+    pub module_root: PathBuf,
+    pub package_dirs: PackageDirs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkRootSelection {
+    CreateWorkspace,
+    ReuseExistingWorkspace,
+}
+
+impl WorkRootSelection {
+    fn prefers_existing_workspace(self) -> bool {
+        matches!(self, Self::ReuseExistingWorkspace)
+    }
 }
 
 #[derive(Debug)]
@@ -324,14 +353,14 @@ impl ProjectContext {
     }
 }
 
-pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
+fn has_module_manifest(source_dir: &Path) -> bool {
     source_dir.join(MOON_MOD).exists() || source_dir.join(MOON_MOD_JSON).exists()
 }
 
-pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
+fn find_enclosing_module_root(source_dir: &Path) -> Option<PathBuf> {
     source_dir
         .ancestors()
-        .find(|dir| check_moon_mod_exists(dir))
+        .find(|dir| has_module_manifest(dir))
         .map(|p| p.to_path_buf())
 }
 
@@ -415,8 +444,8 @@ impl ProjectQuery {
         let deprecated_manifest_override = source_target_dirs.deprecated_manifest_override()?;
         let module_dir = match &deprecated_manifest_override {
             Some(manifest) if manifest.kind == ManifestKind::Module => Some(manifest.root.clone()),
-            Some(manifest) => find_ancestor_with_mod(&manifest.root),
-            None => find_ancestor_with_mod(&start_dir),
+            Some(manifest) => find_enclosing_module_root(&manifest.root),
+            None => find_enclosing_module_root(&start_dir),
         };
         let module_manifest_path = match &deprecated_manifest_override {
             Some(manifest) if manifest.kind == ManifestKind::Module => Some(manifest.path.clone()),
@@ -469,32 +498,19 @@ impl ProjectQuery {
         ))
     }
 
-    pub fn selected_module(&mut self) -> Result<Option<ModuleRef>, PackageDirsError> {
-        Ok(self.project()?.selected_module())
-    }
-
     pub fn workspace_ref(&mut self) -> Result<Option<WorkspaceRef>, PackageDirsError> {
         Ok(self.project()?.workspace_ref())
     }
 
-    pub fn workspace_members(&mut self) -> Result<Option<Vec<PathBuf>>, PackageDirsError> {
-        if self.workspace_ref()?.is_none() {
-            return Ok(None);
-        }
-        self.ensure_workspace_members()
-            .map(|member_dirs| member_dirs.map(<[PathBuf]>::to_vec))
-    }
-
-    pub fn work_root(
-        &mut self,
-        prefer_existing_workspace: bool,
-    ) -> Result<PathBuf, PackageDirsError> {
-        if prefer_existing_workspace && let Some(work_root) = self.workspace_root_for_sync()? {
+    pub fn work_root(&mut self, selection: WorkRootSelection) -> Result<PathBuf, PackageDirsError> {
+        if selection.prefers_existing_workspace()
+            && let Some(work_root) = self.workspace_root_for_sync()?
+        {
             return Ok(work_root);
         }
 
         let start_dir = self.work_start_dir();
-        if let Some(module_dir) = find_ancestor_with_mod(&start_dir) {
+        if let Some(module_dir) = find_enclosing_module_root(&start_dir) {
             Ok(module_dir)
         } else {
             Ok(start_dir)
@@ -898,7 +914,7 @@ fn find_applicable_workspace_manifest_path(source_dir: &Path) -> anyhow::Result<
 
     for dir in source_dir.ancestors() {
         let Some(workspace_path) = workspace_manifest_path(dir) else {
-            if module_root.is_none() && check_moon_mod_exists(dir) {
+            if module_root.is_none() && has_module_manifest(dir) {
                 module_root = Some(dir);
             }
             continue;
@@ -1113,27 +1129,6 @@ version = "0.1.0"
             not_found.into_error(),
             PackageDirsError::NotInProject(path) if path == canonical(project.path())
         ));
-    }
-
-    #[test]
-    fn workspace_members_are_projected_on_demand() {
-        let project = TestProject::new();
-        write_file(
-            &project.join("moon.work"),
-            "members = [\n  \"./missing\",\n]\n",
-        );
-
-        let mut query =
-            project_query_from_start_dir(project.path().to_path_buf(), &WorkspaceEnv::Auto)
-                .unwrap();
-        assert!(
-            matches!(query.project().unwrap(), ProjectContext::Workspace { .. }),
-            "workspace root should resolve without canonicalizing members"
-        );
-        assert!(
-            query.workspace_members().is_err(),
-            "workspace members projection should canonicalize member paths on demand"
-        );
     }
 
     #[test]

@@ -277,30 +277,35 @@ mod tests {
 impl ResolveConfig {
     /// Creates a new `ResolveConfig` with whether to freeze package resolving,
     /// and other flags populated with sensible defaults.
-    pub fn new_with_load_defaults(frozen: bool, no_std: bool, enable_coverage: bool) -> Self {
+    pub fn new_with_load_defaults(
+        frozen: bool,
+        no_std: bool,
+        enable_coverage: bool,
+        workspace_env: WorkspaceEnv,
+    ) -> Self {
         Self {
             sync_flags: AutoSyncFlags { frozen },
             no_std,
             enable_coverage,
-            workspace_env: WorkspaceEnv::Auto,
+            workspace_env,
             project_manifest_path: None,
         }
     }
 
     /// Creates a new `ResolveConfig` with the given sync and build flags.
-    pub fn new(sync_flags: AutoSyncFlags, no_std: bool, enable_coverage: bool) -> Self {
+    pub fn new(
+        sync_flags: AutoSyncFlags,
+        no_std: bool,
+        enable_coverage: bool,
+        workspace_env: WorkspaceEnv,
+    ) -> Self {
         Self {
             sync_flags,
             no_std,
             enable_coverage,
-            workspace_env: WorkspaceEnv::Auto,
+            workspace_env,
             project_manifest_path: None,
         }
-    }
-
-    pub fn with_workspace_env(mut self, workspace_env: WorkspaceEnv) -> Self {
-        self.workspace_env = workspace_env;
-        self
     }
 
     pub fn with_project_manifest_path(mut self, project_manifest_path: Option<&Path>) -> Self {

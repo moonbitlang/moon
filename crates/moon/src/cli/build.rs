@@ -163,8 +163,8 @@ fn run_build_rr(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
     )
-    .with_workspace_env(cli.workspace_env.clone())
     .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
     let prebuild_list = if watch {

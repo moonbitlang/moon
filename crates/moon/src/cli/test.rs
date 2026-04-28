@@ -374,8 +374,8 @@ fn run_test_in_single_file_rr(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
-    )
-    .with_workspace_env(cli.workspace_env.clone());
+        cli.workspace_env.clone(),
+    );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         target_dir,
@@ -797,8 +797,8 @@ fn run_test_rr(
                 cmd.auto_sync_flags.frozen,
                 !cmd.build_flags.std(),
                 cmd.build_flags.enable_coverage,
+                cli.workspace_env.clone(),
             )
-            .with_workspace_env(cli.workspace_env.clone())
             .with_project_manifest_path(project_manifest_path),
             source_dir,
             mooncakes_dir,

@@ -27,6 +27,7 @@ use mooncake::registry::{OnlineRegistry, Registry};
 use moonutil::{
     cli::UniversalFlags,
     common::{FileLock, MOON_MOD, MOON_MOD_JSON, RunMode, TargetBackend},
+    dirs::PackageDirs,
     mooncakes::{ModuleName, RegistryConfig},
 };
 use semver::Version;
@@ -282,7 +283,15 @@ pub(super) fn install_binary(
     let filter =
         PackageFilter::package_path(spec.package_path.clone().unwrap_or_default(), install_all);
 
-    build_and_install_packages(cli, &spec.module_name, module_dir, install_dir, filter)
+    let package_dirs = cli.source_tgt_dir.source_root_package_dirs(module_dir)?;
+    build_and_install_packages(
+        cli,
+        &spec.module_name,
+        module_dir,
+        package_dirs,
+        install_dir,
+        filter,
+    )
 }
 
 /// Install from a local path.
@@ -299,20 +308,30 @@ pub(super) fn install_from_local(
         )
     })?;
 
-    let module_root = moonutil::dirs::find_ancestor_with_mod(&input_path).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Path `{}` is not in a MoonBit module (no {} or {} found in ancestors)",
-            input_path.display(),
-            MOON_MOD,
-            MOON_MOD_JSON
-        )
-    })?;
+    let module_dirs = cli
+        .source_tgt_dir
+        .source_module_package_dirs(&input_path)?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Path `{}` is not in a MoonBit module (no {} or {} found in ancestors)",
+                input_path.display(),
+                MOON_MOD,
+                MOON_MOD_JSON
+            )
+        })?;
 
-    let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
+    let module = moonutil::common::read_module_desc_file_in_dir(&module_dirs.module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
     let filter = PackageFilter::filesystem(input_path, install_all);
 
-    build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
+    build_and_install_packages(
+        cli,
+        &module_name,
+        &module_dirs.module_root,
+        module_dirs.package_dirs,
+        install_dir,
+        filter,
+    )
 }
 
 /// Git reference type for checkout.
@@ -419,16 +438,25 @@ pub(super) fn install_from_git(
         );
     }
 
-    // Find module root
-    let module_root = moonutil::dirs::find_ancestor_with_mod(&target_path).ok_or_else(|| {
-        anyhow::anyhow!("No {} or {} found in repository", MOON_MOD, MOON_MOD_JSON)
-    })?;
+    let module_dirs = cli
+        .source_tgt_dir
+        .source_module_package_dirs(&target_path)?
+        .ok_or_else(|| {
+            anyhow::anyhow!("No {} or {} found in repository", MOON_MOD, MOON_MOD_JSON)
+        })?;
 
-    let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
+    let module = moonutil::common::read_module_desc_file_in_dir(&module_dirs.module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
     let filter = PackageFilter::filesystem(target_path, install_all);
 
-    build_and_install_packages(cli, &module_name, &module_root, install_dir, filter)
+    build_and_install_packages(
+        cli,
+        &module_name,
+        &module_dirs.module_root,
+        module_dirs.package_dirs,
+        install_dir,
+        filter,
+    )
 }
 
 /// Build matching packages and install binaries using RR build engine.
@@ -436,18 +464,18 @@ fn build_and_install_packages(
     cli: &UniversalFlags,
     module_name: &ModuleName,
     module_dir: &Path,
+    package_dirs: PackageDirs,
     install_dir: &Path,
     filter: PackageFilter,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
     let output = UserDiagnostics::from_flags(cli);
-    let package_dirs = cli.source_tgt_dir.source_root_package_dirs(module_dir)?;
     let source_dir = package_dirs.source_dir;
     let target_dir = package_dirs.target_dir;
     let mooncakes_dir = package_dirs.mooncakes_dir;
 
-    let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false)
-        .with_workspace_env(cli.workspace_env.clone());
+    let resolve_cfg =
+        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
 
     let main_module_id = resolve_output.local_modules()[0];
