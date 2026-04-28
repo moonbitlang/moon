@@ -120,7 +120,13 @@ impl SourceTargetDirs {
             .context("failed to resolve source directory")
             .map_err(PackageDirsError::from)?;
         let target_dir = self.resolve_target_dir(&source_dir)?;
-        Ok(PackageDirs::from_source_and_target(source_dir, target_dir))
+        let mooncakes_dir = source_dir.join(DEP_PATH);
+        Ok(PackageDirs {
+            source_dir,
+            target_dir,
+            mooncakes_dir,
+            project_manifest_path: None,
+        })
     }
 
     pub fn source_module_package_dirs(
@@ -180,8 +186,7 @@ impl SourceTargetDirs {
     fn deprecated_manifest_override(
         &self,
     ) -> Result<Option<ExplicitManifestOverride>, PackageDirsError> {
-        // Compatibility path for deprecated `--manifest-path`. Keep all parsing
-        // here so removing the flag later does not disturb normal discovery.
+        // TODO: Remove this compatibility path when deprecated `--manifest-path` is removed.
         self.manifest_path
             .as_deref()
             .map(deprecated_manifest_override_from_path)
@@ -219,29 +224,6 @@ pub struct PackageDirs {
     pub target_dir: PathBuf,
     pub mooncakes_dir: PathBuf,
     pub project_manifest_path: Option<PathBuf>,
-}
-
-impl PackageDirs {
-    fn mooncakes_dir_for_source(source_dir: &Path) -> PathBuf {
-        source_dir.join(DEP_PATH)
-    }
-
-    fn from_source_and_target(source_dir: PathBuf, target_dir: PathBuf) -> Self {
-        Self::from_source_and_target_with_manifest(source_dir, target_dir, None)
-    }
-
-    fn from_source_and_target_with_manifest(
-        source_dir: PathBuf,
-        target_dir: PathBuf,
-        project_manifest_path: Option<PathBuf>,
-    ) -> Self {
-        Self {
-            source_dir: source_dir.clone(),
-            target_dir,
-            mooncakes_dir: Self::mooncakes_dir_for_source(&source_dir),
-            project_manifest_path,
-        }
-    }
 }
 
 pub struct SingleFilePackageDirs {
@@ -414,17 +396,6 @@ impl WorkspaceFacts {
             root,
         })
     }
-
-    fn from_pinned_manifest_path(manifest_path: &Path) -> Result<Self, PackageDirsError> {
-        let manifest_path = dunce::canonicalize(manifest_path)
-            .context("failed to resolve pinned workspace path")
-            .map_err(PackageDirsError::from)?;
-        let root = manifest_root(&manifest_path).map_err(PackageDirsError::from)?;
-        Ok(Self {
-            manifest_path,
-            root,
-        })
-    }
 }
 
 impl ProjectQuery {
@@ -454,7 +425,14 @@ impl ProjectQuery {
         let workspace = match &workspace_env {
             WorkspaceEnv::Off => None,
             WorkspaceEnv::Pinned(workspace_path) => {
-                Some(WorkspaceFacts::from_pinned_manifest_path(workspace_path)?)
+                let manifest_path = dunce::canonicalize(workspace_path)
+                    .context("failed to resolve pinned workspace path")
+                    .map_err(PackageDirsError::from)?;
+                let root = manifest_root(&manifest_path).map_err(PackageDirsError::from)?;
+                Some(WorkspaceFacts {
+                    manifest_path,
+                    root,
+                })
             }
             WorkspaceEnv::Auto => None,
         };
@@ -472,7 +450,13 @@ impl ProjectQuery {
     }
 
     pub fn probe_project(&mut self) -> Result<ProjectProbe, PackageDirsError> {
-        match self.resolve_project_context() {
+        let project_context = if let Some(manifest) = self.deprecated_manifest_override.clone() {
+            self.project_context_from_deprecated_manifest_override(&manifest)
+        } else {
+            self.project_context_from_start_dir()
+        };
+
+        match project_context {
             Ok(project) => Ok(ProjectProbe::Found(project)),
             Err(error) if error.allows_single_file_fallback() => {
                 Ok(ProjectProbe::NotFound(ProjectNotFound { error }))
@@ -491,11 +475,14 @@ impl ProjectQuery {
     pub fn package_dirs(&mut self) -> Result<PackageDirs, PackageDirsError> {
         let project = self.project()?;
         let target_dir = self.resolve_target_dir(project.root())?;
-        Ok(PackageDirs::from_source_and_target_with_manifest(
-            project.root().to_path_buf(),
+        let source_dir = project.root().to_path_buf();
+        let mooncakes_dir = source_dir.join(DEP_PATH);
+        Ok(PackageDirs {
+            source_dir,
             target_dir,
-            Some(project.manifest_path().to_path_buf()),
-        ))
+            mooncakes_dir,
+            project_manifest_path: Some(project.manifest_path().to_path_buf()),
+        })
     }
 
     pub fn workspace_ref(&mut self) -> Result<Option<WorkspaceRef>, PackageDirsError> {
@@ -515,14 +502,6 @@ impl ProjectQuery {
         } else {
             Ok(start_dir)
         }
-    }
-
-    fn resolve_project_context(&mut self) -> Result<ProjectContext, PackageDirsError> {
-        if let Some(manifest) = self.deprecated_manifest_override.clone() {
-            return self.project_context_from_deprecated_manifest_override(&manifest);
-        }
-
-        self.project_context_from_start_dir()
     }
 
     fn project_context_from_deprecated_manifest_override(
@@ -997,7 +976,7 @@ fn deprecated_manifest_override_from_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        PackageDirs, PackageDirsError, ProjectContext, ProjectProbe, WorkspaceEnv,
+        PackageDirsError, ProjectContext, ProjectProbe, SourceTargetDirs, WorkspaceEnv,
         parse_workspace_env, project_query_from_start_dir,
         resolve_project_context_from_manifest_path, resolve_project_context_from_start_dir,
     };
@@ -1077,20 +1056,17 @@ mod tests {
     }
 
     #[test]
-    fn mooncakes_dir_tracks_project_root() {
-        let project = PathBuf::from("project");
-        assert_eq!(
-            PackageDirs::mooncakes_dir_for_source(&project),
-            project.join(DEP_PATH)
-        );
-    }
-
-    #[test]
     fn mooncakes_dir_comes_from_source_even_with_custom_target() {
-        let project = PathBuf::from("project");
-        let target = PathBuf::from("tmp-target");
-        let dirs = PackageDirs::from_source_and_target(project.clone(), target);
-        assert_eq!(dirs.mooncakes_dir, project.join(DEP_PATH));
+        let project = TestProject::new();
+        let target = project.join("tmp-target");
+        let dirs = SourceTargetDirs {
+            cwd: None,
+            manifest_path: None,
+            target_dir: Some(target),
+        }
+        .source_root_package_dirs(project.path())
+        .unwrap();
+        assert_eq!(dirs.mooncakes_dir, canonical(project.path()).join(DEP_PATH));
     }
 
     #[test]
