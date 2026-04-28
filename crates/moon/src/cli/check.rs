@@ -135,7 +135,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
     }
 
     // Check if we're running within a project
-    let mut query = cli.source_tgt_dir.query()?;
+    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let (source_dir, target_dir, mooncakes_dir, single_file, project_manifest_path) = match query
         .probe_project()?
     {
@@ -285,7 +285,8 @@ fn run_check_for_single_file_rr(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
-    );
+    )
+    .with_workspace_env(cli.workspace_env.clone());
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         target_dir,
@@ -434,6 +435,7 @@ fn run_check_normal_internal_rr(
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
     )
+    .with_workspace_env(cli.workspace_env.clone())
     .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)
         .context("Failed to calculate build plan")?;

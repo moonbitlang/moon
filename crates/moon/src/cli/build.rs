@@ -78,7 +78,10 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
         target_dir,
         mooncakes_dir,
         project_manifest_path,
-    } = cli.source_tgt_dir.query()?.package_dirs()?;
+    } = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
         return run_build_internal(
@@ -161,6 +164,7 @@ fn run_build_rr(
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
     )
+    .with_workspace_env(cli.workspace_env.clone())
     .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
     let prebuild_list = if watch {

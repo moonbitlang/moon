@@ -65,7 +65,10 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
         target_dir,
         mooncakes_dir,
         project_manifest_path,
-    } = cli.source_tgt_dir.query()?.package_dirs()?;
+    } = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
         return run_bench_internal(

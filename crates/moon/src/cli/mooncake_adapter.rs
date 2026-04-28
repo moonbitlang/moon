@@ -123,7 +123,7 @@ fn single_module_mooncake_cli(
     mut cli: UniversalFlags,
     command: &str,
 ) -> anyhow::Result<UniversalFlags> {
-    let mut query = cli.source_tgt_dir.query()?;
+    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let module_dir = project
         .selected_module()
@@ -149,7 +149,7 @@ mod tests {
     use moonutil::{
         cli::UniversalFlags,
         common::{MOON_MOD, MOON_MOD_JSON},
-        dirs::SourceTargetDirs,
+        dirs::{SourceTargetDirs, WorkspaceEnv},
     };
     use std::path::Path;
 
@@ -182,6 +182,7 @@ mod tests {
             trace: false,
             dry_run: false,
             build_graph: false,
+            workspace_env: WorkspaceEnv::Auto,
             unstable_feature: Box::default(),
         };
 
@@ -225,6 +226,7 @@ mod tests {
             trace: false,
             dry_run: false,
             build_graph: false,
+            workspace_env: WorkspaceEnv::Auto,
             unstable_feature: Box::default(),
         };
 

@@ -170,7 +170,9 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     let is_mbtx = input.ends_with(".mbtx");
     let run_start_dir = resolve_run_start_dir(input)?;
 
-    let mut query = cli.source_tgt_dir.query_from(&run_start_dir)?;
+    let mut query = cli
+        .source_tgt_dir
+        .query_from(&run_start_dir, cli.workspace_env.clone())?;
     match query.probe_project()? {
         ProjectProbe::Found(_) => {
             if is_mbtx {
@@ -232,7 +234,7 @@ fn run_run_rr(
         project_manifest_path,
     } = cli
         .source_tgt_dir
-        .query_from(&run_start_dir)?
+        .query_from(&run_start_dir, cli.workspace_env.clone())?
         .package_dirs()?;
 
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
@@ -240,6 +242,7 @@ fn run_run_rr(
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
     )
+    .with_workspace_env(cli.workspace_env.clone())
     .with_project_manifest_path(project_manifest_path.as_deref());
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
@@ -388,7 +391,8 @@ fn run_single_file_rr(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
-    );
+    )
+    .with_workspace_env(cli.workspace_env.clone());
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         target_dir.as_path(),

@@ -76,7 +76,10 @@ pub(crate) fn run_build_binary_dep(
         target_dir,
         mooncakes_dir,
         project_manifest_path,
-    } = cli.source_tgt_dir.query()?.package_dirs()?;
+    } = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .package_dirs()?;
     if cli.dry_run {
         anyhow::bail!("--dry-run is not supported for `moon tool build-binary-dep`");
     }
@@ -85,6 +88,7 @@ pub(crate) fn run_build_binary_dep(
     // must resolve the packages before settling on the build config and then
     // running the build plan.
     let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false)
+        .with_workspace_env(cli.workspace_env.clone())
         .with_project_manifest_path(project_manifest_path.as_deref());
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
 

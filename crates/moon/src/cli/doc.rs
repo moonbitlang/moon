@@ -89,7 +89,7 @@ fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
 
 #[instrument(skip_all)]
 pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query()?;
+    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let doc_source_dir = project
         .selected_module()

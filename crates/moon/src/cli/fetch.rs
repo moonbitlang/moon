@@ -109,7 +109,7 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
     // If we are under a project, put it into `.repos` next to `.mooncakes`
     let source_dir = match cli
         .source_tgt_dir
-        .query()
+        .query(cli.workspace_env.clone())
         .and_then(|mut query| query.package_dirs())
     {
         Ok(PackageDirs { source_dir, .. }) => source_dir,

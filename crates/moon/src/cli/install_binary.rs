@@ -446,7 +446,8 @@ fn build_and_install_packages(
     let target_dir = package_dirs.target_dir;
     let mooncakes_dir = package_dirs.mooncakes_dir;
 
-    let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false);
+    let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false)
+        .with_workspace_env(cli.workspace_env.clone());
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
 
     let main_module_id = resolve_output.local_modules()[0];

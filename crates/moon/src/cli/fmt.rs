@@ -66,7 +66,10 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         target_dir,
         project_manifest_path,
         ..
-    } = cli.source_tgt_dir.query()?.package_dirs()?;
+    } = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .package_dirs()?;
 
     let output = UserDiagnostics::from_flags(cli);
     let resolved =
