@@ -54,6 +54,7 @@ use moonutil::{
     },
     compiler_flags::CC,
     cond_expr::OptLevel as BuildProfile,
+    dirs::WorkspaceEnv,
     features::FeatureGate,
     mooncakes::sync::AutoSyncFlags,
     package::SupportedTargetsDeclKind,
@@ -297,6 +298,7 @@ pub struct CompilePreConfig {
     debug_export_build_plan: bool,
     wasi_auto_export_memory: bool,
     enable_coverage: bool,
+    workspace_env: WorkspaceEnv,
     output_wat: bool,
     /// Whether to output JSON when compiling with moonc.
     moonc_output_json: bool,
@@ -413,6 +415,7 @@ pub fn preconfig_compile(
         debug_symbols: build_flags.debug_symbols_for(action),
         use_std: build_flags.std(),
         enable_coverage: build_flags.enable_coverage,
+        workspace_env: cli.workspace_env.clone(),
         output_wat: build_flags.output_wat,
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
         wasi_auto_export_memory: cli.unstable_feature.wasi_auto_export_memory,
@@ -458,6 +461,7 @@ pub(crate) fn plan_build<'a>(
         !preconfig.use_std,
         preconfig.enable_coverage,
     )
+    .with_workspace_env(preconfig.workspace_env.clone())
     .with_project_manifest_path(project_manifest_path);
     let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir, mooncakes_dir)?;
 

@@ -41,6 +41,12 @@ pub enum WorkspaceEnv {
     Pinned(PathBuf),
 }
 
+impl Default for WorkspaceEnv {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum PackageDirsError {
     #[error(
@@ -92,15 +98,20 @@ pub struct SourceTargetDirs {
 }
 
 impl SourceTargetDirs {
-    pub fn query(&self) -> Result<ProjectQuery, PackageDirsError> {
-        self.query_from(Self::current_dir()?)
+    /// Build a project query from the current directory using an already parsed
+    /// workspace environment.
+    pub fn query(&self, workspace_env: WorkspaceEnv) -> Result<ProjectQuery, PackageDirsError> {
+        self.query_from(Self::current_dir()?, workspace_env)
     }
 
+    /// Build a project query from an explicit start directory and an already
+    /// parsed workspace environment.
     pub fn query_from(
         &self,
         start_dir: impl AsRef<Path>,
+        workspace_env: WorkspaceEnv,
     ) -> Result<ProjectQuery, PackageDirsError> {
-        ProjectQuery::new(self, start_dir.as_ref())
+        ProjectQuery::new(self, start_dir.as_ref(), workspace_env)
     }
 
     pub fn source_root_package_dirs(
@@ -140,14 +151,30 @@ impl SourceTargetDirs {
         })
     }
 
-    pub fn work_root(&self, prefer_existing_workspace: bool) -> Result<PathBuf, PackageDirsError> {
+    pub fn work_root(
+        &self,
+        prefer_existing_workspace: bool,
+        workspace_env: WorkspaceEnv,
+    ) -> Result<PathBuf, PackageDirsError> {
         let start_dir = Self::current_dir()?;
         let mut query = if prefer_existing_workspace {
-            self.query_from(start_dir)?
+            self.query_from(&start_dir, workspace_env)?
         } else {
-            ProjectQuery::new_with_workspace_env(self, &start_dir, WorkspaceEnv::Off)?
+            self.query_from(&start_dir, WorkspaceEnv::Off)?
         };
         query.work_root(prefer_existing_workspace)
+    }
+
+    fn deprecated_manifest_override(
+        &self,
+    ) -> Result<Option<ExplicitManifestOverride>, PackageDirsError> {
+        // Compatibility path for deprecated `--manifest-path`. Keep all parsing
+        // here so removing the flag later does not disturb normal discovery.
+        self.manifest_path
+            .as_deref()
+            .map(deprecated_manifest_override_from_path)
+            .transpose()
+            .map_err(PackageDirsError::from)
     }
 
     fn current_dir() -> Result<PathBuf, PackageDirsError> {
@@ -301,39 +328,11 @@ pub fn check_moon_mod_exists(source_dir: &Path) -> bool {
     source_dir.join(MOON_MOD).exists() || source_dir.join(MOON_MOD_JSON).exists()
 }
 
-pub fn check_moon_work_exists(source_dir: &Path) -> bool {
-    workspace_manifest_path(source_dir).is_some()
-}
-
 pub fn find_ancestor_with_mod(source_dir: &Path) -> Option<PathBuf> {
     source_dir
         .ancestors()
         .find(|dir| check_moon_mod_exists(dir))
         .map(|p| p.to_path_buf())
-}
-
-pub fn find_ancestor_with_work(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
-    let source_target_dirs = SourceTargetDirs {
-        cwd: None,
-        manifest_path: None,
-        target_dir: None,
-    };
-    let mut query = source_target_dirs.query_from(source_dir)?;
-    query.workspace_root_for_sync().map_err(Into::into)
-}
-
-pub fn resolve_work_root(
-    manifest_path: Option<&Path>,
-    prefer_existing_workspace: bool,
-) -> anyhow::Result<PathBuf> {
-    let source_target_dirs = SourceTargetDirs {
-        cwd: None,
-        manifest_path: manifest_path.map(Path::to_path_buf),
-        target_dir: None,
-    };
-    source_target_dirs
-        .work_root(prefer_existing_workspace)
-        .map_err(Into::into)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -343,7 +342,7 @@ enum ManifestKind {
 }
 
 #[derive(Clone)]
-struct ManifestInput {
+struct ExplicitManifestOverride {
     path: PathBuf,
     root: PathBuf,
     kind: ManifestKind,
@@ -363,7 +362,7 @@ pub struct ProjectQuery {
     target_dir: Option<PathBuf>,
     start_dir: PathBuf,
     workspace_env: WorkspaceEnv,
-    explicit_manifest: Option<ManifestInput>,
+    deprecated_manifest_override: Option<ExplicitManifestOverride>,
     module_dir: Option<PathBuf>,
     module_manifest_path: Option<PathBuf>,
     workspace: Option<WorkspaceFacts>,
@@ -403,14 +402,6 @@ impl ProjectQuery {
     fn new(
         source_target_dirs: &SourceTargetDirs,
         start_dir: &Path,
-    ) -> Result<Self, PackageDirsError> {
-        let workspace_env = current_workspace_env().map_err(PackageDirsError::from)?;
-        Self::new_with_workspace_env(source_target_dirs, start_dir, workspace_env)
-    }
-
-    fn new_with_workspace_env(
-        source_target_dirs: &SourceTargetDirs,
-        start_dir: &Path,
         workspace_env: WorkspaceEnv,
     ) -> Result<Self, PackageDirsError> {
         let start_dir = dunce::canonicalize(start_dir)
@@ -421,18 +412,13 @@ impl ProjectQuery {
                 )
             })
             .map_err(PackageDirsError::from)?;
-        let explicit_manifest = source_target_dirs
-            .manifest_path
-            .as_deref()
-            .map(manifest_input_from_path)
-            .transpose()
-            .map_err(PackageDirsError::from)?;
-        let module_dir = match &explicit_manifest {
+        let deprecated_manifest_override = source_target_dirs.deprecated_manifest_override()?;
+        let module_dir = match &deprecated_manifest_override {
             Some(manifest) if manifest.kind == ManifestKind::Module => Some(manifest.root.clone()),
             Some(manifest) => find_ancestor_with_mod(&manifest.root),
             None => find_ancestor_with_mod(&start_dir),
         };
-        let module_manifest_path = match &explicit_manifest {
+        let module_manifest_path = match &deprecated_manifest_override {
             Some(manifest) if manifest.kind == ManifestKind::Module => Some(manifest.path.clone()),
             _ => module_dir.as_deref().map(module_manifest_path),
         };
@@ -448,7 +434,7 @@ impl ProjectQuery {
             target_dir: source_target_dirs.target_dir.clone(),
             start_dir,
             workspace_env,
-            explicit_manifest,
+            deprecated_manifest_override,
             module_dir,
             module_manifest_path,
             workspace,
@@ -516,16 +502,16 @@ impl ProjectQuery {
     }
 
     fn resolve_project_context(&mut self) -> Result<ProjectContext, PackageDirsError> {
-        if let Some(manifest) = self.explicit_manifest.clone() {
-            return self.project_context_from_manifest(&manifest);
+        if let Some(manifest) = self.deprecated_manifest_override.clone() {
+            return self.project_context_from_deprecated_manifest_override(&manifest);
         }
 
         self.project_context_from_start_dir()
     }
 
-    fn project_context_from_manifest(
+    fn project_context_from_deprecated_manifest_override(
         &mut self,
-        manifest: &ManifestInput,
+        manifest: &ExplicitManifestOverride,
     ) -> Result<ProjectContext, PackageDirsError> {
         match &self.workspace_env {
             WorkspaceEnv::Off => match manifest.kind {
@@ -778,7 +764,7 @@ impl ProjectQuery {
     }
 
     fn work_start_dir(&self) -> PathBuf {
-        self.explicit_manifest
+        self.deprecated_manifest_override
             .as_ref()
             .map(|manifest| manifest.root.clone())
             .unwrap_or_else(|| self.start_dir.clone())
@@ -801,29 +787,12 @@ fn project_query_from_start_dir(
     start_dir: PathBuf,
     workspace_env: &WorkspaceEnv,
 ) -> Result<ProjectQuery, PackageDirsError> {
-    let mut query = ProjectQuery {
+    SourceTargetDirs {
+        cwd: None,
+        manifest_path: None,
         target_dir: None,
-        start_dir: dunce::canonicalize(start_dir)
-            .context("failed to resolve source directory")
-            .map_err(PackageDirsError::from)?,
-        workspace_env: workspace_env.clone(),
-        explicit_manifest: None,
-        module_dir: None,
-        module_manifest_path: None,
-        workspace: None,
-        workspace_members: None,
-    };
-    let start_dir = query.start_dir.clone();
-    query.module_dir = find_ancestor_with_mod(&start_dir);
-    query.module_manifest_path = query.module_dir.as_deref().map(module_manifest_path);
-    query.workspace = match workspace_env {
-        WorkspaceEnv::Off => None,
-        WorkspaceEnv::Pinned(workspace_path) => {
-            Some(WorkspaceFacts::from_pinned_manifest_path(workspace_path)?)
-        }
-        WorkspaceEnv::Auto => None,
-    };
-    Ok(query)
+    }
+    .query_from(start_dir, workspace_env.clone())
 }
 
 #[cfg(test)]
@@ -839,45 +808,32 @@ fn resolve_project_context_from_manifest_path(
     manifest_path: &Path,
     workspace_env: &WorkspaceEnv,
 ) -> Result<ProjectContext, PackageDirsError> {
-    let manifest = manifest_input_from_path(manifest_path).map_err(PackageDirsError::from)?;
-    let mut query = ProjectQuery {
+    let source_target_dirs = SourceTargetDirs {
+        cwd: None,
+        manifest_path: Some(manifest_path.to_path_buf()),
         target_dir: None,
-        start_dir: manifest.root.clone(),
-        workspace_env: workspace_env.clone(),
-        module_dir: match manifest.kind {
-            ManifestKind::Module => Some(manifest.root.clone()),
-            ManifestKind::Workspace => find_ancestor_with_mod(&manifest.root),
-        },
-        module_manifest_path: match manifest.kind {
-            ManifestKind::Module => Some(manifest.path.clone()),
-            ManifestKind::Workspace => find_ancestor_with_mod(&manifest.root)
-                .as_deref()
-                .map(module_manifest_path),
-        },
-        workspace: match (workspace_env, manifest.kind) {
-            (WorkspaceEnv::Off, _) => None,
-            (WorkspaceEnv::Pinned(workspace_path), _) => {
-                Some(WorkspaceFacts::from_pinned_manifest_path(workspace_path)?)
-            }
-            (WorkspaceEnv::Auto, _) => None,
-        },
-        explicit_manifest: Some(manifest),
-        workspace_members: None,
     };
+    let start_dir = manifest_path
+        .parent()
+        .context("manifest path has no parent directory")
+        .map_err(PackageDirsError::from)?;
+    let mut query = source_target_dirs.query_from(start_dir, workspace_env.clone())?;
     query.project()
 }
 
-pub fn current_workspace_env() -> anyhow::Result<WorkspaceEnv> {
-    parse_workspace_env(
-        std::env::var_os(MOON_WORK_ENV),
-        std::env::var_os(MOON_NO_WORKSPACE),
-    )
-}
-
-pub fn workspace_env_deprecation_warning() -> Option<&'static str> {
+pub fn current_workspace_env() -> anyhow::Result<(WorkspaceEnv, Option<&'static str>)> {
     let moon_work = std::env::var_os(MOON_WORK_ENV);
     let moon_no_workspace = std::env::var_os(MOON_NO_WORKSPACE);
+    // TODO: Remove `MOON_NO_WORKSPACE` compatibility after the deprecation window.
+    let warning = workspace_env_deprecation_warning(moon_work.as_ref(), moon_no_workspace.as_ref());
+    let workspace_env = parse_workspace_env(moon_work, moon_no_workspace)?;
+    Ok((workspace_env, warning))
+}
 
+fn workspace_env_deprecation_warning(
+    moon_work: Option<&OsString>,
+    moon_no_workspace: Option<&OsString>,
+) -> Option<&'static str> {
     match (moon_work, moon_no_workspace) {
         (_, None) => None,
         (Some(_), Some(_)) => Some(
@@ -970,7 +926,9 @@ fn manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-fn manifest_input_from_path(manifest_path: &Path) -> anyhow::Result<ManifestInput> {
+fn deprecated_manifest_override_from_path(
+    manifest_path: &Path,
+) -> anyhow::Result<ExplicitManifestOverride> {
     let manifest_path = dunce::canonicalize(manifest_path).with_context(|| {
         format!(
             "failed to resolve manifest path `{}`",
@@ -1013,15 +971,11 @@ fn manifest_input_from_path(manifest_path: &Path) -> anyhow::Result<ManifestInpu
         .context("manifest path has no parent directory")
         .map(Path::to_path_buf)?;
 
-    Ok(ManifestInput {
+    Ok(ExplicitManifestOverride {
         path: manifest_path,
         root,
         kind,
     })
-}
-
-pub fn resolve_manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
-    manifest_input_from_path(manifest_path).map(|manifest| manifest.root)
 }
 
 #[cfg(test)]

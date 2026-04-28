@@ -97,7 +97,7 @@ impl ProveSubcommand {
 
 #[instrument(skip_all)]
 pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query()?;
+    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let module_dir = if cmd.path.is_some() {
         project.selected_module().map(|module| module.root.clone())

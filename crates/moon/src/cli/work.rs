@@ -76,12 +76,17 @@ pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Resu
                 bail!("dry-run is not supported for work sync")
             }
 
-            let PackageDirs { source_dir, .. } = cli.source_tgt_dir.query()?.package_dirs()?;
+            let PackageDirs { source_dir, .. } = cli
+                .source_tgt_dir
+                .query(cli.workspace_env.clone())?
+                .package_dirs()?;
             mooncake::pkg::sync_workspace(&source_dir, cli.quiet)
         }
     }
 }
 
 fn work_root(cli: &UniversalFlags, prefer_existing_workspace: bool) -> anyhow::Result<PathBuf> {
-    Ok(cli.source_tgt_dir.work_root(prefer_existing_workspace)?)
+    Ok(cli
+        .source_tgt_dir
+        .work_root(prefer_existing_workspace, cli.workspace_env.clone())?)
 }

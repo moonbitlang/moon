@@ -129,7 +129,7 @@ pub fn main() {
         cli::exit_if_ide_help_request(&err, &raw_args);
         err.exit();
     });
-    let flags = cli.flags;
+    let mut flags = cli.flags;
     let output = UserDiagnostics::from_flags(&flags);
 
     if let Some(dir) = &flags.source_tgt_dir.cwd {
@@ -146,6 +146,16 @@ pub fn main() {
 
     let _trace_guard = init_tracing(flags.trace);
 
+    let (workspace_env, workspace_env_deprecation_warning) =
+        match moonutil::dirs::current_workspace_env() {
+            Ok(result) => result,
+            Err(err) => {
+                output.error(format!("{:?}", err));
+                std::process::exit(-1);
+            }
+        };
+    flags.workspace_env = workspace_env;
+
     // Check for deprecated flags and emit warnings (after tracing is initialized)
     for warning in flags.deprecation_warnings() {
         output.warn(warning);
@@ -155,7 +165,7 @@ pub fn main() {
             "`--manifest-path` is deprecated. Prefer `-C <project-dir>` to select a different project.",
         );
     }
-    if let Some(warning) = moonutil::dirs::workspace_env_deprecation_warning() {
+    if let Some(warning) = workspace_env_deprecation_warning {
         output.warn(warning);
     }
 

@@ -37,6 +37,7 @@ use moonutil::{
         MBTI_USER_WRITTEN, MOONBITLANG_CORE, MbtMdHeader, TargetBackend, parse_front_matter_config,
     },
     dependency::SourceDependencyInfo,
+    dirs::WorkspaceEnv,
     mooncakes::{DirSyncResult, ModuleId, result::ResolvedEnv, sync::AutoSyncFlags},
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
 };
@@ -87,6 +88,7 @@ pub struct ResolveConfig {
     no_std: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
+    workspace_env: WorkspaceEnv,
     project_manifest_path: Option<PathBuf>,
 }
 
@@ -280,6 +282,7 @@ impl ResolveConfig {
             sync_flags: AutoSyncFlags { frozen },
             no_std,
             enable_coverage,
+            workspace_env: WorkspaceEnv::Auto,
             project_manifest_path: None,
         }
     }
@@ -290,8 +293,14 @@ impl ResolveConfig {
             sync_flags,
             no_std,
             enable_coverage,
+            workspace_env: WorkspaceEnv::Auto,
             project_manifest_path: None,
         }
+    }
+
+    pub fn with_workspace_env(mut self, workspace_env: WorkspaceEnv) -> Self {
+        self.workspace_env = workspace_env;
+        self
     }
 
     pub fn with_project_manifest_path(mut self, project_manifest_path: Option<&Path>) -> Self {
@@ -348,6 +357,7 @@ pub fn resolve(
         &cfg.sync_flags,
         false,
         cfg.no_std,
+        cfg.workspace_env.clone(),
         cfg.project_manifest_path.as_deref(),
     )
     .map_err(ResolveError::SyncModulesError)?;

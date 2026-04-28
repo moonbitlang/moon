@@ -522,7 +522,7 @@ mod tests {
     use moonbuild_rupes_recta::ResolveConfig;
     use moonutil::{
         common::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK, TargetBackend},
-        dirs::SourceTargetDirs,
+        dirs::{SourceTargetDirs, WorkspaceEnv},
     };
     use std::path::{Path, PathBuf};
 
@@ -549,7 +549,7 @@ mod tests {
             manifest_path: Some(manifest_path),
             target_dir: None,
         }
-        .query()
+        .query(WorkspaceEnv::Auto)
         .unwrap()
         .package_dirs()
         .unwrap();

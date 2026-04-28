@@ -24,7 +24,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
     common::{MOON_WORK, MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
-    dirs::{WorkspaceEnv, current_workspace_env, find_ancestor_with_work},
+    dirs::{SourceTargetDirs, WorkspaceEnv},
     module::MoonMod,
     mooncakes::{
         DirSyncResult, ModuleSource,
@@ -45,9 +45,9 @@ pub fn auto_sync(
     cli: &AutoSyncFlags,
     quiet: bool,
     no_std: bool,
+    workspace_env: WorkspaceEnv,
     project_manifest_path: Option<&Path>,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
-    let workspace_env = current_workspace_env()?;
     if let Some(project_manifest_path) = project_manifest_path {
         let manifest_dir = project_manifest_path
             .parent()
@@ -78,7 +78,14 @@ pub fn auto_sync(
                 read_workspace_file(project_manifest_path)?,
             );
         } else if !matches!(workspace_env, WorkspaceEnv::Off)
-            && let Some(workspace_root) = find_ancestor_with_work(&manifest_dir)?
+            && let Some(workspace_root) = (SourceTargetDirs {
+                cwd: None,
+                manifest_path: None,
+                target_dir: None,
+            })
+            .query_from(&manifest_dir, workspace_env.clone())?
+            .workspace_ref()?
+            .map(|workspace| workspace.root)
         {
             let workspace = read_workspace(&workspace_root)?.context(format!(
                 "failed to parse workspace file under `{}`",

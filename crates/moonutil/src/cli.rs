@@ -18,7 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::dirs::SourceTargetDirs;
+use crate::dirs::{SourceTargetDirs, WorkspaceEnv};
 
 // #[derive(clap::Parser)]
 // pub struct StdInfo {
@@ -33,6 +33,10 @@ use crate::dirs::SourceTargetDirs;
 pub struct UniversalFlags {
     #[clap(flatten)]
     pub source_tgt_dir: SourceTargetDirs,
+
+    #[clap(skip)]
+    #[serde(skip, default)]
+    pub workspace_env: WorkspaceEnv,
 
     /// Suppress output
     #[clap(long, short = 'q', global = true)]

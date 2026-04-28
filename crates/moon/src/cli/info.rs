@@ -279,7 +279,10 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         target_dir,
         mooncakes_dir,
         project_manifest_path,
-    } = cli.source_tgt_dir.query()?.package_dirs()?;
+    } = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .package_dirs()?;
 
     let build_flags = BuildFlags::default();
     let resolve_cfg = ResolveConfig::new_with_load_defaults(
@@ -287,6 +290,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         !build_flags.std(),
         build_flags.enable_coverage,
     )
+    .with_workspace_env(cli.workspace_env.clone())
     .with_project_manifest_path(project_manifest_path.as_deref());
     let resolve_output = resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
     let output = UserDiagnostics::from_flags(&cli);

@@ -75,7 +75,10 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
             source_dir,
             mooncakes_dir,
             ..
-        } = cli.source_tgt_dir.query()?.package_dirs()?;
+        } = cli
+            .source_tgt_dir
+            .query(cli.workspace_env.clone())?
+            .package_dirs()?;
         return mooncake::pkg::install::install(
             &source_dir,
             &mooncakes_dir,
@@ -159,7 +162,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
 }
 
 pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query()?;
+    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let module_dir = require_selected_module(&project, "remove")?;
     let PackageDirs {
@@ -185,7 +188,7 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
 
 pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
     let output = UserDiagnostics::from_flags(&cli);
-    let mut query = cli.source_tgt_dir.query()?;
+    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let module_dir = require_selected_module(&project, "add")?;
     let PackageDirs {
@@ -261,7 +264,7 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
 }
 
 pub(crate) fn tree_cli(cli: UniversalFlags, _cmd: TreeSubcommand) -> anyhow::Result<i32> {
-    let mut query = cli.source_tgt_dir.query()?;
+    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let module_dir = require_selected_module(&project, "tree")?;
     let PackageDirs {

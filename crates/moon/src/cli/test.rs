@@ -221,7 +221,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
         "starting moon test command"
     );
     // Check if we're running within a project
-    let mut query = cli.source_tgt_dir.query()?;
+    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let dirs = match query.probe_project()? {
         ProjectProbe::Found(_) => query.package_dirs()?,
         ProjectProbe::NotFound(not_found) => {
@@ -374,7 +374,8 @@ fn run_test_in_single_file_rr(
         cmd.auto_sync_flags.clone(),
         false,
         cmd.build_flags.enable_coverage,
-    );
+    )
+    .with_workspace_env(cli.workspace_env.clone());
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         target_dir,
@@ -797,6 +798,7 @@ fn run_test_rr(
                 !cmd.build_flags.std(),
                 cmd.build_flags.enable_coverage,
             )
+            .with_workspace_env(cli.workspace_env.clone())
             .with_project_manifest_path(project_manifest_path),
             source_dir,
             mooncakes_dir,
