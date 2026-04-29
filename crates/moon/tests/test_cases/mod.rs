@@ -2135,17 +2135,98 @@ fn test_install_replaces_while_running() {
 }
 
 #[cfg(target_os = "macos")]
-fn moon_install(moon_exe: &Path, cwd: &Path, pkg_path: &Path, install_dir: &Path) {
+#[test]
+fn test_install_from_cross_filesystem_target_dir() {
+    use std::os::unix::fs::MetadataExt;
     use std::process::Command;
-    let output = Command::new(moon_exe)
+
+    let moon_exe = PathBuf::from(env!("CARGO_BIN_EXE_moon"));
+    let fixture = TestDir::new("install_atomic_rename.in");
+    let pkg_path = fixture.join("src/victim");
+    let main_mbt = pkg_path.join("main.mbt");
+    let install_dir = tempfile::tempdir().expect("install tempdir");
+    let image_dir = tempfile::tempdir().expect("disk image tempdir");
+    let mounted_image = MountedSparseImage::create(image_dir.path());
+    let target_dir = mounted_image.mountpoint().join("_build");
+    std::fs::create_dir_all(&target_dir).expect("create target dir");
+
+    let install_dev = std::fs::metadata(install_dir.path())
+        .expect("stat install dir")
+        .dev();
+    let target_dev = std::fs::metadata(mounted_image.mountpoint())
+        .expect("stat mounted image")
+        .dev();
+    assert_ne!(
+        install_dev, target_dev,
+        "mounted sparse image did not create a cross-filesystem boundary"
+    );
+
+    rewrite_version(&main_mbt, "cross fs v1");
+    moon_install_with_target_dir(
+        &moon_exe,
+        fixture.as_ref(),
+        &pkg_path,
+        install_dir.path(),
+        Some(&target_dir),
+    );
+
+    let victim_path = install_dir.path().join("victim");
+    let output = Command::new(&victim_path).output().expect("run victim");
+    assert!(output.status.success(), "victim exit: {:?}", output.status);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "cross fs v1"
+    );
+
+    rewrite_version(&main_mbt, "cross fs v2");
+    moon_install_with_target_dir(
+        &moon_exe,
+        fixture.as_ref(),
+        &pkg_path,
+        install_dir.path(),
+        Some(&target_dir),
+    );
+
+    let output = Command::new(&victim_path).output().expect("run victim v2");
+    assert!(
+        output.status.success(),
+        "victim v2 exit: {:?}",
+        output.status
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "cross fs v2"
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn moon_install(moon_exe: &Path, cwd: &Path, pkg_path: &Path, install_dir: &Path) {
+    moon_install_with_target_dir(moon_exe, cwd, pkg_path, install_dir, None);
+}
+
+#[cfg(target_os = "macos")]
+fn moon_install_with_target_dir(
+    moon_exe: &Path,
+    cwd: &Path,
+    pkg_path: &Path,
+    install_dir: &Path,
+    target_dir: Option<&Path>,
+) {
+    use std::process::Command;
+
+    let mut command = Command::new(moon_exe);
+    command
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .current_dir(cwd)
         .args(["install", "--path"])
         .arg(pkg_path)
         .arg("--bin")
-        .arg(install_dir)
-        .output()
-        .expect("run moon install");
+        .arg(install_dir);
+    if let Some(target_dir) = target_dir {
+        command.arg("--target-dir").arg(target_dir);
+    }
+
+    let output = command.output().expect("run moon install");
     if !output.status.success() {
         panic!(
             "moon install failed: status={}\n--- stdout ---\n{}\n--- stderr ---\n{}",
@@ -2153,6 +2234,82 @@ fn moon_install(moon_exe: &Path, cwd: &Path, pkg_path: &Path, install_dir: &Path
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr),
         );
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct MountedSparseImage {
+    mountpoint: PathBuf,
+}
+
+#[cfg(target_os = "macos")]
+impl MountedSparseImage {
+    fn create(dir: &Path) -> Self {
+        use std::process::Command;
+
+        let image_path = dir.join("moon-cross-fs.sparseimage");
+        let mountpoint = dir.join("mount");
+        std::fs::create_dir(&mountpoint).expect("create sparse image mountpoint");
+
+        let create = Command::new("hdiutil")
+            .args([
+                "create",
+                "-size",
+                "512m",
+                "-fs",
+                "APFS",
+                "-type",
+                "SPARSE",
+                "-volname",
+                "moon-cross-fs",
+            ])
+            .arg(&image_path)
+            .output()
+            .expect("run hdiutil create");
+        if !create.status.success() {
+            panic!(
+                "hdiutil create failed: status={}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+                create.status,
+                String::from_utf8_lossy(&create.stdout),
+                String::from_utf8_lossy(&create.stderr),
+            );
+        }
+
+        let attach = Command::new("hdiutil")
+            .arg("attach")
+            .arg(&image_path)
+            .args(["-mountpoint"])
+            .arg(&mountpoint)
+            .args(["-nobrowse", "-noverify"])
+            .output()
+            .expect("run hdiutil attach");
+        if !attach.status.success() {
+            panic!(
+                "hdiutil attach failed: status={}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+                attach.status,
+                String::from_utf8_lossy(&attach.stdout),
+                String::from_utf8_lossy(&attach.stderr),
+            );
+        }
+
+        Self { mountpoint }
+    }
+
+    fn mountpoint(&self) -> &Path {
+        &self.mountpoint
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for MountedSparseImage {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("hdiutil")
+            .arg("detach")
+            .arg(&self.mountpoint)
+            .arg("-force")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 }
 
