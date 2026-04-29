@@ -29,8 +29,9 @@ use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    ensure_packages_support_backend, filter_pkg_by_dir, match_packages_by_name_rr,
-    package_supports_backend, select_packages, select_supported_packages,
+    TargetPackageGroup, ensure_packages_support_backend, filter_pkg_by_dir,
+    group_packages_by_preferred_backend, match_packages_by_name_rr, package_supports_backend,
+    select_packages, select_supported_packages,
 };
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
@@ -42,12 +43,6 @@ use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_pa
 use crate::watch::watching;
 
 use super::{BuildFlags, UniversalFlags};
-
-#[derive(Debug)]
-pub(crate) struct BuildTargetSelection {
-    pub target_backend: TargetBackend,
-    pub packages: Vec<PackageId>,
-}
 
 /// Build the current package
 #[derive(Debug, clap::Parser, Clone)]
@@ -365,7 +360,7 @@ fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
 fn narrow_build_request_to_selection(
     cmd: &BuildSubcommand,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    selection: &BuildTargetSelection,
+    selection: &TargetPackageGroup,
 ) -> (BuildSubcommand, TargetBackend) {
     let mut scoped_cmd = cmd.clone();
     scoped_cmd.package = None;
@@ -382,44 +377,21 @@ fn resolve_build_target_selections(
     cmd: &BuildSubcommand,
     selected_target_backend: Option<TargetBackend>,
     output: UserDiagnostics,
-) -> anyhow::Result<Vec<BuildTargetSelection>> {
+) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
         let packages =
             resolve_selected_build_packages(resolve_output, cmd, Some(target_backend), output)?;
         if packages.is_empty() {
             return Ok(Vec::new());
         }
-        return Ok(vec![BuildTargetSelection {
+        return Ok(vec![TargetPackageGroup {
             target_backend,
             packages,
         }]);
     }
 
     let selected = resolve_selected_build_packages(resolve_output, cmd, None, output)?;
-    let mut selections = Vec::new();
-
-    for pkg in selected {
-        let module_id = resolve_output.pkg_dirs.get_package(pkg).module;
-        let target_backend = resolve_output
-            .module_rel
-            .module_info(module_id)
-            .preferred_target
-            .or(resolve_output.workspace_preferred_target)
-            .unwrap_or_default();
-        let Some(index) = selections
-            .iter()
-            .position(|selection: &BuildTargetSelection| {
-                selection.target_backend == target_backend
-            })
-        else {
-            selections.push(BuildTargetSelection {
-                target_backend,
-                packages: vec![pkg],
-            });
-            continue;
-        };
-        selections[index].packages.push(pkg);
-    }
+    let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
 
     for selection in &mut selections {
         selection.packages = selection
@@ -430,7 +402,6 @@ fn resolve_build_target_selections(
             .collect();
     }
     selections.retain(|selection| !selection.packages.is_empty());
-    selections.sort_by_key(|selection| selection.target_backend);
 
     Ok(selections)
 }
