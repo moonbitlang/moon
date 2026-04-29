@@ -26,6 +26,8 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-Z', 'Z ', [CompletionResultType]::ParameterName, 'Unstable flags to MoonBuild')
             [CompletionResult]::new('--unstable-feature', 'unstable-feature', [CompletionResultType]::ParameterName, 'Unstable flags to MoonBuild')
+            [CompletionResult]::new('-V', 'V ', [CompletionResultType]::ParameterName, 'Print all version information and exit')
+            [CompletionResult]::new('--version', 'version', [CompletionResultType]::ParameterName, 'Print all version information and exit')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')

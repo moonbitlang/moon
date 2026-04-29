@@ -79,14 +79,20 @@ pub(crate) use upgrade::*;
 pub(crate) use version::*;
 pub(crate) use whoami::*;
 pub(crate) use work::{WorkSubcommand, work_cli};
+
 #[derive(Debug, clap::Parser)]
 #[clap(
     name = "moon",
-    about = "The build system and package manager for MoonBit."
+    about = "The build system and package manager for MoonBit.",
+    override_usage = "moon [OPTIONS] <COMMAND>"
 )]
 pub(crate) struct MoonBuildCli {
     #[clap(subcommand)]
-    pub subcommand: MoonBuildSubcommands,
+    pub subcommand: Option<MoonBuildSubcommands>,
+
+    /// Print all version information and exit
+    #[clap(short = 'V', long)]
+    pub version: bool,
 
     #[clap(flatten)]
     pub flags: UniversalFlags,

@@ -246,7 +246,7 @@ impl PlanningFixture {
 pub(super) fn parse_build_command(args: &[&str]) -> (UniversalFlags, BuildSubcommand) {
     let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
         .expect("build command should parse");
-    let MoonBuildSubcommands::Build(cmd) = parsed.subcommand else {
+    let Some(MoonBuildSubcommands::Build(cmd)) = parsed.subcommand else {
         panic!("expected `moon build` to parse as the build subcommand");
     };
     (parsed.flags, cmd)
@@ -255,7 +255,7 @@ pub(super) fn parse_build_command(args: &[&str]) -> (UniversalFlags, BuildSubcom
 pub(super) fn parse_check_command(args: &[&str]) -> (UniversalFlags, CheckSubcommand) {
     let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
         .expect("check command should parse");
-    let MoonBuildSubcommands::Check(cmd) = parsed.subcommand else {
+    let Some(MoonBuildSubcommands::Check(cmd)) = parsed.subcommand else {
         panic!("expected `moon check` to parse as the check subcommand");
     };
     (parsed.flags, cmd)
@@ -264,7 +264,7 @@ pub(super) fn parse_check_command(args: &[&str]) -> (UniversalFlags, CheckSubcom
 pub(super) fn parse_run_command(args: &[&str]) -> (UniversalFlags, RunSubcommand) {
     let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
         .expect("run command should parse");
-    let MoonBuildSubcommands::Run(cmd) = parsed.subcommand else {
+    let Some(MoonBuildSubcommands::Run(cmd)) = parsed.subcommand else {
         panic!("expected `moon run` to parse as the run subcommand");
     };
     (parsed.flags, cmd)
@@ -273,7 +273,7 @@ pub(super) fn parse_run_command(args: &[&str]) -> (UniversalFlags, RunSubcommand
 pub(super) fn parse_test_command(args: &[&str]) -> (UniversalFlags, TestSubcommand) {
     let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
         .expect("test command should parse");
-    let MoonBuildSubcommands::Test(cmd) = parsed.subcommand else {
+    let Some(MoonBuildSubcommands::Test(cmd)) = parsed.subcommand else {
         panic!("expected `moon test` to parse as the test subcommand");
     };
     (parsed.flags, cmd)
@@ -282,7 +282,7 @@ pub(super) fn parse_test_command(args: &[&str]) -> (UniversalFlags, TestSubcomma
 pub(super) fn parse_bench_command(args: &[&str]) -> (UniversalFlags, BenchSubcommand) {
     let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
         .expect("bench command should parse");
-    let MoonBuildSubcommands::Bench(cmd) = parsed.subcommand else {
+    let Some(MoonBuildSubcommands::Bench(cmd)) = parsed.subcommand else {
         panic!("expected `moon bench` to parse as the bench subcommand");
     };
     (parsed.flags, cmd)

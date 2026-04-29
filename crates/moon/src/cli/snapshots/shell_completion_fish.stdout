@@ -1,6 +1,6 @@
 # Print an optspec for argparse to handle cmd's options that are independent of any subcommand.
 function __fish_moon_global_optspecs
-	string join \n C= manifest-path= target-dir= q/quiet v/verbose trace dry-run build-graph Z/unstable-feature= h/help
+	string join \n V/version C= manifest-path= target-dir= q/quiet v/verbose trace dry-run build-graph Z/unstable-feature= h/help
 end
 
 function __fish_moon_needs_command
@@ -28,6 +28,7 @@ complete -c moon -n "__fish_moon_needs_command" -s C -d 'Change to DIR before do
 complete -c moon -n "__fish_moon_needs_command" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_needs_command" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_needs_command" -s Z -l unstable-feature -d 'Unstable flags to MoonBuild' -r
+complete -c moon -n "__fish_moon_needs_command" -s V -l version -d 'Print all version information and exit'
 complete -c moon -n "__fish_moon_needs_command" -s q -l quiet -d 'Suppress output'
 complete -c moon -n "__fish_moon_needs_command" -s v -l verbose -d 'Increase verbosity'
 complete -c moon -n "__fish_moon_needs_command" -l trace -d 'Trace the execution of the program'

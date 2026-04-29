@@ -18,9 +18,12 @@
 
 #![warn(clippy::clone_on_ref_ptr)]
 
-use std::{any::Any, io::IsTerminal};
+use std::{
+    any::Any,
+    io::{IsTerminal, Write},
+};
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use cli::MoonBuildSubcommands;
 
 mod build_flags;
@@ -130,6 +133,20 @@ pub fn main() {
         err.exit();
     });
     let mut flags = cli.flags;
+    let subcommand = if cli.version {
+        MoonBuildSubcommands::Version(cli::VersionSubcommand {
+            all: true,
+            json: false,
+            no_path: false,
+        })
+    } else if let Some(subcommand) = cli.subcommand {
+        subcommand
+    } else {
+        let mut stderr = std::io::stderr().lock();
+        let _ = cli::MoonBuildCli::command().write_long_help(&mut stderr);
+        let _ = writeln!(stderr);
+        std::process::exit(2);
+    };
     let output = UserDiagnostics::from_flags(&flags);
 
     if let Some(dir) = &flags.source_tgt_dir.cwd {
@@ -160,7 +177,7 @@ pub fn main() {
     for warning in flags.deprecation_warnings() {
         output.warn(warning);
     }
-    if flags.source_tgt_dir.manifest_path.is_some() && !matches!(cli.subcommand, Run(_)) {
+    if flags.source_tgt_dir.manifest_path.is_some() && !matches!(subcommand, Run(_)) {
         output.warn(
             "`--manifest-path` is deprecated. Prefer `-C <project-dir>` to select a different project.",
         );
@@ -170,7 +187,7 @@ pub fn main() {
     }
 
     use MoonBuildSubcommands::*;
-    let res = match cli.subcommand {
+    let res = match subcommand {
         Add(a) => cli::add_cli(flags, a),
         Bench(b) => cli::run_bench(flags, b),
         Build(b) => cli::run_build(&flags, b),

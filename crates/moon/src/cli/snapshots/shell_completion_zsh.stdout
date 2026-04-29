@@ -20,6 +20,8 @@ _moon() {
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '-Z+[Unstable flags to MoonBuild]:UNSTABLE_FEATURE: ' \
 '--unstable-feature=[Unstable flags to MoonBuild]:UNSTABLE_FEATURE: ' \
+'-V[Print all version information and exit]' \
+'--version[Print all version information and exit]' \
 '-q[Suppress output]' \
 '--quiet[Suppress output]' \
 '-v[Increase verbosity]' \
