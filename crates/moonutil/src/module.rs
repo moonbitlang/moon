@@ -139,6 +139,12 @@ pub struct MoonModJSON {
     #[serde(alias = "root-dir")]
     pub source: Option<String>,
 
+    /// Rules that can be referenced by package-level `dev_build` entries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "define_rule")]
+    #[schemars(skip)]
+    pub define_rule: Option<Vec<MoonModDefineRule>>,
+
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
     #[schemars(skip)]
@@ -234,7 +240,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
             link_flags: j.link_flags,
             checksum: j.checksum,
             source,
-            define_rule: None,
+            define_rule: j.define_rule,
             ext: j.ext,
 
             warn_list: j.warn_list,
@@ -269,6 +275,7 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         link_flags: m.link_flags,
         checksum: m.checksum,
         source: m.source,
+        define_rule: m.define_rule,
         ext: m.ext,
 
         warn_list: m.warn_list,

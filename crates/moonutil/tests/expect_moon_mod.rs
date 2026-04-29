@@ -259,6 +259,35 @@ define_rule(name: "rule1", command: "exe2")
 }
 
 #[test]
+fn write_module_dsl_preserves_define_rule() {
+    let dir = temp_dir("preserve-define-rule-module");
+    let path = dir.join("moon.mod");
+    std::fs::write(
+        &path,
+        r#"name = "example/mod"
+define_rule(name: "rule1", command: "exe1 $input -o $output")
+define_rule(name: "rule2", command: "exe2 $input -o $output")
+"#,
+    )
+    .unwrap();
+
+    let module = read_module_from_dsl(&path).unwrap();
+    let module_json = convert_module_to_mod_json(module);
+    assert!(module_json.define_rule.is_some());
+    let json = serde_json_lenient::to_string(&module_json).unwrap();
+    assert!(json.contains("\"define_rule\""));
+    write_module_dsl_to_file(&module_json, &dir).unwrap();
+
+    let module = read_module_from_dsl(&path).unwrap();
+    let define_rule = module.define_rule.unwrap();
+    assert_eq!(define_rule.len(), 2);
+    assert_eq!(define_rule[0].name, "rule1");
+    assert_eq!(define_rule[0].command, "exe1 $input -o $output");
+    assert_eq!(define_rule[1].name, "rule2");
+    assert_eq!(define_rule[1].command, "exe2 $input -o $output");
+}
+
+#[test]
 fn write_module_dsl_uses_canonical_sections() {
     let dir = temp_dir("canonical-module");
     let module: MoonModJSON = serde_json_lenient::from_str(
