@@ -43,8 +43,9 @@ use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    canonicalize_with_filename, ensure_package_supports_backend, ensure_packages_support_backend,
-    filter_pkg_by_dir, format_supported_backends, package_supports_backend, select_packages,
+    TargetPackageGroup, canonicalize_with_filename, ensure_package_supports_backend,
+    ensure_packages_support_backend, filter_pkg_by_dir, format_supported_backends,
+    group_packages_by_preferred_backend, package_supports_backend, select_packages,
     select_supported_packages,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
@@ -53,12 +54,6 @@ use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_pa
 use crate::watch::{WatchOutput, watching};
 
 use super::BuildFlags;
-
-#[derive(Debug)]
-pub(crate) struct CheckTargetSelection {
-    pub target_backend: TargetBackend,
-    pub packages: Vec<PackageId>,
-}
 
 /// Check the current package, but don't build object files
 #[derive(Debug, clap::Parser, Clone)]
@@ -625,7 +620,7 @@ pub(crate) fn plan_check_rr_from_resolved(
 fn narrow_check_request_to_selection(
     cmd: &CheckSubcommand,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    selection: &CheckTargetSelection,
+    selection: &TargetPackageGroup,
 ) -> (CheckSubcommand, TargetBackend) {
     let mut scoped_cmd = cmd.clone();
     scoped_cmd.package_path = None;
@@ -639,7 +634,7 @@ pub(crate) fn resolve_check_target_selections(
     source_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     output: UserDiagnostics,
-) -> anyhow::Result<Vec<CheckTargetSelection>> {
+) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
         let packages = resolve_selected_packages(
             resolve_output,
@@ -648,31 +643,14 @@ pub(crate) fn resolve_check_target_selections(
             Some(target_backend),
             output,
         )?;
-        return Ok(vec![CheckTargetSelection {
+        return Ok(vec![TargetPackageGroup {
             target_backend,
             packages,
         }]);
     }
 
     let selected = resolve_selected_packages(resolve_output, cmd, source_dir, None, output)?;
-    let mut selections = Vec::new();
-
-    for pkg in selected {
-        let target_backend = module_preferred_target_backend(resolve_output, pkg);
-        let Some(index) = selections
-            .iter()
-            .position(|selection: &CheckTargetSelection| {
-                selection.target_backend == target_backend
-            })
-        else {
-            selections.push(CheckTargetSelection {
-                target_backend,
-                packages: vec![pkg],
-            });
-            continue;
-        };
-        selections[index].packages.push(pkg);
-    }
+    let selections = group_packages_by_preferred_backend(resolve_output, selected);
 
     let mut filtered = Vec::new();
     for selection in selections {
@@ -683,14 +661,12 @@ pub(crate) fn resolve_check_target_selections(
             output,
         )?;
         if !packages.is_empty() {
-            filtered.push(CheckTargetSelection {
+            filtered.push(TargetPackageGroup {
                 target_backend: selection.target_backend,
                 packages,
             });
         }
     }
-
-    filtered.sort_by_key(|selection| selection.target_backend);
 
     Ok(filtered)
 }
@@ -729,19 +705,6 @@ fn resolve_selected_packages(
                 .is_none_or(|backend| package_supports_backend(resolve_output, pkg, backend))
         })
         .collect())
-}
-
-fn module_preferred_target_backend(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    pkg: PackageId,
-) -> TargetBackend {
-    let module_id = resolve_output.pkg_dirs.get_package(pkg).module;
-    resolve_output
-        .module_rel
-        .module_info(module_id)
-        .preferred_target
-        .or(resolve_output.workspace_preferred_target)
-        .unwrap_or_default()
 }
 
 fn filter_packages_for_backend(

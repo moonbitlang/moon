@@ -16,10 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::filter::TargetPackageGroup;
 use crate::filter::canonicalize_with_filename;
 use crate::filter::ensure_packages_support_backend;
 use crate::filter::filter_pkg_by_dir;
 use crate::filter::format_supported_backends;
+use crate::filter::group_packages_by_preferred_backend;
 use crate::filter::match_packages_with_fuzzy;
 use crate::filter::package_supports_backend;
 use crate::filter::select_packages;
@@ -49,12 +51,6 @@ use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
-
-#[derive(Debug)]
-pub(crate) struct TestTargetSelection {
-    pub target_backend: TargetBackend,
-    pub packages: Vec<PackageId>,
-}
 
 struct TestSelectionOverride {
     explicit_path_filters: Option<Vec<PathBuf>>,
@@ -1131,7 +1127,7 @@ fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
 fn narrow_test_request_to_selection(
     cmd: &TestLikeSubcommand<'_>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    selection: &TestTargetSelection,
+    selection: &TargetPackageGroup,
 ) -> TestSelectionOverride {
     let explicit_path_filters = (!cmd.explicit_path_filters.is_empty()).then(|| {
         cmd.explicit_path_filters
@@ -1165,30 +1161,9 @@ fn resolve_test_target_selections(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     cmd: &TestLikeSubcommand<'_>,
     output: UserDiagnostics,
-) -> anyhow::Result<Vec<TestTargetSelection>> {
+) -> anyhow::Result<Vec<TargetPackageGroup>> {
     let selected = resolve_selected_test_packages(resolve_output, cmd, output)?;
-    let mut selections = Vec::new();
-
-    for pkg in selected {
-        let module_id = resolve_output.pkg_dirs.get_package(pkg).module;
-        let target_backend = resolve_output
-            .module_rel
-            .module_info(module_id)
-            .preferred_target
-            .or(resolve_output.workspace_preferred_target)
-            .unwrap_or_default();
-        let Some(index) = selections
-            .iter()
-            .position(|selection: &TestTargetSelection| selection.target_backend == target_backend)
-        else {
-            selections.push(TestTargetSelection {
-                target_backend,
-                packages: vec![pkg],
-            });
-            continue;
-        };
-        selections[index].packages.push(pkg);
-    }
+    let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
 
     for selection in &mut selections {
         selection.packages = selection
@@ -1199,7 +1174,6 @@ fn resolve_test_target_selections(
             .collect();
     }
     selections.retain(|selection| !selection.packages.is_empty());
-    selections.sort_by_key(|selection| selection.target_backend);
 
     Ok(selections)
 }

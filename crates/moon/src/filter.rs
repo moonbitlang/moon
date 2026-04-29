@@ -314,6 +314,46 @@ pub(crate) fn package_supports_backend(
         .contains(&target_backend)
 }
 
+#[derive(Debug)]
+pub(crate) struct TargetPackageGroup {
+    pub target_backend: TargetBackend,
+    pub packages: Vec<PackageId>,
+}
+
+pub(crate) fn preferred_target_backend_for_package(
+    resolve_output: &ResolveOutput,
+    pkg_id: PackageId,
+) -> TargetBackend {
+    let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
+    resolve_output
+        .module_rel
+        .module_info(module_id)
+        .preferred_target
+        .or(resolve_output.workspace_preferred_target)
+        .unwrap_or_default()
+}
+
+pub(crate) fn group_packages_by_preferred_backend(
+    resolve_output: &ResolveOutput,
+    packages: impl IntoIterator<Item = PackageId>,
+) -> Vec<TargetPackageGroup> {
+    let mut groups = BTreeMap::<TargetBackend, Vec<PackageId>>::new();
+    for pkg_id in packages {
+        groups
+            .entry(preferred_target_backend_for_package(resolve_output, pkg_id))
+            .or_default()
+            .push(pkg_id);
+    }
+
+    groups
+        .into_iter()
+        .map(|(target_backend, packages)| TargetPackageGroup {
+            target_backend,
+            packages,
+        })
+        .collect()
+}
+
 pub(crate) fn ensure_package_supports_backend(
     resolve_output: &ResolveOutput,
     pkg_id: PackageId,
