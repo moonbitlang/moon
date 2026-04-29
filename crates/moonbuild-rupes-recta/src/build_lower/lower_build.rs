@@ -27,8 +27,8 @@ use moonutil::{
     common::RunMode,
     compiler_flags::{
         ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
-        OutputType as CCOutputType, make_archiver_command_pure, make_cc_command_pure,
-        make_cc_command_with_link_flags_pure, make_linker_command_pure,
+        OutputType as CCOutputType, make_archiver_command_resolved, make_cc_command_resolved,
+        make_cc_command_resolved_with_link_flags, make_linker_command_resolved,
     },
     cond_expr::OptLevel,
     mooncakes::{CORE_MODULE, ModuleId},
@@ -818,7 +818,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .to_string();
 
         let cc = info.effective_native_toolchain.cc().clone();
-        let cc_cmd = make_cc_command_pure(
+        let cc_cmd = make_cc_command_resolved(
             cc,
             config,
             &info.cc_flags,
@@ -889,7 +889,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .expect("Failed to build archiver configuration");
 
         let cc = info.effective_native_toolchain.cc().clone();
-        let archiver_cmd = make_archiver_command_pure(
+        let archiver_cmd = make_archiver_command_resolved(
             cc,
             config,
             &object_files
@@ -897,6 +897,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .map(|s| s.to_string_lossy())
                 .collect::<Vec<_>>(),
             &archive.display().to_string(),
+            &self.opt.compiler_paths,
         );
 
         BuildCommand {
@@ -939,6 +940,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Build linker config: shared lib, no libmoonbitrun, and link shared runtime dir
         let lcfg = LinkerConfigBuilder::<&Path>::default()
             .link_moonbitrun(false) // this is only for tcc -run
+            .link_libbacktrace(true)
             .output_ty(CCOutputType::SharedLib)
             .link_shared_runtime(Some(runtime_parent))
             .build()
@@ -950,24 +952,11 @@ impl<'a> BuildPlanLowerContext<'a> {
             .map(|p| p.display().to_string())
             .collect();
 
-        // User linker flags: stub_cc_link_flags (already parsed) from BuildCStubsInfo
-        let mut link_flags: Vec<String> = info.link_flags.clone();
-
-        // Add libbacktrace.a if it exists
-        let libbacktrace_path =
-            std::path::Path::new(&self.opt.compiler_paths.lib_path).join("libbacktrace.a");
-        if libbacktrace_path.exists() {
-            link_flags.push(libbacktrace_path.display().to_string());
-        }
-
-        let link_flags_refs: Vec<&str> = link_flags.iter().map(|s| s.as_str()).collect();
-        let sources_refs: Vec<&str> = sources.iter().map(|s| s.as_str()).collect();
-
-        let cc_cmd = make_linker_command_pure(
+        let cc_cmd = make_linker_command_resolved(
             cc,
             lcfg,
-            &link_flags_refs,
-            &sources_refs,
+            &info.link_flags,
+            &sources,
             &dest_dir,
             &dylib_out.display().to_string(),
             &self.opt.compiler_paths.lib_path,
@@ -1007,7 +996,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Two things needs to be done here:
         // - compile the program (if needed)
         // - link with runtime library & artifacts of other C stubs
-        // let cc_cmd = make_cc_command_pure(cc, config, user_cc_flags, src, dest_dir, dest, paths);
+        // let cc_cmd = make_cc_command_resolved(cc, config, user_cc_flags, src, dest_dir, dest, paths);
 
         let mut sources = vec![];
         // C artifact path
@@ -1032,6 +1021,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .opt_level(opt_level)
             .debug_info(self.opt.debug_symbols)
             .link_moonbitrun(true)
+            .link_libbacktrace(true)
             .define_use_shared_runtime_macro(false)
             .build()
             .expect("Failed to build CC configuration for executable");
@@ -1060,21 +1050,12 @@ impl<'a> BuildPlanLowerContext<'a> {
             .display()
             .to_string();
 
-        // Add libbacktrace.a if it exists
-        let libbacktrace_path =
-            std::path::Path::new(&self.opt.compiler_paths.lib_path).join("libbacktrace.a");
-
-        let mut link_flags = info.link_flags.clone();
-        if libbacktrace_path.exists() {
-            link_flags.push(libbacktrace_path.display().to_string());
-        }
-
         let cc = info.effective_native_toolchain.cc().clone();
-        let cc_cmd = make_cc_command_with_link_flags_pure(
+        let cc_cmd = make_cc_command_resolved_with_link_flags(
             cc,
             config,
-            &info.c_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-            &link_flags.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            &info.c_flags,
+            &info.link_flags,
             sources.iter().map(|x| x.display().to_string()),
             &pkg_dir,
             Some(&dest),
@@ -1138,7 +1119,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .build()
             .expect("Failed to build CC configuration for tcc-run");
 
-        let mut cmdline = make_cc_command_pure(
+        let mut cmdline = make_cc_command_resolved(
             cc,
             cfg,
             &[] as &[&str], // no user flags

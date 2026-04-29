@@ -22,7 +22,7 @@ use moonutil::{
     common::DriverKind,
     compiler_flags::{
         CC, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        make_cc_command_pure, resolve_cc,
+        make_cc_command_resolved, resolve_cc,
     },
     mooncakes::{ModuleId, ModuleSourceKind},
 };
@@ -160,11 +160,6 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         };
 
         let resolved_cc = resolve_cc(&CC::default(), None);
-        let libbacktrace_path = runtime_c_path
-            .parent()
-            .expect("runtime_c_path should have a parent")
-            .join("libbacktrace.a");
-
         let mut cc_flags = vec![];
         if self.opt.debug_symbols && self.opt.os != OperatingSystem::Windows {
             cc_flags.push("-DMOONBIT_ALLOW_STACKTRACE");
@@ -172,16 +167,8 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         if matches!(self.opt.target_backend, RunBackend::NativeTccRun) {
             cc_flags.push("-D__TINYC__");
         }
-        // Add libbacktrace.a if it exists and we're generating a shared library
-        if output_ty == CCOutputType::SharedLib && libbacktrace_path.exists() {
-            cc_flags.push(
-                libbacktrace_path
-                    .to_str()
-                    .expect("libbacktrace_path should be valid UTF-8"),
-            );
-        }
 
-        let cc_cmd = make_cc_command_pure(
+        let cc_cmd = make_cc_command_resolved(
             resolved_cc,
             CCConfigBuilder::default()
                 .no_sys_header(true)
@@ -189,6 +176,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
                 .opt_level(CCOptLevel::Speed)
                 .debug_info(true)
                 .link_moonbitrun(link_moonbitrun)
+                .link_libbacktrace(output_ty == CCOutputType::SharedLib)
                 .define_use_shared_runtime_macro(false)
                 .build()
                 .expect("Failed to build CC configuration for runtime"),
