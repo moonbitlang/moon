@@ -637,6 +637,10 @@ fn build_and_install_packages(
         };
         let binary_dst = install_dir.join(dst_name);
 
+        #[cfg(target_os = "macos")]
+        macos_install_file(&binary_src, &binary_dst)?;
+
+        #[cfg(not(target_os = "macos"))]
         std::fs::copy(&binary_src, &binary_dst).with_context(|| {
             format!(
                 "Failed to copy binary from `{}` to `{}`",
@@ -670,6 +674,25 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// macOS-only: install `src` onto `dst` by renaming the built binary
+/// into place.
+///
+/// Overwriting the destination with `fs::copy` would truncate it via
+/// `O_TRUNC`; on macOS the kernel SIGKILLs any process that re-execs the
+/// modified inode because the code-signature cache no longer matches the
+/// on-disk bytes. Renaming a fresh file into place avoids this.
+#[cfg(target_os = "macos")]
+fn macos_install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    std::fs::rename(src, dst).with_context(|| {
+        format!(
+            "Failed to install binary from `{}` to `{}`",
+            src.display(),
+            dst.display()
+        )
+    })?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -828,5 +851,40 @@ mod tests {
             "native/pixeladventure",
         ));
         assert!(!filter.matches(&test_path(&["repo", "examples", "web", "demo"]), "web/demo",));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_install_file_fresh_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"hello world").unwrap();
+
+        macos_install_file(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"hello world");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_install_file_overwrites_existing_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&dst, b"old contents").unwrap();
+
+        macos_install_file(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+
+        // Same-fs install consumes `src` via rename; no staging tempfile
+        // should remain behind.
+        let siblings: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(siblings, vec![std::ffi::OsString::from("dst")]);
     }
 }
