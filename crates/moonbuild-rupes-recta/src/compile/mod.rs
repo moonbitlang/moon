@@ -24,7 +24,6 @@ use moonutil::{
     common::RunMode,
     compiler_flags::{CC, CompilerPaths, Toolchain},
     cond_expr::OptLevel,
-    moon_dir::MOON_DIRS,
 };
 use tracing::{Level, instrument};
 
@@ -139,6 +138,8 @@ pub fn compile(
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());
 
+    let compiler_paths = CompilerPaths::from_moon_dirs();
+    let runtime_dot_c_path = PathBuf::from(&compiler_paths.lib_path).join("runtime.c");
     let lower_env = build_lower::BuildOptions {
         main_module: match resolve_output.local_modules() {
             &[module] => Some(resolve_output.module_rel.module_source(module).clone()),
@@ -159,10 +160,10 @@ pub fn compile(
         wasi_auto_export_memory: cx.wasi_auto_export_memory,
 
         stdlib_path: cx.stdlib_path.clone(),
-        compiler_paths: CompilerPaths::from_moon_dirs(), // change to external
+        compiler_paths,
         selected_native_toolchain: Toolchain::from_cc(cx.default_cc.clone()),
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
-        runtime_dot_c_path: MOON_DIRS.moon_lib_path.join("runtime.c"), // FIXME: don't calculate here
+        runtime_dot_c_path,
     };
     let res = build_lower::lower_build_plan(resolve_output, &plan, &lower_env)?;
 

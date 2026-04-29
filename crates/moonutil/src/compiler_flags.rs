@@ -524,6 +524,9 @@ pub struct CCConfig {
     // TCC cannot link libmoonbitrun.o
     pub link_moonbitrun: bool,
     #[builder(default = false)]
+    // Link libbacktrace.a from the configured MoonBit lib path if it exists.
+    pub link_libbacktrace: bool,
+    #[builder(default = false)]
     // Define MOONBIT_NATIVE_NO_SYS_HEADER
     // Usually used with TCC
     // TCC may not be able to handle the system header
@@ -545,6 +548,9 @@ pub struct CCConfig {
 pub struct LinkerConfig<P: AsRef<Path>> {
     #[builder(default = false)]
     pub link_moonbitrun: bool,
+    #[builder(default = false)]
+    // Link libbacktrace.a from the configured MoonBit lib path if it exists.
+    pub link_libbacktrace: bool,
     #[builder(default = OutputType::Executable)]
     pub output_ty: OutputType,
     #[builder(default = None)]
@@ -611,7 +617,12 @@ fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
 }
 
 // Archiver compiler-specific handling for moonbitrun
-fn add_archiver_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config: &ArchiverConfig) {
+fn add_archiver_moonbitrun_with_warnings(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &ArchiverConfig,
+    paths: &CompilerPaths,
+) {
     if cc.is_libmoonbitrun_o_available() && config.archive_moonbitrun {
         if cc.is_tcc() {
             eprintln!(
@@ -620,8 +631,7 @@ fn add_archiver_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config:
             );
         } else {
             buf.push(
-                MOON_DIRS
-                    .moon_lib_path
+                Path::new(&paths.lib_path)
                     .join("libmoonbitrun.o")
                     .display()
                     .to_string(),
@@ -641,14 +651,16 @@ where
     S: AsRef<str>,
 {
     let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    make_archiver_command_pure(resolved_cc, config, src, dest)
+    let paths = CompilerPaths::from_moon_dirs();
+    make_archiver_command_resolved(resolved_cc, config, src, dest, &paths)
 }
 
-pub fn make_archiver_command_pure<S>(
+pub fn make_archiver_command_resolved<S>(
     cc: CC,
     config: ArchiverConfig,
     src: &[S],
     dest: &str,
+    paths: &CompilerPaths,
 ) -> Vec<String>
 where
     S: AsRef<str>,
@@ -656,7 +668,7 @@ where
     let mut buf = vec![cc.ar_path.clone()];
 
     add_archiver_flags(&cc, &mut buf, dest);
-    add_archiver_moonbitrun_with_warnings(&cc, &mut buf, &config);
+    add_archiver_moonbitrun_with_warnings(&cc, &mut buf, &config, paths);
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     buf
@@ -735,6 +747,7 @@ fn add_linker_moonbitrun_with_warnings(
     cc: &CC,
     buf: &mut Vec<String>,
     config: &LinkerConfig<impl AsRef<Path>>,
+    lpath: &str,
 ) {
     if config.link_moonbitrun && cc.is_libmoonbitrun_o_available() {
         if cc.is_tcc() {
@@ -744,8 +757,7 @@ fn add_linker_moonbitrun_with_warnings(
             );
         } else {
             buf.push(
-                MOON_DIRS
-                    .moon_lib_path
+                Path::new(lpath)
                     .join("libmoonbitrun.o")
                     .display()
                     .to_string(),
@@ -806,7 +818,7 @@ where
 {
     let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
     let lib_path = &MOON_DIRS.moon_lib_path.display().to_string();
-    make_linker_command_pure(
+    make_linker_command_resolved(
         resolved_cc,
         config,
         user_link_flags,
@@ -817,7 +829,7 @@ where
     )
 }
 
-pub fn make_linker_command_pure<S, P>(
+pub fn make_linker_command_resolved<S, P>(
     cc: CC,
     config: LinkerConfig<P>,
     user_link_flags: &[S],
@@ -844,7 +856,7 @@ where
     // Linker compiler-specific flags
     add_linker_msvc_specific_flags(&cc, &mut buf, has_user_flags);
 
-    add_linker_moonbitrun_with_warnings(&cc, &mut buf, &config);
+    add_linker_moonbitrun_with_warnings(&cc, &mut buf, &config, lpath);
 
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
@@ -852,6 +864,12 @@ where
     add_linker_msvc_runtime(&cc, &mut buf, &config, lpath);
 
     buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
+    if config.link_libbacktrace {
+        let libbacktrace_path = Path::new(lpath).join("libbacktrace.a");
+        if libbacktrace_path.exists() {
+            buf.push(libbacktrace_path.display().to_string());
+        }
+    }
 
     buf
 }
@@ -1028,7 +1046,12 @@ fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig
 }
 
 // CC compiler-specific handling for moonbitrun
-fn add_cc_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
+fn add_cc_moonbitrun_with_warnings(
+    cc: &CC,
+    buf: &mut Vec<String>,
+    config: &CCConfig,
+    paths: &CompilerPaths,
+) {
     if config.output_ty != OutputType::Object
         && config.link_moonbitrun
         && cc.is_libmoonbitrun_o_available()
@@ -1040,8 +1063,7 @@ fn add_cc_moonbitrun_with_warnings(cc: &CC, buf: &mut Vec<String>, config: &CCCo
             );
         } else {
             buf.push(
-                MOON_DIRS
-                    .moon_lib_path
+                Path::new(&paths.lib_path)
                     .join("libmoonbitrun.o")
                     .display()
                     .to_string(),
@@ -1077,7 +1099,7 @@ where
 {
     let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
     let paths = CompilerPaths::from_moon_dirs();
-    make_cc_command_pure(
+    make_cc_command_resolved(
         resolved_cc,
         config,
         user_cc_flags,
@@ -1088,7 +1110,13 @@ where
     )
 }
 
-pub fn make_cc_command_pure<S>(
+/// Build a C compiler command after the caller has already selected the exact
+/// compiler and MoonBit include/lib paths.
+///
+/// Use this when there are no extra link-only flags. It still may produce a
+/// link command when `config.output_ty` is `Executable` or `SharedLib`; the
+/// name only means there is no separate `user_link_flags` input.
+pub fn make_cc_command_resolved<S>(
     cc: CC,
     config: CCConfig,
     user_cc_flags: &[S],
@@ -1100,7 +1128,7 @@ pub fn make_cc_command_pure<S>(
 where
     S: AsRef<str>,
 {
-    make_cc_command_with_link_flags_pure(
+    make_cc_command_resolved_with_link_flags(
         cc,
         config,
         user_cc_flags,
@@ -1112,8 +1140,17 @@ where
     )
 }
 
+/// Build a C compiler-driver command with separate compile and link flag inputs.
+///
+/// `resolved` means this function does not consult `MOON_CC`, package CC
+/// overrides, or global `MOON_HOME` paths. Callers pass the effective `CC` and
+/// `CompilerPaths` decided by build planning/lowering.
+///
+/// `user_cc_flags` are treated as compile-driver overrides and suppress default
+/// optimization flags. `user_link_flags` are appended only for the link step and
+/// do not suppress compiler defaults.
 #[allow(clippy::too_many_arguments)]
-pub fn make_cc_command_with_link_flags_pure<S, L>(
+pub fn make_cc_command_resolved_with_link_flags<S, L>(
     cc: CC,
     config: CCConfig,
     user_cc_flags: &[S],
@@ -1149,13 +1186,19 @@ where
 
     add_cc_optimization_flags(&cc, &mut buf, &config, has_user_flags);
     add_cc_shared_runtime_flags(&cc, &mut buf, &config);
-    add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config);
+    add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config, paths);
 
     buf.extend(src.into_iter().map(|s| s.into()));
 
     add_cc_common_libraries(&cc, &mut buf, &config);
     buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
     buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
+    if config.link_libbacktrace && config.output_ty != OutputType::Object {
+        let libbacktrace_path = Path::new(&paths.lib_path).join("libbacktrace.a");
+        if libbacktrace_path.exists() {
+            buf.push(libbacktrace_path.display().to_string());
+        }
+    }
     add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
 
     buf
@@ -1179,11 +1222,37 @@ mod tests {
         CCConfig {
             debug_info: false,
             link_moonbitrun: false,
+            link_libbacktrace: false,
             no_sys_header: false,
             output_ty: OutputType::Executable,
             opt_level: OptLevel::Speed,
             define_use_shared_runtime_macro: false,
         }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn resolved_archiver_uses_configured_lib_path_for_available_moonbitrun() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "custom-lib".to_string(),
+        };
+
+        let command = make_archiver_command_resolved(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            ArchiverConfig {
+                archive_moonbitrun: true,
+            },
+            &["stub.o"],
+            "libstub.a",
+            &paths,
+        );
+
+        let libmoonbitrun_arg = Path::new("custom-lib")
+            .join("libmoonbitrun.o")
+            .display()
+            .to_string();
+        assert!(command.iter().any(|arg| arg == &libmoonbitrun_arg));
     }
 
     #[test]
@@ -1196,6 +1265,7 @@ mod tests {
 
         let linker_config = LinkerConfig::<&Path> {
             link_moonbitrun: false,
+            link_libbacktrace: false,
             output_ty: OutputType::Executable,
             link_shared_runtime: None,
         };
@@ -1214,6 +1284,7 @@ mod tests {
 
         let linker_config = LinkerConfig::<&Path> {
             link_moonbitrun: false,
+            link_libbacktrace: false,
             output_ty: OutputType::Executable,
             link_shared_runtime: None,
         };
@@ -1229,7 +1300,7 @@ mod tests {
             lib_path: "lib".to_string(),
         };
 
-        let command = make_cc_command_with_link_flags_pure(
+        let command = make_cc_command_resolved_with_link_flags(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             executable_cc_config(),
             &[] as &[&str],
@@ -1245,13 +1316,60 @@ mod tests {
     }
 
     #[test]
+    fn configured_libbacktrace_does_not_disable_default_optimization_flags() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "moonutil-libbacktrace-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be after Unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).expect("create temp lib dir");
+        let libbacktrace_path = temp_dir.join("libbacktrace.a");
+        std::fs::write(&libbacktrace_path, b"").expect("create temp libbacktrace.a");
+
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: temp_dir.display().to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.link_libbacktrace = true;
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &[] as &[&str],
+            &["-lcustom"],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|flag| flag == "-O2"));
+        let user_link_flag = command
+            .iter()
+            .position(|flag| flag == "-lcustom")
+            .expect("user link flag should be present");
+        let libbacktrace_arg = libbacktrace_path.display().to_string();
+        let libbacktrace_flag = command
+            .iter()
+            .position(|flag| flag == &libbacktrace_arg)
+            .expect("libbacktrace should be present");
+        assert!(user_link_flag < libbacktrace_flag);
+
+        std::fs::remove_dir_all(temp_dir).expect("remove temp lib dir");
+    }
+
+    #[test]
     fn compile_flags_still_disable_default_optimization_flags() {
         let paths = CompilerPaths {
             include_path: "include".to_string(),
             lib_path: "lib".to_string(),
         };
 
-        let command = make_cc_command_with_link_flags_pure(
+        let command = make_cc_command_resolved_with_link_flags(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             executable_cc_config(),
             &["-O3"],
