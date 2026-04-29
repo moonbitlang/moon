@@ -24,6 +24,7 @@ use moonutil::{
         CC, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
         make_cc_command_resolved, resolve_cc,
     },
+    cond_expr::OptLevel,
     mooncakes::{ModuleId, ModuleSourceKind},
 };
 use tracing::{Level, instrument};
@@ -167,16 +168,21 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         if matches!(self.opt.target_backend, RunBackend::NativeTccRun) {
             cc_flags.push("-D__TINYC__");
         }
+        let opt_level = match self.opt.opt_level {
+            OptLevel::Release => CCOptLevel::Speed,
+            OptLevel::Debug => CCOptLevel::Debug,
+        };
 
         let cc_cmd = make_cc_command_resolved(
             resolved_cc,
             CCConfigBuilder::default()
                 .no_sys_header(true)
                 .output_ty(output_ty)
-                .opt_level(CCOptLevel::Speed)
+                .opt_level(opt_level)
                 .debug_info(true)
                 .link_moonbitrun(link_moonbitrun)
                 .link_libbacktrace(output_ty == CCOutputType::SharedLib)
+                .cc_flags_override_defaults(false)
                 .define_use_shared_runtime_macro(false)
                 .build()
                 .expect("Failed to build CC configuration for runtime"),
