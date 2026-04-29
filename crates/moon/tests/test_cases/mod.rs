@@ -25,10 +25,9 @@ use super::*;
 use expect_test::expect;
 use moonutil::{
     common::{
-        BUILD_DIR, CargoPathExt, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, StringExt,
-        TargetBackend, get_cargo_pkg_version,
+        BUILD_DIR, CargoPathExt, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, MOON_NO_WORKSPACE,
+        MOON_WORK_ENV, StringExt, TargetBackend, get_cargo_pkg_version,
     },
-    dirs::{MOON_NO_WORKSPACE, MOON_WORK_ENV, PackageDirs},
     module::MoonModJSON,
 };
 use walkdir::WalkDir;
@@ -571,9 +570,7 @@ fn mooncakes_io_smoke_test() {
     )
     .unwrap();
 
-    let mooncakes_dir =
-        PackageDirs::from_source_and_target(dir.as_ref().to_path_buf(), dir.join(BUILD_DIR))
-            .mooncakes_dir;
+    let mooncakes_dir = dir.as_ref().join(".mooncakes");
 
     assert!(
         mooncakes_dir
@@ -1488,9 +1485,8 @@ fn test_pre_build_mooncake_bin_shape() {
         .replace('\\', "/");
 
     let source_dir = dunce::canonicalize(&dir).unwrap();
-    let dirs = PackageDirs::from_source_and_target(source_dir.clone(), source_dir.join(BUILD_DIR));
-    let expected_path = dirs
-        .mooncakes_dir
+    let expected_path = source_dir
+        .join(".mooncakes")
         .join(MOON_BIN_DIR)
         .to_string_lossy()
         .replace('\\', "/");

@@ -538,7 +538,7 @@ mod tests {
     }
 
     fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ResolveOutput {
-        let cfg = ResolveConfig::new_with_load_defaults(false, false, false);
+        let cfg = ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
         let manifest_path = if source_dir.join(MOON_WORK).exists() {
             source_dir.join(MOON_WORK)
         } else {

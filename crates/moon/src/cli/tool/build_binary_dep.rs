@@ -87,9 +87,9 @@ pub(crate) fn run_build_binary_dep(
     // bin-deps have their build target determined in `moon.pkg.json`, so we
     // must resolve the packages before settling on the build config and then
     // running the build plan.
-    let resolve_cfg = ResolveConfig::new_with_load_defaults(false, false, false)
-        .with_workspace_env(cli.workspace_env.clone())
-        .with_project_manifest_path(project_manifest_path.as_deref());
+    let resolve_cfg =
+        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
+            .with_project_manifest_path(project_manifest_path.as_deref());
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
 
     // Note: There's a cyclic dependency!

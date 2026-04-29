@@ -289,8 +289,8 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         cmd.auto_sync_flags.frozen,
         !build_flags.std(),
         build_flags.enable_coverage,
+        cli.workspace_env.clone(),
     )
-    .with_workspace_env(cli.workspace_env.clone())
     .with_project_manifest_path(project_manifest_path.as_deref());
     let resolve_output = resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
     let output = UserDiagnostics::from_flags(&cli);

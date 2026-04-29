@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 
 use anyhow::bail;
-use moonutil::dirs::PackageDirs;
+use moonutil::dirs::{PackageDirs, WorkRootSelection};
 
 use super::UniversalFlags;
 
@@ -60,7 +60,7 @@ pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Resu
                 bail!("dry-run is not supported for work init")
             }
 
-            let workspace_root = work_root(&cli, false)?;
+            let workspace_root = work_root(&cli, WorkRootSelection::CreateWorkspace)?;
             mooncake::pkg::init_workspace(&workspace_root, &cmd.paths, cli.quiet)
         }
         WorkSubcommands::Use(cmd) => {
@@ -68,7 +68,7 @@ pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Resu
                 bail!("dry-run is not supported for work use")
             }
 
-            let workspace_root = work_root(&cli, true)?;
+            let workspace_root = work_root(&cli, WorkRootSelection::ReuseExistingWorkspace)?;
             mooncake::pkg::use_workspace(&workspace_root, &cmd.paths, cli.quiet)
         }
         WorkSubcommands::Sync => {
@@ -85,8 +85,8 @@ pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Resu
     }
 }
 
-fn work_root(cli: &UniversalFlags, prefer_existing_workspace: bool) -> anyhow::Result<PathBuf> {
+fn work_root(cli: &UniversalFlags, selection: WorkRootSelection) -> anyhow::Result<PathBuf> {
     Ok(cli
         .source_tgt_dir
-        .work_root(prefer_existing_workspace, cli.workspace_env.clone())?)
+        .work_root(selection, cli.workspace_env.clone())?)
 }

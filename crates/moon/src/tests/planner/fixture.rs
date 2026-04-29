@@ -21,7 +21,7 @@ use moonbuild_debug::graph::debug_dump_build_graph;
 use std::path::PathBuf;
 
 use moonbuild_rupes_recta::ResolveOutput;
-use moonutil::{cli::UniversalFlags, common::BUILD_DIR, dirs::PackageDirs};
+use moonutil::{cli::UniversalFlags, common::BUILD_DIR, dirs::WorkspaceEnv};
 
 use crate::cli::{
     BenchSubcommand, BuildSubcommand, CheckSubcommand, MoonBuildCli, MoonBuildSubcommands,
@@ -40,12 +40,14 @@ impl PlanningFixture {
         // These planner tests only inspect graph construction, so they can use
         // the checked-in fixture directly without copying it to a temp directory.
         let source_dir = dunce::canonicalize(case_root.join(case))?;
-        let package_dirs =
-            PackageDirs::from_source_and_target(source_dir.clone(), source_dir.join(BUILD_DIR));
-        let target_dir = package_dirs.target_dir;
-        let mooncakes_dir = package_dirs.mooncakes_dir;
-        let resolve_cfg =
-            moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(true, false, false);
+        let target_dir = source_dir.join(BUILD_DIR);
+        let mooncakes_dir = source_dir.join(".mooncakes");
+        let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+            true,
+            false,
+            false,
+            WorkspaceEnv::Auto,
+        );
         let resolve_output =
             moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
         Ok(Self {
