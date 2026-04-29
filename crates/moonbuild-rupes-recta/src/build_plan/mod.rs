@@ -374,6 +374,11 @@ pub enum BuildPlanConstructError {
     MalformedStubCCFlags(PackageFQNWithSource),
     #[error("Malformed stub cc link flags in package {0}")]
     MalformedStubCCLinkFlags(PackageFQNWithSource),
+    #[error("Invalid pre-build rule in package {package}: {message}")]
+    InvalidPrebuildRule {
+        package: PackageFQNWithSource,
+        message: String,
+    },
 
     #[error(
         "Package {package}'s (possibly transitive) dependency {dep} \

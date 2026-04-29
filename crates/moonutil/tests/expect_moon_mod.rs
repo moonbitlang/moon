@@ -238,6 +238,27 @@ import {
 }
 
 #[test]
+fn read_module_from_dsl_rejects_duplicate_define_rule_names() {
+    let dir = temp_dir("duplicate-define-rule-module-read");
+    let path = dir.join("moon.mod");
+    std::fs::write(
+        &path,
+        r#"name = "example/mod"
+define_rule(name: "rule1", command: "exe1")
+define_rule(name: "rule1", command: "exe2")
+"#,
+    )
+    .unwrap();
+
+    let err = read_module_from_dsl(&path).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Duplicate define_rule name `rule1` found in moon.mod."),
+        "{err:?}"
+    );
+}
+
+#[test]
 fn write_module_dsl_uses_canonical_sections() {
     let dir = temp_dir("canonical-module");
     let module: MoonModJSON = serde_json_lenient::from_str(

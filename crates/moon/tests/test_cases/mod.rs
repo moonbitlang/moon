@@ -1463,6 +1463,32 @@ fn test_pre_build() {
 }
 
 #[test]
+#[cfg(unix)]
+fn test_define_rule_dev_build() {
+    let dir = TestDir::new("define_rule_dev_build.in");
+
+    assert!(!dir.join("main.mbt").exists());
+    assert!(!dir.join("helper.mbt").exists());
+
+    get_stderr(&dir, ["check"]);
+
+    check(
+        read(dir.join("main.mbt")),
+        expect![[r#"
+            ///|
+            fn main { println(helper()) }
+        "#]],
+    );
+    check(
+        read(dir.join("helper.mbt")),
+        expect![[r#"
+            ///|
+            fn helper() -> String { "hello from dev build" }
+        "#]],
+    );
+}
+
+#[test]
 fn test_pre_build_mooncake_bin_shape() {
     let top_dir = TestDir::new("pre_build_mooncake_bin_shape.in");
     let dir = top_dir.join("user.in");

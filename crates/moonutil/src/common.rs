@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::cond_expr::{CompileCondition, OptLevel};
-use crate::module::{MoonMod, MoonModJSON};
+use crate::module::{MoonMod, MoonModDefineRule, MoonModJSON};
 use crate::moon_pkg;
 use crate::mooncakes::ModuleName;
 use crate::package::{
@@ -305,6 +305,7 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         ("warnings", false),
         ("name", false),
         ("version", false),
+        ("define_rule", true),
         ("supported_targets", false),
     ]);
     let mut map = serde_json_lenient::Map::new();
@@ -350,6 +351,21 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
             );
         }
     }
+    let define_rule = if let Some(define_rules) = map.remove("define_rule") {
+        let define_rules: Vec<MoonModDefineRule> = serde_json_lenient::from_value(define_rules)?;
+        let mut names = HashSet::new();
+        for rule in &define_rules {
+            if !names.insert(rule.name.as_str()) {
+                bail!(
+                    "Duplicate define_rule name `{}` found in moon.mod.",
+                    rule.name
+                );
+            }
+        }
+        Some(define_rules)
+    } else {
+        None
+    };
     let supported_targets = map.remove("supported_targets");
     let legacy_supported_targets = map.remove("supported-targets");
     match (supported_targets, legacy_supported_targets) {
@@ -420,7 +436,9 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
             return Err(anyhow::Error::new(SourceError::NotSubdirectory));
         }
     }
-    j.try_into().map_err(anyhow::Error::new)
+    let mut module: MoonMod = j.try_into().map_err(anyhow::Error::new)?;
+    module.define_rule = define_rule;
+    Ok(module)
 }
 
 pub fn read_module_from_json(path: &Path) -> Result<MoonMod, MoonModJSONFormatError> {

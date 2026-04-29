@@ -362,7 +362,7 @@ impl BuildPlanNode {
                 let pkg = packages.get_package(*package_id);
                 let cmd = &pkg.raw.pre_build.as_ref().expect("prebuild exists")[*index as usize];
                 let outputs: Vec<String> = cmd
-                    .output
+                    .output()
                     .iter()
                     .map(|path| {
                         std::path::Path::new(path)

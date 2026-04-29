@@ -566,10 +566,32 @@ impl Link {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
-pub struct MoonPkgGenerate {
-    pub input: StringOrArray,
-    pub output: StringOrArray,
-    pub command: String,
+#[serde(untagged)]
+pub enum MoonPkgGenerate {
+    Direct {
+        input: StringOrArray,
+        output: StringOrArray,
+        command: String,
+    },
+    Rule {
+        rule: String,
+        input: StringOrArray,
+        output: StringOrArray,
+    },
+}
+
+impl MoonPkgGenerate {
+    pub fn input(&self) -> &StringOrArray {
+        match self {
+            MoonPkgGenerate::Direct { input, .. } | MoonPkgGenerate::Rule { input, .. } => input,
+        }
+    }
+
+    pub fn output(&self) -> &StringOrArray {
+        match self {
+            MoonPkgGenerate::Direct { output, .. } | MoonPkgGenerate::Rule { output, .. } => output,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -691,6 +713,7 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         ("test-import", false),
         ("options", false),
         ("warnings", false),
+        ("dev_build", true),
         ("supported_targets", false),
     ]);
     let mut map = serde_json_lenient::Map::new();
@@ -760,6 +783,13 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
             map.insert(String::from("supported-targets"), legacy_supported_targets);
         }
         (None, None) => {}
+    }
+    let dev_build = map.remove("dev_build");
+    if let Some(v) = dev_build {
+        if map.contains_key("pre-build") {
+            bail!("`dev_build` cannot be used together with `pre-build` in moon.pkg.");
+        }
+        map.insert(String::from("pre-build"), v);
     }
     let json = Value::Object(map);
     let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
@@ -947,6 +977,55 @@ options(
     let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
 
     assert!(pkg.proof_enabled);
+}
+
+#[test]
+fn convert_pkg_dsl_supports_dev_build_rule() {
+    let json = crate::moon_pkg::parse(
+        r#"
+dev_build(rule: "rule1", input: "abc", output: "def")
+"#,
+    )
+    .unwrap();
+
+    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
+    let pre_build = pkg.pre_build.unwrap();
+    let MoonPkgGenerate::Rule {
+        rule,
+        input,
+        output,
+    } = &pre_build[0]
+    else {
+        panic!("expected rule pre-build");
+    };
+    assert_eq!(rule, "rule1");
+    let StringOrArray::String(input) = input else {
+        panic!("expected string input");
+    };
+    assert_eq!(input, "abc");
+    let StringOrArray::String(output) = output else {
+        panic!("expected string output");
+    };
+    assert_eq!(output, "def");
+}
+
+#[test]
+fn convert_pkg_dsl_rejects_mixed_dev_build_and_pre_build() {
+    let json = crate::moon_pkg::parse(
+        r#"
+dev_build(rule: "rule1", input: "abc", output: "def")
+options(
+  "pre-build": [],
+)
+"#,
+    )
+    .unwrap();
+
+    let err = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("`dev_build` cannot be used together with `pre-build`")
+    );
 }
 
 #[test]

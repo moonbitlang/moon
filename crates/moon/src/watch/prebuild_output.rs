@@ -74,10 +74,10 @@ fn push_prebuild_paths(
     pkg_root: &Path,
 ) {
     for v in pre_build {
-        for i in v.input.iter() {
+        for i in v.input().iter() {
             watched_paths.push(pkg_root.join(i));
         }
-        for o in v.output.iter() {
+        for o in v.output().iter() {
             let path = pkg_root.join(o);
             ignored_paths.push(path);
         }

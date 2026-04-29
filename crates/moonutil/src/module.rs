@@ -52,6 +52,7 @@ pub struct MoonMod {
     pub link_flags: Option<Vec<String>>,
     pub checksum: Option<String>,
     pub source: Option<String>,
+    pub define_rule: Option<Vec<MoonModDefineRule>>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
@@ -67,6 +68,12 @@ pub struct MoonMod {
 
     pub scripts: Option<IndexMap<String, String>>,
     pub __moonbit_unstable_prebuild: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MoonModDefineRule {
+    pub name: String,
+    pub command: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -227,6 +234,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
             link_flags: j.link_flags,
             checksum: j.checksum,
             source,
+            define_rule: None,
             ext: j.ext,
 
             warn_list: j.warn_list,
