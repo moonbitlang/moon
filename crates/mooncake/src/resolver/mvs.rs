@@ -638,7 +638,7 @@ mod test {
                 link_flags: None,
                 checksum: None,
                 source: None,
-                define_rule: None,
+                rule: None,
                 ext: Null,
                 warn_list: None,
                 include: None,

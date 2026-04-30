@@ -1453,13 +1453,13 @@ fn resolve_prebuild_rule_command(
     rule_name: &str,
     package: PackageFQNWithSource,
 ) -> Result<String, BuildPlanConstructError> {
-    let Some(define_rules) = &module.define_rule else {
+    let Some(rules) = &module.rule else {
         return Err(BuildPlanConstructError::InvalidPrebuildRule {
             package,
             message: format!("Unknown dev_build rule `{}` in moon.pkg.", rule_name),
         });
     };
-    for rule in define_rules {
+    for rule in rules {
         if rule.name == rule_name {
             return Ok(rule.command.clone());
         }
@@ -1476,7 +1476,7 @@ mod tests {
 
     fn read_module(source: &str) -> MoonMod {
         let path = std::env::temp_dir().join(format!(
-            "moonbuild-rr-define-rule-{}-{}.moon.mod",
+            "moonbuild-rr-rule-{}-{}.moon.mod",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1497,12 +1497,12 @@ mod tests {
     }
 
     #[test]
-    fn resolve_prebuild_rule_command_uses_define_rule() {
+    fn resolve_prebuild_rule_command_uses_rule() {
         let module = read_module(
             r#"
 name = "test"
-define_rule(name: "rule1", command: "exe1")
-define_rule(name: "rule2", command: "exe2")
+rule(name: "rule1", command: "exe1")
+rule(name: "rule2", command: "exe2")
 "#,
         );
 
@@ -1517,7 +1517,7 @@ define_rule(name: "rule2", command: "exe2")
         let module = read_module(
             r#"
 name = "test"
-define_rule(name: "rule1", command: "exe1")
+rule(name: "rule1", command: "exe1")
 "#,
         );
 

@@ -155,7 +155,7 @@ pub fn write(config: &Config, base_dir: &Path) {
         link_flags: None,
         checksum: None,
         source: None,
-        define_rule: None,
+        rule: None,
         ext: Default::default(),
 
         warn_list: None,

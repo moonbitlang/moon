@@ -238,14 +238,14 @@ import {
 }
 
 #[test]
-fn read_module_from_dsl_rejects_duplicate_define_rule_names() {
-    let dir = temp_dir("duplicate-define-rule-module-read");
+fn read_module_from_dsl_rejects_duplicate_rule_names() {
+    let dir = temp_dir("duplicate-rule-module-read");
     let path = dir.join("moon.mod");
     std::fs::write(
         &path,
         r#"name = "example/mod"
-define_rule(name: "rule1", command: "exe1")
-define_rule(name: "rule1", command: "exe2")
+rule(name: "rule1", command: "exe1")
+rule(name: "rule1", command: "exe2")
 "#,
     )
     .unwrap();
@@ -253,38 +253,38 @@ define_rule(name: "rule1", command: "exe2")
     let err = read_module_from_dsl(&path).unwrap_err();
     assert!(
         err.to_string()
-            .contains("Duplicate define_rule name `rule1` found in moon.mod."),
+            .contains("Duplicate rule name `rule1` found in moon.mod."),
         "{err:?}"
     );
 }
 
 #[test]
-fn write_module_dsl_preserves_define_rule() {
-    let dir = temp_dir("preserve-define-rule-module");
+fn write_module_dsl_preserves_rule() {
+    let dir = temp_dir("preserve-rule-module");
     let path = dir.join("moon.mod");
     std::fs::write(
         &path,
         r#"name = "example/mod"
-define_rule(name: "rule1", command: "exe1 $input -o $output")
-define_rule(name: "rule2", command: "exe2 $input -o $output")
+rule(name: "rule1", command: "exe1 $input -o $output")
+rule(name: "rule2", command: "exe2 $input -o $output")
 "#,
     )
     .unwrap();
 
     let module = read_module_from_dsl(&path).unwrap();
     let module_json = convert_module_to_mod_json(module);
-    assert!(module_json.define_rule.is_some());
+    assert!(module_json.rule.is_some());
     let json = serde_json_lenient::to_string(&module_json).unwrap();
-    assert!(json.contains("\"define_rule\""));
+    assert!(json.contains("\"rule\""));
     write_module_dsl_to_file(&module_json, &dir).unwrap();
 
     let module = read_module_from_dsl(&path).unwrap();
-    let define_rule = module.define_rule.unwrap();
-    assert_eq!(define_rule.len(), 2);
-    assert_eq!(define_rule[0].name, "rule1");
-    assert_eq!(define_rule[0].command, "exe1 $input -o $output");
-    assert_eq!(define_rule[1].name, "rule2");
-    assert_eq!(define_rule[1].command, "exe2 $input -o $output");
+    let rule = module.rule.unwrap();
+    assert_eq!(rule.len(), 2);
+    assert_eq!(rule[0].name, "rule1");
+    assert_eq!(rule[0].command, "exe1 $input -o $output");
+    assert_eq!(rule[1].name, "rule2");
+    assert_eq!(rule[1].command, "exe2 $input -o $output");
 }
 
 #[test]

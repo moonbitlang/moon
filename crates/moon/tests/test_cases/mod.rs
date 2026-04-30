@@ -1464,7 +1464,7 @@ fn test_pre_build() {
 
 #[test]
 #[cfg(unix)]
-fn test_define_rule_dev_build() {
+fn test_rule_dev_build() {
     let dir = TestDir::new("define_rule_dev_build.in");
 
     assert!(!dir.join("main.mbt").exists());
