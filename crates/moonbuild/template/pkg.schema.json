@@ -302,23 +302,46 @@
       }
     },
     "MoonPkgGenerate": {
-      "type": "object",
-      "required": [
-        "command",
-        "input",
-        "output"
-      ],
-      "properties": {
-        "command": {
-          "type": "string"
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "command",
+            "input",
+            "output"
+          ],
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/StringOrArray"
+            },
+            "output": {
+              "$ref": "#/definitions/StringOrArray"
+            }
+          }
         },
-        "input": {
-          "$ref": "#/definitions/StringOrArray"
-        },
-        "output": {
-          "$ref": "#/definitions/StringOrArray"
+        {
+          "type": "object",
+          "required": [
+            "input",
+            "output",
+            "rule"
+          ],
+          "properties": {
+            "input": {
+              "$ref": "#/definitions/StringOrArray"
+            },
+            "output": {
+              "$ref": "#/definitions/StringOrArray"
+            },
+            "rule": {
+              "type": "string"
+            }
+          }
         }
-      }
+      ]
     },
     "NativeLinkConfig": {
       "description": "Native C/C++ compilation and linking configuration for MoonBit packages.\n\nControls how C stub files and main executables are compiled and linked. The build system uses these flags differently depending on compilation mode: normal mode creates static libraries, while TCC mode creates dynamic libraries.",

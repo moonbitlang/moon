@@ -33,8 +33,9 @@ use moonutil::{
         TargetBackend, is_moon_mod, is_moon_pkg, is_moon_script_ignored,
     },
     compiler_flags::{CC, Toolchain},
+    module::MoonMod,
     mooncakes::ModuleId,
-    package::SupportedTargetsDeclKind,
+    package::{MoonPkgGenerate, SupportedTargetsDeclKind},
 };
 use regex::Regex;
 use tracing::{Level, debug, instrument, trace, warn};
@@ -44,6 +45,7 @@ use crate::{
     cond_comp::{self, CompileCondition},
     discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
+    pkg_name::PackageFQNWithSource,
     user_warning::UserWarning,
 };
 
@@ -456,7 +458,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let prebuild_output_iter = pkg.raw.pre_build.iter().flat_map(|pb| {
             pb.iter().flat_map(|r#gen| {
                 r#gen
-                    .output
+                    .output()
                     .iter()
                     .filter(|x| x.ends_with(".mbt") || x.ends_with(DOT_MBT_DOT_MD))
                     .map(|x| Cow::Owned(pkg.root_path.join(x)))
@@ -1313,13 +1315,17 @@ impl<'a> BuildPlanConstructor<'a> {
         // For details, also see `/docs/dev/reference/prebuild.md`
 
         self.need_node(node);
-        self.populate_prebuild(_package, _index);
+        self.populate_prebuild(_package, _index)?;
         self.resolved_node(node);
 
         Ok(())
     }
 
-    fn populate_prebuild(&mut self, package: PackageId, index: u32) {
+    fn populate_prebuild(
+        &mut self,
+        package: PackageId,
+        index: u32,
+    ) -> Result<(), BuildPlanConstructError> {
         if self
             .res
             .prebuild_info
@@ -1328,7 +1334,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .is_some()
         {
             // Already populated
-            return;
+            return Ok(());
         }
 
         let pkg = self.input.pkg_dirs.get_package(package);
@@ -1338,7 +1344,7 @@ impl<'a> BuildPlanConstructor<'a> {
             &pkg.raw.pre_build.as_ref().expect("Prebuild must exist")[index as usize];
 
         // Warn about suspicious outputs
-        for output in prebuild_cmd.output.iter() {
+        for output in prebuild_cmd.output().iter() {
             let output: &Path = output.as_ref();
             let Some(filename) = output.file_name().and_then(OsStr::to_str) else {
                 continue;
@@ -1373,19 +1379,31 @@ impl<'a> BuildPlanConstructor<'a> {
         // FIXME: these paths are used again when determining input files in
         // `Self::populate_target_info`, should we cache them somewhere?
         let input_paths = prebuild_cmd
-            .input
+            .input()
             .iter()
             .map(|x| pkg.root_path.join(x))
             .collect::<Vec<_>>();
         let output_paths = prebuild_cmd
-            .output
+            .output()
             .iter()
             .map(|x| pkg.root_path.join(x))
             .collect::<Vec<_>>();
 
+        let command = match prebuild_cmd {
+            MoonPkgGenerate::Direct { command, .. } => Cow::Borrowed(command.as_str()),
+            MoonPkgGenerate::Rule { rule, .. } => {
+                let module_info = self.input.module_rel.module_info(pkg.module);
+                Cow::Owned(resolve_prebuild_rule_command(
+                    module_info,
+                    rule,
+                    pkg.fqn.clone().into(),
+                )?)
+            }
+        };
+
         // Handle command expansion and tokenization
         let command = handle_build_command_new(
-            &prebuild_cmd.command,
+            &command,
             module,
             mooncakes_dir,
             &pkg.root_path,
@@ -1405,6 +1423,7 @@ impl<'a> BuildPlanConstructor<'a> {
             v.push(None);
         }
         v[index as usize] = Some(info);
+        Ok(())
     }
 
     pub(super) fn build_lex_prebuild(
@@ -1426,6 +1445,85 @@ impl<'a> BuildPlanConstructor<'a> {
         self.need_node(node);
         self.resolved_node(node);
         Ok(())
+    }
+}
+
+fn resolve_prebuild_rule_command(
+    module: &MoonMod,
+    rule_name: &str,
+    package: PackageFQNWithSource,
+) -> Result<String, BuildPlanConstructError> {
+    let Some(rules) = &module.rule else {
+        return Err(BuildPlanConstructError::InvalidPrebuildRule {
+            package,
+            message: format!("Unknown dev_build rule `{}` in moon.pkg.", rule_name),
+        });
+    };
+    for rule in rules {
+        if rule.name == rule_name {
+            return Ok(rule.command.clone());
+        }
+    }
+    Err(BuildPlanConstructError::InvalidPrebuildRule {
+        package,
+        message: format!("Unknown dev_build rule `{}` in moon.pkg.", rule_name),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read_module(source: &str) -> MoonMod {
+        let path = std::env::temp_dir().join(format!(
+            "moonbuild-rr-rule-{}-{}.moon.mod",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, source).unwrap();
+        let module = moonutil::common::read_module_from_dsl(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        module
+    }
+
+    fn test_package(module: &MoonMod) -> PackageFQNWithSource {
+        PackageFQNWithSource::new(
+            moonutil::mooncakes::ModuleSource::from_local_module(module, std::path::Path::new(".")),
+            crate::pkg_name::PackagePath::new("").unwrap(),
+        )
+    }
+
+    #[test]
+    fn resolve_prebuild_rule_command_uses_rule() {
+        let module = read_module(
+            r#"
+name = "test"
+rule(name: "rule1", command: "exe1")
+rule(name: "rule2", command: "exe2")
+"#,
+        );
+
+        assert_eq!(
+            resolve_prebuild_rule_command(&module, "rule2", test_package(&module)).unwrap(),
+            "exe2"
+        );
+    }
+
+    #[test]
+    fn resolve_prebuild_rule_command_rejects_unknown_rule() {
+        let module = read_module(
+            r#"
+name = "test"
+rule(name: "rule1", command: "exe1")
+"#,
+        );
+
+        let err =
+            resolve_prebuild_rule_command(&module, "missing", test_package(&module)).unwrap_err();
+        assert!(err.to_string().contains("Unknown dev_build rule"));
     }
 }
 

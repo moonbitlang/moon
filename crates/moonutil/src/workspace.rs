@@ -132,7 +132,14 @@ pub fn canonical_workspace_module_dirs(
 }
 
 fn parse_workspace_dsl(content: &str) -> anyhow::Result<MoonWork> {
-    let json = moon_pkg::parse(content)?;
+    let dsl = moon_pkg::parse(content)?;
+    let mut json = serde_json_lenient::Map::new();
+    for (key, value) in dsl.iter() {
+        if json.insert(key.to_string(), value.clone()).is_some() {
+            anyhow::bail!("Duplicate key '{}' found in moon.work.", key);
+        }
+    }
+    let json = serde_json_lenient::Value::Object(json);
     let workspace: MoonWork = serde_json_lenient::from_value(json)?;
     Ok(workspace)
 }

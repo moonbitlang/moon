@@ -387,7 +387,7 @@ fn expect_build() {
             targets: None,
             pre_build: Some(
                 [
-                    MoonPkgGenerate {
+                    Direct {
                         input: String(
                             "source1.mbt",
                         ),
@@ -396,7 +396,7 @@ fn expect_build() {
                         ),
                         command: "exe1 $input -o $output",
                     },
-                    MoonPkgGenerate {
+                    Direct {
                         input: String(
                             "source2.mbt",
                         ),

@@ -449,7 +449,7 @@ fn build_for_package(
         .flat_map(|prebuild_plans| {
             prebuild_plans
                 .iter()
-                .flat_map(|plan| plan.output.iter().map(|path| path.as_str()))
+                .flat_map(|plan| plan.output().iter().map(|path| path.as_str()))
         })
         .collect::<HashSet<_>>();
 

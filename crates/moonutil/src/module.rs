@@ -52,6 +52,7 @@ pub struct MoonMod {
     pub link_flags: Option<Vec<String>>,
     pub checksum: Option<String>,
     pub source: Option<String>,
+    pub rule: Option<Vec<MoonModRule>>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
@@ -67,6 +68,12 @@ pub struct MoonMod {
 
     pub scripts: Option<IndexMap<String, String>>,
     pub __moonbit_unstable_prebuild: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MoonModRule {
+    pub name: String,
+    pub command: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
@@ -131,6 +138,11 @@ pub struct MoonModJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "root-dir")]
     pub source: Option<String>,
+
+    /// Rules that can be referenced by package-level `dev_build` entries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub rule: Option<Vec<MoonModRule>>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
@@ -227,6 +239,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
             link_flags: j.link_flags,
             checksum: j.checksum,
             source,
+            rule: j.rule,
             ext: j.ext,
 
             warn_list: j.warn_list,
@@ -261,6 +274,7 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         link_flags: m.link_flags,
         checksum: m.checksum,
         source: m.source,
+        rule: m.rule,
         ext: m.ext,
 
         warn_list: m.warn_list,

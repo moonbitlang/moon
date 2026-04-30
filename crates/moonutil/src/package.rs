@@ -29,6 +29,7 @@ pub use crate::supported_targets::resolve_supported_targets;
 use crate::{
     common::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     cond_expr::{CompileCondition, CondExprs},
+    moon_pkg,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -565,10 +566,32 @@ impl Link {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
-pub struct MoonPkgGenerate {
-    pub input: StringOrArray,
-    pub output: StringOrArray,
-    pub command: String,
+#[serde(untagged)]
+pub enum MoonPkgGenerate {
+    Direct {
+        input: StringOrArray,
+        output: StringOrArray,
+        command: String,
+    },
+    Rule {
+        rule: String,
+        input: StringOrArray,
+        output: StringOrArray,
+    },
+}
+
+impl MoonPkgGenerate {
+    pub fn input(&self) -> &StringOrArray {
+        match self {
+            MoonPkgGenerate::Direct { input, .. } | MoonPkgGenerate::Rule { input, .. } => input,
+        }
+    }
+
+    pub fn output(&self) -> &StringOrArray {
+        match self {
+            MoonPkgGenerate::Direct { output, .. } | MoonPkgGenerate::Rule { output, .. } => output,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -670,85 +693,105 @@ impl Import {
 }
 
 /// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
-pub fn convert_pkg_dsl_to_package(json: Value) -> anyhow::Result<MoonPkg> {
-    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(json, true)?.0)
+pub fn convert_pkg_dsl_to_package(dsl: moon_pkg::Dsl) -> anyhow::Result<MoonPkg> {
+    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, true)?.0)
 }
 
 pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
-    json: Value,
+    dsl: moon_pkg::Dsl,
     emit_warnings: bool,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     // It will validate the top-level keys and merge `options` into the root level.
     // Might be removed in the future, after we remove the moon.pkg.json and have an
     // AST to represent moon.pkg files.
-    let allowed_toplevel_keys = [
-        "import",
-        "wbtest-import",
-        "test-import",
-        "options",
-        "warnings",
-        "supported_targets",
-    ];
-    let json = match json {
-        Value::Object(mut map) => {
-            for key in map.keys() {
-                if !allowed_toplevel_keys.contains(&key.as_str()) {
-                    bail!("Unexpected key '{}' found in moon.pkg.", key,);
-                }
+
+    // Top-level DSL keys accepted in `moon.pkg`; the boolean says whether
+    // repeated entries should be collected as a JSON array instead of rejected.
+    let toplevel_keys = std::collections::HashMap::from([
+        ("import", false),
+        ("wbtest-import", false),
+        ("test-import", false),
+        ("options", false),
+        ("warnings", false),
+        ("dev_build", true),
+        ("supported_targets", false),
+    ]);
+    let mut map = serde_json_lenient::Map::new();
+    for (key, value) in dsl.iter() {
+        let Some(&allow_duplicate) = toplevel_keys.get(key) else {
+            bail!("Unexpected key '{}' found in moon.pkg.", key);
+        };
+        if allow_duplicate {
+            match map
+                .entry(key.to_string())
+                .or_insert_with(|| Value::Array(Vec::new()))
+            {
+                Value::Array(values) => values.push(value.clone()),
+                _ => unreachable!("duplicate key should be initialized as array"),
             }
-            if let Value::Object(options) = map.remove("options").unwrap_or_default() {
-                for (k, v) in options {
-                    map.insert(k, v);
-                }
-            }
-            if let Some(warnings) = map.remove("warnings") {
-                let warnings = match warnings {
-                    Value::String(s) => s,
-                    _ => String::new(),
-                };
-                let legacy_warn_list = match map.remove("warn-list") {
-                    Some(Value::String(s)) => s,
-                    _ => String::new(),
-                };
-                let merged = format!("{warnings}{legacy_warn_list}");
-                if !merged.is_empty() {
-                    map.insert(String::from("warn-list"), Value::String(merged));
-                }
-            }
-            let supported_targets = map.remove("supported_targets");
-            let legacy_supported_targets = map.remove("supported-targets");
-            match (supported_targets, legacy_supported_targets) {
-                (Some(supported_targets), Some(_)) => {
-                    if emit_warnings {
-                        eprintln!(
-                            "{}",
-                            "Warning: Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value."
-                                .yellow()
-                                .bold()
-                        );
-                    }
-                    map.insert(String::from("supported-targets"), supported_targets);
-                }
-                (Some(supported_targets), None) => {
-                    map.insert(String::from("supported-targets"), supported_targets);
-                }
-                (None, Some(legacy_supported_targets)) => {
-                    if emit_warnings {
-                        eprintln!(
-                            "{}",
-                            "Warning: `options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
-                                .yellow()
-                                .bold()
-                        );
-                    }
-                    map.insert(String::from("supported-targets"), legacy_supported_targets);
-                }
-                (None, None) => {}
-            }
-            Value::Object(map)
+            continue;
         }
-        _ => json,
-    };
+        if map.insert(key.to_string(), value.clone()).is_some() {
+            bail!("Duplicate key '{}' found in moon.pkg.", key);
+        }
+    }
+    if let Value::Object(options) = map.remove("options").unwrap_or_default() {
+        for (k, v) in options {
+            map.insert(k, v);
+        }
+    }
+    if let Some(warnings) = map.remove("warnings") {
+        let warnings = match warnings {
+            Value::String(s) => s,
+            _ => String::new(),
+        };
+        let legacy_warn_list = match map.remove("warn-list") {
+            Some(Value::String(s)) => s,
+            _ => String::new(),
+        };
+        let merged = format!("{warnings}{legacy_warn_list}");
+        if !merged.is_empty() {
+            map.insert(String::from("warn-list"), Value::String(merged));
+        }
+    }
+    let supported_targets = map.remove("supported_targets");
+    let legacy_supported_targets = map.remove("supported-targets");
+    match (supported_targets, legacy_supported_targets) {
+        (Some(supported_targets), Some(_)) => {
+            if emit_warnings {
+                eprintln!(
+                    "{}",
+                    "Warning: Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value."
+                        .yellow()
+                        .bold()
+                );
+            }
+            map.insert(String::from("supported-targets"), supported_targets);
+        }
+        (Some(supported_targets), None) => {
+            map.insert(String::from("supported-targets"), supported_targets);
+        }
+        (None, Some(legacy_supported_targets)) => {
+            if emit_warnings {
+                eprintln!(
+                    "{}",
+                    "Warning: `options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
+                        .yellow()
+                        .bold()
+                );
+            }
+            map.insert(String::from("supported-targets"), legacy_supported_targets);
+        }
+        (None, None) => {}
+    }
+    let dev_build = map.remove("dev_build");
+    if let Some(v) = dev_build {
+        if map.contains_key("pre-build") {
+            bail!("`dev_build` cannot be used together with `pre-build` in moon.pkg.");
+        }
+        map.insert(String::from("pre-build"), v);
+    }
+    let json = Value::Object(map);
     let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
     convert_pkg_json_to_package_with_supported_targets_decl(pkg_json, emit_warnings)
 }
@@ -934,6 +977,55 @@ options(
     let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
 
     assert!(pkg.proof_enabled);
+}
+
+#[test]
+fn convert_pkg_dsl_supports_dev_build_rule() {
+    let json = crate::moon_pkg::parse(
+        r#"
+dev_build(rule: "rule1", input: "abc", output: "def")
+"#,
+    )
+    .unwrap();
+
+    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
+    let pre_build = pkg.pre_build.unwrap();
+    let MoonPkgGenerate::Rule {
+        rule,
+        input,
+        output,
+    } = &pre_build[0]
+    else {
+        panic!("expected rule pre-build");
+    };
+    assert_eq!(rule, "rule1");
+    let StringOrArray::String(input) = input else {
+        panic!("expected string input");
+    };
+    assert_eq!(input, "abc");
+    let StringOrArray::String(output) = output else {
+        panic!("expected string output");
+    };
+    assert_eq!(output, "def");
+}
+
+#[test]
+fn convert_pkg_dsl_rejects_mixed_dev_build_and_pre_build() {
+    let json = crate::moon_pkg::parse(
+        r#"
+dev_build(rule: "rule1", input: "abc", output: "def")
+options(
+  "pre-build": [],
+)
+"#,
+    )
+    .unwrap();
+
+    let err = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("`dev_build` cannot be used together with `pre-build`")
+    );
 }
 
 #[test]

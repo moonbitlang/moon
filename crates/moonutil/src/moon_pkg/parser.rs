@@ -16,9 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::moon_pkg::lexer;
 #[cfg(test)]
 use crate::moon_pkg::tokenize;
+use crate::moon_pkg::{lexer, syntax::Dsl};
 
 use super::lexer::{Token, TokenKind};
 use anyhow::anyhow;
@@ -327,7 +327,7 @@ impl Parser {
         }
     }
 
-    fn parse_statements(&self) -> Result<Value, ParseError> {
+    fn parse_statements(&self) -> Result<Vec<(String, Value)>, ParseError> {
         let mut statements = Vec::new();
         while self.peek().kind() != TokenKind::EOF {
             let stmt = self.parse_statement()?;
@@ -336,20 +336,21 @@ impl Parser {
             }
             statements.push(stmt);
         }
-        Ok(Value::Object(Map::from_iter(statements)))
+        Ok(statements)
     }
 
-    fn parse(tokens: Vec<Token>) -> Result<Value, ParseError> {
+    fn parse(tokens: Vec<Token>) -> Result<Dsl, ParseError> {
         let state = Parser {
             tokens,
             index: Cell::new(0),
         };
-        state.parse_statements()
+        let entries = state.parse_statements()?;
+        Ok(Dsl { entries })
     }
 }
 
 /// Parse MoonPkg DSL input string into serde_json_lenient::Value
-pub fn parse(input: &str) -> anyhow::Result<Value> {
+pub fn parse(input: &str) -> anyhow::Result<Dsl> {
     let tokens = lexer::tokenize(input)?;
     Parser::parse(tokens).map_err(|e| anyhow!("Parsing error: {:?}", e))
 }
@@ -401,59 +402,76 @@ f(
     let tokens = tokenize(source).unwrap();
     let ast = Parser::parse(tokens).unwrap();
     expect_test::expect![[r#"
-        Object {
-            "import": Array [
-                String("path/to/pkg1"),
-                Object {
-                    "path": String("path/to/pkg2"),
-                    "alias": String("alias"),
-                },
-                Object {
-                    "path": String("path/to/pkg3"),
-                    "alias": String("alias3"),
-                },
-            ],
-            "test-import": Array [
-                String("path/to/pkg1"),
-            ],
-            "warnings": String("-fragile_match+all@deprecated_syntax"),
-            "options": Object {
-                "is_main": Bool(true),
-                "pre-build": Array [
+        Dsl {
+            entries: [
+                (
+                    "import",
+                    Array [
+                        String("path/to/pkg1"),
+                        Object {
+                            "path": String("path/to/pkg2"),
+                            "alias": String("alias"),
+                        },
+                        Object {
+                            "path": String("path/to/pkg3"),
+                            "alias": String("alias3"),
+                        },
+                    ],
+                ),
+                (
+                    "test-import",
+                    Array [
+                        String("path/to/pkg1"),
+                    ],
+                ),
+                (
+                    "warnings",
+                    String("-fragile_match+all@deprecated_syntax"),
+                ),
+                (
+                    "options",
                     Object {
-                        "command": String("wasmer run xx $input $output"),
-                        "input": String("input.mbt"),
-                        "output": String("output.moonpkg"),
-                    },
-                ],
-                "formatter": Object {
-                    "ignore": Array [
-                        String("file1.mbt"),
-                        String("file2.mbt"),
-                    ],
-                },
-                "supported-backends": Object {
-                    "file1.mbt": Array [
-                        String("or"),
-                        String("js"),
-                        Array [
-                            String("and"),
-                            String("wasm"),
-                            String("release"),
+                        "is_main": Bool(true),
+                        "pre-build": Array [
+                            Object {
+                                "command": String("wasmer run xx $input $output"),
+                                "input": String("input.mbt"),
+                                "output": String("output.moonpkg"),
+                            },
                         ],
-                    ],
-                    "file2.mbt": Array [
-                        String("native"),
-                    ],
-                    "file3.mbt": Array [
-                        String("native"),
-                    ],
-                },
-            },
-            "f": Object {
-                "label1": Array [],
-                "label2": Object {},
-            },
+                        "formatter": Object {
+                            "ignore": Array [
+                                String("file1.mbt"),
+                                String("file2.mbt"),
+                            ],
+                        },
+                        "supported-backends": Object {
+                            "file1.mbt": Array [
+                                String("or"),
+                                String("js"),
+                                Array [
+                                    String("and"),
+                                    String("wasm"),
+                                    String("release"),
+                                ],
+                            ],
+                            "file2.mbt": Array [
+                                String("native"),
+                            ],
+                            "file3.mbt": Array [
+                                String("native"),
+                            ],
+                        },
+                    },
+                ),
+                (
+                    "f",
+                    Object {
+                        "label1": Array [],
+                        "label2": Object {},
+                    },
+                ),
+            ],
         }
     "#]]
     .assert_debug_eq(&ast);
@@ -473,12 +491,20 @@ import "wbtest" {
     let tokens = tokenize(source).unwrap();
     let ast = Parser::parse(tokens).unwrap();
     expect_test::expect![[r#"
-        Object {
-            "test-import": Array [
-                String("path/to/pkg1"),
-            ],
-            "wbtest-import": Array [
-                String("path/to/pkg2"),
+        Dsl {
+            entries: [
+                (
+                    "test-import",
+                    Array [
+                        String("path/to/pkg1"),
+                    ],
+                ),
+                (
+                    "wbtest-import",
+                    Array [
+                        String("path/to/pkg2"),
+                    ],
+                ),
             ],
         }
     "#]]

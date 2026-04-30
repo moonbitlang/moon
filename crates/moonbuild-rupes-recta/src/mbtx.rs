@@ -46,9 +46,7 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
 
     let parsed = moonutil::moon_pkg::parse(&import_source)
         .with_context(|| format!("invalid .mbtx import syntax: `{import_source}`"))?;
-    let object = parsed.as_object().ok_or_else(|| {
-        anyhow::anyhow!("invalid .mbtx import syntax: malformed import statement")
-    })?;
+    let object: std::collections::HashMap<_, _> = parsed.iter().collect();
     if object.len() != 1 {
         anyhow::bail!("invalid .mbtx import syntax: malformed import statement");
     }
