@@ -69,15 +69,22 @@ jobs:
           aws s3 cp .\target\release\moon.exe "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/Windows-x86_64/"
           aws s3 cp .\target\release\moonrun.exe "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/Windows-x86_64/"
 
-  ubuntu-build:
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:16.04
-    steps:
-      - name: Install dependencies
-        run: |
-          apt update && apt install -y software-properties-common curl unzip build-essential git sudo coreutils
+  publish-ubuntu-image:
+    uses: ./.github/workflows/publish-ubuntu-image.yml
+    secrets: inherit
 
+  ubuntu-build:
+    needs: publish-ubuntu-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.publish-ubuntu-image.outputs.image_ref }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
       - name: Configure git
         run: git config --global core.autocrlf false
 
@@ -85,17 +92,6 @@ jobs:
         run: |
           git clone --depth 1 "https://${{ secrets.MOON_CLONE_PAT }}@github.com/moonbitlang/moon.git" "$GITHUB_WORKSPACE"
           git submodule update --init --recursive
-
-      - name: Install Rustup
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf "https://sh.rustup.rs" | sh -s -- --default-toolchain none -y
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
-      - name: Install Rust
-        run: |
-          rustup toolchain install ${{ env.toolchain }} --profile minimal --no-self-update
-        env:
-          toolchain: 1.90.0
 
       - name: Rust Version
         run: |
@@ -108,12 +104,6 @@ jobs:
 
       - name: Build
         run: cargo build --release
-
-      - name: Setup AWS
-        run: |
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          bash ./aws/install
 
       - name: Upload
         env:
