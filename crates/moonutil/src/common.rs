@@ -239,6 +239,36 @@ pub struct MoonModJSONFormatError {
     kind: MoonModJSONFormatErrorKind,
 }
 
+// moonfmt's mod_json input expects each DSL rule call as a repeated top-level
+// `rule` key rather than a JSON array, so this wrapper only customizes the
+// serialization used when writing moon.mod DSL.
+struct MoonfmtModJsonInput<'a>(&'a MoonModJSON);
+
+impl Serialize for MoonfmtModJsonInput<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::{Error, SerializeMap};
+
+        let mut value = serde_json_lenient::to_value(self.0).map_err(Error::custom)?;
+        let serde_json_lenient::Value::Object(map) = &mut value else {
+            unreachable!("MoonModJSON should serialize to an object");
+        };
+        let rules = map.remove("rule");
+        let mut output = serializer.serialize_map(None)?;
+        for (key, value) in map.iter() {
+            output.serialize_entry(key, value)?;
+        }
+        if let Some(serde_json_lenient::Value::Array(rules)) = rules {
+            for rule in rules {
+                output.serialize_entry("rule", &rule)?;
+            }
+        }
+        output.end()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum MoonModJSONFormatErrorKind {
     #[error("I/O error")]
@@ -510,7 +540,11 @@ pub fn write_module_dsl_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::R
 
     validate_module_dsl_deps(m.deps.as_ref())?;
 
-    let input = serde_json_lenient::to_string_pretty(m)?;
+    let input = if m.rule.is_some() {
+        serde_json_lenient::to_string_pretty(&MoonfmtModJsonInput(m))?
+    } else {
+        serde_json_lenient::to_string_pretty(m)?
+    };
     let mut child = Command::new(&*crate::BINARIES.moonfmt)
         .arg("-file-type")
         .arg("mod_json")
