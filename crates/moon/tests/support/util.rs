@@ -121,6 +121,17 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         .as_ref()
         .map(|node| s.replace(node.to_string_lossy().as_ref(), "node"))
         .unwrap_or(s);
+    const OPTIONAL_RANGE_INPUT: &str = "/release/bundle/range/range.mi:range";
+    let mut s = s;
+    while let Some(pos) = s.find(OPTIONAL_RANGE_INPUT) {
+        let Some(start) = s[..pos].rfind(" -i ") else {
+            break;
+        };
+        let end = pos
+            + OPTIONAL_RANGE_INPUT.len()
+            + usize::from(s[pos + OPTIONAL_RANGE_INPUT.len()..].starts_with('\''));
+        s.replace_range(start..end, "");
+    }
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 
