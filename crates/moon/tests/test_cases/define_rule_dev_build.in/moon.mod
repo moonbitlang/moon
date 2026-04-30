@@ -1,4 +1,11 @@
 name = "username/define_rule_dev_build"
 
-rule(name: "main_source", command: "cat $input >/dev/null && printf '///|\nfn main { println(helper()) }\n' > $output")
-rule(name: "helper_source", command: "printf '///|\nfn helper() -> String { \"%s\" }\n' \"$(cat $input)\" > $output")
+rule(
+  name: "main_source",
+  command: "cat $input >/dev/null && echo 'fn main { println(helper()) }' > $output",
+)
+
+rule(
+  name: "helper_source",
+  command: "cat $input >/dev/null && echo 'fn helper() -> Int { 42 }' > $output",
+)

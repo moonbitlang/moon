@@ -1470,20 +1470,20 @@ fn test_rule_dev_build() {
     assert!(!dir.join("main.mbt").exists());
     assert!(!dir.join("helper.mbt").exists());
 
+    get_stderr(&dir, ["fmt", "--check"]);
+    get_stderr(&dir, ["build"]);
     get_stderr(&dir, ["check"]);
 
     check(
         read(dir.join("main.mbt")),
         expect![[r#"
-            ///|
             fn main { println(helper()) }
         "#]],
     );
     check(
         read(dir.join("helper.mbt")),
         expect![[r#"
-            ///|
-            fn helper() -> String { "hello from dev build" }
+            fn helper() -> Int { 42 }
         "#]],
     );
 }
