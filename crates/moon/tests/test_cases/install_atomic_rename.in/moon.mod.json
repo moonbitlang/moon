@@ -1,0 +1,8 @@
+{
+  "name": "install_atomic_rename",
+  "version": "0.1.0",
+  "source": "src",
+  "deps": {
+    "moonbitlang/async": "0.18.0"
+  }
+}

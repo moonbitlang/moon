@@ -32,6 +32,8 @@ use moonutil::{
 };
 use semver::Version;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use tracing::debug;
 
 use crate::{
     cli::BuildFlags,
@@ -637,6 +639,10 @@ fn build_and_install_packages(
         };
         let binary_dst = install_dir.join(dst_name);
 
+        #[cfg(target_os = "macos")]
+        macos_install_file(&binary_src, &binary_dst)?;
+
+        #[cfg(not(target_os = "macos"))]
         std::fs::copy(&binary_src, &binary_dst).with_context(|| {
             format!(
                 "Failed to copy binary from `{}` to `{}`",
@@ -670,6 +676,77 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// macOS-only: copy `src` onto `dst` by writing to a sibling tempfile
+/// and atomically renaming it into place.
+///
+/// Overwriting the destination with `fs::copy` would truncate it via
+/// `O_TRUNC`; on macOS the kernel SIGKILLs any process that re-execs the
+/// modified inode because the code-signature cache no longer matches the
+/// on-disk bytes. Renaming a fresh file into place avoids this — the
+/// old inode is unlinked but remains alive for the running process, and
+/// new executions resolve to the new inode.
+///
+/// The tempfile is created *inside* `install_dir` (a sibling of `dst`)
+/// rather than renaming `src` straight to `dst`, because `src` lives
+/// under the build tree and may sit on a different filesystem from
+/// `install_dir` — think external drives, network mounts, or a
+/// tmpfs-backed target dir. A cross-filesystem rename fails with
+/// `EXDEV`; copying the bytes first guarantees the final rename is
+/// same-filesystem and therefore atomic.
+///
+/// Linux has a related issue (`ETXTBSY` on truncate of a running text
+/// segment) and Windows has a sharing-violation failure mode, but
+/// those surface as loud errors the user can diagnose. Only the macOS
+/// SIGKILL is silent enough to justify the extra complexity here.
+#[cfg(target_os = "macos")]
+fn macos_install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    let install_dir = dst.parent().ok_or_else(|| {
+        anyhow::anyhow!("Install path `{}` has no parent directory", dst.display())
+    })?;
+
+    let tmp_path = tempfile::NamedTempFile::new_in(install_dir)
+        .with_context(|| {
+            format!(
+                "Failed to create temporary file in `{}`",
+                install_dir.display()
+            )
+        })?
+        .into_temp_path();
+
+    // Try to move `src` into place without copying bytes. Works when
+    // `src` and `install_dir` share a filesystem. On cross-filesystem
+    // we get `EXDEV` and fall back to a copy.
+    match std::fs::rename(src, &tmp_path) {
+        Ok(()) => debug!(src = %src.display(), "staged via same-fs rename"),
+        Err(e) if e.kind() == std::io::ErrorKind::CrossesDevices => {
+            debug!(src = %src.display(), "staging via copy (cross-fs)");
+            std::fs::copy(src, &tmp_path).with_context(|| {
+                format!(
+                    "Failed to copy binary from `{}` to `{}`",
+                    src.display(),
+                    tmp_path.display()
+                )
+            })?;
+        }
+        Err(e) => {
+            return Err(e).with_context(|| {
+                format!(
+                    "Failed to stage binary from `{}` to `{}`",
+                    src.display(),
+                    tmp_path.display()
+                )
+            });
+        }
+    }
+
+    tmp_path
+        .persist(dst)
+        .map_err(|err| err.error)
+        .with_context(|| format!("Failed to install binary to `{}`", dst.display()))?;
+    debug!(dst = %dst.display(), "installed via rename");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -828,5 +905,40 @@ mod tests {
             "native/pixeladventure",
         ));
         assert!(!filter.matches(&test_path(&["repo", "examples", "web", "demo"]), "web/demo",));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_install_file_fresh_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"hello world").unwrap();
+
+        macos_install_file(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"hello world");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_install_file_overwrites_existing_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&dst, b"old contents").unwrap();
+
+        macos_install_file(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+
+        // Same-fs install consumes `src` via rename; no staging tempfile
+        // should remain behind.
+        let siblings: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(siblings, vec![std::ffi::OsString::from("dst")]);
     }
 }

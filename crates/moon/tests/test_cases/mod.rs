@@ -2106,6 +2106,283 @@ fn test_moon_install_bin() {
     assert!(content.contains("()"));
 }
 
+/// Exercise the fix: install v1, keep a v1 child *running*, then
+/// install v2 on top of it. `macos_install_file`'s atomic rename
+/// must leave the running v1 alone while the destination path becomes
+/// a launchable v2. A pre-fix `fs::copy` reinstall poisons macOS's
+/// code-signing cache, so the fresh v2 launch below is killed.
+#[cfg(target_os = "macos")]
+#[test]
+fn test_install_replaces_while_running() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let moon_exe = PathBuf::from(env!("CARGO_BIN_EXE_moon"));
+    let fixture = TestDir::new("install_atomic_rename.in");
+    let pkg_path = fixture.join("src/victim");
+    let main_mbt = pkg_path.join("main.mbt");
+    let install_dir = tempfile::tempdir().expect("install tempdir");
+    let victim_path = install_dir.path().join("victim");
+
+    rewrite_version(&main_mbt, "version 1");
+    moon_install(&moon_exe, fixture.as_ref(), &pkg_path, install_dir.path());
+
+    let mut v1_child = Command::new(&victim_path)
+        .arg("hold")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn v1");
+    std::thread::sleep(Duration::from_millis(200));
+
+    rewrite_version(&main_mbt, "version 2");
+    moon_install(&moon_exe, fixture.as_ref(), &pkg_path, install_dir.path());
+
+    let v2_out = Command::new(&victim_path).output().expect("run v2");
+    assert!(v2_out.status.success(), "v2 exit: {:?}", v2_out.status);
+    assert_eq!(
+        String::from_utf8_lossy(&v2_out.stdout).trim(),
+        "version 2",
+        "v2 stdout mismatch — reinstall did not leave v2 bytes on disk"
+    );
+
+    // Give the v1 re-spawn loop a couple of ticks after the successful
+    // v2 launch. If reinstall broke the running process, it should be
+    // dead by now.
+    std::thread::sleep(Duration::from_millis(400));
+    assert!(
+        matches!(v1_child.try_wait(), Ok(None)),
+        "running v1 died during reinstall — the atomic-rename path did \
+         not leave the running process usable"
+    );
+    let _ = v1_child.kill();
+    let _ = v1_child.wait();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_install_from_cross_filesystem_target_dir() {
+    use std::os::unix::fs::MetadataExt;
+    use std::process::Command;
+
+    let moon_exe = PathBuf::from(env!("CARGO_BIN_EXE_moon"));
+    let fixture = TestDir::new("install_atomic_rename.in");
+    let pkg_path = fixture.join("src/victim");
+    let main_mbt = pkg_path.join("main.mbt");
+    let install_dir = tempfile::tempdir().expect("install tempdir");
+    let image_dir = tempfile::tempdir().expect("disk image tempdir");
+    let mounted_image = MountedSparseImage::create(image_dir.path());
+    let target_dir = mounted_image.mountpoint().join("_build");
+    std::fs::create_dir_all(&target_dir).expect("create target dir");
+
+    let install_dev = std::fs::metadata(install_dir.path())
+        .expect("stat install dir")
+        .dev();
+    let target_dev = std::fs::metadata(mounted_image.mountpoint())
+        .expect("stat mounted image")
+        .dev();
+    assert_ne!(
+        install_dev, target_dev,
+        "mounted sparse image did not create a cross-filesystem boundary"
+    );
+
+    rewrite_version(&main_mbt, "cross fs v1");
+    moon_install_with_target_dir(
+        &moon_exe,
+        fixture.as_ref(),
+        &pkg_path,
+        install_dir.path(),
+        Some(&target_dir),
+    );
+
+    let victim_path = install_dir.path().join("victim");
+    let output = Command::new(&victim_path).output().expect("run victim");
+    assert!(output.status.success(), "victim exit: {:?}", output.status);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "cross fs v1"
+    );
+
+    rewrite_version(&main_mbt, "cross fs v2");
+    moon_install_with_target_dir(
+        &moon_exe,
+        fixture.as_ref(),
+        &pkg_path,
+        install_dir.path(),
+        Some(&target_dir),
+    );
+
+    let output = Command::new(&victim_path).output().expect("run victim v2");
+    assert!(
+        output.status.success(),
+        "victim v2 exit: {:?}",
+        output.status
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "cross fs v2"
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn moon_install(moon_exe: &Path, cwd: &Path, pkg_path: &Path, install_dir: &Path) {
+    moon_install_with_target_dir(moon_exe, cwd, pkg_path, install_dir, None);
+}
+
+#[cfg(target_os = "macos")]
+fn moon_install_with_target_dir(
+    moon_exe: &Path,
+    cwd: &Path,
+    pkg_path: &Path,
+    install_dir: &Path,
+    target_dir: Option<&Path>,
+) {
+    use std::process::Command;
+
+    let mut command = Command::new(moon_exe);
+    command
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .current_dir(cwd)
+        .args(["install", "--path"])
+        .arg(pkg_path)
+        .arg("--bin")
+        .arg(install_dir);
+    if let Some(target_dir) = target_dir {
+        command.arg("--target-dir").arg(target_dir);
+    }
+
+    let output = command.output().expect("run moon install");
+    if !output.status.success() {
+        panic!(
+            "moon install failed: status={}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct MountedSparseImage {
+    mountpoint: PathBuf,
+}
+
+#[cfg(target_os = "macos")]
+impl MountedSparseImage {
+    fn create(dir: &Path) -> Self {
+        use std::process::Command;
+
+        let image_path = dir.join("moon-cross-fs.sparseimage");
+        let mountpoint = dir.join("mount");
+        std::fs::create_dir(&mountpoint).expect("create sparse image mountpoint");
+
+        let create = Command::new("hdiutil")
+            .args([
+                "create",
+                "-size",
+                "512m",
+                "-fs",
+                "APFS",
+                "-type",
+                "SPARSE",
+                "-volname",
+                "moon-cross-fs",
+            ])
+            .arg(&image_path)
+            .output()
+            .expect("run hdiutil create");
+        if !create.status.success() {
+            panic!(
+                "hdiutil create failed: status={}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+                create.status,
+                String::from_utf8_lossy(&create.stdout),
+                String::from_utf8_lossy(&create.stderr),
+            );
+        }
+
+        let attach = Command::new("hdiutil")
+            .arg("attach")
+            .arg(&image_path)
+            .args(["-mountpoint"])
+            .arg(&mountpoint)
+            .args(["-nobrowse", "-noverify"])
+            .output()
+            .expect("run hdiutil attach");
+        if !attach.status.success() {
+            panic!(
+                "hdiutil attach failed: status={}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+                attach.status,
+                String::from_utf8_lossy(&attach.stdout),
+                String::from_utf8_lossy(&attach.stderr),
+            );
+        }
+
+        Self { mountpoint }
+    }
+
+    fn mountpoint(&self) -> &Path {
+        &self.mountpoint
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for MountedSparseImage {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("hdiutil")
+            .arg("detach")
+            .arg(&self.mountpoint)
+            .arg("-force")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+}
+
+/// Write a `main.mbt` whose rodata diverges per `version`: a
+/// toplevel `Array[Int]` of sequential values offset by a
+/// version-derived constant, so every slot differs between v1 and
+/// v2. Summed at startup with the total folded into a branch the
+/// compiler cannot prove is dead, which keeps the array from being
+/// DCE'd. This gives v1 and v2 substantially different on-disk bytes
+/// across many code-signing pages, so an in-place `fs::copy` tamper
+/// during reinstall reliably invalidates the running binary's CS
+/// cache.
+#[cfg(target_os = "macos")]
+fn rewrite_version(main_mbt: &Path, version: &str) {
+    const N: u32 = 50_000;
+    let offset: u32 = version
+        .as_bytes()
+        .iter()
+        .fold(0u32, |acc, &b| acc.wrapping_mul(131).wrapping_add(b as u32));
+    let mut body = String::with_capacity(N as usize * 8);
+    body.push_str("///|\nlet payload : ReadOnlyArray[Int] = [\n");
+    for i in 0..N {
+        let v = i.wrapping_add(offset) as i32;
+        body.push_str(&format!("{v},"));
+        if i % 32 == 31 {
+            body.push('\n');
+        }
+    }
+    body.push_str("\n]\n\n");
+    let main_fn = format!(
+        "///|\nasync fn main {{\n  \
+           let mut sum : Int64 = 0L\n  \
+           for v in payload {{ sum = sum + v.to_int64() }}\n  \
+           if sum == 0x7fffffffffffffffL {{ println(\"unreachable\") }}\n  \
+           println(\"{version}\")\n  \
+           if @env.args().length() > 1 {{\n    \
+             let self_path = @env.args()[0]\n    \
+             for ;; {{\n      \
+               @async.sleep(100)\n      \
+               let _ = (@process.run(self_path, []) : Int)\n    \
+             }}\n  \
+           }}\n\
+         }}\n"
+    );
+    std::fs::write(main_mbt, format!("{body}{main_fn}")).expect("rewrite main.mbt");
+}
+
 #[test]
 #[ignore = "platform-dependent behavior"]
 fn test_strip_debug() {
