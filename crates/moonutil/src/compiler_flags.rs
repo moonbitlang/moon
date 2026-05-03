@@ -526,6 +526,10 @@ pub struct CCConfig {
     #[builder(default = false)]
     // Link libbacktrace.a from the configured MoonBit lib path if it exists.
     pub link_libbacktrace: bool,
+    #[builder(default = true)]
+    // User-provided C flags replace our default tuning. Build-system flags
+    // should set this to false so they can coexist with default optimization.
+    pub cc_flags_override_defaults: bool,
     #[builder(default = false)]
     // Define MOONBIT_NATIVE_NO_SYS_HEADER
     // Usually used with TCC
@@ -1033,7 +1037,7 @@ fn add_cc_optimization_flags(
 }
 
 fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    // always set this even if user_cc_flags is set
+    // always set this even if user cc flags are set
     // user cannot easily know when we use shared runtime
     if config.define_use_shared_runtime_macro {
         if cc.is_msvc() {
@@ -1089,7 +1093,7 @@ pub fn make_cc_command<S>(
     cc: CC,
     user_cc: Option<CC>,
     config: CCConfig,
-    user_cc_flags: &[S],
+    cc_flags: &[S],
     src: impl IntoIterator<Item = impl Into<String>>,
     intermediate_dir: &str,
     dest: &str,
@@ -1102,7 +1106,7 @@ where
     make_cc_command_resolved(
         resolved_cc,
         config,
-        user_cc_flags,
+        cc_flags,
         src,
         intermediate_dir,
         Some(dest),
@@ -1119,7 +1123,7 @@ where
 pub fn make_cc_command_resolved<S>(
     cc: CC,
     config: CCConfig,
-    user_cc_flags: &[S],
+    cc_flags: &[S],
     src: impl IntoIterator<Item = impl Into<String>>,
     intermediate_dir: &str,
     dest: Option<&str>,
@@ -1131,7 +1135,7 @@ where
     make_cc_command_resolved_with_link_flags(
         cc,
         config,
-        user_cc_flags,
+        cc_flags,
         &[] as &[&str],
         src,
         intermediate_dir,
@@ -1146,14 +1150,16 @@ where
 /// overrides, or global `MOON_HOME` paths. Callers pass the effective `CC` and
 /// `CompilerPaths` decided by build planning/lowering.
 ///
-/// `user_cc_flags` are treated as compile-driver overrides and suppress default
-/// optimization flags. `user_link_flags` are appended only for the link step and
-/// do not suppress compiler defaults.
+/// `cc_flags` are compile-driver flags. By default, non-empty C flags are
+/// treated as user overrides and suppress default optimization flags; callers
+/// adding build-system flags can set `config.cc_flags_override_defaults` to
+/// false. `user_link_flags` are appended only for the link step and do not
+/// suppress compiler defaults.
 #[allow(clippy::too_many_arguments)]
 pub fn make_cc_command_resolved_with_link_flags<S, L>(
     cc: CC,
     config: CCConfig,
-    user_cc_flags: &[S],
+    cc_flags: &[S],
     user_link_flags: &[L],
     src: impl IntoIterator<Item = impl Into<String>>,
     intermediate_dir: &str,
@@ -1166,11 +1172,11 @@ where
 {
     let mut buf = vec![cc.cc_path.clone()];
 
-    // If user_cc_flags is set, we only set necessary flags
+    // If user C flags are set, we only set necessary flags
     // that are tightly coupled with the paths and output types
     // as user cannot easily specify them in the configuration file
     // Link-only flags should not affect compiler defaults.
-    let has_user_flags = !user_cc_flags.is_empty();
+    let has_user_flags = config.cc_flags_override_defaults && !cc_flags.is_empty();
 
     add_cc_output_flags(&cc, &mut buf, &config, dest);
     add_cc_include_and_lib_paths(&cc, &mut buf, &paths.include_path, &paths.lib_path);
@@ -1191,7 +1197,7 @@ where
     buf.extend(src.into_iter().map(|s| s.into()));
 
     add_cc_common_libraries(&cc, &mut buf, &config);
-    buf.extend(user_cc_flags.iter().map(|s| s.as_ref().to_string()));
+    buf.extend(cc_flags.iter().map(|s| s.as_ref().to_string()));
     buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
     if config.link_libbacktrace && config.output_ty != OutputType::Object {
         let libbacktrace_path = Path::new(&paths.lib_path).join("libbacktrace.a");
@@ -1223,6 +1229,7 @@ mod tests {
             debug_info: false,
             link_moonbitrun: false,
             link_libbacktrace: false,
+            cc_flags_override_defaults: true,
             no_sys_header: false,
             output_ty: OutputType::Executable,
             opt_level: OptLevel::Speed,
@@ -1313,6 +1320,34 @@ mod tests {
 
         assert!(command.iter().any(|flag| flag == "-O2"));
         assert!(command.iter().any(|flag| flag == "-lcustom"));
+    }
+
+    #[test]
+    fn non_overriding_cc_flags_do_not_disable_default_optimization_flags() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.cc_flags_override_defaults = false;
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &["-DMOONBIT_ALLOW_STACKTRACE"],
+            &[] as &[&str],
+            ["runtime.c"],
+            "build",
+            Some("build/runtime.o"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|flag| flag == "-O2"));
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOW_STACKTRACE")
+        );
     }
 
     #[test]
