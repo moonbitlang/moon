@@ -1119,10 +1119,11 @@ impl<'a> BuildPlanLowerContext<'a> {
             .build()
             .expect("Failed to build CC configuration for tcc-run");
 
-        let mut cmdline = make_cc_command_resolved(
+        let mut cmdline = make_cc_command_resolved_with_link_flags(
             cc,
             cfg,
             &[] as &[&str], // no user flags
+            &info.link_flags,
             sources.iter().map(|x| x.to_string_lossy().into_owned()),
             "", // TCC is not MSVC, no need to set special dest dir
             None,
