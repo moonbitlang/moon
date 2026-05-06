@@ -92,7 +92,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/A/A.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -117,7 +116,6 @@
         "$ROOT/_build/wasm-gc/debug/check/all_pkgs.json"
       ],
       "wbtest-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -146,7 +144,6 @@
         "$ROOT/_build/wasm-gc/debug/check/all_pkgs.json"
       ],
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -233,7 +230,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/B/B.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -257,7 +253,6 @@
       ],
       "wbtest-check-command": null,
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -339,7 +334,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/C/C.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -363,7 +357,6 @@
       ],
       "wbtest-check-command": null,
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -445,7 +438,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/D/D.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -469,7 +461,6 @@
       ],
       "wbtest-check-command": null,
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -551,7 +542,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/main/main.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -576,7 +566,6 @@
       ],
       "wbtest-check-command": null,
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",

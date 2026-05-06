@@ -105,7 +105,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/0/0.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -125,7 +124,6 @@
         "$ROOT/_build/wasm-gc/debug/check/all_pkgs.json"
       ],
       "wbtest-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -148,7 +146,6 @@
         "$ROOT/_build/wasm-gc/debug/check/all_pkgs.json"
       ],
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -255,7 +252,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/1/1.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -275,7 +271,6 @@
         "$ROOT/_build/wasm-gc/debug/check/all_pkgs.json"
       ],
       "wbtest-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -297,7 +292,6 @@
         "$ROOT/_build/wasm-gc/debug/check/all_pkgs.json"
       ],
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -373,7 +367,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/2/2.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -395,7 +388,6 @@
       ],
       "wbtest-check-command": null,
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -457,7 +449,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/char/char.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -478,7 +469,6 @@
       ],
       "wbtest-check-command": null,
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -532,7 +522,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/coverage/coverage.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -551,7 +540,6 @@
       ],
       "wbtest-check-command": null,
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -615,7 +603,6 @@
       ],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/iter/iter.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -636,7 +623,6 @@
       ],
       "wbtest-check-command": null,
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -684,7 +670,6 @@
       "test-deps": [],
       "artifact": "$ROOT/_build/wasm-gc/debug/check/prelude/prelude.mi",
       "check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",
@@ -703,7 +688,6 @@
       ],
       "wbtest-check-command": null,
       "test-check-command": [
-        "moonc",
         "check",
         "-error-format",
         "json",

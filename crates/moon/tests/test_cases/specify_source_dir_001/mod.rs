@@ -91,7 +91,6 @@ fn test_specify_source_dir_001() {
                       ],
                       "artifact": "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi",
                       "check-command": [
-                        "moonc",
                         "check",
                         "-error-format",
                         "json",
@@ -115,7 +114,6 @@ fn test_specify_source_dir_001() {
                       ],
                       "wbtest-check-command": null,
                       "test-check-command": [
-                        "moonc",
                         "check",
                         "-error-format",
                         "json",
@@ -203,7 +201,6 @@ fn test_specify_source_dir_001() {
                       ],
                       "artifact": "$ROOT/_build/wasm-gc/debug/check/main/main.mi",
                       "check-command": [
-                        "moonc",
                         "check",
                         "-error-format",
                         "json",
@@ -230,7 +227,6 @@ fn test_specify_source_dir_001() {
                       ],
                       "wbtest-check-command": null,
                       "test-check-command": [
-                        "moonc",
                         "check",
                         "-error-format",
                         "json",

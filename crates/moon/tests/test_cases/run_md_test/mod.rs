@@ -201,7 +201,6 @@ fn test_run_md_test() {
                       ],
                       "artifact": "$ROOT/_build/wasm-gc/debug/check/lib/lib.mi",
                       "check-command": [
-                        "moonc",
                         "check",
                         "-error-format",
                         "json",
@@ -225,7 +224,6 @@ fn test_run_md_test() {
                       ],
                       "wbtest-check-command": null,
                       "test-check-command": [
-                        "moonc",
                         "check",
                         "-error-format",
                         "json",
@@ -315,7 +313,6 @@ fn test_run_md_test() {
                       ],
                       "artifact": "$ROOT/_build/wasm-gc/debug/check/main/main.mi",
                       "check-command": [
-                        "moonc",
                         "check",
                         "-error-format",
                         "json",
@@ -342,7 +339,6 @@ fn test_run_md_test() {
                       ],
                       "wbtest-check-command": null,
                       "test-check-command": [
-                        "moonc",
                         "check",
                         "-error-format",
                         "json",
