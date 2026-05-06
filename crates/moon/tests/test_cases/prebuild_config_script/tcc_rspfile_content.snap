@@ -1,0 +1,11 @@
+-I$MOON_HOME/include
+-L$MOON_HOME/lib
+-g
+-DMOONBIT_NATIVE_NO_SYS_HEADER
+-fPIC
+-DMOONBIT_USE_SHARED_RUNTIME
+$ROOT/_build/native/debug/build/libruntime.so
+-ladded_by_config_script
+-L/added-by-config-script
+-run
+$ROOT/_build/native/debug/build/main/main.c
