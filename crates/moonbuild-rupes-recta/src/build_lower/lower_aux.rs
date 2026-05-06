@@ -167,6 +167,9 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         }
         if matches!(self.opt.target_backend, RunBackend::NativeTccRun) {
             cc_flags.push("-D__TINYC__");
+            if resolved_cc.is_full_featured_gcc_like() {
+                cc_flags.push("-fno-omit-frame-pointer");
+            }
         }
         let opt_level = match self.opt.opt_level {
             OptLevel::Release => CCOptLevel::Speed,
