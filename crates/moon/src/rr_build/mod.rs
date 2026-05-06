@@ -626,6 +626,7 @@ pub(crate) fn plan_build_from_resolved<'a>(
     );
     let input = BuildInput {
         graph: compile_output.build_graph,
+        command_args_by_output: compile_output.command_args_by_output,
         db_path,
     };
 
@@ -656,7 +657,11 @@ pub fn plan_fmt(
         BuildProfile::Debug,
         RunMode::Format,
     );
-    let input = BuildInput { graph, db_path };
+    let input = BuildInput {
+        graph,
+        command_args_by_output: Default::default(),
+        db_path,
+    };
     Ok((input, user_warnings))
 }
 
@@ -738,6 +743,7 @@ pub fn generate_metadata(
     source_dir: &Path,
     target_dir: &Path,
     build_meta: &BuildMeta,
+    build_input: &BuildInput,
     mode: RunMode,
     single_file_filename: Option<&str>,
 ) -> anyhow::Result<()> {
@@ -747,6 +753,7 @@ pub fn generate_metadata(
         target_dir.join("packages.json")
     };
 
+    let check_commands = collect_check_commands_by_output(build_input);
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
         &build_meta.resolve_output,
         source_dir,
@@ -754,6 +761,7 @@ pub fn generate_metadata(
         build_meta.opt_level,
         build_meta.target_backend.into(),
         mode,
+        &check_commands,
     );
     let orig_meta = std::fs::read_to_string(&metadata_file);
     let meta = serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
@@ -763,6 +771,23 @@ pub fn generate_metadata(
         std::fs::write(&metadata_file, meta).context("Failed to write build metadata")?;
     }
     Ok(())
+}
+
+fn collect_check_commands_by_output(
+    build_input: &BuildInput,
+) -> moonbuild_rupes_recta::metadata::CheckCommandMap {
+    let mut commands = BTreeMap::new();
+    for (output_path, args) in &build_input.command_args_by_output {
+        if !is_moonc_check_command(args) {
+            continue;
+        };
+        commands.insert(output_path.clone(), args.clone());
+    }
+    commands
+}
+
+fn is_moonc_check_command(args: &[String]) -> bool {
+    args.get(1).is_some_and(|arg| arg == "check")
 }
 
 pub fn generate_all_pkgs_json(
@@ -887,6 +912,9 @@ impl Default for BuildConfig {
 pub struct BuildInput {
     /// The build graph to execute
     graph: n2::graph::Graph,
+
+    /// Structured command argv keyed by generated output path.
+    command_args_by_output: moonbuild_rupes_recta::build_lower::CommandArgMap,
 
     /// The build cache database path for n2
     ///

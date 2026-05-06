@@ -18,7 +18,7 @@
 
 //! Lowers a [Build plan](crate::build_plan) into `n2`'s Build graph
 
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use indexmap::IndexMap;
 use log::{debug, info};
@@ -105,9 +105,16 @@ pub enum LoweringError {
     },
 }
 
+/// Structured command argv keyed by each generated output path.
+pub type CommandArgMap = BTreeMap<PathBuf, Vec<String>>;
+
 pub struct LoweringResult {
     /// The lowered n2 build graph.
     pub build_graph: N2Graph,
+
+    /// Structured argv for lowered commands that are represented as argument
+    /// vectors before they are rendered into n2 command strings.
+    pub command_args_by_output: CommandArgMap,
 
     /// The list of artifacts corresponding to the root input nodes.
     ///
@@ -234,6 +241,7 @@ pub fn lower_build_plan(
     info!("Build plan lowering completed successfully");
     Ok(LoweringResult {
         build_graph: ctx.graph,
+        command_args_by_output: ctx.command_args_by_output,
         artifacts: out_artifcts,
     })
 }

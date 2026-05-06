@@ -153,6 +153,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         &doc_source_dir,
         &target_dir,
         &build_meta,
+        &build_graph,
         RunMode::Check,
         None,
     )?;

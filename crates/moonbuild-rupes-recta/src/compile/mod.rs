@@ -85,6 +85,9 @@ pub struct CompileOutput {
     /// The n2 compile graph to be executed
     pub build_graph: n2::graph::Graph,
 
+    /// Structured argv for lowered commands keyed by their generated output paths.
+    pub command_args_by_output: build_lower::CommandArgMap,
+
     /// The final artifacts corresponding to the input nodes
     pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 
@@ -175,6 +178,7 @@ pub fn compile(
 
     Ok(CompileOutput {
         build_graph: res.build_graph,
+        command_args_by_output: res.command_args_by_output,
         artifacts: res.artifacts,
         user_warnings,
         build_plan: if cx.debug_export_build_plan {
