@@ -526,11 +526,6 @@ pub struct CCConfig {
     #[builder(default = false)]
     // Link libbacktrace.a from the configured MoonBit lib path if it exists.
     pub link_libbacktrace: bool,
-    #[builder(default = true)]
-    // User-provided C flags replace our default tuning. Build-system flags
-    // should set this to false so they can coexist with default optimization.
-    pub cc_flags_override_defaults: bool,
-    #[builder(default = false)]
     // Define MOONBIT_NATIVE_NO_SYS_HEADER
     // Usually used with TCC
     // TCC may not be able to handle the system header
@@ -539,6 +534,15 @@ pub struct CCConfig {
     pub output_ty: OutputType,
     #[builder(default = OptLevel::Speed)]
     pub opt_level: OptLevel,
+    #[builder(default = false)]
+    // Define MOONBIT_ALLOW_STACKTRACE
+    pub allow_stacktrace: bool,
+    #[builder(default = false)]
+    // Define __TINYC__
+    pub define_tinyc_macro: bool,
+    #[builder(default = false)]
+    // Preserve frame pointers for backtrace walkers.
+    pub preserve_frame_pointer: bool,
     // Define MOONBIT_USE_SHARED_RUNTIME
     // It's non-op on Linux and MacOS
     // But on Windows, it will mark runtime function declarations
@@ -1036,6 +1040,28 @@ fn add_cc_optimization_flags(
     }
 }
 
+fn add_cc_build_system_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
+    if cc.is_msvc() {
+        if config.allow_stacktrace {
+            buf.push("/DMOONBIT_ALLOW_STACKTRACE".to_string());
+        }
+        if config.define_tinyc_macro {
+            buf.push("/D__TINYC__".to_string());
+        }
+    } else if cc.is_gcc_like() {
+        if config.allow_stacktrace {
+            buf.push("-DMOONBIT_ALLOW_STACKTRACE".to_string());
+        }
+        if config.define_tinyc_macro {
+            buf.push("-D__TINYC__".to_string());
+        }
+    }
+
+    if config.preserve_frame_pointer && cc.is_full_featured_gcc_like() {
+        buf.push("-fno-omit-frame-pointer".to_string());
+    }
+}
+
 fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     // always set this even if user cc flags are set
     // user cannot easily know when we use shared runtime
@@ -1150,11 +1176,9 @@ where
 /// overrides, or global `MOON_HOME` paths. Callers pass the effective `CC` and
 /// `CompilerPaths` decided by build planning/lowering.
 ///
-/// `cc_flags` are compile-driver flags. By default, non-empty C flags are
-/// treated as user overrides and suppress default optimization flags; callers
-/// adding build-system flags can set `config.cc_flags_override_defaults` to
-/// false. `user_link_flags` are appended only for the link step and do not
-/// suppress compiler defaults.
+/// `cc_flags` are compile-driver flags. Non-empty C flags are treated as user
+/// overrides and suppress default optimization flags. `user_link_flags` are
+/// appended only for the link step and do not suppress compiler defaults.
 #[allow(clippy::too_many_arguments)]
 pub fn make_cc_command_resolved_with_link_flags<S, L>(
     cc: CC,
@@ -1176,7 +1200,7 @@ where
     // that are tightly coupled with the paths and output types
     // as user cannot easily specify them in the configuration file
     // Link-only flags should not affect compiler defaults.
-    let has_user_flags = config.cc_flags_override_defaults && !cc_flags.is_empty();
+    let has_user_flags = !cc_flags.is_empty();
 
     add_cc_output_flags(&cc, &mut buf, &config, dest);
     add_cc_include_and_lib_paths(&cc, &mut buf, &paths.include_path, &paths.lib_path);
@@ -1191,6 +1215,7 @@ where
     add_cc_tcc_specific_flags(&cc, &mut buf, &config);
 
     add_cc_optimization_flags(&cc, &mut buf, &config, has_user_flags);
+    add_cc_build_system_flags(&cc, &mut buf, &config);
     add_cc_shared_runtime_flags(&cc, &mut buf, &config);
     add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config, paths);
 
@@ -1229,10 +1254,12 @@ mod tests {
             debug_info: false,
             link_moonbitrun: false,
             link_libbacktrace: false,
-            cc_flags_override_defaults: true,
             no_sys_header: false,
             output_ty: OutputType::Executable,
             opt_level: OptLevel::Speed,
+            allow_stacktrace: false,
+            define_tinyc_macro: false,
+            preserve_frame_pointer: false,
             define_use_shared_runtime_macro: false,
         }
     }
@@ -1323,18 +1350,18 @@ mod tests {
     }
 
     #[test]
-    fn non_overriding_cc_flags_do_not_disable_default_optimization_flags() {
+    fn build_system_flags_keep_default_optimization_flags() {
         let paths = CompilerPaths {
             include_path: "include".to_string(),
             lib_path: "lib".to_string(),
         };
         let mut config = executable_cc_config();
-        config.cc_flags_override_defaults = false;
+        config.allow_stacktrace = true;
 
         let command = make_cc_command_resolved_with_link_flags(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
             config,
-            &["-DMOONBIT_ALLOW_STACKTRACE"],
+            &[] as &[&str],
             &[] as &[&str],
             ["runtime.c"],
             "build",

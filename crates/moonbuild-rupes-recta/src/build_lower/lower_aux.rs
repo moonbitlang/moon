@@ -24,7 +24,6 @@ use moonutil::{
         CC, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
         make_cc_command_resolved, resolve_cc,
     },
-    cond_expr::OptLevel,
     mooncakes::{ModuleId, ModuleSourceKind},
 };
 use tracing::{Level, instrument};
@@ -161,35 +160,24 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         };
 
         let resolved_cc = resolve_cc(&CC::default(), None);
-        let mut cc_flags = vec![];
-        if self.opt.debug_symbols && self.opt.os != OperatingSystem::Windows {
-            cc_flags.push("-DMOONBIT_ALLOW_STACKTRACE");
-        }
-        if matches!(self.opt.target_backend, RunBackend::NativeTccRun) {
-            cc_flags.push("-D__TINYC__");
-            if resolved_cc.is_full_featured_gcc_like() {
-                cc_flags.push("-fno-omit-frame-pointer");
-            }
-        }
-        let opt_level = match self.opt.opt_level {
-            OptLevel::Release => CCOptLevel::Speed,
-            OptLevel::Debug => CCOptLevel::Debug,
-        };
+        let use_tcc_run = matches!(self.opt.target_backend, RunBackend::NativeTccRun);
 
         let cc_cmd = make_cc_command_resolved(
             resolved_cc,
             CCConfigBuilder::default()
                 .no_sys_header(true)
                 .output_ty(output_ty)
-                .opt_level(opt_level)
+                .opt_level(CCOptLevel::Speed)
                 .debug_info(true)
+                .allow_stacktrace(self.opt.debug_symbols && self.opt.os != OperatingSystem::Windows)
+                .define_tinyc_macro(use_tcc_run)
+                .preserve_frame_pointer(use_tcc_run)
                 .link_moonbitrun(link_moonbitrun)
                 .link_libbacktrace(output_ty == CCOutputType::SharedLib)
-                .cc_flags_override_defaults(false)
                 .define_use_shared_runtime_macro(false)
                 .build()
                 .expect("Failed to build CC configuration for runtime"),
-            &cc_flags,
+            &[] as &[&str],
             [runtime_c_path.display().to_string()],
             &self.opt.target_dir_root.display().to_string(),
             Some(&artifact_path.display().to_string()),
