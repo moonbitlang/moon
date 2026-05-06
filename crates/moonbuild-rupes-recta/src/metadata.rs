@@ -187,17 +187,19 @@ fn gen_package_json(
         pkg_id.build_target(TargetKind::Source),
         backend,
     );
-    let wbtest_artifact = metadata_mi_path(
+    let wbtest_check_command = metadata_check_command(
         ctx,
         layout,
         pkg_id.build_target(TargetKind::WhiteboxTest),
         backend,
+        check_commands,
     );
-    let test_artifact = metadata_mi_path(
+    let test_check_command = metadata_check_command(
         ctx,
         layout,
         pkg_id.build_target(TargetKind::BlackboxTest),
         backend,
+        check_commands,
     );
 
     PackageJSON {
@@ -215,8 +217,8 @@ fn gen_package_json(
         test_deps,
         artifact: source_artifact.to_string_lossy().into_owned(),
         check_command: check_commands.get(&source_artifact).cloned(),
-        wbtest_check_command: check_commands.get(&wbtest_artifact).cloned(),
-        test_check_command: check_commands.get(&test_artifact).cloned(),
+        wbtest_check_command,
+        test_check_command,
         supported_targets: pkg.effective_supported_targets.iter().copied().collect(),
     }
 }
@@ -246,13 +248,38 @@ fn metadata_mi_path(
     target: BuildTarget,
     backend: TargetBackend,
 ) -> PathBuf {
-    if ctx.pkg_rel.virt_impl.contains_key(target.package) {
+    if target.kind == TargetKind::Source && ctx.pkg_rel.virt_impl.contains_key(target.package) {
         layout
             .mi_of_build_target_impl_virtual(&ctx.pkg_dirs, &target, backend)
             .into_path()
     } else {
         layout.mi_of_build_target(&ctx.pkg_dirs, &target, backend)
     }
+}
+
+fn metadata_check_command(
+    ctx: &ResolveOutput,
+    layout: &LegacyLayout,
+    target: BuildTarget,
+    backend: TargetBackend,
+    check_commands: &CheckCommandMap,
+) -> Option<Vec<String>> {
+    let artifact = metadata_check_mi_path(ctx, layout, target, backend)?;
+    check_commands.get(&artifact).cloned()
+}
+
+fn metadata_check_mi_path(
+    ctx: &ResolveOutput,
+    layout: &LegacyLayout,
+    target: BuildTarget,
+    backend: TargetBackend,
+) -> Option<PathBuf> {
+    // `abort` is redirected to prebuilt stdlib artifacts, which only provide a
+    // source `.mi`; test targets have no importable `.mi` to look up here.
+    if target.kind != TargetKind::Source && ctx.pkg_dirs.abort_pkg() == Some(target.package) {
+        return None;
+    }
+    Some(metadata_mi_path(ctx, layout, target, backend))
 }
 
 fn edge_to_alias_json(
