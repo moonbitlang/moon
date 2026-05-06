@@ -778,16 +778,20 @@ fn collect_check_commands_by_output(
 ) -> moonbuild_rupes_recta::metadata::CheckCommandMap {
     let mut commands = BTreeMap::new();
     for (output_path, args) in &build_input.command_args_by_output {
-        if !is_moonc_check_command(args) {
+        let Some(command_args) = check_command_args_without_executable(args) else {
             continue;
         };
-        commands.insert(output_path.clone(), args.clone());
+        commands.insert(output_path.clone(), command_args);
     }
     commands
 }
 
-fn is_moonc_check_command(args: &[String]) -> bool {
-    args.get(1).is_some_and(|arg| arg == "check")
+fn check_command_args_without_executable(args: &[String]) -> Option<Vec<String>> {
+    let (_executable, command_args) = args.split_first()?;
+    command_args
+        .first()
+        .is_some_and(|arg| arg == "check")
+        .then(|| command_args.to_vec())
 }
 
 pub fn generate_all_pkgs_json(

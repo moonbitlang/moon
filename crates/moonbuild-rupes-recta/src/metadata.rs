@@ -38,7 +38,10 @@ use crate::{
     pkg_solve::DepEdge,
 };
 
-/// `moonc check` command argv keyed by their generated `.mi` output path.
+/// `moonc check` command arguments keyed by their generated `.mi` output path.
+///
+/// The executable path is intentionally omitted so metadata stays independent
+/// of the active host/toolchain layout.
 pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
 
 /// Generate `package.json`, which is a metadata file shared by IDE plugins and
