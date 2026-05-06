@@ -1470,63 +1470,6 @@ fn resolve_prebuild_rule_command(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn read_module(source: &str) -> MoonMod {
-        let path = std::env::temp_dir().join(format!(
-            "moonbuild-rr-rule-{}-{}.moon.mod",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::write(&path, source).unwrap();
-        let module = moonutil::common::read_module_from_dsl(&path).unwrap();
-        std::fs::remove_file(&path).unwrap();
-        module
-    }
-
-    fn test_package(module: &MoonMod) -> PackageFQNWithSource {
-        PackageFQNWithSource::new(
-            moonutil::mooncakes::ModuleSource::from_local_module(module, std::path::Path::new(".")),
-            crate::pkg_name::PackagePath::new("").unwrap(),
-        )
-    }
-
-    #[test]
-    fn resolve_prebuild_rule_command_uses_rule() {
-        let module = read_module(
-            r#"
-name = "test"
-rule(name: "rule1", command: "exe1")
-rule(name: "rule2", command: "exe2")
-"#,
-        );
-
-        assert_eq!(
-            resolve_prebuild_rule_command(&module, "rule2", test_package(&module)).unwrap(),
-            "exe2"
-        );
-    }
-
-    #[test]
-    fn resolve_prebuild_rule_command_rejects_unknown_rule() {
-        let module = read_module(
-            r#"
-name = "test"
-rule(name: "rule1", command: "exe1")
-"#,
-        );
-
-        let err =
-            resolve_prebuild_rule_command(&module, "missing", test_package(&module)).unwrap_err();
-        assert!(err.to_string().contains("Unknown dev_build rule"));
-    }
-}
-
 /// Concatenate two optional strings
 fn cat_opt(x: Option<String>, y: Option<&str>) -> Option<String> {
     match (x, y) {
@@ -1675,4 +1618,56 @@ fn handle_build_command_new(
     }
 
     reconstructed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_module(rules: Vec<moonutil::module::MoonModRule>) -> MoonMod {
+        MoonMod {
+            name: "test".to_string(),
+            rule: Some(rules),
+            ..Default::default()
+        }
+    }
+
+    fn test_package(module: &MoonMod) -> PackageFQNWithSource {
+        PackageFQNWithSource::new(
+            moonutil::mooncakes::ModuleSource::from_local_module(module, std::path::Path::new(".")),
+            crate::pkg_name::PackagePath::new("").expect("empty package path should parse"),
+        )
+    }
+
+    #[test]
+    fn resolve_prebuild_rule_command_uses_rule() {
+        let module = test_module(vec![
+            moonutil::module::MoonModRule {
+                name: "rule1".to_string(),
+                command: "exe1".to_string(),
+            },
+            moonutil::module::MoonModRule {
+                name: "rule2".to_string(),
+                command: "exe2".to_string(),
+            },
+        ]);
+
+        assert_eq!(
+            resolve_prebuild_rule_command(&module, "rule2", test_package(&module))
+                .expect("rule2 should resolve"),
+            "exe2"
+        );
+    }
+
+    #[test]
+    fn resolve_prebuild_rule_command_rejects_unknown_rule() {
+        let module = test_module(vec![moonutil::module::MoonModRule {
+            name: "rule1".to_string(),
+            command: "exe1".to_string(),
+        }]);
+
+        let err = resolve_prebuild_rule_command(&module, "missing", test_package(&module))
+            .expect_err("missing rule should fail");
+        assert!(err.to_string().contains("Unknown dev_build rule"));
+    }
 }

@@ -277,6 +277,11 @@
     },
     {
       "root": "moonbitlang/core",
+      "rel": "range",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/range/range.mi"
+    },
+    {
+      "root": "moonbitlang/core",
       "rel": "ref",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/ref/ref.mi"
     },

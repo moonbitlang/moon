@@ -321,9 +321,9 @@ fn write_module_dsl_uses_canonical_sections() {
         warnings = "+w1-w2"
 
         options(
-          "include": [ "src/**", "README.md" ],
-          license: "Apache-2.0",
           readme: "README.md",
+          license: "Apache-2.0",
+          "include": [ "src/**", "README.md" ],
           "supported-targets": [ "wasm-gc", "js" ],
         )"#]]
     .assert_eq(&actual);
