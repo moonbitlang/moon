@@ -535,6 +535,15 @@ pub struct CCConfig {
     pub output_ty: OutputType,
     #[builder(default = OptLevel::Speed)]
     pub opt_level: OptLevel,
+    #[builder(default = false)]
+    // Define MOONBIT_ALLOW_STACKTRACE
+    pub allow_stacktrace: bool,
+    #[builder(default = false)]
+    // Define __TINYC__
+    pub define_tinyc_macro: bool,
+    #[builder(default = false)]
+    // Preserve frame pointers for backtrace walkers.
+    pub preserve_frame_pointer: bool,
     // Define MOONBIT_USE_SHARED_RUNTIME
     // It's non-op on Linux and MacOS
     // But on Windows, it will mark runtime function declarations
@@ -1032,6 +1041,28 @@ fn add_cc_optimization_flags(
     }
 }
 
+fn add_cc_build_system_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
+    if cc.is_msvc() {
+        if config.allow_stacktrace {
+            buf.push("/DMOONBIT_ALLOW_STACKTRACE".to_string());
+        }
+        if config.define_tinyc_macro {
+            buf.push("/D__TINYC__".to_string());
+        }
+    } else if cc.is_gcc_like() {
+        if config.allow_stacktrace {
+            buf.push("-DMOONBIT_ALLOW_STACKTRACE".to_string());
+        }
+        if config.define_tinyc_macro {
+            buf.push("-D__TINYC__".to_string());
+        }
+    }
+
+    if config.preserve_frame_pointer && cc.is_full_featured_gcc_like() {
+        buf.push("-fno-omit-frame-pointer".to_string());
+    }
+}
+
 fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     // always set this even if user_cc_flags is set
     // user cannot easily know when we use shared runtime
@@ -1185,6 +1216,7 @@ where
     add_cc_tcc_specific_flags(&cc, &mut buf, &config);
 
     add_cc_optimization_flags(&cc, &mut buf, &config, has_user_flags);
+    add_cc_build_system_flags(&cc, &mut buf, &config);
     add_cc_shared_runtime_flags(&cc, &mut buf, &config);
     add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config, paths);
 
@@ -1226,6 +1258,9 @@ mod tests {
             no_sys_header: false,
             output_ty: OutputType::Executable,
             opt_level: OptLevel::Speed,
+            allow_stacktrace: false,
+            define_tinyc_macro: false,
+            preserve_frame_pointer: false,
             define_use_shared_runtime_macro: false,
         }
     }
@@ -1382,6 +1417,34 @@ mod tests {
 
         assert!(!command.iter().any(|flag| flag == "-O2"));
         assert!(command.iter().any(|flag| flag == "-O3"));
+    }
+
+    #[test]
+    fn build_system_flags_keep_default_optimization_flags() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.allow_stacktrace = true;
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &[] as &[&str],
+            &[] as &[&str],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|flag| flag == "-O2"));
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "-DMOONBIT_ALLOW_STACKTRACE")
+        );
     }
 
     #[test]
