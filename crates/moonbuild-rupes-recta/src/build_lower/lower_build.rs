@@ -721,7 +721,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     fn should_auto_export_wasm_memory(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> bool {
-        if !self.opt.wasi_auto_export_memory || !self.opt.target_backend.to_target().is_wasm() {
+        if !self.opt.wasi_auto_export_memory || self.opt.target_backend != RunBackend::Wasm {
             return false;
         }
 

@@ -418,7 +418,8 @@ pub fn preconfig_compile(
         workspace_env: cli.workspace_env.clone(),
         output_wat: build_flags.output_wat,
         debug_export_build_plan: cli.unstable_feature.rr_export_build_plan,
-        wasi_auto_export_memory: cli.unstable_feature.wasi_auto_export_memory,
+        wasi_auto_export_memory: cli.unstable_feature.wasi_auto_export_memory
+            && std::env::var("MOON_WASI_AUTO_EXPORT_MEMORY").as_deref() != Ok("0"),
         // In legacy impl, dry run always force no json
         moonc_output_json: !cli.dry_run && build_flags.output_style().needs_moonc_json(),
         docs_serve: false,
