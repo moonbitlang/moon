@@ -21,7 +21,7 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{ErrorKind, Read, Seek, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -402,14 +402,14 @@ fn dir_path_for_fd(context: &WasiContext, fd: i32) -> WasiResult<PathBuf> {
         }
     };
 
-    enforce_preopen_boundary(
-        context,
-        &path,
-        PathBoundaryMode::FollowFinal {
-            allow_missing_final: false,
-        },
-    )?;
+    let real_path = fs::canonicalize(&path).map_err(|error| io_error_to_errno(&error))?;
+    ensure_within_root(&context.preopen_dir_real_path, &real_path)?;
     Ok(path)
+}
+
+fn dir_real_path_for_fd(context: &WasiContext, fd: i32) -> WasiResult<PathBuf> {
+    let path = dir_path_for_fd(context, fd)?;
+    fs::canonicalize(&path).map_err(|error| io_error_to_errno(&error))
 }
 
 fn file_for_fd(context: &WasiContext, fd: i32) -> WasiResult<Arc<Descriptor>> {
@@ -513,56 +513,29 @@ fn read_path_from_memory(memory: &[u8], path_ptr: i32, path_len: usize) -> WasiR
     }
 }
 
-fn validate_guest_relative_path(path: &Path) -> WasiResult<()> {
-    let mut depth = 0i32;
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::Normal(_) => depth = depth.saturating_add(1),
-            Component::ParentDir => {
-                if depth == 0 {
-                    return Err(WASI_ERRNO_NOTCAPABLE);
-                }
-                depth -= 1;
-            }
-            Component::RootDir | Component::Prefix(_) => return Err(WASI_ERRNO_NOTCAPABLE),
-        }
-    }
-    Ok(())
-}
-
 fn validate_guest_entry_path(path: &Path) -> WasiResult<()> {
-    let mut depth = 0i32;
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::Normal(_) => depth = depth.saturating_add(1),
-            Component::ParentDir => {
-                if depth == 0 {
-                    return Err(WASI_ERRNO_NOTCAPABLE);
-                }
-                depth -= 1;
-            }
-            Component::RootDir | Component::Prefix(_) => return Err(WASI_ERRNO_NOTCAPABLE),
-        }
-    }
-
-    if depth == 0 {
-        Err(WASI_ERRNO_NOTCAPABLE)
-    } else {
-        Ok(())
-    }
+    path.file_name().map(|_| ()).ok_or(WASI_ERRNO_NOTCAPABLE)
 }
 
-fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<PathBuf> {
-    validate_guest_relative_path(path)?;
+struct ResolvedPath {
+    host_path: PathBuf,
+    boundary_root: PathBuf,
+}
+
+fn resolve_path(context: &WasiContext, dirfd: i32, path: &Path) -> WasiResult<ResolvedPath> {
     let base = dir_path_for_fd(context, dirfd)?;
-    let relative = if path.as_os_str().is_empty() {
-        Path::new(".")
+    let boundary_root = dir_real_path_for_fd(context, dirfd)?;
+    let host_path = if path.as_os_str().is_empty() {
+        base
+    } else if path.is_absolute() {
+        path.to_path_buf()
     } else {
-        path
+        base.join(path)
     };
-    Ok(base.join(relative))
+    Ok(ResolvedPath {
+        host_path,
+        boundary_root,
+    })
 }
 
 fn io_error_to_errno(error: &std::io::Error) -> WasiErrno {
@@ -585,9 +558,25 @@ enum PathBoundaryMode {
     ParentOnly,
 }
 
-fn canonical_parent_path(path: &Path) -> WasiResult<PathBuf> {
-    let parent = path.parent().unwrap_or(Path::new("."));
-    fs::canonicalize(parent).map_err(|error| io_error_to_errno(&error))
+fn canonical_nearest_existing_ancestor(path: &Path) -> WasiResult<(PathBuf, bool)> {
+    let immediate_parent = path.parent().unwrap_or(Path::new("."));
+    let mut current = immediate_parent;
+
+    loop {
+        match fs::canonicalize(current) {
+            Ok(real_path) => return Ok((real_path, current == immediate_parent)),
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                let Some(parent) = current.parent() else {
+                    return Err(WASI_ERRNO_NOENT);
+                };
+                if parent == current {
+                    return Err(WASI_ERRNO_NOENT);
+                }
+                current = parent;
+            }
+            Err(error) => return Err(io_error_to_errno(&error)),
+        }
+    }
 }
 
 fn reject_final_symlink(path: &Path) -> WasiResult<()> {
@@ -599,40 +588,44 @@ fn reject_final_symlink(path: &Path) -> WasiResult<()> {
     }
 }
 
-fn ensure_within_preopen_root(context: &WasiContext, path: &Path) -> WasiResult<()> {
-    if path.starts_with(&context.preopen_dir_real_path) {
+fn ensure_within_root(root: &Path, path: &Path) -> WasiResult<()> {
+    if path.starts_with(root) {
         Ok(())
     } else {
         Err(WASI_ERRNO_NOTCAPABLE)
     }
 }
 
-fn enforce_preopen_boundary(
-    context: &WasiContext,
-    path: &Path,
-    mode: PathBoundaryMode,
-) -> WasiResult<()> {
+fn enforce_path_boundary(root: &Path, path: &Path, mode: PathBoundaryMode) -> WasiResult<()> {
     match mode {
         PathBoundaryMode::FollowFinal {
             allow_missing_final,
         } => match fs::canonicalize(path) {
-            Ok(real_path) => ensure_within_preopen_root(context, &real_path),
-            Err(error) if error.kind() == ErrorKind::NotFound && allow_missing_final => {
-                match fs::symlink_metadata(path) {
-                    Ok(metadata) if metadata.file_type().is_symlink() => Err(WASI_ERRNO_NOTCAPABLE),
-                    Ok(_) => Err(WASI_ERRNO_NOENT),
-                    Err(metadata_error) if metadata_error.kind() == ErrorKind::NotFound => {
-                        let parent_path = canonical_parent_path(path)?;
-                        ensure_within_preopen_root(context, &parent_path)
+            Ok(real_path) => ensure_within_root(root, &real_path),
+            Err(error) if error.kind() == ErrorKind::NotFound => match fs::symlink_metadata(path) {
+                Ok(metadata) if metadata.file_type().is_symlink() => Err(WASI_ERRNO_NOTCAPABLE),
+                Ok(_) => Err(WASI_ERRNO_NOENT),
+                Err(metadata_error) if metadata_error.kind() == ErrorKind::NotFound => {
+                    let (ancestor_path, parent_exists) = canonical_nearest_existing_ancestor(path)?;
+                    ensure_within_root(root, &ancestor_path)?;
+                    if allow_missing_final && parent_exists {
+                        Ok(())
+                    } else {
+                        Err(WASI_ERRNO_NOENT)
                     }
-                    Err(metadata_error) => Err(io_error_to_errno(&metadata_error)),
                 }
-            }
+                Err(metadata_error) => Err(io_error_to_errno(&metadata_error)),
+            },
             Err(error) => Err(io_error_to_errno(&error)),
         },
         PathBoundaryMode::ParentOnly => {
-            let parent_path = canonical_parent_path(path)?;
-            ensure_within_preopen_root(context, &parent_path)
+            let (ancestor_path, parent_exists) = canonical_nearest_existing_ancestor(path)?;
+            ensure_within_root(root, &ancestor_path)?;
+            if parent_exists {
+                Ok(())
+            } else {
+                Err(WASI_ERRNO_NOENT)
+            }
         }
     }
 }
@@ -835,27 +828,28 @@ fn path_open(
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
-        let full_path = resolve_path(context, dirfd, &path)?;
-        enforce_preopen_boundary(
-            context,
-            &full_path,
+        let resolved = resolve_path(context, dirfd, &path)?;
+        enforce_path_boundary(
+            &resolved.boundary_root,
+            &resolved.host_path,
             PathBoundaryMode::FollowFinal {
                 allow_missing_final: create_requested,
             },
         )?;
         if (dirflags & WASI_LOOKUPFLAG_SYMLINK_FOLLOW) == 0 {
-            reject_final_symlink(&full_path)?;
+            reject_final_symlink(&resolved.host_path)?;
         }
 
         let descriptor_kind = if (oflags & WASI_OFLAGS_DIRECTORY) != 0 {
             if (oflags & (WASI_OFLAGS_CREAT | WASI_OFLAGS_EXCL | WASI_OFLAGS_TRUNC)) != 0 {
                 return Err(WASI_ERRNO_INVAL);
             }
-            let metadata = fs::metadata(&full_path).map_err(|error| io_error_to_errno(&error))?;
+            let metadata =
+                fs::metadata(&resolved.host_path).map_err(|error| io_error_to_errno(&error))?;
             if !metadata.is_dir() {
                 return Err(WASI_ERRNO_NOTDIR);
             }
-            DescriptorKind::Directory(full_path)
+            DescriptorKind::Directory(resolved.host_path)
         } else {
             let wants_read = (rights_base & WASI_RIGHT_FD_READ) != 0;
             let wants_write = (rights_base & WASI_RIGHT_FD_WRITE) != 0;
@@ -871,7 +865,7 @@ fn path_open(
             options.truncate((oflags & WASI_OFLAGS_TRUNC) != 0);
 
             let file = options
-                .open(full_path)
+                .open(resolved.host_path)
                 .map_err(|error| io_error_to_errno(&error))?;
             DescriptorKind::File(Mutex::new(file))
         };
@@ -913,9 +907,14 @@ fn path_readlink(
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
-        let full_path = resolve_path(context, dirfd, &path)?;
-        enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
-        let link_target = fs::read_link(&full_path).map_err(|error| io_error_to_errno(&error))?;
+        let resolved = resolve_path(context, dirfd, &path)?;
+        enforce_path_boundary(
+            &resolved.boundary_root,
+            &resolved.host_path,
+            PathBoundaryMode::ParentOnly,
+        )?;
+        let link_target =
+            fs::read_link(&resolved.host_path).map_err(|error| io_error_to_errno(&error))?;
         #[cfg(unix)]
         let link_bytes = {
             use std::os::unix::ffi::OsStrExt;
@@ -957,9 +956,14 @@ fn path_create_directory(
         let path = with_wasi_memory_mut(scope, context, |memory| {
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
-        let full_path = resolve_path(context, dirfd, &path)?;
-        enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
-        fs::create_dir(full_path).map_err(|error| io_error_to_errno(&error))
+        validate_guest_entry_path(&path)?;
+        let resolved = resolve_path(context, dirfd, &path)?;
+        enforce_path_boundary(
+            &resolved.boundary_root,
+            &resolved.host_path,
+            PathBoundaryMode::ParentOnly,
+        )?;
+        fs::create_dir(resolved.host_path).map_err(|error| io_error_to_errno(&error))
     })();
 
     finish_with_result(&mut ret, result);
@@ -992,11 +996,20 @@ fn path_rename(
         validate_guest_entry_path(&old_path)?;
         validate_guest_entry_path(&new_path)?;
 
-        let old_host_path = resolve_path(context, old_fd, &old_path)?;
-        let new_host_path = resolve_path(context, new_fd, &new_path)?;
-        enforce_preopen_boundary(context, &old_host_path, PathBoundaryMode::ParentOnly)?;
-        enforce_preopen_boundary(context, &new_host_path, PathBoundaryMode::ParentOnly)?;
-        fs::rename(old_host_path, new_host_path).map_err(|error| io_error_to_errno(&error))
+        let old_resolved = resolve_path(context, old_fd, &old_path)?;
+        let new_resolved = resolve_path(context, new_fd, &new_path)?;
+        enforce_path_boundary(
+            &old_resolved.boundary_root,
+            &old_resolved.host_path,
+            PathBoundaryMode::ParentOnly,
+        )?;
+        enforce_path_boundary(
+            &new_resolved.boundary_root,
+            &new_resolved.host_path,
+            PathBoundaryMode::ParentOnly,
+        )?;
+        fs::rename(old_resolved.host_path, new_resolved.host_path)
+            .map_err(|error| io_error_to_errno(&error))
     })();
 
     finish_with_result(&mut ret, result);
@@ -1019,9 +1032,13 @@ fn path_remove_directory(
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         validate_guest_entry_path(&path)?;
-        let full_path = resolve_path(context, dirfd, &path)?;
-        enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
-        fs::remove_dir(full_path).map_err(|error| io_error_to_errno(&error))
+        let resolved = resolve_path(context, dirfd, &path)?;
+        enforce_path_boundary(
+            &resolved.boundary_root,
+            &resolved.host_path,
+            PathBoundaryMode::ParentOnly,
+        )?;
+        fs::remove_dir(resolved.host_path).map_err(|error| io_error_to_errno(&error))
     })();
 
     finish_with_result(&mut ret, result);
@@ -1044,9 +1061,13 @@ fn path_unlink_file(
             read_path_from_memory(memory, path_ptr, path_len)
         })?;
         validate_guest_entry_path(&path)?;
-        let full_path = resolve_path(context, dirfd, &path)?;
-        enforce_preopen_boundary(context, &full_path, PathBoundaryMode::ParentOnly)?;
-        fs::remove_file(full_path).map_err(|error| io_error_to_errno(&error))
+        let resolved = resolve_path(context, dirfd, &path)?;
+        enforce_path_boundary(
+            &resolved.boundary_root,
+            &resolved.host_path,
+            PathBoundaryMode::ParentOnly,
+        )?;
+        fs::remove_file(resolved.host_path).map_err(|error| io_error_to_errno(&error))
     })();
 
     finish_with_result(&mut ret, result);
@@ -1815,4 +1836,351 @@ pub(crate) fn init_env<'s>(
     set_wasi_func!(obj, scope, context_ptr, proc_exit);
 
     dtors.push(context);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_context(root: &Path) -> WasiContext {
+        WasiContext {
+            argv: Vec::new(),
+            preopen_dir_name: preopen_name(),
+            preopen_dir_host_path: root.to_path_buf(),
+            preopen_dir_real_path: fs::canonicalize(root).expect("canonicalize preopen root"),
+            descriptors: Mutex::new(DescriptorTable::new()),
+            memory: OnceLock::new(),
+        }
+    }
+
+    #[test]
+    fn preopen_resolution_allows_dotdot_that_stays_inside() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::create_dir(root.join("inside")).expect("create inside dir");
+        fs::write(root.join("file.txt"), b"inside").expect("write inside file");
+
+        let context = test_context(&root);
+        let resolved = resolve_path(
+            &context,
+            WASI_FD_PREOPEN_DIR,
+            Path::new("inside/../file.txt"),
+        )
+        .expect("resolve path");
+
+        assert!(
+            enforce_path_boundary(
+                &resolved.boundary_root,
+                &resolved.host_path,
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn preopen_resolution_rejects_dotdot_escape_after_resolving() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::write(temp.path().join("outside.txt"), b"outside").expect("write outside file");
+
+        let context = test_context(&root);
+        let resolved = resolve_path(&context, WASI_FD_PREOPEN_DIR, Path::new("../outside.txt"))
+            .expect("resolve path");
+
+        assert_eq!(
+            enforce_path_boundary(
+                &resolved.boundary_root,
+                &resolved.host_path,
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            ),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+    }
+
+    #[test]
+    fn absolute_paths_are_allowed_only_inside_dirfd_root() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        let subdir = root.join("subdir");
+        let sibling = root.join("sibling");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::create_dir(&subdir).expect("create subdir");
+        fs::create_dir(&sibling).expect("create sibling");
+        fs::write(sibling.join("file.txt"), b"sibling").expect("write sibling file");
+
+        let context = test_context(&root);
+
+        let preopen_resolved =
+            resolve_path(&context, WASI_FD_PREOPEN_DIR, &sibling.join("file.txt"))
+                .expect("resolve absolute path from preopen");
+        assert!(
+            enforce_path_boundary(
+                &preopen_resolved.boundary_root,
+                &preopen_resolved.host_path,
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            )
+            .is_ok()
+        );
+
+        let subdir_fd = with_descriptor_table(&context, |table| {
+            table.insert(Arc::new(Descriptor {
+                kind: DescriptorKind::Directory(subdir),
+                rights_base: preopen_rights_base(),
+                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
+            }))
+        })
+        .expect("insert subdir descriptor");
+        let subdir_resolved =
+            resolve_path(&context, subdir_fd, &sibling.join("file.txt")).expect("resolve path");
+        assert_eq!(
+            enforce_path_boundary(
+                &subdir_resolved.boundary_root,
+                &subdir_resolved.host_path,
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            ),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+    }
+
+    #[test]
+    fn directory_fd_resolution_cannot_escape_to_sibling() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        let subdir = root.join("subdir");
+        let sibling = root.join("sibling");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::create_dir(&subdir).expect("create subdir");
+        fs::create_dir(&sibling).expect("create sibling");
+        fs::write(sibling.join("file.txt"), b"sibling").expect("write sibling file");
+
+        let context = test_context(&root);
+        let subdir_fd = with_descriptor_table(&context, |table| {
+            table.insert(Arc::new(Descriptor {
+                kind: DescriptorKind::Directory(subdir),
+                rights_base: preopen_rights_base(),
+                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
+            }))
+        })
+        .expect("insert subdir descriptor");
+        let resolved =
+            resolve_path(&context, subdir_fd, Path::new("../sibling/file.txt")).expect("resolve");
+
+        assert_eq!(
+            enforce_path_boundary(
+                &resolved.boundary_root,
+                &resolved.host_path,
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            ),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+    }
+
+    #[test]
+    fn directory_fd_missing_sibling_child_is_notcapable() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        let subdir = root.join("subdir");
+        let sibling = root.join("sibling");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::create_dir(&subdir).expect("create subdir");
+        fs::create_dir(&sibling).expect("create sibling");
+
+        let context = test_context(&root);
+        let subdir_fd = with_descriptor_table(&context, |table| {
+            table.insert(Arc::new(Descriptor {
+                kind: DescriptorKind::Directory(subdir),
+                rights_base: preopen_rights_base(),
+                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
+            }))
+        })
+        .expect("insert subdir descriptor");
+        let resolved =
+            resolve_path(&context, subdir_fd, Path::new("../sibling/not-there")).expect("resolve");
+
+        assert_eq!(
+            enforce_path_boundary(
+                &resolved.boundary_root,
+                &resolved.host_path,
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            ),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+    }
+
+    #[test]
+    fn directory_fd_missing_escaped_parent_is_notcapable() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        let subdir = root.join("subdir");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::create_dir(&subdir).expect("create subdir");
+
+        let context = test_context(&root);
+        let subdir_fd = with_descriptor_table(&context, |table| {
+            table.insert(Arc::new(Descriptor {
+                kind: DescriptorKind::Directory(subdir),
+                rights_base: preopen_rights_base(),
+                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
+            }))
+        })
+        .expect("insert subdir descriptor");
+        let resolved =
+            resolve_path(&context, subdir_fd, Path::new("../missing/file")).expect("resolve");
+
+        assert_eq!(
+            enforce_path_boundary(
+                &resolved.boundary_root,
+                &resolved.host_path,
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            ),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+        assert_eq!(
+            enforce_path_boundary(
+                &resolved.boundary_root,
+                &resolved.host_path,
+                PathBoundaryMode::ParentOnly,
+            ),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+    }
+
+    #[test]
+    fn directory_fd_missing_inside_parent_is_noent() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        let subdir = root.join("subdir");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::create_dir(&subdir).expect("create subdir");
+
+        let context = test_context(&root);
+        let subdir_fd = with_descriptor_table(&context, |table| {
+            table.insert(Arc::new(Descriptor {
+                kind: DescriptorKind::Directory(subdir),
+                rights_base: preopen_rights_base(),
+                rights_inheriting: WASI_KNOWN_RIGHTS_MASK,
+            }))
+        })
+        .expect("insert subdir descriptor");
+        let resolved =
+            resolve_path(&context, subdir_fd, Path::new("missing/file")).expect("resolve");
+
+        assert_eq!(
+            enforce_path_boundary(
+                &resolved.boundary_root,
+                &resolved.host_path,
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            ),
+            Err(WASI_ERRNO_NOENT)
+        );
+        assert_eq!(
+            enforce_path_boundary(
+                &resolved.boundary_root,
+                &resolved.host_path,
+                PathBoundaryMode::ParentOnly,
+            ),
+            Err(WASI_ERRNO_NOENT)
+        );
+    }
+
+    #[test]
+    fn boundary_check_rejects_prefix_lookalike_sibling() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        let sibling = temp.path().join("root-sibling");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::create_dir(&sibling).expect("create sibling");
+        fs::write(sibling.join("file.txt"), b"outside").expect("write sibling file");
+
+        let context = test_context(&root);
+
+        assert_eq!(
+            enforce_path_boundary(
+                &context.preopen_dir_real_path,
+                &sibling.join("file.txt"),
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            ),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+    }
+
+    #[test]
+    fn boundary_check_allows_missing_file_only_when_parent_is_inside() {
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        let sibling = temp.path().join("sibling");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::create_dir(&sibling).expect("create sibling");
+
+        let context = test_context(&root);
+
+        assert!(
+            enforce_path_boundary(
+                &context.preopen_dir_real_path,
+                &root.join("new.txt"),
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: true,
+                },
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            enforce_path_boundary(
+                &context.preopen_dir_real_path,
+                &sibling.join("new.txt"),
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: true,
+                },
+            ),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn boundary_check_rejects_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().expect("create temp dir");
+        let root = temp.path().join("root");
+        let sibling = temp.path().join("sibling");
+        fs::create_dir(&root).expect("create preopen root");
+        fs::create_dir(&sibling).expect("create sibling");
+        fs::write(sibling.join("file.txt"), b"outside").expect("write sibling file");
+        symlink(sibling.join("file.txt"), root.join("link.txt")).expect("create symlink");
+
+        let context = test_context(&root);
+
+        assert_eq!(
+            enforce_path_boundary(
+                &context.preopen_dir_real_path,
+                &root.join("link.txt"),
+                PathBoundaryMode::FollowFinal {
+                    allow_missing_final: false,
+                },
+            ),
+            Err(WASI_ERRNO_NOTCAPABLE)
+        );
+    }
 }

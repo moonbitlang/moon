@@ -1732,6 +1732,7 @@ dependencies = [
  "serde",
  "serde_json_lenient",
  "snapbox",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
  "v8",
