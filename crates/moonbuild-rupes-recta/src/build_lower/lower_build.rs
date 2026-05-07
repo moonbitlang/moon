@@ -996,7 +996,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Two things needs to be done here:
         // - compile the program (if needed)
         // - link with runtime library & artifacts of other C stubs
-        // let cc_cmd = make_cc_command_resolved(cc, config, user_cc_flags, src, dest_dir, dest, paths);
 
         let mut sources = vec![];
         // C artifact path
