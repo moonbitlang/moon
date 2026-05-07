@@ -105,131 +105,91 @@ fn test_moon_test_hello_lib() {
 
 #[test]
 fn test_zombie_child_process() {
+    use super::process::{
+        read_pid_file, terminate_child, terminate_pid, wait_for_child_exit, wait_for_pid_exit,
+    };
     use super::util::moon_bin;
+    use std::process::Stdio;
     use std::thread;
     use std::time::{Duration, Instant};
 
     let dir = TestDir::new("moon_test/zombie_child");
-    let lock_file = dir.join("test_lock_file.txt");
+    let child_pid_file = dir.join("test_child_pid.txt");
+    let moon = moon_bin();
+
+    let build_output = std::process::Command::new(&moon)
+        .current_dir(&dir)
+        .args(["test", "--target", "js", "--no-parallelize", "--build-only"])
+        .output()
+        .expect("Failed to build zombie child test fixture");
+    assert!(
+        build_output.status.success(),
+        "failed to build zombie child test fixture\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build_output.stdout),
+        String::from_utf8_lossy(&build_output.stderr)
+    );
 
     // Spawn moon test in background
-    let mut moon_child = std::process::Command::new(moon_bin())
+    let mut moon_child = std::process::Command::new(&moon)
         .current_dir(&dir)
         .args(["test", "--target", "js", "--no-parallelize"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to spawn moon test");
 
-    // Wait for lock file to be created
+    // Wait for the test executable to publish its PID.
     let start = Instant::now();
-    while !lock_file.exists() {
-        thread::sleep(Duration::from_millis(100));
-        if start.elapsed() > Duration::from_secs(10) {
-            panic!("Timeout waiting for lock file to be created");
+    let child_pid = loop {
+        if let Ok(pid) = read_pid_file(&child_pid_file) {
+            break pid;
         }
-    }
-
-    // Record the initial value written into the lock file.
-    // The MoonBit test writes an incrementing counter into the
-    // file on each heartbeat, so we can use this value to detect
-    // whether the writer is still alive after we kill `moon`.
-    let initial_counter =
-        read_lock_counter(&lock_file).expect("Failed to read initial counter from lock file");
+        if let Some(status) = moon_child
+            .try_wait()
+            .expect("Failed to poll moon test process")
+        {
+            let output = moon_child
+                .wait_with_output()
+                .expect("Failed to collect moon test output");
+            panic!(
+                "moon test exited before writing child PID: {status}\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        thread::sleep(Duration::from_millis(100));
+        if start.elapsed() > Duration::from_secs(60) {
+            let _ = moon_child.kill();
+            let output = moon_child
+                .wait_with_output()
+                .expect("Failed to collect moon test output");
+            panic!(
+                "Timeout waiting for child PID to be written\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    };
 
     // Terminate the moon process (simulating the scenario in example/script.js)
     terminate_child(&mut moon_child);
 
     // When moon is killed, all child processes (moonrun/node) should also be terminated.
-    // This is verified by checking that the lock file eventually stops
-    // being updated after moon is killed.
-    // If the file is still being updated until timeout, it means the
-    // child process continues running as a zombie.
-    // If this assertion fails, it indicates a regression where child
-    // processes survive after termination.
-    let quiescent = wait_for_lock_quiescent(&lock_file, initial_counter);
-    if !quiescent {
-        // Clean up moon child process (if still alive)
-        moon_child.kill().expect("Failed to terminate moon process");
-        moon_child.wait().expect("Failed to wait moon process");
+    // This is verified by checking that the test executable PID exits after
+    // the parent `moon` process has been terminated.
+    if !wait_for_child_exit(&mut moon_child, Duration::from_secs(5)) {
+        let _ = moon_child.kill();
+        let _ = moon_child.wait();
+        terminate_pid(child_pid);
+        panic!("moon process did not exit after termination request");
+    }
+    if !wait_for_pid_exit(child_pid, Duration::from_secs(5)) {
+        terminate_pid(child_pid);
         panic!(
             "Child processes (moonrun/node) are not terminated when moon is killed. \
-        The lock file continues to be updated until timeout, indicating that spawned test processes remain running as zombies. \
+        The test executable process with PID {child_pid} is still alive after timeout. \
         Moon should properly propagate termination signals to all child processes."
         );
-    }
-}
-
-#[cfg(unix)]
-fn terminate_child(child: &mut std::process::Child) {
-    let pid = child.id() as i32;
-    let rc = unsafe { libc::kill(pid, libc::SIGTERM) };
-    if rc != 0 {
-        panic!(
-            "Failed to send SIGTERM to moon process: {}",
-            std::io::Error::last_os_error()
-        );
-    }
-}
-
-#[cfg(windows)]
-fn terminate_child(child: &mut std::process::Child) {
-    child.kill().expect("Failed to terminate moon process");
-}
-
-/// Read the current heartbeat counter from the lock file.
-///
-/// The MoonBit test writes an incrementing integer to the lock file
-/// on each heartbeat. This helper reads the file as UTF-8 text,
-/// trims it, and parses it as `u64`.
-fn read_lock_counter(lock_file: &std::path::Path) -> std::io::Result<u64> {
-    let content = std::fs::read_to_string(lock_file)?;
-    let trimmed = content.trim();
-    let counter = trimmed
-        .parse::<u64>()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, format!("{e}")))?;
-    Ok(counter)
-}
-
-/// Wait until the lock file's heartbeat counter stops increasing after
-/// `last_counter`.
-///
-/// Returns `true` if, within a bounded time window, we observe the
-/// counter become *quiescent* (no longer strictly greater than
-/// `last_counter`). This includes the cases where the file disappears
-/// or its contents become unreadable, because those all indicate that
-/// no further heartbeats are happening from the test process tree.
-///
-/// Returns `false` only if, for the entire timeout window, every poll
-/// observes a strictly larger counter than before, meaning the file
-/// keeps getting updated and the child process is likely still running.
-fn wait_for_lock_quiescent(lock_file: &std::path::Path, mut last_counter: u64) -> bool {
-    use std::time::{Duration, Instant};
-
-    let start = Instant::now();
-    let timeout = Duration::from_secs(5);
-    loop {
-        std::thread::sleep(Duration::from_millis(200));
-        if start.elapsed() > timeout {
-            return false;
-        }
-
-        let counter = match read_lock_counter(lock_file) {
-            Ok(counter) => counter,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                // File disappeared: treat as quiescent (writer gone).
-                return true;
-            }
-            Err(_) => {
-                // Transient or format error: ignore this sample and
-                // try again until we either observe quiescence or
-                // hit the overall timeout.
-                continue;
-            }
-        };
-
-        if counter <= last_counter {
-            return true;
-        }
-        last_counter = counter;
     }
 }
 
