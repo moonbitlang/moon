@@ -11,13 +11,7 @@ fn test_bench_auto_export_memory() {
     let dir = TestDir::new("moon_bench");
     let output = get_stdout(
         &dir,
-        [
-            "--unstable-feature",
-            "wasi_auto_export_memory",
-            "bench",
-            "--build-only",
-            "--dry-run",
-        ],
+        ["bench", "--target", "wasm", "--build-only", "--dry-run"],
     );
     assert!(output.contains("-export-memory-name memory"));
 }

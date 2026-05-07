@@ -45,7 +45,7 @@ fn command_string_run_parses_as_expected() {
                     rr_n2_explain: false,
                     rr_moon_mod: false,
                     rr_moon_pkg: true,
-                    wasi_auto_export_memory: false,
+                    wasi_auto_export_memory: true,
                 },
             },
             RunSubcommand {
@@ -121,7 +121,7 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                     rr_n2_explain: false,
                     rr_moon_mod: false,
                     rr_moon_pkg: true,
-                    wasi_auto_export_memory: false,
+                    wasi_auto_export_memory: true,
                 },
             },
             TestSubcommand {
