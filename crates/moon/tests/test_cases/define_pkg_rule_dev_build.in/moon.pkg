@@ -1,0 +1,17 @@
+dev_build(rule: "main_source", input: "input.txt", output: "main.mbt")
+
+dev_build(rule: "helper_source", input: "input.txt", output: "helper.mbt")
+
+rule(
+  name: "main_source",
+  command: "cat $input >/dev/null && echo 'fn main { println(helper()) }' > $output",
+)
+
+rule(
+  name: "helper_source",
+  command: "cat $input >/dev/null && echo 'fn helper() -> Int { 42 }' > $output",
+)
+
+options(
+  "is-main": true,
+)
