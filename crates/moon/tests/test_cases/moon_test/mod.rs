@@ -108,17 +108,14 @@ fn test_zombie_child_process() {
     use super::process::{
         read_pid_file, terminate_child, terminate_pid, wait_for_child_exit, wait_for_pid_exit,
     };
-    use super::util::moon_bin;
     use std::process::Stdio;
     use std::thread;
     use std::time::{Duration, Instant};
 
     let dir = TestDir::new("moon_test/zombie_child");
     let child_pid_file = dir.join("test_child_pid.txt");
-    let moon = moon_bin();
 
-    let build_output = std::process::Command::new(&moon)
-        .current_dir(&dir)
+    let build_output = moon_process_cmd(&dir)
         .args(["test", "--target", "js", "--no-parallelize", "--build-only"])
         .output()
         .expect("Failed to build zombie child test fixture");
@@ -130,8 +127,7 @@ fn test_zombie_child_process() {
     );
 
     // Spawn moon test in background
-    let mut moon_child = std::process::Command::new(&moon)
-        .current_dir(&dir)
+    let mut moon_child = moon_process_cmd(&dir)
         .args(["test", "--target", "js", "--no-parallelize"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -211,11 +207,7 @@ fn test_moon_test_with_local_dep() {
         "#]],
     );
     // Run moon info
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["info", "--frozen"])
-        .assert()
-        .success();
+    moon_cmd(&dir).args(["info", "--frozen"]).assert().success();
     // Check directory structure by listing all files
     let root_dir = dir.as_ref().to_owned();
     let dir = WalkDir::new(&dir)
@@ -383,8 +375,7 @@ fn test_pkg_source_in() {
 fn test_moon_test_no_entry_warning() {
     let dir = TestDir::new("moon_test/no_entry_warning");
 
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
+    let out = moon_cmd(&dir)
         .args(["test"])
         .assert()
         .success()

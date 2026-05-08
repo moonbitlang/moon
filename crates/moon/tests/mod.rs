@@ -52,16 +52,27 @@ impl AsRef<Path> for TestDir {
     }
 }
 
+pub fn moon_cmd(dir: &impl AsRef<Path>) -> snapbox::cmd::Command {
+    snapbox::cmd::Command::new(moon_bin())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .current_dir(dir)
+}
+
+pub fn moon_process_cmd(dir: &impl AsRef<Path>) -> std::process::Command {
+    let mut cmd = std::process::Command::new(moon_bin());
+    cmd.env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .current_dir(dir);
+    cmd
+}
+
 #[track_caller]
 fn get_stdout_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+    let out = moon_cmd(dir)
         .envs(envs)
-        .current_dir(dir)
         .args(args)
         .assert()
         .success()
@@ -78,10 +89,8 @@ fn get_stderr_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+    let out = moon_cmd(dir)
         .envs(envs)
-        .current_dir(dir)
         .args(args)
         .assert()
         .success()
@@ -98,10 +107,8 @@ fn get_err_stdout_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+    let out = moon_cmd(dir)
         .envs(envs)
-        .current_dir(dir)
         .args(args)
         .assert()
         .failure()
@@ -118,10 +125,8 @@ fn get_err_stderr_without_replace(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let out = snapbox::cmd::Command::new(moon_bin())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+    let out = moon_cmd(dir)
         .envs(envs)
-        .current_dir(dir)
         .args(args)
         .assert()
         .failure()
@@ -182,12 +187,7 @@ pub fn assert_success(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) {
-    snapbox::cmd::Command::new(moon_bin())
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .current_dir(dir)
-        .args(args)
-        .assert()
-        .success();
+    moon_cmd(dir).args(args).assert().success();
 }
 
 #[track_caller]
