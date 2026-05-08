@@ -9,8 +9,7 @@ fn dummy_core_writes_packages_json_for_selected_target() {
     let test_dir = TestDir::new("dummy_core");
     let dir = dunce::canonicalize(test_dir.as_ref()).unwrap();
 
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
+    moon_cmd(&dir)
         .args(["check", "--sort-input"])
         .assert()
         .success();
@@ -21,8 +20,7 @@ fn dummy_core_writes_packages_json_for_selected_target() {
         expect_file!["./packages_wasm_gc.json.snap"]
             .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir))
     }
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
+    moon_cmd(&dir)
         .args(["check", "--target", "js", "--sort-input"])
         .assert()
         .success();

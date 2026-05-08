@@ -72,6 +72,7 @@ mod moon_coverage;
 mod moon_info_001;
 mod moon_info_002;
 mod moon_info_compare_backends;
+mod moon_install_global;
 mod moon_new;
 mod moon_prove;
 mod moon_test;
@@ -118,6 +119,7 @@ mod virtual_pkg2;
 mod virtual_pkg_dep;
 mod virtual_pkg_test;
 mod warns;
+mod wasm_memory;
 mod wbtest_coverage;
 mod whitespace_test;
 mod workspace_basic;
@@ -194,176 +196,6 @@ fn test_backtrace() {
 }
 
 #[test]
-fn test_export_memory_name() {
-    let dir = TestDir::new("export_memory.in");
-
-    // Check the commands
-    // build wasm-gc/wasm should have this flag
-    check(
-        get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map -export-memory-name awesome_memory
-        "#]],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            ["build", "--dry-run", "--sort-input", "--target", "wasm"],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/_build/wasm/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm/release/bundle' -i ./_build/wasm/debug/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/wasm/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm/release/bundle/core.core' ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main username/hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm -g -O0 -export-memory-name awesome_memory
-        "#]],
-    );
-
-    // js is not wasm so should not have export-memory-name flag
-    check(
-        get_stdout(
-            &dir,
-            ["build", "--dry-run", "--sort-input", "--target", "js"],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/js/debug/build/lib/lib.core -pkg username/hello/lib -std-path '$MOON_HOME/lib/core/_build/js/release/bundle' -i '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/js/debug/build/main/main.core -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/_build/js/release/bundle' -i ./_build/js/debug/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/js/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target js -g -O0 -source-map -workspace-path . -all-pkgs ./_build/js/debug/build/all_pkgs.json
-            moonc link-core '$MOON_HOME/lib/core/_build/js/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/js/release/bundle/core.core' ./_build/js/debug/build/lib/lib.core ./_build/js/debug/build/main/main.core -main username/hello/main -o ./_build/js/debug/build/main/main.js -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target js -g -O0 -source-map
-        "#]],
-    );
-
-    // Check the results
-    let _ = get_stdout(
-        &dir,
-        ["build", "--target", "wasm-gc", "--release", "--output-wat"],
-    );
-    let content = std::fs::read_to_string(
-        dir.join(BUILD_DIR)
-            .join("wasm-gc")
-            .join("release")
-            .join("build")
-            .join("main")
-            .join("main.wat"),
-    )
-    .unwrap();
-    assert!(content.contains("awesome_memory"));
-}
-
-#[test]
-fn test_wasi_auto_export_memory() {
-    let dir = TestDir::new("need_link.in");
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "build",
-                "--target",
-                "wasm",
-                "--dry-run",
-                "--nostd",
-                "--sort-input",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg username/hello/main -is-main -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main username/hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -export-memory-name memory
-            moonc link-core ./_build/wasm/debug/build/lib/lib.core -main username/hello/lib -o ./_build/wasm/debug/build/lib/lib.wasm -pkg-config-path ./lib/moon.pkg.json -pkg-sources username/hello/lib:./lib -target wasm -g -O0
-        "#]],
-    );
-
-    let _ = get_stdout(
-        &dir,
-        ["build", "--target", "wasm", "--release", "--output-wat"],
-    );
-    let main_wat = std::fs::read_to_string(
-        dir.join(BUILD_DIR)
-            .join("wasm")
-            .join("release")
-            .join("build")
-            .join("main")
-            .join("main.wat"),
-    )
-    .unwrap();
-    assert!(main_wat.contains(r#"(export "memory" (memory $moonbit.memory))"#));
-    let lib_wat = std::fs::read_to_string(
-        dir.join(BUILD_DIR)
-            .join("wasm")
-            .join("release")
-            .join("build")
-            .join("lib")
-            .join("lib.wat"),
-    )
-    .unwrap();
-    assert!(!lib_wat.contains(r#"(export "memory""#));
-
-    let dir = TestDir::new("moon_run_with_cli_args.in");
-    let output = get_stdout(&dir, ["run", "main", "--target", "wasm", "--dry-run"]);
-    assert!(output.contains("-export-memory-name memory"));
-
-    let output = get_stdout_with_envs(
-        &dir,
-        ["run", "main", "--target", "wasm", "--dry-run"],
-        [("MOON_WASI_AUTO_EXPORT_MEMORY", "0")],
-    );
-    assert!(!output.contains("-export-memory-name memory"));
-
-    let dir = TestDir::new("no_export_when_test.in");
-    let output = get_stdout(&dir, ["test", "--target", "wasm", "--dry-run"]);
-    assert_eq!(output.matches("-export-memory-name memory").count(), 2);
-    assert!(output.contains(
-        "-exported_functions 'moonbit_test_driver_internal_execute,moonbit_test_driver_finish'"
-    ));
-
-    let dir = TestDir::new("export_memory.in");
-    let output = get_stdout(
-        &dir,
-        ["build", "--target", "wasm", "--dry-run", "--sort-input"],
-    );
-    assert!(output.contains("-export-memory-name awesome_memory"));
-    assert!(!output.contains("-export-memory-name memory"));
-
-    let dir = TestDir::new("need_link.in");
-    std::fs::write(
-        dir.join("main/moon.pkg.json"),
-        r#"{
-  "is-main": true,
-  "import": [
-    "username/hello/lib"
-  ],
-  "link": {
-    "wasm": {
-      "flags": [
-        "-export-memory-name=raw_memory",
-        "-import-memory-module",
-        "raw_mod",
-        "-import-memory-name",
-        "raw_mem"
-      ]
-    }
-  }
-}"#,
-    )
-    .unwrap();
-    let output = get_stdout(
-        &dir,
-        ["build", "--target", "wasm", "--dry-run", "--sort-input"],
-    );
-    assert!(output.contains("-export-memory-name=raw_memory"));
-    assert!(output.contains("-import-memory-module raw_mod -import-memory-name raw_mem"));
-    assert!(!output.contains("-export-memory-name memory"));
-
-    let dir = TestDir::new("need_link.in");
-    let output = get_stdout(
-        &dir,
-        ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
-    );
-    assert!(!output.contains("-export-memory-name memory"));
-}
-
-#[test]
 fn test_no_block_params() {
     let dir = TestDir::new("no_block_params.in");
     check(
@@ -403,8 +235,7 @@ fn test_no_block_params() {
 #[test]
 fn test_panic() {
     let dir = TestDir::new("panic.in");
-    let data = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
+    let data = moon_cmd(&dir)
         .args(["test"])
         .assert()
         .failure()
@@ -465,7 +296,6 @@ fn test_validate_import() {
 
 #[test]
 fn test_multi_process() {
-    use std::process::Command;
     use std::thread;
 
     let dir = TestDir::new("test_multi_process");
@@ -488,9 +318,8 @@ fn test_multi_process() {
                     .write(b"\n")
                     .unwrap();
 
-                let output = Command::new(moon_bin())
+                let output = moon_process_cmd(&path)
                     .arg("check")
-                    .current_dir(path.clone())
                     .output()
                     .expect("Failed to execute command");
 
@@ -628,9 +457,8 @@ fn mooncakes_io_smoke_test() {
 #[ignore = "where to download mooncake?"]
 fn mooncake_cli_smoke_test() {
     let dir = TestDir::new("hello.in");
-    let out = std::process::Command::new(moon_bin())
+    let out = moon_process_cmd(&dir)
         .env("RUST_BACKTRACE", "0")
-        .current_dir(&dir)
         .args(["publish"])
         .output()
         .unwrap();
@@ -641,8 +469,7 @@ fn mooncake_cli_smoke_test() {
 #[test]
 fn bench2_test() {
     let dir = TestDir::new("bench2_test.in");
-    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .current_dir(&dir)
+    moon_cmd(&dir)
         .args(["run", "main"])
         .assert()
         .success()
@@ -652,8 +479,7 @@ fn bench2_test() {
 #[test]
 fn cakenew_test() {
     let dir = TestDir::new("cakenew_test.in");
-    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .current_dir(&dir)
+    moon_cmd(&dir)
         .args(["run", "main"])
         .assert()
         .success()
@@ -663,8 +489,7 @@ fn cakenew_test() {
 #[test]
 fn capture_abort_test() {
     let dir = super::TestDir::new("capture_abort_test.in");
-    snapbox::cmd::Command::new(snapbox::cargo_bin!("moon"))
-        .current_dir(&dir)
+    moon_cmd(&dir)
         .args(["run", "main", "--nostd"])
         .assert()
         .failure();
@@ -673,11 +498,7 @@ fn capture_abort_test() {
 #[test]
 fn test_check_failed_should_write_pkg_json() {
     let dir = TestDir::new("check_failed_should_write_pkg_json.in");
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .args(["check"])
-        .assert()
-        .failure();
+    moon_cmd(&dir).args(["check"]).assert().failure();
 
     let pkg_json = dir.join("_build/packages.json");
     assert!(pkg_json.exists());
@@ -731,92 +552,6 @@ fn test_moon_run_with_cli_args() {
         ],
     );
     assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\", \"--flag\""));
-}
-
-#[test]
-fn test_import_memory_and_heap_start() {
-    let dir = TestDir::new("import_memory.in");
-    check(
-        get_stdout(
-            &dir,
-            [
-                "build",
-                "--target",
-                "wasm",
-                "--dry-run",
-                "--sort-input",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg username/hello/main -is-main -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main username/hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -import-memory-module xxx -import-memory-name yyy -heap-start-address 65536
-        "#]],
-    );
-
-    let dir = TestDir::new("import_memory.in");
-    check(
-        get_stdout(
-            &dir,
-            [
-                "build",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--sort-input",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -is-main -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -import-memory-module xxx -import-memory-name yyy
-        "#]],
-    );
-}
-
-#[test]
-fn test_import_shared_memory() {
-    let dir = TestDir::new("import_shared_memory.in");
-    check(
-        get_stdout(
-            &dir,
-            [
-                "build",
-                "--target",
-                "wasm",
-                "--dry-run",
-                "--sort-input",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg username/hello/main -is-main -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main username/hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -import-memory-module xxx -import-memory-name yyy -memory-limits-min 1 -memory-limits-max 65536 -shared-memory -heap-start-address 65536
-        "#]],
-    );
-
-    let dir = TestDir::new("import_shared_memory.in");
-    check(
-        get_stdout(
-            &dir,
-            [
-                "build",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--sort-input",
-                "--nostd",
-            ],
-        ),
-        expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -is-main -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -import-memory-module xxx -import-memory-name yyy -memory-limits-min 1 -memory-limits-max 65535 -shared-memory
-        "#]],
-    );
 }
 
 #[cfg(unix)]
@@ -1320,10 +1055,8 @@ fn test_moon_update_failed() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
     let moon_home = dir;
-    let out = std::process::Command::new(moon_bin())
-        .current_dir(dir)
+    let out = moon_process_cmd(&dir)
         .env("MOON_HOME", moon_home)
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .args(["update"])
@@ -1350,10 +1083,8 @@ fn test_moon_update_failed() {
         .output()
         .unwrap();
 
-    let out = std::process::Command::new(moon_bin())
-        .current_dir(dir)
+    let out = moon_process_cmd(&dir)
         .env("MOON_HOME", moon_home)
-        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .args(["update"])
@@ -2610,8 +2341,7 @@ fn test_postadd_script() {
 
     let _ = get_stdout(&dir, ["remove", "lijunchen/test_postadd"]);
 
-    let out = std::process::Command::new(moon_bin())
-        .current_dir(&dir)
+    let out = moon_process_cmd(&dir)
         .env("MOON_IGNORE_POSTADD", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -2838,6 +2568,7 @@ Warning: [0002]
 #[test]
 fn test_single_file_nonexistent_path_error() {
     // Use temp_dir for cross-platform compatibility
+    let temp_dir = std::env::temp_dir();
     let nonexistent_path = std::env::temp_dir()
         .join("nonexistent_file_12345.mbt")
         .display()
@@ -2845,8 +2576,7 @@ fn test_single_file_nonexistent_path_error() {
 
     // Test moon check with non-existent file outside any project
     // Should fail gracefully (exit != 101 which is Rust panic code)
-    let check_result = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(std::env::temp_dir())
+    let check_result = moon_cmd(&temp_dir)
         .args(["check", &nonexistent_path])
         .assert()
         .failure();
@@ -2858,8 +2588,7 @@ fn test_single_file_nonexistent_path_error() {
     );
 
     // Test moon test with non-existent file outside any project
-    let test_result = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(std::env::temp_dir())
+    let test_result = moon_cmd(&temp_dir)
         .args(["test", &nonexistent_path])
         .assert()
         .failure();
@@ -2871,8 +2600,7 @@ fn test_single_file_nonexistent_path_error() {
     );
 
     // Test moon run with non-existent file outside any project
-    let run_result = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(std::env::temp_dir())
+    let run_result = moon_cmd(&temp_dir)
         .args(["run", &nonexistent_path])
         .assert()
         .failure();
@@ -2906,8 +2634,7 @@ fn test_single_file_commands_work_with_workspace_disabled() {
     )
     .unwrap();
 
-    let check_result = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(dir)
+    let check_result = moon_cmd(&dir)
         .env(MOON_NO_WORKSPACE, "1")
         .args(["check", "hello.mbt"])
         .assert()
@@ -3214,304 +2941,4 @@ fn moon_test_target_js_panic_with_sourcemap() {
                 at moonbit_test_driver_internal_js_catch ($ROOT/src/lib/__generated_driver_for_blackbox_test.mbt:349:11)
             Total tests: 1, passed: 0, failed: 1."#]],
     );
-}
-
-#[test]
-fn test_moon_install_global_deprecated_warning() {
-    // Test that running `moon install` without arguments shows deprecation warning
-    let dir = TestDir::new("moon_install_global.in");
-
-    // Running moon install without arguments should show deprecation warning
-    let stderr = get_stderr(&dir, ["install"]);
-    assert!(
-        stderr.contains("deprecated"),
-        "Expected deprecation warning in stderr, got: {}",
-        stderr
-    );
-}
-
-#[test]
-fn test_moon_install_global_local_path() {
-    // Test installing from local path using --path
-    let dir = TestDir::new("moon_install_global.in");
-
-    // Create a temporary directory for installation
-    let install_dir = dir.join("test_bin");
-    std::fs::create_dir_all(&install_dir).unwrap();
-
-    // Install using --path
-    let _output = get_stdout(
-        &dir,
-        [
-            "install",
-            "--path",
-            "src/main",
-            "--bin",
-            install_dir.to_str().unwrap(),
-        ],
-    );
-
-    // Check that the binary was created
-    #[cfg(unix)]
-    let binary_path = install_dir.join("main");
-    #[cfg(target_os = "windows")]
-    let binary_path = install_dir.join("main.exe");
-
-    assert!(
-        binary_path.exists(),
-        "Expected binary at {:?} to exist",
-        binary_path
-    );
-}
-
-#[test]
-fn test_moon_install_global_local_path_renders_build_errors() {
-    let dir = TestDir::new("moon_install_global_error.in");
-    let install_dir = dir.join("test_bin");
-    std::fs::create_dir_all(&install_dir).unwrap();
-
-    let stderr = get_err_stderr(
-        &dir,
-        [
-            "install",
-            "--path",
-            "src/main",
-            "--bin",
-            install_dir.to_str().unwrap(),
-        ],
-    );
-
-    assert!(
-        stderr.contains("Error: ["),
-        "Expected rendered diagnostic in stderr, got: {stderr}",
-    );
-    assert!(
-        stderr.contains("$ROOT/src/main/main.mbt"),
-        "Expected source location in stderr, got: {stderr}",
-    );
-    assert!(
-        stderr.contains("Expr Type Mismatch"),
-        "Expected compile error message in stderr, got: {stderr}",
-    );
-    assert!(
-        !stderr.contains("\"$message_type\":\"diagnostic\""),
-        "Expected rendered diagnostics instead of raw JSON, got: {stderr}",
-    );
-}
-
-#[test]
-fn test_moon_install_global_defaults_to_moon_home_bin() {
-    let dir = TestDir::new("moon_install_global.in");
-    let moon_home = tempfile::tempdir().unwrap();
-
-    let _output = get_stdout_with_envs(
-        &dir,
-        ["install", "--path", "src/main"],
-        [("MOON_HOME", moon_home.path().to_string_lossy().into_owned())],
-    );
-
-    #[cfg(unix)]
-    let binary_path = moon_home.path().join("bin").join("main");
-    #[cfg(target_os = "windows")]
-    let binary_path = moon_home.path().join("bin").join("main.exe");
-
-    assert!(
-        binary_path.exists(),
-        "Expected binary at {:?} to exist",
-        binary_path
-    );
-}
-
-#[test]
-fn test_moon_install_global_local_path_module_root_is_exact_path() {
-    let dir = TestDir::new("moon_install_global.in");
-
-    let stderr = get_err_stderr(&dir, ["install", "--path", "."]);
-    assert!(
-        stderr.contains("is not a main package"),
-        "Expected exact local path behavior in stderr, got: {}",
-        stderr
-    );
-}
-
-#[test]
-fn test_moon_install_global_local_source_wildcard_from_module_root() {
-    let dir = TestDir::new("moon_install_global.in");
-    let install_dir = dir.join("test_bin_wildcard_root");
-    std::fs::create_dir_all(&install_dir).unwrap();
-
-    let _output = get_stdout(
-        &dir,
-        ["install", "./...", "--bin", install_dir.to_str().unwrap()],
-    );
-
-    #[cfg(unix)]
-    let binary_path = install_dir.join("main");
-    #[cfg(target_os = "windows")]
-    let binary_path = install_dir.join("main.exe");
-
-    assert!(
-        binary_path.exists(),
-        "Expected binary at {:?} to exist",
-        binary_path
-    );
-}
-
-#[test]
-fn test_moon_install_global_local_path_wildcard_with_path_flag_warns() {
-    let dir = TestDir::new("moon_install_global.in");
-
-    let stderr = get_err_stderr(&dir, ["install", "--path", "src/..."]);
-    assert!(
-        stderr.contains("does not support wildcard selectors like `src/...`"),
-        "Expected wildcard warning in stderr, got: {}",
-        stderr
-    );
-    assert!(
-        stderr.contains("Use positional SOURCE for wildcard install: `moon install src/...`"),
-        "Expected guidance for positional SOURCE in stderr, got: {}",
-        stderr
-    );
-}
-
-#[test]
-fn test_moon_install_global_git_url_default_root_package() {
-    // Test installing from git URL without PATH_IN_REPO.
-    // Default behavior installs the module root package only.
-    let install_dir = tempfile::tempdir().unwrap();
-    let install_path = install_dir.path();
-    let work_dir = tempfile::tempdir().unwrap();
-
-    // Install root package only
-    get_stdout(
-        &work_dir,
-        [
-            "install",
-            "https://github.com/moonbitlang/moon-install-git-test-cases.git",
-            "--bin",
-            install_path.to_str().unwrap(),
-        ],
-    );
-
-    // Check that only root package binary was created
-    #[cfg(unix)]
-    {
-        assert!(install_path.join("install-test").exists());
-        assert!(!install_path.join("hello").exists());
-        assert!(!install_path.join("tool1").exists());
-        assert!(!install_path.join("tool2").exists());
-    }
-    #[cfg(target_os = "windows")]
-    {
-        assert!(install_path.join("install-test.exe").exists());
-        assert!(!install_path.join("hello.exe").exists());
-        assert!(!install_path.join("tool1.exe").exists());
-        assert!(!install_path.join("tool2.exe").exists());
-    }
-}
-
-#[test]
-fn test_moon_install_global_git_url_specific_package() {
-    // Test installing specific package from git URL
-    let install_dir = tempfile::tempdir().unwrap();
-    let install_path = install_dir.path();
-    let work_dir = tempfile::tempdir().unwrap();
-
-    // Install only cmd/tool1
-    get_stdout(
-        &work_dir,
-        [
-            "install",
-            "https://github.com/moonbitlang/moon-install-git-test-cases.git",
-            "cmd/tool1",
-            "--bin",
-            install_path.to_str().unwrap(),
-        ],
-    );
-
-    // Check that only tool1 was installed
-    #[cfg(unix)]
-    {
-        assert!(install_path.join("tool1").exists());
-        assert!(!install_path.join("tool2").exists());
-        assert!(!install_path.join("hello").exists());
-        assert!(!install_path.join("install-test").exists());
-    }
-    #[cfg(target_os = "windows")]
-    {
-        assert!(install_path.join("tool1.exe").exists());
-        assert!(!install_path.join("tool2.exe").exists());
-        assert!(!install_path.join("hello.exe").exists());
-        assert!(!install_path.join("install-test.exe").exists());
-    }
-}
-
-#[test]
-fn test_moon_install_global_git_url_wildcard() {
-    // Test installing with wildcard pattern from git URL
-    let install_dir = tempfile::tempdir().unwrap();
-    let install_path = install_dir.path();
-    let work_dir = tempfile::tempdir().unwrap();
-
-    // Install cmd/... (should install tool1 and tool2)
-    get_stdout(
-        &work_dir,
-        [
-            "install",
-            "https://github.com/moonbitlang/moon-install-git-test-cases.git",
-            "cmd/...",
-            "--bin",
-            install_path.to_str().unwrap(),
-        ],
-    );
-
-    // Check that tool1 and tool2 were installed, but not others
-    #[cfg(unix)]
-    {
-        assert!(install_path.join("tool1").exists());
-        assert!(install_path.join("tool2").exists());
-        assert!(!install_path.join("hello").exists());
-        assert!(!install_path.join("install-test").exists());
-    }
-    #[cfg(target_os = "windows")]
-    {
-        assert!(install_path.join("tool1.exe").exists());
-        assert!(install_path.join("tool2.exe").exists());
-        assert!(!install_path.join("hello.exe").exists());
-        assert!(!install_path.join("install-test.exe").exists());
-    }
-}
-
-#[test]
-fn test_moon_install_global_git_url_root_wildcard() {
-    // Test installing all packages from git URL using /...
-    let install_dir = tempfile::tempdir().unwrap();
-    let install_path = install_dir.path();
-    let work_dir = tempfile::tempdir().unwrap();
-
-    get_stdout(
-        &work_dir,
-        [
-            "install",
-            "https://github.com/moonbitlang/moon-install-git-test-cases.git",
-            "/...",
-            "--bin",
-            install_path.to_str().unwrap(),
-        ],
-    );
-
-    #[cfg(unix)]
-    {
-        assert!(install_path.join("install-test").exists());
-        assert!(install_path.join("hello").exists());
-        assert!(install_path.join("tool1").exists());
-        assert!(install_path.join("tool2").exists());
-    }
-    #[cfg(target_os = "windows")]
-    {
-        assert!(install_path.join("install-test.exe").exists());
-        assert!(install_path.join("hello.exe").exists());
-        assert!(install_path.join("tool1.exe").exists());
-        assert!(install_path.join("tool2.exe").exists());
-    }
 }
