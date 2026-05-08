@@ -340,16 +340,19 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
-        let tcc_available =
+        let internal_tcc =
             check_tcc_availability(target_backend, resolve_output, input_nodes, output);
-        info!("`tcc -run` availability: {}", tcc_available);
+        info!("`tcc -run` availability: {}", internal_tcc.is_some());
 
         let target_backend = match target_backend {
             TargetBackend::Wasm => RunBackend::Wasm,
             TargetBackend::WasmGC => RunBackend::WasmGC,
             TargetBackend::Js => RunBackend::Js,
             TargetBackend::Native => {
-                if self.try_tcc_run && tcc_available && self.opt_level == BuildProfile::Debug {
+                if self.try_tcc_run
+                    && internal_tcc.is_some()
+                    && self.opt_level == BuildProfile::Debug
+                {
                     RunBackend::NativeTccRun
                 } else {
                     RunBackend::Native
@@ -380,6 +383,9 @@ impl CompilePreConfig {
             warn_list: self.warn_list,
             info_no_alias: self.info_no_alias,
             default_cc: CC::default(), // TODO: determine how CC will be set
+            internal_tcc: (target_backend == RunBackend::NativeTccRun)
+                .then_some(internal_tcc)
+                .flatten(),
         }
     }
 }
@@ -663,25 +669,25 @@ fn check_tcc_availability(
     resolve_output: &ResolveOutput,
     input_nodes: &[BuildPlanNode],
     output: UserDiagnostics,
-) -> bool {
+) -> Option<CC> {
     // Only for native target. Yes, not even LLVM.
     if target_backend != TargetBackend::Native {
         info!("Disabling `tcc -run`: Only available for native target backend");
-        return false;
+        return None;
     }
 
     // Check platform availability
     if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
         info!("`tcc -run` is only supported on Linux and macOS");
-        return false;
+        return None;
     }
 
     // Check if TCC is available
-    let _tcc = match CC::internal_tcc() {
+    let tcc = match CC::internal_tcc() {
         Ok(t) => t,
         Err(_) => {
             output.warn("Cannot find TCC compiler in the system; disabling `tcc -run`");
-            return false;
+            return None;
         }
     };
 
@@ -698,26 +704,26 @@ fn check_tcc_availability(
                     "Package '{}' overrides C/C++ toolchain, `tcc -run` will be disabled",
                     package.fqn
                 ));
-                return false;
+                return None;
             }
             if native.cc_flags.is_some() {
                 output.warn(format!(
                     "Package '{}' overrides C/C++ compiler flags, `tcc -run` will be disabled",
                     package.fqn
                 ));
-                return false;
+                return None;
             }
             if native.cc_link_flags.is_some() {
                 output.warn(format!(
                     "Package '{}' overrides C/C++ linker flags, `tcc -run` will be disabled",
                     package.fqn
                 ));
-                return false;
+                return None;
             }
         }
     }
 
-    true
+    Some(tcc)
 }
 
 /// Generate metadata file `packages.json` in the target directory.

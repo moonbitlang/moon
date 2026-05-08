@@ -26,7 +26,7 @@ use std::{
 use moonutil::{
     common::RunMode,
     compiler_flags::{
-        ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
+        ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
         OutputType as CCOutputType, make_archiver_command_resolved, make_cc_command_resolved,
         make_cc_command_resolved_with_link_flags, make_linker_command_resolved,
     },
@@ -1090,8 +1090,11 @@ impl<'a> BuildPlanLowerContext<'a> {
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        // TODO: Get the CC instance from outside
-        let cc = CC::internal_tcc().expect("Should not go to tcc run path without tcc available");
+        let cc = self
+            .opt
+            .internal_tcc
+            .clone()
+            .expect("Should not go to tcc run path without tcc available");
 
         let mut sources = vec![];
 

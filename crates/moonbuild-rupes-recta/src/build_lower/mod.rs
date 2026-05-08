@@ -24,7 +24,7 @@ use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
     common::RunMode,
-    compiler_flags::{CompilerPaths, Toolchain},
+    compiler_flags::{CC, CompilerPaths, Toolchain},
     cond_expr::OptLevel,
     mooncakes::ModuleSource,
 };
@@ -77,6 +77,8 @@ pub struct BuildOptions {
     pub compiler_paths: CompilerPaths,
     /// Selected native toolchain for this invocation.
     pub selected_native_toolchain: Toolchain,
+    /// Resolved internal TCC toolchain when this invocation uses `tcc -run`.
+    pub internal_tcc: Option<CC>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
