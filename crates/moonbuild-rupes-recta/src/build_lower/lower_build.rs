@@ -713,6 +713,10 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         if self.should_auto_export_wasm_memory(target, pkg)
             && wasm_config.export_memory_name.is_none()
+            && wasm_config.import_memory.is_none()
+            && !wasm_config
+                .link_flags
+                .is_some_and(has_raw_wasm_memory_link_flag)
         {
             wasm_config.export_memory_name = Some("memory".into());
         }
@@ -1240,4 +1244,15 @@ impl<'a> BuildPlanLowerContext<'a> {
         deps.sort_by(|x, y| x.alias.cmp(&y.alias));
         deps
     }
+}
+
+fn has_raw_wasm_memory_link_flag(flags: &[String]) -> bool {
+    flags.iter().any(|flag| {
+        matches!(
+            flag.as_str(),
+            "-export-memory-name" | "-import-memory-module" | "-import-memory-name"
+        ) || flag.starts_with("-export-memory-name=")
+            || flag.starts_with("-import-memory-module=")
+            || flag.starts_with("-import-memory-name=")
+    })
 }

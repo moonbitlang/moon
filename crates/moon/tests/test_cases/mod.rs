@@ -326,6 +326,36 @@ fn test_wasi_auto_export_memory() {
     assert!(!output.contains("-export-memory-name memory"));
 
     let dir = TestDir::new("need_link.in");
+    std::fs::write(
+        dir.join("main/moon.pkg.json"),
+        r#"{
+  "is-main": true,
+  "import": [
+    "username/hello/lib"
+  ],
+  "link": {
+    "wasm": {
+      "flags": [
+        "-export-memory-name=raw_memory",
+        "-import-memory-module",
+        "raw_mod",
+        "-import-memory-name",
+        "raw_mem"
+      ]
+    }
+  }
+}"#,
+    )
+    .unwrap();
+    let output = get_stdout(
+        &dir,
+        ["build", "--target", "wasm", "--dry-run", "--sort-input"],
+    );
+    assert!(output.contains("-export-memory-name=raw_memory"));
+    assert!(output.contains("-import-memory-module raw_mod -import-memory-name raw_mem"));
+    assert!(!output.contains("-export-memory-name memory"));
+
+    let dir = TestDir::new("need_link.in");
     let output = get_stdout(
         &dir,
         ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
@@ -721,7 +751,7 @@ fn test_import_memory_and_heap_start() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg username/hello/main -is-main -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main username/hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -export-memory-name memory -import-memory-module xxx -import-memory-name yyy -heap-start-address 65536
+            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main username/hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -import-memory-module xxx -import-memory-name yyy -heap-start-address 65536
         "#]],
     );
 
@@ -764,7 +794,7 @@ fn test_import_shared_memory() {
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg username/hello/lib -pkg-sources username/hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg username/hello/main -is-main -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main username/hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -export-memory-name memory -import-memory-module xxx -import-memory-name yyy -memory-limits-min 1 -memory-limits-max 65536 -shared-memory -heap-start-address 65536
+            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main username/hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/main:./main -target wasm -g -O0 -import-memory-module xxx -import-memory-name yyy -memory-limits-min 1 -memory-limits-max 65536 -shared-memory -heap-start-address 65536
         "#]],
     );
 
