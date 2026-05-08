@@ -134,6 +134,7 @@ pub fn build_synth_single_file_package(
         overrides: None,
         max_concurrent_tests: None,
         regex_backend: None,
+        local_rules: None,
     };
 
     // Assign file to appropriate list

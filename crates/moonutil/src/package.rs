@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
 use anyhow::bail;
 use colored::Colorize;
@@ -29,6 +29,7 @@ pub use crate::supported_targets::resolve_supported_targets;
 use crate::{
     common::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     cond_expr::{CompileCondition, CondExprs},
+    module::MoonModRule,
     moon_pkg,
 };
 
@@ -210,6 +211,10 @@ pub struct MoonPkgJSON {
     #[serde(alias = "pre-build")]
     #[schemars(rename = "pre-build")]
     pub pre_build: Option<Vec<MoonPkgGenerate>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub rule: Option<Vec<MoonModRule>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "bin-name")]
@@ -669,6 +674,9 @@ pub struct MoonPkg {
     pub max_concurrent_tests: Option<u32>,
 
     pub regex_backend: Option<RegexBackend>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub local_rules: Option<Vec<MoonModRule>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -717,6 +725,7 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         ("options", false),
         ("warnings", false),
         ("dev_build", true),
+        ("rule", true),
         ("supported_targets", false),
     ]);
     let mut map = serde_json_lenient::Map::new();
@@ -902,6 +911,15 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
     let (supported_backends, supported_targets_decl_kind) =
         resolve_supported_targets(j.supported_targets.as_ref())?;
 
+    if let Some(rules) = &j.rule {
+        let mut names = HashSet::new();
+        for rule in rules {
+            if !names.insert(rule.name.as_str()) {
+                bail!("Duplicate rule name `{}` found in moon.pkg.", rule.name);
+            }
+        }
+    }
+
     let result = MoonPkg {
         name: None,
         is_main,
@@ -929,6 +947,7 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         overrides: j.overrides,
         max_concurrent_tests: j.max_concurrent_tests,
         regex_backend: j.regex_backend,
+        local_rules: j.rule,
     };
     Ok((result, supported_targets_decl_kind))
 }
@@ -1010,6 +1029,40 @@ dev_build(rule: "rule1", input: "abc", output: "def")
         panic!("expected string output");
     };
     assert_eq!(output, "def");
+}
+
+#[test]
+fn convert_pkg_dsl_supports_package_local_rules() {
+    let json = crate::moon_pkg::parse(
+        r#"
+rule(name: "rule1", command: "exe1 $input -o $output")
+dev_build(rule: "rule1", input: "abc", output: "def")
+"#,
+    )
+    .unwrap();
+
+    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
+    let rules = pkg.local_rules.as_ref().expect("expected local rules");
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0].name, "rule1");
+    assert_eq!(rules[0].command, "exe1 $input -o $output");
+}
+
+#[test]
+fn convert_pkg_dsl_rejects_duplicate_package_local_rule_names() {
+    let json = crate::moon_pkg::parse(
+        r#"
+rule(name: "rule1", command: "exe1")
+rule(name: "rule1", command: "exe2")
+"#,
+    )
+    .unwrap();
+
+    let err = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Duplicate rule name `rule1` found in moon.pkg.")
+    );
 }
 
 #[test]

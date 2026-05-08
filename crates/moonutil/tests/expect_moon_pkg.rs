@@ -106,6 +106,7 @@ fn expect_import() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -147,6 +148,7 @@ fn expect_is_main() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -194,6 +196,7 @@ fn expect_formatter() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -235,6 +238,7 @@ fn expect_supported_targets() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -274,6 +278,7 @@ fn expect_supported_targets_expr() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -313,6 +318,7 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 
@@ -347,6 +353,7 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -422,6 +429,7 @@ fn expect_build() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -468,6 +476,7 @@ fn expect_warnings() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -508,6 +517,7 @@ fn expect_supported_targets_prefers_new_config() {
             overrides: None,
             max_concurrent_tests: None,
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -734,6 +744,7 @@ fn expect_options() {
                 4,
             ),
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }
@@ -779,6 +790,7 @@ fn expect_max_concurrent_tests() {
                 1,
             ),
             regex_backend: None,
+            local_rules: None,
         }"#]]
     .assert_eq(&actual);
 }

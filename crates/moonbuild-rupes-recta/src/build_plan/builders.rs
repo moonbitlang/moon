@@ -33,7 +33,7 @@ use moonutil::{
         TargetBackend, is_moon_mod, is_moon_pkg, is_moon_script_ignored,
     },
     compiler_flags::{CC, Toolchain},
-    module::MoonMod,
+    module::{MoonMod, MoonModRule},
     mooncakes::ModuleId,
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
 };
@@ -1394,6 +1394,7 @@ impl<'a> BuildPlanConstructor<'a> {
             MoonPkgGenerate::Rule { rule, .. } => {
                 let module_info = self.input.module_rel.module_info(pkg.module);
                 Cow::Owned(resolve_prebuild_rule_command(
+                    pkg.local_rules(),
                     module_info,
                     rule,
                     pkg.fqn.clone().into(),
@@ -1449,19 +1450,23 @@ impl<'a> BuildPlanConstructor<'a> {
 }
 
 fn resolve_prebuild_rule_command(
+    local_rules: Option<&[MoonModRule]>,
     module: &MoonMod,
     rule_name: &str,
     package: PackageFQNWithSource,
 ) -> Result<String, BuildPlanConstructError> {
-    let Some(rules) = &module.rule else {
-        return Err(BuildPlanConstructError::InvalidPrebuildRule {
-            package,
-            message: format!("Unknown dev_build rule `{}` in moon.pkg.", rule_name),
-        });
-    };
-    for rule in rules {
-        if rule.name == rule_name {
-            return Ok(rule.command.clone());
+    if let Some(rules) = local_rules {
+        for rule in rules {
+            if rule.name == rule_name {
+                return Ok(rule.command.clone());
+            }
+        }
+    }
+    if let Some(rules) = &module.rule {
+        for rule in rules {
+            if rule.name == rule_name {
+                return Ok(rule.command.clone());
+            }
         }
     }
     Err(BuildPlanConstructError::InvalidPrebuildRule {
@@ -1640,7 +1645,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_prebuild_rule_command_uses_rule() {
+    fn resolve_prebuild_rule_command_uses_module_rule() {
         let module = test_module(vec![
             moonutil::module::MoonModRule {
                 name: "rule1".to_string(),
@@ -1653,9 +1658,55 @@ mod tests {
         ]);
 
         assert_eq!(
-            resolve_prebuild_rule_command(&module, "rule2", test_package(&module))
+            resolve_prebuild_rule_command(None, &module, "rule2", test_package(&module))
                 .expect("rule2 should resolve"),
             "exe2"
+        );
+    }
+
+    #[test]
+    fn resolve_prebuild_rule_command_uses_package_local_rule() {
+        let module = test_module(vec![moonutil::module::MoonModRule {
+            name: "module_rule".to_string(),
+            command: "module_exe".to_string(),
+        }]);
+        let local_rules = vec![moonutil::module::MoonModRule {
+            name: "local_rule".to_string(),
+            command: "local_exe".to_string(),
+        }];
+
+        assert_eq!(
+            resolve_prebuild_rule_command(
+                Some(&local_rules),
+                &module,
+                "local_rule",
+                test_package(&module)
+            )
+            .expect("local rule should resolve"),
+            "local_exe"
+        );
+    }
+
+    #[test]
+    fn resolve_prebuild_rule_command_prefers_package_local_rule() {
+        let module = test_module(vec![moonutil::module::MoonModRule {
+            name: "rule1".to_string(),
+            command: "module_exe".to_string(),
+        }]);
+        let local_rules = vec![moonutil::module::MoonModRule {
+            name: "rule1".to_string(),
+            command: "local_exe".to_string(),
+        }];
+
+        assert_eq!(
+            resolve_prebuild_rule_command(
+                Some(&local_rules),
+                &module,
+                "rule1",
+                test_package(&module)
+            )
+            .expect("local rule should shadow module rule"),
+            "local_exe"
         );
     }
 
@@ -1666,7 +1717,7 @@ mod tests {
             command: "exe1".to_string(),
         }]);
 
-        let err = resolve_prebuild_rule_command(&module, "missing", test_package(&module))
+        let err = resolve_prebuild_rule_command(None, &module, "missing", test_package(&module))
             .expect_err("missing rule should fail");
         assert!(err.to_string().contains("Unknown dev_build rule"));
     }
