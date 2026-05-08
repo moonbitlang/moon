@@ -76,6 +76,8 @@ pub struct CompileConfig {
     pub info_no_alias: bool,
     /// Preferred default C/C++ toolchain to use for native builds
     pub default_cc: CC,
+    /// Resolved internal TCC toolchain when this invocation uses `tcc -run`.
+    pub internal_tcc: Option<CC>,
 }
 
 /// The output information of the compilation.
@@ -162,6 +164,7 @@ pub fn compile(
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths,
         selected_native_toolchain: Toolchain::from_cc(cx.default_cc.clone()),
+        internal_tcc: cx.internal_tcc.clone(),
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
         runtime_dot_c_path,
     };
