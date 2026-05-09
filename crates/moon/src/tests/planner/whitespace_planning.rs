@@ -46,7 +46,7 @@ fn whitespace_cli_variants_resolve_to_same_main_package_intention() {
     ] {
         let (cli, cmd) = parse_build_command(args);
         let actual = fixture
-            .plan_build_meta_with_cli(&cli, &cmd)
+            .plan_build_graph_with_cli(&cli, &cmd)
             .map(planned_root_package_intent)
             .expect("build command should resolve");
         assert_eq!(actual, expected, "unexpected build intention for {args:?}");
@@ -75,7 +75,7 @@ fn whitespace_cli_variants_resolve_to_same_main_package_intention() {
     ] {
         let (cli, cmd) = parse_run_command(args);
         let actual = fixture
-            .plan_run_meta_with_cli(&cli, &cmd)
+            .plan_run_graph_with_cli(&cli, &cmd)
             .map(planned_root_package_intent)
             .expect("run command should resolve");
         assert_eq!(actual, expected, "unexpected run intention for {args:?}");

@@ -16,59 +16,17 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::fixture::{PlanningFixture, parse_build_command, parse_check_command};
-use moonbuild_rupes_recta::model::BuildPlanNode;
+use super::fixture::{
+    PlannedPackageRun, PlanningFixture, parse_build_command, parse_check_command,
+    planned_check_package_runs, planned_root_package_runs,
+};
 use moonutil::common::TargetBackend;
 
-fn build_packages(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-) -> Vec<(TargetBackend, Vec<String>)> {
-    runs.into_iter()
-        .map(|(meta, _)| {
-            let packages = meta
-                .artifacts
-                .keys()
-                .filter_map(|node| node.extract_target().map(|target| target.package))
-                .map(|pkg_id| {
-                    meta.resolve_output
-                        .pkg_dirs
-                        .get_package(pkg_id)
-                        .fqn
-                        .to_string()
-                })
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            (meta.target_backend.into(), packages)
-        })
-        .collect()
-}
-
-fn check_packages(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-) -> Vec<(TargetBackend, Vec<String>)> {
-    runs.into_iter()
-        .map(|(meta, _)| {
-            let packages = meta
-                .artifacts
-                .keys()
-                .filter_map(|node| match node {
-                    BuildPlanNode::Check(target) => Some(target.package),
-                    _ => None,
-                })
-                .map(|pkg_id| {
-                    meta.resolve_output
-                        .pkg_dirs
-                        .get_package(pkg_id)
-                        .fqn
-                        .to_string()
-                })
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            (meta.target_backend.into(), packages)
-        })
-        .collect()
+fn expected_wasm_gc_packages(packages: &[&str]) -> Vec<PlannedPackageRun> {
+    vec![PlannedPackageRun {
+        target_backend: TargetBackend::WasmGC,
+        packages: packages.iter().map(|pkg| (*pkg).to_string()).collect(),
+    }]
 }
 
 fn expect_build_packages(fixture: &PlanningFixture, path: &str, expected: &[&str]) {
@@ -77,11 +35,8 @@ fn expect_build_packages(fixture: &PlanningFixture, path: &str, expected: &[&str
         .plan_build_all_with_cli(&cli, &cmd)
         .expect("build path filter should plan");
     assert_eq!(
-        build_packages(runs),
-        vec![(
-            TargetBackend::WasmGC,
-            expected.iter().map(|pkg| (*pkg).to_string()).collect()
-        )]
+        planned_root_package_runs(runs),
+        expected_wasm_gc_packages(expected)
     );
 }
 
@@ -91,11 +46,8 @@ fn expect_check_packages(fixture: &PlanningFixture, path: &str, expected: &[&str
         .plan_check_all_with_cli(&cli, &cmd)
         .expect("check path filter should plan");
     assert_eq!(
-        check_packages(runs),
-        vec![(
-            TargetBackend::WasmGC,
-            expected.iter().map(|pkg| (*pkg).to_string()).collect()
-        )]
+        planned_check_package_runs(runs),
+        expected_wasm_gc_packages(expected)
     );
 }
 

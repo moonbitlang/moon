@@ -17,9 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::fixture::{
-    PlannedPackageRun, PlanningFixture, parse_bench_command, parse_build_command,
+    PlannedGraph, PlannedPackageRun, PlanningFixture, parse_bench_command, parse_build_command,
     parse_bundle_command, parse_check_command, parse_run_command, parse_test_command,
     planned_check_package_runs, planned_graph_inputs, planned_root_package_runs,
+    planned_target_backends,
 };
 use moonutil::common::{TargetBackend, lower_surface_targets};
 
@@ -57,31 +58,18 @@ fn assert_graph_inputs(graph: &str, present: &[&str], absent: &[&str]) {
     }
 }
 
-fn assert_root_package_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-    expected: &[(TargetBackend, &[&str])],
-) {
+fn assert_root_package_runs(runs: Vec<PlannedGraph>, expected: &[(TargetBackend, &[&str])]) {
     assert_eq!(
         planned_root_package_runs(runs),
         expected_package_runs(expected)
     );
 }
 
-fn assert_target_backend_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-    expected: &[TargetBackend],
-) {
-    let actual = runs
-        .into_iter()
-        .map(|(meta, _)| meta.target_backend.into())
-        .collect::<Vec<TargetBackend>>();
-    assert_eq!(actual, expected);
+fn assert_target_backend_runs(runs: Vec<PlannedGraph>, expected: &[TargetBackend]) {
+    assert_eq!(planned_target_backends(runs), expected);
 }
 
-fn assert_check_package_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-    expected: &[(TargetBackend, &[&str])],
-) {
+fn assert_check_package_runs(runs: Vec<PlannedGraph>, expected: &[(TargetBackend, &[&str])]) {
     assert_eq!(
         planned_check_package_runs(runs),
         expected_package_runs(expected)

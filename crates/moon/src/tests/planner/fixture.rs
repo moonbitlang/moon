@@ -39,6 +39,11 @@ pub(super) struct PlanningFixture {
     resolve_output: ResolveOutput,
 }
 
+pub(super) struct PlannedGraph {
+    build_meta: crate::rr_build::BuildMeta,
+    build_graph: crate::rr_build::BuildInput,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct PlannedPackageRun {
     pub(super) target_backend: TargetBackend,
@@ -50,6 +55,18 @@ pub(super) struct PlannedPackageIntent {
     pub(super) target_backend: TargetBackend,
     pub(super) profile: OptLevel,
     pub(super) packages: Vec<String>,
+}
+
+impl PlannedGraph {
+    fn new(
+        build_meta: crate::rr_build::BuildMeta,
+        build_graph: crate::rr_build::BuildInput,
+    ) -> Self {
+        Self {
+            build_meta,
+            build_graph,
+        }
+    }
 }
 
 impl PlanningFixture {
@@ -88,14 +105,14 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        self.dump_plan(build_meta, build_graph)
+        self.dump_plan(PlannedGraph::new(build_meta, build_graph))
     }
 
     pub(super) fn plan_test_all_with_cli(
         &self,
         cli: &UniversalFlags,
         cmd: &TestSubcommand,
-    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+    ) -> anyhow::Result<Vec<PlannedGraph>> {
         self.plan_test_all_with_backend(cli, cmd, cmd.build_flags.resolve_single_target_backend()?)
     }
 
@@ -104,7 +121,7 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &TestSubcommand,
         selected_target_backend: Option<moonutil::common::TargetBackend>,
-    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+    ) -> anyhow::Result<Vec<PlannedGraph>> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
         crate::cli::test::plan_test_or_bench_rr_from_resolved_all(
             cli,
@@ -116,7 +133,7 @@ impl PlanningFixture {
         .map(|plans| {
             plans
                 .into_iter()
-                .map(|(meta, graph, _filter)| (meta, graph))
+                .map(|(meta, graph, _filter)| PlannedGraph::new(meta, graph))
                 .collect()
         })
     }
@@ -134,14 +151,14 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        self.dump_plan(build_meta, build_graph)
+        self.dump_plan(PlannedGraph::new(build_meta, build_graph))
     }
 
     pub(super) fn plan_bench_all_with_cli(
         &self,
         cli: &UniversalFlags,
         cmd: &BenchSubcommand,
-    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+    ) -> anyhow::Result<Vec<PlannedGraph>> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
         crate::cli::test::plan_test_or_bench_rr_from_resolved_all(
             cli,
@@ -153,7 +170,7 @@ impl PlanningFixture {
         .map(|plans| {
             plans
                 .into_iter()
-                .map(|(meta, graph, _filter)| (meta, graph))
+                .map(|(meta, graph, _filter)| PlannedGraph::new(meta, graph))
                 .collect()
         })
     }
@@ -163,15 +180,14 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
     ) -> anyhow::Result<String> {
-        let (build_meta, build_graph) = self.plan_build_meta_with_cli(cli, cmd)?;
-        self.dump_plan(build_meta, build_graph)
+        self.dump_plan(self.plan_build_graph_with_cli(cli, cmd)?)
     }
 
-    pub(super) fn plan_build_meta_with_cli(
+    pub(super) fn plan_build_graph_with_cli(
         &self,
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
-    ) -> anyhow::Result<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)> {
+    ) -> anyhow::Result<PlannedGraph> {
         let (build_meta, build_graph) = crate::cli::build::plan_build_rr_from_resolved(
             cli,
             cmd,
@@ -179,14 +195,14 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        Ok((build_meta, build_graph))
+        Ok(PlannedGraph::new(build_meta, build_graph))
     }
 
     pub(super) fn plan_build_all_with_cli(
         &self,
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
-    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+    ) -> anyhow::Result<Vec<PlannedGraph>> {
         self.plan_build_all_with_backend(cli, cmd, cmd.build_flags.resolve_single_target_backend()?)
     }
 
@@ -195,7 +211,7 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
         selected_target_backend: Option<moonutil::common::TargetBackend>,
-    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+    ) -> anyhow::Result<Vec<PlannedGraph>> {
         crate::cli::build::plan_build_rr_from_resolved_all(
             cli,
             cmd,
@@ -204,6 +220,12 @@ impl PlanningFixture {
             selected_target_backend,
             self.resolve_output.clone(),
         )
+        .map(|plans| {
+            plans
+                .into_iter()
+                .map(|(meta, graph)| PlannedGraph::new(meta, graph))
+                .collect()
+        })
     }
 
     pub(super) fn plan_bundle_all_with_backend(
@@ -211,7 +233,7 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BundleSubcommand,
         selected_target_backend: Option<moonutil::common::TargetBackend>,
-    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+    ) -> anyhow::Result<Vec<PlannedGraph>> {
         crate::cli::bundle::plan_bundle_rr_from_resolved(
             cli,
             cmd,
@@ -219,7 +241,7 @@ impl PlanningFixture {
             selected_target_backend,
             self.resolve_output.clone(),
         )
-        .map(|plan| vec![plan])
+        .map(|(meta, graph)| vec![PlannedGraph::new(meta, graph)])
     }
 
     pub(super) fn plan_check_with_cli(
@@ -235,14 +257,14 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        self.dump_plan(build_meta, build_graph)
+        self.dump_plan(PlannedGraph::new(build_meta, build_graph))
     }
 
     pub(super) fn plan_check_all_with_cli(
         &self,
         cli: &UniversalFlags,
         cmd: &CheckSubcommand,
-    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+    ) -> anyhow::Result<Vec<PlannedGraph>> {
         self.plan_check_all_with_backend(cli, cmd, cmd.build_flags.resolve_single_target_backend()?)
     }
 
@@ -251,7 +273,7 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &CheckSubcommand,
         selected_target_backend: Option<moonutil::common::TargetBackend>,
-    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+    ) -> anyhow::Result<Vec<PlannedGraph>> {
         crate::cli::check::plan_check_rr_from_resolved_all(
             cli,
             cmd,
@@ -260,6 +282,12 @@ impl PlanningFixture {
             selected_target_backend,
             self.resolve_output.clone(),
         )
+        .map(|plans| {
+            plans
+                .into_iter()
+                .map(|(meta, graph)| PlannedGraph::new(meta, graph))
+                .collect()
+        })
     }
 
     pub(super) fn plan_run_with_cli(
@@ -267,15 +295,14 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &RunSubcommand,
     ) -> anyhow::Result<String> {
-        let (build_meta, build_graph) = self.plan_run_meta_with_cli(cli, cmd)?;
-        self.dump_plan(build_meta, build_graph)
+        self.dump_plan(self.plan_run_graph_with_cli(cli, cmd)?)
     }
 
-    pub(super) fn plan_run_meta_with_cli(
+    pub(super) fn plan_run_graph_with_cli(
         &self,
         cli: &UniversalFlags,
         cmd: &RunSubcommand,
-    ) -> anyhow::Result<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)> {
+    ) -> anyhow::Result<PlannedGraph> {
         let mut cmd = cmd.clone();
         if cmd.command.is_none()
             && let Some(input) = cmd.package_or_mbt_file.as_deref()
@@ -293,20 +320,17 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        Ok((build_meta, build_graph))
+        Ok(PlannedGraph::new(build_meta, build_graph))
     }
 
     pub(super) fn case_dir(&self) -> &std::path::Path {
         &self.source_dir
     }
 
-    fn dump_plan(
-        &self,
-        build_meta: crate::rr_build::BuildMeta,
-        build_graph: crate::rr_build::BuildInput,
-    ) -> anyhow::Result<String> {
-        let graph = build_graph.graph_for_test();
-        let default_files = build_meta
+    fn dump_plan(&self, plan: PlannedGraph) -> anyhow::Result<String> {
+        let graph = plan.build_graph.graph_for_test();
+        let default_files = plan
+            .build_meta
             .artifacts
             .values()
             .flat_map(|art| {
@@ -322,35 +346,35 @@ impl PlanningFixture {
     }
 }
 
-pub(super) fn planned_root_package_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-) -> Vec<PlannedPackageRun> {
+pub(super) fn planned_root_package_runs(runs: Vec<PlannedGraph>) -> Vec<PlannedPackageRun> {
     runs.into_iter()
-        .map(|(meta, _)| PlannedPackageRun {
-            target_backend: meta.target_backend.into(),
-            packages: root_package_names(&meta),
+        .map(|plan| PlannedPackageRun {
+            target_backend: plan.build_meta.target_backend.into(),
+            packages: root_package_names(&plan.build_meta),
         })
         .collect()
 }
 
-pub(super) fn planned_check_package_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-) -> Vec<PlannedPackageRun> {
+pub(super) fn planned_check_package_runs(runs: Vec<PlannedGraph>) -> Vec<PlannedPackageRun> {
     runs.into_iter()
-        .map(|(meta, _)| PlannedPackageRun {
-            target_backend: meta.target_backend.into(),
-            packages: check_package_names(&meta),
+        .map(|plan| PlannedPackageRun {
+            target_backend: plan.build_meta.target_backend.into(),
+            packages: check_package_names(&plan.build_meta),
         })
         .collect()
 }
 
-pub(super) fn planned_root_package_intent(
-    (meta, _): (crate::rr_build::BuildMeta, crate::rr_build::BuildInput),
-) -> PlannedPackageIntent {
+pub(super) fn planned_target_backends(runs: Vec<PlannedGraph>) -> Vec<TargetBackend> {
+    runs.into_iter()
+        .map(|plan| plan.build_meta.target_backend.into())
+        .collect()
+}
+
+pub(super) fn planned_root_package_intent(plan: PlannedGraph) -> PlannedPackageIntent {
     PlannedPackageIntent {
-        target_backend: meta.target_backend.into(),
-        profile: meta.opt_level,
-        packages: root_package_names(&meta),
+        target_backend: plan.build_meta.target_backend.into(),
+        profile: plan.build_meta.opt_level,
+        packages: root_package_names(&plan.build_meta),
     }
 }
 
