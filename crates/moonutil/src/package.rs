@@ -51,6 +51,9 @@ pub struct PackageJSON {
     pub wbtest_deps: Vec<AliasJSON>,
     pub test_deps: Vec<AliasJSON>,
     pub artifact: String,
+    pub check_command: Option<Vec<String>>,
+    pub wbtest_check_command: Option<Vec<String>>,
+    pub test_check_command: Option<Vec<String>>,
     pub supported_targets: Vec<TargetBackend>,
 }
 

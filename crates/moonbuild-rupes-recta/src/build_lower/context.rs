@@ -36,13 +36,15 @@ use crate::{
 use moonutil::BINARIES;
 
 use super::{
-    BuildOptions, LoweringError,
+    BuildOptions, CommandArgMap, Commandline, LoweringError,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
 pub(crate) struct BuildPlanLowerContext<'a> {
     // What we're building
     pub(crate) graph: N2Graph,
+
+    pub(crate) command_args_by_output: CommandArgMap,
 
     // folder layout
     pub(crate) layout: LegacyLayout,
@@ -65,6 +67,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     ) -> Self {
         Self {
             graph: N2Graph::default(),
+            command_args_by_output: CommandArgMap::new(),
             layout,
             rel: &resolve_output.pkg_rel,
             modules: &resolve_output.module_rel,
@@ -183,9 +186,15 @@ impl<'a> BuildPlanLowerContext<'a> {
         ins.sort(); // make sure the order is deterministic
         let ins = build_ins(&mut self.graph, ins);
 
-        let mut outs = vec![];
-        self.append_all_artifacts_of(node, &mut outs);
-        let outs = build_outs(&mut self.graph, outs);
+        let mut output_paths = vec![];
+        self.append_all_artifacts_of(node, &mut output_paths);
+        if let Commandline::Args(args) = &cmd.commandline {
+            for output_path in &output_paths {
+                self.command_args_by_output
+                    .insert(output_path.clone(), args.clone());
+            }
+        }
+        let outs = build_outs(&mut self.graph, output_paths);
 
         // Construct n2 build node
         let fqn = node

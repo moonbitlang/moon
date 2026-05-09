@@ -173,7 +173,14 @@ pub(crate) fn run_bundle_internal_rr(
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Bundle)?;
         // Generate metadata for IDE & bundler
-        rr_build::generate_metadata(source_dir, target_dir, &build_meta, RunMode::Bundle, None)?;
+        rr_build::generate_metadata(
+            source_dir,
+            target_dir,
+            &build_meta,
+            &build_graph,
+            RunMode::Bundle,
+            None,
+        )?;
 
         let result = rr_build::execute_build(
             &BuildConfig::from_flags(

@@ -18,8 +18,8 @@
 
 //! Legacy metadata JSON (`package.json`) conversion for IDE & tools usage.
 
-use std::collections::BTreeSet;
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use moonutil::{
@@ -38,6 +38,12 @@ use crate::{
     pkg_solve::DepEdge,
 };
 
+/// `moonc check` command arguments keyed by their generated `.mi` output path.
+///
+/// The executable path is intentionally omitted so metadata stays independent
+/// of the active host/toolchain layout.
+pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
+
 /// Generate `package.json`, which is a metadata file shared by IDE plugins and
 /// other tools.
 pub fn gen_metadata_json(
@@ -47,6 +53,7 @@ pub fn gen_metadata_json(
     opt_level: OptLevel,
     backend: TargetBackend,
     mode: RunMode,
+    check_commands: &CheckCommandMap,
 ) -> ModuleDBJSON {
     let (main_module, name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
@@ -86,7 +93,7 @@ pub fn gen_metadata_json(
     let mut packages: Vec<PackageJSON> = ctx
         .pkg_dirs
         .all_packages(true)
-        .map(|(id, _)| gen_package_json(ctx, &layout, id, backend))
+        .map(|(id, _)| gen_package_json(ctx, &layout, id, backend, check_commands))
         .collect();
     packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));
 
@@ -106,6 +113,7 @@ fn gen_package_json(
     layout: &LegacyLayout,
     pkg_id: PackageId,
     backend: TargetBackend,
+    check_commands: &CheckCommandMap,
 ) -> PackageJSON {
     let pkg = ctx.pkg_dirs.get_package(pkg_id);
     let is_in_workspace = ctx.local_modules().contains(&pkg.module);
@@ -176,6 +184,27 @@ fn gen_package_json(
         .collect();
     test_deps.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.alias.cmp(&b.alias)));
 
+    let source_artifact = metadata_mi_path(
+        ctx,
+        layout,
+        pkg_id.build_target(TargetKind::Source),
+        backend,
+    );
+    let wbtest_check_command = metadata_check_command(
+        ctx,
+        layout,
+        pkg_id.build_target(TargetKind::WhiteboxTest),
+        backend,
+        check_commands,
+    );
+    let test_check_command = metadata_check_command(
+        ctx,
+        layout,
+        pkg_id.build_target(TargetKind::BlackboxTest),
+        backend,
+        check_commands,
+    );
+
     PackageJSON {
         is_main: pkg.raw.is_main,
         is_third_party: !is_in_workspace,
@@ -189,9 +218,10 @@ fn gen_package_json(
         deps,
         wbtest_deps,
         test_deps,
-        artifact: metadata_source_mi_path(ctx, layout, pkg_id, backend)
-            .to_string_lossy()
-            .into_owned(),
+        artifact: source_artifact.to_string_lossy().into_owned(),
+        check_command: check_commands.get(&source_artifact).cloned(),
+        wbtest_check_command,
+        test_check_command,
         supported_targets: pkg.effective_supported_targets.iter().copied().collect(),
     }
 }
@@ -207,14 +237,52 @@ pub(crate) fn metadata_source_mi_path(
     pkg_id: PackageId,
     backend: TargetBackend,
 ) -> std::path::PathBuf {
-    let target = pkg_id.build_target(TargetKind::Source);
-    if ctx.pkg_rel.virt_impl.contains_key(pkg_id) {
+    metadata_mi_path(
+        ctx,
+        layout,
+        pkg_id.build_target(TargetKind::Source),
+        backend,
+    )
+}
+
+fn metadata_mi_path(
+    ctx: &ResolveOutput,
+    layout: &LegacyLayout,
+    target: BuildTarget,
+    backend: TargetBackend,
+) -> PathBuf {
+    if target.kind == TargetKind::Source && ctx.pkg_rel.virt_impl.contains_key(target.package) {
         layout
             .mi_of_build_target_impl_virtual(&ctx.pkg_dirs, &target, backend)
             .into_path()
     } else {
         layout.mi_of_build_target(&ctx.pkg_dirs, &target, backend)
     }
+}
+
+fn metadata_check_command(
+    ctx: &ResolveOutput,
+    layout: &LegacyLayout,
+    target: BuildTarget,
+    backend: TargetBackend,
+    check_commands: &CheckCommandMap,
+) -> Option<Vec<String>> {
+    let artifact = metadata_check_mi_path(ctx, layout, target, backend)?;
+    check_commands.get(&artifact).cloned()
+}
+
+fn metadata_check_mi_path(
+    ctx: &ResolveOutput,
+    layout: &LegacyLayout,
+    target: BuildTarget,
+    backend: TargetBackend,
+) -> Option<PathBuf> {
+    // `abort` is redirected to prebuilt stdlib artifacts, which only provide a
+    // source `.mi`; test targets have no importable `.mi` to look up here.
+    if target.kind != TargetKind::Source && ctx.pkg_dirs.abort_pkg() == Some(target.package) {
+        return None;
+    }
+    Some(metadata_mi_path(ctx, layout, target, backend))
 }
 
 fn edge_to_alias_json(
