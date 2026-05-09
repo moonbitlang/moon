@@ -1,20 +1,34 @@
 use crate::{TestDir, build_graph::compare_graphs_with_replacements, snap_dry_run_graph};
 use expect_test::expect_file;
 
+fn normalize_native_graph(graph: &mut String) {
+    // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
+    *graph = graph.replace(" -Wno-unused-value", "");
+    *graph = graph.replace(".dylib", ".so");
+}
+
+#[track_caller]
+fn dry_run_graph(dir: &TestDir, tmp_name: &str, args: &[&str]) -> String {
+    let graph = dir.join(tmp_name);
+    snap_dry_run_graph(dir, args.iter().copied(), &graph);
+    let mut graph = std::fs::read_to_string(graph).expect("dry-run graph should be readable");
+    normalize_native_graph(&mut graph);
+    graph
+}
+
 #[track_caller]
 fn assert_dry_run_graph(
     dir: &TestDir,
     tmp_name: &str,
     args: &[&str],
     expected: expect_test::ExpectFile,
-) {
+) -> String {
     let graph = dir.join(tmp_name);
     snap_dry_run_graph(dir, args.iter().copied(), &graph);
-    compare_graphs_with_replacements(&graph, expected, |s| {
-        // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
-        *s = s.replace(" -Wno-unused-value", "");
-        *s = s.replace(".dylib", ".so");
-    });
+    compare_graphs_with_replacements(&graph, expected, normalize_native_graph);
+    let mut graph = std::fs::read_to_string(graph).expect("dry-run graph should be readable");
+    normalize_native_graph(&mut graph);
+    graph
 }
 
 #[cfg(unix)]
@@ -22,8 +36,8 @@ fn assert_dry_run_graph(
 fn test_use_cc_for_native_release() {
     let dir = TestDir::new("moon_test/hello_exec_fntest");
     // build
-    {
-        assert_dry_run_graph(
+    let (build_release_graph, build_graph) = {
+        let build_release_graph = assert_dry_run_graph(
             &dir,
             "build_release_graph.jsonl",
             &[
@@ -36,14 +50,14 @@ fn test_use_cc_for_native_release() {
             ],
             expect_file!["cc_for_native_release/build_release_graph.jsonl.snap"],
         );
-        // if --release is not specified, it should not use cc
-        assert_dry_run_graph(
+        let build_graph = assert_dry_run_graph(
             &dir,
             "build_graph.jsonl",
             &["build", "--target", "native", "--sort-input", "--dry-run"],
             expect_file!["cc_for_native_release/build_graph.jsonl.snap"],
         );
-        assert_dry_run_graph(
+
+        let build_debug_graph = dry_run_graph(
             &dir,
             "build_debug_graph.jsonl",
             &[
@@ -54,13 +68,14 @@ fn test_use_cc_for_native_release() {
                 "--sort-input",
                 "--dry-run",
             ],
-            expect_file!["cc_for_native_release/build_debug_graph.jsonl.snap"],
         );
-    }
+        assert_eq!(build_debug_graph, build_graph);
+        (build_release_graph, build_graph)
+    };
 
     // run
     {
-        assert_dry_run_graph(
+        let run_release_graph = dry_run_graph(
             &dir,
             "run_release_graph.jsonl",
             &[
@@ -72,10 +87,10 @@ fn test_use_cc_for_native_release() {
                 "--sort-input",
                 "--dry-run",
             ],
-            expect_file!["cc_for_native_release/run_release_graph.jsonl.snap"],
         );
-        // if --release is not specified, it should not use cc
-        assert_dry_run_graph(
+        assert_eq!(run_release_graph, build_release_graph);
+
+        let run_graph = dry_run_graph(
             &dir,
             "run_graph.jsonl",
             &[
@@ -86,9 +101,10 @@ fn test_use_cc_for_native_release() {
                 "--sort-input",
                 "--dry-run",
             ],
-            expect_file!["cc_for_native_release/run_graph.jsonl.snap"],
         );
-        assert_dry_run_graph(
+        assert_eq!(run_graph, build_graph);
+
+        let run_debug_graph = dry_run_graph(
             &dir,
             "run_debug_graph.jsonl",
             &[
@@ -100,8 +116,8 @@ fn test_use_cc_for_native_release() {
                 "--sort-input",
                 "--dry-run",
             ],
-            expect_file!["cc_for_native_release/run_debug_graph.jsonl.snap"],
         );
+        assert_eq!(run_debug_graph, build_graph);
     }
 
     // test
