@@ -18,7 +18,9 @@
 
 use expect_test::expect;
 
-use super::fixture::{PlanningFixture, parse_run_command, parse_test_command};
+use super::fixture::{
+    PlanningFixture, parse_run_command, parse_test_command, planned_graph_inputs,
+};
 
 #[test]
 fn command_string_run_parses_as_expected() {
@@ -181,9 +183,10 @@ fn parsed_native_target_dry_run_test_command_plans_native_graph() {
     let graph = fixture
         .plan_test_with_cli(&cli, &cmd)
         .expect("native target test graph should plan");
+    let inputs = planned_graph_inputs(&graph);
 
-    assert!(graph.contains("./server/server_wbtest.mbt"));
-    assert!(graph.contains("./deps/nativedep/lib/lib.mbt"));
-    assert!(!graph.contains("./web/web_wbtest.mbt"));
-    assert!(!graph.contains("./deps/jsdep/lib/lib.mbt"));
+    assert!(inputs.contains("./server/server_wbtest.mbt"));
+    assert!(inputs.contains("./deps/nativedep/lib/lib.mbt"));
+    assert!(!inputs.contains("./web/web_wbtest.mbt"));
+    assert!(!inputs.contains("./deps/jsdep/lib/lib.mbt"));
 }

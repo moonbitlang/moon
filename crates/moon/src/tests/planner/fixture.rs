@@ -354,6 +354,27 @@ pub(super) fn planned_root_package_intent(
     }
 }
 
+pub(super) fn planned_graph_inputs(graph: &str) -> std::collections::BTreeSet<String> {
+    graph
+        .lines()
+        .flat_map(|line| {
+            let line_json: serde_json::Value =
+                serde_json::from_str(line).expect("planner dump line should be valid JSON");
+            line_json["inputs"]
+                .as_array()
+                .expect("planner dump line should contain inputs")
+                .iter()
+                .map(|input| {
+                    input
+                        .as_str()
+                        .expect("planner input path should be a string")
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 fn root_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
     package_names(meta, |node| {
         node.extract_target().map(|target| target.package)

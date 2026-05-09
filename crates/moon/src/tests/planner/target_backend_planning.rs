@@ -19,14 +19,14 @@
 use super::fixture::{
     PlannedPackageRun, PlanningFixture, parse_bench_command, parse_build_command,
     parse_bundle_command, parse_check_command, parse_run_command, parse_test_command,
-    planned_check_package_runs, planned_root_package_runs,
+    planned_check_package_runs, planned_graph_inputs, planned_root_package_runs,
 };
 use moonutil::common::{TargetBackend, lower_surface_targets};
 
 // Phase 3: these tests already know the selected backend and only need to
 // verify that planning keeps the right packages and commands in the graph.
 
-fn assert_contains_and_absent(graph: &str, present: &[&str], absent: &[&str]) {
+fn assert_graph_text_contains_and_omits(graph: &str, present: &[&str], absent: &[&str]) {
     for needle in present {
         assert!(
             graph.contains(needle),
@@ -37,6 +37,22 @@ fn assert_contains_and_absent(graph: &str, present: &[&str], absent: &[&str]) {
         assert!(
             !graph.contains(needle),
             "expected graph to not contain `{needle}`, got:\n{graph}"
+        );
+    }
+}
+
+fn assert_graph_inputs(graph: &str, present: &[&str], absent: &[&str]) {
+    let inputs = planned_graph_inputs(graph);
+    for input in present {
+        assert!(
+            inputs.contains(*input),
+            "expected graph inputs to contain `{input}`, got:\n{inputs:#?}"
+        );
+    }
+    for input in absent {
+        assert!(
+            !inputs.contains(*input),
+            "expected graph inputs to omit `{input}`, got:\n{inputs:#?}"
         );
     }
 }
@@ -90,7 +106,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
     let default_graph = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("default build graph should plan");
-    assert_contains_and_absent(
+    assert_graph_text_contains_and_omits(
         &default_graph,
         &[
             "./_build/wasm-gc/debug/build/main/main.wasm",
@@ -110,7 +126,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
     let js_graph = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("js build graph should plan");
-    assert_contains_and_absent(
+    assert_graph_text_contains_and_omits(
         &js_graph,
         &["./_build/js/debug/build/main/main.js", "-target js"],
         &[
@@ -436,7 +452,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let check_js = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("js check graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &check_js,
         &[
             "./shared/shared.mbt",
@@ -454,7 +470,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let build_js = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("js build graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &build_js,
         &[
             "./shared/shared.mbt",
@@ -469,7 +485,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let check_native = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("native check graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &check_native,
         &[
             "./shared/shared.mbt",
@@ -488,7 +504,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let build_native = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("native build graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &build_native,
         &[
             "./shared/shared.mbt",
@@ -509,7 +525,7 @@ fn mixed_backend_run_planning_is_target_aware() {
     let run_js = fixture
         .plan_run_with_cli(&cli, &cmd)
         .expect("js run graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &run_js,
         &[
             "./shared/shared.mbt",
@@ -530,7 +546,7 @@ fn mixed_backend_run_planning_is_target_aware() {
     let run_native = fixture
         .plan_run_with_cli(&cli, &cmd)
         .expect("native run graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &run_native,
         &[
             "./shared/shared.mbt",
@@ -550,7 +566,7 @@ fn supported_targets_empty_packages_are_skipped_in_check_planning() {
     let check_js = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("js check graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &check_js,
         &["./main/main.mbt", "./lib/lib.mbt"],
         &["./never/never.mbt"],
@@ -561,7 +577,7 @@ fn supported_targets_empty_packages_are_skipped_in_check_planning() {
     let check_native = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("native check graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &check_native,
         &["./main/main.mbt", "./lib/lib.mbt"],
         &["./never/never.mbt"],
@@ -652,7 +668,7 @@ fn module_supported_targets_intersection_filters_check_planning() {
     let check_wasm_gc = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("wasm-gc check graph should plan");
-    assert_contains_and_absent(&check_wasm_gc, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+    assert_graph_inputs(&check_wasm_gc, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 
     let (cli, cmd) = parse_check_command(&[
         "check",
@@ -665,7 +681,7 @@ fn module_supported_targets_intersection_filters_check_planning() {
     let check_native = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("native check graph should plan");
-    assert_contains_and_absent(&check_native, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+    assert_graph_inputs(&check_native, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 
     let (cli, cmd) = parse_check_command(&[
         "check",
@@ -678,5 +694,5 @@ fn module_supported_targets_intersection_filters_check_planning() {
     let check_llvm = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("llvm check graph should plan");
-    assert_contains_and_absent(&check_llvm, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+    assert_graph_inputs(&check_llvm, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 }
