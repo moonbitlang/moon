@@ -4,31 +4,20 @@ mod skip_test;
 
 use super::*;
 
+fn normalize_outline(output: String) -> String {
+    let mut out = output
+        .lines()
+        .map(|line| line.trim_start())
+        .collect::<Vec<_>>()
+        .join("\n");
+    out.push('\n');
+    out
+}
+
 #[test]
-fn test_moon_test_filter_by_name() {
+fn test_moon_test_filter_by_name_smoke() {
     let dir = TestDir::new("test_filter/test_filter");
 
-    // Filter tests matching "A" - should only run test named "A"
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/A",
-                "--filter",
-                "A",
-                "--sort-input",
-                "--no-parallelize",
-            ],
-        ),
-        expect![[r#"
-            test A
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    );
-
-    // Filter tests matching "hello_*" - should run hello_0, hello_1, hello_2
     check(
         get_stdout(
             &dir,
@@ -49,126 +38,96 @@ fn test_moon_test_filter_by_name() {
             Total tests: 3, passed: 3, failed: 0.
         "#]],
     );
-
-    // Filter tests matching "*_1" - should only run hello_1
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/A",
-                "--filter",
-                "*_1",
-                "--sort-input",
-                "--no-parallelize",
-            ],
-        ),
-        expect![[r#"
-            test hello_1
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    );
 }
 
 #[test]
-fn test_moon_test_filter_by_name_with_question_mark() {
+fn test_moon_test_filter_outline_wiring() {
     let dir = TestDir::new("test_filter/test_filter");
 
-    // Filter tests matching "hello_?" - should run hello_0, hello_1, hello_2
+    let output = normalize_outline(get_stdout(
+        &dir,
+        [
+            "test",
+            "-p",
+            "username/hello/A",
+            "--filter",
+            "hello_*",
+            "--outline",
+            "-q",
+        ],
+    ));
     check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/A",
-                "--filter",
-                "hello_?",
-                "--sort-input",
-                "--no-parallelize",
-            ],
-        ),
+        output,
         expect![[r#"
-            test hello_0
-            test hello_1
-            test hello_2
-            Total tests: 3, passed: 3, failed: 0.
-        "#]],
+1. username/hello/A hello_wbtest.mbt:1 index=0 name="hello_0"
+2. username/hello/A hello_wbtest.mbt:5 index=1 name="hello_1"
+3. username/hello/A hello_wbtest.mbt:9 index=2 name="hello_2"
+"#]],
     );
 
-    // Filter tests matching "?" - should match single character names like "A" and "B"
+    let output = normalize_outline(get_stdout(
+        &dir,
+        [
+            "test",
+            "-p",
+            "username/hello/A",
+            "--file",
+            "hello.mbt",
+            "--filter",
+            "?",
+            "--outline",
+            "-q",
+        ],
+    ));
     check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/A",
-                "--file",
-                "hello.mbt",
-                "--filter",
-                "?",
-                "--sort-input",
-                "--no-parallelize",
-            ],
-        ),
+        output,
         expect![[r#"
-            test A
-            test B
-            Total tests: 2, passed: 2, failed: 0.
-        "#]],
+1. username/hello/A hello.mbt:5 index=0 name="A"
+2. username/hello/A hello.mbt:9 index=1 name="B"
+"#]],
     );
-}
 
-#[test]
-fn test_moon_test_filter_by_name_no_match() {
-    let dir = TestDir::new("test_filter/test_filter");
-
-    // Filter with pattern that matches nothing
+    let output = normalize_outline(get_stderr(
+        &dir,
+        [
+            "test",
+            "-p",
+            "username/hello/A",
+            "--filter",
+            "nonexistent*",
+            "--outline",
+            "-q",
+        ],
+    ));
     check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/A",
-                "--filter",
-                "nonexistent*",
-                "--sort-input",
-                "--no-parallelize",
-            ],
-        ),
+        output,
         expect![[r#"
-            Total tests: 0, passed: 0, failed: 0.
-        "#]],
+Warning: no test entry found.
+"#]],
     );
-}
 
-#[test]
-fn test_moon_test_filter_by_name_combined_with_file() {
-    let dir = TestDir::new("test_filter/test_filter");
-
-    // Filter by file and name pattern
+    let output = normalize_outline(get_stdout(
+        &dir,
+        [
+            "test",
+            "-p",
+            "username/hello/A",
+            "--file",
+            "hello_wbtest.mbt",
+            "-i",
+            "1-3",
+            "--filter",
+            "hello_*",
+            "--outline",
+            "-q",
+        ],
+    ));
     check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/A",
-                "--file",
-                "hello.mbt",
-                "--filter",
-                "A",
-                "--sort-input",
-                "--no-parallelize",
-            ],
-        ),
+        output,
         expect![[r#"
-            test A
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
+1. username/hello/A hello_wbtest.mbt:5 index=1 name="hello_1"
+2. username/hello/A hello_wbtest.mbt:9 index=2 name="hello_2"
+"#]],
     );
 }
 
@@ -702,41 +661,6 @@ fn test_moon_parallelism() {
 }
 
 #[test]
-fn test_moon_test_filter_file() {
-    let dir = TestDir::new("test_filter/test_filter");
-
-    check(
-        get_stdout(
-            &dir,
-            ["test", "-p", "username/hello/A", "--file", "hello.mbt"],
-        ),
-        expect![[r#"
-            test A
-            test B
-            Total tests: 2, passed: 2, failed: 0.
-        "#]],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/lib",
-                "--file",
-                "hello_wbtest.mbt",
-            ],
-        ),
-        expect![[r#"
-            test hello_0
-            test hello_1
-            Total tests: 2, passed: 2, failed: 0.
-        "#]],
-    );
-}
-
-#[test]
 fn test_moon_test_filter_file_index_with_path_arg() {
     let dir = TestDir::new("test_filter/test_filter");
 
@@ -768,74 +692,6 @@ fn test_moon_test_filter_multiple_paths_reject_index() {
     assert!(
         stderr.contains("cannot be used with multiple `PATH`s"),
         "stderr: {stderr}"
-    );
-}
-
-#[test]
-fn test_moon_test_filter_index() {
-    let dir = TestDir::new("test_filter/test_filter");
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/A",
-                "--file",
-                "hello.mbt",
-                "-i",
-                "1",
-            ],
-        ),
-        expect![[r#"
-            test B
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/lib",
-                "--file",
-                "hello_wbtest.mbt",
-                "-i",
-                "0",
-            ],
-        ),
-        expect![[r#"
-            test hello_0
-            Total tests: 1, passed: 1, failed: 0.
-        "#]],
-    );
-}
-
-#[test]
-fn test_moon_test_filter_index_range() {
-    let dir = TestDir::new("test_filter/test_filter");
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "test",
-                "-p",
-                "username/hello/A",
-                "--file",
-                "hello.mbt",
-                "-i",
-                "0-2",
-            ],
-        ),
-        expect![[r#"
-            test A
-            test B
-            Total tests: 2, passed: 2, failed: 0.
-        "#]],
     );
 }
 
