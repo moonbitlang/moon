@@ -81,6 +81,7 @@ version = "0.59.0"
 notify = "6.1.1"
 
 [target."cfg(target_os = \"macos\")".dependencies]
+libc.workspace = true
 notify = { version = "6.1.1", default-features = false, features = ["crossbeam-channel", "macos_kqueue"] }
 
 [target."cfg(windows)".dependencies]

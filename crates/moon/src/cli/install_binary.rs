@@ -637,6 +637,10 @@ fn build_and_install_packages(
         };
         let binary_dst = install_dir.join(dst_name);
 
+        #[cfg(target_os = "macos")]
+        copy_install_file_no_follow(&binary_src, &binary_dst)?;
+
+        #[cfg(not(target_os = "macos"))]
         std::fs::copy(&binary_src, &binary_dst).with_context(|| {
             format!(
                 "Failed to copy binary from `{}` to `{}`",
@@ -670,6 +674,69 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// macOS-only: install `src` at `dst` without following `dst` if it is a symlink.
+///
+/// `std::fs::copy` follows a symlink in the destination position. On macOS,
+/// open with `O_NOFOLLOW` so ordinary files keep the old truncate-and-copy path,
+/// while a symlink command entry is replaced instead of writing through it.
+#[cfg(target_os = "macos")]
+fn copy_install_file_no_follow(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    use std::fs::{File, OpenOptions};
+    use std::io;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let mut reader = File::open(src)
+        .with_context(|| format!("Failed to open binary source `{}`", src.display()))?;
+    let metadata = reader
+        .metadata()
+        .with_context(|| format!("Failed to inspect binary source `{}`", src.display()))?;
+    if !metadata.is_file() {
+        bail!("Binary source `{}` is not a regular file", src.display());
+    }
+
+    let open_dst = || {
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(metadata.permissions().mode())
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(dst)
+    };
+
+    let mut writer = match open_dst() {
+        Ok(writer) => writer,
+        Err(err) if err.raw_os_error() == Some(libc::ELOOP) => {
+            std::fs::remove_file(dst).with_context(|| {
+                format!(
+                    "Failed to remove symlink install destination `{}`",
+                    dst.display()
+                )
+            })?;
+            open_dst().with_context(|| {
+                format!("Failed to create install destination `{}`", dst.display())
+            })?
+        }
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!("Failed to open install destination `{}`", dst.display())
+            });
+        }
+    };
+
+    io::copy(&mut reader, &mut writer).with_context(|| {
+        format!(
+            "Failed to copy binary from `{}` to `{}`",
+            src.display(),
+            dst.display()
+        )
+    })?;
+    writer
+        .set_permissions(metadata.permissions())
+        .with_context(|| format!("Failed to set permissions on `{}`", dst.display()))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -828,5 +895,28 @@ mod tests {
             "native/pixeladventure",
         ));
         assert!(!filter.matches(&test_path(&["repo", "examples", "web", "demo"]), "web/demo",));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn copy_install_file_no_follow_replaces_destination_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let target = dir.path().join("target");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&target, b"old contents").unwrap();
+        std::os::unix::fs::symlink(&target, &dst).unwrap();
+
+        copy_install_file_no_follow(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+        assert_eq!(std::fs::read(&target).unwrap(), b"old contents");
+        assert!(
+            !std::fs::symlink_metadata(&dst)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
     }
 }
