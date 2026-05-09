@@ -18,7 +18,6 @@
 
 use std::io::Write;
 
-use crate::build_graph::compare_graphs;
 use expect_test::expect_file;
 
 use super::*;
@@ -517,8 +516,7 @@ fn test_moon_run_with_cli_args() {
         "#]],
     );
 
-    let run_graph = dir.join("run_graph.jsonl");
-    snap_dry_run_graph(
+    assert_dry_run_graph(
         &dir,
         [
             "run",
@@ -530,10 +528,6 @@ fn test_moon_run_with_cli_args() {
             "hello",
             "1242",
         ],
-        &run_graph,
-    );
-    compare_graphs(
-        &run_graph,
         expect_file!["./moon_run_with_cli_args_graph.jsonl"],
     );
 
@@ -831,16 +825,14 @@ fn test_specify_source_dir_005() {
 #[test]
 fn test_specify_source_dir_with_deps() {
     let dir = TestDir::new("specify_source_dir_with_deps_001.in");
-    let check_graph = dir.join("check_graph.jsonl");
-    snap_dry_run_graph(&dir, ["check", "--dry-run", "--sort-input"], &check_graph);
-    compare_graphs(
-        &check_graph,
+    assert_dry_run_graph(
+        &dir,
+        ["check", "--dry-run", "--sort-input"],
         expect_file!["./specify_source_dir_with_deps_001.in/check_graph.jsonl.snap"],
     );
-    let test_graph = dir.join("test_graph.jsonl");
-    snap_dry_run_graph(&dir, ["test", "--dry-run", "--sort-input"], &test_graph);
-    compare_graphs(
-        &test_graph,
+    assert_dry_run_graph(
+        &dir,
+        ["test", "--dry-run", "--sort-input"],
         expect_file!["./specify_source_dir_with_deps_001.in/test_graph.jsonl.snap"],
     );
 

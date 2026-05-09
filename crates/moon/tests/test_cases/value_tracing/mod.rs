@@ -1,12 +1,9 @@
 use super::*;
 
-use crate::build_graph::compare_graphs;
-
 #[test]
 fn test_tracing_value_for_test_block() {
     let dir = TestDir::new("tracing_value_for_test_block.in");
-    let test_graph = dir.join("test_graph.jsonl");
-    snap_dry_run_graph(
+    assert_dry_run_graph(
         &dir,
         [
             "test",
@@ -15,9 +12,8 @@ fn test_tracing_value_for_test_block() {
             "moon_new/lib1",
             "--dry-run",
         ],
-        &test_graph,
+        expect_file!["test_graph.jsonl.snap"],
     );
-    compare_graphs(&test_graph, expect_file!["test_graph.jsonl.snap"]);
 
     let content = get_stdout(
         &dir,
@@ -59,9 +55,8 @@ fn test_tracing_value_for_test_block() {
 #[test]
 fn test_tracing_value_for_main_func() {
     let dir = TestDir::new("tracing_value.in");
-    let run_graph = dir.join("run_graph.jsonl");
     // main.mbt in package
-    snap_dry_run_graph(
+    assert_dry_run_graph(
         &dir,
         [
             "run",
@@ -69,9 +64,8 @@ fn test_tracing_value_for_main_func() {
             "--enable-value-tracing",
             "--dry-run",
         ],
-        &run_graph,
+        expect_file!["run_graph.jsonl.snap"],
     );
-    compare_graphs(&run_graph, expect_file!["run_graph.jsonl.snap"]);
 
     let content = get_stdout(&dir, ["run", "./main/main.mbt", "--enable-value-tracing"])
         .split("######MOONBIT_VALUE_TRACING_START######")

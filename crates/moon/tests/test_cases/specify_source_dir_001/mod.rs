@@ -1,19 +1,23 @@
-use crate::build_graph::compare_graphs;
-
 use super::*;
 
 #[test]
 fn test_specify_source_dir_001() {
     let dir = TestDir::new("specify_source_dir_001.in");
-    let check_graph = dir.join("check_graph.jsonl");
-    snap_dry_run_graph(&dir, ["check", "--dry-run", "--sort-input"], &check_graph);
-    compare_graphs(&check_graph, expect_file!["check_graph.jsonl.snap"]);
-    let build_graph = dir.join("build_graph.jsonl");
-    snap_dry_run_graph(&dir, ["build", "--dry-run", "--sort-input"], &build_graph);
-    compare_graphs(&build_graph, expect_file!["build_graph.jsonl.snap"]);
-    let test_graph = dir.join("test_graph.jsonl");
-    snap_dry_run_graph(&dir, ["test", "--dry-run", "--sort-input"], &test_graph);
-    compare_graphs(&test_graph, expect_file!["test_graph.jsonl.snap"]);
+    assert_dry_run_graph(
+        &dir,
+        ["check", "--dry-run", "--sort-input"],
+        expect_file!["check_graph.jsonl.snap"],
+    );
+    assert_dry_run_graph(
+        &dir,
+        ["build", "--dry-run", "--sort-input"],
+        expect_file!["build_graph.jsonl.snap"],
+    );
+    assert_dry_run_graph(
+        &dir,
+        ["test", "--dry-run", "--sort-input"],
+        expect_file!["test_graph.jsonl.snap"],
+    );
     check(
         get_stderr(&dir, ["check", "--sort-input"]),
         expect![[r#"
