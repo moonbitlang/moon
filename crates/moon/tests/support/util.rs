@@ -137,27 +137,55 @@ pub(crate) fn read<P: AsRef<Path>>(p: P) -> String {
 /// string. However, still updates if `UPDATE_EXPECT` is set, just like the
 /// original [`Expect`] functionality.
 pub(crate) fn assert_command_matches(s: impl AsRef<str>, expect: Expect) {
-    let actual_lines = s.as_ref().trim().lines().collect::<Vec<_>>();
-    let expected_lines = expect.data().trim().lines().collect::<Vec<_>>();
-
-    let mut diff_found = false;
-    for (l, r) in actual_lines.iter().zip(expected_lines.iter()) {
-        let actual_parts = shlex::split(l).unwrap_or_default();
-        let expected_parts = shlex::split(r).unwrap_or_default();
-
-        if actual_parts != expected_parts {
-            println!(
-                "Diff found:\nActual:   {:?}\nExpected: {:?}",
-                actual_parts, expected_parts
-            );
-            diff_found = true;
-            break;
-        }
-    }
+    let diff_found = command_lines_differ(s.as_ref(), expect.data()).unwrap_or_else(|err| {
+        panic!("{err}");
+    });
 
     if diff_found {
         expect.assert_eq(s.as_ref());
     }
+}
+
+fn command_lines_differ(actual: &str, expected: &str) -> Result<bool, String> {
+    let actual_lines = actual.trim().lines().collect::<Vec<_>>();
+    let expected_lines = expected.trim().lines().collect::<Vec<_>>();
+
+    if actual_lines.len() != expected_lines.len() {
+        println!(
+            "Line count differs:\nActual:   {}\nExpected: {}",
+            actual_lines.len(),
+            expected_lines.len()
+        );
+        return Ok(true);
+    }
+
+    for (idx, (actual_line, expected_line)) in
+        actual_lines.iter().zip(expected_lines.iter()).enumerate()
+    {
+        let actual_parts = split_command_line("actual", idx, actual_line)?;
+        let expected_parts = split_command_line("expected", idx, expected_line)?;
+
+        if actual_parts != expected_parts {
+            println!(
+                "Diff found on line {}:\nActual:   {:?}\nExpected: {:?}",
+                idx + 1,
+                actual_parts,
+                expected_parts
+            );
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn split_command_line(kind: &str, idx: usize, line: &str) -> Result<Vec<String>, String> {
+    shlex::split(line).ok_or_else(|| {
+        format!(
+            "failed to parse {kind} command line {} with shlex: {line:?}",
+            idx + 1
+        )
+    })
 }
 
 #[track_caller]
