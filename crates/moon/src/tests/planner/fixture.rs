@@ -20,8 +20,13 @@ use clap::Parser;
 use moonbuild_debug::graph::debug_dump_build_graph;
 use std::path::PathBuf;
 
-use moonbuild_rupes_recta::ResolveOutput;
-use moonutil::{cli::UniversalFlags, common::BUILD_DIR, dirs::WorkspaceEnv};
+use moonbuild_rupes_recta::{ResolveOutput, model::BuildPlanNode};
+use moonutil::{
+    cli::UniversalFlags,
+    common::{BUILD_DIR, TargetBackend},
+    cond_expr::OptLevel,
+    dirs::WorkspaceEnv,
+};
 
 use crate::cli::{
     BenchSubcommand, BuildSubcommand, BundleSubcommand, CheckSubcommand, MoonBuildCli,
@@ -32,6 +37,19 @@ pub(super) struct PlanningFixture {
     source_dir: PathBuf,
     target_dir: PathBuf,
     resolve_output: ResolveOutput,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct PlannedPackageRun {
+    pub(super) target_backend: TargetBackend,
+    pub(super) packages: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct PlannedPackageIntent {
+    pub(super) target_backend: TargetBackend,
+    pub(super) profile: OptLevel,
+    pub(super) packages: Vec<String>,
 }
 
 impl PlanningFixture {
@@ -302,6 +320,70 @@ impl PlanningFixture {
         dump.dump_to(&mut out).expect("graph dump should serialize");
         Ok(String::from_utf8(out).expect("graph dump should be valid UTF-8"))
     }
+}
+
+pub(super) fn planned_root_package_runs(
+    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
+) -> Vec<PlannedPackageRun> {
+    runs.into_iter()
+        .map(|(meta, _)| PlannedPackageRun {
+            target_backend: meta.target_backend.into(),
+            packages: root_package_names(&meta),
+        })
+        .collect()
+}
+
+pub(super) fn planned_check_package_runs(
+    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
+) -> Vec<PlannedPackageRun> {
+    runs.into_iter()
+        .map(|(meta, _)| PlannedPackageRun {
+            target_backend: meta.target_backend.into(),
+            packages: check_package_names(&meta),
+        })
+        .collect()
+}
+
+pub(super) fn planned_root_package_intent(
+    (meta, _): (crate::rr_build::BuildMeta, crate::rr_build::BuildInput),
+) -> PlannedPackageIntent {
+    PlannedPackageIntent {
+        target_backend: meta.target_backend.into(),
+        profile: meta.opt_level,
+        packages: root_package_names(&meta),
+    }
+}
+
+fn root_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
+    package_names(meta, |node| {
+        node.extract_target().map(|target| target.package)
+    })
+}
+
+fn check_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {
+    package_names(meta, |node| match node {
+        BuildPlanNode::Check(target) => Some(target.package),
+        _ => None,
+    })
+}
+
+fn package_names(
+    meta: &crate::rr_build::BuildMeta,
+    package_of: impl Fn(&BuildPlanNode) -> Option<moonbuild_rupes_recta::model::PackageId>,
+) -> Vec<String> {
+    meta.artifacts
+        .keys()
+        .filter_map(package_of)
+        .map(|pkg_id| {
+            meta.resolve_output
+                .pkg_dirs
+                .get_package(pkg_id)
+                .fqn
+                .to_string()
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 pub(super) fn parse_build_command(args: &[&str]) -> (UniversalFlags, BuildSubcommand) {

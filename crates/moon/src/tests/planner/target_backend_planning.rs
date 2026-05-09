@@ -17,8 +17,9 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::fixture::{
-    PlanningFixture, parse_bench_command, parse_build_command, parse_bundle_command,
-    parse_check_command, parse_run_command, parse_test_command,
+    PlannedPackageRun, PlanningFixture, parse_bench_command, parse_build_command,
+    parse_bundle_command, parse_check_command, parse_run_command, parse_test_command,
+    planned_check_package_runs, planned_root_package_runs,
 };
 use moonutil::common::{TargetBackend, lower_surface_targets};
 
@@ -40,43 +41,14 @@ fn assert_contains_and_absent(graph: &str, present: &[&str], absent: &[&str]) {
     }
 }
 
-fn assert_build_runs(
+fn assert_root_package_runs(
     runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
     expected: &[(TargetBackend, &[&str])],
 ) {
-    let actual = runs
-        .into_iter()
-        .map(|(meta, _)| {
-            let packages = meta
-                .artifacts
-                .keys()
-                .filter_map(|node| node.extract_target().map(|target| target.package))
-                .map(|pkg_id| {
-                    meta.resolve_output
-                        .pkg_dirs
-                        .get_package(pkg_id)
-                        .fqn
-                        .to_string()
-                })
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            (meta.target_backend.into(), packages)
-        })
-        .collect::<Vec<_>>();
-    let expected = expected
-        .iter()
-        .map(|(backend, packages)| {
-            (
-                *backend,
-                packages
-                    .iter()
-                    .map(|pkg| pkg.to_string())
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(actual, expected);
+    assert_eq!(
+        planned_root_package_runs(runs),
+        expected_package_runs(expected)
+    );
 }
 
 fn assert_target_backend_runs(
@@ -90,84 +62,24 @@ fn assert_target_backend_runs(
     assert_eq!(actual, expected);
 }
 
-fn assert_check_runs(
+fn assert_check_package_runs(
     runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
     expected: &[(TargetBackend, &[&str])],
 ) {
-    let actual = runs
-        .into_iter()
-        .map(|(meta, _)| {
-            let packages = meta
-                .artifacts
-                .keys()
-                .filter_map(|node| match node {
-                    moonbuild_rupes_recta::model::BuildPlanNode::Check(target) => Some(
-                        meta.resolve_output
-                            .pkg_dirs
-                            .get_package(target.package)
-                            .fqn
-                            .to_string(),
-                    ),
-                    _ => None,
-                })
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            (meta.target_backend.into(), packages)
-        })
-        .collect::<Vec<_>>();
-    let expected = expected
-        .iter()
-        .map(|(backend, packages)| {
-            (
-                *backend,
-                packages
-                    .iter()
-                    .map(|pkg| (*pkg).to_string())
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(actual, expected);
+    assert_eq!(
+        planned_check_package_runs(runs),
+        expected_package_runs(expected)
+    );
 }
 
-fn assert_test_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-    expected: &[(TargetBackend, &[&str])],
-) {
-    let actual = runs
-        .into_iter()
-        .map(|(meta, _)| {
-            let packages = meta
-                .artifacts
-                .keys()
-                .filter_map(|node| node.extract_target().map(|target| target.package))
-                .map(|pkg_id| {
-                    meta.resolve_output
-                        .pkg_dirs
-                        .get_package(pkg_id)
-                        .fqn
-                        .to_string()
-                })
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            (meta.target_backend.into(), packages)
-        })
-        .collect::<Vec<_>>();
-    let expected = expected
+fn expected_package_runs(expected: &[(TargetBackend, &[&str])]) -> Vec<PlannedPackageRun> {
+    expected
         .iter()
-        .map(|(backend, packages)| {
-            (
-                *backend,
-                packages
-                    .iter()
-                    .map(|pkg| (*pkg).to_string())
-                    .collect::<Vec<_>>(),
-            )
+        .map(|(backend, packages)| PlannedPackageRun {
+            target_backend: *backend,
+            packages: packages.iter().map(|pkg| (*pkg).to_string()).collect(),
         })
-        .collect::<Vec<_>>();
-    assert_eq!(actual, expected);
+        .collect()
 }
 
 #[test]
@@ -231,7 +143,7 @@ fn many_target_planning_selects_requested_backends() {
                 .expect("multi-target check plans should resolve")
         })
         .collect::<Vec<_>>();
-    assert_check_runs(
+    assert_check_package_runs(
         runs,
         &[
             (TargetBackend::Wasm, all_packages),
@@ -256,7 +168,7 @@ fn many_target_planning_selects_requested_backends() {
                 .expect("multi-target build plans should resolve")
         })
         .collect::<Vec<_>>();
-    assert_build_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Wasm, root_packages),
@@ -300,7 +212,7 @@ fn many_target_planning_selects_requested_backends() {
                 .expect("multi-target test plans should resolve")
         })
         .collect::<Vec<_>>();
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Wasm, all_packages),
@@ -331,7 +243,7 @@ fn all_target_test_planning_selects_every_concrete_backend() {
                 .expect("all-target test plans should resolve")
         })
         .collect::<Vec<_>>();
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Wasm, packages),
@@ -352,7 +264,7 @@ fn conflicting_workspace_preferred_targets_build_selection_splits_by_module_back
         .plan_build_all_with_cli(&cli, &cmd)
         .expect("default build plans should resolve");
 
-    assert_build_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -377,7 +289,7 @@ fn conflicting_workspace_preferred_targets_build_path_selection_uses_module_back
         .plan_build_all_with_cli(&cli, &cmd)
         .expect("path-selected build plans should resolve");
 
-    assert_build_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -396,7 +308,7 @@ fn explicit_build_target_keeps_single_backend_selection() {
         .plan_build_all_with_cli(&cli, &cmd)
         .expect("explicit js build plans should resolve");
 
-    assert_build_runs(
+    assert_root_package_runs(
         runs,
         &[(
             TargetBackend::Js,
@@ -418,7 +330,7 @@ fn conflicting_workspace_preferred_targets_test_selection_splits_by_module_backe
         .plan_test_all_with_cli(&cli, &cmd)
         .expect("default test plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -443,7 +355,7 @@ fn conflicting_workspace_preferred_targets_test_path_selection_uses_module_backe
         .plan_test_all_with_cli(&cli, &cmd)
         .expect("path-selected test plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -462,7 +374,7 @@ fn explicit_test_target_keeps_single_backend_selection() {
         .plan_test_all_with_cli(&cli, &cmd)
         .expect("explicit js test plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[(
             TargetBackend::Js,
@@ -484,7 +396,7 @@ fn conflicting_workspace_preferred_targets_bench_selection_splits_by_module_back
         .plan_bench_all_with_cli(&cli, &cmd)
         .expect("default bench plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -503,7 +415,7 @@ fn explicit_bench_target_keeps_single_backend_selection() {
         .plan_bench_all_with_cli(&cli, &cmd)
         .expect("explicit js bench plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[(
             TargetBackend::Js,
@@ -666,7 +578,7 @@ fn conflicting_workspace_preferred_targets_check_selection_splits_by_module_back
         .plan_check_all_with_cli(&cli, &cmd)
         .expect("default check plans should resolve");
 
-    assert_check_runs(
+    assert_check_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -691,7 +603,7 @@ fn conflicting_workspace_preferred_targets_check_path_selection_uses_module_back
         .plan_check_all_with_cli(&cli, &cmd)
         .expect("path-selected check plans should resolve");
 
-    assert_check_runs(
+    assert_check_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -710,7 +622,7 @@ fn explicit_check_target_keeps_single_backend_selection() {
         .plan_check_all_with_cli(&cli, &cmd)
         .expect("explicit js check plans should resolve");
 
-    assert_check_runs(
+    assert_check_package_runs(
         runs,
         &[(
             TargetBackend::Js,
