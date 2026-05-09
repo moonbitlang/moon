@@ -24,8 +24,8 @@ use moonbuild_rupes_recta::ResolveOutput;
 use moonutil::{cli::UniversalFlags, common::BUILD_DIR, dirs::WorkspaceEnv};
 
 use crate::cli::{
-    BenchSubcommand, BuildSubcommand, CheckSubcommand, MoonBuildCli, MoonBuildSubcommands,
-    RunSubcommand, TestLikeSubcommand, TestSubcommand,
+    BenchSubcommand, BuildSubcommand, BundleSubcommand, CheckSubcommand, MoonBuildCli,
+    MoonBuildSubcommands, RunSubcommand, TestLikeSubcommand, TestSubcommand,
 };
 
 pub(super) struct PlanningFixture {
@@ -78,12 +78,21 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &TestSubcommand,
     ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+        self.plan_test_all_with_backend(cli, cmd, cmd.build_flags.resolve_single_target_backend()?)
+    }
+
+    pub(super) fn plan_test_all_with_backend(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &TestSubcommand,
+        selected_target_backend: Option<moonutil::common::TargetBackend>,
+    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
         crate::cli::test::plan_test_or_bench_rr_from_resolved_all(
             cli,
             &borrowed,
             &self.target_dir,
-            cmd.build_flags.resolve_single_target_backend()?,
+            selected_target_backend,
             self.resolve_output.clone(),
         )
         .map(|plans| {
@@ -160,14 +169,39 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
     ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+        self.plan_build_all_with_backend(cli, cmd, cmd.build_flags.resolve_single_target_backend()?)
+    }
+
+    pub(super) fn plan_build_all_with_backend(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &BuildSubcommand,
+        selected_target_backend: Option<moonutil::common::TargetBackend>,
+    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
         crate::cli::build::plan_build_rr_from_resolved_all(
             cli,
             cmd,
             &self.source_dir,
             &self.target_dir,
-            cmd.build_flags.resolve_single_target_backend()?,
+            selected_target_backend,
             self.resolve_output.clone(),
         )
+    }
+
+    pub(super) fn plan_bundle_all_with_backend(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &BundleSubcommand,
+        selected_target_backend: Option<moonutil::common::TargetBackend>,
+    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+        crate::cli::bundle::plan_bundle_rr_from_resolved(
+            cli,
+            cmd,
+            &self.target_dir,
+            selected_target_backend,
+            self.resolve_output.clone(),
+        )
+        .map(|plan| vec![plan])
     }
 
     pub(super) fn plan_check_with_cli(
@@ -191,12 +225,21 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &CheckSubcommand,
     ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
+        self.plan_check_all_with_backend(cli, cmd, cmd.build_flags.resolve_single_target_backend()?)
+    }
+
+    pub(super) fn plan_check_all_with_backend(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &CheckSubcommand,
+        selected_target_backend: Option<moonutil::common::TargetBackend>,
+    ) -> anyhow::Result<Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>> {
         crate::cli::check::plan_check_rr_from_resolved_all(
             cli,
             cmd,
             &self.source_dir,
             &self.target_dir,
-            cmd.build_flags.resolve_single_target_backend()?,
+            selected_target_backend,
             self.resolve_output.clone(),
         )
     }
@@ -275,6 +318,15 @@ pub(super) fn parse_check_command(args: &[&str]) -> (UniversalFlags, CheckSubcom
         .expect("check command should parse");
     let Some(MoonBuildSubcommands::Check(cmd)) = parsed.subcommand else {
         panic!("expected `moon check` to parse as the check subcommand");
+    };
+    (parsed.flags, cmd)
+}
+
+pub(super) fn parse_bundle_command(args: &[&str]) -> (UniversalFlags, BundleSubcommand) {
+    let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
+        .expect("bundle command should parse");
+    let Some(MoonBuildSubcommands::Bundle(cmd)) = parsed.subcommand else {
+        panic!("expected `moon bundle` to parse as the bundle subcommand");
     };
     (parsed.flags, cmd)
 }

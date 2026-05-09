@@ -126,38 +126,14 @@ pub(crate) fn run_bundle_internal_rr(
     project_manifest_path: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    let mut preconfig = rr_build::preconfig_compile(
-        &cmd.auto_sync_flags,
+    let (build_meta, build_graph) = plan_bundle_rr(
         cli,
-        &cmd.build_flags,
-        selected_target_backend,
-        target_dir,
-        RunMode::Bundle,
-    );
-
-    // Allow warn in `moon bundle`, different from other run modes, to reduce
-    // commandline clutter on installation
-    preconfig.warning_condition = if cmd.build_flags.deny_warn {
-        WarningCondition::Deny
-    } else {
-        WarningCondition::Allow
-    };
-
-    let (build_meta, build_graph) = rr_build::plan_build(
-        preconfig,
-        &cli.unstable_feature,
+        cmd,
         source_dir,
         target_dir,
         mooncakes_dir,
-        UserDiagnostics::from_flags(cli),
         project_manifest_path,
-        Box::new(|r, _tb| {
-            Ok(r.local_modules()
-                .iter()
-                .map(|&mid| UserIntent::Bundle(mid))
-                .collect::<Vec<_>>()
-                .into())
-        }),
+        selected_target_backend,
     )?;
 
     if cli.dry_run {
@@ -195,4 +171,81 @@ pub(crate) fn run_bundle_internal_rr(
         result.print_info(cli.quiet, "bundling")?;
         Ok(result.return_code_for_success())
     }
+}
+
+pub(crate) fn plan_bundle_rr(
+    cli: &UniversalFlags,
+    cmd: &BundleSubcommand,
+    source_dir: &Path,
+    target_dir: &Path,
+    mooncakes_dir: &Path,
+    project_manifest_path: Option<&Path>,
+    selected_target_backend: Option<TargetBackend>,
+) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    )
+    .with_project_manifest_path(project_manifest_path);
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
+    plan_bundle_rr_from_resolved(
+        cli,
+        cmd,
+        target_dir,
+        selected_target_backend,
+        resolve_output,
+    )
+}
+
+pub(crate) fn plan_bundle_rr_from_resolved(
+    cli: &UniversalFlags,
+    cmd: &BundleSubcommand,
+    target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+    let preconfig = bundle_preconfig(cli, cmd, target_dir, selected_target_backend);
+    rr_build::plan_build_from_resolved(
+        preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        UserDiagnostics::from_flags(cli),
+        bundle_user_intent(),
+        resolve_output,
+    )
+}
+
+fn bundle_preconfig(
+    cli: &UniversalFlags,
+    cmd: &BundleSubcommand,
+    target_dir: &Path,
+    selected_target_backend: Option<TargetBackend>,
+) -> rr_build::CompilePreConfig {
+    let mut preconfig = rr_build::preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        selected_target_backend,
+        target_dir,
+        RunMode::Bundle,
+    );
+    preconfig.warning_condition = if cmd.build_flags.deny_warn {
+        WarningCondition::Deny
+    } else {
+        WarningCondition::Allow
+    };
+    preconfig
+}
+
+fn bundle_user_intent<'a>() -> Box<rr_build::CalcUserIntentFn<'a>> {
+    Box::new(|resolved, _target_backend| {
+        Ok(resolved
+            .local_modules()
+            .iter()
+            .map(|&module| UserIntent::Bundle(module))
+            .collect::<Vec<_>>()
+            .into())
+    })
 }

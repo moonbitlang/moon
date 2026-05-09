@@ -17,10 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::fixture::{
-    PlanningFixture, parse_bench_command, parse_build_command, parse_check_command,
-    parse_run_command, parse_test_command,
+    PlanningFixture, parse_bench_command, parse_build_command, parse_bundle_command,
+    parse_check_command, parse_run_command, parse_test_command,
 };
-use moonutil::common::TargetBackend;
+use moonutil::common::{TargetBackend, lower_surface_targets};
 
 // Phase 3: these tests already know the selected backend and only need to
 // verify that planning keeps the right packages and commands in the graph.
@@ -76,6 +76,17 @@ fn assert_build_runs(
             )
         })
         .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+}
+
+fn assert_target_backend_runs(
+    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
+    expected: &[TargetBackend],
+) {
+    let actual = runs
+        .into_iter()
+        .map(|(meta, _)| meta.target_backend.into())
+        .collect::<Vec<TargetBackend>>();
     assert_eq!(actual, expected);
 }
 
@@ -193,6 +204,140 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
         &[
             "./_build/wasm-gc/debug/build/main/main.wasm",
             "-target wasm-gc",
+        ],
+    );
+}
+
+#[test]
+fn many_target_planning_selects_requested_backends() {
+    let fixture = PlanningFixture::new("targets/many_targets").expect("fixture should resolve");
+    let all_packages = &["username/hello/lib", "username/hello/link"];
+    let root_packages = &["username/hello/link"];
+
+    let (cli, cmd) = parse_check_command(&[
+        "check",
+        "--target",
+        "js,wasm",
+        "--dry-run",
+        "--serial",
+        "--nostd",
+        "--sort-input",
+    ]);
+    let runs = lower_surface_targets(&cmd.build_flags.target)
+        .into_iter()
+        .flat_map(|target| {
+            fixture
+                .plan_check_all_with_backend(&cli, &cmd, Some(target))
+                .expect("multi-target check plans should resolve")
+        })
+        .collect::<Vec<_>>();
+    assert_check_runs(
+        runs,
+        &[
+            (TargetBackend::Wasm, all_packages),
+            (TargetBackend::Js, all_packages),
+        ],
+    );
+
+    let (cli, cmd) = parse_build_command(&[
+        "build",
+        "--target",
+        "js,wasm",
+        "--dry-run",
+        "--serial",
+        "--nostd",
+        "--sort-input",
+    ]);
+    let runs = lower_surface_targets(&cmd.build_flags.target)
+        .into_iter()
+        .flat_map(|target| {
+            fixture
+                .plan_build_all_with_backend(&cli, &cmd, Some(target))
+                .expect("multi-target build plans should resolve")
+        })
+        .collect::<Vec<_>>();
+    assert_build_runs(
+        runs,
+        &[
+            (TargetBackend::Wasm, root_packages),
+            (TargetBackend::Js, root_packages),
+        ],
+    );
+
+    let (cli, cmd) = parse_bundle_command(&[
+        "bundle",
+        "--target",
+        "js,wasm",
+        "--dry-run",
+        "--serial",
+        "--nostd",
+        "--sort-input",
+    ]);
+    let runs = lower_surface_targets(&cmd.build_flags.target)
+        .into_iter()
+        .flat_map(|target| {
+            fixture
+                .plan_bundle_all_with_backend(&cli, &cmd, Some(target))
+                .expect("multi-target bundle plans should resolve")
+        })
+        .collect::<Vec<_>>();
+    assert_target_backend_runs(runs, &[TargetBackend::Wasm, TargetBackend::Js]);
+
+    let (cli, cmd) = parse_test_command(&[
+        "test",
+        "--target",
+        "js,wasm",
+        "--dry-run",
+        "--serial",
+        "--nostd",
+        "--sort-input",
+    ]);
+    let runs = lower_surface_targets(&cmd.build_flags.target)
+        .into_iter()
+        .flat_map(|target| {
+            fixture
+                .plan_test_all_with_backend(&cli, &cmd, Some(target))
+                .expect("multi-target test plans should resolve")
+        })
+        .collect::<Vec<_>>();
+    assert_test_runs(
+        runs,
+        &[
+            (TargetBackend::Wasm, all_packages),
+            (TargetBackend::Js, all_packages),
+        ],
+    );
+}
+
+#[test]
+fn all_target_test_planning_selects_every_concrete_backend() {
+    let fixture = PlanningFixture::new("targets/many_targets").expect("fixture should resolve");
+    let packages = &["username/hello/lib", "username/hello/link"];
+
+    let (cli, cmd) = parse_test_command(&[
+        "test",
+        "--target",
+        "all",
+        "--dry-run",
+        "--serial",
+        "--nostd",
+        "--sort-input",
+    ]);
+    let runs = lower_surface_targets(&cmd.build_flags.target)
+        .into_iter()
+        .flat_map(|target| {
+            fixture
+                .plan_test_all_with_backend(&cli, &cmd, Some(target))
+                .expect("all-target test plans should resolve")
+        })
+        .collect::<Vec<_>>();
+    assert_test_runs(
+        runs,
+        &[
+            (TargetBackend::Wasm, packages),
+            (TargetBackend::WasmGC, packages),
+            (TargetBackend::Js, packages),
+            (TargetBackend::Native, packages),
         ],
     );
 }
