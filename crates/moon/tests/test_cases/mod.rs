@@ -60,6 +60,8 @@ mod fuzzy_matching;
 mod hello;
 mod indirect_dep;
 mod inline_test;
+#[cfg(target_os = "macos")]
+mod install_atomic_rename;
 mod js_test_build_only;
 mod main_package;
 mod mbti;
