@@ -17,15 +17,17 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use super::fixture::{
-    PlanningFixture, parse_bench_command, parse_build_command, parse_bundle_command,
-    parse_check_command, parse_run_command, parse_test_command,
+    PlannedGraph, PlannedPackageRun, PlanningFixture, parse_bench_command, parse_build_command,
+    parse_bundle_command, parse_check_command, parse_run_command, parse_test_command,
+    planned_check_package_runs, planned_graph_inputs, planned_root_package_runs,
+    planned_target_backends,
 };
 use moonutil::common::{TargetBackend, lower_surface_targets};
 
 // Phase 3: these tests already know the selected backend and only need to
 // verify that planning keeps the right packages and commands in the graph.
 
-fn assert_contains_and_absent(graph: &str, present: &[&str], absent: &[&str]) {
+fn assert_graph_text_contains_and_omits(graph: &str, present: &[&str], absent: &[&str]) {
     for needle in present {
         assert!(
             graph.contains(needle),
@@ -40,134 +42,48 @@ fn assert_contains_and_absent(graph: &str, present: &[&str], absent: &[&str]) {
     }
 }
 
-fn assert_build_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-    expected: &[(TargetBackend, &[&str])],
-) {
-    let actual = runs
-        .into_iter()
-        .map(|(meta, _)| {
-            let packages = meta
-                .artifacts
-                .keys()
-                .filter_map(|node| node.extract_target().map(|target| target.package))
-                .map(|pkg_id| {
-                    meta.resolve_output
-                        .pkg_dirs
-                        .get_package(pkg_id)
-                        .fqn
-                        .to_string()
-                })
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            (meta.target_backend.into(), packages)
-        })
-        .collect::<Vec<_>>();
-    let expected = expected
-        .iter()
-        .map(|(backend, packages)| {
-            (
-                *backend,
-                packages
-                    .iter()
-                    .map(|pkg| pkg.to_string())
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(actual, expected);
+fn assert_graph_inputs(graph: &str, present: &[&str], absent: &[&str]) {
+    let inputs = planned_graph_inputs(graph);
+    for input in present {
+        assert!(
+            inputs.contains(*input),
+            "expected graph inputs to contain `{input}`, got:\n{inputs:#?}"
+        );
+    }
+    for input in absent {
+        assert!(
+            !inputs.contains(*input),
+            "expected graph inputs to omit `{input}`, got:\n{inputs:#?}"
+        );
+    }
 }
 
-fn assert_target_backend_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-    expected: &[TargetBackend],
-) {
-    let actual = runs
-        .into_iter()
-        .map(|(meta, _)| meta.target_backend.into())
-        .collect::<Vec<TargetBackend>>();
-    assert_eq!(actual, expected);
+fn assert_root_package_runs(runs: Vec<PlannedGraph>, expected: &[(TargetBackend, &[&str])]) {
+    assert_eq!(
+        planned_root_package_runs(runs),
+        expected_package_runs(expected)
+    );
 }
 
-fn assert_check_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-    expected: &[(TargetBackend, &[&str])],
-) {
-    let actual = runs
-        .into_iter()
-        .map(|(meta, _)| {
-            let packages = meta
-                .artifacts
-                .keys()
-                .filter_map(|node| match node {
-                    moonbuild_rupes_recta::model::BuildPlanNode::Check(target) => Some(
-                        meta.resolve_output
-                            .pkg_dirs
-                            .get_package(target.package)
-                            .fqn
-                            .to_string(),
-                    ),
-                    _ => None,
-                })
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            (meta.target_backend.into(), packages)
-        })
-        .collect::<Vec<_>>();
-    let expected = expected
-        .iter()
-        .map(|(backend, packages)| {
-            (
-                *backend,
-                packages
-                    .iter()
-                    .map(|pkg| (*pkg).to_string())
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(actual, expected);
+fn assert_target_backend_runs(runs: Vec<PlannedGraph>, expected: &[TargetBackend]) {
+    assert_eq!(planned_target_backends(runs), expected);
 }
 
-fn assert_test_runs(
-    runs: Vec<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)>,
-    expected: &[(TargetBackend, &[&str])],
-) {
-    let actual = runs
-        .into_iter()
-        .map(|(meta, _)| {
-            let packages = meta
-                .artifacts
-                .keys()
-                .filter_map(|node| node.extract_target().map(|target| target.package))
-                .map(|pkg_id| {
-                    meta.resolve_output
-                        .pkg_dirs
-                        .get_package(pkg_id)
-                        .fqn
-                        .to_string()
-                })
-                .collect::<std::collections::BTreeSet<_>>()
-                .into_iter()
-                .collect::<Vec<_>>();
-            (meta.target_backend.into(), packages)
-        })
-        .collect::<Vec<_>>();
-    let expected = expected
+fn assert_check_package_runs(runs: Vec<PlannedGraph>, expected: &[(TargetBackend, &[&str])]) {
+    assert_eq!(
+        planned_check_package_runs(runs),
+        expected_package_runs(expected)
+    );
+}
+
+fn expected_package_runs(expected: &[(TargetBackend, &[&str])]) -> Vec<PlannedPackageRun> {
+    expected
         .iter()
-        .map(|(backend, packages)| {
-            (
-                *backend,
-                packages
-                    .iter()
-                    .map(|pkg| (*pkg).to_string())
-                    .collect::<Vec<_>>(),
-            )
+        .map(|(backend, packages)| PlannedPackageRun {
+            target_backend: *backend,
+            packages: packages.iter().map(|pkg| (*pkg).to_string()).collect(),
         })
-        .collect::<Vec<_>>();
-    assert_eq!(actual, expected);
+        .collect()
 }
 
 #[test]
@@ -178,7 +94,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
     let default_graph = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("default build graph should plan");
-    assert_contains_and_absent(
+    assert_graph_text_contains_and_omits(
         &default_graph,
         &[
             "./_build/wasm-gc/debug/build/main/main.wasm",
@@ -198,7 +114,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
     let js_graph = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("js build graph should plan");
-    assert_contains_and_absent(
+    assert_graph_text_contains_and_omits(
         &js_graph,
         &["./_build/js/debug/build/main/main.js", "-target js"],
         &[
@@ -231,7 +147,7 @@ fn many_target_planning_selects_requested_backends() {
                 .expect("multi-target check plans should resolve")
         })
         .collect::<Vec<_>>();
-    assert_check_runs(
+    assert_check_package_runs(
         runs,
         &[
             (TargetBackend::Wasm, all_packages),
@@ -256,7 +172,7 @@ fn many_target_planning_selects_requested_backends() {
                 .expect("multi-target build plans should resolve")
         })
         .collect::<Vec<_>>();
-    assert_build_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Wasm, root_packages),
@@ -300,7 +216,7 @@ fn many_target_planning_selects_requested_backends() {
                 .expect("multi-target test plans should resolve")
         })
         .collect::<Vec<_>>();
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Wasm, all_packages),
@@ -331,7 +247,7 @@ fn all_target_test_planning_selects_every_concrete_backend() {
                 .expect("all-target test plans should resolve")
         })
         .collect::<Vec<_>>();
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Wasm, packages),
@@ -352,7 +268,7 @@ fn conflicting_workspace_preferred_targets_build_selection_splits_by_module_back
         .plan_build_all_with_cli(&cli, &cmd)
         .expect("default build plans should resolve");
 
-    assert_build_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -377,7 +293,7 @@ fn conflicting_workspace_preferred_targets_build_path_selection_uses_module_back
         .plan_build_all_with_cli(&cli, &cmd)
         .expect("path-selected build plans should resolve");
 
-    assert_build_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -396,7 +312,7 @@ fn explicit_build_target_keeps_single_backend_selection() {
         .plan_build_all_with_cli(&cli, &cmd)
         .expect("explicit js build plans should resolve");
 
-    assert_build_runs(
+    assert_root_package_runs(
         runs,
         &[(
             TargetBackend::Js,
@@ -418,7 +334,7 @@ fn conflicting_workspace_preferred_targets_test_selection_splits_by_module_backe
         .plan_test_all_with_cli(&cli, &cmd)
         .expect("default test plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -443,7 +359,7 @@ fn conflicting_workspace_preferred_targets_test_path_selection_uses_module_backe
         .plan_test_all_with_cli(&cli, &cmd)
         .expect("path-selected test plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -462,7 +378,7 @@ fn explicit_test_target_keeps_single_backend_selection() {
         .plan_test_all_with_cli(&cli, &cmd)
         .expect("explicit js test plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[(
             TargetBackend::Js,
@@ -484,7 +400,7 @@ fn conflicting_workspace_preferred_targets_bench_selection_splits_by_module_back
         .plan_bench_all_with_cli(&cli, &cmd)
         .expect("default bench plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -503,7 +419,7 @@ fn explicit_bench_target_keeps_single_backend_selection() {
         .plan_bench_all_with_cli(&cli, &cmd)
         .expect("explicit js bench plans should resolve");
 
-    assert_test_runs(
+    assert_root_package_runs(
         runs,
         &[(
             TargetBackend::Js,
@@ -524,7 +440,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let check_js = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("js check graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &check_js,
         &[
             "./shared/shared.mbt",
@@ -542,7 +458,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let build_js = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("js build graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &build_js,
         &[
             "./shared/shared.mbt",
@@ -557,7 +473,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let check_native = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("native check graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &check_native,
         &[
             "./shared/shared.mbt",
@@ -576,7 +492,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let build_native = fixture
         .plan_build_with_cli(&cli, &cmd)
         .expect("native build graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &build_native,
         &[
             "./shared/shared.mbt",
@@ -597,7 +513,7 @@ fn mixed_backend_run_planning_is_target_aware() {
     let run_js = fixture
         .plan_run_with_cli(&cli, &cmd)
         .expect("js run graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &run_js,
         &[
             "./shared/shared.mbt",
@@ -618,7 +534,7 @@ fn mixed_backend_run_planning_is_target_aware() {
     let run_native = fixture
         .plan_run_with_cli(&cli, &cmd)
         .expect("native run graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &run_native,
         &[
             "./shared/shared.mbt",
@@ -638,7 +554,7 @@ fn supported_targets_empty_packages_are_skipped_in_check_planning() {
     let check_js = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("js check graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &check_js,
         &["./main/main.mbt", "./lib/lib.mbt"],
         &["./never/never.mbt"],
@@ -649,7 +565,7 @@ fn supported_targets_empty_packages_are_skipped_in_check_planning() {
     let check_native = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("native check graph should plan");
-    assert_contains_and_absent(
+    assert_graph_inputs(
         &check_native,
         &["./main/main.mbt", "./lib/lib.mbt"],
         &["./never/never.mbt"],
@@ -666,7 +582,7 @@ fn conflicting_workspace_preferred_targets_check_selection_splits_by_module_back
         .plan_check_all_with_cli(&cli, &cmd)
         .expect("default check plans should resolve");
 
-    assert_check_runs(
+    assert_check_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -691,7 +607,7 @@ fn conflicting_workspace_preferred_targets_check_path_selection_uses_module_back
         .plan_check_all_with_cli(&cli, &cmd)
         .expect("path-selected check plans should resolve");
 
-    assert_check_runs(
+    assert_check_package_runs(
         runs,
         &[
             (TargetBackend::Js, &["workspace/js_preferred/lib"]),
@@ -710,7 +626,7 @@ fn explicit_check_target_keeps_single_backend_selection() {
         .plan_check_all_with_cli(&cli, &cmd)
         .expect("explicit js check plans should resolve");
 
-    assert_check_runs(
+    assert_check_package_runs(
         runs,
         &[(
             TargetBackend::Js,
@@ -740,7 +656,7 @@ fn module_supported_targets_intersection_filters_check_planning() {
     let check_wasm_gc = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("wasm-gc check graph should plan");
-    assert_contains_and_absent(&check_wasm_gc, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+    assert_graph_inputs(&check_wasm_gc, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 
     let (cli, cmd) = parse_check_command(&[
         "check",
@@ -753,7 +669,7 @@ fn module_supported_targets_intersection_filters_check_planning() {
     let check_native = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("native check graph should plan");
-    assert_contains_and_absent(&check_native, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+    assert_graph_inputs(&check_native, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 
     let (cli, cmd) = parse_check_command(&[
         "check",
@@ -766,5 +682,5 @@ fn module_supported_targets_intersection_filters_check_planning() {
     let check_llvm = fixture
         .plan_check_with_cli(&cli, &cmd)
         .expect("llvm check graph should plan");
-    assert_contains_and_absent(&check_llvm, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+    assert_graph_inputs(&check_llvm, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 }
