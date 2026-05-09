@@ -25,6 +25,7 @@ use std::{
 
 use moonbuild::expect::PackageSrcResolver;
 use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend};
+use moonutil::module::MoonModRule;
 use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedRootModules};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
 use slotmap::{SecondaryMap, SlotMap};
@@ -139,6 +140,10 @@ impl DiscoveredPackage {
                 self.raw.link.as_ref()?.native.as_ref()?.exports.as_deref()
             }
         }
+    }
+
+    pub fn local_rules(&self) -> Option<&[MoonModRule]> {
+        self.raw.local_rules.as_deref()
     }
 }
 
