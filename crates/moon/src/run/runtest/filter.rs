@@ -502,6 +502,20 @@ mod test {
     }
 
     #[test]
+    fn test_file_filter_index_range() {
+        let meta = example_meta();
+        let mut ff = super::FileFilter::default();
+        ff.add_one("file1.mbt", Some(TestIndexRange { start: 0, end: 2 }));
+
+        expect![[r#"FileFilter({"file1.mbt": Some(IndexFilter { ranges: [0..2] })})"#]]
+            .assert_eq(&format!("{:?}", ff));
+
+        let mut out = vec![];
+        super::apply_filter(Some(&ff), &meta, &mut out, false, false, None);
+        expect![[r#"[("file1.mbt", [0..1, 1..2])]"#]].assert_eq(&format!("{:?}", out));
+    }
+
+    #[test]
     fn test_file_filter_multiple_files_mixed() {
         let meta = example_meta();
         let mut ff = super::FileFilter::default();
