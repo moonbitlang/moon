@@ -238,7 +238,7 @@ fn build_graph_uses_selected_profile() {
     ] {
         let (cli, cmd) = parse_build_command(args);
         let graph = fixture
-            .plan_build_with_cli(&cli, &cmd)
+            .plan_build_with_request(&cli, &cmd)
             .unwrap_or_else(|err| panic!("{label} should plan: {err:#}"));
 
         assert_command_uses_profile(

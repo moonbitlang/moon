@@ -67,7 +67,7 @@ fn dummy_core_build_graph_matches_snapshots() {
     let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--sort-input"]);
     expect_file!["../../../tests/test_cases/dummy_core/build_default.jsonl.snap"].assert_eq(
         &fixture
-            .plan_build_with_cli(&cli, &cmd)
+            .plan_build_with_request(&cli, &cmd)
             .expect("default build graph should plan"),
     );
 
@@ -75,7 +75,7 @@ fn dummy_core_build_graph_matches_snapshots() {
         parse_build_command(&["build", "--dry-run", "--target", "wasm", "--sort-input"]);
     expect_file!["../../../tests/test_cases/dummy_core/build_wasm.jsonl.snap"].assert_eq(
         &fixture
-            .plan_build_with_cli(&cli, &cmd)
+            .plan_build_with_request(&cli, &cmd)
             .expect("wasm build graph should plan"),
     );
 
@@ -83,14 +83,14 @@ fn dummy_core_build_graph_matches_snapshots() {
         parse_build_command(&["build", "--dry-run", "--target", "wasm-gc", "--sort-input"]);
     expect_file!["../../../tests/test_cases/dummy_core/build_wasm_gc.jsonl.snap"].assert_eq(
         &fixture
-            .plan_build_with_cli(&cli, &cmd)
+            .plan_build_with_request(&cli, &cmd)
             .expect("wasm-gc build graph should plan"),
     );
 
     let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--target", "js", "--sort-input"]);
     expect_file!["../../../tests/test_cases/dummy_core/build_js.jsonl.snap"].assert_eq(
         &fixture
-            .plan_build_with_cli(&cli, &cmd)
+            .plan_build_with_request(&cli, &cmd)
             .expect("js build graph should plan"),
     );
 }

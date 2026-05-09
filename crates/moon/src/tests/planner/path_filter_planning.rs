@@ -32,7 +32,7 @@ fn expected_wasm_gc_packages(packages: &[&str]) -> Vec<PlannedPackageRun> {
 fn expect_build_packages(fixture: &PlanningFixture, path: &str, expected: &[&str]) {
     let (cli, cmd) = parse_build_command(&["build", path, "--dry-run", "--sort-input"]);
     let runs = fixture
-        .plan_build_all_with_cli(&cli, &cmd)
+        .plan_build_all_with_request(&cli, &cmd)
         .expect("build path filter should plan");
     assert_eq!(
         planned_root_package_runs(runs),

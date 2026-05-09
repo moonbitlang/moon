@@ -47,23 +47,39 @@ use super::{BuildFlags, UniversalFlags};
 /// Build the current package
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct BuildSubcommand {
-    /// Paths to the packages that should be built.
-    #[clap(name = "PATH", conflicts_with("package"))]
-    pub path: Vec<PathBuf>,
-
     #[clap(flatten)]
-    pub build_flags: BuildFlags,
-
-    #[clap(flatten)]
-    pub auto_sync_flags: AutoSyncFlags,
+    pub request: BuildPlanRequest,
 
     /// Monitor the file system and automatically build artifacts
     #[clap(long, short)]
     pub watch: bool,
+}
+
+#[derive(Debug, clap::Parser, Clone)]
+pub(crate) struct BuildPlanRequest {
+    /// Paths to the packages that should be built.
+    #[clap(name = "PATH", conflicts_with("package_filter"))]
+    path_filters: Vec<PathBuf>,
+
+    #[clap(flatten)]
+    build_flags: BuildFlags,
+
+    #[clap(flatten)]
+    auto_sync_flags: AutoSyncFlags,
 
     // package name (username/hello/lib)
-    #[clap(long, hide = true)]
-    pub package: Option<String>,
+    #[clap(long = "package", hide = true)]
+    package_filter: Option<String>,
+}
+
+impl BuildPlanRequest {
+    pub(crate) fn resolve_single_target_backend(&self) -> anyhow::Result<Option<TargetBackend>> {
+        self.build_flags.resolve_single_target_backend()
+    }
+
+    pub(crate) fn surface_targets(&self) -> &[moonutil::common::SurfaceTarget] {
+        &self.build_flags.target
+    }
 }
 
 #[instrument(skip_all)]
@@ -78,29 +94,30 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
 
-    if cmd.build_flags.target.is_empty() {
+    if cmd.request.surface_targets().is_empty() {
         return run_build_internal(
             cli,
-            &cmd,
+            &cmd.request,
             &source_dir,
             &target_dir,
             &mooncakes_dir,
             project_manifest_path.as_deref(),
-            None,
+            cmd.watch,
+            cmd.request.resolve_single_target_backend()?,
         );
     }
-    let surface_targets = cmd.build_flags.target.clone();
-    let targets = lower_surface_targets(&surface_targets);
+    let targets = lower_surface_targets(cmd.request.surface_targets());
 
     let mut ret_value = 0;
     for t in targets {
         let x = run_build_internal(
             cli,
-            &cmd,
+            &cmd.request,
             &source_dir,
             &target_dir,
             &mooncakes_dir,
             project_manifest_path.as_deref(),
+            cmd.watch,
             Some(t),
         )
         .context(format!("failed to run build for target {t:?}"))?;
@@ -112,17 +129,18 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
 #[instrument(skip_all)]
 fn run_build_internal(
     cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
+    request: &BuildPlanRequest,
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
+    watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let f = |watch: bool| {
         run_build_rr(
             cli,
-            cmd,
+            request,
             source_dir,
             target_dir,
             mooncakes_dir,
@@ -132,7 +150,7 @@ fn run_build_internal(
         )
     };
 
-    if cmd.watch {
+    if watch {
         watching(|| f(true), source_dir, source_dir, target_dir)
     } else {
         f(false).map(|output| if output.ok { 0 } else { 1 })
@@ -146,7 +164,7 @@ fn run_build_internal(
 #[allow(clippy::too_many_arguments)]
 fn run_build_rr(
     cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
+    request: &BuildPlanRequest,
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
@@ -155,9 +173,9 @@ fn run_build_rr(
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
-        cmd.auto_sync_flags.clone(),
-        !cmd.build_flags.std(),
-        cmd.build_flags.enable_coverage,
+        request.auto_sync_flags.clone(),
+        !request.build_flags.std(),
+        request.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
     .with_project_manifest_path(project_manifest_path);
@@ -172,7 +190,7 @@ fn run_build_rr(
     };
     let planned_runs = plan_build_rr_from_resolved_all(
         cli,
-        cmd,
+        request,
         source_dir,
         target_dir,
         selected_target_backend,
@@ -192,7 +210,7 @@ fn run_build_rr(
     } else {
         let _lock = FileLock::lock(target_dir)?;
         let cfg = BuildConfig::from_flags(
-            &cmd.build_flags,
+            &request.build_flags,
             &cli.unstable_feature,
             cli.verbose,
             UserDiagnostics::from_flags(cli),
@@ -215,15 +233,15 @@ fn run_build_rr(
 
 pub(crate) fn plan_build_rr_from_resolved(
     cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
+    request: &BuildPlanRequest,
     target_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+        &request.auto_sync_flags,
         cli,
-        &cmd.build_flags,
+        &request.build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Build,
@@ -237,8 +255,8 @@ pub(crate) fn plan_build_rr_from_resolved(
         output,
         Box::new(|resolved, target_backend| {
             calc_user_intent(
-                &cmd.path,
-                cmd.package.as_deref(),
+                &request.path_filters,
+                request.package_filter.as_deref(),
                 resolved,
                 target_backend,
                 output,
@@ -250,16 +268,16 @@ pub(crate) fn plan_build_rr_from_resolved(
 
 fn plan_build_rr_from_resolved_with_scope(
     cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
+    request: &BuildPlanRequest,
     target_dir: &Path,
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     scoped_packages: Vec<PackageId>,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
+        &request.auto_sync_flags,
         cli,
-        &cmd.build_flags,
+        &request.build_flags,
         Some(target_backend),
         target_dir,
         RunMode::Build,
@@ -280,17 +298,17 @@ fn plan_build_rr_from_resolved_with_scope(
 
 pub(crate) fn plan_build_rr_from_resolved_all(
     cli: &UniversalFlags,
-    cmd: &BuildSubcommand,
+    request: &BuildPlanRequest,
     _source_dir: &Path,
     target_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
     if let Some(target_backend) = selected_target_backend {
-        if has_explicit_build_selector(cmd)
+        if has_explicit_build_selector(request)
             && resolve_selected_build_packages(
                 &resolve_output,
-                cmd,
+                request,
                 Some(target_backend),
                 UserDiagnostics::from_flags(cli),
             )?
@@ -301,7 +319,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
 
         return plan_build_rr_from_resolved(
             cli,
-            cmd,
+            request,
             target_dir,
             Some(target_backend),
             resolve_output,
@@ -311,20 +329,20 @@ pub(crate) fn plan_build_rr_from_resolved_all(
 
     let selections = resolve_build_target_selections(
         &resolve_output,
-        cmd,
+        request,
         None,
         UserDiagnostics::from_flags(cli),
     )?;
 
-    if has_explicit_build_selector(cmd) {
+    if has_explicit_build_selector(request) {
         return selections
             .into_iter()
             .map(|selection| {
-                let (scoped_cmd, target_backend) =
-                    narrow_build_request_to_selection(cmd, &resolve_output, &selection);
+                let (scoped_request, target_backend) =
+                    narrow_build_request_to_selection(request, &resolve_output, &selection);
                 plan_build_rr_from_resolved(
                     cli,
-                    &scoped_cmd,
+                    &scoped_request,
                     target_dir,
                     Some(target_backend),
                     resolve_output.clone(),
@@ -334,7 +352,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
     }
 
     if selections.is_empty() {
-        return plan_build_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
+        return plan_build_rr_from_resolved(cli, request, target_dir, None, resolve_output)
             .map(|plan| vec![plan]);
     }
 
@@ -343,7 +361,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
         .map(|selection| {
             plan_build_rr_from_resolved_with_scope(
                 cli,
-                cmd,
+                request,
                 target_dir,
                 selection.target_backend,
                 resolve_output.clone(),
@@ -353,34 +371,34 @@ pub(crate) fn plan_build_rr_from_resolved_all(
         .collect()
 }
 
-fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
-    !cmd.path.is_empty() || cmd.package.is_some()
+fn has_explicit_build_selector(request: &BuildPlanRequest) -> bool {
+    !request.path_filters.is_empty() || request.package_filter.is_some()
 }
 
 fn narrow_build_request_to_selection(
-    cmd: &BuildSubcommand,
+    request: &BuildPlanRequest,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     selection: &TargetPackageGroup,
-) -> (BuildSubcommand, TargetBackend) {
-    let mut scoped_cmd = cmd.clone();
-    scoped_cmd.package = None;
-    scoped_cmd.path = selection
+) -> (BuildPlanRequest, TargetBackend) {
+    let mut scoped_request = request.clone();
+    scoped_request.package_filter = None;
+    scoped_request.path_filters = selection
         .packages
         .iter()
         .map(|pkg| resolve_output.pkg_dirs.get_package(*pkg).root_path.clone())
         .collect();
-    (scoped_cmd, selection.target_backend)
+    (scoped_request, selection.target_backend)
 }
 
 fn resolve_build_target_selections(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    cmd: &BuildSubcommand,
+    request: &BuildPlanRequest,
     selected_target_backend: Option<TargetBackend>,
     output: UserDiagnostics,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
         let packages =
-            resolve_selected_build_packages(resolve_output, cmd, Some(target_backend), output)?;
+            resolve_selected_build_packages(resolve_output, request, Some(target_backend), output)?;
         if packages.is_empty() {
             return Ok(Vec::new());
         }
@@ -390,7 +408,7 @@ fn resolve_build_target_selections(
         }]);
     }
 
-    let selected = resolve_selected_build_packages(resolve_output, cmd, None, output)?;
+    let selected = resolve_selected_build_packages(resolve_output, request, None, output)?;
     let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
 
     for selection in &mut selections {
@@ -408,15 +426,20 @@ fn resolve_build_target_selections(
 
 fn resolve_selected_build_packages(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    cmd: &BuildSubcommand,
+    request: &BuildPlanRequest,
     target_backend: Option<TargetBackend>,
     output: UserDiagnostics,
 ) -> anyhow::Result<Vec<PackageId>> {
-    if !cmd.path.is_empty() {
+    if !request.path_filters.is_empty() {
         if let Some(target_backend) = target_backend {
-            return select_supported_packages(resolve_output, &cmd.path, target_backend, output);
+            return select_supported_packages(
+                resolve_output,
+                &request.path_filters,
+                target_backend,
+                output,
+            );
         }
-        return Ok(select_packages(&cmd.path, output, |dir| {
+        return Ok(select_packages(&request.path_filters, output, |dir| {
             filter_pkg_by_dir(resolve_output, dir)
         })?
         .into_iter()
@@ -424,7 +447,7 @@ fn resolve_selected_build_packages(
         .collect());
     }
 
-    if let Some(package_filter) = cmd.package.as_deref() {
+    if let Some(package_filter) = request.package_filter.as_deref() {
         let pkgs = match_packages_by_name_rr(
             resolve_output,
             resolve_output.local_modules(),

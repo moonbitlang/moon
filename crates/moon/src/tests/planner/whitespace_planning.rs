@@ -46,7 +46,7 @@ fn whitespace_cli_variants_resolve_to_same_main_package_intention() {
     ] {
         let (cli, cmd) = parse_build_command(args);
         let actual = fixture
-            .plan_build_graph_with_cli(&cli, &cmd)
+            .plan_build_graph_with_request(&cli, &cmd)
             .map(planned_root_package_intent)
             .expect("build command should resolve");
         assert_eq!(actual, expected, "unexpected build intention for {args:?}");

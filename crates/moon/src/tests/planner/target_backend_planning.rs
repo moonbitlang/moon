@@ -92,7 +92,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
 
     let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--nostd", "--sort-input"]);
     let default_graph = fixture
-        .plan_build_with_cli(&cli, &cmd)
+        .plan_build_with_request(&cli, &cmd)
         .expect("default build graph should plan");
     assert_graph_text_contains_and_omits(
         &default_graph,
@@ -112,7 +112,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
         "--sort-input",
     ]);
     let js_graph = fixture
-        .plan_build_with_cli(&cli, &cmd)
+        .plan_build_with_request(&cli, &cmd)
         .expect("js build graph should plan");
     assert_graph_text_contains_and_omits(
         &js_graph,
@@ -164,7 +164,7 @@ fn many_target_planning_selects_requested_backends() {
         "--nostd",
         "--sort-input",
     ]);
-    let runs = lower_surface_targets(&cmd.build_flags.target)
+    let runs = lower_surface_targets(cmd.surface_targets())
         .into_iter()
         .flat_map(|target| {
             fixture
@@ -265,7 +265,7 @@ fn conflicting_workspace_preferred_targets_build_selection_splits_by_module_back
 
     let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--sort-input"]);
     let runs = fixture
-        .plan_build_all_with_cli(&cli, &cmd)
+        .plan_build_all_with_request(&cli, &cmd)
         .expect("default build plans should resolve");
 
     assert_root_package_runs(
@@ -290,7 +290,7 @@ fn conflicting_workspace_preferred_targets_build_path_selection_uses_module_back
     let (cli, cmd) =
         parse_build_command(&["build", js_path, native_path, "--dry-run", "--sort-input"]);
     let runs = fixture
-        .plan_build_all_with_cli(&cli, &cmd)
+        .plan_build_all_with_request(&cli, &cmd)
         .expect("path-selected build plans should resolve");
 
     assert_root_package_runs(
@@ -309,7 +309,7 @@ fn explicit_build_target_keeps_single_backend_selection() {
 
     let (cli, cmd) = parse_build_command(&["build", "--target", "js", "--dry-run", "--sort-input"]);
     let runs = fixture
-        .plan_build_all_with_cli(&cli, &cmd)
+        .plan_build_all_with_request(&cli, &cmd)
         .expect("explicit js build plans should resolve");
 
     assert_root_package_runs(
@@ -456,7 +456,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
 
     let (cli, cmd) = parse_build_command(&["build", "--target", "js", "--dry-run", "--sort-input"]);
     let build_js = fixture
-        .plan_build_with_cli(&cli, &cmd)
+        .plan_build_with_request(&cli, &cmd)
         .expect("js build graph should plan");
     assert_graph_inputs(
         &build_js,
@@ -490,7 +490,7 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let (cli, cmd) =
         parse_build_command(&["build", "--target", "native", "--dry-run", "--sort-input"]);
     let build_native = fixture
-        .plan_build_with_cli(&cli, &cmd)
+        .plan_build_with_request(&cli, &cmd)
         .expect("native build graph should plan");
     assert_graph_inputs(
         &build_native,

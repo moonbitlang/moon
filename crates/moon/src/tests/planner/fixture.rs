@@ -29,7 +29,7 @@ use moonutil::{
 };
 
 use crate::cli::{
-    BenchSubcommand, BuildSubcommand, BundleSubcommand, CheckSubcommand, MoonBuildCli,
+    BenchSubcommand, BuildPlanRequest, BundleSubcommand, CheckSubcommand, MoonBuildCli,
     MoonBuildSubcommands, RunSubcommand, TestLikeSubcommand, TestSubcommand,
 };
 
@@ -175,46 +175,46 @@ impl PlanningFixture {
         })
     }
 
-    pub(super) fn plan_build_with_cli(
+    pub(super) fn plan_build_with_request(
         &self,
         cli: &UniversalFlags,
-        cmd: &BuildSubcommand,
+        request: &BuildPlanRequest,
     ) -> anyhow::Result<String> {
-        self.dump_plan(self.plan_build_graph_with_cli(cli, cmd)?)
+        self.dump_plan(self.plan_build_graph_with_request(cli, request)?)
     }
 
-    pub(super) fn plan_build_graph_with_cli(
+    pub(super) fn plan_build_graph_with_request(
         &self,
         cli: &UniversalFlags,
-        cmd: &BuildSubcommand,
+        request: &BuildPlanRequest,
     ) -> anyhow::Result<PlannedGraph> {
         let (build_meta, build_graph) = crate::cli::build::plan_build_rr_from_resolved(
             cli,
-            cmd,
+            request,
             &self.target_dir,
-            cmd.build_flags.resolve_single_target_backend()?,
+            request.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
         Ok(PlannedGraph::new(build_meta, build_graph))
     }
 
-    pub(super) fn plan_build_all_with_cli(
+    pub(super) fn plan_build_all_with_request(
         &self,
         cli: &UniversalFlags,
-        cmd: &BuildSubcommand,
+        request: &BuildPlanRequest,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
-        self.plan_build_all_with_backend(cli, cmd, cmd.build_flags.resolve_single_target_backend()?)
+        self.plan_build_all_with_backend(cli, request, request.resolve_single_target_backend()?)
     }
 
     pub(super) fn plan_build_all_with_backend(
         &self,
         cli: &UniversalFlags,
-        cmd: &BuildSubcommand,
+        request: &BuildPlanRequest,
         selected_target_backend: Option<moonutil::common::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
         crate::cli::build::plan_build_rr_from_resolved_all(
             cli,
-            cmd,
+            request,
             &self.source_dir,
             &self.target_dir,
             selected_target_backend,
@@ -431,13 +431,13 @@ fn package_names(
         .collect()
 }
 
-pub(super) fn parse_build_command(args: &[&str]) -> (UniversalFlags, BuildSubcommand) {
+pub(super) fn parse_build_command(args: &[&str]) -> (UniversalFlags, BuildPlanRequest) {
     let parsed = MoonBuildCli::try_parse_from(std::iter::once("moon").chain(args.iter().copied()))
         .expect("build command should parse");
     let Some(MoonBuildSubcommands::Build(cmd)) = parsed.subcommand else {
         panic!("expected `moon build` to parse as the build subcommand");
     };
-    (parsed.flags, cmd)
+    (parsed.flags, cmd.request)
 }
 
 pub(super) fn parse_check_command(args: &[&str]) -> (UniversalFlags, CheckSubcommand) {
