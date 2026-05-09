@@ -102,39 +102,39 @@ fn expect_check_packages(fixture: &PlanningFixture, path: &str, expected: &[&str
 #[test]
 fn build_path_spellings_select_the_same_root_package() {
     let fixture = PlanningFixture::new("test_filter/test_filter").expect("fixture should resolve");
-    let package_a = fixture.case_dir().join("A");
-    let package_a_file = package_a.join("hello.mbt");
-    let package_a = package_a.to_str().expect("fixture path should be UTF-8");
-    let package_a_slash = format!("{package_a}/");
-    let package_a_file = package_a_file
-        .to_str()
-        .expect("fixture path should be UTF-8");
+    let case_dir = fixture.case_dir().display();
 
-    for path in [package_a, package_a_slash.as_str(), package_a_file] {
-        expect_build_packages(&fixture, path, &["username/hello/A"]);
+    for path in [
+        format!("{case_dir}/A"),
+        format!("{case_dir}/A/"),
+        format!("{case_dir}/A/hello.mbt"),
+    ] {
+        expect_build_packages(&fixture, &path, &["username/hello/A"]);
     }
 
-    let package_lib = fixture.case_dir().join("lib");
-    let package_lib = package_lib.to_str().expect("fixture path should be UTF-8");
-    expect_build_packages(&fixture, package_lib, &["username/hello/lib"]);
+    expect_build_packages(
+        &fixture,
+        &format!("{case_dir}/lib"),
+        &["username/hello/lib"],
+    );
 }
 
 #[test]
 fn check_path_spellings_select_the_same_root_package() {
     let fixture = PlanningFixture::new("test_filter/test_filter").expect("fixture should resolve");
-    let package_a = fixture.case_dir().join("A");
-    let package_a_file = package_a.join("hello.mbt");
-    let package_a = package_a.to_str().expect("fixture path should be UTF-8");
-    let package_a_slash = format!("{package_a}/");
-    let package_a_file = package_a_file
-        .to_str()
-        .expect("fixture path should be UTF-8");
+    let case_dir = fixture.case_dir().display();
 
-    for path in [package_a, package_a_slash.as_str(), package_a_file] {
-        expect_check_packages(&fixture, path, &["username/hello/A"]);
+    for path in [
+        format!("{case_dir}/A"),
+        format!("{case_dir}/A/"),
+        format!("{case_dir}/A/hello.mbt"),
+    ] {
+        expect_check_packages(&fixture, &path, &["username/hello/A"]);
     }
 
-    let package_lib = fixture.case_dir().join("lib");
-    let package_lib = package_lib.to_str().expect("fixture path should be UTF-8");
-    expect_check_packages(&fixture, package_lib, &["username/hello/lib"]);
+    expect_check_packages(
+        &fixture,
+        &format!("{case_dir}/lib"),
+        &["username/hello/lib"],
+    );
 }
