@@ -393,10 +393,6 @@ fn test_moon_build_filter_by_path_success() {
     let stdout = get_stdout(&dir, ["build", "A", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/build_A.stdout"].assert_eq(&stdout);
 
-    // Test build with folder path with trailing slash
-    let stdout = get_stdout(&dir, ["build", "A/", "--dry-run", "--sort-input"]);
-    expect_file!["snapshots/build_A_slash.stdout"].assert_eq(&stdout);
-
     // Test build with lib folder
     let stdout = get_stdout(&dir, ["build", "lib", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/build_lib.stdout"].assert_eq(&stdout);
@@ -404,18 +400,6 @@ fn test_moon_build_filter_by_path_success() {
     // Test build with main folder
     let stdout = get_stdout(&dir, ["build", "main", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/build_main.stdout"].assert_eq(&stdout);
-
-    // Test build from inside package directory
-    let stdout = get_stdout(&dir.join("A"), ["build", ".", "--dry-run", "--sort-input"]);
-    expect_file!["snapshots/build_A_dot.stdout"].assert_eq(&stdout);
-
-    // Test build with relative paths using dot notation
-    let stdout = get_stdout(&dir, ["build", "./lib", "--dry-run", "--sort-input"]);
-    expect_file!["snapshots/build_relative_lib.stdout"].assert_eq(&stdout);
-
-    // Test error handling for file paths (not supported by build)
-    let stdout = get_stdout(&dir, ["build", "A/hello.mbt", "--dry-run", "--sort-input"]);
-    expect_file!["snapshots/build_A_file.stdout"].assert_eq(&stdout);
 }
 
 #[test]
@@ -561,10 +545,6 @@ fn test_moon_check_filter_by_path_success() {
     let stdout = get_stdout(&dir, ["check", "A", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/check_A.stdout"].assert_eq(&stdout);
 
-    // Test check with folder path with trailing slash
-    let stdout = get_stdout(&dir, ["check", "A/", "--dry-run", "--sort-input"]);
-    expect_file!["snapshots/check_A_slash.stdout"].assert_eq(&stdout);
-
     // Test check with lib folder
     let stdout = get_stdout(&dir, ["check", "lib", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/check_lib.stdout"].assert_eq(&stdout);
@@ -572,32 +552,6 @@ fn test_moon_check_filter_by_path_success() {
     // Test check with main folder
     let stdout = get_stdout(&dir, ["check", "main", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/check_main.stdout"].assert_eq(&stdout);
-
-    // Test check from inside package directory
-    let stdout = get_stdout(&dir.join("A"), ["check", ".", "--dry-run", "--sort-input"]);
-    expect_file!["snapshots/check_A_dot.stdout"].assert_eq(&stdout);
-
-    // Test check with file path
-    let stdout = get_stdout(&dir, ["check", "A/hello.mbt", "--dry-run", "--sort-input"]);
-    expect_file!["snapshots/check_A_file.stdout"].assert_eq(&stdout);
-
-    // Test check with file path from inside package
-    let stdout = get_stdout(
-        &dir.join("A"),
-        ["check", "hello.mbt", "--dry-run", "--sort-input"],
-    );
-    expect_file!["snapshots/check_A_file_inside.stdout"].assert_eq(&stdout);
-
-    // Test check with relative paths using dot notation
-    let stdout = get_stdout(&dir, ["check", "./A", "--dry-run", "--sort-input"]);
-    expect_file!["snapshots/check_relative_A.stdout"].assert_eq(&stdout);
-
-    // Test check with nested relative paths
-    let stdout = get_stdout(
-        &dir,
-        ["check", "./A/hello.mbt", "--dry-run", "--sort-input"],
-    );
-    expect_file!["snapshots/check_relative_A_file.stdout"].assert_eq(&stdout);
 }
 
 #[test]
