@@ -136,6 +136,15 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
     ) -> anyhow::Result<String> {
+        let (build_meta, build_graph) = self.plan_build_meta_with_cli(cli, cmd)?;
+        self.dump_plan(build_meta, build_graph)
+    }
+
+    pub(super) fn plan_build_meta_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &BuildSubcommand,
+    ) -> anyhow::Result<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)> {
         let (build_meta, build_graph) = crate::cli::build::plan_build_rr_from_resolved(
             cli,
             cmd,
@@ -143,7 +152,7 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        self.dump_plan(build_meta, build_graph)
+        Ok((build_meta, build_graph))
     }
 
     pub(super) fn plan_build_all_with_cli(
@@ -197,6 +206,15 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &RunSubcommand,
     ) -> anyhow::Result<String> {
+        let (build_meta, build_graph) = self.plan_run_meta_with_cli(cli, cmd)?;
+        self.dump_plan(build_meta, build_graph)
+    }
+
+    pub(super) fn plan_run_meta_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &RunSubcommand,
+    ) -> anyhow::Result<(crate::rr_build::BuildMeta, crate::rr_build::BuildInput)> {
         let mut cmd = cmd.clone();
         if cmd.command.is_none()
             && let Some(input) = cmd.package_or_mbt_file.as_deref()
@@ -214,7 +232,7 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        self.dump_plan(build_meta, build_graph)
+        Ok((build_meta, build_graph))
     }
 
     pub(super) fn case_dir(&self) -> &std::path::Path {
