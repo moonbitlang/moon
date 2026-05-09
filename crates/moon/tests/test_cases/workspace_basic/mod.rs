@@ -1289,12 +1289,11 @@ fn test_moon_work_wins_over_legacy_workspace_disable_env() {
         "expected MOON_WORK to override deprecated env, got:\n{stdout}"
     );
 
-    let stderr = get_stderr_without_replace(
+    let stderr = get_stderr_with_envs(
         &dir,
         ["build", "--dry-run", "--sort-input"],
         [(MOON_WORK_ENV, "auto"), (MOON_NO_WORKSPACE, "1")],
     );
-    let stderr = replace_dir(&stderr, &dir);
     assert!(
         stderr
             .contains("`MOON_NO_WORKSPACE` is deprecated and ignored because `MOON_WORK` is set."),
