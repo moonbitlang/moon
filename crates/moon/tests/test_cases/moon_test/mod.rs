@@ -4,7 +4,7 @@ mod with_cfg;
 
 use expect_test::expect_file;
 
-use crate::{build_graph::compare_graphs, dry_run_utils::assert_lines_in_order};
+use crate::dry_run_utils::assert_lines_in_order;
 
 use super::*;
 
@@ -44,14 +44,9 @@ fn test_moon_test_hello_exec() {
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
-    let graph = dir.join("test_debug_graph.jsonl");
-    snap_dry_run_graph(
+    assert_dry_run_graph(
         &dir,
         ["test", "--dry-run", "--debug", "--sort-input"],
-        &graph,
-    );
-    compare_graphs(
-        &graph,
         expect_file!["moon_test_hello_exec_graph.jsonl.snap"],
     );
 }
@@ -66,10 +61,9 @@ fn test_moon_test_hello_exec_fntest() {
         "#]],
     );
 
-    let graph = dir.join("test_graph.jsonl");
-    snap_dry_run_graph(&dir, ["test", "-v", "--dry-run", "--sort-input"], &graph);
-    compare_graphs(
-        &graph,
+    assert_dry_run_graph(
+        &dir,
+        ["test", "-v", "--dry-run", "--sort-input"],
         expect_file!["moon_test_hello_exec_fntest_graph.jsonl.snap"],
     );
 

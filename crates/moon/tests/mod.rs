@@ -146,6 +146,17 @@ pub fn snap_dry_run_graph(
 }
 
 #[track_caller]
+pub(crate) fn assert_dry_run_graph(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    expected: impl build_graph::IExpect,
+) {
+    let graph = tempfile::NamedTempFile::new().expect("dry-run graph temp file should create");
+    snap_dry_run_graph(dir, args, &graph.path());
+    build_graph::compare_graphs(graph.path(), expected);
+}
+
+#[track_caller]
 pub fn get_stderr(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
