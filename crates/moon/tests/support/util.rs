@@ -177,7 +177,8 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::replace_dir;
+    use super::{assert_command_matches, replace_dir};
+    use expect_test::expect;
 
     #[test]
     fn replace_dir_replaces_forward_slash_root_paths() {
@@ -191,6 +192,28 @@ mod tests {
         assert_eq!(
             replace_dir(&output, dir.path()),
             "moonc check $ROOT/b/hello.mbt -pkg-sources username/b:$ROOT/b -workspace-path $ROOT/b"
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn assert_command_matches_rejects_added_lines() {
+        assert_command_matches(
+            "moonc check\nmoonc build",
+            expect![[r#"
+                moonc check
+            "#]],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "failed to parse actual command line 1")]
+    fn assert_command_matches_rejects_invalid_shell_syntax() {
+        assert_command_matches(
+            "moonc \"unterminated",
+            expect![[r#"
+                moonc
+            "#]],
         );
     }
 }
