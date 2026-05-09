@@ -65,76 +65,36 @@ pub fn moon_process_cmd(dir: &impl AsRef<Path>) -> std::process::Command {
     cmd
 }
 
-#[track_caller]
-fn get_stdout_without_replace(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-    envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
-) -> String {
-    let out = moon_cmd(dir)
-        .envs(envs)
-        .args(args)
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .to_owned();
+enum ExpectedStatus {
+    Success,
+    Failure,
+}
 
-    std::str::from_utf8(&out).unwrap().to_string()
+enum OutputStream {
+    Stdout,
+    Stderr,
 }
 
 #[track_caller]
-fn get_stderr_without_replace(
+fn get_output_without_replace(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
+    status: ExpectedStatus,
+    stream: OutputStream,
 ) -> String {
-    let out = moon_cmd(dir)
-        .envs(envs)
-        .args(args)
-        .assert()
-        .success()
-        .get_output()
-        .stderr
-        .to_owned();
+    let assert = moon_cmd(dir).envs(envs).args(args).assert();
+    let assert = match status {
+        ExpectedStatus::Success => assert.success(),
+        ExpectedStatus::Failure => assert.failure(),
+    };
+    let output = assert.get_output();
+    let out = match stream {
+        OutputStream::Stdout => &output.stdout,
+        OutputStream::Stderr => &output.stderr,
+    };
 
-    std::str::from_utf8(&out).unwrap().to_string()
-}
-
-#[track_caller]
-fn get_err_stdout_without_replace(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-    envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
-) -> String {
-    let out = moon_cmd(dir)
-        .envs(envs)
-        .args(args)
-        .assert()
-        .failure()
-        .get_output()
-        .stdout
-        .to_owned();
-
-    std::str::from_utf8(&out).unwrap().to_string()
-}
-
-#[track_caller]
-fn get_err_stderr_without_replace(
-    dir: &impl AsRef<std::path::Path>,
-    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
-    envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
-) -> String {
-    let out = moon_cmd(dir)
-        .envs(envs)
-        .args(args)
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .to_owned();
-
-    std::str::from_utf8(&out).unwrap().to_string()
+    std::str::from_utf8(out).unwrap().to_string()
 }
 
 #[track_caller]
@@ -142,7 +102,13 @@ pub fn get_stdout(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
-    let s = get_stdout_without_replace(dir, args, [] as [(&str, &str); 0]);
+    let s = get_output_without_replace(
+        dir,
+        args,
+        [] as [(&str, &str); 0],
+        ExpectedStatus::Success,
+        OutputStream::Stdout,
+    );
     replace_dir(&s, dir)
 }
 
@@ -152,7 +118,13 @@ pub fn get_stdout_with_envs(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let s = get_stdout_without_replace(dir, args, envs);
+    let s = get_output_without_replace(
+        dir,
+        args,
+        envs,
+        ExpectedStatus::Success,
+        OutputStream::Stdout,
+    );
     replace_dir(&s, dir)
 }
 
@@ -174,11 +146,44 @@ pub fn snap_dry_run_graph(
 }
 
 #[track_caller]
+pub(crate) fn assert_dry_run_graph(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    expected: impl build_graph::IExpect,
+) {
+    let graph = tempfile::NamedTempFile::new().expect("dry-run graph temp file should create");
+    snap_dry_run_graph(dir, args, &graph.path());
+    build_graph::compare_graphs(graph.path(), expected);
+}
+
+#[track_caller]
 pub fn get_stderr(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
-    let s = get_stderr_without_replace(dir, args, [] as [(&str, &str); 0]);
+    let s = get_output_without_replace(
+        dir,
+        args,
+        [] as [(&str, &str); 0],
+        ExpectedStatus::Success,
+        OutputStream::Stderr,
+    );
+    replace_dir(&s, dir)
+}
+
+#[track_caller]
+pub fn get_stderr_with_envs(
+    dir: &impl AsRef<std::path::Path>,
+    args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
+    envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
+) -> String {
+    let s = get_output_without_replace(
+        dir,
+        args,
+        envs,
+        ExpectedStatus::Success,
+        OutputStream::Stderr,
+    );
     replace_dir(&s, dir)
 }
 
@@ -195,7 +200,13 @@ pub fn get_err_stdout(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
-    let s = get_err_stdout_without_replace(dir, args, [] as [(&str, &str); 0]);
+    let s = get_output_without_replace(
+        dir,
+        args,
+        [] as [(&str, &str); 0],
+        ExpectedStatus::Failure,
+        OutputStream::Stdout,
+    );
     replace_dir(&s, dir)
 }
 
@@ -204,7 +215,13 @@ pub fn get_err_stderr(
     dir: &impl AsRef<std::path::Path>,
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
 ) -> String {
-    let s = get_err_stderr_without_replace(dir, args, [] as [(&str, &str); 0]);
+    let s = get_output_without_replace(
+        dir,
+        args,
+        [] as [(&str, &str); 0],
+        ExpectedStatus::Failure,
+        OutputStream::Stderr,
+    );
     replace_dir(&s, dir)
 }
 
@@ -214,6 +231,12 @@ pub fn get_err_stderr_with_envs(
     args: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>,
     envs: impl IntoIterator<Item = (impl AsRef<std::ffi::OsStr>, impl AsRef<std::ffi::OsStr>)>,
 ) -> String {
-    let s = get_err_stderr_without_replace(dir, args, envs);
+    let s = get_output_without_replace(
+        dir,
+        args,
+        envs,
+        ExpectedStatus::Failure,
+        OutputStream::Stderr,
+    );
     replace_dir(&s, dir)
 }
