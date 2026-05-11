@@ -44,6 +44,21 @@ use crate::watch::watching;
 
 use super::{BuildFlags, UniversalFlags};
 
+#[derive(Debug, Clone)]
+struct ResolvedBuildSelection {
+    packages: Vec<PackageId>,
+}
+
+impl ResolvedBuildSelection {
+    fn into_user_intent(self) -> CalcUserIntentOutput {
+        self.packages
+            .into_iter()
+            .map(UserIntent::Build)
+            .collect::<Vec<_>>()
+            .into()
+    }
+}
+
 /// Build the current package
 #[derive(Debug, clap::Parser, Clone)]
 pub(crate) struct BuildSubcommand {
@@ -278,6 +293,43 @@ fn plan_build_rr_from_resolved_with_scope(
     )
 }
 
+fn plan_build_rr_from_selection(
+    cli: &UniversalFlags,
+    cmd: &BuildSubcommand,
+    target_dir: &Path,
+    target_backend: TargetBackend,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    selection: ResolvedBuildSelection,
+) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+    let preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        Some(target_backend),
+        target_dir,
+        RunMode::Build,
+    );
+
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    debug_assert_eq!(planning_context.target_backend(), target_backend);
+    rr_build::plan_prepared_build_from_intent(
+        preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        planning_context,
+        selection.into_user_intent(),
+        resolve_output,
+    )
+}
+
 pub(crate) fn plan_build_rr_from_resolved_all(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -287,16 +339,26 @@ pub(crate) fn plan_build_rr_from_resolved_all(
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
     if let Some(target_backend) = selected_target_backend {
-        if has_explicit_build_selector(cmd)
-            && resolve_selected_build_packages(
+        if has_explicit_build_selector(cmd) {
+            let packages = resolve_selected_build_packages(
                 &resolve_output,
                 cmd,
                 Some(target_backend),
                 UserDiagnostics::from_flags(cli),
-            )?
-            .is_empty()
-        {
-            return Ok(Vec::new());
+            )?;
+            if packages.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            return plan_build_rr_from_selection(
+                cli,
+                cmd,
+                target_dir,
+                target_backend,
+                resolve_output,
+                ResolvedBuildSelection { packages },
+            )
+            .map(|plan| vec![plan]);
         }
 
         return plan_build_rr_from_resolved(
@@ -320,14 +382,18 @@ pub(crate) fn plan_build_rr_from_resolved_all(
         return selections
             .into_iter()
             .map(|selection| {
-                let (scoped_cmd, target_backend) =
-                    narrow_build_request_to_selection(cmd, &resolve_output, &selection);
-                plan_build_rr_from_resolved(
+                // Raw user selector paths/package names have already been
+                // resolved into PackageIds. RR will read build-model paths
+                // from ResolveOutput instead of reinterpreting those selectors.
+                plan_build_rr_from_selection(
                     cli,
-                    &scoped_cmd,
+                    cmd,
                     target_dir,
-                    Some(target_backend),
+                    selection.target_backend,
                     resolve_output.clone(),
+                    ResolvedBuildSelection {
+                        packages: selection.packages,
+                    },
                 )
             })
             .collect();
@@ -355,21 +421,6 @@ pub(crate) fn plan_build_rr_from_resolved_all(
 
 fn has_explicit_build_selector(cmd: &BuildSubcommand) -> bool {
     !cmd.path.is_empty() || cmd.package.is_some()
-}
-
-fn narrow_build_request_to_selection(
-    cmd: &BuildSubcommand,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    selection: &TargetPackageGroup,
-) -> (BuildSubcommand, TargetBackend) {
-    let mut scoped_cmd = cmd.clone();
-    scoped_cmd.package = None;
-    scoped_cmd.path = selection
-        .packages
-        .iter()
-        .map(|pkg| resolve_output.pkg_dirs.get_package(*pkg).root_path.clone())
-        .collect();
-    (scoped_cmd, selection.target_backend)
 }
 
 fn resolve_build_target_selections(

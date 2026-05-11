@@ -55,6 +55,36 @@ use crate::watch::{WatchOutput, watching};
 
 use super::BuildFlags;
 
+#[derive(Debug, Clone)]
+struct ResolvedCheckSelection {
+    packages: Vec<PackageId>,
+    no_mi: bool,
+    patch_file: Option<PathBuf>,
+}
+
+impl ResolvedCheckSelection {
+    fn from_command(packages: Vec<PackageId>, cmd: &CheckSubcommand) -> Self {
+        Self {
+            packages,
+            no_mi: cmd.no_mi,
+            patch_file: cmd.patch_file.clone(),
+        }
+    }
+
+    fn into_user_intent(self) -> anyhow::Result<CalcUserIntentOutput> {
+        let directive = build_directive_for_selected_packages(
+            &self.packages,
+            self.no_mi,
+            self.patch_file.as_deref(),
+        )?;
+        Ok((
+            self.packages.into_iter().map(UserIntent::Check).collect(),
+            directive,
+        )
+            .into())
+    }
+}
+
 /// Check the current package, but don't build object files
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("package_selector").multiple(false))]
@@ -540,15 +570,16 @@ pub(crate) fn plan_check_rr_from_resolved_all(
     selections
         .into_iter()
         .map(|selection| {
-            let (scoped_cmd, target_backend) =
-                narrow_check_request_to_selection(cmd, &resolve_output, &selection);
-            plan_check_rr_from_resolved(
+            // The command adapter has resolved raw CLI selectors into
+            // PackageIds. RR planning should use those identities and the
+            // build-model paths already stored in ResolveOutput.
+            plan_check_rr_from_selection(
                 cli,
-                &scoped_cmd,
-                source_dir,
+                cmd,
                 target_dir,
-                Some(target_backend),
+                selection.target_backend,
                 resolve_output.clone(),
+                ResolvedCheckSelection::from_command(selection.packages, cmd),
             )
         })
         .collect()
@@ -625,15 +656,41 @@ pub(crate) fn plan_check_rr_from_resolved(
     )
 }
 
-fn narrow_check_request_to_selection(
+fn plan_check_rr_from_selection(
+    cli: &UniversalFlags,
     cmd: &CheckSubcommand,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    selection: &TargetPackageGroup,
-) -> (CheckSubcommand, TargetBackend) {
-    let mut scoped_cmd = cmd.clone();
-    scoped_cmd.package_path = None;
-    scoped_cmd.path = selection_package_roots(resolve_output, &selection.packages);
-    (scoped_cmd, selection.target_backend)
+    target_dir: &Path,
+    target_backend: TargetBackend,
+    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    selection: ResolvedCheckSelection,
+) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+    let preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        Some(target_backend),
+        target_dir,
+        RunMode::Check,
+    );
+
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    debug_assert_eq!(planning_context.target_backend(), target_backend);
+    rr_build::plan_prepared_build_from_intent(
+        preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        planning_context,
+        selection.into_user_intent()?,
+        resolve_output,
+    )
 }
 
 pub(crate) fn resolve_check_target_selections(
@@ -756,16 +813,6 @@ fn filter_packages_for_backend(
     }
 
     Ok(supported)
-}
-
-fn selection_package_roots(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    packages: &[PackageId],
-) -> Vec<PathBuf> {
-    packages
-        .iter()
-        .map(|pkg| resolve_output.pkg_dirs.get_package(*pkg).root_path.clone())
-        .collect()
 }
 
 fn calc_user_intent_from_package_path(
