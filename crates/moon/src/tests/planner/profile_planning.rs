@@ -19,43 +19,21 @@
 use expect_test::expect_file;
 
 use super::fixture::{
-    PlanningFixture, parse_bench_command, parse_build_command, parse_check_command,
+    PlannedGraph, PlanningFixture, parse_bench_command, parse_build_command, parse_check_command,
     parse_run_command, parse_test_command,
 };
 
 // Phase 3: these tests start from an already chosen command configuration and
 // assert how the planner lowers that intent into the dry-run graph.
 
-fn line_with<'a>(graph: &'a str, command: &str, filter: &[&str]) -> &'a str {
-    graph
-        .lines()
-        .find(|line| line.contains(command) && filter.iter().all(|needle| line.contains(needle)))
-        .unwrap_or_else(|| {
-            panic!(
-                "expected graph line containing `{command}` and {:?}\n{graph}",
-                filter
-            )
-        })
-}
-
-fn command_tokens(graph: &str, command: &str, filter: &[&str]) -> Vec<String> {
-    let line = line_with(graph, command, filter);
-    let line_json: serde_json::Value =
-        serde_json::from_str(line).expect("planner dump line should be valid JSON");
-    let command = line_json["command"]
-        .as_str()
-        .expect("planner dump line should contain a command");
-    shlex::split(command).expect("planner command should tokenize")
-}
-
 fn assert_command_uses_profile(
-    graph: &str,
-    command: &str,
+    graph: &PlannedGraph,
+    program: &str,
     filter: &[&str],
     profile: &str,
     expect_debug_flags: bool,
 ) {
-    let tokens = command_tokens(graph, command, filter);
+    let tokens = graph.command_tokens_matching(program, filter);
     let expected_prefix = format!("./_build/wasm-gc/{profile}/");
     let other_prefix = if profile == "debug" {
         "./_build/wasm-gc/release/"
@@ -68,7 +46,7 @@ fn assert_command_uses_profile(
             .iter()
             .filter(|token| token.contains("./_build/wasm-gc/"))
             .all(|token| token.contains(&expected_prefix)),
-        "expected `{command}` with {:?} to use `{expected_prefix}`, got:\n{:?}",
+        "expected `{program}` with {:?} to use `{expected_prefix}`, got:\n{:?}",
         filter,
         tokens,
     );
@@ -77,7 +55,7 @@ fn assert_command_uses_profile(
             .iter()
             .filter(|token| token.contains("./_build/wasm-gc/"))
             .all(|token| !token.contains(other_prefix)),
-        "expected `{command}` with {:?} to avoid `{other_prefix}`, got:\n{:?}",
+        "expected `{program}` with {:?} to avoid `{other_prefix}`, got:\n{:?}",
         filter,
         tokens,
     );
@@ -86,7 +64,7 @@ fn assert_command_uses_profile(
         assert_eq!(
             tokens.iter().any(|token| token == flag),
             expect_debug_flags,
-            "expected `{command}` with {:?} to {} `{flag}`, got:\n{:?}",
+            "expected `{program}` with {:?} to {} `{flag}`, got:\n{:?}",
             filter,
             if expect_debug_flags {
                 "include"
@@ -104,26 +82,41 @@ fn bench_graph_uses_selected_codegen_profile() {
     let (cli, cmd) = parse_bench_command(&["bench", "--sort-input", "--dry-run"]);
 
     let default_graph = fixture
-        .plan_bench_with_cli(&cli, &cmd)
+        .plan_bench_graph_with_cli(&cli, &cmd)
         .expect("default bench graph should plan");
-    assert!(default_graph.contains("moonc"));
-    assert!(!default_graph.contains("-O0"));
+    assert!(
+        !default_graph
+            .command_tokens()
+            .iter()
+            .flatten()
+            .any(|token| token == "-O0")
+    );
 
     let (release_cli, release_cmd) =
         parse_bench_command(&["bench", "--release", "--sort-input", "--dry-run"]);
     let release_graph = fixture
-        .plan_bench_with_cli(&release_cli, &release_cmd)
+        .plan_bench_graph_with_cli(&release_cli, &release_cmd)
         .expect("release bench graph should plan");
-    assert!(release_graph.contains("moonc"));
-    assert!(!release_graph.contains("-O0"));
+    assert!(
+        !release_graph
+            .command_tokens()
+            .iter()
+            .flatten()
+            .any(|token| token == "-O0")
+    );
 
     let (debug_cli, debug_cmd) =
         parse_bench_command(&["bench", "--debug", "--sort-input", "--dry-run"]);
     let debug_graph = fixture
-        .plan_bench_with_cli(&debug_cli, &debug_cmd)
+        .plan_bench_graph_with_cli(&debug_cli, &debug_cmd)
         .expect("debug bench graph should plan");
-    assert!(debug_graph.contains("moonc"));
-    assert!(debug_graph.contains("-O0"));
+    assert!(
+        debug_graph
+            .command_tokens()
+            .iter()
+            .flatten()
+            .any(|token| token == "-O0")
+    );
 }
 
 #[test]
@@ -166,11 +159,23 @@ fn check_graph_uses_debug_profile_without_codegen_flags() {
     ] {
         let (cli, cmd) = parse_check_command(args);
         let graph = fixture
-            .plan_check_with_cli(&cli, &cmd)
+            .plan_check_graph_with_cli(&cli, &cmd)
             .unwrap_or_else(|err| panic!("{label} should plan: {err:#}"));
 
-        assert_command_uses_profile(&graph, "moonc check", &["./lib/hello.mbt"], "debug", false);
-        assert_command_uses_profile(&graph, "moonc check", &["./main/main.mbt"], "debug", false);
+        assert_command_uses_profile(
+            &graph,
+            "moonc",
+            &["check", "./lib/hello.mbt"],
+            "debug",
+            false,
+        );
+        assert_command_uses_profile(
+            &graph,
+            "moonc",
+            &["check", "./main/main.mbt"],
+            "debug",
+            false,
+        );
     }
 }
 
@@ -238,20 +243,20 @@ fn build_graph_uses_selected_profile() {
     ] {
         let (cli, cmd) = parse_build_command(args);
         let graph = fixture
-            .plan_build_with_cli(&cli, &cmd)
+            .plan_build_graph_with_cli(&cli, &cmd)
             .unwrap_or_else(|err| panic!("{label} should plan: {err:#}"));
 
         assert_command_uses_profile(
             &graph,
-            "moonc build-package",
-            &["./lib/hello.mbt"],
+            "moonc",
+            &["build-package", "./lib/hello.mbt"],
             profile,
             profile == "debug",
         );
         assert_command_uses_profile(
             &graph,
-            "moonc link-core",
-            &["-main", "hello/main"],
+            "moonc",
+            &["link-core", "-main", "hello/main"],
             profile,
             profile == "debug",
         );
@@ -341,20 +346,20 @@ fn run_graph_uses_selected_profile() {
     ] {
         let (cli, cmd) = parse_run_command(args);
         let graph = fixture
-            .plan_run_with_cli(&cli, &cmd)
+            .plan_run_graph_with_cli(&cli, &cmd)
             .unwrap_or_else(|err| panic!("{label} should plan: {err:#}"));
 
         assert_command_uses_profile(
             &graph,
-            "moonc build-package",
-            &["./lib/hello.mbt"],
+            "moonc",
+            &["build-package", "./lib/hello.mbt"],
             profile,
             profile == "debug",
         );
         assert_command_uses_profile(
             &graph,
-            "moonc link-core",
-            &["-main", "hello/main"],
+            "moonc",
+            &["link-core", "-main", "hello/main"],
             profile,
             profile == "debug",
         );

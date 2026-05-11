@@ -17,8 +17,11 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use clap::Parser;
-use moonbuild_debug::graph::debug_dump_build_graph;
-use std::path::PathBuf;
+use moonbuild_debug::graph::{BuildGraphDump, debug_dump_build_graph};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use moonbuild_rupes_recta::{ResolveOutput, model::BuildPlanNode};
 use moonutil::{
@@ -40,6 +43,7 @@ pub(super) struct PlanningFixture {
 }
 
 pub(super) struct PlannedGraph {
+    source_dir: PathBuf,
     build_meta: crate::rr_build::BuildMeta,
     build_graph: crate::rr_build::BuildInput,
 }
@@ -59,13 +63,81 @@ pub(super) struct PlannedPackageIntent {
 
 impl PlannedGraph {
     fn new(
+        source_dir: &Path,
         build_meta: crate::rr_build::BuildMeta,
         build_graph: crate::rr_build::BuildInput,
     ) -> Self {
         Self {
+            source_dir: source_dir.to_path_buf(),
             build_meta,
             build_graph,
         }
+    }
+
+    fn dump(&self) -> BuildGraphDump {
+        let graph = self.build_graph.graph_for_test();
+        let default_files = self
+            .build_meta
+            .artifacts
+            .values()
+            .flat_map(|art| {
+                art.artifacts
+                    .iter()
+                    .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
+            })
+            .collect::<Vec<_>>();
+        debug_dump_build_graph(graph, &default_files, &self.source_dir)
+    }
+
+    pub(super) fn inputs(&self) -> BTreeSet<String> {
+        self.dump()
+            .nodes
+            .into_iter()
+            .flat_map(|node| node.inputs)
+            .collect()
+    }
+
+    pub(super) fn outputs(&self) -> BTreeSet<String> {
+        self.dump()
+            .nodes
+            .into_iter()
+            .flat_map(|node| node.outputs)
+            .collect()
+    }
+
+    pub(super) fn command_tokens(&self) -> Vec<Vec<String>> {
+        self.dump()
+            .nodes
+            .into_iter()
+            .filter_map(|node| node.command)
+            .map(|command| shlex::split(&command).expect("planner command should tokenize"))
+            .collect()
+    }
+
+    pub(super) fn command_tokens_matching(
+        &self,
+        program: &str,
+        required_tokens: &[&str],
+    ) -> Vec<String> {
+        let commands = self.command_tokens();
+        commands
+            .iter()
+            .find(|tokens| {
+                let Some(command) = tokens.first() else {
+                    return false;
+                };
+                command == program
+                    && required_tokens
+                        .iter()
+                        .all(|required| tokens.iter().any(|token| token == required))
+            })
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected command `{program}` with {:?}, got:\n{commands:#?}",
+                    required_tokens
+                )
+            })
     }
 }
 
@@ -97,6 +169,14 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &TestSubcommand,
     ) -> anyhow::Result<String> {
+        self.dump_plan(self.plan_test_graph_with_cli(cli, cmd)?)
+    }
+
+    pub(super) fn plan_test_graph_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &TestSubcommand,
+    ) -> anyhow::Result<PlannedGraph> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
         let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
             cli,
@@ -105,7 +185,7 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        self.dump_plan(PlannedGraph::new(build_meta, build_graph))
+        Ok(PlannedGraph::new(&self.source_dir, build_meta, build_graph))
     }
 
     pub(super) fn plan_test_all_with_cli(
@@ -133,7 +213,7 @@ impl PlanningFixture {
         .map(|plans| {
             plans
                 .into_iter()
-                .map(|(meta, graph, _filter)| PlannedGraph::new(meta, graph))
+                .map(|(meta, graph, _filter)| PlannedGraph::new(&self.source_dir, meta, graph))
                 .collect()
         })
     }
@@ -143,6 +223,14 @@ impl PlanningFixture {
         cli: &UniversalFlags,
         cmd: &BenchSubcommand,
     ) -> anyhow::Result<String> {
+        self.dump_plan(self.plan_bench_graph_with_cli(cli, cmd)?)
+    }
+
+    pub(super) fn plan_bench_graph_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &BenchSubcommand,
+    ) -> anyhow::Result<PlannedGraph> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
         let (build_meta, build_graph, _) = crate::cli::test::plan_test_or_bench_rr_from_resolved(
             cli,
@@ -151,7 +239,7 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        self.dump_plan(PlannedGraph::new(build_meta, build_graph))
+        Ok(PlannedGraph::new(&self.source_dir, build_meta, build_graph))
     }
 
     pub(super) fn plan_bench_all_with_cli(
@@ -170,7 +258,7 @@ impl PlanningFixture {
         .map(|plans| {
             plans
                 .into_iter()
-                .map(|(meta, graph, _filter)| PlannedGraph::new(meta, graph))
+                .map(|(meta, graph, _filter)| PlannedGraph::new(&self.source_dir, meta, graph))
                 .collect()
         })
     }
@@ -195,7 +283,7 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        Ok(PlannedGraph::new(build_meta, build_graph))
+        Ok(PlannedGraph::new(&self.source_dir, build_meta, build_graph))
     }
 
     pub(super) fn plan_build_all_with_cli(
@@ -223,7 +311,7 @@ impl PlanningFixture {
         .map(|plans| {
             plans
                 .into_iter()
-                .map(|(meta, graph)| PlannedGraph::new(meta, graph))
+                .map(|(meta, graph)| PlannedGraph::new(&self.source_dir, meta, graph))
                 .collect()
         })
     }
@@ -241,7 +329,7 @@ impl PlanningFixture {
             selected_target_backend,
             self.resolve_output.clone(),
         )
-        .map(|(meta, graph)| vec![PlannedGraph::new(meta, graph)])
+        .map(|(meta, graph)| vec![PlannedGraph::new(&self.source_dir, meta, graph)])
     }
 
     pub(super) fn plan_check_with_cli(
@@ -257,7 +345,23 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        self.dump_plan(PlannedGraph::new(build_meta, build_graph))
+        self.dump_plan(PlannedGraph::new(&self.source_dir, build_meta, build_graph))
+    }
+
+    pub(super) fn plan_check_graph_with_cli(
+        &self,
+        cli: &UniversalFlags,
+        cmd: &CheckSubcommand,
+    ) -> anyhow::Result<PlannedGraph> {
+        let (build_meta, build_graph) = crate::cli::check::plan_check_rr_from_resolved(
+            cli,
+            cmd,
+            &self.source_dir,
+            &self.target_dir,
+            cmd.build_flags.resolve_single_target_backend()?,
+            self.resolve_output.clone(),
+        )?;
+        Ok(PlannedGraph::new(&self.source_dir, build_meta, build_graph))
     }
 
     pub(super) fn plan_check_all_with_cli(
@@ -285,17 +389,9 @@ impl PlanningFixture {
         .map(|plans| {
             plans
                 .into_iter()
-                .map(|(meta, graph)| PlannedGraph::new(meta, graph))
+                .map(|(meta, graph)| PlannedGraph::new(&self.source_dir, meta, graph))
                 .collect()
         })
-    }
-
-    pub(super) fn plan_run_with_cli(
-        &self,
-        cli: &UniversalFlags,
-        cmd: &RunSubcommand,
-    ) -> anyhow::Result<String> {
-        self.dump_plan(self.plan_run_graph_with_cli(cli, cmd)?)
     }
 
     pub(super) fn plan_run_graph_with_cli(
@@ -320,7 +416,7 @@ impl PlanningFixture {
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
-        Ok(PlannedGraph::new(build_meta, build_graph))
+        Ok(PlannedGraph::new(&self.source_dir, build_meta, build_graph))
     }
 
     pub(super) fn case_dir(&self) -> &std::path::Path {
@@ -328,18 +424,7 @@ impl PlanningFixture {
     }
 
     fn dump_plan(&self, plan: PlannedGraph) -> anyhow::Result<String> {
-        let graph = plan.build_graph.graph_for_test();
-        let default_files = plan
-            .build_meta
-            .artifacts
-            .values()
-            .flat_map(|art| {
-                art.artifacts
-                    .iter()
-                    .flat_map(|file| graph.files.lookup(&file.to_string_lossy()))
-            })
-            .collect::<Vec<_>>();
-        let dump = debug_dump_build_graph(graph, &default_files, &self.source_dir);
+        let dump = plan.dump();
         let mut out = Vec::new();
         dump.dump_to(&mut out).expect("graph dump should serialize");
         Ok(String::from_utf8(out).expect("graph dump should be valid UTF-8"))
@@ -376,27 +461,6 @@ pub(super) fn planned_root_package_intent(plan: PlannedGraph) -> PlannedPackageI
         profile: plan.build_meta.opt_level,
         packages: root_package_names(&plan.build_meta),
     }
-}
-
-pub(super) fn planned_graph_inputs(graph: &str) -> std::collections::BTreeSet<String> {
-    graph
-        .lines()
-        .flat_map(|line| {
-            let line_json: serde_json::Value =
-                serde_json::from_str(line).expect("planner dump line should be valid JSON");
-            line_json["inputs"]
-                .as_array()
-                .expect("planner dump line should contain inputs")
-                .iter()
-                .map(|input| {
-                    input
-                        .as_str()
-                        .expect("planner input path should be a string")
-                        .to_string()
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect()
 }
 
 fn root_package_names(meta: &crate::rr_build::BuildMeta) -> Vec<String> {

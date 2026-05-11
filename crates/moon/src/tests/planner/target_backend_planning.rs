@@ -19,31 +19,43 @@
 use super::fixture::{
     PlannedGraph, PlannedPackageRun, PlanningFixture, parse_bench_command, parse_build_command,
     parse_bundle_command, parse_check_command, parse_run_command, parse_test_command,
-    planned_check_package_runs, planned_graph_inputs, planned_root_package_runs,
-    planned_target_backends,
+    planned_check_package_runs, planned_root_package_runs, planned_target_backends,
 };
 use moonutil::common::{TargetBackend, lower_surface_targets};
 
 // Phase 3: these tests already know the selected backend and only need to
 // verify that planning keeps the right packages and commands in the graph.
 
-fn assert_graph_text_contains_and_omits(graph: &str, present: &[&str], absent: &[&str]) {
-    for needle in present {
+fn assert_plan_outputs(plan: &PlannedGraph, present: &[&str], absent: &[&str]) {
+    let outputs = plan.outputs();
+    for output in present {
         assert!(
-            graph.contains(needle),
-            "expected graph to contain `{needle}`, got:\n{graph}"
+            outputs.contains(*output),
+            "expected graph outputs to contain `{output}`, got:\n{outputs:#?}"
         );
     }
-    for needle in absent {
+    for output in absent {
         assert!(
-            !graph.contains(needle),
-            "expected graph to not contain `{needle}`, got:\n{graph}"
+            !outputs.contains(*output),
+            "expected graph outputs to omit `{output}`, got:\n{outputs:#?}"
         );
     }
 }
 
-fn assert_graph_inputs(graph: &str, present: &[&str], absent: &[&str]) {
-    let inputs = planned_graph_inputs(graph);
+fn assert_plan_has_command_token(plan: &PlannedGraph, token: &str, expected: bool) {
+    let commands = plan.command_tokens();
+    assert_eq!(
+        commands
+            .iter()
+            .any(|command| command.iter().any(|candidate| candidate == token)),
+        expected,
+        "expected graph commands to {} `{token}`, got:\n{commands:#?}",
+        if expected { "contain" } else { "omit" },
+    );
+}
+
+fn assert_plan_inputs(plan: &PlannedGraph, present: &[&str], absent: &[&str]) {
+    let inputs = plan.inputs();
     for input in present {
         assert!(
             inputs.contains(*input),
@@ -92,16 +104,15 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
 
     let (cli, cmd) = parse_build_command(&["build", "--dry-run", "--nostd", "--sort-input"]);
     let default_graph = fixture
-        .plan_build_with_cli(&cli, &cmd)
+        .plan_build_graph_with_cli(&cli, &cmd)
         .expect("default build graph should plan");
-    assert_graph_text_contains_and_omits(
+    assert_plan_outputs(
         &default_graph,
-        &[
-            "./_build/wasm-gc/debug/build/main/main.wasm",
-            "-target wasm-gc",
-        ],
-        &["./_build/js/debug/build/main/main.js", "-target js"],
+        &["./_build/wasm-gc/debug/build/main/main.wasm"],
+        &["./_build/js/debug/build/main/main.js"],
     );
+    assert_plan_has_command_token(&default_graph, "wasm-gc", true);
+    assert_plan_has_command_token(&default_graph, "js", false);
 
     let (cli, cmd) = parse_build_command(&[
         "build",
@@ -112,16 +123,15 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
         "--sort-input",
     ]);
     let js_graph = fixture
-        .plan_build_with_cli(&cli, &cmd)
+        .plan_build_graph_with_cli(&cli, &cmd)
         .expect("js build graph should plan");
-    assert_graph_text_contains_and_omits(
+    assert_plan_outputs(
         &js_graph,
-        &["./_build/js/debug/build/main/main.js", "-target js"],
-        &[
-            "./_build/wasm-gc/debug/build/main/main.wasm",
-            "-target wasm-gc",
-        ],
+        &["./_build/js/debug/build/main/main.js"],
+        &["./_build/wasm-gc/debug/build/main/main.wasm"],
     );
+    assert_plan_has_command_token(&js_graph, "js", true);
+    assert_plan_has_command_token(&js_graph, "wasm-gc", false);
 }
 
 #[test]
@@ -438,9 +448,9 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
 
     let (cli, cmd) = parse_check_command(&["check", "--target", "js", "--dry-run", "--sort-input"]);
     let check_js = fixture
-        .plan_check_with_cli(&cli, &cmd)
+        .plan_check_graph_with_cli(&cli, &cmd)
         .expect("js check graph should plan");
-    assert_graph_inputs(
+    assert_plan_inputs(
         &check_js,
         &[
             "./shared/shared.mbt",
@@ -456,9 +466,9 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
 
     let (cli, cmd) = parse_build_command(&["build", "--target", "js", "--dry-run", "--sort-input"]);
     let build_js = fixture
-        .plan_build_with_cli(&cli, &cmd)
+        .plan_build_graph_with_cli(&cli, &cmd)
         .expect("js build graph should plan");
-    assert_graph_inputs(
+    assert_plan_inputs(
         &build_js,
         &[
             "./shared/shared.mbt",
@@ -471,9 +481,9 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let (cli, cmd) =
         parse_check_command(&["check", "--target", "native", "--dry-run", "--sort-input"]);
     let check_native = fixture
-        .plan_check_with_cli(&cli, &cmd)
+        .plan_check_graph_with_cli(&cli, &cmd)
         .expect("native check graph should plan");
-    assert_graph_inputs(
+    assert_plan_inputs(
         &check_native,
         &[
             "./shared/shared.mbt",
@@ -490,9 +500,9 @@ fn mixed_backend_build_and_check_planning_are_target_aware() {
     let (cli, cmd) =
         parse_build_command(&["build", "--target", "native", "--dry-run", "--sort-input"]);
     let build_native = fixture
-        .plan_build_with_cli(&cli, &cmd)
+        .plan_build_graph_with_cli(&cli, &cmd)
         .expect("native build graph should plan");
-    assert_graph_inputs(
+    assert_plan_inputs(
         &build_native,
         &[
             "./shared/shared.mbt",
@@ -511,9 +521,9 @@ fn mixed_backend_run_planning_is_target_aware() {
     let (cli, cmd) =
         parse_run_command(&["run", "web", "--target", "js", "--dry-run", "--sort-input"]);
     let run_js = fixture
-        .plan_run_with_cli(&cli, &cmd)
+        .plan_run_graph_with_cli(&cli, &cmd)
         .expect("js run graph should plan");
-    assert_graph_inputs(
+    assert_plan_inputs(
         &run_js,
         &[
             "./shared/shared.mbt",
@@ -532,9 +542,9 @@ fn mixed_backend_run_planning_is_target_aware() {
         "--sort-input",
     ]);
     let run_native = fixture
-        .plan_run_with_cli(&cli, &cmd)
+        .plan_run_graph_with_cli(&cli, &cmd)
         .expect("native run graph should plan");
-    assert_graph_inputs(
+    assert_plan_inputs(
         &run_native,
         &[
             "./shared/shared.mbt",
@@ -552,9 +562,9 @@ fn supported_targets_empty_packages_are_skipped_in_check_planning() {
 
     let (cli, cmd) = parse_check_command(&["check", "--target", "js", "--dry-run", "--sort-input"]);
     let check_js = fixture
-        .plan_check_with_cli(&cli, &cmd)
+        .plan_check_graph_with_cli(&cli, &cmd)
         .expect("js check graph should plan");
-    assert_graph_inputs(
+    assert_plan_inputs(
         &check_js,
         &["./main/main.mbt", "./lib/lib.mbt"],
         &["./never/never.mbt"],
@@ -563,9 +573,9 @@ fn supported_targets_empty_packages_are_skipped_in_check_planning() {
     let (cli, cmd) =
         parse_check_command(&["check", "--target", "native", "--dry-run", "--sort-input"]);
     let check_native = fixture
-        .plan_check_with_cli(&cli, &cmd)
+        .plan_check_graph_with_cli(&cli, &cmd)
         .expect("native check graph should plan");
-    assert_graph_inputs(
+    assert_plan_inputs(
         &check_native,
         &["./main/main.mbt", "./lib/lib.mbt"],
         &["./never/never.mbt"],
@@ -654,9 +664,9 @@ fn module_supported_targets_intersection_filters_check_planning() {
         "--sort-input",
     ]);
     let check_wasm_gc = fixture
-        .plan_check_with_cli(&cli, &cmd)
+        .plan_check_graph_with_cli(&cli, &cmd)
         .expect("wasm-gc check graph should plan");
-    assert_graph_inputs(&check_wasm_gc, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+    assert_plan_inputs(&check_wasm_gc, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 
     let (cli, cmd) = parse_check_command(&[
         "check",
@@ -667,9 +677,9 @@ fn module_supported_targets_intersection_filters_check_planning() {
         "--sort-input",
     ]);
     let check_native = fixture
-        .plan_check_with_cli(&cli, &cmd)
+        .plan_check_graph_with_cli(&cli, &cmd)
         .expect("native check graph should plan");
-    assert_graph_inputs(&check_native, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+    assert_plan_inputs(&check_native, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 
     let (cli, cmd) = parse_check_command(&[
         "check",
@@ -680,7 +690,7 @@ fn module_supported_targets_intersection_filters_check_planning() {
         "--sort-input",
     ]);
     let check_llvm = fixture
-        .plan_check_with_cli(&cli, &cmd)
+        .plan_check_graph_with_cli(&cli, &cmd)
         .expect("llvm check graph should plan");
-    assert_graph_inputs(&check_llvm, &["./lib/lib.mbt"], &["./main/main.mbt"]);
+    assert_plan_inputs(&check_llvm, &["./lib/lib.mbt"], &["./main/main.mbt"]);
 }
