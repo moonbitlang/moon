@@ -139,7 +139,7 @@ fn generate_from_nodes(
             .cmdline
             .as_ref()
             .map(|cmd| replacer.normalize_command(cmd));
-        let inputs = node
+        let mut inputs = node
             .ins
             .ids
             .iter()
@@ -148,6 +148,7 @@ fn generate_from_nodes(
                 replacer.normalize_path(&file.name)
             })
             .collect::<Vec<_>>();
+        inputs.sort();
         let outputs = node
             .outs
             .ids

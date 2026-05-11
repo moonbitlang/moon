@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-04-21.
+// Snapshot generated from `moonc check -warn-help` on 2026-05-11.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -260,11 +260,6 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "unused_rest_mark",
         description: "Useless `..` in pattern",
         id: 46,
-    },
-    WarningEntry {
-        mnemonic: "invalid_mbti",
-        description: "Invalid mbti file",
-        id: 47,
     },
     WarningEntry {
         mnemonic: "missing_definition",
