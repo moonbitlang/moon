@@ -497,6 +497,51 @@ pub(crate) fn plan_build_from_resolved<'a>(
     calc_user_intent: Box<CalcUserIntentFn<'a>>,
     resolve_output: ResolveOutput,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let planning_context = prepare_resolved_build(
+        &preconfig,
+        unstable_features,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+
+    info!("Calculating user intent");
+    let intent = calc_user_intent(&resolve_output, planning_context.target_backend())?;
+    plan_prepared_build_from_intent(
+        preconfig,
+        unstable_features,
+        target_dir,
+        output,
+        planning_context,
+        intent,
+        resolve_output,
+    )
+}
+
+pub(crate) struct ResolvedBuildPlanningContext {
+    target_backend: TargetBackend,
+    is_core: bool,
+}
+
+impl ResolvedBuildPlanningContext {
+    pub(crate) fn target_backend(&self) -> TargetBackend {
+        self.target_backend
+    }
+}
+
+/// Prepare the resolved build context before command intent is calculated.
+///
+/// This step emits resolve-time diagnostics and determines the effective target
+/// backend. Commands that already resolved raw CLI selectors can use the
+/// returned backend to compute `CalcUserIntentOutput` outside the shared RR
+/// planning pipeline.
+pub(crate) fn prepare_resolved_build(
+    preconfig: &CompilePreConfig,
+    unstable_features: &FeatureGate,
+    target_dir: &Path,
+    output: UserDiagnostics,
+    resolve_output: &ResolveOutput,
+) -> anyhow::Result<ResolvedBuildPlanningContext> {
     for message in &resolve_output.user_warnings {
         output.user_message(message);
     }
@@ -527,7 +572,7 @@ pub(crate) fn plan_build_from_resolved<'a>(
     let preferred_target = if preconfig.target_backend.is_some() {
         None
     } else {
-        workspace_preferred_target(&resolve_output, output)
+        workspace_preferred_target(resolve_output, output)
     };
     info!("Preferred backend: {:?}", preferred_target);
 
@@ -542,19 +587,38 @@ pub(crate) fn plan_build_from_resolved<'a>(
             "LLVM backend is experimental and only supported on nightly moonbit toolchain for now",
         );
     }
-    warn_local_legacy_supported_targets(&resolve_output, output);
-
-    info!("Calculating user intent");
-    let intent = calc_user_intent(&resolve_output, target_backend)?;
-    info!("User intent calculated: {:?}", intent.intents);
-    for warning in &intent.warnings {
-        output.user_message(warning);
-    }
+    warn_local_legacy_supported_targets(resolve_output, output);
 
     // std or no-std?
     // Ultimately we want to determine this from config instead of special cases.
     let is_core = main_module.is_some_and(|module| module.name == MOONBITLANG_CORE);
     info!("is_core: {}", is_core);
+
+    Ok(ResolvedBuildPlanningContext {
+        target_backend,
+        is_core,
+    })
+}
+
+/// Plan from an already prepared resolved context and already calculated
+/// command intent.
+///
+/// At this boundary RR consumes package identities/directives and the
+/// build-model paths stored in `ResolveOutput`; it does not reinterpret raw CLI
+/// selector paths through a callback.
+pub(crate) fn plan_prepared_build_from_intent(
+    preconfig: CompilePreConfig,
+    unstable_features: &FeatureGate,
+    target_dir: &Path,
+    output: UserDiagnostics,
+    planning_context: ResolvedBuildPlanningContext,
+    intent: CalcUserIntentOutput,
+    resolve_output: ResolveOutput,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    info!("User intent calculated: {:?}", intent.intents);
+    for warning in &intent.warnings {
+        output.user_message(warning);
+    }
 
     let prebuild_config = if preconfig.action == RunMode::Check {
         info!("Skipping prebuild configuration for check run mode");
@@ -574,15 +638,15 @@ pub(crate) fn plan_build_from_resolved<'a>(
             &mut input_nodes,
             &mut intent_messages,
             &intent.directive,
-            target_backend,
+            planning_context.target_backend,
         );
     }
     for message in &intent_messages {
         output.user_message(message);
     }
     let cx = preconfig.into_compile_config(
-        target_backend,
-        is_core,
+        planning_context.target_backend,
+        planning_context.is_core,
         &resolve_output,
         &input_nodes,
         output,
