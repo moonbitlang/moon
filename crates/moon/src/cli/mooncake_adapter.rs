@@ -29,6 +29,8 @@ use moonutil::{
 };
 use serde::Serialize;
 
+use super::process;
+
 pub(crate) fn execute_cli<T: Serialize>(
     cli: UniversalFlags,
     cmd: T,
@@ -69,16 +71,16 @@ pub(crate) fn execute_cli_with_inherit_stdin<T: Serialize>(
     display_name: &str,
 ) -> anyhow::Result<i32> {
     let current_moon = std::env::current_exe()?;
-    let mut child = Command::new(&*moonutil::BINARIES.mooncake)
+    let mut command = Command::new(&*moonutil::BINARIES.mooncake);
+    command
         .args(args)
         .env("MOONCAKE_ALLOW_DIRECT", "1")
         .env("MOON_OVERRIDE", current_moon)
         .stdout(Stdio::inherit())
         .stdin(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()?;
+        .stderr(Stdio::inherit());
 
-    let status = child.wait()?;
+    let status = process::delegate(&mut command)?;
     if status.success() {
         Ok(0)
     } else {
