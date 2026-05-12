@@ -19,8 +19,9 @@
 use std::{io::Read, path::Path, path::PathBuf};
 
 use anyhow::{Context, bail};
-use moonbuild_rupes_recta::build_plan::InputDirective;
-use moonbuild_rupes_recta::intent::UserIntent;
+use moonbuild_rupes_recta::{
+    ResolveOutput, build_plan::InputDirective, intent::UserIntent, model::PackageId,
+};
 use moonutil::common::{FileLock, RunMode, TargetBackend, TestArtifacts, is_moon_pkg_exist};
 use moonutil::dirs::{PackageDirs, ProjectProbe};
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -34,6 +35,40 @@ use crate::run::default_rt;
 use crate::user_diagnostics::UserDiagnostics;
 
 use super::{BuildFlags, UniversalFlags};
+
+struct ResolvedRunSelection {
+    package: PackageId,
+}
+
+impl ResolvedRunSelection {
+    fn into_user_intent(
+        self,
+        input_path: &str,
+        resolve_output: &ResolveOutput,
+        value_tracing: bool,
+        target_backend: TargetBackend,
+    ) -> Result<CalcUserIntentOutput, anyhow::Error> {
+        if !resolve_output
+            .pkg_dirs
+            .get_package(self.package)
+            .raw
+            .is_main
+        {
+            bail!("`{}` is not a main package", input_path);
+        }
+        ensure_package_supports_backend(resolve_output, self.package, target_backend)?;
+
+        let directive = if value_tracing {
+            InputDirective {
+                value_tracing: Some(self.package),
+                ..Default::default()
+            }
+        } else {
+            InputDirective::default()
+        };
+        Ok((vec![UserIntent::Run(self.package)], directive).into())
+    }
+}
 
 /// Run a main package
 #[derive(Debug, clap::Parser, Clone)]
@@ -379,7 +414,6 @@ fn build_package_executable(
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
         cmd,
-        &source_dir,
         &target_dir,
         selected_target_backend,
         resolve_output,
@@ -402,10 +436,9 @@ fn build_package_executable(
 pub(crate) fn plan_run_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
-    source_dir: &Path,
     target_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    resolve_output: ResolveOutput,
     try_tcc_run: bool,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let mut preconfig = preconfig_compile(
@@ -423,20 +456,29 @@ pub(crate) fn plan_run_rr_from_resolved(
         .clone()
         .expect("package run planning requires a positional input");
     let value_tracing = cmd.build_flags.enable_value_tracing;
-    rr_build::plan_build_from_resolved(
+
+    let selection = resolve_run_selection(&input_path, &resolve_output)?;
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    let intent = selection.into_user_intent(
+        &input_path,
+        &resolve_output,
+        value_tracing,
+        planning_context.target_backend(),
+    )?;
+    rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
-        UserDiagnostics::from_flags(cli),
-        Box::new(|resolved, target_backend| {
-            calc_user_intent(
-                &input_path,
-                source_dir,
-                resolved,
-                value_tracing,
-                target_backend,
-            )
-        }),
+        output,
+        planning_context,
+        intent,
         resolve_output,
     )
 }
@@ -462,35 +504,13 @@ fn get_run_executable(build_meta: &rr_build::BuildMeta) -> &Path {
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn calc_user_intent(
+fn resolve_run_selection(
     input_path: &str,
-    _source_dir: &Path,
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    value_tracing: bool,
-    target_backend: TargetBackend,
-) -> Result<CalcUserIntentOutput, anyhow::Error> {
+    resolve_output: &ResolveOutput,
+) -> Result<ResolvedRunSelection, anyhow::Error> {
     let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
-    let pkg = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
-
-    // check whether it's a main package
-
-    if !resolve_output.pkg_dirs.get_package(pkg).raw.is_main {
-        bail!("`{}` is not a main package", input_path);
-    }
-    ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
-
-    if value_tracing {
-        Ok((
-            vec![UserIntent::Run(pkg)],
-            InputDirective {
-                value_tracing: Some(pkg),
-                ..Default::default()
-            },
-        )
-            .into())
-    } else {
-        Ok(vec![UserIntent::Run(pkg)].into())
-    }
+    let package = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
+    Ok(ResolvedRunSelection { package })
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -569,31 +589,30 @@ fn build_single_file_executable(
     );
     preconfig.try_tcc_run = options.try_tcc_run;
 
-    // Plan build with a single UserIntent::Run for the synthesized package
-    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        &target_dir,
+        output,
+        &resolved,
+    )?;
+    let package = rr_build::local_packages(&resolved)
+        .next()
+        .expect("Single-file project must synthesize exactly one package");
+    let directive = if value_tracing {
+        rr_build::build_patch_directive_for_package(package, false, Some(package), None, false)?
+    } else {
+        Default::default()
+    };
+    let intent = (vec![UserIntent::Run(package)], directive).into();
+    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         &target_dir,
-        UserDiagnostics::from_flags(cli),
-        Box::new(move |r, _tb| {
-            let m_packages = r
-                .pkg_dirs
-                .packages_for_module(r.local_modules()[0])
-                .expect("Local module must exist");
-            let pkg = *m_packages
-                .iter()
-                .next()
-                .expect("Single-file project must synthesize exactly one package")
-                .1;
-
-            let directive = if value_tracing {
-                rr_build::build_patch_directive_for_package(pkg, false, Some(pkg), None, false)?
-            } else {
-                Default::default()
-            };
-
-            Ok((vec![UserIntent::Run(pkg)], directive).into())
-        }),
+        output,
+        planning_context,
+        intent,
         resolved,
     )?;
 
