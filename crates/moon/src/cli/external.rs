@@ -25,13 +25,17 @@ use std::{
 };
 use which::which_global;
 
+use super::process;
+
 pub(crate) fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
     if args.is_empty() {
         bail!("no external subcommand provided");
     };
     let subcmd = args.remove(0);
     let resolved = resolve_external_subcommand(&subcmd)?;
-    Ok(exec(Command::new(resolved).args(args))?.code().unwrap_or(0))
+    Ok(process::delegate(Command::new(resolved).args(args))?
+        .code()
+        .unwrap_or(0))
 }
 
 pub(crate) fn run_external_help(
@@ -65,8 +69,8 @@ fn resolve_external_subcommand(subcmd: &str) -> anyhow::Result<PathBuf> {
 fn run_external_command(
     cmd: &mut Command,
     args: impl IntoIterator<Item = OsString>,
-) -> std::io::Result<ExitStatus> {
-    cmd.args(args).status()
+) -> anyhow::Result<ExitStatus> {
+    process::delegate(cmd.args(args))
 }
 
 pub(crate) fn exit_if_ide_help_request(err: &clap::Error, raw_args: &[OsString]) {
@@ -104,32 +108,6 @@ fn ide_help_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString
         }
         _ => None,
     }
-}
-
-#[cfg(unix)]
-fn exec(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
-    use std::os::unix::prelude::*;
-
-    Err(cmd.exec().into())
-}
-
-#[cfg(windows)]
-fn exec(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
-    use windows_sys::Win32::Foundation::{BOOL, FALSE, TRUE};
-    use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
-
-    unsafe extern "system" fn ctrlc_handler(_: u32) -> BOOL {
-        // Do nothing. Let the child process handle it.
-        TRUE
-    }
-
-    unsafe {
-        if SetConsoleCtrlHandler(Some(ctrlc_handler), TRUE) == FALSE {
-            bail!("could not set Ctrl-C handler")
-        }
-    }
-
-    Ok(cmd.status()?)
 }
 
 #[cfg(test)]

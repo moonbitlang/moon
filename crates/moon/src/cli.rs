@@ -34,6 +34,7 @@ pub(crate) mod info;
 pub(crate) mod install_binary;
 pub(crate) mod mooncake_adapter;
 pub(crate) mod new;
+pub(crate) mod process;
 pub(crate) mod prove;
 pub(crate) mod run;
 pub(crate) mod shell_completion;
