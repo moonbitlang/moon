@@ -848,7 +848,7 @@ fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
         "expected package command to list the app member contents, got:\n{stderr}"
     );
     assert!(
-        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
+        stderr.contains("Package to $ROOT/_build/publish/alice-app-0.1.0.zip"),
         "expected package command to write the app member archive, got:\n{stderr}"
     );
     assert!(
@@ -1333,7 +1333,7 @@ fn test_package_targets_workspace_member_from_member_dir() {
         "expected package command to list the app member contents, got:\n{stderr}"
     );
     assert!(
-        stderr.contains("Package to $ROOT/app/_build/publish/alice-app-0.1.0.zip"),
+        stderr.contains("Package to $ROOT/_build/publish/alice-app-0.1.0.zip"),
         "expected package command to write the app member archive, got:\n{stderr}"
     );
     assert!(

@@ -52,9 +52,26 @@ use tracing::{Level, debug, info, instrument, trace};
 use super::BenchSubcommand;
 use super::{BuildFlags, UniversalFlags};
 
-struct TestSelectionOverride {
-    explicit_path_filters: Option<Vec<PathBuf>>,
-    package: Option<Vec<String>>,
+struct ResolvedTestPathFilter {
+    package: PackageId,
+    filename: Option<String>,
+}
+
+enum ResolvedScopedTestSelection {
+    Workspace {
+        packages: Vec<PackageId>,
+    },
+    Packages {
+        packages: Vec<PackageId>,
+    },
+    Paths {
+        filters: Vec<ResolvedTestPathFilter>,
+    },
+}
+
+struct ResolvedTestPlanIntent {
+    intent: CalcUserIntentOutput,
+    filter: TestFilter,
 }
 
 /// Print test summary statistics in the legacy format
@@ -605,16 +622,15 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
         return selections
             .into_iter()
             .map(|selection| {
-                let selection_override =
-                    narrow_test_request_to_selection(cmd, &resolve_output, &selection);
+                let resolved_selection =
+                    resolve_scoped_test_selection(cmd, &resolve_output, selection.packages)?;
                 plan_test_or_bench_rr_from_resolved_scoped(
                     cli,
                     cmd,
                     target_dir,
                     selection.target_backend,
                     resolve_output.clone(),
-                    selection.packages,
-                    Some(selection_override),
+                    resolved_selection,
                 )
             })
             .collect();
@@ -628,14 +644,15 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
     selections
         .into_iter()
         .map(|selection| {
+            let resolved_selection =
+                resolve_scoped_test_selection(cmd, &resolve_output, selection.packages)?;
             plan_test_or_bench_rr_from_resolved_scoped(
                 cli,
                 cmd,
                 target_dir,
                 selection.target_backend,
                 resolve_output.clone(),
-                selection.packages,
-                None,
+                resolved_selection,
             )
         })
         .collect()
@@ -647,8 +664,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
     target_dir: &Path,
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
-    scoped_packages: Vec<PackageId>,
-    selection_override: Option<TestSelectionOverride>,
+    resolved_selection: ResolvedScopedTestSelection,
 ) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
     let build_flags = BuildFlags {
         no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
@@ -681,24 +697,14 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         target_dir,
         UserDiagnostics::from_flags(cli),
         Box::new(|resolved, target_backend| {
-            let explicit_path_filters = selection_override
-                .as_ref()
-                .and_then(|selection| selection.explicit_path_filters.as_deref())
-                .unwrap_or(cmd.explicit_path_filters);
-            let package_filter = selection_override
-                .as_ref()
-                .and_then(|selection| selection.package.as_deref())
-                .or(cmd.package.as_deref());
-            calc_user_intent_from_packages(
+            let resolved_intent = lower_resolved_scoped_test_selection(
                 resolved,
                 cmd,
-                &mut filter,
-                &scoped_packages,
+                resolved_selection,
                 target_backend,
-                UserDiagnostics::from_flags(cli),
-                explicit_path_filters,
-                package_filter,
-            )
+            )?;
+            filter = resolved_intent.filter;
+            Ok(resolved_intent.intent)
         }),
         resolve_output,
     )?;
@@ -1120,41 +1126,162 @@ fn calc_user_intent_from_packages(
     Ok((intents, directive).into())
 }
 
-fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
-    !cmd.explicit_path_filters.is_empty() || cmd.package.is_some()
-}
-
-fn narrow_test_request_to_selection(
+fn resolve_scoped_test_selection(
     cmd: &TestLikeSubcommand<'_>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    selection: &TargetPackageGroup,
-) -> TestSelectionOverride {
-    let explicit_path_filters = (!cmd.explicit_path_filters.is_empty()).then(|| {
-        cmd.explicit_path_filters
-            .iter()
-            .filter(|path| {
-                let Ok((dir, _)) = canonicalize_with_filename(path) else {
-                    return false;
-                };
-                let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
-                    return false;
-                };
-                selection.packages.contains(&pkg)
-            })
-            .cloned()
-            .collect()
-    });
-    let package = cmd.package.as_ref().map(|_| {
-        selection
-            .packages
-            .iter()
-            .map(|pkg| resolve_output.pkg_dirs.get_package(*pkg).fqn.to_string())
-            .collect()
-    });
-    TestSelectionOverride {
-        explicit_path_filters,
-        package,
+    scoped_packages: Vec<PackageId>,
+) -> anyhow::Result<ResolvedScopedTestSelection> {
+    if !cmd.explicit_path_filters.is_empty() {
+        let mut filters = Vec::new();
+        for path in cmd.explicit_path_filters {
+            let Ok((dir, filename)) = canonicalize_with_filename(path) else {
+                continue;
+            };
+            let Ok(package) = filter_pkg_by_dir(resolve_output, &dir) else {
+                continue;
+            };
+            if scoped_packages.contains(&package) {
+                filters.push(ResolvedTestPathFilter { package, filename });
+            }
+        }
+        return Ok(ResolvedScopedTestSelection::Paths { filters });
     }
+
+    if cmd.package.is_some() {
+        return Ok(ResolvedScopedTestSelection::Packages {
+            packages: scoped_packages,
+        });
+    }
+
+    Ok(ResolvedScopedTestSelection::Workspace {
+        packages: scoped_packages,
+    })
+}
+
+fn lower_resolved_scoped_test_selection(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &TestLikeSubcommand<'_>,
+    selection: ResolvedScopedTestSelection,
+    target_backend: TargetBackend,
+) -> Result<ResolvedTestPlanIntent, anyhow::Error> {
+    let mut filter = TestFilter {
+        name_filter: cmd.filter.clone(),
+        ..Default::default()
+    };
+
+    let intent = match selection {
+        ResolvedScopedTestSelection::Workspace { packages } => packages
+            .into_iter()
+            .map(UserIntent::Test)
+            .collect::<Vec<_>>()
+            .into(),
+        ResolvedScopedTestSelection::Packages { packages } => {
+            let directive = apply_resolved_package_filters(
+                &packages,
+                resolve_output,
+                cmd,
+                target_backend,
+                &mut filter,
+            )?;
+            (test_intents_from_filter(&filter), directive).into()
+        }
+        ResolvedScopedTestSelection::Paths { filters } => {
+            let test_index = selected_test_index(cmd)?;
+            for path_filter in filters {
+                filter.add_autodetermine_target(
+                    path_filter.package,
+                    path_filter.filename.as_deref(),
+                    test_index,
+                );
+            }
+            (test_intents_from_filter(&filter), InputDirective::default()).into()
+        }
+    };
+
+    Ok(ResolvedTestPlanIntent { intent, filter })
+}
+
+fn selected_test_index(cmd: &TestLikeSubcommand<'_>) -> anyhow::Result<Option<TestIndex>> {
+    if let Some(index) = cmd.index {
+        Ok(Some(TestIndex::Regular(*index)))
+    } else if let Some(id) = cmd.doc_index {
+        Ok(Some(TestIndex::DocTest(TestIndexRange::from_single(*id)?)))
+    } else {
+        Ok(None)
+    }
+}
+
+fn apply_resolved_package_filters(
+    packages: &[PackageId],
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    cmd: &TestLikeSubcommand<'_>,
+    target_backend: TargetBackend,
+    out_filter: &mut TestFilter,
+) -> Result<InputDirective, anyhow::Error> {
+    ensure_packages_support_backend(resolve_output, packages.iter().copied(), target_backend)?;
+
+    let mut input_directive = InputDirective::default();
+    #[allow(clippy::comparison_chain)]
+    if packages.len() == 1 {
+        let pkg_id = packages[0];
+        out_filter.add_autodetermine_target(pkg_id, cmd.file.as_deref(), selected_test_index(cmd)?);
+
+        let trace_pkg = if cmd.build_flags.enable_value_tracing {
+            Some(pkg_id)
+        } else {
+            None
+        };
+        input_directive = rr_build::build_patch_directive_for_package(
+            pkg_id,
+            false,
+            trace_pkg,
+            cmd.patch_file.as_deref(),
+            true,
+        )
+        .context("failed to build input directive")?;
+    } else if packages.len() > 1 {
+        let package_names = || {
+            packages
+                .iter()
+                .map(|id| resolve_output.pkg_dirs.get_package(*id).fqn.to_string())
+                .collect::<Vec<_>>()
+        };
+        if cmd.file.is_some() || cmd.index.is_some() || cmd.doc_index.is_some() {
+            bail!(
+                "Cannot filter by file or index when multiple packages are specified. Matched packages: {:?}",
+                package_names()
+            );
+        }
+        if cmd.patch_file.is_some() {
+            bail!(
+                "Cannot apply patch file when multiple packages are specified. Matched packages: {:?}",
+                package_names()
+            );
+        }
+        for &pkg_id in packages {
+            out_filter.add_autodetermine_target(pkg_id, None, None);
+        }
+    }
+
+    Ok(input_directive)
+}
+
+fn test_intents_from_filter(filter: &TestFilter) -> Vec<UserIntent> {
+    let Some(filt) = filter.filter.as_ref() else {
+        return vec![];
+    };
+
+    let mut packages = Vec::new();
+    for (target, _) in &filt.0 {
+        if !packages.contains(&target.package) {
+            packages.push(target.package);
+        }
+    }
+    packages.into_iter().map(UserIntent::Test).collect()
+}
+
+fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
+    !cmd.explicit_path_filters.is_empty() || cmd.package.is_some()
 }
 
 fn resolve_test_target_selections(
