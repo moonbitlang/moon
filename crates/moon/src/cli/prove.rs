@@ -503,6 +503,21 @@ fn generate_strategy(solvers: &[DetectedSolver]) -> String {
         .collect();
 
     let solver_ref = |s: &DetectedSolver| format!("{},{}", s.name, s.version);
+    let parallel_prover_line = |time_limit: &str, step_limit: u32| {
+        let mut calls = ordered
+            .iter()
+            .map(|s| format!("{} {time_limit} {step_limit}", solver_ref(s)));
+        let Some(first) = calls.next() else {
+            return String::new();
+        };
+
+        let mut line = format!("c {first}");
+        for call in calls {
+            line.push_str(" | ");
+            line.push_str(&call);
+        }
+        line
+    };
     let mut strategy = String::new();
 
     // Stage 1: Quick sequential attempts (0.2s, 1000 steps)
@@ -511,11 +526,7 @@ fn generate_strategy(solvers: &[DetectedSolver]) -> String {
     }
 
     // Stage 2: Parallel medium attempts (1s, 1000 steps)
-    let medium: Vec<String> = ordered
-        .iter()
-        .map(|s| format!("c {} 1 1000", solver_ref(s)))
-        .collect();
-    strategy.push_str(&medium.join(" | "));
+    strategy.push_str(&parallel_prover_line("1", 1000));
     strategy.push('\n');
 
     // Stage 3: Transformations
@@ -523,11 +534,7 @@ fn generate_strategy(solvers: &[DetectedSolver]) -> String {
     strategy.push_str("t split_vc start\n");
 
     // Stage 4: Parallel long attempts (2s, 4000 steps)
-    let long: Vec<String> = ordered
-        .iter()
-        .map(|s| format!("c {} 2 4000", solver_ref(s)))
-        .collect();
-    strategy.push_str(&long.join(" | "));
+    strategy.push_str(&parallel_prover_line("2", 4000));
     strategy.push('\n');
 
     strategy
@@ -844,10 +851,10 @@ mod tests {
             strategy,
             "c Z3,4.15.3 .2 1000\n\
              c CVC5,1.3.1 .2 1000\n\
-             c Z3,4.15.3 1 1000 | c CVC5,1.3.1 1 1000\n\
+             c Z3,4.15.3 1 1000 | CVC5,1.3.1 1 1000\n\
              t compute_specified start\n\
              t split_vc start\n\
-             c Z3,4.15.3 2 4000 | c CVC5,1.3.1 2 4000\n"
+             c Z3,4.15.3 2 4000 | CVC5,1.3.1 2 4000\n"
         );
     }
 
@@ -864,10 +871,10 @@ mod tests {
             "c Alt-Ergo,2.6.2 .2 1000\n\
              c Z3,4.15.3 .2 1000\n\
              c CVC5,1.3.1 .2 1000\n\
-             c Alt-Ergo,2.6.2 1 1000 | c Z3,4.15.3 1 1000 | c CVC5,1.3.1 1 1000\n\
+             c Alt-Ergo,2.6.2 1 1000 | Z3,4.15.3 1 1000 | CVC5,1.3.1 1 1000\n\
              t compute_specified start\n\
              t split_vc start\n\
-             c Alt-Ergo,2.6.2 2 4000 | c Z3,4.15.3 2 4000 | c CVC5,1.3.1 2 4000\n"
+             c Alt-Ergo,2.6.2 2 4000 | Z3,4.15.3 2 4000 | CVC5,1.3.1 2 4000\n"
         );
     }
 
