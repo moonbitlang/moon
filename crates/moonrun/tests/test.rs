@@ -235,16 +235,11 @@ fn test_moon_run_with_cli_args() {
     moon_cmd().current_dir(&dir).arg("build").assert().success();
 
     let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
-    let assert = snapbox::Assert::new().redact_with(
-        moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref()),
-    );
-
     // `argv` passed to CLI is:
     // <wasm_file> <...rest argv to moonrun>
 
     // Assert it has the WASM file as argv[0]
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
-        .with_assert(assert.clone())
         .arg(&wasm_file)
         .assert()
         .success()
@@ -252,16 +247,16 @@ fn test_moon_run_with_cli_args() {
 
     // Assert it passes the rest verbatim
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
-        .with_assert(assert.clone())
         .arg(&wasm_file)
         .arg("--")
         .args(["中文", "😄👍", "hello", "1242"])
         .assert()
         .success()
-        .stdout_eq("[\"[..]/_build/wasm-gc/debug/build/main/main.wasm\", \"中文\", \"😄👍\", \"hello\", \"1242\"]\n");
+        .stdout_eq(
+            "[\n  \"[..]/_build/wasm-gc/debug/build/main/main.wasm\",\n  \"中文\",\n  \"😄👍\",\n  \"hello\",\n  \"1242\",\n]\n",
+        );
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
-        .with_assert(assert)
         .arg(&wasm_file)
         .arg("--no-stack-trace") // this ia an arg accepted by moonrun
         .arg("--")
@@ -269,7 +264,7 @@ fn test_moon_run_with_cli_args() {
         .assert()
         .success()
         .stdout_eq(
-            "[\"[..]/_build/wasm-gc/debug/build/main/main.wasm\", \"--arg1\", \"--arg2\", \"arg3\"]\n",
+            "[\n  \"[..]/_build/wasm-gc/debug/build/main/main.wasm\",\n  \"--arg1\",\n  \"--arg2\",\n  \"arg3\",\n]\n",
         );
 }
 

@@ -1,3 +1,4 @@
 {
-  "is-main": true
+  "is-main": true,
+  "import": ["moonbitlang/core/debug"]
 }

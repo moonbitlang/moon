@@ -9,7 +9,7 @@ pub(all) enum Token {
   STAR
   LPAREN
   RPAREN
-} derive(Show)
+} derive(Show, Debug)
 
 ///|
 pub fn Token::kind(self : Token) -> TokenKind {
@@ -31,7 +31,7 @@ pub(all) enum TokenKind {
   TK_STAR
   TK_LPAREN
   TK_RPAREN
-}
+} derive(Debug)
 
 ///|
 pub impl Show for TokenKind with output(self, logger) {
@@ -51,7 +51,7 @@ pub impl Show for TokenKind with output(self, logger) {
 pub suberror ParseError {
   UnexpectedToken(Token, (Position, Position), Array[TokenKind])
   UnexpectedEndOfInput(Position, Array[TokenKind])
-} derive(Show)
+} derive(Debug)
 
 ///|
 type YYObj = Error

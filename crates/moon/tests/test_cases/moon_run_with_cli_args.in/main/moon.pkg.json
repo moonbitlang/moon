@@ -1,5 +1,6 @@
 {
   "is-main": true,
+  "import": ["moonbitlang/core/debug"],
   "targets": {
     "main_wasm.mbt": ["wasm", "wasm-gc"],
     "main_js.mbt": ["js"]

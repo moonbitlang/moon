@@ -17,8 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 fn main {
-  let args = get_args()
-  println(args)
+  @debug.to_string(get_args()) |> println
 }
 
 
