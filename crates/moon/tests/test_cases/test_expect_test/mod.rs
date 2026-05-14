@@ -26,7 +26,7 @@ fn test_expect_test() -> anyhow::Result<()> {
     let updated =
         std::fs::read_to_string(tmp_dir_path.as_ref().join("lib").join("hello.mbt")).unwrap();
     println!("Updated content:\n{}", updated);
-    assert!(updated.contains(r#"#|["a", "b", "c"]"#));
+    assert!(updated.contains(r#"#|[a, b, c]"#));
 
     let s = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&tmp_dir_path)

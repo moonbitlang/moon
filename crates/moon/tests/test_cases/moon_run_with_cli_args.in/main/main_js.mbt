@@ -8,5 +8,5 @@ extern "js" fn get_cli_args_internal() -> Array[String] =
   #| }
 
 fn main {
-  get_args() |> println
+  @debug.to_string(get_args()) |> println
 }

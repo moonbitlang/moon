@@ -510,7 +510,7 @@ fn test_moon_run_with_cli_args() {
     check(
         get_stdout(&dir, ["run", "main", "--dry-run"]),
         expect![[r#"
-            moonc build-package ./main/main_wasm.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
+            moonc build-package ./main/main_wasm.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/debug/debug.mi:debug' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
             moonrun ./_build/wasm-gc/debug/build/main/main.wasm --
         "#]],
@@ -537,7 +537,7 @@ fn test_moon_run_with_cli_args() {
             "run", "main", "--", "中文", "😄👍", "hello", "1242", "--flag",
         ],
     );
-    assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\", \"--flag\""));
+    assert!(s.contains("  \"中文\",\n  \"😄👍\",\n  \"hello\",\n  \"1242\",\n  \"--flag\","));
 
     let s = get_stdout(
         &dir,
@@ -545,7 +545,7 @@ fn test_moon_run_with_cli_args() {
             "run", "main", "--target", "js", "--", "中文", "😄👍", "hello", "1242", "--flag",
         ],
     );
-    assert!(s.contains("\"中文\", \"😄👍\", \"hello\", \"1242\", \"--flag\""));
+    assert!(s.contains("  \"中文\",\n  \"😄👍\",\n  \"hello\",\n  \"1242\",\n  \"--flag\","));
 }
 
 #[cfg(unix)]
