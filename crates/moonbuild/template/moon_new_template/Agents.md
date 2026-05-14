@@ -45,7 +45,9 @@ You can browse and install extra skills here:
   changes affect outputs, run `moon test --update` to refresh snapshots.
 
 - Prefer `assert_eq` or `assert_true(pattern is Pattern(...))` for results that
-  are stable or very unlikely to change. Use snapshot tests to record current
-  behavior. For solid, well-defined results (e.g. scientific computations),
-  prefer assertion tests. You can use `moon coverage analyze > uncovered.log` to
-  see which parts of your code are not covered by tests.
+  are stable or very unlikely to change. For snapshot tests that record
+  structured debugging output, derive `Debug` and use `debug_inspect`, rather
+  than deriving `Show` for debugging. For solid, well-defined results (e.g.
+  scientific computations), prefer assertion tests. You can use
+  `moon coverage analyze > uncovered.log` to see which parts of your code are
+  not covered by tests.
