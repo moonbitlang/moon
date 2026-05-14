@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use crate::common::{BUILD_DIR, TargetBackend};
 
@@ -28,7 +29,10 @@ pub struct MoonDirs {
     pub internal_tcc_path: PathBuf,
 }
 
-pub static MOON_DIRS: std::sync::LazyLock<MoonDirs> = std::sync::LazyLock::new(|| {
+static MOON_HOME: LazyLock<PathBuf> = LazyLock::new(resolve_home);
+static TOOLCHAIN_ROOT: LazyLock<PathBuf> = LazyLock::new(resolve_toolchain_root);
+
+pub static MOON_DIRS: LazyLock<MoonDirs> = LazyLock::new(|| {
     let moon_home = home();
     let toolchain_root = toolchain_root();
     let moon_include_path = toolchain_root.join("include");
@@ -53,26 +57,35 @@ pub fn is_toolchain_root(root: &Path) -> bool {
             .is_file()
 }
 
-pub fn toolchain_root() -> PathBuf {
+fn infer_toolchain_root_from_exe(current_exe: &Path) -> Option<PathBuf> {
+    let current_exe =
+        dunce::canonicalize(current_exe).unwrap_or_else(|_| current_exe.to_path_buf());
+    let bin_dir = current_exe.parent()?;
+    if bin_dir.file_name().is_none_or(|name| name != "bin") {
+        return None;
+    }
+    let root = bin_dir.parent()?;
+    if !is_toolchain_root(root) {
+        return None;
+    }
+    Some(root.to_path_buf())
+}
+
+fn resolve_toolchain_root() -> PathBuf {
     if let Some(path) = std::env::var_os("MOON_TOOLCHAIN_ROOT") {
         return PathBuf::from(path);
     }
 
-    if let Ok(current_exe) = std::env::current_exe() {
-        let current_exe = dunce::canonicalize(&current_exe).unwrap_or(current_exe);
-        if let Some(bin_dir) = current_exe.parent()
-            && bin_dir.file_name().is_some_and(|name| name == "bin")
-            && let Some(root) = bin_dir.parent()
-            && is_toolchain_root(root)
-        {
-            return root.to_path_buf();
-        }
+    if let Ok(current_exe) = std::env::current_exe()
+        && let Some(root) = infer_toolchain_root_from_exe(&current_exe)
+    {
+        return root;
     }
 
     home()
 }
 
-pub fn home() -> PathBuf {
+fn resolve_home() -> PathBuf {
     if let Some(moon_home) = std::env::var_os("MOON_HOME") {
         PathBuf::from(moon_home)
     } else {
@@ -82,6 +95,14 @@ pub fn home() -> PathBuf {
         };
         h.join(".moon")
     }
+}
+
+pub fn toolchain_root() -> PathBuf {
+    TOOLCHAIN_ROOT.clone()
+}
+
+pub fn home() -> PathBuf {
+    MOON_HOME.clone()
 }
 
 pub fn bin() -> PathBuf {
@@ -247,4 +268,54 @@ fn detects_toolchain_root_shape() {
     assert!(is_toolchain_root(&dir));
     assert!(!is_toolchain_root(dir.parent().unwrap()));
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn infers_toolchain_root_from_exe_only_for_valid_toolchain_layout() {
+    let dir = std::env::temp_dir().join(format!(
+        "moonutil-infer-toolchain-root-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    std::fs::create_dir_all(dir.join("include")).unwrap();
+    std::fs::create_dir_all(dir.join("lib").join("core")).unwrap();
+    std::fs::write(
+        dir.join("bin")
+            .join(format!("moonc{}", std::env::consts::EXE_SUFFIX)),
+        [],
+    )
+    .unwrap();
+
+    let moon = dir
+        .join("bin")
+        .join(format!("moon{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(&moon, []).unwrap();
+    assert_eq!(
+        infer_toolchain_root_from_exe(&moon).unwrap(),
+        dunce::canonicalize(&dir).unwrap()
+    );
+
+    let invalid_root = std::env::temp_dir().join(format!(
+        "moonutil-invalid-toolchain-root-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let _ = std::fs::remove_dir_all(&invalid_root);
+    std::fs::create_dir_all(invalid_root.join("bin")).unwrap();
+    let loose_moon = invalid_root
+        .join("bin")
+        .join(format!("moon{}", std::env::consts::EXE_SUFFIX));
+    std::fs::write(&loose_moon, []).unwrap();
+    assert_eq!(infer_toolchain_root_from_exe(&loose_moon), None);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&invalid_root).unwrap();
 }

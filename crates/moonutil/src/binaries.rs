@@ -33,14 +33,6 @@ fn moon_bin(binary_name: &str, env_var: &str) -> PathBuf {
         return PathBuf::from(path);
     }
 
-    // Try to find next to current executable
-    if let Ok(current_exe) = std::env::current_exe() {
-        let rv = ensure_exe_extension(current_exe.with_file_name(binary_name));
-        if rv.exists() {
-            return rv;
-        }
-    }
-
     // Try to find in the resolved toolchain root.
     let in_toolchain = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
     if in_toolchain.exists() {
