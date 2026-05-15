@@ -232,11 +232,6 @@
     },
     {
       "root": "moonbitlang/core",
-      "rel": "lazy_list",
-      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lazy_list/lazy_list.mi"
-    },
-    {
-      "root": "moonbitlang/core",
       "rel": "list",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/list/list.mi"
     },
