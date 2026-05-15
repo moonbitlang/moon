@@ -540,6 +540,61 @@ fn test_moon_run_with_cli_args() {
     );
     assert!(s.contains("  \"中文\",\n  \"😄👍\",\n  \"hello\",\n  \"1242\",\n  \"--flag\","));
 
+    moon_cmd(&dir).args(["build"]).assert().success();
+    let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
+    let stdout = moon_cmd(&dir)
+        .arg("run")
+        .arg(&wasm_file)
+        .args(["--", "中文", "😄👍", "hello", "1242", "--flag"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let s = replace_dir(std::str::from_utf8(&stdout).unwrap(), &dir);
+    assert!(s.contains("  \"中文\",\n  \"😄👍\",\n  \"hello\",\n  \"1242\",\n  \"--flag\","));
+
+    let stdout = moon_cmd(&dir)
+        .arg("run")
+        .arg(&wasm_file)
+        .args(["--dry-run", "--", "hello"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    check(
+        replace_dir(std::str::from_utf8(&stdout).unwrap(), &dir),
+        expect![[r#"
+            moonrun ./_build/wasm-gc/debug/build/main/main.wasm -- hello
+        "#]],
+    );
+
+    let wasm_named_package = dir.join("main.wasm");
+    std::fs::create_dir_all(&wasm_named_package).unwrap();
+    std::fs::write(
+        wasm_named_package.join("moon.pkg.json"),
+        r#"{
+  "is-main": true
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        wasm_named_package.join("main.mbt"),
+        r#"fn main {
+  println("package directory ending in wasm")
+}
+"#,
+    )
+    .unwrap();
+    check(
+        get_stdout(&dir, ["run", "main.wasm"]),
+        expect![[r#"
+            package directory ending in wasm
+        "#]],
+    );
+
     let s = get_stdout(
         &dir,
         [
