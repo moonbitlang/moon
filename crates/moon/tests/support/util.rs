@@ -110,16 +110,6 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         dunce::canonicalize(moon_home).unwrap().to_str().unwrap(),
         "$MOON_HOME",
     );
-    let s = ["wasm", "wasm-gc", "js", "native", "llvm"]
-        .into_iter()
-        .fold(s, |s, target| {
-            s.replace(
-                &format!(
-                    " -i '$MOON_HOME/lib/core/_build/{target}/release/bundle/lazy_list/lazy_list.mi:lazy_list'"
-                ),
-                "",
-            )
-        });
     let cc_path = CC::default().cc_path;
     let ar_path = CC::default().ar_path;
     let s = s.replace(&ar_path, CC::default().ar_name());
