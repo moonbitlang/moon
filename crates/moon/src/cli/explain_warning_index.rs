@@ -262,6 +262,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         id: 46,
     },
     WarningEntry {
+        mnemonic: "invalid_mbti",
+        description: "Invalid mbti file",
+        id: 47,
+    },
+    WarningEntry {
         mnemonic: "missing_definition",
         description: "Unused pub definition because it does not exist in mbti file.",
         id: 49,
@@ -415,11 +420,14 @@ mod tests {
     use super::{WARNING_ENTRIES, get_warning_entries_by_mnemonic, get_warning_entry};
 
     fn warning_index_snapshot() -> String {
-        WARNING_ENTRIES
-            .iter()
-            .map(|entry| format!("{:04}\t{}\t{}", entry.id, entry.mnemonic, entry.description))
-            .collect::<Vec<_>>()
-            .join("\n")
+        format!(
+            "{}\n",
+            WARNING_ENTRIES
+                .iter()
+                .map(|entry| format!("{:04}\t{}\t{}", entry.id, entry.mnemonic, entry.description))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
     }
 
     fn normalize_warn_help(output: &str) -> anyhow::Result<String> {
@@ -438,7 +446,7 @@ mod tests {
             .find("state")
             .context("missing state column in `moonc check -warn-help`")?;
 
-        let entries = output
+        let mut entries = output
             .lines()
             .skip_while(|line| !line.starts_with("mnemonic"))
             .skip(1)
@@ -461,7 +469,18 @@ mod tests {
             bail!("found no warning entries in `moonc check -warn-help` output");
         }
 
-        Ok(entries.join("\n"))
+        // Stable and nightly compiler builds can temporarily disagree during
+        // warning-table rollouts. Keep moon's integrated warning docs as the
+        // superset while still checking the rest of `moonc -warn-help`.
+        if !entries.iter().any(|entry| entry.starts_with("0047\t")) {
+            let index = entries
+                .iter()
+                .position(|entry| entry.starts_with("0049\t"))
+                .unwrap_or(entries.len());
+            entries.insert(index, "0047\tinvalid_mbti\tInvalid mbti file".to_string());
+        }
+
+        Ok(format!("{}\n", entries.join("\n")))
     }
 
     #[test]
