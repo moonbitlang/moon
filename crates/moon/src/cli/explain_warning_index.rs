@@ -446,7 +446,7 @@ mod tests {
             .find("state")
             .context("missing state column in `moonc check -warn-help`")?;
 
-        let mut entries = output
+        let entries = output
             .lines()
             .skip_while(|line| !line.starts_with("mnemonic"))
             .skip(1)
@@ -467,17 +467,6 @@ mod tests {
 
         if entries.is_empty() {
             bail!("found no warning entries in `moonc check -warn-help` output");
-        }
-
-        // Stable and nightly compiler builds can temporarily disagree during
-        // warning-table rollouts. Keep moon's integrated warning docs as the
-        // superset while still checking the rest of `moonc -warn-help`.
-        if !entries.iter().any(|entry| entry.starts_with("0047\t")) {
-            let index = entries
-                .iter()
-                .position(|entry| entry.starts_with("0049\t"))
-                .unwrap_or(entries.len());
-            entries.insert(index, "0047\tinvalid_mbti\tInvalid mbti file".to_string());
         }
 
         Ok(format!("{}\n", entries.join("\n")))
