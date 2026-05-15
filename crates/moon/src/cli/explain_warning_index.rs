@@ -420,14 +420,11 @@ mod tests {
     use super::{WARNING_ENTRIES, get_warning_entries_by_mnemonic, get_warning_entry};
 
     fn warning_index_snapshot() -> String {
-        format!(
-            "{}\n",
-            WARNING_ENTRIES
-                .iter()
-                .map(|entry| format!("{:04}\t{}\t{}", entry.id, entry.mnemonic, entry.description))
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
+        WARNING_ENTRIES
+            .iter()
+            .map(|entry| format!("{:04}\t{}\t{}", entry.id, entry.mnemonic, entry.description))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     fn normalize_warn_help(output: &str) -> anyhow::Result<String> {
@@ -469,7 +466,7 @@ mod tests {
             bail!("found no warning entries in `moonc check -warn-help` output");
         }
 
-        Ok(format!("{}\n", entries.join("\n")))
+        Ok(entries.join("\n"))
     }
 
     #[test]
