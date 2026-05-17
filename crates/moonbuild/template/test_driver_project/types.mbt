@@ -4,8 +4,8 @@
 /// is_being_cancelled may be unused if there's no async test
 #warnings("-unused_value")
 trait MoonBit_Async_Test_Driver {
-  run_async_tests(@moonbitlang/core/prelude.Array[async () -> Unit]) -> Unit = _
-  is_being_cancelled() -> Bool = _
+  fn run_async_tests(@moonbitlang/core/prelude.Array[async () -> Unit]) -> Unit = _
+  fn is_being_cancelled() -> Bool = _
 }
 
 ///|
@@ -21,7 +21,7 @@ impl MoonBit_Async_Test_Driver with is_being_cancelled() {
 ///|
 trait MoonBit_Test_Driver {
   /// returns if the test is found and executed
-  run_test(
+  fn run_test(
     @moonbitlang/core/prelude.Array[async () -> Unit],
     String,
     Int,
