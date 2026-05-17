@@ -63,8 +63,12 @@ pub(crate) struct RunSubcommand {
     pub auto_sync_flags: AutoSyncFlags,
 
     /// Only build, do not run the code
-    #[clap(long)]
+    #[clap(long, conflicts_with = "profile")]
     pub build_only: bool,
+
+    /// Profile the native executable using Time Profiler on macOS
+    #[clap(long)]
+    pub profile: bool,
 }
 
 /// Controls how `moon run` builds the executable before it is consumed.
@@ -78,12 +82,15 @@ pub(crate) struct BuildRunExecutableOptions {
     /// `NativeTccRun` executes through `tcc @rspfile` and does not provide the
     /// same standalone executable shape as the regular native backend.
     pub(crate) try_tcc_run: bool,
+    /// Whether dry-run output should include the final executable invocation.
+    pub(crate) print_dry_run_run_command: bool,
 }
 
 impl BuildRunExecutableOptions {
     fn for_run(cli: &UniversalFlags) -> Self {
         Self {
             try_tcc_run: !cli.dry_run,
+            print_dry_run_run_command: true,
         }
     }
 }
@@ -99,13 +106,29 @@ pub(crate) struct RunExecutable {
     pub(crate) executable: PathBuf,
     /// Backend-specific runner to use for this artifact.
     pub(crate) target_backend: moonbuild_rupes_recta::model::RunBackend,
+    pub(crate) opt_level: moonutil::cond_expr::OptLevel,
+    pub(crate) target_dir: PathBuf,
     source_dir: PathBuf,
     build_exit_code: Option<i32>,
     force_success_exit: bool,
     lock: Option<FileLock>,
 }
 
+struct BuildExecutableFromPlanOptions {
+    force_success_exit: bool,
+    print_dry_run_run_command: bool,
+}
+
 impl RunExecutable {
+    pub(crate) fn ensure_build_success(&self) -> anyhow::Result<()> {
+        if let Some(build_exit_code) = self.build_exit_code
+            && build_exit_code != 0
+        {
+            bail!("failed to build run target; build exited with code {build_exit_code}");
+        }
+        Ok(())
+    }
+
     /// Release the target-directory lock without running the executable.
     pub(crate) fn release_lock(&mut self) {
         drop(self.lock.take());
@@ -159,6 +182,7 @@ fn run_source_as_single_file(
         args,
         auto_sync_flags,
         build_only,
+        profile,
         ..
     } = cmd;
     let cmd = RunSubcommand {
@@ -168,6 +192,7 @@ fn run_source_as_single_file(
         args,
         auto_sync_flags,
         build_only,
+        profile,
     };
     let result = run_single_file_from_arg(cli, cmd);
     drop(temp_dir);
@@ -199,6 +224,10 @@ fn resolve_run_start_dir(input: &str) -> anyhow::Result<std::path::PathBuf> {
 #[instrument(skip_all)]
 pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     reject_manifest_path_for_run(cli)?;
+
+    if cmd.profile {
+        return super::profile::run_profiled_run(cli, cmd);
+    }
 
     if cmd.command.is_some() {
         return run_inline_source_as_single_file(cli, cmd);
@@ -310,7 +339,10 @@ fn build_package_executable(
         &target_dir,
         &build_meta,
         build_graph,
-        selected_target_backend.is_some(),
+        BuildExecutableFromPlanOptions {
+            force_success_exit: selected_target_backend.is_some(),
+            print_dry_run_run_command: options.print_dry_run_run_command,
+        },
     )
 }
 
@@ -519,7 +551,10 @@ fn build_single_file_executable(
         &target_dir,
         &build_meta,
         build_graph,
-        false,
+        BuildExecutableFromPlanOptions {
+            force_success_exit: false,
+            print_dry_run_run_command: options.print_dry_run_run_command,
+        },
     )
 }
 
@@ -533,7 +568,7 @@ fn build_executable_from_plan(
     target_dir: &Path,
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
-    force_success_exit: bool,
+    options: BuildExecutableFromPlanOptions,
 ) -> Result<RunExecutable, anyhow::Error> {
     if cli.dry_run {
         rr_build::print_dry_run(
@@ -543,14 +578,18 @@ fn build_executable_from_plan(
             target_dir,
         );
 
-        let run_cmd = get_run_cmd(build_meta, &cmd.args);
-        rr_build::dry_print_command(run_cmd.as_std(), source_dir, false);
+        if options.print_dry_run_run_command {
+            let run_cmd = get_run_cmd(build_meta, &cmd.args);
+            rr_build::dry_print_command(run_cmd.as_std(), source_dir, false);
+        }
         return Ok(RunExecutable {
             executable: get_run_executable(build_meta).to_path_buf(),
             target_backend: build_meta.target_backend,
+            opt_level: build_meta.opt_level,
+            target_dir: target_dir.to_path_buf(),
             source_dir: source_dir.to_path_buf(),
             build_exit_code: None,
-            force_success_exit,
+            force_success_exit: options.force_success_exit,
             lock: None,
         });
     }
@@ -570,9 +609,11 @@ fn build_executable_from_plan(
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
         target_backend: build_meta.target_backend,
+        opt_level: build_meta.opt_level,
+        target_dir: target_dir.to_path_buf(),
         source_dir: source_dir.to_path_buf(),
         build_exit_code: Some(build_result.return_code_for_success()),
-        force_success_exit,
+        force_success_exit: options.force_success_exit,
         lock: Some(lock),
     })
 }
