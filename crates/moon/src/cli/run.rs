@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{io::Read, path::Path};
+use std::{io::Read, path::Path, path::PathBuf};
 
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::build_plan::InputDirective;
@@ -65,6 +65,51 @@ pub(crate) struct RunSubcommand {
     /// Only build, do not run the code
     #[clap(long)]
     pub build_only: bool,
+}
+
+/// Controls how `moon run` builds the executable before it is consumed.
+///
+/// Normal execution preserves the existing debug-native fast path by allowing
+/// `tcc -run`. Consumers that need a standalone executable, such as profilers,
+/// should disable it.
+pub(crate) struct BuildRunExecutableOptions {
+    /// Whether native debug builds may use `RunBackend::NativeTccRun`.
+    ///
+    /// `NativeTccRun` executes through `tcc @rspfile` and does not provide the
+    /// same standalone executable shape as the regular native backend.
+    pub(crate) try_tcc_run: bool,
+}
+
+impl BuildRunExecutableOptions {
+    fn for_run(cli: &UniversalFlags) -> Self {
+        Self {
+            try_tcc_run: !cli.dry_run,
+        }
+    }
+}
+
+/// A built executable plus the state needed to consume it.
+///
+/// The build step keeps the target-directory lock alive until the caller either
+/// runs the program or explicitly releases the lock. This preserves the previous
+/// `moon run` behavior while allowing other consumers to reuse the same build
+/// stage.
+pub(crate) struct RunExecutable {
+    /// Path to the executable-like artifact that should be launched or reported.
+    pub(crate) executable: PathBuf,
+    /// Backend-specific runner to use for this artifact.
+    pub(crate) target_backend: moonbuild_rupes_recta::model::RunBackend,
+    source_dir: PathBuf,
+    build_exit_code: Option<i32>,
+    force_success_exit: bool,
+    lock: Option<FileLock>,
+}
+
+impl RunExecutable {
+    /// Release the target-directory lock without running the executable.
+    pub(crate) fn release_lock(&mut self) {
+        drop(self.lock.take());
+    }
 }
 
 fn run_stdin_source_as_single_file(
@@ -159,13 +204,32 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
         return run_inline_source_as_single_file(cli, cmd);
     }
 
+    if cmd.package_or_mbt_file.as_deref() == Some("-") {
+        return run_stdin_source_as_single_file(cli, cmd);
+    }
+
+    let executable = build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli))?;
+    let result = run_executable(cli, &cmd, executable);
+    if crate::run::shutdown_requested() {
+        return Ok(130);
+    }
+    result
+}
+
+/// Resolve the run input, plan it, and build the executable artifact.
+///
+/// This handles the same package-vs-single-file selection as `moon run`, but
+/// stops before executing the artifact. Callers can then run it, print
+/// `--build-only` metadata, or pass it to another tool.
+pub(crate) fn build_run_executable(
+    cli: &UniversalFlags,
+    cmd: &RunSubcommand,
+    options: BuildRunExecutableOptions,
+) -> anyhow::Result<RunExecutable> {
     let input = cmd
         .package_or_mbt_file
         .as_deref()
-        .expect("run source is required by clap");
-    if input == "-" {
-        return run_stdin_source_as_single_file(cli, cmd);
-    }
+        .expect("run executable source should be materialized before building");
     let is_mbt = input.ends_with(".mbt");
     let is_mbtx = input.ends_with(".mbtx");
     let run_start_dir = resolve_run_start_dir(input)?;
@@ -176,52 +240,37 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     match query.probe_project()? {
         ProjectProbe::Found(_) => {
             if is_mbtx {
-                return run_single_file_from_arg(cli, cmd);
+                return build_single_file_executable_from_arg(cli, cmd, options);
             }
             if is_mbt {
                 let moon_pkg_json_exist =
                     std::fs::metadata(input)?.is_file() && is_moon_pkg_exist(&run_start_dir);
                 if !moon_pkg_json_exist {
-                    return run_single_file_from_arg(cli, cmd);
+                    return build_single_file_executable_from_arg(cli, cmd, options);
                 }
             }
         }
         ProjectProbe::NotFound(not_found) => {
             if is_mbt || is_mbtx {
-                return run_single_file_from_arg(cli, cmd);
+                return build_single_file_executable_from_arg(cli, cmd, options);
             }
             return Err(not_found.into_error().into());
         }
     }
 
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
-    if selected_target_backend.is_some() {
-        run_run_internal(cli, cmd, selected_target_backend)?;
-        Ok(0)
-    } else {
-        run_run_internal(cli, cmd, selected_target_backend)
-    }
+    build_package_executable(cli, cmd, selected_target_backend, options)
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_run_internal(
+/// Build a package run target after the top-level input has been classified as
+/// a package inside a MoonBit project.
+fn build_package_executable(
     cli: &UniversalFlags,
-    cmd: RunSubcommand,
+    cmd: &RunSubcommand,
     selected_target_backend: Option<TargetBackend>,
-) -> anyhow::Result<i32> {
-    let result = run_run_rr(cli, cmd, selected_target_backend);
-    if crate::run::shutdown_requested() {
-        return Ok(130);
-    }
-    result
-}
-
-#[instrument(skip_all)]
-fn run_run_rr(
-    cli: &UniversalFlags,
-    cmd: RunSubcommand,
-    selected_target_backend: Option<TargetBackend>,
-) -> Result<i32, anyhow::Error> {
+    options: BuildRunExecutableOptions,
+) -> Result<RunExecutable, anyhow::Error> {
     let run_start_dir = resolve_run_start_dir(
         cmd.package_or_mbt_file
             .as_deref()
@@ -247,19 +296,21 @@ fn run_run_rr(
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
-        &cmd,
+        cmd,
         &source_dir,
         &target_dir,
         selected_target_backend,
         resolve_output,
+        options.try_tcc_run,
     )?;
-    rr_run_from_plan(
+    build_executable_from_plan(
         cli,
-        &cmd,
+        cmd,
         &source_dir,
         &target_dir,
         &build_meta,
         build_graph,
+        selected_target_backend.is_some(),
     )
 }
 
@@ -270,6 +321,7 @@ pub(crate) fn plan_run_rr_from_resolved(
     target_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    try_tcc_run: bool,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
@@ -279,7 +331,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         target_dir,
         RunMode::Run,
     );
-    preconfig.try_tcc_run = !cli.dry_run;
+    preconfig.try_tcc_run = try_tcc_run;
 
     let input_path = cmd
         .package_or_mbt_file
@@ -306,17 +358,22 @@ pub(crate) fn plan_run_rr_from_resolved(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn get_run_cmd(build_meta: &rr_build::BuildMeta, argv: &[String]) -> tokio::process::Command {
+    let executable = get_run_executable(build_meta);
+    let mut cmd = crate::run::command_for(build_meta.target_backend, executable, None);
+    cmd.args(argv);
+    cmd
+}
+
+/// Extract the single executable artifact emitted for a `UserIntent::Run` plan.
+fn get_run_executable(build_meta: &rr_build::BuildMeta) -> &Path {
     let (_, artifact) = build_meta
         .artifacts
         .first()
         .expect("Expected exactly one build node emitted by `calc_user_intent`");
-    let executable = artifact
+    artifact
         .artifacts
         .first()
-        .expect("Expected exactly one executable as the output of the build node");
-    let mut cmd = crate::run::command_for(build_meta.target_backend, executable, None);
-    cmd.args(argv);
-    cmd
+        .expect("Expected exactly one executable as the output of the build node")
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -353,6 +410,18 @@ fn calc_user_intent(
 
 #[instrument(level = Level::DEBUG, skip_all)]
 fn run_single_file_from_arg(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+    let executable =
+        build_single_file_executable_from_arg(cli, &cmd, BuildRunExecutableOptions::for_run(cli))?;
+    run_executable(cli, &cmd, executable)
+}
+
+/// Build a standalone `.mbt`/`.mbtx` input through the synthesized single-file
+/// package machinery.
+fn build_single_file_executable_from_arg(
+    cli: &UniversalFlags,
+    cmd: &RunSubcommand,
+    options: BuildRunExecutableOptions,
+) -> anyhow::Result<RunExecutable> {
     let single_file_dirs = cli.source_tgt_dir.single_file_package_dirs(
         cmd.package_or_mbt_file
             .as_deref()
@@ -361,25 +430,28 @@ fn run_single_file_from_arg(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
     let target_dir = single_file_dirs.package_dirs.target_dir;
     let mooncakes_dir = single_file_dirs.package_dirs.mooncakes_dir;
 
-    run_single_file_rr(
+    build_single_file_executable(
         cli,
         cmd,
         single_file_dirs.package_dirs.source_dir,
         target_dir,
         mooncakes_dir,
         single_file_dirs.file_path,
+        options,
     )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn run_single_file_rr(
+/// Build a run executable from already-resolved single-file package directories.
+fn build_single_file_executable(
     cli: &UniversalFlags,
-    cmd: RunSubcommand,
+    cmd: &RunSubcommand,
     source_dir: std::path::PathBuf,
     target_dir: std::path::PathBuf,
     mooncakes_dir: std::path::PathBuf,
     input_path: std::path::PathBuf,
-) -> anyhow::Result<i32> {
+    options: BuildRunExecutableOptions,
+) -> anyhow::Result<RunExecutable> {
     std::fs::create_dir_all(&target_dir).context("failed to create target directory")?;
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
@@ -410,8 +482,7 @@ fn run_single_file_rr(
         &target_dir,
         RunMode::Run,
     );
-    // Match legacy behavior: allow tcc-run for Native debug runs in RR single-file if not dry-run
-    preconfig.try_tcc_run = !cli.dry_run;
+    preconfig.try_tcc_run = options.try_tcc_run;
 
     // Plan build with a single UserIntent::Run for the synthesized package
     let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
@@ -441,25 +512,29 @@ fn run_single_file_rr(
         resolved,
     )?;
 
-    rr_run_from_plan(
+    build_executable_from_plan(
         cli,
-        &cmd,
+        cmd,
         &source_dir,
         &target_dir,
         &build_meta,
         build_graph,
+        false,
     )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn rr_run_from_plan(
+/// Execute the build graph and return the resulting run artifact without
+/// launching it.
+fn build_executable_from_plan(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     source_dir: &Path,
     target_dir: &Path,
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
-) -> Result<i32, anyhow::Error> {
+    force_success_exit: bool,
+) -> Result<RunExecutable, anyhow::Error> {
     if cli.dry_run {
         rr_build::print_dry_run(
             &build_graph,
@@ -470,10 +545,17 @@ fn rr_run_from_plan(
 
         let run_cmd = get_run_cmd(build_meta, &cmd.args);
         rr_build::dry_print_command(run_cmd.as_std(), source_dir, false);
-        return Ok(0);
+        return Ok(RunExecutable {
+            executable: get_run_executable(build_meta).to_path_buf(),
+            target_backend: build_meta.target_backend,
+            source_dir: source_dir.to_path_buf(),
+            build_exit_code: None,
+            force_success_exit,
+            lock: None,
+        });
     }
 
-    let _lock = FileLock::lock(target_dir)?;
+    let lock = FileLock::lock(target_dir)?;
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(target_dir, build_meta, RunMode::Run)?;
 
@@ -485,29 +567,56 @@ fn rr_run_from_plan(
     );
     let build_result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
 
-    if !build_result.successful() {
-        return Ok(build_result.return_code_for_success());
+    Ok(RunExecutable {
+        executable: get_run_executable(build_meta).to_path_buf(),
+        target_backend: build_meta.target_backend,
+        source_dir: source_dir.to_path_buf(),
+        build_exit_code: Some(build_result.return_code_for_success()),
+        force_success_exit,
+        lock: Some(lock),
+    })
+}
+
+#[instrument(level = Level::DEBUG, skip_all)]
+/// Consume a built run artifact using normal `moon run` semantics.
+///
+/// This handles dry-run, build failure exit codes, `--build-only`, verbose
+/// command printing, lock release, and finally process execution.
+fn run_executable(
+    cli: &UniversalFlags,
+    cmd: &RunSubcommand,
+    mut executable: RunExecutable,
+) -> Result<i32, anyhow::Error> {
+    if cli.dry_run {
+        return Ok(0);
     }
-    let run_cmd = get_run_cmd(build_meta, &cmd.args);
+
+    let build_exit_code = executable
+        .build_exit_code
+        .expect("non-dry run build should produce a build exit code");
+    if build_exit_code != 0 {
+        if executable.force_success_exit {
+            return Ok(0);
+        }
+        return Ok(build_exit_code);
+    }
+
+    let mut run_cmd = crate::run::command_for(
+        executable.target_backend,
+        executable.executable.as_path(),
+        None,
+    );
+    run_cmd.args(&cmd.args);
     if cli.verbose {
-        rr_build::dry_print_command(run_cmd.as_std(), source_dir, true);
+        rr_build::dry_print_command(run_cmd.as_std(), &executable.source_dir, true);
     }
 
     // Release the lock before spawning the subprocess
-    drop(_lock);
+    executable.release_lock();
 
     if cmd.build_only {
-        // Get the single executable path (same as get_run_cmd does)
-        let (_, artifact) = build_meta
-            .artifacts
-            .first()
-            .expect("Expected exactly one build node for moon run");
-        let executable = artifact
-            .artifacts
-            .first()
-            .expect("Expected exactly one executable");
         let test_artifacts = TestArtifacts {
-            artifacts_path: vec![executable.clone()],
+            artifacts_path: vec![executable.executable],
             test_filter_args: vec![],
         };
         println!("{}", serde_json_lenient::to_string(&test_artifacts)?);
@@ -520,7 +629,11 @@ fn rr_run_from_plan(
         .context("failed to run command")?;
 
     if let Some(code) = res.code() {
-        Ok(code)
+        if executable.force_success_exit {
+            Ok(0)
+        } else {
+            Ok(code)
+        }
     } else {
         bail!("Command exited without a return code")
     }

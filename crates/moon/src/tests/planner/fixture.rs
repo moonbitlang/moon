@@ -319,6 +319,7 @@ impl PlanningFixture {
             &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
+            !cli.dry_run,
         )?;
         Ok(PlannedGraph::new(build_meta, build_graph))
     }
