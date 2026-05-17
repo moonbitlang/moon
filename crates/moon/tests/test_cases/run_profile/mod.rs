@@ -1,0 +1,80 @@
+use super::*;
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_moon_run_profile_dry_run_prints_xctrace_commands() {
+    use crate::dry_run_utils::line_with;
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TestDir::new("hello");
+    let tmp = tempfile::tempdir().expect("failed to create temporary directory");
+    let shim_path = tmp.path().join("xcrun");
+    std::fs::write(
+        &shim_path,
+        "#!/usr/bin/env sh\nif [ \"$1\" = \"xctrace\" ] && [ \"$2\" = \"version\" ]; then\n  exit 0\nfi\nexit 0\n",
+    )
+    .unwrap();
+    let mut perms = std::fs::metadata(&shim_path).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&shim_path, perms).unwrap();
+
+    let path = std::env::var("PATH")
+        .map(|value| format!("{}:{}", tmp.path().display(), value))
+        .unwrap_or_else(|_| tmp.path().display().to_string());
+
+    let output = get_stdout_with_envs(
+        &dir,
+        ["run", "main", "--profile", "--dry-run"],
+        [("PATH", path)],
+    );
+
+    let record_cmd = line_with(
+        &output,
+        "xcrun xctrace record",
+        &[
+            "--quiet",
+            "--template",
+            "Time",
+            "Profiler",
+            "--no-prompt",
+            "--output",
+        ],
+    );
+    let export_cmd = line_with(&output, "xcrun xctrace export", &["--quiet", "--input"]);
+
+    assert!(
+        record_cmd.contains("--target-stdout"),
+        "record command missing --target-stdout: {record_cmd}"
+    );
+    assert!(
+        record_cmd.contains("--launch"),
+        "record command missing --launch: {record_cmd}"
+    );
+    assert!(
+        record_cmd.contains("_build/profile/main"),
+        "record command missing profile output path: {record_cmd}"
+    );
+    assert!(
+        export_cmd.contains("time-profile.xml"),
+        "export command missing time-profile.xml output: {export_cmd}"
+    );
+    assert!(
+        !output.lines().any(|line| line
+            .trim_start()
+            .starts_with("./_build/native/release/build/main/main.exe")),
+        "profile dry-run should not print the standalone executable invocation:\n{output}"
+    );
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn test_moon_run_profile_on_non_macos_reports_error() {
+    use crate::get_err_stderr;
+    let dir = TestDir::new("hello");
+    let output = get_err_stderr(&dir, ["run", "main", "--profile"]);
+
+    assert!(
+        output.contains("`moon run --profile` currently supports macOS only"),
+        "unexpected non-macos error: {output}"
+    );
+}
