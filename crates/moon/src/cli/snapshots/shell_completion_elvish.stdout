@@ -250,6 +250,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --enable-value-tracing 'Enable value tracing'
             cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
             cand --build-only 'Only build, do not run the code'
+            cand --profile 'Profile the native executable using Time Profiler on macOS'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'

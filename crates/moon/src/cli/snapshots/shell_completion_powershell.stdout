@@ -259,6 +259,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--enable-value-tracing', 'enable-value-tracing', [CompletionResultType]::ParameterName, 'Enable value tracing')
             [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
             [CompletionResult]::new('--build-only', 'build-only', [CompletionResultType]::ParameterName, 'Only build, do not run the code')
+            [CompletionResult]::new('--profile', 'profile', [CompletionResultType]::ParameterName, 'Profile the native executable using Time Profiler on macOS')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
