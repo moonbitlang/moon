@@ -51,7 +51,7 @@ fn test_moon_run_profile_dry_run_prints_xctrace_commands() {
         "record command missing --launch: {record_cmd}"
     );
     assert!(
-        record_cmd.contains("_build/profile/main"),
+        record_cmd.contains("_build/native/release/profile/main"),
         "record command missing profile output path: {record_cmd}"
     );
     assert!(
