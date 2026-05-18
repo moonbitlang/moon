@@ -153,6 +153,22 @@ pub(crate) enum MoonBuildSubcommands {
 }
 #[test]
 fn gen_docs_for_moon_help_page() {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let error_codes_dir = std::path::PathBuf::from(&manifest_dir)
+        .join("../../crates/moonutil/resources/error_codes/language/error_codes");
+    let has_error_code_docs = error_codes_dir
+        .read_dir()
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .any(|entry| entry.path().extension().is_some_and(|ext| ext == "md"));
+    assert!(
+        has_error_code_docs,
+        "missing MoonBit docs submodule at {}. Run `git submodule update --init --recursive` before running tests or promoting snapshots.",
+        error_codes_dir.display()
+    );
+
     let markdown: String = clap_markdown::help_markdown::<MoonBuildSubcommands>();
     let markdown = markdown.replace("Default value: `zsh`", "Default value: `<your shell>`");
     let markdown = markdown.replace("Default value: `bash`", "Default value: `<your shell>`");
@@ -181,7 +197,6 @@ fn gen_docs_for_moon_help_page() {
         }
     }
     let markdown = lines.join("\n");
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let file_path =
         std::path::PathBuf::from(&manifest_dir).join("../../docs/manual-zh/src/commands.md");
     expect_test::expect_file!(file_path).assert_eq(&markdown);

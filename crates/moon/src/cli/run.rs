@@ -45,8 +45,8 @@ pub(crate) struct RunSubcommand {
 
     /// Run `.mbtx` source passed in as a string
     #[clap(
-        short = 'c',
-        short_alias = 'e',
+        short = 'e',
+        short_alias = 'c',
         value_name = "SCRIPT",
         group = "run_source"
     )]
@@ -154,7 +154,7 @@ fn run_inline_source_as_single_file(
     let source = cmd
         .command
         .clone()
-        .expect("inline script should be present when `moon run -c` is selected");
+        .expect("inline script should be present when `moon run -e` is selected");
 
     run_source_as_single_file(cli, cmd, source, "command.mbtx", "command")
 }
