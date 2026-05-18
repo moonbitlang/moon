@@ -208,6 +208,7 @@ complete -c moon -n "__fish_moon_using_subcommand run" -l output-json -d 'Output
 complete -c moon -n "__fish_moon_using_subcommand run" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand run" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
 complete -c moon -n "__fish_moon_using_subcommand run" -l build-only -d 'Only build, do not run the code'
+complete -c moon -n "__fish_moon_using_subcommand run" -l profile -d 'Profile the native executable using Time Profiler on macOS'
 complete -c moon -n "__fish_moon_using_subcommand run" -s q -l quiet -d 'Suppress output'
 complete -c moon -n "__fish_moon_using_subcommand run" -s v -l verbose -d 'Increase verbosity'
 complete -c moon -n "__fish_moon_using_subcommand run" -l trace -d 'Trace the execution of the program'

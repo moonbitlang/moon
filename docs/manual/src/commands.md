@@ -244,6 +244,7 @@ Run a main package
 
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
+* `--profile` — Profile the native executable using Time Profiler on macOS
 
 
 

@@ -235,7 +235,8 @@ _arguments "${_arguments_options[@]}" : \
 '(--no-render)--output-json[Output diagnostics in JSON format]' \
 '--enable-value-tracing[Enable value tracing]' \
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' \
-'--build-only[Only build, do not run the code]' \
+'(--profile)--build-only[Only build, do not run the code]' \
+'--profile[Profile the native executable using Time Profiler on macOS]' \
 '-q[Suppress output]' \
 '--quiet[Suppress output]' \
 '-v[Increase verbosity]' \

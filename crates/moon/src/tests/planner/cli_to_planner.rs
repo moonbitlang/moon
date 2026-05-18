@@ -80,6 +80,7 @@ fn command_string_run_parses_as_expected() {
                     frozen: false,
                 },
                 build_only: false,
+                profile: false,
             },
         )
     "#]]
