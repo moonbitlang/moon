@@ -142,7 +142,11 @@ fn run_profile_materialized(
         cli,
         &run_cmd,
         BuildRunExecutableOptions {
+            // Profiling needs a stable executable path for xctrace to launch.
+            // The TCC fast path may run directly from generated C instead.
             try_tcc_run: false,
+            // The dry-run output should show the profiled invocation, not the
+            // plain executable command that `moon run` would normally print.
             print_dry_run_run_command: false,
         },
     )?;
@@ -223,6 +227,8 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     {
         bail!("`moon run --profile` currently supports only `--target native`");
     }
+    // Time Profiler records a native process. Build release-with-symbols by
+    // default so samples are useful without requiring extra flags from users.
     build_flags.target = vec![SurfaceTarget::Native];
     if !build_flags.debug && !build_flags.release {
         build_flags.release = true;
@@ -380,6 +386,8 @@ fn xctrace_export_command(trace_path: &Path, xml_path: &Path) -> Command {
     cmd.arg(trace_path);
     cmd.args([
         "--xpath",
+        // Export only Time Profiler samples; the full trace export is much
+        // larger and contains many unrelated tables.
         "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"time-profile\"]",
         "--output",
     ]);
@@ -420,6 +428,9 @@ fn parse_xctrace_time_profile(path: &Path) -> anyhow::Result<ParsedProfile> {
 }
 
 fn parse_xctrace_time_profile_xml(xml: &str) -> ParsedProfile {
+    // xctrace repeats common values by reference, for example
+    // `<thread-state ref="..."/>` and `<stack ref="..."/>`. Keep a small
+    // cache of previously seen values while walking rows in export order.
     let mut states: HashMap<String, String> = HashMap::new();
     let mut weights: HashMap<String, f64> = HashMap::new();
     let mut frames: HashMap<String, String> = HashMap::new();
@@ -550,6 +561,8 @@ fn parse_or_resolve_stack(
     frames: &mut HashMap<String, String>,
     stacks: &mut HashMap<String, Vec<String>>,
 ) -> Option<Vec<String>> {
+    // Different Xcode versions/export shapes expose the backtrace column under
+    // different tags, even though the schema mnemonic is usually `stack`.
     let stack_tag = first_tag(row, "stack")
         .or_else(|| first_tag(row, "tagged-backtrace"))
         .or_else(|| first_tag(row, "backtrace"))?;
