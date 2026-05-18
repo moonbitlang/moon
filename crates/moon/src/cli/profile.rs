@@ -70,12 +70,17 @@ struct ParsedProfile {
     inclusive_ms: HashMap<String, f64>,
 }
 
-pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    if !cfg!(target_os = "macos") {
-        bail!("`moon run --profile` currently supports macOS only");
-    }
+pub(crate) struct ProfileRequest {
+    /// Native executable that xctrace should launch.
+    pub(crate) executable: PathBuf,
+    /// Arguments passed after the executable in the profiled invocation.
+    pub(crate) args: Vec<String>,
+    /// Directory where the trace, exported XML, and moon reports are written.
+    pub(crate) output_dir: PathBuf,
+}
 
-    ensure_xctrace_available()?;
+pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+    ensure_profile_available("`moon run --profile`")?;
 
     if cmd.command.is_some() {
         bail!("`moon run --profile` does not support inline `-e` source");
@@ -111,9 +116,28 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
         &built.target_dir,
         built.target_backend,
         built.opt_level,
+        RunMode::Run,
         &built.executable,
     );
+    if !cli.dry_run {
+        built.release_lock();
+    }
+    let request = ProfileRequest {
+        executable: built.executable,
+        args: cmd.args,
+        output_dir,
+    };
 
+    profile_executable(cli, request)?;
+    Ok(0)
+}
+
+/// Record, export, parse, and report one already-built executable.
+pub(crate) fn profile_executable(
+    cli: &UniversalFlags,
+    request: ProfileRequest,
+) -> anyhow::Result<()> {
+    let output_dir = request.output_dir;
     let trace_path = output_dir.join("profile.trace");
     let xml_path = output_dir.join("time-profile.xml");
     let report_path = output_dir.join("report.txt");
@@ -121,12 +145,15 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
     let stdout_path = output_dir.join("stdout.txt");
 
     if cli.dry_run {
-        print_xctrace_record_command(&trace_path, &stdout_path, &built.executable, &cmd.args);
+        print_xctrace_record_command(
+            &trace_path,
+            &stdout_path,
+            &request.executable,
+            &request.args,
+        );
         print_xctrace_export_command(&trace_path, &xml_path);
-        return Ok(0);
+        return Ok(());
     }
-
-    built.release_lock();
 
     std::fs::create_dir_all(&output_dir).with_context(|| {
         format!(
@@ -142,13 +169,18 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
         );
     }
 
-    run_xctrace_record(&trace_path, &stdout_path, &built.executable, &cmd.args)?;
+    run_xctrace_record(
+        &trace_path,
+        &stdout_path,
+        &request.executable,
+        &request.args,
+    )?;
     run_xctrace_export(&trace_path, &xml_path)?;
 
     let parsed = parse_xctrace_time_profile(&xml_path)?;
     let report = build_report(
         parsed,
-        built.executable,
+        request.executable,
         trace_path,
         xml_path,
         stdout_path,
@@ -161,7 +193,7 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
     std::fs::write(&json_path, serde_json::to_string_pretty(&report)?)
         .with_context(|| format!("failed to write profile json `{}`", json_path.display()))?;
 
-    Ok(0)
+    Ok(())
 }
 
 fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
@@ -208,10 +240,12 @@ fn sanitize_path_component(input: &str) -> String {
     }
 }
 
-fn default_output_dir(
+/// Place profile output beside the canonical artifact layout for the run mode.
+pub(crate) fn default_output_dir(
     target_dir: &Path,
     target_backend: RunBackend,
     opt_level: OptLevel,
+    artifact_run_mode: RunMode,
     executable: &Path,
 ) -> PathBuf {
     let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
@@ -219,7 +253,7 @@ fn default_output_dir(
         target_dir,
         target_backend,
         opt_level,
-        RunMode::Run.to_dir_name(),
+        artifact_run_mode.to_dir_name(),
     );
     let mut profile_dir = output_kind_dir(target_dir, target_backend, opt_level, "profile");
 
@@ -266,7 +300,15 @@ fn strip_current_dir(path: &Path) -> &Path {
     path.strip_prefix(".").unwrap_or(path)
 }
 
-fn ensure_xctrace_available() -> anyhow::Result<()> {
+pub(crate) fn ensure_profile_available(command_name: &str) -> anyhow::Result<()> {
+    if !cfg!(target_os = "macos") {
+        bail!("{command_name} currently supports macOS only");
+    }
+
+    ensure_xctrace_available(command_name)
+}
+
+fn ensure_xctrace_available(command_name: &str) -> anyhow::Result<()> {
     let output = Command::new("xcrun")
         .args(["xctrace", "version"])
         .output()
@@ -277,7 +319,7 @@ fn ensure_xctrace_available() -> anyhow::Result<()> {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     bail!(
-        "`moon run --profile` on macOS requires `xcrun xctrace`.\n\n\
+        "{command_name} on macOS requires `xcrun xctrace`.\n\n\
          xctrace failed with:\n{}\n\
          Try:\n  xcode-select --install\n\n\
          If xctrace reports an Xcode license error:\n  sudo xcodebuild -license accept",
@@ -707,7 +749,7 @@ mod tests {
     use std::path::Path;
 
     use moonbuild_rupes_recta::model::RunBackend;
-    use moonutil::cond_expr::OptLevel;
+    use moonutil::{common::RunMode, cond_expr::OptLevel};
 
     use super::{default_output_dir, parse_xctrace_time_profile_xml, sanitize_path_component};
 
@@ -766,6 +808,7 @@ mod tests {
             Path::new("./_build"),
             RunBackend::Native,
             OptLevel::Release,
+            RunMode::Run,
             Path::new("./_build/native/release/build/cmd/main/main.exe"),
         );
 
