@@ -221,6 +221,43 @@ fn resolve_run_start_dir(input: &str) -> anyhow::Result<std::path::PathBuf> {
     }
 }
 
+fn build_wasm_file_executable_from_arg(
+    cli: &UniversalFlags,
+    cmd: &RunSubcommand,
+) -> anyhow::Result<RunExecutable> {
+    let input = cmd
+        .package_or_mbt_file
+        .as_deref()
+        .expect("wasm run from arg requires a positional input path");
+    let wasm_path =
+        dunce::canonicalize(input).with_context(|| format!("failed to resolve path `{input}`"))?;
+    if !wasm_path.is_file() {
+        bail!("`{}` is not a file", input);
+    }
+
+    let print_dir = std::env::current_dir().context("failed to get current directory")?;
+    if cli.dry_run {
+        let mut run_cmd = crate::run::command_for(
+            moonbuild_rupes_recta::model::RunBackend::WasmGC,
+            &wasm_path,
+            None,
+        );
+        run_cmd.args(&cmd.args);
+        rr_build::dry_print_command(run_cmd.as_std(), &print_dir, false);
+    }
+
+    Ok(RunExecutable {
+        executable: wasm_path,
+        target_backend: moonbuild_rupes_recta::model::RunBackend::WasmGC,
+        opt_level: moonutil::cond_expr::OptLevel::Debug,
+        target_dir: print_dir.clone(),
+        source_dir: print_dir,
+        build_exit_code: (!cli.dry_run).then_some(0),
+        force_success_exit: false,
+        lock: None,
+    })
+}
+
 #[instrument(skip_all)]
 pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     reject_manifest_path_for_run(cli)?;
@@ -237,7 +274,16 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
         return run_stdin_source_as_single_file(cli, cmd);
     }
 
-    let executable = build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli))?;
+    let executable = if cmd.package_or_mbt_file.as_deref().is_some_and(|input| {
+        Path::new(input)
+            .extension()
+            .is_some_and(|ext| ext == "wasm")
+            && std::fs::metadata(input).is_ok_and(|metadata| metadata.is_file())
+    }) {
+        build_wasm_file_executable_from_arg(cli, &cmd)?
+    } else {
+        build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli))?
+    };
     let result = run_executable(cli, &cmd, executable);
     if crate::run::shutdown_requested() {
         return Ok(130);
@@ -259,6 +305,13 @@ pub(crate) fn build_run_executable(
         .package_or_mbt_file
         .as_deref()
         .expect("run executable source should be materialized before building");
+    if Path::new(input)
+        .extension()
+        .is_some_and(|extension| extension == "wasm")
+        && std::fs::metadata(input).is_ok_and(|metadata| metadata.is_file())
+    {
+        return build_wasm_file_executable_from_arg(cli, cmd);
+    }
     let is_mbt = input.ends_with(".mbt");
     let is_mbtx = input.ends_with(".mbtx");
     let run_start_dir = resolve_run_start_dir(input)?;
