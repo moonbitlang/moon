@@ -24,7 +24,7 @@ mod runtime;
 
 pub(crate) use child::run;
 pub(crate) use runtest::{
-    PackageFilter, TestFilter, TestIndex, TestOutlineEntry, build_test_args_for_target,
+    PackageFilter, TestFilter, TestIndex, TestOutlineEntry, collect_test_invocations,
     collect_test_outline, perform_promotion, run_tests,
 };
 pub(crate) use runtime::command_for;

@@ -1444,43 +1444,20 @@ fn rr_test_from_plan(
     filter: TestFilter,
     build_only_artifacts: Option<&mut TestArtifacts>,
 ) -> Result<i32, anyhow::Error> {
-    // Dry-run: share the same routine
-    if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
-        // The legacy behavior does not print the test commands, so we skip it too.
-        return Ok(0);
-    }
-
-    let _lock = FileLock::lock(target_dir)?;
-    // Generate the all_pkgs.json for indirect dependency resolution
-    // before executing the build
-    rr_build::generate_all_pkgs_json(target_dir, build_meta, cmd.run_mode)?;
-
     let user_diagnostics = UserDiagnostics::from_flags(cli);
-    let build_config = BuildConfig::from_flags(
-        cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
+    let built = match execute_test_build_from_plan(
+        cli,
+        cmd,
+        source_dir,
+        target_dir,
+        build_meta,
+        build_graph,
         user_diagnostics,
-    );
-
-    // since n2 build consumes the graph, we back it up for reruns
-    let build_graph_backup = cmd.update.then(|| build_graph.clone());
-    let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
-    debug!(
-        success = result.successful(),
-        exit_code = result.return_code_for_success(),
-        "executed rupes-recta build"
-    );
-
-    if !result.successful() {
-        return Ok(result.return_code_for_success());
-    }
+    )? {
+        TestBuildExecution::DryRun => return Ok(0),
+        TestBuildExecution::BuildFailed(exit_code) => return Ok(exit_code),
+        TestBuildExecution::Built(built) => built,
+    };
 
     if cmd.outline {
         let entries = collect_test_outline(
@@ -1560,7 +1537,8 @@ fn rr_test_from_plan(
             loop_count += 1;
 
             // Get the graph from backup
-            let build_graph = build_graph_backup
+            let build_graph = built
+                .build_graph_backup
                 .as_ref()
                 .cloned()
                 .expect("build graph backup should be present when update is true");
@@ -1583,7 +1561,7 @@ fn rr_test_from_plan(
 
             // Run the build
             let result = rr_build::execute_build_partial(
-                &build_config,
+                &built.build_config,
                 build_graph,
                 target_dir,
                 Box::new(|work| {
@@ -1644,6 +1622,73 @@ fn rr_test_from_plan(
     }
 }
 
+struct BuiltTestExecution {
+    _lock: FileLock,
+    build_config: BuildConfig,
+    build_graph_backup: Option<rr_build::BuildInput>,
+}
+
+enum TestBuildExecution {
+    DryRun,
+    BuildFailed(i32),
+    Built(BuiltTestExecution),
+}
+
+#[allow(clippy::too_many_arguments)]
+fn execute_test_build_from_plan(
+    cli: &UniversalFlags,
+    cmd: &TestLikeSubcommand<'_>,
+    source_dir: &Path,
+    target_dir: &Path,
+    build_meta: &rr_build::BuildMeta,
+    build_graph: rr_build::BuildInput,
+    user_diagnostics: UserDiagnostics,
+) -> Result<TestBuildExecution, anyhow::Error> {
+    if cli.dry_run {
+        rr_build::print_dry_run(
+            &build_graph,
+            build_meta.artifacts.values(),
+            source_dir,
+            target_dir,
+        );
+        // The legacy behavior does not print the test commands, so we skip it too.
+        return Ok(TestBuildExecution::DryRun);
+    }
+
+    let lock = FileLock::lock(target_dir)?;
+    // Generate the all_pkgs.json for indirect dependency resolution
+    // before executing the build
+    rr_build::generate_all_pkgs_json(target_dir, build_meta, cmd.run_mode)?;
+
+    let build_config = BuildConfig::from_flags(
+        cmd.build_flags,
+        &cli.unstable_feature,
+        cli.verbose,
+        user_diagnostics,
+    );
+
+    // since n2 build consumes the graph, we back it up for reruns
+    let build_graph_backup = cmd.update.then(|| build_graph.clone());
+    let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
+    debug!(
+        success = result.successful(),
+        exit_code = result.return_code_for_success(),
+        "executed rupes-recta build"
+    );
+
+    if !result.successful() {
+        return Ok(TestBuildExecution::BuildFailed(
+            result.return_code_for_success(),
+        ));
+    }
+
+    Ok(TestBuildExecution::Built(BuiltTestExecution {
+        _lock: lock,
+        build_config,
+        build_graph_backup,
+    }))
+}
+
 /// Collect test artifacts for --build-only mode, matching legacy behavior.
 /// For JS backend, creates .cjs wrapper files and returns those paths.
 /// For other backends, returns the executable paths directly.
@@ -1656,71 +1701,28 @@ fn collect_test_artifacts_for_build_only(
     bench: bool,
 ) -> anyhow::Result<TestArtifacts> {
     use moonbuild_rupes_recta::model::RunBackend;
-    use moonutil::common::MooncGenTestInfo;
 
     let mut artifacts_path = vec![];
     let mut test_filter_args = vec![];
 
-    // Gather test executables (only MakeExecutable nodes)
-    for (node, node_artifacts) in &build_meta.artifacts {
-        if !matches!(node, BuildPlanNode::MakeExecutable(_)) {
-            continue;
-        }
-
-        let target = node
-            .extract_target()
-            .expect("MakeExecutable should have a build target");
-
-        // Find the corresponding GenerateTestInfo node to check if there are actual tests
-        let meta_node = BuildPlanNode::GenerateTestInfo(target);
-        let meta_artifacts = match build_meta.artifacts.get(&meta_node) {
-            Some(a) => a,
-            None => continue,
-        };
-
-        // Read test info to check if there are actual tests
-        let meta_path = &meta_artifacts.artifacts[1]; // Second artifact is the JSON
-        let meta_file = match std::fs::File::open(meta_path) {
-            Ok(f) => f,
-            Err(_) => continue,
-        };
-        let meta: MooncGenTestInfo = match serde_json_lenient::from_reader(meta_file) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        // Skip if no tests exist (legacy behavior)
-        if meta.no_args_tests.values().all(|v| v.is_empty()) {
-            continue;
-        }
-
-        let executable_path = &node_artifacts.artifacts[0];
-
+    for invocation in
+        crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
+    {
         // For JS backend, create .cjs wrapper file (matching legacy behavior)
         if matches!(build_meta.target_backend, RunBackend::Js) {
             // Write package.json to prevent node from using outer "type": "module"
             let _ = std::fs::write(target_dir.join("package.json"), "{}");
-            if let Some(parent) = executable_path.parent() {
+            if let Some(parent) = invocation.executable.parent() {
                 let _ = std::fs::write(parent.join("package.json"), "{}");
             }
 
-            let Some(test_args) = crate::run::build_test_args_for_target(
-                build_meta,
-                filter,
-                target,
-                &meta,
-                include_skipped,
-                bench,
-            ) else {
-                continue;
-            };
-            let filter_arg = serde_json::to_string(&test_args)
+            let filter_arg = serde_json::to_string(&invocation.args)
                 .context("failed to serialize JS test filter args")?;
 
-            artifacts_path.push(executable_path.clone());
+            artifacts_path.push(invocation.executable);
             test_filter_args.push(filter_arg);
         } else {
-            artifacts_path.push(executable_path.clone());
+            artifacts_path.push(invocation.executable);
         }
     }
 
