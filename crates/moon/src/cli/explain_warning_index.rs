@@ -262,11 +262,6 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         id: 46,
     },
     WarningEntry {
-        mnemonic: "invalid_mbti",
-        description: "Invalid mbti file",
-        id: 47,
-    },
-    WarningEntry {
         mnemonic: "missing_definition",
         description: "Unused pub definition because it does not exist in mbti file.",
         id: 49,
