@@ -19,7 +19,6 @@
 use std::{
     collections::HashMap,
     ffi::OsStr,
-    io::Read,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -27,12 +26,14 @@ use std::{
 use anyhow::{Context, bail};
 use chrono::Local;
 use moonbuild_rupes_recta::model::RunBackend;
-use moonutil::common::{SurfaceTarget, TargetBackend};
+use moonutil::{
+    common::{RunMode, SurfaceTarget, TargetBackend},
+    cond_expr::OptLevel,
+};
 use serde::Serialize;
 
 use super::{RunSubcommand, UniversalFlags};
 use crate::cli::run::{BuildRunExecutableOptions, build_run_executable};
-use moonutil::dirs::ProjectProbe;
 
 const DEFAULT_TOP: usize = 12;
 
@@ -77,66 +78,16 @@ pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyh
     ensure_xctrace_available()?;
 
     if cmd.command.is_some() {
-        return profile_inline_source(cli, cmd);
+        bail!("`moon run --profile` does not support inline `-c` source");
     }
     if cmd.package_or_mbt_file.as_deref() == Some("-") {
-        return profile_stdin_source(cli, cmd);
+        bail!("`moon run --profile` does not support stdin source");
     }
 
-    run_profile_materialized(cli, cmd, None)
+    run_profile_materialized(cli, cmd)
 }
 
-fn profile_stdin_source(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    let mut source = String::new();
-    std::io::stdin()
-        .read_to_string(&mut source)
-        .context("failed to read `.mbtx` source from stdin")?;
-    profile_source_as_single_file(cli, cmd, source, "stdin.mbtx", "stdin")
-}
-
-fn profile_inline_source(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    let source = cmd
-        .command
-        .clone()
-        .expect("inline script should be present when `moon run -c --profile` is selected");
-    profile_source_as_single_file(cli, cmd, source, "command.mbtx", "command")
-}
-
-fn profile_source_as_single_file(
-    cli: &UniversalFlags,
-    cmd: RunSubcommand,
-    source: String,
-    temp_name: &str,
-    source_name: &str,
-) -> anyhow::Result<i32> {
-    let temp_dir = tempfile::TempDir::new().with_context(|| {
-        format!("failed to create temporary directory for {source_name} profile")
-    })?;
-    let input_path = temp_dir.path().join(temp_name);
-    std::fs::write(&input_path, source).with_context(|| {
-        format!(
-            "failed to write temporary {source_name} source file: {}",
-            input_path.display()
-        )
-    })?;
-
-    let cmd = RunSubcommand {
-        package_or_mbt_file: Some(input_path.to_string_lossy().into_owned()),
-        command: None,
-        ..cmd
-    };
-    let output_target_dir = profile_target_dir_from_cwd(cli)?;
-    let result = run_profile_materialized(cli, cmd, Some(output_target_dir));
-    drop(temp_dir);
-    result
-}
-
-fn run_profile_materialized(
-    cli: &UniversalFlags,
-    cmd: RunSubcommand,
-    output_target_dir: Option<PathBuf>,
-) -> anyhow::Result<i32> {
-    let source_label = profile_label(&cmd);
+fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     let run_cmd = profile_run_subcommand(cmd.clone())?;
     let mut built = build_run_executable(
         cli,
@@ -156,8 +107,12 @@ fn run_profile_materialized(
         bail!("`moon run --profile` currently supports only the native backend");
     }
 
-    let output_target_dir = output_target_dir.unwrap_or_else(|| built.target_dir.clone());
-    let output_dir = default_output_dir(&output_target_dir, built.opt_level, &source_label);
+    let output_dir = default_output_dir(
+        &built.target_dir,
+        built.target_backend,
+        built.opt_level,
+        &built.executable,
+    );
 
     let trace_path = output_dir.join("profile.trace");
     let xml_path = output_dir.join("time-profile.xml");
@@ -209,17 +164,6 @@ fn run_profile_materialized(
     Ok(0)
 }
 
-fn profile_target_dir_from_cwd(cli: &UniversalFlags) -> anyhow::Result<PathBuf> {
-    let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    match query.probe_project()? {
-        ProjectProbe::Found(_) => Ok(query.package_dirs()?.target_dir),
-        ProjectProbe::NotFound(_) => {
-            let cwd = std::env::current_dir().context("failed to get current directory")?;
-            Ok(cli.source_tgt_dir.source_root_package_dirs(cwd)?.target_dir)
-        }
-    }
-}
-
 fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     let mut build_flags = cmd.build_flags;
     if !build_flags.target.is_empty()
@@ -248,24 +192,6 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     })
 }
 
-fn profile_label(cmd: &RunSubcommand) -> String {
-    let raw = if cmd.command.is_some() {
-        "command".to_string()
-    } else {
-        cmd.package_or_mbt_file
-            .as_deref()
-            .map(|s| {
-                Path::new(s)
-                    .file_stem()
-                    .and_then(OsStr::to_str)
-                    .unwrap_or(s)
-                    .to_string()
-            })
-            .unwrap_or_else(|| "stdin".to_string())
-    };
-    sanitize_path_component(&raw)
-}
-
 fn sanitize_path_component(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for c in input.chars() {
@@ -284,18 +210,60 @@ fn sanitize_path_component(input: &str) -> String {
 
 fn default_output_dir(
     target_dir: &Path,
-    opt_level: moonutil::cond_expr::OptLevel,
-    label: &str,
+    target_backend: RunBackend,
+    opt_level: OptLevel,
+    executable: &Path,
 ) -> PathBuf {
     let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let build_root = output_kind_dir(
+        target_dir,
+        target_backend,
+        opt_level,
+        RunMode::Run.to_dir_name(),
+    );
+    let mut profile_dir = output_kind_dir(target_dir, target_backend, opt_level, "profile");
+
+    let executable_dir = executable.parent().unwrap_or(executable);
+    if let Some(package_dir) = strip_prefix_lenient(executable_dir, &build_root)
+        && !package_dir.as_os_str().is_empty()
+    {
+        profile_dir.push(package_dir);
+    } else {
+        let stem = executable
+            .file_stem()
+            .and_then(OsStr::to_str)
+            .unwrap_or("profile");
+        profile_dir.push(sanitize_path_component(stem));
+    }
+    profile_dir.join(timestamp)
+}
+
+fn output_kind_dir(
+    target_dir: &Path,
+    target_backend: RunBackend,
+    opt_level: OptLevel,
+    kind: &str,
+) -> PathBuf {
     let profile = match opt_level {
-        moonutil::cond_expr::OptLevel::Debug => "debug",
-        moonutil::cond_expr::OptLevel::Release => "release",
+        OptLevel::Debug => "debug",
+        OptLevel::Release => "release",
     };
     target_dir
-        .join("profile")
-        .join(label)
-        .join(format!("{profile}-{timestamp}"))
+        .join(target_backend.to_target().to_dir_name())
+        .join(profile)
+        .join(kind)
+}
+
+fn strip_prefix_lenient<'a>(path: &'a Path, prefix: &Path) -> Option<&'a Path> {
+    path.strip_prefix(prefix).ok().or_else(|| {
+        strip_current_dir(path)
+            .strip_prefix(strip_current_dir(prefix))
+            .ok()
+    })
+}
+
+fn strip_current_dir(path: &Path) -> &Path {
+    path.strip_prefix(".").unwrap_or(path)
 }
 
 fn ensure_xctrace_available() -> anyhow::Result<()> {
@@ -736,7 +704,12 @@ fn render_entries(out: &mut String, entries: &[ProfileEntry]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_xctrace_time_profile_xml, sanitize_path_component};
+    use std::path::Path;
+
+    use moonbuild_rupes_recta::model::RunBackend;
+    use moonutil::cond_expr::OptLevel;
+
+    use super::{default_output_dir, parse_xctrace_time_profile_xml, sanitize_path_component};
 
     #[test]
     fn parses_referenced_xctrace_stack_rows() {
@@ -785,5 +758,17 @@ mod tests {
         assert_eq!(sanitize_path_component(".."), "profile");
         assert_eq!(sanitize_path_component("..."), "profile");
         assert_eq!(sanitize_path_component("foo.bar"), "foo.bar");
+    }
+
+    #[test]
+    fn profile_output_reuses_run_artifact_package_dir() {
+        let dir = default_output_dir(
+            Path::new("./_build"),
+            RunBackend::Native,
+            OptLevel::Release,
+            Path::new("./_build/native/release/build/cmd/main/main.exe"),
+        );
+
+        assert!(dir.starts_with("./_build/native/release/profile/cmd/main"));
     }
 }
