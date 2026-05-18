@@ -488,25 +488,15 @@ fn test_moon_run_dash_reads_stdin() {
 }
 
 #[test]
-fn test_moon_run_command_string_reads_inline_script() {
+fn test_moon_run_help_displays_inline_script_as_e() {
     let dir = TestDir::new_empty();
-    snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .arg("run")
-        .arg("-c")
-        .arg(
-            r#"fn main {
-  println("hello from run -c")
-}
-"#,
-        )
-        .assert()
-        .success()
-        .stdout_eq("hello from run -c\n");
+    let stdout = get_stdout(&dir, ["help", "run"]).replace("moon.exe", "moon");
+    assert!(stdout.contains("-e <SCRIPT>"), "stdout: {stdout}");
+    assert!(!stdout.contains("-c <SCRIPT>"), "stdout: {stdout}");
 }
 
 #[test]
-fn test_moon_run_command_string_short_alias_e_reads_inline_script() {
+fn test_moon_run_command_string_reads_inline_script() {
     let dir = TestDir::new_empty();
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
@@ -524,13 +514,31 @@ fn test_moon_run_command_string_short_alias_e_reads_inline_script() {
 }
 
 #[test]
+fn test_moon_run_command_string_short_alias_c_reads_inline_script() {
+    let dir = TestDir::new_empty();
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("run")
+        .arg("-c")
+        .arg(
+            r#"fn main {
+  println("hello from run -c")
+}
+"#,
+        )
+        .assert()
+        .success()
+        .stdout_eq("hello from run -c\n");
+}
+
+#[test]
 fn test_moon_run_command_string_conflicts_with_other_inputs() {
     let dir = TestDir::new_empty();
 
     let dash_stderr = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .arg("run")
-        .arg("-c")
+        .arg("-e")
         .arg(r#"fn main { println("hello") }"#)
         .arg("-")
         .assert()
@@ -540,12 +548,12 @@ fn test_moon_run_command_string_conflicts_with_other_inputs() {
         .to_owned();
     let dash_stderr = String::from_utf8_lossy(&dash_stderr);
     assert!(dash_stderr.contains("cannot be used with"));
-    assert!(dash_stderr.contains("-c"));
+    assert!(dash_stderr.contains("-e"));
 
     let path_stderr = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
         .arg("run")
-        .arg("-c")
+        .arg("-e")
         .arg(r#"fn main { println("hello") }"#)
         .arg("main")
         .assert()
@@ -555,7 +563,7 @@ fn test_moon_run_command_string_conflicts_with_other_inputs() {
         .to_owned();
     let path_stderr = String::from_utf8_lossy(&path_stderr);
     assert!(path_stderr.contains("cannot be used with"));
-    assert!(path_stderr.contains("-c"));
+    assert!(path_stderr.contains("-e"));
 }
 
 #[test]

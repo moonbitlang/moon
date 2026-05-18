@@ -78,7 +78,7 @@ pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyh
     ensure_xctrace_available()?;
 
     if cmd.command.is_some() {
-        bail!("`moon run --profile` does not support inline `-c` source");
+        bail!("`moon run --profile` does not support inline `-e` source");
     }
     if cmd.package_or_mbt_file.as_deref() == Some("-") {
         bail!("`moon run --profile` does not support stdin source");

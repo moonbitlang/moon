@@ -20,6 +20,10 @@ If you are working from mainland China, using the `.cn` domain may result in a s
 ## Other tools
 
 - The latest stable Rust toolchain is required.
+- Initialize and update Git submodules before developing or promoting snapshots:
+  `git submodule update --init --recursive`. Do not update snapshots while
+  submodules are missing or out of date, because generated test output may
+  differ from CI.
 - To insert license headers, you can run `cargo {install, binstall -y} hawkeye` and then `hawkeye format`.
 - Some maintainers use `jujutsu` to manage the repository. Check the local environment before choosing the tool to commit.
 
