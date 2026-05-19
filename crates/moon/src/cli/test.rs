@@ -409,46 +409,45 @@ fn run_test_in_single_file_rr(
     // Enable tcc-run to match legacy debug test graph shape
     preconfig.try_tcc_run = true;
 
-    // Plan build: single UserIntent::Test for synthesized package; apply file/index filters
-    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolved,
+    )?;
+    let pkg = rr_build::local_packages(&resolved)
+        .next()
+        .expect("Single-file project must synthesize exactly one package");
+
+    let test_index = if let Some(index) = cmd.index {
+        Some(TestIndex::Regular(index))
+    } else if let Some(id) = cmd.doc_index {
+        Some(TestIndex::DocTest(TestIndexRange::from_single(id)?))
+    } else {
+        None
+    };
+    let filename = single_file_path
+        .file_name()
+        .expect("single file path should have a filename")
+        .to_string_lossy();
+    filter.add_autodetermine_target(pkg, Some(&filename), test_index);
+
+    let trace_pkg = if cmd.build_flags.enable_value_tracing {
+        Some(pkg)
+    } else {
+        None
+    };
+    let directive = rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
+    let intent = (vec![UserIntent::Test(pkg)], directive).into();
+    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
-        UserDiagnostics::from_flags(cli),
-        Box::new(|r, _tb| {
-            let m_packages = r
-                .pkg_dirs
-                .packages_for_module(r.local_modules()[0])
-                .expect("Local module must exist");
-            let pkg = *m_packages
-                .iter()
-                .next()
-                .expect("Single-file project must synthesize exactly one package")
-                .1;
-
-            let test_index = if let Some(index) = cmd.index {
-                Some(TestIndex::Regular(index))
-            } else if let Some(id) = cmd.doc_index {
-                Some(TestIndex::DocTest(TestIndexRange::from_single(id)?))
-            } else {
-                None
-            };
-            let filename = single_file_path
-                .file_name()
-                .expect("single file path should have a filename")
-                .to_string_lossy();
-            filter.add_autodetermine_target(pkg, Some(&filename), test_index);
-
-            let trace_pkg = if cmd.build_flags.enable_value_tracing {
-                Some(pkg)
-            } else {
-                None
-            };
-            let directive =
-                rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
-
-            Ok((vec![UserIntent::Test(pkg)], directive).into())
-        }),
+        output,
+        planning_context,
+        intent,
         resolved,
     )?;
 
@@ -572,20 +571,28 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         name_filter: cmd.filter.clone(),
         ..Default::default()
     };
-    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    let intent = calc_user_intent(
+        &resolve_output,
+        cmd,
+        &mut filter,
+        planning_context.target_backend(),
+        output,
+    )?;
+    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
-        UserDiagnostics::from_flags(cli),
-        Box::new(|resolved, target_backend| {
-            calc_user_intent(
-                resolved,
-                cmd,
-                &mut filter,
-                target_backend,
-                UserDiagnostics::from_flags(cli),
-            )
-        }),
+        output,
+        planning_context,
+        intent,
         resolve_output,
     )?;
     Ok((build_meta, build_graph, filter))
@@ -687,25 +694,29 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         preconfig.try_tcc_run = true;
     }
 
-    let mut filter = TestFilter {
-        name_filter: cmd.filter.clone(),
-        ..Default::default()
-    };
-    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    debug_assert_eq!(planning_context.target_backend(), target_backend);
+    let resolved_intent = lower_resolved_scoped_test_selection(
+        &resolve_output,
+        cmd,
+        resolved_selection,
+        planning_context.target_backend(),
+    )?;
+    let filter = resolved_intent.filter;
+    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
-        UserDiagnostics::from_flags(cli),
-        Box::new(|resolved, target_backend| {
-            let resolved_intent = lower_resolved_scoped_test_selection(
-                resolved,
-                cmd,
-                resolved_selection,
-                target_backend,
-            )?;
-            filter = resolved_intent.filter;
-            Ok(resolved_intent.intent)
-        }),
+        output,
+        planning_context,
+        resolved_intent.intent,
         resolve_output,
     )?;
     Ok((build_meta, build_graph, filter))

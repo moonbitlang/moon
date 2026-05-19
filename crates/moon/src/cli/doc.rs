@@ -118,19 +118,29 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     );
     preconfig.docs_serve = cmd.serve;
 
-    let doc_source_dir_for_intent = doc_source_dir.clone();
-    let (build_meta, build_graph) = rr_build::plan_build(
+    let resolve_cfg = preconfig
+        .resolve_config()
+        .with_project_manifest_path(project_manifest_path.as_deref());
+    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+
+    let output = UserDiagnostics::from_flags(&cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        &target_dir,
+        output,
+        &resolve_output,
+    )?;
+    let module_id = selected_doc_module_id(&resolve_output, &doc_source_dir)?;
+    let intent = vec![UserIntent::Doc(module_id)].into();
+    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        &source_dir,
         &target_dir,
-        &mooncakes_dir,
-        UserDiagnostics::from_flags(&cli),
-        project_manifest_path.as_deref(),
-        Box::new(move |resolve_output, _| {
-            let module_id = selected_doc_module_id(resolve_output, &doc_source_dir_for_intent)?;
-            Ok(vec![UserIntent::Doc(module_id)].into())
-        }),
+        output,
+        planning_context,
+        intent,
+        resolve_output,
     )?;
 
     // Early exit for dry-run

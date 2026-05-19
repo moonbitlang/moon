@@ -27,7 +27,7 @@ use moonutil::{
 use std::path::Path;
 use tracing::instrument;
 
-use crate::rr_build::{self, BuildConfig};
+use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput};
 use crate::user_diagnostics::UserDiagnostics;
 
 use super::BuildFlags;
@@ -207,12 +207,22 @@ pub(crate) fn plan_bundle_rr_from_resolved(
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = bundle_preconfig(cli, cmd, target_dir, selected_target_backend);
-    rr_build::plan_build_from_resolved(
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    let intent = bundle_user_intent(&resolve_output);
+    rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
-        UserDiagnostics::from_flags(cli),
-        bundle_user_intent(),
+        output,
+        planning_context,
+        intent,
         resolve_output,
     )
 }
@@ -239,13 +249,13 @@ fn bundle_preconfig(
     preconfig
 }
 
-fn bundle_user_intent<'a>() -> Box<rr_build::CalcUserIntentFn<'a>> {
-    Box::new(|resolved, _target_backend| {
-        Ok(resolved
-            .local_modules()
-            .iter()
-            .map(|&module| UserIntent::Bundle(module))
-            .collect::<Vec<_>>()
-            .into())
-    })
+fn bundle_user_intent(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+) -> CalcUserIntentOutput {
+    resolve_output
+        .local_modules()
+        .iter()
+        .map(|&module| UserIntent::Bundle(module))
+        .collect::<Vec<_>>()
+        .into()
 }

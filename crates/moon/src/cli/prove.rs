@@ -147,23 +147,35 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
     let path_filter = cmd.path.as_deref();
     let prove_why3_config = why3_config_path.clone();
 
-    let (build_meta, build_graph) = rr_build::plan_build(
+    let resolve_cfg = preconfig
+        .resolve_config()
+        .with_project_manifest_path(project_manifest_path.as_deref());
+    let resolve_output =
+        moonbuild_rupes_recta::resolve(&resolve_cfg, &project_root, &mooncakes_dir)?;
+
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        &target_dir,
+        output,
+        &resolve_output,
+    )?;
+    let intent = calc_user_intent(
+        path_filter,
+        module_dir.as_deref(),
+        &resolve_output,
+        planning_context.target_backend(),
+        prove_why3_config.as_deref(),
+    )?;
+    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        &project_root,
         &target_dir,
-        &mooncakes_dir,
-        UserDiagnostics::from_flags(cli),
-        project_manifest_path.as_deref(),
-        Box::new(move |resolve_output, target_backend| {
-            calc_user_intent(
-                path_filter,
-                module_dir.as_deref(),
-                resolve_output,
-                target_backend,
-                prove_why3_config.as_deref(),
-            )
-        }),
+        output,
+        planning_context,
+        intent,
+        resolve_output,
     )?;
     let proof_reports = planned_proof_reports(&build_meta);
 
