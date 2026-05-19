@@ -60,7 +60,11 @@
 mod filter;
 mod promotion;
 
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Context;
 use indexmap::IndexMap;
@@ -140,9 +144,8 @@ pub(crate) fn run_tests(
     no_parallelize: bool,
     parallelism: Option<usize>,
 ) -> anyhow::Result<ReplaceableTestResults> {
-    // Gathering artifacts
-    let executables = gather_tests(build_meta);
-    debug!(count = executables.len(), "collected test executables");
+    let invocations = collect_test_invocations(build_meta, filter, include_skipped, bench)?;
+    debug!(count = invocations.len(), "collected test invocations");
 
     // Parallelism is opt-in: sequential by default, parallel only when -j is given
     let parallelism = if no_parallelize {
@@ -154,7 +157,7 @@ pub(crate) fn run_tests(
     let mut stats = ReplaceableTestResults::default();
     let mut total_cases = 0usize;
 
-    if parallelism <= 1 || executables.len() <= 1 {
+    if parallelism <= 1 || invocations.len() <= 1 {
         // Sequential execution
         let rt = default_rt().context("Failed to create runtime")?;
         let ctx = TestRunCtx {
@@ -162,13 +165,10 @@ pub(crate) fn run_tests(
             rt: &rt,
             source_dir,
             target_dir,
-            filter,
-            include_skipped,
-            bench,
             verbose,
         };
-        for r in executables {
-            debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
+        for r in invocations {
+            debug!(target = ?r.target, executable = %r.executable.display(), "running test invocation");
             let res = run_one_test_executable(&ctx, &r)?;
             let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
             trace!(target = ?r.target, cases = cases_for_target, "merging test results");
@@ -177,15 +177,15 @@ pub(crate) fn run_tests(
         }
     } else {
         // Parallel execution using OS threads (like n2)
-        let parallelism = parallelism.min(executables.len()).max(1);
+        let parallelism = parallelism.min(invocations.len()).max(1);
         debug!(
             parallelism,
-            executables = executables.len(),
-            "running test executables in parallel"
+            invocations = invocations.len(),
+            "running test invocations in parallel"
         );
 
         let work_queue: std::sync::Arc<std::sync::Mutex<std::slice::Iter<'_, _>>> =
-            std::sync::Arc::new(std::sync::Mutex::new(executables.iter()));
+            std::sync::Arc::new(std::sync::Mutex::new(invocations.iter()));
         let (result_tx, result_rx) = std::sync::mpsc::channel();
 
         std::thread::scope(|s| {
@@ -201,9 +201,6 @@ pub(crate) fn run_tests(
                         rt: &rt,
                         source_dir,
                         target_dir,
-                        filter,
-                        include_skipped,
-                        bench,
                         verbose,
                     };
 
@@ -214,7 +211,7 @@ pub(crate) fn run_tests(
                         };
                         let Some(r) = r else { break };
 
-                        debug!(target = ?r.target, executable = %r.executable.display(), "running test executable");
+                        debug!(target = ?r.target, executable = %r.executable.display(), "running test invocation");
                         let res = run_one_test_executable(&ctx, r);
                         let _ = result_tx.send((r.target, res));
                     }
@@ -250,6 +247,14 @@ struct TestExecutableToRun<'a> {
     meta: &'a Path,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct TestInvocation {
+    pub(crate) target: BuildTarget,
+    pub(crate) executable: PathBuf,
+    pub(crate) args: TestArgs,
+    meta: MooncGenTestInfo,
+}
+
 /// Context for running a single compiled test executable. This is for reducing
 /// the number of parameters shifted around.
 struct TestRunCtx<'a> {
@@ -261,12 +266,6 @@ struct TestRunCtx<'a> {
     source_dir: &'a Path,
     /// Target directory; coverage output destination
     target_dir: &'a Path,
-    /// Package/file/index selection
-    filter: &'a TestFilter,
-    /// Include tests marked as skipped
-    include_skipped: bool,
-    /// Include benchmark cases
-    bench: bool,
     /// Enable verbose printing
     verbose: bool,
 }
@@ -564,10 +563,58 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
     results
 }
 
+pub(crate) fn collect_test_invocations(
+    build_meta: &BuildMeta,
+    filter: &TestFilter,
+    include_skipped: bool,
+    bench: bool,
+) -> anyhow::Result<Vec<TestInvocation>> {
+    let mut invocations = Vec::new();
+    for test in gather_tests(build_meta) {
+        let meta_bytes = std::fs::read(test.meta)
+            .with_context(|| format!("Failed to read test metadata at {}", test.meta.display()))?;
+        let meta: MooncGenTestInfo = serde_json_lenient::from_slice(&meta_bytes)
+            .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
+        trace!(path = %test.meta.display(), "loaded test metadata");
+
+        let Some(args) = build_test_args_for_target(
+            build_meta,
+            filter,
+            test.target,
+            &meta,
+            include_skipped,
+            bench,
+        ) else {
+            debug!(target = ?test.target, "skipping test executable due to filter");
+            continue;
+        };
+        if args
+            .file_and_index
+            .iter()
+            .all(|(_, ranges)| ranges.is_empty())
+        {
+            debug!(target = ?test.target, "skipping test executable with no selected cases");
+            continue;
+        }
+        trace!(
+            filter_entries = args.file_and_index.len(),
+            "applied test filter"
+        );
+
+        invocations.push(TestInvocation {
+            target: test.target,
+            executable: test.executable.to_path_buf(),
+            args,
+            meta,
+        });
+    }
+    Ok(invocations)
+}
+
 #[instrument(level = "debug", skip(ctx, test))]
 fn run_one_test_executable(
     ctx: &TestRunCtx<'_>,
-    test: &TestExecutableToRun,
+    test: &TestInvocation,
 ) -> Result<TargetTestResult, anyhow::Error> {
     let fqn = ctx
         .build_meta
@@ -575,40 +622,17 @@ fn run_one_test_executable(
         .pkg_dirs
         .fqn(test.target.package);
 
-    // Parse test metadata
-    let meta_bytes = std::fs::read(test.meta)
-        .with_context(|| format!("Failed to read test metadata at {}", test.meta.display()))?;
-    let meta: MooncGenTestInfo = serde_json_lenient::from_slice(&meta_bytes)
-        .with_context(|| format!("Failed to parse test metadata at {}", test.meta.display()))?;
-    trace!(path = %test.meta.display(), "loaded test metadata");
-
-    let Some(test_args) = build_test_args_for_target(
-        ctx.build_meta,
-        ctx.filter,
-        test.target,
-        &meta,
-        ctx.include_skipped,
-        ctx.bench,
-    ) else {
-        debug!(target = ?test.target, "skipping test executable due to filter");
-        return Ok(TargetTestResult::default());
-    };
-    trace!(
-        filter_entries = test_args.file_and_index.len(),
-        "applied test filter"
-    );
-
     let cmd = crate::run::command_for(
         ctx.build_meta.target_backend,
-        test.executable,
-        Some(&test_args),
+        &test.executable,
+        Some(&test.args),
     );
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if ctx.verbose {
         crate::rr_build::dry_print_command(cmd.as_std(), ctx.source_dir, true);
     }
-    info!(package = %test_args.package, executable = %test.executable.display(), "launching test executable");
+    info!(package = %test.args.package, executable = %test.executable.display(), "launching test executable");
 
     let exit_status = ctx
         .rt
@@ -630,7 +654,12 @@ fn run_one_test_executable(
 
     handle_finished_coverage(ctx.target_dir, cov_cap)?;
 
-    parse_test_results(meta, test_cap, &ctx.build_meta.resolve_output.pkg_dirs).with_context(|| {
+    parse_test_results(
+        test.meta.clone(),
+        test_cap,
+        &ctx.build_meta.resolve_output.pkg_dirs,
+    )
+    .with_context(|| {
         format!(
             "Failed to parse test results for {fqn} {:?}",
             test.target.kind
