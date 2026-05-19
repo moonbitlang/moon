@@ -604,7 +604,7 @@ fn build_and_install_packages(
             &resolve_output,
         )?;
         let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
-        let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
+        let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
             preconfig,
             &cli.unstable_feature,
             &target_dir,

@@ -259,7 +259,7 @@ pub(crate) fn plan_build_rr_from_resolved(
         planning_context.target_backend(),
         output,
     )?;
-    rr_build::plan_prepared_build_from_intent(
+    rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
@@ -301,7 +301,7 @@ fn plan_build_rr_from_resolved_with_scope(
         &scoped_packages,
         planning_context.target_backend(),
     )?;
-    rr_build::plan_prepared_build_from_intent(
+    rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
@@ -338,7 +338,7 @@ fn plan_build_rr_from_selection(
         &resolve_output,
     )?;
     debug_assert_eq!(planning_context.target_backend(), target_backend);
-    rr_build::plan_prepared_build_from_intent(
+    rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
