@@ -44,8 +44,10 @@ content = """
   "repository": "",
   "license": "Apache-2.0",
   "keywords": [],
+  "preferred-target": "wasm-gc",
   "description": ""
-}"""
+}
+"""
 
 [[files]]
 path = ".githooks/README.md"
@@ -309,6 +311,8 @@ path = ".gitignore"
 content = """
 .DS_Store
 _build/
+target/
+target
 .mooncakes/
 .moonagent/"""
 
