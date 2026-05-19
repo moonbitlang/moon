@@ -1009,3 +1009,109 @@ fn print_test_result_normal(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn test_case_result(kind: TestResultKind, message: String) -> TestCaseResult {
+        TestCaseResult {
+            kind,
+            raw: Arc::new(TestStatistics {
+                package: "username/bench".to_string(),
+                filename: "bench.mbt".to_string(),
+                index: "7".to_string(),
+                test_name: "generated_name".to_string(),
+                message,
+            }),
+            meta: MbtTestInfo {
+                index: 7,
+                func: "test_7".to_string(),
+                name: Some("source bench name".to_string()),
+                line_number: Some(23),
+                attrs: Vec::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn bench_json_result_parses_batch_summary() {
+        let message = format!(
+            "{}{}",
+            BATCHBENCH,
+            r#"{"summaries":[{"name":"fast","min":1.0,"max":2.0,"mean":1.5,"median":1.4,"variance":0.25,"std_dev":0.5,"std_dev_pct":33.3,"median_abs_dev":0.1,"median_abs_dev_pct":7.1,"quartiles":[1.1,1.4,1.8],"iqr":0.7,"batch_size":20,"runs":10}]}"#
+        );
+        let case = test_case_result(TestResultKind::Passed, message);
+
+        let result = bench_json_result(&case).expect("bench summary should parse");
+
+        assert_eq!(result.package, "username/bench");
+        assert_eq!(result.filename, "bench.mbt");
+        assert_eq!(result.index, 7);
+        assert_eq!(result.test_name, "source bench name");
+        assert_eq!(result.line_number, Some(23));
+        assert_eq!(result.status, "ok");
+        assert_eq!(result.message, None);
+        assert_eq!(result.summaries.len(), 1);
+        assert_eq!(result.summaries[0].name.as_deref(), Some("fast"));
+        assert_eq!(result.summaries[0].mean, 1.5);
+        assert_eq!(result.summaries[0].runs, 10);
+    }
+
+    #[test]
+    fn bench_json_result_preserves_failure_message() {
+        let case = test_case_result(TestResultKind::Failed, "bench failed".to_string());
+
+        let result = bench_json_result(&case).expect("failure result should serialize");
+
+        assert_eq!(result.status, "failed");
+        assert!(result.summaries.is_empty());
+        assert_eq!(result.message.as_deref(), Some("bench failed"));
+
+        let encoded = serde_json::to_value(&result).expect("bench failure should encode as JSON");
+        assert!(encoded.get("summaries").is_none());
+        assert_eq!(encoded["message"], "bench failed");
+    }
+
+    #[test]
+    fn bench_json_result_omits_empty_success_details() {
+        let case = test_case_result(TestResultKind::Passed, String::new());
+
+        let result = bench_json_result(&case).expect("empty success should serialize");
+
+        assert_eq!(result.status, "ok");
+        assert!(result.summaries.is_empty());
+        assert_eq!(result.message, None);
+
+        let encoded = serde_json::to_value(&result).expect("bench success should encode as JSON");
+        assert!(encoded.get("summaries").is_none());
+        assert!(encoded.get("message").is_none());
+    }
+
+    #[test]
+    fn bench_json_result_falls_back_to_driver_test_name() {
+        let mut case = test_case_result(TestResultKind::Passed, String::new());
+        case.meta.name = None;
+
+        let result = bench_json_result(&case).expect("result without source name should serialize");
+
+        assert_eq!(result.test_name, "generated_name");
+    }
+
+    #[test]
+    fn bench_json_result_rejects_malformed_batch_summary() {
+        let case = test_case_result(
+            TestResultKind::Passed,
+            format!("{BATCHBENCH}not valid json"),
+        );
+
+        let err = bench_json_result(&case).expect_err("malformed bench summary should fail");
+
+        assert!(
+            err.to_string()
+                .contains("failed to parse benchmark summary"),
+            "unexpected error: {err:#}"
+        );
+    }
+}

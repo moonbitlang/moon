@@ -151,6 +151,47 @@ pub(crate) enum MoonBuildSubcommands {
     #[clap(external_subcommand)]
     External(Vec<String>),
 }
+
+#[test]
+fn bench_jsonl_flag_parses() {
+    let cli = <MoonBuildCli as clap::Parser>::try_parse_from([
+        "moon",
+        "bench",
+        "--jsonl",
+        "result.jsonl",
+    ])
+    .expect("bench --jsonl <file> should parse");
+    let Some(MoonBuildSubcommands::Bench(cmd)) = cli.subcommand else {
+        panic!("expected bench subcommand");
+    };
+    assert_eq!(
+        cmd.jsonl.as_deref(),
+        Some(std::path::Path::new("result.jsonl"))
+    );
+}
+
+#[test]
+fn bench_jsonl_requires_output_file() {
+    let err = <MoonBuildCli as clap::Parser>::try_parse_from(["moon", "bench", "--jsonl"])
+        .expect_err("bench --jsonl should require an output file");
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::InvalidValue);
+}
+
+#[test]
+fn bench_jsonl_flag_conflicts_with_build_only() {
+    let err = <MoonBuildCli as clap::Parser>::try_parse_from([
+        "moon",
+        "bench",
+        "--jsonl",
+        "result.jsonl",
+        "--build-only",
+    ])
+    .expect_err("bench --jsonl and --build-only should conflict");
+
+    assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+}
+
 #[test]
 fn gen_docs_for_moon_help_page() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
