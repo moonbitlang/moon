@@ -315,7 +315,6 @@ impl PlanningFixture {
         let (build_meta, build_graph) = crate::cli::run::plan_run_rr_from_resolved(
             cli,
             &cmd,
-            &self.source_dir,
             &self.target_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
