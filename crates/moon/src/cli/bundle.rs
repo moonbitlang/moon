@@ -216,7 +216,7 @@ pub(crate) fn plan_bundle_rr_from_resolved(
         &resolve_output,
     )?;
     let intent = bundle_user_intent(&resolve_output);
-    rr_build::plan_prepared_build_from_intent(
+    rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,

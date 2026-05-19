@@ -472,7 +472,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         value_tracing,
         planning_context.target_backend(),
     )?;
-    rr_build::plan_prepared_build_from_intent(
+    rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
@@ -606,7 +606,7 @@ fn build_single_file_executable(
         Default::default()
     };
     let intent = (vec![UserIntent::Run(package)], directive).into();
-    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         &target_dir,

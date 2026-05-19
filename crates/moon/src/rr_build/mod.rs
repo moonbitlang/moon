@@ -516,13 +516,12 @@ pub(crate) fn prepare_resolved_build(
     })
 }
 
-/// Plan from an already prepared resolved context and already calculated
-/// command intent.
+/// Plan a build graph from an already resolved project and command intent.
 ///
-/// At this boundary RR consumes package identities/directives and the
-/// build-model paths stored in `ResolveOutput`; it does not reinterpret raw CLI
-/// selector paths through a callback.
-pub(crate) fn plan_prepared_build_from_intent(
+/// At this boundary, command adapters have already resolved user selectors and
+/// command-specific directives into `CalcUserIntentOutput`. RR consumes those
+/// identities plus the build-model paths stored in `ResolveOutput`.
+pub(crate) fn plan_resolved_build_from_intent(
     preconfig: CompilePreConfig,
     unstable_features: &FeatureGate,
     target_dir: &Path,

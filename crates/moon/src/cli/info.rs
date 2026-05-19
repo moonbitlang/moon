@@ -373,7 +373,7 @@ fn run_info_rr_internal(
     )?;
     let intent =
         calc_user_intent_for_info(&ctx, &resolve_output, planning_context.target_backend())?;
-    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,

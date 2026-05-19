@@ -133,7 +133,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     )?;
     let module_id = selected_doc_module_id(&resolve_output, &doc_source_dir)?;
     let intent = vec![UserIntent::Doc(module_id)].into();
-    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         &target_dir,

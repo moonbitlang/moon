@@ -341,7 +341,7 @@ fn run_check_for_single_file_rr(
         &resolved,
     )?;
     let intent = get_user_intents_single_file(&resolved, planning_context.target_backend())?;
-    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
@@ -661,7 +661,7 @@ pub(crate) fn plan_check_rr_from_resolved(
             output,
         )?
     };
-    rr_build::plan_prepared_build_from_intent(
+    rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
@@ -698,7 +698,7 @@ fn plan_check_rr_from_selection(
         &resolve_output,
     )?;
     debug_assert_eq!(planning_context.target_backend(), target_backend);
-    rr_build::plan_prepared_build_from_intent(
+    rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,

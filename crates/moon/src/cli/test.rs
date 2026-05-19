@@ -441,7 +441,7 @@ fn run_test_in_single_file_rr(
     };
     let directive = rr_build::build_patch_directive_for_package(pkg, false, trace_pkg, None, true)?;
     let intent = (vec![UserIntent::Test(pkg)], directive).into();
-    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
@@ -586,7 +586,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         planning_context.target_backend(),
         output,
     )?;
-    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
@@ -710,7 +710,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         planning_context.target_backend(),
     )?;
     let filter = resolved_intent.filter;
-    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
