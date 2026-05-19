@@ -435,6 +435,7 @@ Run benchmarks in the current package
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not bench
+* `--jsonl <JSONL>` — Output benchmark results in JSON Lines format to the specified file
 * `--no-parallelize` — Run the benchmarks in a target backend sequentially
 
 

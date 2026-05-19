@@ -442,6 +442,7 @@ _arguments "${_arguments_options[@]}" : \
 '--file=[Run test in the specified file. Only valid when \`--package\` is also specified]:FILE: ' \
 '-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified]:INDEX: ' \
 '--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified]:INDEX: ' \
+'(--build-only)--jsonl=[Output benchmark results in JSON Lines format to the specified file]:JSONL:_files' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '(--nostd)--std[Enable the standard library (default)]' \

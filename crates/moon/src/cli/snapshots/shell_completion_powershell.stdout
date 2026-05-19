@@ -450,6 +450,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--file', 'file', [CompletionResultType]::ParameterName, 'Run test in the specified file. Only valid when `--package` is also specified')
             [CompletionResult]::new('-i', 'i', [CompletionResultType]::ParameterName, 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified')
             [CompletionResult]::new('--index', 'index', [CompletionResultType]::ParameterName, 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified')
+            [CompletionResult]::new('--jsonl', 'jsonl', [CompletionResultType]::ParameterName, 'Output benchmark results in JSON Lines format to the specified file')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--std', 'std', [CompletionResultType]::ParameterName, 'Enable the standard library (default)')

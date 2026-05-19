@@ -433,6 +433,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --file 'Run test in the specified file. Only valid when `--package` is also specified'
             cand -i 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified'
             cand --index 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified'
+            cand --jsonl 'Output benchmark results in JSON Lines format to the specified file'
             cand --manifest-path 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --std 'Enable the standard library (default)'

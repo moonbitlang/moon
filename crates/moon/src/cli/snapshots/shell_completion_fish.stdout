@@ -336,6 +336,7 @@ complete -c moon -n "__fish_moon_using_subcommand bench" -l render-no-loc -d 'Re
 complete -c moon -n "__fish_moon_using_subcommand bench" -s p -l package -d 'Run test in the specified package' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s f -l file -d 'Run test in the specified file. Only valid when `--package` is also specified' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s i -l index -d 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified' -r
+complete -c moon -n "__fish_moon_using_subcommand bench" -l jsonl -d 'Output benchmark results in JSON Lines format to the specified file' -r -F
 complete -c moon -n "__fish_moon_using_subcommand bench" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand bench" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand bench" -l std -d 'Enable the standard library (default)'
