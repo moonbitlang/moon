@@ -45,7 +45,7 @@ use moonutil::{
 use crate::{
     cli::BuildFlags,
     filter::match_packages_by_name_rr,
-    rr_build::{self, BuildConfig, BuildMeta, plan_build_from_resolved, preconfig_compile},
+    rr_build::{self, BuildConfig, BuildMeta, preconfig_compile},
     user_diagnostics::UserDiagnostics,
 };
 
@@ -155,12 +155,22 @@ pub(crate) fn run_build_binary_dep(
             &target_dir,
             RunMode::Build,
         );
-        let (build_meta, build_graph) = plan_build_from_resolved(
+        let output = UserDiagnostics::from_flags(cli);
+        let planning_context = rr_build::prepare_resolved_build(
+            &preconfig,
+            &cli.unstable_feature,
+            &target_dir,
+            output,
+            &resolve_output,
+        )?;
+        let intent = vec![UserIntent::Build(pkg)].into();
+        let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
             preconfig,
             &cli.unstable_feature,
             &target_dir,
-            UserDiagnostics::from_flags(cli),
-            Box::new(|_, _| Ok(vec![UserIntent::Build(pkg)].into())),
+            output,
+            planning_context,
+            intent,
             // FIXME: cloning is not the best way to do this, it takes in this
             // type only to be returned in build meta. We should refactor later.
             resolve_output.clone(),

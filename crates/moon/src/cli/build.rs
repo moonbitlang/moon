@@ -245,20 +245,27 @@ pub(crate) fn plan_build_rr_from_resolved(
     );
 
     let output = UserDiagnostics::from_flags(cli);
-    rr_build::plan_build_from_resolved(
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    let intent = calc_user_intent(
+        &cmd.path,
+        cmd.package.as_deref(),
+        &resolve_output,
+        planning_context.target_backend(),
+        output,
+    )?;
+    rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
         output,
-        Box::new(|resolved, target_backend| {
-            calc_user_intent(
-                &cmd.path,
-                cmd.package.as_deref(),
-                resolved,
-                target_backend,
-                output,
-            )
-        }),
+        planning_context,
+        intent,
         resolve_output,
     )
 }
@@ -281,14 +288,26 @@ fn plan_build_rr_from_resolved_with_scope(
     );
 
     let output = UserDiagnostics::from_flags(cli);
-    rr_build::plan_build_from_resolved(
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    debug_assert_eq!(planning_context.target_backend(), target_backend);
+    let intent = calc_user_intent_from_scoped_packages(
+        &resolve_output,
+        &scoped_packages,
+        planning_context.target_backend(),
+    )?;
+    rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
         output,
-        Box::new(move |resolved, target_backend| {
-            calc_user_intent_from_scoped_packages(resolved, &scoped_packages, target_backend)
-        }),
+        planning_context,
+        intent,
         resolve_output,
     )
 }

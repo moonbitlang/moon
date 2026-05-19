@@ -332,13 +332,22 @@ fn run_check_for_single_file_rr(
         RunMode::Check,
     );
 
-    // The rest is similar to normal check flow
-    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+    let output = UserDiagnostics::from_flags(cli);
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolved,
+    )?;
+    let intent = get_user_intents_single_file(&resolved, planning_context.target_backend())?;
+    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
-        UserDiagnostics::from_flags(cli),
-        Box::new(get_user_intents_single_file),
+        output,
+        planning_context,
+        intent,
         resolved,
     )
     .context("Failed to calculate build plan")?;
@@ -626,32 +635,39 @@ pub(crate) fn plan_check_rr_from_resolved(
     );
 
     let output = UserDiagnostics::from_flags(cli);
-    rr_build::plan_build_from_resolved(
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    let intent = if let Some(filter_path) = cmd.package_path.as_deref() {
+        calc_user_intent_from_package_path(
+            &resolve_output,
+            source_dir,
+            filter_path,
+            planning_context.target_backend(),
+            cmd.no_mi,
+            cmd.patch_file.as_deref(),
+        )?
+    } else {
+        calc_user_intent(
+            &resolve_output,
+            &cmd.path,
+            planning_context.target_backend(),
+            cmd.no_mi,
+            cmd.patch_file.as_deref(),
+            output,
+        )?
+    };
+    rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
         output,
-        Box::new(|resolved, target_backend| {
-            if let Some(filter_path) = cmd.package_path.as_deref() {
-                return calc_user_intent_from_package_path(
-                    resolved,
-                    source_dir,
-                    filter_path,
-                    target_backend,
-                    cmd.no_mi,
-                    cmd.patch_file.as_deref(),
-                );
-            }
-
-            calc_user_intent(
-                resolved,
-                &cmd.path,
-                target_backend,
-                cmd.no_mi,
-                cmd.patch_file.as_deref(),
-                output,
-            )
-        }),
+        planning_context,
+        intent,
         resolve_output,
     )
 }

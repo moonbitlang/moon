@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     cli::BuildFlags,
-    rr_build::{self, BuildConfig, plan_build_from_resolved, preconfig_compile},
+    rr_build::{self, BuildConfig, preconfig_compile},
     user_diagnostics::UserDiagnostics,
 };
 
@@ -595,12 +595,22 @@ fn build_and_install_packages(
             RunMode::Build,
         );
 
-        let (build_meta, build_graph) = plan_build_from_resolved(
+        let output = UserDiagnostics::from_flags(cli);
+        let planning_context = rr_build::prepare_resolved_build(
+            &preconfig,
+            &cli.unstable_feature,
+            &target_dir,
+            output,
+            &resolve_output,
+        )?;
+        let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
+        let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
             preconfig,
             &cli.unstable_feature,
             &target_dir,
-            UserDiagnostics::from_flags(cli),
-            Box::new(move |_, _| Ok(vec![UserIntent::Build(pkg.pkg_id)].into())),
+            output,
+            planning_context,
+            intent,
             resolve_output.clone(),
         )?;
 

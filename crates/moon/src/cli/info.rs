@@ -364,12 +364,22 @@ fn run_info_rr_internal(
         target_kind,
         output,
     };
-    let (build_meta, build_graph) = rr_build::plan_build_from_resolved(
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        target_dir,
+        output,
+        &resolve_output,
+    )?;
+    let intent =
+        calc_user_intent_for_info(&ctx, &resolve_output, planning_context.target_backend())?;
+    let (build_meta, build_graph) = rr_build::plan_prepared_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         target_dir,
         output,
-        Box::new(move |resolve_output, tb| calc_user_intent_for_info(&ctx, resolve_output, tb)),
+        planning_context,
+        intent,
         resolve_output,
     )?;
     // Generate the all_pkgs.json for indirect dependency resolution

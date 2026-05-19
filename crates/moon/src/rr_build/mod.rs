@@ -68,21 +68,6 @@ use crate::user_diagnostics::UserDiagnostics;
 mod dry_run;
 pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
 
-/// The function that calculates the user intent for the build process.
-///
-/// Params:
-/// - The output of the resolve step. All modules and packages that this module
-///   are available in this value.
-/// - The target backend to build for.
-///
-/// Returns: A vector of [`UserIntent`]s, representing what the user would like
-/// to do
-pub type CalcUserIntentFn<'b> = dyn for<'a> FnOnce(
-        &'a ResolveOutput,
-        moonutil::common::TargetBackend,
-    ) -> anyhow::Result<CalcUserIntentOutput>
-    + 'b;
-
 /// The output of a calculate user intent operation.
 pub struct CalcUserIntentOutput {
     /// The list of user intents; will be expanded to concrete BuildPlanNode(s) later.
@@ -314,6 +299,15 @@ pub struct CompilePreConfig {
 }
 
 impl CompilePreConfig {
+    pub(crate) fn resolve_config(&self) -> ResolveConfig {
+        ResolveConfig::new_with_load_defaults(
+            self.frozen,
+            !self.use_std,
+            self.enable_coverage,
+            self.workspace_env.clone(),
+        )
+    }
+
     fn into_compile_config(
         self,
         final_target_backend: TargetBackend,
@@ -438,84 +432,6 @@ pub fn preconfig_compile(
         },
         warn_list: build_flags.warn_list.clone(),
     }
-}
-
-/// Plan the build process without executing it.
-///
-/// This function performs all the preparation steps: resolve dependencies,
-/// calculate user intent, and create the build graph, but does not execute
-/// the actual build tasks.
-///
-/// Returns the execution plan (metadata) and build graph separately, allowing
-/// execute_build to take ownership of just the graph while callers retain
-/// access to the metadata.
-#[instrument(skip_all)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_build<'a>(
-    preconfig: CompilePreConfig,
-    unstable_features: &'a FeatureGate,
-    source_dir: &'a Path,
-    target_dir: &'a Path,
-    mooncakes_dir: &'a Path,
-    output: UserDiagnostics,
-    project_manifest_path: Option<&'a Path>,
-    calc_user_intent: Box<CalcUserIntentFn<'a>>,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    info!("Starting build planning");
-
-    let cfg = ResolveConfig::new_with_load_defaults(
-        preconfig.frozen,
-        !preconfig.use_std,
-        preconfig.enable_coverage,
-        preconfig.workspace_env.clone(),
-    )
-    .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&cfg, source_dir, mooncakes_dir)?;
-
-    info!("Resolve completed");
-
-    plan_build_from_resolved(
-        preconfig,
-        unstable_features,
-        target_dir,
-        output,
-        calc_user_intent,
-        resolve_output,
-    )
-}
-
-/// Plan the build process from an already resolved environment.
-///
-/// This function exists because [someone demands target determination **after**
-/// resolving completes](crate::cli::tool::build_binary_dep). For most cases,
-/// use [`plan_build`] instead.
-pub(crate) fn plan_build_from_resolved<'a>(
-    preconfig: CompilePreConfig,
-    unstable_features: &'a FeatureGate,
-    target_dir: &'a Path,
-    output: UserDiagnostics,
-    calc_user_intent: Box<CalcUserIntentFn<'a>>,
-    resolve_output: ResolveOutput,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
-    let planning_context = prepare_resolved_build(
-        &preconfig,
-        unstable_features,
-        target_dir,
-        output,
-        &resolve_output,
-    )?;
-
-    info!("Calculating user intent");
-    let intent = calc_user_intent(&resolve_output, planning_context.target_backend())?;
-    plan_prepared_build_from_intent(
-        preconfig,
-        unstable_features,
-        target_dir,
-        output,
-        planning_context,
-        intent,
-        resolve_output,
-    )
 }
 
 pub(crate) struct ResolvedBuildPlanningContext {
