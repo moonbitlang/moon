@@ -34,13 +34,15 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 v8 = "0.106.0"
 
 [target."cfg(unix)".dependencies]
-libc.workspace = true
+rustix = { version = "0.38.34", features = ["event", "stdio"] }
 
 [target."cfg(windows)".dependencies.windows-sys]
 version = "0.59.0"
 features = [
     "Win32_Foundation",
+    "Win32_Storage_FileSystem",
     "Win32_System_Console",
+    "Win32_System_Pipes",
     "Win32_System_Threading",
 ]
 
@@ -53,6 +55,7 @@ snapbox.workspace = true
 moon-test-util = { path = "../moon-test-util" }
 moonutil.workspace = true
 tempfile.workspace = true
+wasm-encoder = { version = "0.247.0", default-features = false }
 
 [[bin]]
 name = "moonrun"

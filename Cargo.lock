@@ -1379,6 +1379,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
+name = "leb128fmt"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
+
+[[package]]
 name = "libc"
 version = "0.2.177"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1725,10 +1731,10 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
- "libc",
  "moon-test-util",
  "moonutil",
  "rand 0.8.5",
+ "rustix",
  "serde",
  "serde_json_lenient",
  "snapbox",
@@ -1737,6 +1743,7 @@ dependencies = [
  "tracing-subscriber",
  "v8",
  "vergen",
+ "wasm-encoder",
  "windows-sys 0.59.0",
 ]
 
@@ -3333,6 +3340,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76f218a38c84bcb33c25ec7059b07847d465ce0e0a76b995e134a45adcb6af76"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "wasm-encoder"
+version = "0.247.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30b6733b8b91d010a6ac5b0fb237dc46a19650bc4c67db66857e2e787d437204"
+dependencies = [
+ "leb128fmt",
 ]
 
 [[package]]

@@ -23,7 +23,6 @@ use std::fs;
 use std::io::{ErrorKind, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::thread;
 use std::time::Duration;
 
 type WasiErrno = i32;
@@ -97,18 +96,18 @@ const WASI_RIGHT_PATH_RENAME_TARGET: u64 = 1u64 << 17;
 const WASI_RIGHT_PATH_FILESTAT_GET: u64 = 1u64 << 18;
 const WASI_RIGHT_PATH_FILESTAT_SET_SIZE: u64 = 1u64 << 19;
 const WASI_RIGHT_FD_FILESTAT_GET: u64 = 1u64 << 21;
+const WASI_RIGHT_POLL_FD_READWRITE: u64 = 1u64 << 27;
 const WASI_RIGHT_PATH_REMOVE_DIRECTORY: u64 = 1u64 << 25;
 const WASI_RIGHT_PATH_UNLINK_FILE: u64 = 1u64 << 26;
 const WASI_KNOWN_RIGHTS_MASK: u64 = (1u64 << 30) - 1;
 
-const WASI_EVENTTYPE_CLOCK: u16 = 0;
 const WASI_EVENTTYPE_FD_READ: u16 = 1;
 const WASI_EVENTTYPE_FD_WRITE: u16 = 2;
 
 const WASI_SUBSCRIPTION_TAG_CLOCK: u32 = 0;
 const WASI_SUBSCRIPTION_TAG_FD_READ: u32 = 1;
 const WASI_SUBSCRIPTION_TAG_FD_WRITE: u32 = 2;
-const WASI_SUBCLOCKFLAG_ABSTIME: u32 = 1;
+const WASI_EVENT_FD_READWRITE_HANGUP: u32 = 1;
 
 struct DescriptorTable {
     next_fd: i32,
@@ -142,29 +141,6 @@ struct Descriptor {
     rights_inheriting: u64,
 }
 
-#[repr(i32)]
-#[derive(Clone, Copy)]
-enum ClockId {
-    Realtime = 0,
-    Monotonic = 1,
-    ProcessCpuTime = 2,
-    ThreadCpuTime = 3,
-}
-
-impl TryFrom<i32> for ClockId {
-    type Error = WasiErrno;
-
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Realtime),
-            1 => Ok(Self::Monotonic),
-            2 => Ok(Self::ProcessCpuTime),
-            3 => Ok(Self::ThreadCpuTime),
-            _ => Err(WASI_ERRNO_INVAL),
-        }
-    }
-}
-
 struct WasiContext {
     argv: Vec<Vec<u8>>,
     preopen_dir_name: Vec<u8>,
@@ -180,17 +156,8 @@ struct DirectoryEntry {
 }
 
 enum SubscriptionData {
-    Clock {
-        id: ClockId,
-        timeout_ns: u64,
-        flags: u32,
-    },
-    FdRead {
-        fd: i32,
-    },
-    FdWrite {
-        fd: i32,
-    },
+    FdRead { fd: i32 },
+    FdWrite { fd: i32 },
 }
 
 struct PollSubscription {
@@ -207,7 +174,7 @@ struct PollEvent {
 }
 
 enum FdReadPollState {
-    Ready(u64),
+    Ready { nbytes: u64, flags: u32 },
     Pending,
 }
 
@@ -281,14 +248,6 @@ fn checked_mut_range(memory: &mut [u8], offset: usize, len: usize) -> WasiResult
 fn write_u16_at(memory: &mut [u8], offset: usize, value: u16) -> WasiResult<()> {
     checked_mut_range(memory, offset, 2)?.copy_from_slice(&value.to_le_bytes());
     Ok(())
-}
-
-fn read_u16_at(memory: &[u8], offset: usize) -> WasiResult<u16> {
-    let end = offset.checked_add(2).ok_or(WASI_ERRNO_FAULT)?;
-    let bytes = memory.get(offset..end).ok_or(WASI_ERRNO_FAULT)?;
-    Ok(u16::from_le_bytes(
-        <[u8; 2]>::try_from(bytes).map_err(|_| WASI_ERRNO_FAULT)?,
-    ))
 }
 
 fn write_u32_at(memory: &mut [u8], offset: usize, value: u32) -> WasiResult<()> {
@@ -462,8 +421,12 @@ fn preopen_rights_base() -> u64 {
 
 fn rights_base_for_fd(context: &WasiContext, fd: i32) -> WasiResult<u64> {
     match fd {
-        WASI_FD_STDIN => Ok(WASI_RIGHT_FD_READ | WASI_RIGHT_FD_FILESTAT_GET),
-        WASI_FD_STDOUT | WASI_FD_STDERR => Ok(WASI_RIGHT_FD_WRITE | WASI_RIGHT_FD_FILESTAT_GET),
+        WASI_FD_STDIN => {
+            Ok(WASI_RIGHT_FD_READ | WASI_RIGHT_FD_FILESTAT_GET | WASI_RIGHT_POLL_FD_READWRITE)
+        }
+        WASI_FD_STDOUT | WASI_FD_STDERR => {
+            Ok(WASI_RIGHT_FD_WRITE | WASI_RIGHT_FD_FILESTAT_GET | WASI_RIGHT_POLL_FD_READWRITE)
+        }
         _ if preopen_matches(context, fd) => Ok(preopen_rights_base()),
         _ => Ok(descriptor_for_fd(context, fd)?.rights_base),
     }
@@ -1093,22 +1056,7 @@ fn parse_poll_subscriptions(
         let tag = u32::from(checked_range(memory, offset + 8, 1)?[0]);
 
         let data = match tag {
-            WASI_SUBSCRIPTION_TAG_CLOCK => {
-                let clock_id_raw = read_u32_at(memory, offset + 16)?;
-                let clock_id =
-                    ClockId::try_from(i32::try_from(clock_id_raw).map_err(|_| WASI_ERRNO_INVAL)?)?;
-                let timeout_ns = read_u64_at(memory, offset + 24)?;
-                let _precision = read_u64_at(memory, offset + 32)?;
-                let flags = u32::from(read_u16_at(memory, offset + 40)?);
-                if (flags & !WASI_SUBCLOCKFLAG_ABSTIME) != 0 {
-                    return Err(WASI_ERRNO_INVAL);
-                }
-                SubscriptionData::Clock {
-                    id: clock_id,
-                    timeout_ns,
-                    flags,
-                }
-            }
+            WASI_SUBSCRIPTION_TAG_CLOCK => return Err(WASI_ERRNO_NOTSUP),
             WASI_SUBSCRIPTION_TAG_FD_READ => {
                 let fd_raw = read_u32_at(memory, offset + 16)?;
                 let fd = i32::try_from(fd_raw).map_err(|_| WASI_ERRNO_INVAL)?;
@@ -1128,77 +1076,256 @@ fn parse_poll_subscriptions(
     Ok(subscriptions)
 }
 
-fn normalize_poll_subscriptions(
-    context: &WasiContext,
-    subscriptions: &mut [PollSubscription],
-) -> WasiResult<()> {
-    for subscription in subscriptions {
-        if let SubscriptionData::Clock {
-            id,
-            timeout_ns,
-            flags,
-        } = &mut subscription.data
-            && (*flags & WASI_SUBCLOCKFLAG_ABSTIME) == 0
-        {
-            let now = clock_now_ns(context, *id)?;
-            *timeout_ns = now.saturating_add(*timeout_ns);
-            *flags |= WASI_SUBCLOCKFLAG_ABSTIME;
-        }
+fn duration_millis_ceil(duration: Duration, max: u128) -> u128 {
+    if duration.is_zero() {
+        return 0;
     }
-    Ok(())
+
+    let millis = duration.as_millis();
+    let has_submillis = !duration.subsec_nanos().is_multiple_of(1_000_000);
+    let rounded = if has_submillis {
+        millis.saturating_add(1)
+    } else {
+        millis
+    };
+    rounded.min(max)
 }
 
 #[cfg(unix)]
-fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
-    let timeout_ms = match timeout {
+fn poll_timeout_ms(timeout: Option<Duration>) -> WasiResult<i32> {
+    match timeout {
         Some(duration) => {
-            let millis = duration.as_millis();
-            i32::try_from(millis.min(i32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
+            let millis = duration_millis_ceil(duration, i32::MAX as u128);
+            i32::try_from(millis).map_err(|_| WASI_ERRNO_INVAL)
         }
-        None => -1,
-    };
+        None => Ok(-1),
+    }
+}
 
-    let mut pollfd = libc::pollfd {
-        fd: libc::STDIN_FILENO,
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    loop {
-        // SAFETY: `pollfd` points to a valid single-element array for the duration of the call.
-        let ready_count = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
-        if ready_count >= 0 {
-            return Ok(ready_count > 0
-                && (pollfd.revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR)) != 0);
-        }
+#[cfg(unix)]
+fn rustix_error_to_errno(error: rustix::io::Errno) -> WasiErrno {
+    io_error_to_errno(&std::io::Error::from(error))
+}
 
-        let error = std::io::Error::last_os_error();
-        if error.kind() == ErrorKind::Interrupted {
-            continue;
+#[cfg(unix)]
+fn poll_stdin_read_state(timeout: Option<Duration>) -> WasiResult<FdReadPollState> {
+    use rustix::event::{PollFd, PollFlags};
+
+    let mut pollfd = [PollFd::from_borrowed_fd(
+        rustix::stdio::stdin(),
+        PollFlags::IN,
+    )];
+    let timeout_ms = poll_timeout_ms(timeout)?;
+    let ready_count =
+        match rustix::io::retry_on_intr(|| rustix::event::poll(&mut pollfd, timeout_ms)) {
+            Ok(ready_count) => ready_count,
+            Err(rustix::io::Errno::PERM) => {
+                return Ok(FdReadPollState::Ready {
+                    nbytes: 1,
+                    flags: 0,
+                });
+            }
+            Err(error) => return Err(rustix_error_to_errno(error)),
+        };
+    if ready_count == 0 {
+        return Ok(FdReadPollState::Pending);
+    }
+
+    let revents = pollfd[0].revents();
+    #[cfg(not(target_os = "espidf"))]
+    if revents.contains(PollFlags::NVAL) {
+        return Err(WASI_ERRNO_BADF);
+    }
+    if revents.contains(PollFlags::ERR) {
+        return Err(WASI_ERRNO_IO);
+    }
+
+    if !revents.intersects(PollFlags::IN | PollFlags::HUP) {
+        return Ok(FdReadPollState::Pending);
+    }
+
+    let flags = if revents.contains(PollFlags::HUP) {
+        WASI_EVENT_FD_READWRITE_HANGUP
+    } else {
+        0
+    };
+    let available = rustix::io::ioctl_fionread(rustix::stdio::stdin()).unwrap_or(0);
+    let nbytes = if available == 0 && flags == 0 {
+        1
+    } else {
+        available
+    };
+    Ok(FdReadPollState::Ready { nbytes, flags })
+}
+
+#[cfg(windows)]
+fn wait_timeout_ms(timeout: Option<Duration>) -> WasiResult<u32> {
+    use windows_sys::Win32::System::Threading::INFINITE;
+
+    match timeout {
+        Some(duration) => {
+            let millis = duration_millis_ceil(duration, u32::MAX as u128);
+            u32::try_from(millis).map_err(|_| WASI_ERRNO_INVAL)
         }
-        if let Some(code) = error.raw_os_error()
-            && code == libc::EPERM
-        {
-            return Ok(true);
-        }
-        return Err(io_error_to_errno(&error));
+        None => Ok(INFINITE),
     }
 }
 
 #[cfg(windows)]
-fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
-    use windows_sys::Win32::Foundation::{
-        INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
-    };
-    use windows_sys::Win32::System::Console::{GetStdHandle, STD_INPUT_HANDLE};
-    use windows_sys::Win32::System::Threading::{INFINITE, WaitForSingleObject};
+fn windows_error_to_errno(error: u32) -> WasiErrno {
+    io_error_to_errno(&std::io::Error::from_raw_os_error(
+        i32::try_from(error).unwrap_or(i32::MAX),
+    ))
+}
 
-    let timeout_ms = match timeout {
-        Some(duration) => {
-            let millis = duration.as_millis();
-            u32::try_from(millis.min(u32::MAX as u128)).map_err(|_| WASI_ERRNO_INVAL)?
-        }
-        None => INFINITE,
+#[cfg(windows)]
+fn windows_pipe_read_state(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+) -> WasiResult<FdReadPollState> {
+    use std::ptr;
+    use windows_sys::Win32::Foundation::{
+        ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF, ERROR_PIPE_NOT_CONNECTED, GetLastError,
     };
+    use windows_sys::Win32::System::Pipes::PeekNamedPipe;
+
+    let mut available = 0u32;
+    // SAFETY: We pass a valid inherited stdin handle and ask only for byte counts.
+    let ok = unsafe {
+        PeekNamedPipe(
+            handle,
+            ptr::null_mut(),
+            0,
+            ptr::null_mut(),
+            &mut available,
+            ptr::null_mut(),
+        )
+    };
+    if ok != 0 {
+        return if available == 0 {
+            Ok(FdReadPollState::Pending)
+        } else {
+            Ok(FdReadPollState::Ready {
+                nbytes: u64::from(available),
+                flags: 0,
+            })
+        };
+    }
+
+    match unsafe { GetLastError() } {
+        ERROR_BROKEN_PIPE | ERROR_HANDLE_EOF | ERROR_PIPE_NOT_CONNECTED => {
+            Ok(FdReadPollState::Ready {
+                nbytes: 0,
+                flags: WASI_EVENT_FD_READWRITE_HANGUP,
+            })
+        }
+        error => Err(windows_error_to_errno(error)),
+    }
+}
+
+#[cfg(windows)]
+fn windows_console_read_state(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    mode: u32,
+) -> WasiResult<FdReadPollState> {
+    use std::mem;
+    use windows_sys::Win32::System::Console::{
+        ENABLE_LINE_INPUT, GetNumberOfConsoleInputEvents, INPUT_RECORD, KEY_EVENT,
+        PeekConsoleInputW,
+    };
+
+    let mut events = 0u32;
+    // SAFETY: We query event count on the process stdin console handle.
+    let ok = unsafe { GetNumberOfConsoleInputEvents(handle, &mut events) };
+    if ok == 0 {
+        let error = std::io::Error::last_os_error();
+        return Err(io_error_to_errno(&error));
+    }
+
+    if events == 0 {
+        return Ok(FdReadPollState::Pending);
+    }
+
+    let record_count = usize::try_from(events).map_err(|_| WASI_ERRNO_IO)?;
+    let mut records: Vec<INPUT_RECORD> = Vec::new();
+    records
+        .try_reserve_exact(record_count)
+        .map_err(|_| WASI_ERRNO_IO)?;
+    // SAFETY: `INPUT_RECORD` is a C buffer type filled by `PeekConsoleInputW`.
+    records.resize_with(record_count, || unsafe { mem::zeroed() });
+    let mut records_read = 0u32;
+    // SAFETY: `records` points to `record_count` writable INPUT_RECORD slots.
+    let ok = unsafe { PeekConsoleInputW(handle, records.as_mut_ptr(), events, &mut records_read) };
+    if ok == 0 {
+        let error = std::io::Error::last_os_error();
+        return Err(io_error_to_errno(&error));
+    }
+
+    let line_input = (mode & ENABLE_LINE_INPUT) != 0;
+    for record in records.iter().take(records_read as usize) {
+        if u32::from(record.EventType) != KEY_EVENT {
+            continue;
+        }
+        // SAFETY: `EventType == KEY_EVENT`, so the KeyEvent union arm is active.
+        let key_event = unsafe { record.Event.KeyEvent };
+        if key_event.bKeyDown == 0 {
+            continue;
+        }
+        // SAFETY: We inspect the UnicodeChar view of the key event character.
+        let ch = unsafe { key_event.uChar.UnicodeChar };
+        if ch != 0 && (!line_input || ch == u16::from(b'\r') || ch == u16::from(b'\n')) {
+            return Ok(FdReadPollState::Ready {
+                nbytes: 1,
+                flags: 0,
+            });
+        }
+    }
+
+    Ok(FdReadPollState::Pending)
+}
+
+#[cfg(windows)]
+fn windows_stdin_read_state_once(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    file_type: u32,
+) -> WasiResult<FdReadPollState> {
+    use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE};
+    use windows_sys::Win32::System::Console::GetConsoleMode;
+
+    match file_type {
+        FILE_TYPE_PIPE => windows_pipe_read_state(handle),
+        FILE_TYPE_CHAR => {
+            let mut mode = 0u32;
+            // SAFETY: We only test whether stdin is a console handle.
+            if unsafe { GetConsoleMode(handle, &mut mode) } != 0 {
+                windows_console_read_state(handle, mode)
+            } else {
+                Ok(FdReadPollState::Ready {
+                    nbytes: 1,
+                    flags: 0,
+                })
+            }
+        }
+        FILE_TYPE_DISK => Ok(FdReadPollState::Ready {
+            nbytes: 1,
+            flags: 0,
+        }),
+        _ => Ok(FdReadPollState::Ready {
+            nbytes: 1,
+            flags: 0,
+        }),
+    }
+}
+
+#[cfg(windows)]
+fn poll_stdin_read_state(timeout: Option<Duration>) -> WasiResult<FdReadPollState> {
+    use windows_sys::Win32::Foundation::{
+        ERROR_SUCCESS, GetLastError, INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_CHAR, FILE_TYPE_UNKNOWN, GetFileType};
+    use windows_sys::Win32::System::Console::{GetConsoleMode, GetStdHandle, STD_INPUT_HANDLE};
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+    let timeout_ms = wait_timeout_ms(timeout)?;
 
     // SAFETY: We only query the process standard-input handle; no ownership is transferred.
     let stdin_handle = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
@@ -1207,37 +1334,118 @@ fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
     }
 
     // SAFETY: `stdin_handle` is a handle value obtained from `GetStdHandle`.
-    let wait_result = unsafe { WaitForSingleObject(stdin_handle, timeout_ms) };
-    match wait_result {
-        WAIT_OBJECT_0 => Ok(true),
-        WAIT_TIMEOUT => Ok(false),
-        WAIT_FAILED => {
-            let error = std::io::Error::last_os_error();
-            Err(io_error_to_errno(&error))
+    let file_type = unsafe { GetFileType(stdin_handle) };
+    if file_type == FILE_TYPE_UNKNOWN {
+        let error = unsafe { GetLastError() };
+        if error != ERROR_SUCCESS {
+            return Err(windows_error_to_errno(error));
         }
-        _ => Ok(true),
+    }
+
+    let mut console_mode = 0u32;
+    let is_console = file_type == FILE_TYPE_CHAR
+        // SAFETY: We only test whether stdin is a console handle.
+        && unsafe { GetConsoleMode(stdin_handle, &mut console_mode) } != 0;
+
+    let deadline = timeout.and_then(|duration| std::time::Instant::now().checked_add(duration));
+    if is_console {
+        loop {
+            let wait_ms = if timeout_ms == 0 {
+                0
+            } else {
+                match deadline {
+                    Some(deadline) => {
+                        let now = std::time::Instant::now();
+                        if now >= deadline {
+                            return Ok(FdReadPollState::Pending);
+                        }
+                        let millis =
+                            duration_millis_ceil(deadline.duration_since(now), u32::MAX as u128);
+                        u32::try_from(millis).map_err(|_| WASI_ERRNO_INVAL)?
+                    }
+                    None => timeout_ms,
+                }
+            };
+            // SAFETY: `stdin_handle` is a handle value obtained from `GetStdHandle`.
+            let wait_result = unsafe { WaitForSingleObject(stdin_handle, wait_ms) };
+            match wait_result {
+                WAIT_OBJECT_0 => {
+                    let state = windows_console_read_state(stdin_handle, console_mode)?;
+                    if !matches!(state, FdReadPollState::Pending) {
+                        return Ok(state);
+                    }
+                }
+                WAIT_TIMEOUT => return Ok(FdReadPollState::Pending),
+                WAIT_FAILED => {
+                    let error = std::io::Error::last_os_error();
+                    return Err(io_error_to_errno(&error));
+                }
+                _ => {
+                    return Ok(FdReadPollState::Ready {
+                        nbytes: 1,
+                        flags: 0,
+                    });
+                }
+            }
+
+            if timeout_ms == 0 {
+                return Ok(FdReadPollState::Pending);
+            }
+
+            let sleep_duration = match deadline {
+                Some(deadline) => {
+                    let now = std::time::Instant::now();
+                    if now >= deadline {
+                        return Ok(FdReadPollState::Pending);
+                    }
+                    deadline.duration_since(now).min(Duration::from_millis(10))
+                }
+                None => Duration::from_millis(10),
+            };
+            std::thread::sleep(sleep_duration);
+        }
+    }
+
+    loop {
+        let state = windows_stdin_read_state_once(stdin_handle, file_type)?;
+        if !matches!(state, FdReadPollState::Pending) {
+            return Ok(state);
+        }
+
+        if timeout_ms == 0 {
+            return Ok(FdReadPollState::Pending);
+        }
+
+        let sleep_duration = match deadline {
+            Some(deadline) => {
+                let now = std::time::Instant::now();
+                if now >= deadline {
+                    return Ok(FdReadPollState::Pending);
+                }
+                deadline.duration_since(now).min(Duration::from_millis(10))
+            }
+            None => Duration::from_millis(10),
+        };
+        std::thread::sleep(sleep_duration);
     }
 }
 
 #[cfg(not(any(unix, windows)))]
-fn poll_stdin_with_timeout(timeout: Option<Duration>) -> WasiResult<bool> {
+fn poll_stdin_read_state(timeout: Option<Duration>) -> WasiResult<FdReadPollState> {
     if let Some(duration) = timeout
         && duration > Duration::ZERO
     {
-        thread::sleep(duration);
+        std::thread::sleep(duration);
     }
-    Ok(true)
+    Ok(FdReadPollState::Ready {
+        nbytes: 1,
+        flags: 0,
+    })
 }
 
 fn poll_fd_read_state(context: &WasiContext, fd: i32) -> WasiResult<FdReadPollState> {
     match fd {
-        WASI_FD_STDIN => {
-            if poll_stdin_with_timeout(Some(Duration::ZERO))? {
-                Ok(FdReadPollState::Ready(1))
-            } else {
-                Ok(FdReadPollState::Pending)
-            }
-        }
+        WASI_FD_STDIN => poll_stdin_read_state(Some(Duration::ZERO)),
         WASI_FD_STDOUT | WASI_FD_STDERR => Err(WASI_ERRNO_BADF),
         _ => {
             let descriptor = file_for_fd(context, fd)?;
@@ -1251,9 +1459,15 @@ fn poll_fd_read_state(context: &WasiContext, fd: i32) -> WasiResult<FdReadPollSt
                     .stream_position()
                     .map_err(|error| io_error_to_errno(&error))?;
                 let remaining = metadata.len().saturating_sub(position);
-                Ok(FdReadPollState::Ready(remaining))
+                Ok(FdReadPollState::Ready {
+                    nbytes: remaining,
+                    flags: 0,
+                })
             } else {
-                Ok(FdReadPollState::Ready(metadata.len().max(1)))
+                Ok(FdReadPollState::Ready {
+                    nbytes: metadata.len().max(1),
+                    flags: 0,
+                })
             }
         }
     }
@@ -1276,54 +1490,26 @@ fn poll_fd_write_nbytes(context: &WasiContext, fd: i32) -> WasiResult<u64> {
 fn collect_poll_events(
     context: &WasiContext,
     subscriptions: &[PollSubscription],
-) -> WasiResult<(Vec<PollEvent>, Option<u64>, bool)> {
+) -> WasiResult<(Vec<PollEvent>, bool)> {
     let mut events = Vec::new();
-    let mut min_remaining_ns: Option<u64> = None;
     let mut pending_stdin_read = false;
 
     for subscription in subscriptions {
         match subscription.data {
-            SubscriptionData::Clock {
-                id,
-                timeout_ns,
-                flags,
-            } => {
-                let now = clock_now_ns(context, id)?;
-                let deadline = if (flags & WASI_SUBCLOCKFLAG_ABSTIME) != 0 {
-                    timeout_ns
-                } else {
-                    now.saturating_add(timeout_ns)
-                };
-
-                if now >= deadline {
-                    events.push(PollEvent {
-                        userdata: subscription.userdata,
-                        error: WASI_ERRNO_SUCCESS,
-                        event_type: WASI_EVENTTYPE_CLOCK,
-                        nbytes: 0,
-                        flags: 0,
-                    });
-                } else {
-                    let remaining = deadline - now;
-                    min_remaining_ns = Some(match min_remaining_ns {
-                        Some(current) => current.min(remaining),
-                        None => remaining,
-                    });
-                }
-            }
             SubscriptionData::FdRead { fd } => {
                 let read_result = (|| -> WasiResult<FdReadPollState> {
+                    require_fd_right(context, fd, WASI_RIGHT_POLL_FD_READWRITE)?;
                     require_fd_right(context, fd, WASI_RIGHT_FD_READ)?;
                     poll_fd_read_state(context, fd)
                 })();
                 match read_result {
-                    Ok(FdReadPollState::Ready(nbytes)) => {
+                    Ok(FdReadPollState::Ready { nbytes, flags }) => {
                         events.push(PollEvent {
                             userdata: subscription.userdata,
                             error: WASI_ERRNO_SUCCESS,
                             event_type: WASI_EVENTTYPE_FD_READ,
                             nbytes,
-                            flags: 0,
+                            flags,
                         });
                     }
                     Ok(FdReadPollState::Pending) => {
@@ -1342,6 +1528,7 @@ fn collect_poll_events(
             }
             SubscriptionData::FdWrite { fd } => {
                 let write_result = (|| -> WasiResult<u64> {
+                    require_fd_right(context, fd, WASI_RIGHT_POLL_FD_READWRITE)?;
                     require_fd_right(context, fd, WASI_RIGHT_FD_WRITE)?;
                     poll_fd_write_nbytes(context, fd)
                 })();
@@ -1369,11 +1556,10 @@ fn collect_poll_events(
         }
     }
 
-    Ok((events, min_remaining_ns, pending_stdin_read))
+    Ok((events, pending_stdin_read))
 }
 
-#[allow(dead_code)]
-fn poll_oneoff_impl(
+fn poll_oneoff(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
@@ -1389,27 +1575,19 @@ fn poll_oneoff_impl(
         let nsubscriptions = usize::try_from(nsubscriptions_i32).map_err(|_| WASI_ERRNO_INVAL)?;
         let context = callback_context(&args);
 
-        let mut subscriptions = with_wasi_memory_mut(scope, context, |memory| {
+        let subscriptions = with_wasi_memory_mut(scope, context, |memory| {
             parse_poll_subscriptions(memory, in_ptr, nsubscriptions)
         })?;
-        normalize_poll_subscriptions(context, &mut subscriptions)?;
 
-        let (mut events, mut min_remaining_ns, mut pending_stdin_read) =
-            collect_poll_events(context, &subscriptions)?;
+        let (mut events, mut pending_stdin_read) = collect_poll_events(context, &subscriptions)?;
         while events.is_empty() {
             if pending_stdin_read {
-                let timeout = min_remaining_ns.map(Duration::from_nanos);
-                let _ = poll_stdin_with_timeout(timeout)?;
-            } else if let Some(wait_ns) = min_remaining_ns {
-                if wait_ns > 0 {
-                    thread::sleep(Duration::from_nanos(wait_ns));
-                }
+                let _ = poll_stdin_read_state(None)?;
             } else {
                 break;
             }
 
-            (events, min_remaining_ns, pending_stdin_read) =
-                collect_poll_events(context, &subscriptions)?;
+            (events, pending_stdin_read) = collect_poll_events(context, &subscriptions)?;
         }
 
         with_wasi_memory_mut(scope, context, |memory| {
@@ -1729,7 +1907,9 @@ fn fd_read(
                             continue;
                         }
                         let buffer = checked_mut_range(memory, buf_offset, len)?;
-                        let read_len = stdin.read(buffer).map_err(|_| WASI_ERRNO_IO)?;
+                        let read_len = stdin
+                            .read(buffer)
+                            .map_err(|error| io_error_to_errno(&error))?;
                         total_read = total_read.checked_add(read_len).ok_or(WASI_ERRNO_FAULT)?;
 
                         if read_len < len {
@@ -1768,10 +1948,6 @@ fn fd_read(
     })();
 
     finish_with_result(&mut ret, result);
-}
-
-fn clock_now_ns(_context: &WasiContext, _clock_id: ClockId) -> WasiResult<u64> {
-    Err(WASI_ERRNO_NOTSUP)
 }
 
 fn set_wasi_func_impl<'s>(
@@ -1833,6 +2009,7 @@ pub(crate) fn init_env<'s>(
     set_wasi_func!(obj, scope, context_ptr, path_create_directory);
     set_wasi_func!(obj, scope, context_ptr, path_remove_directory);
     set_wasi_func!(obj, scope, context_ptr, path_unlink_file);
+    set_wasi_func!(obj, scope, context_ptr, poll_oneoff);
     set_wasi_func!(obj, scope, context_ptr, proc_exit);
 
     dtors.push(context);
