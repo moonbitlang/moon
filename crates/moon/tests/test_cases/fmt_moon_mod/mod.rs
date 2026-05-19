@@ -36,6 +36,32 @@ fn test_check_existing_moon_mod_dry_run() {
 }
 
 #[test]
+fn test_check_existing_moon_mod_supports_toplevel_config() {
+    let dir = TestDir::new("fmt_moon_mod_existing.in");
+    std::fs::write(
+        dir.join("moon.mod"),
+        r#"name = "test/check_moon_mod"
+
+version = "0.1.0"
+
+readme = "README.md"
+repository = "https://example.com/check_moon_mod"
+license = "Apache-2.0"
+keywords = ["moonbit", "dsl"]
+description = "Module metadata"
+preferred_target = "js"
+supported_targets = "js"
+"#,
+    )
+    .unwrap();
+
+    let output = get_stdout(&dir, ["check", "--dry-run", "--sort-input"]);
+
+    assert!(output.contains("moonc check ./main/main.mbt"), "{output}");
+    assert!(output.contains("./_build/js/debug/check/main"), "{output}");
+}
+
+#[test]
 fn test_fmt_existing_moon_mod_formats_in_place() {
     let dir = TestDir::new("fmt_moon_mod_existing.in");
 
