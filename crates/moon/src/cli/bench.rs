@@ -22,7 +22,11 @@ use moonutil::{
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
 };
-use std::path::Path;
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    path::{Path, PathBuf},
+};
 use tracing::{Level, instrument};
 
 use super::{BuildFlags, UniversalFlags};
@@ -53,6 +57,10 @@ pub(crate) struct BenchSubcommand {
     #[clap(long)]
     pub build_only: bool,
 
+    /// Output benchmark results in JSON Lines format to the specified file
+    #[clap(long, value_name = "JSONL", conflicts_with = "build_only")]
+    pub jsonl: Option<PathBuf>,
+
     /// Run the benchmarks in a target backend sequentially
     #[clap(long)]
     pub no_parallelize: bool,
@@ -60,6 +68,20 @@ pub(crate) struct BenchSubcommand {
 
 #[instrument(skip_all)]
 pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Result<i32> {
+    if cmd.jsonl.is_some() && cli.dry_run {
+        anyhow::bail!("`--jsonl` cannot be used with `--dry-run`");
+    }
+
+    let mut jsonl_writer = cmd
+        .jsonl
+        .as_ref()
+        .map(|path| {
+            File::create(path)
+                .map(BufWriter::new)
+                .with_context(|| format!("failed to create JSON Lines file `{}`", path.display()))
+        })
+        .transpose()?;
+
     let PackageDirs {
         source_dir,
         target_dir,
@@ -70,8 +92,9 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
 
-    if cmd.build_flags.target.is_empty() {
-        return run_bench_internal(
+    let exit_code = if cmd.build_flags.target.is_empty() {
+        let writer = jsonl_writer.as_mut().map(|writer| writer as &mut dyn Write);
+        run_bench_internal(
             &cli,
             &cmd,
             &source_dir,
@@ -80,28 +103,39 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
             project_manifest_path.as_deref(),
             None,
             None,
-        );
-    }
-    let surface_targets = cmd.build_flags.target.clone();
-    let targets = lower_surface_targets(&surface_targets);
-    let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
+            writer,
+        )?
+    } else {
+        let surface_targets = cmd.build_flags.target.clone();
+        let targets = lower_surface_targets(&surface_targets);
+        let display_backend_hint = if targets.len() > 1 { Some(()) } else { None };
 
-    let mut ret_value = 0;
-    for t in targets {
-        let x = run_bench_internal(
-            &cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            project_manifest_path.as_deref(),
-            display_backend_hint,
-            Some(t),
-        )
-        .context(format!("failed to run bench for target {t:?}"))?;
-        ret_value = ret_value.max(x);
+        let mut ret_value = 0;
+        for t in targets {
+            let writer = jsonl_writer.as_mut().map(|writer| writer as &mut dyn Write);
+            let x = run_bench_internal(
+                &cli,
+                &cmd,
+                &source_dir,
+                &target_dir,
+                &mooncakes_dir,
+                project_manifest_path.as_deref(),
+                display_backend_hint,
+                Some(t),
+                writer,
+            )
+            .context(format!("failed to run bench for target {t:?}"))?;
+            ret_value = ret_value.max(x);
+        }
+        ret_value
+    };
+
+    if let (Some(path), Some(writer)) = (cmd.jsonl.as_ref(), jsonl_writer.as_mut()) {
+        writer
+            .flush()
+            .with_context(|| format!("failed to flush JSON Lines file `{}`", path.display()))?;
     }
-    Ok(ret_value)
+    Ok(exit_code)
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -115,6 +149,7 @@ fn run_bench_internal(
     project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
+    bench_jsonl_writer: Option<&mut dyn Write>,
 ) -> anyhow::Result<i32> {
     super::run_test_or_bench_internal(
         cli,
@@ -125,5 +160,6 @@ fn run_bench_internal(
         project_manifest_path,
         display_backend_hint,
         selected_target_backend,
+        bench_jsonl_writer,
     )
 }

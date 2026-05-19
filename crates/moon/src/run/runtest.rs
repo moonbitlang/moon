@@ -69,7 +69,7 @@ use std::{
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonbuild::{
-    benchmark::{BATCHBENCH, render_batch_bench_summary},
+    benchmark::{BATCHBENCH, BatchBenchSummaries, render_batch_bench_summary},
     entry::{CompactTestFormatter, TestArgs},
     expect::{
         ERROR, EXPECT_FAILED, PackageSrcResolver, RUNTIME_ERROR, SNAPSHOT_TESTING,
@@ -81,7 +81,7 @@ use moonbuild::{
 use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
 use moonutil::common::{
     MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
-    MOON_TEST_DELIMITER_END, MbtTestInfo, MooncGenTestInfo,
+    MOON_TEST_DELIMITER_END, MbtTestInfo, MooncGenTestInfo, TargetBackend,
 };
 use tokio::runtime::Runtime;
 use tracing::{debug, info, instrument, trace, warn};
@@ -290,6 +290,30 @@ pub(crate) struct TestSummary {
     pub passed: usize,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct BenchJsonReport {
+    pub backend: String,
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub results: Vec<BenchJsonResult>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct BenchJsonResult {
+    pub package: String,
+    pub filename: String,
+    pub index: u32,
+    pub test_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_number: Option<usize>,
+    pub status: &'static str,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub summaries: Vec<moonbuild::benchmark::BenchSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
 impl ReplaceableTestResults {
     #[instrument(level = "trace", skip(self, result))]
     fn merge_with_target(&mut self, target: BuildTarget, result: TargetTestResult) {
@@ -338,6 +362,27 @@ impl ReplaceableTestResults {
                 }
             }
         }
+    }
+
+    pub(crate) fn bench_json_report(&self, meta: &BuildMeta) -> anyhow::Result<BenchJsonReport> {
+        let summary = self.summary();
+        let mut results = Vec::new();
+        for result in self.map.values() {
+            for file_map in result.map.values() {
+                for res in file_map.values() {
+                    results.push(bench_json_result(res)?);
+                }
+            }
+        }
+        Ok(BenchJsonReport {
+            backend: TargetBackend::from(meta.target_backend)
+                .to_backend_ext()
+                .to_string(),
+            total: summary.total,
+            passed: summary.passed,
+            failed: summary.total - summary.passed,
+            results,
+        })
     }
 
     #[instrument(level = "trace", skip(self))]
@@ -819,6 +864,51 @@ fn parse_one_test_result(
         Failed
     };
     Ok(res)
+}
+
+fn bench_json_result(res: &TestCaseResult) -> anyhow::Result<BenchJsonResult> {
+    let test_name = res
+        .meta
+        .name
+        .as_ref()
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| res.raw.test_name.clone());
+    let summaries = if matches!(res.kind, TestResultKind::Passed) {
+        if let Some(msg) = res.raw.message.strip_prefix(BATCHBENCH) {
+            serde_json_lenient::from_str::<BatchBenchSummaries>(msg)
+                .with_context(|| {
+                    format!(
+                        "failed to parse benchmark summary for {}:{}",
+                        res.raw.filename, res.raw.index
+                    )
+                })?
+                .summaries
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+    let message = match res.kind {
+        TestResultKind::Passed if res.raw.message.starts_with(BATCHBENCH) => None,
+        TestResultKind::Passed if res.raw.message.is_empty() => None,
+        TestResultKind::ExpectPanic if res.raw.message.is_empty() => {
+            Some("panic is expected".to_string())
+        }
+        _ if res.raw.message.is_empty() => None,
+        _ => Some(res.raw.message.clone()),
+    };
+
+    Ok(BenchJsonResult {
+        package: res.raw.package.clone(),
+        filename: res.raw.filename.clone(),
+        index: res.meta.index,
+        test_name,
+        line_number: res.meta.line_number,
+        status: if res.passed() { "ok" } else { "failed" },
+        summaries,
+        message,
+    })
 }
 
 fn print_test_result(

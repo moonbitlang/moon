@@ -20,7 +20,7 @@ use colored::Colorize;
 
 pub const BATCHBENCH: &str = "@BATCH_BENCH ";
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct BenchSummary {
     pub name: Option<String>,
     pub min: f64,
@@ -38,7 +38,7 @@ pub struct BenchSummary {
     pub runs: usize,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct BatchBenchSummaries {
     pub summaries: Vec<BenchSummary>,
 }

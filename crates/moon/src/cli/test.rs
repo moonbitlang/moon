@@ -48,7 +48,10 @@ use moonutil::common::{
 };
 use moonutil::dirs::ProjectProbe;
 use moonutil::mooncakes::sync::AutoSyncFlags;
-use std::path::{Path, PathBuf};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 use tracing::{Level, debug, info, instrument, trace};
 
 use super::BenchSubcommand;
@@ -480,6 +483,7 @@ fn run_test_internal(
         project_manifest_path,
         display_backend_hint,
         selected_target_backend,
+        None,
     )?;
     trace!(exit_code, "run_test_internal finished");
     Ok(exit_code)
@@ -609,6 +613,7 @@ fn run_test_in_single_file_rr(
         build_graph,
         filter,
         None,
+        None,
     )
 }
 
@@ -629,6 +634,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub no_parallelize: bool,
     pub outline: bool,
     pub test_failure_json: bool,
+    pub bench_jsonl: bool,
     pub patch_file: &'a Option<PathBuf>,
     pub include_skipped: bool,
     /// Glob pattern to filter tests by name
@@ -653,6 +659,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             no_parallelize: cmd.no_parallelize,
             outline: cmd.outline,
             test_failure_json: cmd.test_failure_json,
+            bench_jsonl: false,
             patch_file: &cmd.patch_file,
             include_skipped: cmd.include_skipped,
             filter: &cmd.filter,
@@ -677,6 +684,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             no_parallelize: cmd.no_parallelize,
             outline: false,
             test_failure_json: false,
+            bench_jsonl: cmd.jsonl.is_some(),
             patch_file: &None,
             include_skipped: false,
             filter: &None,
@@ -880,6 +888,7 @@ pub(crate) fn run_test_or_bench_internal(
     project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
+    bench_jsonl_writer: Option<&mut dyn Write>,
 ) -> anyhow::Result<i32> {
     debug!(
         run_mode = ?cmd.run_mode,
@@ -923,6 +932,9 @@ pub(crate) fn run_test_or_bench_internal(
     if cmd.profile && cmd.run_mode != RunMode::Test {
         anyhow::bail!("`--profile` is only supported for `moon test`");
     }
+    if cmd.bench_jsonl && cli.dry_run {
+        anyhow::bail!("`--jsonl` cannot be used with `--dry-run`");
+    }
 
     debug!("selecting test runner implementation");
     run_test_rr(
@@ -934,6 +946,7 @@ pub(crate) fn run_test_or_bench_internal(
         project_manifest_path,
         display_backend_hint,
         selected_target_backend,
+        bench_jsonl_writer,
     )
 }
 
@@ -948,6 +961,7 @@ fn run_test_rr(
     project_manifest_path: Option<&Path>,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
     selected_target_backend: Option<TargetBackend>,
+    mut bench_jsonl_writer: Option<&mut dyn Write>,
 ) -> Result<i32, anyhow::Error> {
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let planned_runs = plan_test_or_bench_rr_from_resolved_all(
@@ -985,6 +999,9 @@ fn run_test_rr(
             "planned rupes-recta build graph"
         );
 
+        let bench_jsonl_writer = bench_jsonl_writer
+            .as_mut()
+            .map(|writer| &mut **writer as &mut dyn Write);
         exit_code = exit_code.max(rr_test_from_plan(
             cli,
             cmd,
@@ -995,6 +1012,7 @@ fn run_test_rr(
             build_graph,
             filter,
             build_only_artifacts.as_mut(),
+            bench_jsonl_writer,
         )?);
     }
     if !cli.dry_run
@@ -1496,6 +1514,7 @@ fn rr_test_from_plan(
     build_graph: rr_build::BuildInput,
     filter: TestFilter,
     build_only_artifacts: Option<&mut TestArtifacts>,
+    bench_jsonl_writer: Option<&mut dyn Write>,
 ) -> Result<i32, anyhow::Error> {
     let user_diagnostics = UserDiagnostics::from_flags(cli);
     let built = match execute_test_build_from_plan(
@@ -1668,15 +1687,24 @@ fn rr_test_from_plan(
         }
     }
 
-    test_result.print_result(build_meta, cli.verbose, cmd.test_failure_json);
     let summary = test_result.summary();
-    print_test_summary(
-        summary.total,
-        summary.passed,
-        cli.quiet,
-        backend_hint,
-        user_diagnostics,
-    );
+    if cmd.bench_jsonl {
+        let Some(writer) = bench_jsonl_writer else {
+            bail!("internal error: missing JSON Lines writer for `moon bench --jsonl`");
+        };
+        let report = test_result.bench_json_report(build_meta)?;
+        serde_json_lenient::to_writer(&mut *writer, &report)?;
+        writeln!(writer)?;
+    } else {
+        test_result.print_result(build_meta, cli.verbose, cmd.test_failure_json);
+        print_test_summary(
+            summary.total,
+            summary.passed,
+            cli.quiet,
+            backend_hint,
+            user_diagnostics,
+        );
+    }
 
     if summary.total == summary.passed {
         Ok(0)
