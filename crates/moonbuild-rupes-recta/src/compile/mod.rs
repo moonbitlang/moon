@@ -58,8 +58,8 @@ pub struct CompileConfig {
     /// Whether to export the build plan graph in the compile output.
     /// This should only be used in debugging scenarios.
     pub debug_export_build_plan: bool,
-    /// Whether to auto-add `-export-memory-name memory` for wasi-oriented wasm builds.
-    pub wasi_auto_export_memory: bool,
+    /// Whether to pass `-wasi` for wasi-oriented wasm builds.
+    pub wasi_link: bool,
     /// Enable code coverage instrumentation.
     pub enable_coverage: bool,
     /// Output WAT instead of WASM binary format.
@@ -162,7 +162,7 @@ pub fn compile(
         docs_serve: cx.docs_serve,
         warning_condition: cx.warning_condition,
         info_no_alias: cx.info_no_alias,
-        wasi_auto_export_memory: cx.wasi_auto_export_memory,
+        wasi_link: cx.wasi_link,
 
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths,

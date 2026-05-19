@@ -695,6 +695,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 shared_memory: cfg.shared_memory,
                 heap_start_address: cfg.heap_start_address,
                 link_flags: cfg.flags.as_deref(),
+                wasi: false,
             }
         } else if self.opt.target_backend == RunBackend::WasmGC
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
@@ -706,26 +707,21 @@ impl<'a> BuildPlanLowerContext<'a> {
                 shared_memory: cfg.shared_memory,
                 heap_start_address: None,
                 link_flags: cfg.flags.as_deref(),
+                wasi: false,
             }
         } else {
             WasmConfig::default()
         };
 
-        if self.should_auto_export_wasm_memory(target, pkg)
-            && wasm_config.export_memory_name.is_none()
-            && wasm_config.import_memory.is_none()
-            && !wasm_config
-                .link_flags
-                .is_some_and(has_raw_wasm_memory_link_flag)
-        {
-            wasm_config.export_memory_name = Some("memory".into());
+        if self.should_link_wasi(target, pkg) {
+            wasm_config.wasi = true;
         }
 
         wasm_config
     }
 
-    fn should_auto_export_wasm_memory(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> bool {
-        if !self.opt.wasi_auto_export_memory || self.opt.target_backend != RunBackend::Wasm {
+    fn should_link_wasi(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> bool {
+        if !self.opt.wasi_link || self.opt.target_backend != RunBackend::Wasm {
             return false;
         }
 
@@ -1244,15 +1240,4 @@ impl<'a> BuildPlanLowerContext<'a> {
         deps.sort_by(|x, y| x.alias.cmp(&y.alias));
         deps
     }
-}
-
-fn has_raw_wasm_memory_link_flag(flags: &[String]) -> bool {
-    flags.iter().any(|flag| {
-        matches!(
-            flag.as_str(),
-            "-export-memory-name" | "-import-memory-module" | "-import-memory-name"
-        ) || flag.starts_with("-export-memory-name=")
-            || flag.starts_with("-import-memory-module=")
-            || flag.starts_with("-import-memory-name=")
-    })
 }
