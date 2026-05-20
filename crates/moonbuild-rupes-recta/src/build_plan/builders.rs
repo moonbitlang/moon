@@ -60,13 +60,10 @@ const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
 
 impl<'a> BuildPlanConstructor<'a> {
     fn effective_native_toolchain(&self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-        if let Some(package_cc) = package_cc {
-            return Ok(Toolchain::from_package_override(package_cc.clone()));
-        }
         self.build_env
             .native_toolchain
             .ok_or_else(|| anyhow::anyhow!("native C toolchain is not selected for this build"))?
-            .resolve_default()
+            .resolve_with_package_override(package_cc)
     }
 
     fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
