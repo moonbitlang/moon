@@ -6,14 +6,14 @@ cargo xtask
 
 This runs:
 
-- `cargo run --bin moon -- check --manifest-path crates/moonbuild/template/test_driver_project/moon.mod.json`
-- `cargo run --bin moon -- fmt --check --manifest-path crates/moonbuild/template/test_driver_project/moon.mod.json`
+- `cargo run --bin moon -- check --manifest-path crates/moonbuild/template/test_driver_project/moon.mod`
+- `cargo run --bin moon -- fmt --check --manifest-path crates/moonbuild/template/test_driver_project/moon.mod`
 - `cargo fmt -- --check`
 - `cargo clippy --all-targets --all-features -- -D warnings`
 
 If any check fails, `xtask` prints plain copy-paste commands, for example:
 
-- `cargo run --bin moon -- fmt --manifest-path crates/moonbuild/template/test_driver_project/moon.mod.json`
+- `cargo run --bin moon -- fmt --manifest-path crates/moonbuild/template/test_driver_project/moon.mod`
 - `cargo clippy --fix --all-targets --all-features --allow-dirty --allow-staged`
 - `cargo fmt`
 
