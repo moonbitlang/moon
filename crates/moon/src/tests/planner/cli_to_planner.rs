@@ -160,6 +160,7 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                     frozen: false,
                 },
                 build_only: false,
+                profile: false,
                 no_parallelize: false,
                 outline: false,
                 test_failure_json: false,
