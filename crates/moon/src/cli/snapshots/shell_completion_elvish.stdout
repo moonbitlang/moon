@@ -300,6 +300,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --update 'Update the test snapshot'
             cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
             cand --build-only 'Only build, do not run the tests'
+            cand --profile 'Profile native test executables using Time Profiler on macOS'
             cand --no-parallelize 'Run the tests in a target backend sequentially'
             cand --outline 'Print the outline of tests to be executed and exit'
             cand --test-failure-json 'Print failure message in JSON format'

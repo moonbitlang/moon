@@ -289,7 +289,8 @@ _arguments "${_arguments_options[@]}" : \
 '-u[Update the test snapshot]' \
 '--update[Update the test snapshot]' \
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' \
-'--build-only[Only build, do not run the tests]' \
+'(--profile)--build-only[Only build, do not run the tests]' \
+'(--build-only -u --update --outline)--profile[Profile native test executables using Time Profiler on macOS]' \
 '--no-parallelize[Run the tests in a target backend sequentially]' \
 '(--build-only -u --update --test-failure-json)--outline[Print the outline of tests to be executed and exit]' \
 '--test-failure-json[Print failure message in JSON format]' \
