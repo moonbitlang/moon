@@ -336,7 +336,14 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         ("name", false),
         ("version", false),
         ("rule", true),
+        // metadata for mooncakes.io
+        ("readme", false),
+        ("repository", false),
+        ("license", false),
+        ("keywords", false),
+        ("description", false),
         ("supported_targets", false),
+        ("preferred_target", false),
     ]);
     let mut map = serde_json_lenient::Map::new();
     for (key, value) in dsl.iter() {
@@ -360,6 +367,9 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
 
     if let serde_json_lenient::Value::Object(options) = map.remove("options").unwrap_or_default() {
         for (key, value) in options {
+            if map.contains_key(&key) {
+                bail!("Duplicate key '{}' found in moon.mod.", key);
+            }
             map.insert(key, value);
         }
     }
@@ -393,6 +403,11 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
     } else {
         None
     };
+
+    if let Some(preferred_target) = map.remove("preferred_target") {
+        map.insert(String::from("preferred-target"), preferred_target);
+    }
+
     let supported_targets = map.remove("supported_targets");
     let legacy_supported_targets = map.remove("supported-targets");
     match (supported_targets, legacy_supported_targets) {

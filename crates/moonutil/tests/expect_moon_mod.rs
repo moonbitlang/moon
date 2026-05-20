@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 
 use moonutil::common::{
-    read_module_desc_file_in_dir, read_module_from_dsl, write_module_dsl_to_file,
+    TargetBackend, read_module_desc_file_in_dir, read_module_from_dsl, write_module_dsl_to_file,
 };
 use moonutil::module::{MoonModJSON, convert_module_to_mod_json};
 use moonutil::package::SupportedTargetsConfig;
@@ -154,6 +154,52 @@ supported_targets = "js"
         Some(SupportedTargetsConfig::Expr(expr)) => assert_eq!(expr, "js"),
         other => panic!("unexpected supported_targets: {other:?}"),
     }
+}
+
+#[test]
+fn read_module_desc_supports_new_toplevel_fields_from_fixture() {
+    let module = read_module_desc_file_in_dir(&fixture_dir("module_dsl_toplevel")).unwrap();
+
+    assert_eq!(module.readme.as_deref(), Some("README.md"));
+    assert_eq!(
+        module.repository.as_deref(),
+        Some("https://example.com/toplevel")
+    );
+    assert_eq!(module.license.as_deref(), Some("Apache-2.0"));
+    assert_eq!(
+        module.keywords.as_deref(),
+        Some(["moonbit".to_string(), "dsl".to_string()].as_slice())
+    );
+    assert_eq!(module.description.as_deref(), Some("Module metadata"));
+    assert_eq!(module.preferred_target, Some(TargetBackend::Js));
+    match module.supported_targets {
+        Some(SupportedTargetsConfig::Expr(expr)) => assert_eq!(expr, "js"),
+        other => panic!("unexpected supported_targets: {other:?}"),
+    }
+}
+
+#[test]
+fn read_module_from_dsl_rejects_duplicate_toplevel_and_options_fields() {
+    let dir = temp_dir("duplicate-toplevel-options-module-read");
+    let path = dir.join("moon.mod");
+    std::fs::write(
+        &path,
+        r#"name = "example/mod"
+readme = "README.md"
+
+options(
+  readme: "README.old.md",
+)
+"#,
+    )
+    .unwrap();
+
+    let err = read_module_from_dsl(&path).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Duplicate key 'readme' found in moon.mod."),
+        "{err:?}"
+    );
 }
 
 #[test]
