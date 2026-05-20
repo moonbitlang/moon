@@ -161,7 +161,9 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("Build target info should be present for GenerateTestInfo nodes");
                 self.lower_gen_test_driver(node, target, info)
             }
-            BuildPlanNode::BuildRuntimeLib => self.lower_compile_runtime(),
+            BuildPlanNode::BuildRuntimeLib => self
+                .lower_compile_runtime()
+                .map_err(LoweringError::RuntimeNativeToolchain)?,
             BuildPlanNode::BuildDocs(module_id) => self.lower_build_docs(module_id),
             BuildPlanNode::RunPrebuild(pkg, idx) => self.lower_run_prebuild(pkg, idx),
             BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => self.lower_moon_lex_prebuild(pkg, idx),

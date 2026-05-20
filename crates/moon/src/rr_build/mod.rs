@@ -52,7 +52,7 @@ use moonutil::{
         BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
         WHITEBOX_TEST_PATCH,
     },
-    compiler_flags::CC,
+    compiler_flags::{CC, NativeToolchainSelection},
     cond_expr::OptLevel as BuildProfile,
     dirs::WorkspaceEnv,
     features::FeatureGate,
@@ -315,7 +315,7 @@ impl CompilePreConfig {
         resolve_output: &ResolveOutput,
         input_nodes: &[BuildPlanNode],
         output: UserDiagnostics,
-    ) -> CompileConfig {
+    ) -> anyhow::Result<CompileConfig> {
         info!("Determining compilation configuration");
 
         let std = self.use_std && !is_core;
@@ -356,7 +356,23 @@ impl CompilePreConfig {
         };
         info!("Final run backend: {:?}", target_backend);
 
-        CompileConfig {
+        let prefer_internal_tcc = target_backend == RunBackend::NativeTccRun
+            || (target_backend == RunBackend::Native && self.opt_level == BuildProfile::Debug);
+        let native_toolchain = if prefer_internal_tcc {
+            Some(NativeToolchainSelection::internal_tcc_first())
+        } else if target_backend.is_native() {
+            Some(NativeToolchainSelection::system_first())
+        } else {
+            None
+        };
+
+        let internal_tcc = (target_backend == RunBackend::NativeTccRun).then(|| {
+            internal_tcc
+                .clone()
+                .expect("NativeTccRun should only be selected when internal tcc is available")
+        });
+
+        Ok(CompileConfig {
             target_dir: self.target_dir,
             target_backend,
             opt_level: self.opt_level,
@@ -376,11 +392,9 @@ impl CompilePreConfig {
             warning_condition: self.warning_condition,
             warn_list: self.warn_list,
             info_no_alias: self.info_no_alias,
-            default_cc: CC::default(), // TODO: determine how CC will be set
-            internal_tcc: (target_backend == RunBackend::NativeTccRun)
-                .then_some(internal_tcc)
-                .flatten(),
-        }
+            internal_tcc,
+            native_toolchain,
+        })
     }
 }
 
@@ -565,7 +579,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         &resolve_output,
         &input_nodes,
         output,
-    );
+    )?;
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
