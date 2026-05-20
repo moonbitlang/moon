@@ -364,13 +364,16 @@ fn write_module_dsl_uses_canonical_sections() {
           "example/dep@1.2.3",
         }
 
+        readme = "README.md"
+
+        license = "Apache-2.0"
+
         warnings = "+w1-w2"
 
+        supported_targets = [ "wasm-gc", "js" ]
+
         options(
-          readme: "README.md",
-          license: "Apache-2.0",
           "include": [ "src/**", "README.md" ],
-          "supported-targets": [ "wasm-gc", "js" ],
         )"#]]
     .assert_eq(&actual);
 }

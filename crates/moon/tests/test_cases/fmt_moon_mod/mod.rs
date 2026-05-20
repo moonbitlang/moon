@@ -81,10 +81,9 @@ import {
   "example/dep@0.1.0",
 }
 
-options(
-  readme: "README.md",
-  supported_targets: [ "wasm-gc", "js" ],
-)
+readme = "README.md"
+
+supported_targets = [ "wasm-gc", "js" ]
 "#
     );
 }
@@ -259,9 +258,7 @@ fn test_fmt_moon_mod_both_exist_formats_moon_mod_in_place() {
 
 version = "0.0.1"
 
-options(
-  readme: "README.md",
-)
+readme = "README.md"
 "#
     );
 }
@@ -288,9 +285,7 @@ import {
 
 warnings = "+w1-w2"
 
-options(
-  readme: "README.md",
-)"#
+readme = "README.md""#
     );
     assert!(!dir.join("moon.mod.json").exists());
 }
