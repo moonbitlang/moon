@@ -21,8 +21,8 @@
 use moonutil::{
     common::DriverKind,
     compiler_flags::{
-        CC, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        make_cc_command_resolved, resolve_cc,
+        CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
+        make_cc_command_resolved,
     },
     mooncakes::{ModuleId, ModuleSourceKind},
 };
@@ -136,7 +136,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_compile_runtime(&mut self) -> BuildCommand {
+    pub(super) fn lower_compile_runtime(&mut self) -> anyhow::Result<BuildCommand> {
         let artifact_path = self
             .layout
             .runtime_output_path(self.opt.target_backend, self.opt.os);
@@ -159,7 +159,13 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             }
         };
 
-        let resolved_cc = resolve_cc(&CC::default(), None);
+        let resolved_cc = self
+            .opt
+            .native_toolchain
+            .ok_or_else(|| anyhow::anyhow!("native C toolchain is not selected for this build"))?
+            .resolve_default()?
+            .cc()
+            .clone();
         let use_tcc_run = matches!(self.opt.target_backend, RunBackend::NativeTccRun);
         let use_simdutf = !use_tcc_run
             && resolved_cc.can_use_simdutf()
@@ -188,10 +194,10 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             &self.opt.compiler_paths,
         );
 
-        BuildCommand {
+        Ok(BuildCommand {
             extra_inputs: vec![runtime_c_path],
             commandline: cc_cmd.into(),
-        }
+        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]

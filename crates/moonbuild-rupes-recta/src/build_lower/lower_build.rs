@@ -656,6 +656,12 @@ impl<'a> BuildPlanLowerContext<'a> {
             js_config: self.get_js_config(target, package),
             exports: package.exported_functions(self.opt.target_backend.into()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
+            #[cfg(target_os = "windows")]
+            native_toolchain_is_msvc: self
+                .opt
+                .native_toolchain
+                .and_then(|selection| selection.resolve_default().ok())
+                .is_some_and(|toolchain| toolchain.cc().is_msvc()),
         };
 
         // Ensure n2 sees stdlib core bundle changes as inputs
