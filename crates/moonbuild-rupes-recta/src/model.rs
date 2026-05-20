@@ -181,10 +181,14 @@ pub enum BuildPlanNode {
     /// Link the `.core` file into an executable or library for the given target.
     LinkCore(BuildTarget),
 
-    /// If the output from `LinkCore` is not yet executable, make it executable.
+    /// The final runnable artifact for a target.
     ///
-    /// This is mainly for native targets, where the build output is a C file
-    /// that needs further compilation and linking to become an executable.
+    /// For wasm and js, `LinkCore` already emits the final `.wasm`, `.wat`, or
+    /// `.js` artifact, so this node is retained as the final artifact node but
+    /// lowers to no command.
+    ///
+    /// For native targets, the output from `LinkCore` is a C file or object
+    /// file that needs further compilation and linking to become an executable.
     ///
     /// In TCC mode, since linking is done at the same time as running, this
     /// step writes a response file containing the linking flags for TCC to use.
