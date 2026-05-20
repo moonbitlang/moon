@@ -356,11 +356,7 @@ impl CompilePreConfig {
         };
         info!("Final run backend: {:?}", target_backend);
 
-        let prefer_internal_tcc = target_backend == RunBackend::NativeTccRun
-            || (target_backend == RunBackend::Native && self.opt_level == BuildProfile::Debug);
-        let native_toolchain = if prefer_internal_tcc {
-            Some(NativeToolchainSelection::internal_tcc_first())
-        } else if target_backend.is_native() {
+        let native_toolchain = if target_backend.is_native() {
             Some(NativeToolchainSelection::system_first())
         } else {
             None

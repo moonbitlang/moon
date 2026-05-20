@@ -51,10 +51,11 @@ fn test_single_file_front_matter_deps_only_keeps_legacy_import_all_with_warning(
 #[test]
 fn test_single_file_front_matter_import_module_root() {
     let dir = TestDir::new("moon_test_single_file.in");
+    let cc = if cfg!(windows) { "cl" } else { "cc" };
     let stdout = get_stdout_with_envs(
         &dir,
         ["test", "t.mbt.md", "--no-parallelize"],
-        [("MOON_CC", "cc")],
+        [("MOON_CC", cc)],
     );
     assert!(stdout.contains("Total tests: 2, passed: 2, failed: 0."));
 }
