@@ -36,6 +36,7 @@ use super::{RunSubcommand, UniversalFlags};
 use crate::cli::run::{BuildRunExecutableOptions, build_run_executable};
 
 const DEFAULT_TOP: usize = 12;
+pub(crate) const MOON_TEST_PROFILE_COMMAND: &str = "`moon test --profile`";
 
 #[derive(Debug, Clone, Serialize)]
 struct ProfileReport {
@@ -224,6 +225,59 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     })
 }
 
+pub(crate) fn profile_test_invocations(
+    cli: &UniversalFlags,
+    target_dir: &Path,
+    build_meta: &crate::rr_build::BuildMeta,
+    filter: &crate::run::TestFilter,
+    include_skipped: bool,
+) -> Result<i32, anyhow::Error> {
+    ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
+
+    if build_meta.target_backend != RunBackend::Native {
+        bail!("{MOON_TEST_PROFILE_COMMAND} currently supports only the native backend");
+    }
+
+    let invocations =
+        crate::run::collect_test_invocations(build_meta, filter, include_skipped, false)?;
+    if invocations.is_empty() {
+        println!("No test executables matched the profile filters.");
+        return Ok(0);
+    }
+
+    for invocation in invocations {
+        // Each selected test executable is a separate process and therefore a
+        // separate xctrace recording. Keep traces in per-executable directories
+        // for now; a later aggregate report can consume those independent
+        // reports without output-path collisions.
+        let output_dir = default_output_dir_for_executable(
+            target_dir,
+            build_meta.target_backend,
+            build_meta.opt_level,
+            RunMode::Test,
+            &invocation.executable,
+        );
+        profile_executable(
+            cli,
+            ProfileRequest {
+                executable: invocation.executable,
+                args: vec![invocation.args.to_cli_args_for_native()],
+                output_dir,
+            },
+        )?;
+    }
+    if !cli.dry_run {
+        // Profile mode intentionally avoids replaying MoonBit's test result
+        // protocol. xctrace owns process execution here, and the profiling
+        // report is the primary output; users can inspect the captured stdout
+        // files if they need the underlying test output.
+        println!(
+            "Profile mode does not report test failures; inspect Program stdout files for test output."
+        );
+    }
+    Ok(0)
+}
+
 fn sanitize_path_component(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for c in input.chars() {
@@ -248,7 +302,50 @@ pub(crate) fn default_output_dir(
     artifact_run_mode: RunMode,
     executable: &Path,
 ) -> PathBuf {
-    let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
+    default_output_parent_dir(
+        target_dir,
+        target_backend,
+        opt_level,
+        artifact_run_mode,
+        executable,
+    )
+    .join(profile_timestamp())
+}
+
+/// Place profile output under a per-executable leaf.
+///
+/// Use this for commands that may profile multiple executables in one user
+/// invocation. The timestamp has second-level precision, so the executable leaf
+/// prevents two traces from the same package from targeting the same directory.
+pub(crate) fn default_output_dir_for_executable(
+    target_dir: &Path,
+    target_backend: RunBackend,
+    opt_level: OptLevel,
+    artifact_run_mode: RunMode,
+    executable: &Path,
+) -> PathBuf {
+    let mut profile_dir = default_output_parent_dir(
+        target_dir,
+        target_backend,
+        opt_level,
+        artifact_run_mode,
+        executable,
+    );
+    let stem = executable
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .unwrap_or("profile");
+    profile_dir.push(sanitize_path_component(stem));
+    profile_dir.join(profile_timestamp())
+}
+
+fn default_output_parent_dir(
+    target_dir: &Path,
+    target_backend: RunBackend,
+    opt_level: OptLevel,
+    artifact_run_mode: RunMode,
+    executable: &Path,
+) -> PathBuf {
     let build_root = output_kind_dir(
         target_dir,
         target_backend,
@@ -256,7 +353,6 @@ pub(crate) fn default_output_dir(
         artifact_run_mode.to_dir_name(),
     );
     let mut profile_dir = output_kind_dir(target_dir, target_backend, opt_level, "profile");
-
     let executable_dir = executable.parent().unwrap_or(executable);
     if let Some(package_dir) = strip_prefix_lenient(executable_dir, &build_root)
         && !package_dir.as_os_str().is_empty()
@@ -269,7 +365,11 @@ pub(crate) fn default_output_dir(
             .unwrap_or("profile");
         profile_dir.push(sanitize_path_component(stem));
     }
-    profile_dir.join(timestamp)
+    profile_dir
+}
+
+fn profile_timestamp() -> String {
+    Local::now().format("%Y%m%d-%H%M%S").to_string()
 }
 
 fn output_kind_dir(
@@ -751,7 +851,10 @@ mod tests {
     use moonbuild_rupes_recta::model::RunBackend;
     use moonutil::{common::RunMode, cond_expr::OptLevel};
 
-    use super::{default_output_dir, parse_xctrace_time_profile_xml, sanitize_path_component};
+    use super::{
+        default_output_dir, default_output_dir_for_executable, parse_xctrace_time_profile_xml,
+        sanitize_path_component,
+    };
 
     #[test]
     fn parses_referenced_xctrace_stack_rows() {
@@ -813,5 +916,29 @@ mod tests {
         );
 
         assert!(dir.starts_with("./_build/native/release/profile/cmd/main"));
+    }
+
+    #[test]
+    fn multi_executable_profile_output_includes_executable_leaf() {
+        let inline = default_output_dir_for_executable(
+            Path::new("./_build"),
+            RunBackend::Native,
+            OptLevel::Release,
+            RunMode::Test,
+            Path::new("./_build/native/release/test/cmd/main/main_internal_test.exe"),
+        );
+        let blackbox = default_output_dir_for_executable(
+            Path::new("./_build"),
+            RunBackend::Native,
+            OptLevel::Release,
+            RunMode::Test,
+            Path::new("./_build/native/release/test/cmd/main/main_blackbox_test.exe"),
+        );
+
+        assert!(inline.starts_with("./_build/native/release/profile/cmd/main/main_internal_test"));
+        assert!(
+            blackbox.starts_with("./_build/native/release/profile/cmd/main/main_blackbox_test")
+        );
+        assert_ne!(inline.parent(), blackbox.parent());
     }
 }
