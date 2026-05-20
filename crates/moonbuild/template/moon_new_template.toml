@@ -35,18 +35,32 @@ content = """
 """
 
 [[files]]
-path = "moon.mod.json"
+path = "moon.mod"
 content = """
-{
-  "name": "{{username}}/{{module}}",
-  "version": "0.1.0",
-  "readme": "README.mbt.md",
-  "repository": "",
-  "license": "Apache-2.0",
-  "keywords": [],
-  "preferred-target": "wasm-gc",
-  "description": ""
-}
+// Learn more about moon.mod configuration:
+// https://docs.moonbitlang.com/en/latest/toolchain/moon/module.html
+//
+// To add a dependency, run this command in your terminal:
+//   moon add moonbitlang/x
+//
+// Or manually declare it in `import`, for example:
+// import {
+//   "moonbitlang/x@0.4.6",
+// }
+
+name = "{{username}}/{{module}}"
+
+version = "0.1.0"
+
+readme = "README.mbt.md"
+
+repository = ""
+
+license = "Apache-2.0"
+
+keywords = []
+
+description = ""
 """
 
 [[files]]
@@ -387,7 +401,7 @@ You can browse and install extra skills here:
   blackbox test files (ending in `_test.mbt`) and whitebox test files (ending in
   `_wbtest.mbt`).
 
-- In the toplevel directory, there is a `moon.mod.json` file listing module
+- In the toplevel directory, there is a `moon.mod` file listing module
   metadata.
 
 ## Coding convention

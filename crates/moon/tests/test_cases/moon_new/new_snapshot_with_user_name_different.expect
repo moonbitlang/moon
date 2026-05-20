@@ -15,7 +15,7 @@
 ./cmd/main/
 ./cmd/main/main.mbt
 ./cmd/main/moon.pkg
-./moon.mod.json
+./moon.mod
 ./moon.pkg
 ./wow.mbt
 ./wow_test.mbt
@@ -131,17 +131,31 @@ options(
   "is-main": true,
 )
 
-=== ./moon.mod.json ===
-{
-  "name": "moonbitlang/wow",
-  "version": "0.1.0",
-  "readme": "README.mbt.md",
-  "repository": "",
-  "license": "Apache-2.0",
-  "keywords": [],
-  "preferred-target": "wasm-gc",
-  "description": ""
-}
+=== ./moon.mod ===
+// Learn more about moon.mod configuration:
+// https://docs.moonbitlang.com/en/latest/toolchain/moon/module.html
+//
+// To add a dependency, run this command in your terminal:
+//   moon add moonbitlang/x
+//
+// Or manually declare it in `import`, for example:
+// import {
+//   "moonbitlang/x@0.4.6",
+// }
+
+name = "moonbitlang/wow"
+
+version = "0.1.0"
+
+readme = "README.mbt.md"
+
+repository = ""
+
+license = "Apache-2.0"
+
+keywords = []
+
+description = ""
 
 === ./moon.pkg ===
 
@@ -160,4 +174,3 @@ options(
 // Whitebox tests run within the package scope.
 // Use them to validate internal helpers or invariants.
 // Keep them focused; public behavior belongs in `_test.mbt`.
-
