@@ -1,9 +1,10 @@
 #[cfg(windows)]
 use std::process::Command;
 
+#[cfg(not(windows))]
 use crate::TestDir;
 #[cfg(windows)]
-use crate::get_stdout_with_envs;
+use crate::{TestDir, get_stdout_with_envs};
 use expect_test::expect_file;
 
 use super::{assert_native_backend_graph, assert_native_backend_graph_no_env};

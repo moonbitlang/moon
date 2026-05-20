@@ -422,6 +422,10 @@ impl CC {
         self.is_full_featured_gcc_like() && !self.targets_msvc()
     }
 
+    pub fn can_use_simdutf(&self) -> bool {
+        !self.is_tcc()
+    }
+
     pub fn is_libmoonbitrun_o_available(&self) -> bool {
         // If users set MOON_CC, we believe they know what they are doing
         // And we conservatively disable libmoonbitrun.o
@@ -549,6 +553,9 @@ pub struct CCConfig {
     // with extra __declspec(dllimport)
     // This is needed to use the shared runtime
     pub define_use_shared_runtime_macro: bool,
+    #[builder(default = false)]
+    // Define MOONBIT_USE_SIMDUTF.
+    pub use_simdutf: bool,
 }
 
 #[derive(Clone, Builder)]
@@ -600,6 +607,12 @@ impl CompilerPaths {
             include_path: MOON_DIRS.moon_include_path.display().to_string(),
             lib_path: MOON_DIRS.moon_lib_path.display().to_string(),
         }
+    }
+
+    pub fn simdutf_object_paths(&self) -> Option<[PathBuf; 2]> {
+        let moonbit_simdutf = Path::new(&self.lib_path).join("moonbit_simdutf.o");
+        let simdutf = Path::new(&self.lib_path).join("simdutf.o");
+        (moonbit_simdutf.exists() && simdutf.exists()).then_some([moonbit_simdutf, simdutf])
     }
 }
 
@@ -1075,6 +1088,18 @@ fn add_cc_shared_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig
     }
 }
 
+fn add_cc_simdutf_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
+    if !config.use_simdutf {
+        return;
+    }
+
+    if cc.is_msvc() {
+        buf.push("/DMOONBIT_USE_SIMDUTF".to_string());
+    } else if cc.is_gcc_like() {
+        buf.push("-DMOONBIT_USE_SIMDUTF".to_string());
+    }
+}
+
 // CC compiler-specific handling for moonbitrun
 fn add_cc_moonbitrun_with_warnings(
     cc: &CC,
@@ -1217,6 +1242,7 @@ where
     add_cc_optimization_flags(&cc, &mut buf, &config, has_user_flags);
     add_cc_build_system_flags(&cc, &mut buf, &config);
     add_cc_shared_runtime_flags(&cc, &mut buf, &config);
+    add_cc_simdutf_flags(&cc, &mut buf, &config);
     add_cc_moonbitrun_with_warnings(&cc, &mut buf, &config, paths);
 
     buf.extend(src.into_iter().map(|s| s.into()));
@@ -1261,6 +1287,7 @@ mod tests {
             define_tinyc_macro: false,
             preserve_frame_pointer: false,
             define_use_shared_runtime_macro: false,
+            use_simdutf: false,
         }
     }
 
@@ -1420,6 +1447,59 @@ mod tests {
             .position(|flag| flag == &libbacktrace_arg)
             .expect("libbacktrace should be present");
         assert!(user_link_flag < libbacktrace_flag);
+
+        std::fs::remove_dir_all(temp_dir).expect("remove temp lib dir");
+    }
+
+    #[test]
+    fn configured_simdutf_keeps_default_optimization_flags() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.use_simdutf = true;
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")),
+            config,
+            &[] as &[&str],
+            &[] as &[&str],
+            ["runtime.c"],
+            "build",
+            Some("build/runtime.o"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|flag| flag == "-O2"));
+        assert!(command.iter().any(|flag| flag == "-DMOONBIT_USE_SIMDUTF"));
+    }
+
+    #[test]
+    fn simdutf_objects_require_both_toolchain_objects() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "moonutil-simdutf-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be after Unix epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&temp_dir).expect("create temp lib dir");
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: temp_dir.display().to_string(),
+        };
+
+        std::fs::write(temp_dir.join("moonbit_simdutf.o"), b"").expect("create adapter object");
+        assert!(paths.simdutf_object_paths().is_none());
+
+        let simdutf_path = temp_dir.join("simdutf.o");
+        std::fs::write(&simdutf_path, b"").expect("create simdutf object");
+        assert_eq!(
+            paths.simdutf_object_paths(),
+            Some([temp_dir.join("moonbit_simdutf.o"), simdutf_path])
+        );
 
         std::fs::remove_dir_all(temp_dir).expect("remove temp lib dir");
     }
