@@ -12,7 +12,10 @@ fn test_prebuild_link_config_self() {
     let found_final_link = OnceCell::<()>::new();
 
     for line in lines {
-        if line.contains("cc -o ./_build/native/debug/build/main/main") && cfg!(unix) {
+        if (line.contains("cc -o ./_build/native/debug/build/main/main")
+            || line.contains("internal/tcc' -o ./_build/native/debug/build/main/main"))
+            && cfg!(unix)
+        {
             found_final_link.set(()).expect("final linking found twice");
             assert!(line.contains("-l__prebuild_self_link_flag__"));
             assert!(line.contains("-lprebuildselflib"));
@@ -37,7 +40,8 @@ fn test_prebuild_link_config_self() {
 
         let mut found_test_links = 0;
         for line in lines {
-            let is_test_link = line.contains("cc -o ./_build/native/debug/test/main/")
+            let is_test_link = (line.contains("cc -o ./_build/native/debug/test/main/")
+                || line.contains("internal/tcc' -o ./_build/native/debug/test/main/"))
                 && (line.contains(".exe")
                     || line.contains("libmain.so")
                     || line.contains("libmain.dylib"));
