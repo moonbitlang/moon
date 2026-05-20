@@ -310,6 +310,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--update', 'update', [CompletionResultType]::ParameterName, 'Update the test snapshot')
             [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
             [CompletionResult]::new('--build-only', 'build-only', [CompletionResultType]::ParameterName, 'Only build, do not run the tests')
+            [CompletionResult]::new('--profile', 'profile', [CompletionResultType]::ParameterName, 'Profile native test executables using Time Profiler on macOS')
             [CompletionResult]::new('--no-parallelize', 'no-parallelize', [CompletionResultType]::ParameterName, 'Run the tests in a target backend sequentially')
             [CompletionResult]::new('--outline', 'outline', [CompletionResultType]::ParameterName, 'Print the outline of tests to be executed and exit')
             [CompletionResult]::new('--test-failure-json', 'test-failure-json', [CompletionResultType]::ParameterName, 'Print failure message in JSON format')

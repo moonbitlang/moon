@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use crate::cli::profile;
 use crate::filter::TargetPackageGroup;
 use crate::filter::canonicalize_with_filename;
 use crate::filter::ensure_packages_support_backend;
@@ -42,7 +43,8 @@ use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::common::{
-    FileLock, RunMode, TargetBackend, TestArtifacts, TestIndexRange, lower_surface_targets,
+    FileLock, RunMode, SurfaceTarget, TargetBackend, TestArtifacts, TestIndexRange,
+    lower_surface_targets,
 };
 use moonutil::dirs::ProjectProbe;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -269,8 +271,12 @@ pub(crate) struct TestSubcommand {
     pub auto_sync_flags: AutoSyncFlags,
 
     /// Only build, do not run the tests
-    #[clap(long)]
+    #[clap(long, conflicts_with = "profile")]
     pub build_only: bool,
+
+    /// Profile native test executables using Time Profiler on macOS
+    #[clap(long, conflicts_with_all = ["build_only", "update", "outline"])]
+    pub profile: bool,
 
     /// Run the tests in a target backend sequentially
     #[clap(long)]
@@ -321,6 +327,11 @@ pub(crate) fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Resu
 
 #[instrument(skip_all)]
 fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
+    if cmd.profile {
+        profile::ensure_profile_available(profile::MOON_TEST_PROFILE_COMMAND)?;
+        ensure_test_profile_target_is_native(&cmd.build_flags)?;
+    }
+
     let output = UserDiagnostics::from_flags(cli);
     info!(
         update = cmd.update,
@@ -371,6 +382,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
 
     if cmd.build_flags.target.is_empty() {
         debug!("no explicit backend target provided; using defaults");
+        let selected_target_backend = cmd.profile.then_some(TargetBackend::Native);
         return run_test_internal(
             cli,
             cmd,
@@ -379,7 +391,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
             &dirs.mooncakes_dir,
             dirs.project_manifest_path.as_deref(),
             None,
-            None,
+            selected_target_backend,
         );
     }
     let surface_targets = &cmd.build_flags.target;
@@ -407,6 +419,39 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
     }
     debug!(exit_code = ret_value, "completed moon test command");
     Ok(ret_value)
+}
+
+fn ensure_test_profile_target_is_native(build_flags: &BuildFlags) -> anyhow::Result<()> {
+    if !build_flags.target.is_empty()
+        && build_flags.resolve_single_target_backend()? != Some(TargetBackend::Native)
+    {
+        bail!(
+            "{} currently supports only `--target native`",
+            profile::MOON_TEST_PROFILE_COMMAND
+        );
+    }
+    Ok(())
+}
+
+fn effective_test_build_flags(build_flags: &BuildFlags, profile: bool) -> BuildFlags {
+    let mut build_flags = BuildFlags {
+        no_strip: !build_flags.strip && !build_flags.release,
+        ..build_flags.clone()
+    };
+
+    if profile {
+        // Time Profiler records a native process. Use release-with-symbols by
+        // default so the resulting samples are useful without extra flags.
+        build_flags.target = vec![SurfaceTarget::Native];
+        if !build_flags.debug && !build_flags.release {
+            build_flags.release = true;
+        }
+        if !build_flags.strip && !build_flags.no_strip {
+            build_flags.no_strip = true;
+        }
+    }
+
+    build_flags
 }
 
 #[instrument(skip_all)]
@@ -493,18 +538,23 @@ fn run_test_in_single_file_rr(
         single_file_path,
         false,
     )?;
-    let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?.or(backend);
+    let selected_target_backend = if cmd.profile {
+        Some(TargetBackend::Native)
+    } else {
+        cmd.build_flags.resolve_single_target_backend()?.or(backend)
+    };
 
+    let build_flags = effective_test_build_flags(&cmd.build_flags, cmd.profile);
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
-        &cmd.build_flags,
+        &build_flags,
         selected_target_backend,
         target_dir,
         RunMode::Test,
     );
     // Enable tcc-run to match legacy debug test graph shape
-    preconfig.try_tcc_run = true;
+    preconfig.try_tcc_run = !cmd.profile;
 
     let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
@@ -575,6 +625,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub limit: u32,
     pub auto_sync_flags: &'a AutoSyncFlags,
     pub build_only: bool,
+    pub profile: bool,
     pub no_parallelize: bool,
     pub outline: bool,
     pub test_failure_json: bool,
@@ -598,6 +649,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             limit: cmd.limit,
             auto_sync_flags: &cmd.auto_sync_flags,
             build_only: cmd.build_only,
+            profile: cmd.profile,
             no_parallelize: cmd.no_parallelize,
             outline: cmd.outline,
             test_failure_json: cmd.test_failure_json,
@@ -621,6 +673,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             limit: 256, // FIXME: unsure about why this default, shouldn't bench have only 1 run?
             auto_sync_flags: &cmd.auto_sync_flags,
             build_only: cmd.build_only,
+            profile: false,
             no_parallelize: cmd.no_parallelize,
             outline: false,
             test_failure_json: false,
@@ -642,10 +695,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     // 1. derive the effective build flags used by test/bench,
     // 2. build the compile preconfig,
     // 3. let RR turn resolved packages plus user intent into a graph and filter.
-    let build_flags = BuildFlags {
-        no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
-        ..cmd.build_flags.clone()
-    };
+    let build_flags = effective_test_build_flags(cmd.build_flags, cmd.profile);
     let mut preconfig = preconfig_compile(
         cmd.auto_sync_flags,
         cli,
@@ -660,7 +710,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     );
 
     // Match the legacy dry-run graph shape for `moon test`.
-    if cmd.run_mode != RunMode::Bench {
+    if cmd.run_mode != RunMode::Bench && !cmd.profile {
         preconfig.try_tcc_run = true;
     }
 
@@ -869,6 +919,9 @@ pub(crate) fn run_test_or_bench_internal(
     }
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
+    }
+    if cmd.profile && cmd.run_mode != RunMode::Test {
+        anyhow::bail!("`--profile` is only supported for `moon test`");
     }
 
     debug!("selecting test runner implementation");
@@ -1492,6 +1545,16 @@ fn rr_test_from_plan(
         return Ok(0);
     }
 
+    if cmd.profile {
+        return profile::profile_test_invocations(
+            cli,
+            target_dir,
+            build_meta,
+            &filter,
+            cmd.include_skipped,
+        );
+    }
+
     let mut test_result = crate::run::run_tests(
         build_meta,
         source_dir,
@@ -1651,7 +1714,8 @@ fn execute_test_build_from_plan(
             source_dir,
             target_dir,
         );
-        // The legacy behavior does not print the test commands, so we skip it too.
+        // Test command lines depend on generated metadata, which dry-run does
+        // not materialize. Profile dry-run therefore stops at the build graph.
         return Ok(TestBuildExecution::DryRun);
     }
 
