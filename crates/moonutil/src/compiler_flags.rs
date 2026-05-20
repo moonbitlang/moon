@@ -102,6 +102,21 @@ impl NativeToolchainSelection {
             DefaultNativeToolchain::SystemFirst => try_default_cc(false).map(Toolchain::from_cc),
         }
     }
+
+    pub fn resolve_with_package_override(
+        self,
+        package_cc: Option<&CC>,
+    ) -> anyhow::Result<Toolchain> {
+        if let Some(env_cc) = ENV_CC.as_ref() {
+            return Ok(
+                Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc)
+            );
+        }
+        if let Some(package_cc) = package_cc {
+            return Ok(Toolchain::from_package_override(package_cc.clone()));
+        }
+        self.resolve_default()
+    }
 }
 
 impl Toolchain {
