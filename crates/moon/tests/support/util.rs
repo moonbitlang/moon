@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use expect_test::Expect;
-use moonutil::{common::StringExt, compiler_flags::CC};
+use moonutil::{common::StringExt, compiler_flags};
 
 pub(crate) fn check<S: AsRef<str>>(actual: S, expect: Expect) {
     expect.assert_eq(actual.as_ref())
@@ -110,10 +110,12 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         dunce::canonicalize(moon_home).unwrap().to_str().unwrap(),
         "$MOON_HOME",
     );
-    let cc_path = CC::default().cc_path;
-    let ar_path = CC::default().ar_path;
-    let s = s.replace(&ar_path, CC::default().ar_name());
-    let s = s.replace(&cc_path, CC::default().cc_name());
+    let s = if let Ok(cc) = compiler_flags::try_default_cc(false) {
+        let s = s.replace(&cc.ar_path, cc.ar_name());
+        s.replace(&cc.cc_path, cc.cc_name())
+    } else {
+        s
+    };
     let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
     let s = s.replace("moon.exe", "moon");
     let s = moonutil::BINARIES
