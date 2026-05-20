@@ -1,11 +1,16 @@
 use std::cell::OnceCell;
 
-use crate::{TestDir, get_stdout};
+use crate::{TestDir, get_stdout_with_envs};
 
 #[test]
 fn test_prebuild_link_config_self() {
     let dir = TestDir::new("prebuild_link_config_self/prebuild_link_config_self.in");
-    let build_stdout = get_stdout(&dir, ["build", "--target", "native", "--dry-run"]);
+    let cc = if cfg!(windows) { "cl" } else { "cc" };
+    let build_stdout = get_stdout_with_envs(
+        &dir,
+        ["build", "--target", "native", "--dry-run"],
+        [("MOON_CC", cc)],
+    );
     println!("{}", &build_stdout);
     let lines = build_stdout.lines().collect::<Vec<_>>();
 
@@ -31,7 +36,11 @@ fn test_prebuild_link_config_self() {
     found_final_link.get().expect("final linking not found");
 
     if cfg!(unix) {
-        let test_stdout = get_stdout(&dir, ["test", "--target", "native", "--dry-run"]);
+        let test_stdout = get_stdout_with_envs(
+            &dir,
+            ["test", "--target", "native", "--dry-run"],
+            [("MOON_CC", cc)],
+        );
         println!("{}", &test_stdout);
         let lines = test_stdout.lines().collect::<Vec<_>>();
 

@@ -71,15 +71,35 @@ pub struct Toolchain {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NativeToolchainSelection;
+pub struct NativeToolchainSelection {
+    internal_tcc_fallback: bool,
+}
 
 impl NativeToolchainSelection {
     pub fn system_first() -> Self {
-        Self
+        Self {
+            internal_tcc_fallback: false,
+        }
+    }
+
+    pub fn system_then_internal_tcc() -> Self {
+        Self {
+            internal_tcc_fallback: true,
+        }
     }
 
     pub fn resolve_default(self) -> anyhow::Result<Toolchain> {
-        try_default_cc().map(Toolchain::from_cc)
+        match try_default_cc() {
+            Ok(cc) => Ok(Toolchain::from_cc(cc)),
+            Err(system_err) if self.internal_tcc_fallback => try_internal_tcc()
+                .with_context(|| {
+                    format!(
+                        "failed to resolve fallback internal tcc after system C compiler detection failed: {system_err:#}"
+                    )
+                })
+                .map(Toolchain::from_cc),
+            Err(err) => Err(err),
+        }
     }
 
     pub fn resolve_with_package_override(
@@ -539,14 +559,6 @@ static DETECTED_SYSTEM_CC: std::sync::LazyLock<anyhow::Result<CC>> =
     std::sync::LazyLock::new(detect_system_cc);
 static DETECTED_INTERNAL_TCC: std::sync::LazyLock<anyhow::Result<CC>> =
     std::sync::LazyLock::new(detect_internal_tcc);
-static DETECTED_CC: std::sync::LazyLock<anyhow::Result<CC>> = std::sync::LazyLock::new(|| {
-    match try_system_cc() {
-        Ok(cc) => Ok(cc),
-        Err(system_err) => try_internal_tcc().with_context(|| {
-            format!("failed to resolve fallback internal tcc after system C compiler detection failed: {system_err:#}")
-        }),
-    }
-});
 
 fn cached_cc(result: &std::sync::LazyLock<anyhow::Result<CC>>) -> anyhow::Result<CC> {
     result
@@ -563,16 +575,15 @@ pub fn try_internal_tcc() -> anyhow::Result<CC> {
     cached_cc(&DETECTED_INTERNAL_TCC)
 }
 
-pub fn try_detect_cc() -> anyhow::Result<CC> {
-    cached_cc(&DETECTED_CC)
+pub fn has_cc_env_override() -> bool {
+    env::var_os(ENV_MOON_CC).is_some()
 }
 
 pub fn try_default_cc() -> anyhow::Result<CC> {
     if let Some(env_cc) = ENV_CC.as_ref() {
         return Ok(env_cc.clone());
     }
-
-    try_detect_cc()
+    try_system_cc()
 }
 
 #[derive(Clone, Copy, PartialEq)]
