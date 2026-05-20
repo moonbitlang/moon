@@ -71,36 +71,15 @@ pub struct Toolchain {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DefaultNativeToolchain {
-    InternalTccFirst,
-    SystemFirst,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NativeToolchainSelection {
-    default: DefaultNativeToolchain,
-}
+pub struct NativeToolchainSelection;
 
 impl NativeToolchainSelection {
-    pub fn internal_tcc_first() -> Self {
-        Self {
-            default: DefaultNativeToolchain::InternalTccFirst,
-        }
-    }
-
     pub fn system_first() -> Self {
-        Self {
-            default: DefaultNativeToolchain::SystemFirst,
-        }
+        Self
     }
 
     pub fn resolve_default(self) -> anyhow::Result<Toolchain> {
-        match self.default {
-            DefaultNativeToolchain::InternalTccFirst => {
-                try_default_cc(true).map(Toolchain::from_cc)
-            }
-            DefaultNativeToolchain::SystemFirst => try_default_cc(false).map(Toolchain::from_cc),
-        }
+        try_default_cc().map(Toolchain::from_cc)
     }
 
     pub fn resolve_with_package_override(
@@ -465,6 +444,10 @@ impl CC {
             .is_some_and(|target| target.contains("msvc"))
     }
 
+    pub fn uses_msvc_abi(&self) -> bool {
+        self.is_msvc() || self.targets_msvc()
+    }
+
     pub fn should_link_libm(&self) -> bool {
         self.is_full_featured_gcc_like() && !self.targets_msvc()
     }
@@ -560,14 +543,6 @@ static DETECTED_SYSTEM_CC: std::sync::LazyLock<anyhow::Result<CC>> =
     std::sync::LazyLock::new(detect_system_cc);
 static DETECTED_INTERNAL_TCC: std::sync::LazyLock<anyhow::Result<CC>> =
     std::sync::LazyLock::new(detect_internal_tcc);
-static DETECTED_CC: std::sync::LazyLock<anyhow::Result<CC>> = std::sync::LazyLock::new(|| {
-    match try_system_cc() {
-        Ok(cc) => Ok(cc),
-        Err(system_err) => try_internal_tcc().with_context(|| {
-            format!("failed to resolve fallback internal tcc after system C compiler detection failed: {system_err:#}")
-        }),
-    }
-});
 
 fn cached_cc(result: &std::sync::LazyLock<anyhow::Result<CC>>) -> anyhow::Result<CC> {
     result
@@ -584,23 +559,15 @@ pub fn try_internal_tcc() -> anyhow::Result<CC> {
     cached_cc(&DETECTED_INTERNAL_TCC)
 }
 
-pub fn try_detect_cc() -> anyhow::Result<CC> {
-    cached_cc(&DETECTED_CC)
+pub fn has_cc_env_override() -> bool {
+    env::var_os(ENV_MOON_CC).is_some()
 }
 
-pub fn try_default_cc(prefer_internal_tcc: bool) -> anyhow::Result<CC> {
+pub fn try_default_cc() -> anyhow::Result<CC> {
     if let Some(env_cc) = ENV_CC.as_ref() {
         return Ok(env_cc.clone());
     }
-
-    if prefer_internal_tcc {
-        return match try_internal_tcc() {
-            Ok(tcc) => Ok(tcc),
-            Err(tcc_err) => try_system_cc()
-                .with_context(|| format!("failed to resolve preferred internal tcc: {tcc_err:#}")),
-        };
-    }
-    try_detect_cc()
+    try_system_cc()
 }
 
 #[derive(Clone, Copy, PartialEq)]

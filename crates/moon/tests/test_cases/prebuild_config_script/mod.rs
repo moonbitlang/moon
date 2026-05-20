@@ -2,7 +2,7 @@ use std::cell::OnceCell;
 
 use expect_test::expect_file;
 
-use crate::{TestDir, assert_success, get_err_stderr, get_stdout, util};
+use crate::{TestDir, assert_success, get_err_stderr, get_stdout, get_stdout_with_envs, util};
 
 // Notice the two `this-is-added-by-config-script`
 #[test]
@@ -18,7 +18,12 @@ fn test_prebuild_config_py() {
 }
 
 fn test_prebuild_config_common(dir: TestDir) {
-    let stdout = get_stdout(&dir, ["build", "--target", "native", "--dry-run"]);
+    let cc = if cfg!(windows) { "cl" } else { "cc" };
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["build", "--target", "native", "--dry-run"],
+        [("MOON_CC", cc)],
+    );
     println!("{}", &stdout);
     let lines = stdout.lines().collect::<Vec<_>>();
 
@@ -32,10 +37,7 @@ fn test_prebuild_config_common(dir: TestDir) {
             assert!(line.contains("HELLO=------this-is-added-by-config-script------"));
         }
 
-        if (line.contains("cc -o ./_build/native/debug/build/main/main")
-            || line.contains("internal/tcc' -o ./_build/native/debug/build/main/main"))
-            && cfg!(unix)
-        {
+        if line.contains("cc -o ./_build/native/debug/build/main/main") && cfg!(unix) {
             found_link_flags.set(()).expect("final linking found twice");
             assert!(line.contains("-l______this_is_added_by_config_script_______"));
             assert!(line.contains("-lmylib"));

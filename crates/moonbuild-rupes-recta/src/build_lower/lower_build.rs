@@ -78,6 +78,22 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    fn link_core_llvm_target(&self, target: BuildTarget) -> Option<&'static str> {
+        if self.opt.target_backend != RunBackend::Llvm || !cfg!(target_os = "windows") {
+            return None;
+        }
+
+        let info = self
+            .build_plan
+            .get_make_executable_info(&target)
+            .expect("Make executable info should be present for LLVM LinkCore nodes");
+        if info.effective_native_toolchain.cc().uses_msvc_abi() {
+            Some("x86_64-pc-windows-msvc")
+        } else {
+            None
+        }
+    }
+
     /// Returns `(enable_coverage, self_coverage)` for the given conditions
     ///
     /// - `target`: The build target, to determine if it's a blackbox test (bb
@@ -656,15 +672,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             js_config: self.get_js_config(target, package),
             exports: package.exported_functions(self.opt.target_backend.into()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
-            #[cfg(target_os = "windows")]
-            native_toolchain_is_msvc: self.opt.target_backend == RunBackend::Llvm
-                && self
-                    .build_plan
-                    .get_make_executable_info(&target)
-                    .expect("Make executable info should be present for LLVM LinkCore nodes")
-                    .effective_native_toolchain
-                    .cc()
-                    .is_msvc(),
+            llvm_target: self.link_core_llvm_target(target),
         };
 
         // Ensure n2 sees stdlib core bundle changes as inputs

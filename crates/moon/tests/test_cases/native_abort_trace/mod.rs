@@ -8,7 +8,6 @@ fn test_native_abort_trace() {
     snapbox::cmd::Command::new(moon_bin())
         .with_assert(snapbox::Assert::new().redact_with(redactions))
         .current_dir(&dir)
-        .env("MOON_CC", "cc")
         .args(["run", "--target", "native", "cmd/main"])
         .assert()
         .success()
