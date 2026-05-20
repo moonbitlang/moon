@@ -22,7 +22,7 @@ use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
     common::RunMode,
-    compiler_flags::{CC, CompilerPaths, NativeToolchainSelection},
+    compiler_flags::{CC, CompilerPaths},
     cond_expr::OptLevel,
 };
 use tracing::{Level, instrument};
@@ -76,8 +76,6 @@ pub struct CompileConfig {
     pub info_no_alias: bool,
     /// Resolved internal TCC toolchain when this invocation uses `tcc -run`.
     pub internal_tcc: Option<CC>,
-    /// Native toolchain selection policy, only when the backend needs one.
-    pub native_toolchain: Option<NativeToolchainSelection>,
 }
 
 /// The output information of the compilation.
@@ -130,7 +128,6 @@ pub fn compile(
         action: cx.action,
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),
-        native_toolchain: cx.native_toolchain,
     };
     let (plan, user_warnings) = build_plan::build_plan(
         resolve_output,
@@ -167,7 +164,6 @@ pub fn compile(
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths,
         internal_tcc: cx.internal_tcc.clone(),
-        native_toolchain: cx.native_toolchain,
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
         runtime_dot_c_path,
     };

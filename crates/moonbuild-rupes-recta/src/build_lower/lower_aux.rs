@@ -159,11 +159,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             }
         };
 
-        let resolved_cc = self
-            .opt
-            .native_toolchain
-            .ok_or_else(|| anyhow::anyhow!("native C toolchain is not selected for this build"))?
-            .resolve_default()?
+        let resolved_cc = moonutil::compiler_flags::default_native_toolchain()?
             .cc()
             .clone();
         let use_tcc_run = matches!(self.opt.target_backend, RunBackend::NativeTccRun);

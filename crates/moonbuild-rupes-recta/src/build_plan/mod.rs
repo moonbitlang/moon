@@ -52,7 +52,7 @@ use std::{
 use log::{debug, info};
 use moonutil::{
     common::{RunMode, TargetBackend},
-    compiler_flags::{NativeToolchainSelection, Toolchain},
+    compiler_flags::Toolchain,
     cond_expr::OptLevel,
     mooncakes::ModuleId,
 };
@@ -334,8 +334,6 @@ pub struct BuildEnvironment {
     pub std: bool,
     /// Commandline_level warnings to enable/disable
     pub warn_list: Option<String>,
-    /// Native toolchain selection policy, only when the backend needs one.
-    pub native_toolchain: Option<NativeToolchainSelection>,
 }
 
 /// Directives provided along the input actions.

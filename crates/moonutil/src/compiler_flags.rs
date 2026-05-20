@@ -70,34 +70,6 @@ pub struct Toolchain {
     source: ToolchainSource,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NativeToolchainSelection;
-
-impl NativeToolchainSelection {
-    pub fn system_first() -> Self {
-        Self
-    }
-
-    pub fn resolve_default(self) -> anyhow::Result<Toolchain> {
-        try_default_cc().map(Toolchain::from_cc)
-    }
-
-    pub fn resolve_with_package_override(
-        self,
-        package_cc: Option<&CC>,
-    ) -> anyhow::Result<Toolchain> {
-        if let Some(env_cc) = ENV_CC.as_ref() {
-            return Ok(
-                Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc)
-            );
-        }
-        if let Some(package_cc) = package_cc {
-            return Ok(Toolchain::from_package_override(package_cc.clone()));
-        }
-        self.resolve_default()
-    }
-}
-
 impl Toolchain {
     pub fn from_env_override(cc: CC) -> Self {
         Self {
@@ -563,11 +535,21 @@ pub fn has_cc_env_override() -> bool {
     env::var_os(ENV_MOON_CC).is_some()
 }
 
-pub fn try_default_cc() -> anyhow::Result<CC> {
+pub fn default_native_toolchain() -> anyhow::Result<Toolchain> {
     if let Some(env_cc) = ENV_CC.as_ref() {
-        return Ok(env_cc.clone());
+        return Ok(Toolchain::from_env_override(env_cc.clone()));
     }
-    try_system_cc()
+    try_system_cc().map(Toolchain::from_path_probe)
+}
+
+pub fn effective_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+    if let Some(env_cc) = ENV_CC.as_ref() {
+        return Ok(Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc));
+    }
+    if let Some(package_cc) = package_cc {
+        return Ok(Toolchain::from_package_override(package_cc.clone()));
+    }
+    default_native_toolchain()
 }
 
 #[derive(Clone, Copy, PartialEq)]
