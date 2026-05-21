@@ -761,8 +761,8 @@ fn add_linker_shared_lib_flags(
 }
 
 // Linker compiler-specific flags
-fn add_linker_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bool) {
-    if cc.is_msvc() && !has_user_flags {
+fn add_linker_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>) {
+    if cc.is_msvc() {
         buf.push("/nologo".to_string());
     }
 }
@@ -868,18 +868,13 @@ where
     P: AsRef<Path>,
 {
     let mut buf = vec![cc.cc_path.clone()];
-    // if user_link_flags is set, we only set necessary flags
-    // that are tightly coupled with the paths and output types
-    // as user cannot easily specify them in the configuration file
-    let has_user_flags = !user_link_flags.is_empty();
-
     add_linker_output_flags(&cc, &mut buf, &config, dest);
     add_linker_library_paths(&cc, &mut buf, &config, lpath);
     add_linker_intermediate_dir_flags(&cc, &mut buf, dest_dir);
     add_linker_shared_lib_flags(&cc, &mut buf, &config);
 
     // Linker compiler-specific flags
-    add_linker_msvc_specific_flags(&cc, &mut buf, has_user_flags);
+    add_linker_msvc_specific_flags(&cc, &mut buf);
 
     add_linker_moonbitrun_with_warnings(&cc, &mut buf, &config, lpath);
 
@@ -984,8 +979,8 @@ fn add_cc_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bo
     if !has_user_flags {
         buf.push("/utf-8".to_string());
         buf.push("/wd4819".to_string());
-        buf.push("/nologo".to_string());
     }
+    buf.push("/nologo".to_string());
 }
 
 fn add_cc_gcc_like_specific_flags(cc: &CC, buf: &mut Vec<String>) {
@@ -1387,6 +1382,51 @@ mod tests {
 
         assert!(command.iter().any(|flag| flag == "-O2"));
         assert!(command.iter().any(|flag| flag == "-lcustom"));
+    }
+
+    #[test]
+    fn msvc_compile_flags_keep_nologo() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Msvc, None),
+            executable_cc_config(),
+            &["/O2"],
+            &[] as &[&str],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main.exe"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|flag| flag == "/nologo"));
+        assert!(command.iter().any(|flag| flag == "/O2"));
+        assert!(!command.iter().any(|flag| flag == "/utf-8"));
+        assert!(!command.iter().any(|flag| flag == "/wd4819"));
+    }
+
+    #[test]
+    fn msvc_link_flags_keep_nologo() {
+        let command = make_linker_command_resolved(
+            fake_cc(CCKind::Msvc, None),
+            LinkerConfig::<&Path> {
+                link_moonbitrun: false,
+                link_libbacktrace: false,
+                output_ty: OutputType::Executable,
+                link_shared_runtime: None,
+            },
+            &["/DEBUG"],
+            &["main.obj"],
+            "build",
+            "build/main.exe",
+            "lib",
+        );
+
+        assert!(command.iter().any(|flag| flag == "/nologo"));
+        assert!(command.iter().any(|flag| flag == "/DEBUG"));
     }
 
     #[test]
