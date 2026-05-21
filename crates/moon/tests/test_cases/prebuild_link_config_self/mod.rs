@@ -22,7 +22,7 @@ fn test_prebuild_link_config_self() {
             assert!(line.contains("-l__prebuild_self_link_flag__"));
             assert!(line.contains("-lprebuildselflib"));
             assert!(line.contains("-L/prebuild-self-path"));
-        } else if line.contains("cl.exe")
+        } else if (line.contains("cl.exe") || line.starts_with("cl "))
             && line.contains("/Fe./_build/native/debug/build/main/main.exe")
             && cfg!(windows)
         {
