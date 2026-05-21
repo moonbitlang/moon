@@ -352,6 +352,8 @@ jobs:
 
   stable-test:
     needs: [typo-check, license-header-check]
+    # New moon is only supported with the current/nightly MoonBit toolchain.
+    if: ${{ false }}
     strategy:
       fail-fast: false
       matrix:
