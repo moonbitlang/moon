@@ -42,7 +42,8 @@ fn test_prebuild_config_common(dir: TestDir) {
             assert!(line.contains("-l______this_is_added_by_config_script_______"));
             assert!(line.contains("-lmylib"));
             assert!(line.contains("-L/my-search-path"));
-        } else if line.contains("cl.exe") // cl.exe might be quoted
+        } else if (line.contains("cl.exe") // cl.exe might be quoted
+            || line.starts_with("cl "))
             && line.contains("/Fe./_build/native/debug/build/main/main.exe")
             && cfg!(windows)
         {
