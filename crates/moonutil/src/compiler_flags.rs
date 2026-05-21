@@ -142,12 +142,9 @@ const CAN_USE_MOONBITRUN: bool = true;
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 const CAN_USE_MOONBITRUN: bool = false;
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-const CAN_USE_SIMDUTF: bool = true;
 // The shipped simdutf objects are not wired up for Windows yet: the native
 // backend still needs a no-stdlib runtime build there, plus an /MT vs /MD call.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-const CAN_USE_SIMDUTF: bool = false;
+const CAN_USE_SIMDUTF: bool = cfg!(any(target_os = "linux", target_os = "macos"));
 
 impl CC {
     pub fn cc_name(&self) -> &'static str {
@@ -425,19 +422,12 @@ impl CC {
             .is_some_and(|target| target.contains("msvc"))
     }
 
-    pub fn targets_windows(&self) -> bool {
-        self.is_msvc()
-            || self.target_triple.as_deref().is_some_and(|target| {
-                target.contains("windows") || target.contains("mingw") || target.contains("cygwin")
-            })
-    }
-
     pub fn should_link_libm(&self) -> bool {
         self.is_full_featured_gcc_like() && !self.targets_msvc()
     }
 
     pub fn can_use_simdutf(&self) -> bool {
-        CAN_USE_SIMDUTF && !self.is_tcc() && !self.targets_windows()
+        CAN_USE_SIMDUTF && !self.is_tcc()
     }
 
     pub fn is_libmoonbitrun_o_available(&self) -> bool {
@@ -1369,15 +1359,12 @@ mod tests {
     }
 
     #[test]
-    fn simdutf_requires_supported_non_windows_compiler() {
+    fn simdutf_requires_supported_host_and_non_tcc_compiler() {
         assert_eq!(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")).can_use_simdutf(),
             CAN_USE_SIMDUTF
         );
         assert!(!fake_cc(CCKind::Tcc, Some("x86_64-unknown-linux-gnu")).can_use_simdutf());
-        assert!(!fake_cc(CCKind::Msvc, None).can_use_simdutf());
-        assert!(!fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")).can_use_simdutf());
-        assert!(!fake_cc(CCKind::Gcc, Some("x86_64-w64-mingw32")).can_use_simdutf());
     }
 
     #[test]

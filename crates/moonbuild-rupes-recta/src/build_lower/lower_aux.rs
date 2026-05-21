@@ -162,7 +162,6 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         let resolved_cc = resolve_cc(&CC::default(), None);
         let use_tcc_run = matches!(self.opt.target_backend, RunBackend::NativeTccRun);
         let use_simdutf = !use_tcc_run
-            && self.opt.os != OperatingSystem::Windows
             && resolved_cc.can_use_simdutf()
             && self.opt.compiler_paths.simdutf_object_paths().is_some();
 
