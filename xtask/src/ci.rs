@@ -33,7 +33,7 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
                     "--",
                     "check",
                     "--manifest-path",
-                    "crates/moonbuild/template/test_driver_project/moon.mod.json",
+                    "crates/moonbuild/template/test_driver_project/moon.mod",
                 ],
             },
             fix_script: None,
@@ -50,11 +50,11 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
                     "fmt",
                     "--check",
                     "--manifest-path",
-                    "crates/moonbuild/template/test_driver_project/moon.mod.json",
+                    "crates/moonbuild/template/test_driver_project/moon.mod",
                 ],
             },
             fix_script: Some(
-                "cargo run --bin moon -- fmt --manifest-path crates/moonbuild/template/test_driver_project/moon.mod.json",
+                "cargo run --bin moon -- fmt --manifest-path crates/moonbuild/template/test_driver_project/moon.mod",
             ),
         },
         Check {

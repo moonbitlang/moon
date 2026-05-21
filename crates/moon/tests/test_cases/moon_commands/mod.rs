@@ -312,7 +312,7 @@ moon [..]
 moonc [..]
 moonrun [..]
 
-Feature flags enabled: rr_moon_pkg
+Feature flags enabled: rr_moon_mod,rr_moon_pkg
 
 "#]])
         .stderr_eq("");

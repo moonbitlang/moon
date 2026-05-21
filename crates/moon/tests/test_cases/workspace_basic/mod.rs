@@ -225,6 +225,12 @@ fn test_workspace_commands() {
                 moonfmt ./app/src/main/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/app/main/moon.pkg
                 cmd /c copy ./_build/wasm-gc/release/format/alice/app/main/moon.pkg ./app/src/main/moon.pkg
                 cmd /c del ./app/src/main/moon.pkg.json
+                moonfmt ./liba/moon.mod.json -o ./_build/wasm-gc/release/format/alice/liba/moon.mod
+                cmd /c copy ./_build/wasm-gc/release/format/alice/liba/moon.mod ./liba/moon.mod
+                cmd /c del ./liba/moon.mod.json
+                moonfmt ./app/moon.mod.json -o ./_build/wasm-gc/release/format/alice/app/moon.mod
+                cmd /c copy ./_build/wasm-gc/release/format/alice/app/moon.mod ./app/moon.mod
+                cmd /c del ./app/moon.mod.json
                 moonfmt ./app/src/main/main_test.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main_test.mbt
                 moonfmt ./app/src/main/main.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main.mbt
                 moonfmt ./liba/src/lib/lib_test.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib_test.mbt
@@ -242,6 +248,12 @@ fn test_workspace_commands() {
                 moonfmt ./app/src/main/moon.pkg.json -o ./_build/wasm-gc/release/format/alice/app/main/moon.pkg
                 cp ./_build/wasm-gc/release/format/alice/app/main/moon.pkg ./app/src/main/moon.pkg
                 rm ./app/src/main/moon.pkg.json
+                moonfmt ./liba/moon.mod.json -o ./_build/wasm-gc/release/format/alice/liba/moon.mod
+                cp ./_build/wasm-gc/release/format/alice/liba/moon.mod ./liba/moon.mod
+                rm ./liba/moon.mod.json
+                moonfmt ./app/moon.mod.json -o ./_build/wasm-gc/release/format/alice/app/moon.mod
+                cp ./_build/wasm-gc/release/format/alice/app/moon.mod ./app/moon.mod
+                rm ./app/moon.mod.json
                 moonfmt ./app/src/main/main_test.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main_test.mbt
                 moonfmt ./app/src/main/main.mbt -w -o ./_build/wasm-gc/release/format/alice/app/main/main.mbt
                 moonfmt ./liba/src/lib/lib_test.mbt -w -o ./_build/wasm-gc/release/format/alice/liba/lib/lib_test.mbt

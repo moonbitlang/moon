@@ -89,16 +89,24 @@ supported_targets = [ "wasm-gc", "js" ]
 }
 
 #[test]
-fn test_fmt_without_moon_mod_feature() {
+fn test_fmt_with_moon_mod_feature_disabled() {
     let dir = TestDir::new("fmt_moon_mod.in");
 
     check(
-        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        get_stderr_with_envs(
+            &dir,
+            ["fmt", "--dry-run", "--sort-input"],
+            [("NEW_MOON_MOD", "0")],
+        ),
         expect![[r#""#]],
     );
 
     check(
-        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        get_stdout_with_envs(
+            &dir,
+            ["fmt", "--dry-run", "--sort-input"],
+            [("NEW_MOON_MOD", "0")],
+        ),
         expect![[r#"
             moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
             moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
@@ -107,14 +115,10 @@ fn test_fmt_without_moon_mod_feature() {
 }
 
 #[test]
-fn test_fmt_with_new_moon_mod_env() {
+fn test_fmt_migrates_moon_mod_by_default() {
     let dir = TestDir::new("fmt_moon_mod.in");
 
-    let output = get_stdout_with_envs(
-        &dir,
-        ["fmt", "--dry-run", "--sort-input"],
-        [("NEW_MOON_MOD", "1")],
-    );
+    let output = get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]);
 
     if cfg!(windows) {
         check(
@@ -142,11 +146,16 @@ fn test_fmt_with_new_moon_mod_env() {
 }
 
 #[test]
-fn test_fmt_without_moon_mod_feature_keeps_legacy_file() {
+fn test_fmt_with_moon_mod_feature_disabled_keeps_legacy_file() {
     let dir = TestDir::new("fmt_moon_mod.in");
     let original = std::fs::read_to_string(dir.join("moon.mod.json")).unwrap();
 
-    assert_success(&dir, ["fmt"]);
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["fmt"])
+        .env("NEW_MOON_MOD", "0")
+        .assert()
+        .success();
 
     assert!(!dir.join("moon.mod").exists());
     assert!(dir.join("moon.mod.json").exists());

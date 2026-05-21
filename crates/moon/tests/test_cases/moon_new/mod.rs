@@ -56,7 +56,7 @@ fn snapshot_layout_and_files(root: &Path) -> String {
                 continue;
             }
             let mut content = read(path);
-            if !content.ends_with('\n') {
+            if !content.is_empty() && !content.ends_with('\n') {
                 content.push('\n');
             }
             file_items.push((rel_file, content));
@@ -74,10 +74,13 @@ fn snapshot_layout_and_files(root: &Path) -> String {
         out.push('\n');
     }
     out.push_str("\n-- files --\n");
-    for (rel, content) in file_items {
+    let file_count = file_items.len();
+    for (index, (rel, content)) in file_items.into_iter().enumerate() {
         out.push_str(&format!("=== {} ===\n", rel));
         out.push_str(&content);
-        out.push('\n');
+        if index + 1 < file_count {
+            out.push('\n');
+        }
     }
 
     out

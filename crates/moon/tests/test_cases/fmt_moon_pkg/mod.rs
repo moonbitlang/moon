@@ -25,6 +25,7 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
             ],
         ),
         expect![[r#"
+            Warning: Migrating to moon.mod at module root '$ROOT', deprecated moon.mod.json is removed.
             Warning: Migrating to moon.pkg in package 'test/fmt_moon_pkg/lib', deprecated moon.pkg.json is removed.
         "#]],
     );
@@ -49,6 +50,9 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
                 cmd /c copy ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
                 cmd /c del ./lib/moon.pkg.json
                 moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
+                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
+                cmd /c del ./moon.mod.json
                 moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
                 moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
             "#]],
@@ -61,6 +65,9 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
                 cp ./_build/wasm-gc/release/format/lib/moon.pkg ./lib/moon.pkg
                 rm ./lib/moon.pkg.json
                 moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
+                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
+                rm ./moon.mod.json
                 moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
                 moonfmt ./lib/hello.mbt -w -o ./_build/wasm-gc/release/format/lib/hello.mbt
             "#]],
@@ -68,18 +75,18 @@ fn test_fmt_moon_pkg_json_migration_dry_run() {
     }
 }
 
-/// Test that with rr_moon_pkg disabled, moon.pkg.json is not migrated,
-/// but existing moon.pkg files are still formatted
+/// Test that with rr_moon_pkg and rr_moon_mod disabled, legacy manifests are not migrated,
+/// but existing new-format manifests are still formatted.
 #[test]
-fn test_fmt_without_moon_pkg_feature() {
+fn test_fmt_without_moon_pkg_and_moon_mod_feature() {
     let dir = TestDir::new("fmt_moon_pkg.in");
 
-    // Test dry run output without rr_moon_pkg feature
+    // Test dry run output without rr_moon_pkg and rr_moon_mod features.
     check(
         get_stdout_with_envs(
             &dir,
             ["fmt", "--dry-run", "--sort-input"],
-            [("NEW_MOON_PKG", "0")],
+            [("NEW_MOON_PKG", "0"), ("NEW_MOON_MOD", "0")],
         ),
         expect![[r#"
             moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
@@ -114,6 +121,7 @@ fn test_fmt_moon_pkg_both_exist() {
             ],
         ),
         expect![[r#"
+            Warning: Migrating to moon.mod at module root '$ROOT', deprecated moon.mod.json is removed.
             Warning: Migrating to moon.pkg in package 'test/fmt_moon_pkg_both', deprecated moon.pkg.json is removed.
             Warning: Both moon.pkg.json and moon.pkg exist in package 'test/fmt_moon_pkg_both/both', using the new format moon.pkg. Please remove the deprecated moon.pkg.json.
         "#]],
@@ -139,6 +147,9 @@ fn test_fmt_moon_pkg_both_exist() {
                 cmd /c copy ./_build/wasm-gc/release/format/moon.pkg ./moon.pkg
                 cmd /c del ./moon.pkg.json
                 moonfmt ./both/moon.pkg -w -o ./_build/wasm-gc/release/format/both/moon.pkg
+                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
+                cmd /c copy ./_build/wasm-gc/release/format/moon.mod ./moon.mod
+                cmd /c del ./moon.mod.json
                 moonfmt ./both/lib.mbt -w -o ./_build/wasm-gc/release/format/both/lib.mbt
             "#]],
         );
@@ -150,6 +161,9 @@ fn test_fmt_moon_pkg_both_exist() {
                 cp ./_build/wasm-gc/release/format/moon.pkg ./moon.pkg
                 rm ./moon.pkg.json
                 moonfmt ./both/moon.pkg -w -o ./_build/wasm-gc/release/format/both/moon.pkg
+                moonfmt ./moon.mod.json -o ./_build/wasm-gc/release/format/moon.mod
+                cp ./_build/wasm-gc/release/format/moon.mod ./moon.mod
+                rm ./moon.mod.json
                 moonfmt ./both/lib.mbt -w -o ./_build/wasm-gc/release/format/both/lib.mbt
             "#]],
         );
