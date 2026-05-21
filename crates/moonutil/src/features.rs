@@ -138,7 +138,7 @@ features! {
     (unstable, rr_n2_explain, "Ask n2 to explain rerun reasons (only with Rupes Recta)"),
     (unstable, rr_moon_mod, "Use moon.mod files to migrate project manifests during formatting (only with Rupes Recta)"),
     (unstable, rr_moon_pkg, "Use moon.pkg files to init and migrate project (only with Rupes Recta)"),
-    (stable, wasi_auto_export_memory, "Automatically export wasm memory as `memory` for wasi-oriented run/test/main builds when package config does not set one")
+    (stable, wasi_link, "Pass `-wasi` for wasi-oriented run/test/main wasm builds")
 }
 
 impl FromStr for FeatureGate {

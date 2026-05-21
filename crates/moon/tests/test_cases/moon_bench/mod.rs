@@ -7,13 +7,13 @@ fn test_bench_driver_build() {
 }
 
 #[test]
-fn test_bench_auto_export_memory() {
+fn test_bench_wasi_link() {
     let dir = TestDir::new("moon_bench");
     let output = get_stdout(
         &dir,
         ["bench", "--target", "wasm", "--build-only", "--dry-run"],
     );
-    assert!(output.contains("-export-memory-name memory"));
+    assert!(output.contains("-wasi"));
 }
 
 #[test]

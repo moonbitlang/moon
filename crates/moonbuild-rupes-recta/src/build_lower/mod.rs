@@ -68,7 +68,7 @@ pub struct BuildOptions {
     pub docs_serve: bool,
     pub warning_condition: WarningCondition,
     pub info_no_alias: bool,
-    pub wasi_auto_export_memory: bool,
+    pub wasi_link: bool,
 
     // Environments
     /// Only `Some` if we import standard library.

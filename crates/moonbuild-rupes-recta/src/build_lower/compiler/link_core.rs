@@ -82,6 +82,8 @@ pub(crate) struct MooncLinkCore<'a> {
 /// WebAssembly-specific linking configuration
 #[derive(Debug, Default)]
 pub(crate) struct WasmConfig<'a> {
+    /// Whether to enable WASI-oriented linking.
+    pub wasi: bool,
     /// The name of the exported WASM memory, if any.
     ///
     /// See: https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#exports%E2%91%A0
@@ -203,6 +205,13 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // WASM-specific config
         if self.target_backend.is_wasm() {
+            // Keep WASI and user memory settings independent. `moonc` has one
+            // linear memory here, so `-wasi` and custom memory exports create
+            // aliases to that same memory instead of requiring multi-memory.
+            if self.wasm_config.wasi {
+                args.push("-wasi".to_string());
+            }
+
             // Export memory name
             if let Some(export_memory_name) = &self.wasm_config.export_memory_name {
                 args.push("-export-memory-name".to_string());
