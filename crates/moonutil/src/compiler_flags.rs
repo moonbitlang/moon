@@ -71,36 +71,15 @@ pub struct Toolchain {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DefaultNativeToolchain {
-    InternalTccFirst,
-    SystemFirst,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NativeToolchainSelection {
-    default: DefaultNativeToolchain,
-}
+pub struct NativeToolchainSelection;
 
 impl NativeToolchainSelection {
-    pub fn internal_tcc_first() -> Self {
-        Self {
-            default: DefaultNativeToolchain::InternalTccFirst,
-        }
-    }
-
     pub fn system_first() -> Self {
-        Self {
-            default: DefaultNativeToolchain::SystemFirst,
-        }
+        Self
     }
 
     pub fn resolve_default(self) -> anyhow::Result<Toolchain> {
-        match self.default {
-            DefaultNativeToolchain::InternalTccFirst => {
-                try_default_cc(true).map(Toolchain::from_cc)
-            }
-            DefaultNativeToolchain::SystemFirst => try_default_cc(false).map(Toolchain::from_cc),
-        }
+        try_default_cc().map(Toolchain::from_cc)
     }
 
     pub fn resolve_with_package_override(
@@ -588,18 +567,11 @@ pub fn try_detect_cc() -> anyhow::Result<CC> {
     cached_cc(&DETECTED_CC)
 }
 
-pub fn try_default_cc(prefer_internal_tcc: bool) -> anyhow::Result<CC> {
+pub fn try_default_cc() -> anyhow::Result<CC> {
     if let Some(env_cc) = ENV_CC.as_ref() {
         return Ok(env_cc.clone());
     }
 
-    if prefer_internal_tcc {
-        return match try_internal_tcc() {
-            Ok(tcc) => Ok(tcc),
-            Err(tcc_err) => try_system_cc()
-                .with_context(|| format!("failed to resolve preferred internal tcc: {tcc_err:#}")),
-        };
-    }
     try_detect_cc()
 }
 

@@ -110,7 +110,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         dunce::canonicalize(moon_home).unwrap().to_str().unwrap(),
         "$MOON_HOME",
     );
-    let s = if let Ok(cc) = compiler_flags::try_default_cc(false) {
+    let s = if let Ok(cc) = compiler_flags::try_default_cc() {
         let s = s.replace(&cc.ar_path, cc.ar_name());
         s.replace(&cc.cc_path, cc.cc_name())
     } else {
