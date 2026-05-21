@@ -161,6 +161,9 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
         let resolved_cc = resolve_cc(&CC::default(), None);
         let use_tcc_run = matches!(self.opt.target_backend, RunBackend::NativeTccRun);
+        let use_simdutf = !use_tcc_run
+            && resolved_cc.can_use_simdutf()
+            && self.opt.compiler_paths.simdutf_object_paths().is_some();
 
         let cc_cmd = make_cc_command_resolved(
             resolved_cc,
@@ -175,6 +178,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
                 .link_moonbitrun(link_moonbitrun)
                 .link_libbacktrace(output_ty == CCOutputType::SharedLib)
                 .define_use_shared_runtime_macro(false)
+                .use_simdutf(use_simdutf)
                 .build()
                 .expect("Failed to build CC configuration for runtime"),
             &[] as &[&str],

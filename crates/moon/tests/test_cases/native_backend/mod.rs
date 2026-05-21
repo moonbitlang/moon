@@ -5,6 +5,8 @@ use crate::{TestDir, build_graph::compare_graphs_with_replacements, get_stdout_w
 
 mod cc_flags;
 mod parallel_msvc;
+#[cfg(unix)]
+mod simdutf;
 mod tcc_run;
 mod test_filter;
 

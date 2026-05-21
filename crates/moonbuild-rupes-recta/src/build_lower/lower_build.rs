@@ -1009,6 +1009,17 @@ impl<'a> BuildPlanLowerContext<'a> {
                 &mut sources,
             );
         }
+        let cc = info.effective_native_toolchain.cc().clone();
+        let simdutf_objects = if cc.can_use_simdutf() {
+            self.opt
+                .compiler_paths
+                .simdutf_object_paths()
+                .map(|objects| objects.into_iter().collect::<Vec<_>>())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        sources.extend(simdutf_objects.iter().cloned());
 
         let opt_level = match self.opt.opt_level {
             OptLevel::Release => CCOptLevel::Speed,
@@ -1049,7 +1060,6 @@ impl<'a> BuildPlanLowerContext<'a> {
             .display()
             .to_string();
 
-        let cc = info.effective_native_toolchain.cc().clone();
         let cc_cmd = make_cc_command_resolved_with_link_flags(
             cc,
             config,
@@ -1078,7 +1088,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
 
         BuildCommand {
-            extra_inputs: vec![],
+            extra_inputs: simdutf_objects,
             commandline,
         }
     }
