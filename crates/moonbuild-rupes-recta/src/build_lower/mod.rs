@@ -24,7 +24,7 @@ use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
     common::RunMode,
-    compiler_flags::{CC, CompilerPaths, Toolchain},
+    compiler_flags::{CC, CompilerPaths, NativeToolchainSelection},
     cond_expr::OptLevel,
     mooncakes::ModuleSource,
 };
@@ -75,10 +75,10 @@ pub struct BuildOptions {
     pub stdlib_path: Option<PathBuf>,
     pub runtime_dot_c_path: PathBuf,
     pub compiler_paths: CompilerPaths,
-    /// Selected native toolchain for this invocation.
-    pub selected_native_toolchain: Toolchain,
     /// Resolved internal TCC toolchain when this invocation uses `tcc -run`.
     pub internal_tcc: Option<CC>,
+    /// Native toolchain selection policy, only when the backend needs one.
+    pub native_toolchain: Option<NativeToolchainSelection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -103,6 +103,8 @@ pub enum LoweringError {
         node: BuildPlanNode,
         source: anyhow::Error,
     },
+    #[error("Failed to resolve native C toolchain for runtime")]
+    RuntimeNativeToolchain(#[source] anyhow::Error),
 }
 
 /// Structured command argv keyed by each generated output path.

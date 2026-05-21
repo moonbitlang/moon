@@ -57,12 +57,6 @@ pub struct CC {
     pub is_env_override: bool, // Whether the cc is set by env MOON_CC
 }
 
-impl Default for CC {
-    fn default() -> Self {
-        NATIVE_CC().clone()
-    }
-}
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ToolchainSource {
     EnvOverride,
@@ -74,6 +68,34 @@ pub enum ToolchainSource {
 pub struct Toolchain {
     cc: CC,
     source: ToolchainSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativeToolchainSelection;
+
+impl NativeToolchainSelection {
+    pub fn system_first() -> Self {
+        Self
+    }
+
+    pub fn resolve_default(self) -> anyhow::Result<Toolchain> {
+        try_default_cc().map(Toolchain::from_cc)
+    }
+
+    pub fn resolve_with_package_override(
+        self,
+        package_cc: Option<&CC>,
+    ) -> anyhow::Result<Toolchain> {
+        if let Some(env_cc) = ENV_CC.as_ref() {
+            return Ok(
+                Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc)
+            );
+        }
+        if let Some(package_cc) = package_cc {
+            return Ok(Toolchain::from_package_override(package_cc.clone()));
+        }
+        self.resolve_default()
+    }
 }
 
 impl Toolchain {
@@ -441,9 +463,7 @@ impl CC {
     /// Create a CC configured for the internal TCC shipped with Moon.
     /// Resolves MOON_DIRS.internal_tcc_path via which::which.
     pub fn internal_tcc() -> anyhow::Result<Self> {
-        let cc_path =
-            which::which(&MOON_DIRS.internal_tcc_path).context("internal tcc not found")?;
-        CC::try_from_cc_path_and_kind("", &cc_path, CCKind::Tcc)
+        try_internal_tcc()
     }
 }
 
@@ -474,36 +494,85 @@ pub static ENV_CC: std::sync::LazyLock<Option<CC>> = std::sync::LazyLock::new(||
     }
 });
 
-pub static DETECTED_CC: std::sync::LazyLock<CC> = std::sync::LazyLock::new(|| {
-    use CCKind::*;
+fn detect_path_candidate(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<CC> {
+    CC::try_from_detected_path(cc_path, cc_kind)
+        .with_context(|| format!("failed to use C compiler at {}", cc_path.display()))
+}
 
-    let (cc_kind, cc_path) = if let Ok(cc) = which::which("cl") {
-        (Msvc, cc)
-    } else if let Ok(cc) = which::which("cc") {
-        (SystemCC, cc)
-    } else if let Ok(cc) = which::which("gcc") {
-        (Gcc, cc)
-    } else if let Ok(cc) = which::which("clang") {
-        (Clang, cc)
-    } else {
-        let cc = which::which(&MOON_DIRS.internal_tcc_path)
-            .context("internal tcc not found")
-            .unwrap();
-        (Tcc, cc)
-    };
+fn detect_system_cc() -> anyhow::Result<CC> {
+    let mut errors = Vec::new();
+    for (name, kind) in [
+        ("cl", CCKind::Msvc),
+        ("cc", CCKind::SystemCC),
+        ("gcc", CCKind::Gcc),
+        ("clang", CCKind::Clang),
+    ] {
+        let Ok(cc_path) = which::which(name) else {
+            continue;
+        };
+        match detect_path_candidate(&cc_path, kind) {
+            Ok(cc) => return Ok(cc),
+            Err(e) => errors.push(format!("{e:#}")),
+        }
+    }
 
-    CC::try_from_detected_path(&cc_path, cc_kind)
-        .context("failed to detect native C toolchain")
-        .unwrap()
+    if errors.is_empty() {
+        anyhow::bail!("no system C compiler found; tried cl, cc, gcc, clang")
+    }
+    anyhow::bail!(
+        "failed to resolve system C compiler candidates: {}",
+        errors.join("; ")
+    )
+}
+
+fn detect_internal_tcc() -> anyhow::Result<CC> {
+    let cc_path = which::which(&MOON_DIRS.internal_tcc_path).with_context(|| {
+        format!(
+            "internal tcc not found at {}",
+            MOON_DIRS.internal_tcc_path.display()
+        )
+    })?;
+    detect_path_candidate(&cc_path, CCKind::Tcc)
+}
+
+static DETECTED_SYSTEM_CC: std::sync::LazyLock<anyhow::Result<CC>> =
+    std::sync::LazyLock::new(detect_system_cc);
+static DETECTED_INTERNAL_TCC: std::sync::LazyLock<anyhow::Result<CC>> =
+    std::sync::LazyLock::new(detect_internal_tcc);
+static DETECTED_CC: std::sync::LazyLock<anyhow::Result<CC>> = std::sync::LazyLock::new(|| {
+    match try_system_cc() {
+        Ok(cc) => Ok(cc),
+        Err(system_err) => try_internal_tcc().with_context(|| {
+            format!("failed to resolve fallback internal tcc after system C compiler detection failed: {system_err:#}")
+        }),
+    }
 });
 
-#[allow(non_snake_case)]
-pub fn NATIVE_CC() -> &'static CC {
+fn cached_cc(result: &std::sync::LazyLock<anyhow::Result<CC>>) -> anyhow::Result<CC> {
+    result
+        .as_ref()
+        .cloned()
+        .map_err(|e| anyhow::anyhow!("{e:#}"))
+}
+
+pub fn try_system_cc() -> anyhow::Result<CC> {
+    cached_cc(&DETECTED_SYSTEM_CC)
+}
+
+pub fn try_internal_tcc() -> anyhow::Result<CC> {
+    cached_cc(&DETECTED_INTERNAL_TCC)
+}
+
+pub fn try_detect_cc() -> anyhow::Result<CC> {
+    cached_cc(&DETECTED_CC)
+}
+
+pub fn try_default_cc() -> anyhow::Result<CC> {
     if let Some(env_cc) = ENV_CC.as_ref() {
-        env_cc
-    } else {
-        &DETECTED_CC
+        return Ok(env_cc.clone());
     }
+
+    try_detect_cc()
 }
 
 #[derive(Clone, Copy, PartialEq)]

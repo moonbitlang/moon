@@ -59,6 +59,13 @@ static BUILD_VAR_REGEX: LazyLock<Regex> =
 const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
 
 impl<'a> BuildPlanConstructor<'a> {
+    fn effective_native_toolchain(&self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+        self.build_env
+            .native_toolchain
+            .ok_or_else(|| anyhow::anyhow!("native C toolchain is not selected for this build"))?
+            .resolve_with_package_override(package_cc)
+    }
+
     fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
         self.prebuild_config
             .and_then(|cfg| cfg.module_outputs.get(&module))
@@ -728,9 +735,8 @@ impl<'a> BuildPlanConstructor<'a> {
             .unwrap_or_default();
 
         let effective_native_toolchain = self
-            .build_env
-            .selected_native_toolchain
-            .with_package_override(stub_cc.as_ref());
+            .effective_native_toolchain(stub_cc.as_ref())
+            .map_err(|e| BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into()))?;
 
         self.propagate_link_config(
             &effective_native_toolchain,
@@ -825,6 +831,11 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
+        if !self.build_env.target_backend.is_native() {
+            self.resolved_node(make_exec_node);
+            return Ok(());
+        }
+
         // Fill auxiliary flags for CC flags
         let pkg = self.input.pkg_dirs.get_package(target.package);
         let native_config = pkg.raw.link.as_ref().and_then(|x| x.native.as_ref());
@@ -864,9 +875,8 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         let effective_native_toolchain = self
-            .build_env
-            .selected_native_toolchain
-            .with_package_override(cc.as_ref());
+            .effective_native_toolchain(cc.as_ref())
+            .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))?;
 
         self.propagate_link_config(
             &effective_native_toolchain,
@@ -882,11 +892,8 @@ impl<'a> BuildPlanConstructor<'a> {
         };
         self.res.make_executable_info.insert(target, v);
 
-        // Native backends also needs a runtime library
-        if self.build_env.target_backend.is_native() {
-            let rt_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
-            self.add_edge(make_exec_node, rt_node);
-        }
+        let rt_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
+        self.add_edge(make_exec_node, rt_node);
 
         self.resolved_node(make_exec_node);
 

@@ -341,12 +341,14 @@ impl<'a> BuildPlanConstructor<'a> {
                 );
             }
             BuildPlanNode::MakeExecutable(build_target) => {
-                assert!(
-                    self.res.make_executable_info.contains_key(&build_target),
-                    "Make executable info for {:?} should be present when resolving node {:?}",
-                    build_target,
-                    node
-                );
+                if self.build_env.target_backend.is_native() {
+                    assert!(
+                        self.res.make_executable_info.contains_key(&build_target),
+                        "Make executable info for {:?} should be present when resolving node {:?}",
+                        build_target,
+                        node
+                    );
+                }
             }
             BuildPlanNode::GenerateMbti(_build_target) => (),
             BuildPlanNode::Bundle(module_id) => {
