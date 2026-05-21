@@ -18,11 +18,11 @@
 
 use colored::Colorize;
 use moonutil::common::{
-    MOON_MOD, MOONBITLANG_CORE, read_module_desc_file_in_dir, write_module_dsl_to_file,
-    write_module_json_to_file,
+    MOON_MOD, MOONBITLANG_CORE, read_module_desc_file_in_dir, write_module_json_to_file,
 };
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
 use moonutil::module::convert_module_to_mod_json;
+use moonutil::moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file};
 use moonutil::mooncakes::ModuleName;
 use semver::Version;
 use std::path::Path;
@@ -131,15 +131,17 @@ pub fn add(
     if bin {
         let bin_deps = m.bin_deps.get_or_insert_with(indexmap::IndexMap::new);
         bin_deps.insert(
-            pkg_name_str,
+            pkg_name_str.clone(),
             BinaryDependencyInfo {
                 common: SourceDependencyInfo::Simple(version.clone()),
                 ..Default::default()
             },
         );
     } else {
-        m.deps
-            .insert(pkg_name_str, SourceDependencyInfo::Simple(version.clone()));
+        m.deps.insert(
+            pkg_name_str.clone(),
+            SourceDependencyInfo::Simple(version.clone()),
+        );
     }
 
     let m = Arc::new(m);
@@ -151,10 +153,18 @@ pub fn add(
     )?;
     install_impl(mooncakes_dir, roots, quiet, false, false, true)?;
 
-    let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
     if module_dir.join(MOON_MOD).exists() {
-        write_module_dsl_to_file(&new_j, module_dir)?;
+        let patch = if bin {
+            MoonModPatch::Rewrite(convert_module_to_mod_json(Arc::unwrap_or_clone(m)))
+        } else {
+            MoonModPatch::InsertImportItem {
+                name: pkg_name_str,
+                version: version.clone(),
+            }
+        };
+        patch_module_dsl_to_file(module_dir, patch)?;
     } else {
+        let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
         write_module_json_to_file(&new_j, module_dir)?;
     }
 

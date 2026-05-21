@@ -26,10 +26,11 @@ use anyhow::{Context, bail};
 use moonutil::{
     common::{
         MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE, read_module_desc_file_in_dir,
-        write_module_dsl_to_file, write_module_json_to_file,
+        write_module_json_to_file,
     },
     dependency::SourceDependencyInfo,
     module::{MoonMod, convert_module_to_mod_json},
+    moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     mooncakes::{
         ModuleId, ModuleName, ModuleSource,
         result::{
@@ -246,18 +247,35 @@ fn sync_workspace_manifests(resolved_env: &ResolvedEnv) -> anyhow::Result<Vec<Pa
         ))?;
 
         let mut module = Arc::unwrap_or_clone(Arc::clone(resolved_env.module_info(id)));
-        if !sync_manifest_versions(resolved_env, id, &mut module)? {
+        let (regular_deps_changed, bin_deps_changed) =
+            sync_manifest_versions(resolved_env, id, &mut module)?;
+        if !regular_deps_changed && !bin_deps_changed {
             continue;
         }
 
-        let new_json = convert_module_to_mod_json(module);
         let manifest_path = if module_dir.join(MOON_MOD).exists() {
             let manifest_path = module_dir.join(MOON_MOD);
-            write_module_dsl_to_file(&new_json, module_dir)
-                .context(format!("failed to write `{}`", manifest_path.display()))?;
+            if bin_deps_changed {
+                let new_json = convert_module_to_mod_json(module);
+                patch_module_dsl_to_file(module_dir, MoonModPatch::Rewrite(new_json))
+                    .context(format!("failed to write `{}`", manifest_path.display()))?;
+            } else if regular_deps_changed {
+                let versions = module
+                    .deps
+                    .iter()
+                    .filter_map(|(name, dep)| {
+                        dep.version()
+                            .cloned()
+                            .map(|version| (name.clone(), version))
+                    })
+                    .collect::<indexmap::IndexMap<_, _>>();
+                patch_module_dsl_to_file(module_dir, MoonModPatch::UpdateImportItems(versions))
+                    .context(format!("failed to write `{}`", manifest_path.display()))?;
+            }
             manifest_path
         } else {
             let manifest_path = module_dir.join(MOON_MOD_JSON);
+            let new_json = convert_module_to_mod_json(module);
             write_module_json_to_file(&new_json, module_dir)
                 .context(format!("failed to write `{}`", manifest_path.display()))?;
             manifest_path
@@ -280,16 +298,17 @@ fn sync_manifest_versions(
     resolved_env: &ResolvedEnv,
     id: ModuleId,
     module: &mut MoonMod,
-) -> anyhow::Result<bool> {
-    let mut changed = false;
+) -> anyhow::Result<(bool, bool)> {
+    let mut regular_deps_changed = false;
 
     for (dep_name, dep) in &mut module.deps {
-        changed |=
+        regular_deps_changed |=
             sync_source_dependency(resolved_env, id, dep_name, DependencyKind::Regular, dep)?;
     }
 
+    let mut bin_deps_changed = false;
     for (dep_name, dep) in module.bin_deps.iter_mut().flat_map(|deps| deps.iter_mut()) {
-        changed |= sync_source_dependency(
+        bin_deps_changed |= sync_source_dependency(
             resolved_env,
             id,
             dep_name,
@@ -298,7 +317,7 @@ fn sync_manifest_versions(
         )?;
     }
 
-    Ok(changed)
+    Ok((regular_deps_changed, bin_deps_changed))
 }
 
 fn sync_source_dependency(
