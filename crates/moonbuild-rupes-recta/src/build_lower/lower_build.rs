@@ -1010,7 +1010,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             );
         }
         let cc = info.effective_native_toolchain.cc().clone();
-        let simdutf_objects = if cc.can_use_simdutf() {
+        let simdutf_objects = if self.opt.os != OperatingSystem::Windows && cc.can_use_simdutf() {
             self.opt
                 .compiler_paths
                 .simdutf_object_paths()

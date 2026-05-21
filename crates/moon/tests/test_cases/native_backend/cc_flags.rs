@@ -222,6 +222,10 @@ fn test_native_backend_clang_uses_target_specific_libm_behavior() {
             "unexpected -lm for clang target `{target}`:\n{}",
             link_lines.join("\n")
         );
+        assert!(
+            !output.contains("MOONBIT_USE_SIMDUTF") && !output.contains("moonbit_simdutf.o"),
+            "unexpected simdutf use for Windows clang target `{target}`:\n{output}",
+        );
     } else {
         assert!(
             link_lines.iter().any(|line| line.contains(" -lm")),

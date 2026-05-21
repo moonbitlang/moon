@@ -20,21 +20,9 @@ fn in_ci() -> bool {
 fn available_non_tcc_compilers() -> Vec<(&'static str, &'static str)> {
     let mut compilers = Vec::new();
 
-    #[cfg(unix)]
-    {
-        for name in ["cc", "clang", "gcc"] {
-            if which::which(name).is_ok() {
-                compilers.push((name, name));
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        for name in ["cl.exe", "clang", "gcc"] {
-            if which::which(name).is_ok() {
-                compilers.push((name, name));
-            }
+    for name in ["cc", "clang", "gcc"] {
+        if which::which(name).is_ok() {
+            compilers.push((name, name));
         }
     }
 
