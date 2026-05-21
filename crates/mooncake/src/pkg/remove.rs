@@ -20,10 +20,9 @@ use anyhow::bail;
 use std::{path::Path, sync::Arc};
 
 use moonutil::{
-    common::{
-        MOON_MOD, read_module_desc_file_in_dir, write_module_dsl_to_file, write_module_json_to_file,
-    },
+    common::{MOON_MOD, read_module_desc_file_in_dir, write_module_json_to_file},
     module::convert_module_to_mod_json,
+    moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
 };
 
 use crate::{
@@ -48,7 +47,8 @@ pub fn remove(
     pkgname: &str,
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(module_dir)?;
-    let removed = m.deps.shift_remove(&format!("{username}/{pkgname}"));
+    let dep_name = format!("{username}/{pkgname}");
+    let removed = m.deps.shift_remove(&dep_name);
     if removed.is_none() {
         bail!(
             "the dependency `{}/{}` could not be found",
@@ -70,10 +70,13 @@ pub fn remove(
     };
     resolve_with_default_env_and_resolver(&resolve_cfg, roots)?;
 
-    let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
     if module_dir.join(MOON_MOD).exists() {
-        write_module_dsl_to_file(&new_j, module_dir)?;
+        patch_module_dsl_to_file(
+            module_dir,
+            MoonModPatch::RemoveImportItem { name: dep_name },
+        )?;
     } else {
+        let new_j = convert_module_to_mod_json(Arc::unwrap_or_clone(m));
         write_module_json_to_file(&new_j, module_dir)?;
     }
     Ok(0)

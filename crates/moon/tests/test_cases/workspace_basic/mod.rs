@@ -754,6 +754,57 @@ fn test_workspace_sync_updates_member_manifests() {
 }
 
 #[test]
+fn test_workspace_sync_patches_moon_mod_imports_without_dropping_comments() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
+    std::fs::write(
+        dir.join("app/moon.mod"),
+        r#"// app module
+name = "alice/app"
+
+version = "0.1.0"
+
+import {
+  // workspace deps
+  "alice/liba@0.1.0", // keep trailing comment
+}
+
+options(
+  source: "src",
+)
+"#,
+    )
+    .unwrap();
+
+    check(
+        get_stdout(&dir, ["work", "sync"]),
+        expect![[r#"
+            Synced workspace manifests:
+            app/moon.mod
+        "#]],
+    );
+
+    check(
+        std::fs::read_to_string(dir.join("app/moon.mod")).unwrap(),
+        expect![[r#"
+            // app module
+            name = "alice/app"
+
+            version = "0.1.0"
+
+            import {
+              // workspace deps
+              "alice/liba@0.1.1", // keep trailing comment
+            }
+
+            options(
+              source: "src",
+            )
+        "#]],
+    );
+}
+
+#[test]
 fn test_work_sync_requires_workspace() {
     let dir = TestDir::new("hello");
     let stderr = get_err_stderr(&dir, ["work", "sync"]);
@@ -950,12 +1001,14 @@ fn test_manifest_path_targets_dsl_member_for_remove() {
     std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
     std::fs::write(
         dir.join("app/moon.mod"),
-        r#"name = "alice/app"
+        r#"// app module
+name = "alice/app"
 
 version = "0.1.0"
 
 import {
-  "alice/liba@0.1.0",
+  // workspace deps
+  "alice/liba@0.1.0", // remove this dependency
 }
 
 options(
@@ -978,13 +1031,20 @@ options(
     check(
         std::fs::read_to_string(dir.join("app/moon.mod")).unwrap(),
         expect![[r#"
+            // app module
             name = "alice/app"
 
             version = "0.1.0"
 
+            import {
+              // workspace deps
+              // remove this dependency
+            }
+
             options(
               source: "src",
-            )"#]],
+            )
+        "#]],
     );
 }
 
