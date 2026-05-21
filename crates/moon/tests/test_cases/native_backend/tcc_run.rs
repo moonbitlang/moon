@@ -16,8 +16,12 @@ fn test_native_backend_tcc_run() {
 
     assert_native_backend_graph_no_env(
         &dir,
-        "test_native_linux_graph.jsonl",
+        "test_native_graph.jsonl",
         &["test", "--target", "native", "--dry-run", "--sort-input"],
-        expect_file!["tcc_run/test_native_linux_graph.jsonl.snap"],
+        if cfg!(target_os = "macos") {
+            expect_file!["tcc_run/test_native_macos_graph.jsonl.snap"]
+        } else {
+            expect_file!["tcc_run/test_native_linux_graph.jsonl.snap"]
+        },
     );
 }

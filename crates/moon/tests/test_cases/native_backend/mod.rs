@@ -29,6 +29,7 @@ pub(super) fn assert_native_backend_graph(
         // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
         *s = s.replace(" -Wno-unused-value", "");
         *s = s.replace(".dylib", ".so");
+        normalize_macos_sdk_path(s);
     });
 }
 
@@ -41,3 +42,29 @@ pub(super) fn assert_native_backend_graph_no_env(
 ) {
     assert_native_backend_graph(dir, tmp_name, args, &[], expected);
 }
+
+#[cfg(target_os = "macos")]
+fn normalize_macos_sdk_path(s: &mut String) {
+    let Ok(output) = std::process::Command::new("xcrun")
+        .args(["--sdk", "macosx", "--show-sdk-path"])
+        .output()
+    else {
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+
+    let sdk_root = String::from_utf8_lossy(&output.stdout);
+    let Some(sdk_root) = sdk_root.lines().next().map(str::trim) else {
+        return;
+    };
+    if sdk_root.is_empty() {
+        return;
+    }
+
+    *s = s.replace(&format!("-L{sdk_root}/usr/lib"), "-L$MACOSX_SDK/usr/lib");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn normalize_macos_sdk_path(_s: &mut String) {}
