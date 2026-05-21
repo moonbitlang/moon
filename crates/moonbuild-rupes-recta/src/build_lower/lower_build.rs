@@ -70,7 +70,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         compiler::CompilationFlags {
             no_opt: self.opt.opt_level == OptLevel::Debug,
             symbols: self.opt.debug_symbols,
-            source_map: self.opt.target_backend().to_target().supports_source_map()
+            source_map: self.opt.target_backend.to_target().supports_source_map()
                 && self.opt.debug_symbols,
             enable_coverage: false,
             self_coverage: false,
@@ -79,7 +79,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     fn link_core_llvm_target(&self, target: BuildTarget) -> Option<&'static str> {
-        if self.opt.target_backend() != RunBackend::Llvm || !cfg!(target_os = "windows") {
+        if self.opt.target_backend != RunBackend::Llvm || !cfg!(target_os = "windows") {
             return None;
         }
 
@@ -128,7 +128,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .opt
             .stdlib_path
             .as_ref()
-            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend().into()).into());
+            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend.into()).into());
 
         // Warning and error settings
         let error_format = if self.opt.moonc_output_json {
@@ -171,7 +171,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             let mi_path = self.layout.mi_of_build_target(
                 self.packages,
                 &v_target,
-                self.opt.target_backend().into(),
+                self.opt.target_backend.into(),
             );
 
             // If current package is NOT the same package as the virtual target,
@@ -243,7 +243,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.layout.mi_of_build_target(
                         self.packages,
                         &dep,
-                        self.opt.target_backend().into(),
+                        self.opt.target_backend.into(),
                     )
                 } else {
                     self.layout.emit_proof_mi_path(self.packages, &dep)
@@ -338,12 +338,12 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .mi_of_build_target_impl_virtual(
                     self.packages,
                     &target,
-                    self.opt.target_backend().into(),
+                    self.opt.target_backend.into(),
                 )
                 .into_path()
         } else {
             self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend().into())
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into())
         };
         let mi_inputs = self.mi_inputs_of(node, target);
 
@@ -365,7 +365,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             | TargetKind::InlineTest
             | TargetKind::SubPackage => package.raw.is_main,
         };
-        let backend = self.opt.target_backend().into();
+        let backend = self.opt.target_backend.into();
         let cmd = compiler::MooncCheck {
             required: BuildCommonInput::new(
                 &files_vec,
@@ -412,7 +412,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let files_vec = self.compiler_source_files(info);
 
-        let backend = self.opt.target_backend().into();
+        let backend = self.opt.target_backend.into();
         let whyml_output = self.layout.emit_proof_whyml_path(self.packages, &target);
         let dep_proofs = self.dep_proofs_of(target);
         let cmd = compiler::MooncProve {
@@ -463,7 +463,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let files_vec = self.compiler_source_files(info);
 
-        let backend = self.opt.target_backend().into();
+        let backend = self.opt.target_backend.into();
         let why3_config = info
             .why3_config
             .clone()
@@ -525,13 +525,11 @@ impl<'a> BuildPlanLowerContext<'a> {
         let core_output = self.layout.core_of_build_target(
             self.packages,
             &target,
-            self.opt.target_backend().into(),
+            self.opt.target_backend.into(),
         );
-        let mi_output = self.layout.mi_of_build_target(
-            self.packages,
-            &target,
-            self.opt.target_backend().into(),
-        );
+        let mi_output =
+            self.layout
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
 
         let mi_inputs = self.mi_inputs_of(node, target);
 
@@ -542,7 +540,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 files.push(self.layout.generated_test_driver(
                     self.packages,
                     &target,
-                    self.opt.target_backend().into(),
+                    self.opt.target_backend.into(),
                 ));
             }
         };
@@ -555,7 +553,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             TargetKind::Source | TargetKind::SubPackage => package.raw.is_main,
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
-        let backend = self.opt.target_backend().into();
+        let backend = self.opt.target_backend.into();
         let mut cmd = compiler::MooncBuildPackage {
             required: BuildCommonInput::new(
                 &files,
@@ -613,12 +611,12 @@ impl<'a> BuildPlanLowerContext<'a> {
             if !info.abort_overridden {
                 core_input_files.push(artifact::abort_core_path(
                     stdlib,
-                    self.opt.target_backend().into(),
+                    self.opt.target_backend.into(),
                 ));
             }
             core_input_files.push(artifact::core_core_path(
                 stdlib,
-                self.opt.target_backend().into(),
+                self.opt.target_backend.into(),
             ));
         }
         // Linked core targets
@@ -626,7 +624,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             let core_path = self.layout.core_of_build_target(
                 self.packages,
                 target,
-                self.opt.target_backend().into(),
+                self.opt.target_backend.into(),
             );
             core_input_files.push(core_path);
         }
@@ -634,7 +632,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let out_file = self.layout.linked_core_of_build_target(
             self.packages,
             &target,
-            self.opt.target_backend().into(),
+            self.opt.target_backend.into(),
             self.opt.os,
             self.opt.output_wat,
         );
@@ -667,12 +665,12 @@ impl<'a> BuildPlanLowerContext<'a> {
             pkg_config_path: config_path.clone().into(),
             package_sources: &package_sources,
             stdlib_core_source: None,
-            target_backend: self.opt.target_backend().into(),
+            target_backend: self.opt.target_backend.into(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(target, package),
             js_config: self.get_js_config(target, package),
-            exports: package.exported_functions(self.opt.target_backend().into()),
+            exports: package.exported_functions(self.opt.target_backend.into()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
             llvm_target: self.link_core_llvm_target(target),
         };
@@ -682,11 +680,11 @@ impl<'a> BuildPlanLowerContext<'a> {
         if let Some(stdlib) = &self.opt.stdlib_path {
             extra_inputs.push(artifact::abort_core_path(
                 stdlib,
-                self.opt.target_backend().into(),
+                self.opt.target_backend.into(),
             ));
             extra_inputs.push(artifact::core_core_path(
                 stdlib,
-                self.opt.target_backend().into(),
+                self.opt.target_backend.into(),
             ));
         }
         if !package.is_single_file {
@@ -704,7 +702,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         target: BuildTarget,
         pkg: &'b DiscoveredPackage,
     ) -> compiler::WasmConfig<'b> {
-        let mut wasm_config = if self.opt.target_backend() == RunBackend::Wasm
+        let mut wasm_config = if self.opt.target_backend == RunBackend::Wasm
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm.as_ref())
         {
             WasmConfig {
@@ -716,7 +714,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 link_flags: cfg.flags.as_deref(),
                 wasi: false,
             }
-        } else if self.opt.target_backend() == RunBackend::WasmGC
+        } else if self.opt.target_backend == RunBackend::WasmGC
             && let Some(cfg) = pkg.raw.link.as_ref().and_then(|x| x.wasm_gc.as_ref())
         {
             WasmConfig {
@@ -740,7 +738,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     fn should_link_wasi(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> bool {
-        if !self.opt.wasi_link || self.opt.target_backend() != RunBackend::Wasm {
+        if !self.opt.wasi_link || self.opt.target_backend != RunBackend::Wasm {
             return false;
         }
 
@@ -755,7 +753,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     fn get_js_config(&self, target: BuildTarget, pkg: &DiscoveredPackage) -> Option<JsConfig> {
-        let backend = self.opt.target_backend();
+        let backend = self.opt.target_backend;
         if backend != RunBackend::Js {
             return None;
         }
@@ -790,7 +788,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
         assert!(
-            self.opt.target_backend().is_native(),
+            self.opt.target_backend.is_native(),
             "Non-native make-executable should be already matched and should not be here"
         );
 
@@ -803,7 +801,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             input_file
                 .file_stem()
                 .expect("stub lib should have a file name"),
-            self.opt.target_backend().into(),
+            self.opt.target_backend.into(),
             self.opt.os,
         );
 
@@ -832,7 +830,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let intermediate_dir = self
             .layout
-            .package_dir(&package.fqn, self.opt.target_backend().into())
+            .package_dir(&package.fqn, self.opt.target_backend.into())
             .display()
             .to_string();
 
@@ -861,7 +859,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
         assert!(
-            self.opt.target_backend().is_native(),
+            self.opt.target_backend.is_native(),
             "Non-native make-executable should be already matched and should not be here"
         );
 
@@ -878,7 +876,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // - When not using `tcc -run`, this creates an archive of the C stubs.
         // - When using `tcc -run`, this links the C stubs to an ELF .so, so tcc
         //   can load it at runtime.
-        match self.opt.target_backend() {
+        match self.opt.target_backend {
             RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
                 panic!("C stubs are not supported for non-native backends")
             }
@@ -900,7 +898,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let archive = self.layout.c_stub_archive_path(
             self.packages,
             target,
-            self.opt.target_backend().into(),
+            self.opt.target_backend.into(),
             self.opt.os,
         );
 
@@ -937,7 +935,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let dylib_out = self.layout.c_stub_link_dylib_path(
             self.packages,
             target,
-            self.opt.target_backend().into(),
+            self.opt.target_backend.into(),
             self.opt.os,
         );
         let dest_dir = dylib_out
@@ -949,7 +947,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
         // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
         let runtime_dylib = self.layout.runtime_output_path(
-            self.opt.target_backend(),
+            self.opt.target_backend,
             self.opt.use_tcc_run(),
             self.opt.os,
         );
@@ -998,7 +996,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        match self.opt.target_backend() {
+        match self.opt.target_backend {
             RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
                 panic!(
                     "Non-native make-executable should be already matched and should not be here"
@@ -1068,17 +1066,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let dest = self
             .layout
-            .executable_of_build_target(
-                self.packages,
-                &target,
-                artifact::ExecutableArtifactOptions {
-                    backend: self.opt.target_backend(),
-                    use_tcc_run: self.opt.use_tcc_run(),
-                    os: self.opt.os,
-                    legacy_behavior: true,
-                    wasm_use_wat: self.opt.output_wat,
-                },
-            )
+            .executable_of_build_target(self.packages, &target, self.opt.executable_artifact(true))
             .display()
             .to_string();
 
@@ -1088,7 +1076,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             .layout
             .package_dir(
                 &self.get_package(target).fqn,
-                self.opt.target_backend().into(),
+                self.opt.target_backend.into(),
             )
             .display()
             .to_string();
@@ -1107,7 +1095,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // On macOS with LLVM backend and debug symbols, run dsymutil after linking
         // to generate the dSYM bundle for better debugging experience
         let commandline = if self.opt.os == OperatingSystem::MacOS
-            && self.opt.target_backend() == RunBackend::Llvm
+            && self.opt.target_backend == RunBackend::Llvm
             && self.opt.debug_symbols
         {
             // Convert cc_cmd to shell command string and append dsymutil
@@ -1175,7 +1163,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let c_file = self.layout.linked_core_of_build_target(
             self.packages,
             &target,
-            self.opt.target_backend().into(),
+            self.opt.target_backend.into(),
             self.opt.os,
             self.opt.output_wat,
         );
@@ -1199,13 +1187,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let rsp_path = self.layout.executable_of_build_target(
             self.packages,
             &target,
-            artifact::ExecutableArtifactOptions {
-                backend: self.opt.target_backend(),
-                use_tcc_run: self.opt.use_tcc_run(),
-                os: self.opt.os,
-                legacy_behavior: false,
-                wasm_use_wat: self.opt.output_wat,
-            },
+            self.opt.executable_artifact(false),
         );
 
         rsp_cmdline.push(rsp_path.display().to_string());
@@ -1229,11 +1211,9 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // The virtual package interface is emitted as the `.mi` of the source target
         let target = pid.build_target(TargetKind::Source);
-        let mi_out = self.layout.mi_of_build_target(
-            self.packages,
-            &target,
-            self.opt.target_backend().into(),
-        );
+        let mi_out =
+            self.layout
+                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
 
         // Resolve interface dependencies from the dep graph (path:alias pairs)
         let mi_inputs = self.mi_inputs_of(node, target);
@@ -1250,7 +1230,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // Provide std path when stdlib is enabled
         if let Some(stdlib_root) = &self.opt.stdlib_path {
             cmd.stdlib_core_file = Some(
-                artifact::core_bundle_path(stdlib_root, self.opt.target_backend().into()).into(),
+                artifact::core_bundle_path(stdlib_root, self.opt.target_backend.into()).into(),
             );
         }
 
@@ -1275,7 +1255,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 let in_file = self.layout.mi_of_build_target(
                     self.packages,
                     &it,
-                    self.opt.target_backend().into(),
+                    self.opt.target_backend.into(),
                 );
                 MiDependency::new(in_file, &w.short_alias)
             })

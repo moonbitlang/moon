@@ -45,12 +45,53 @@ const MI_EXTENSION: &str = ".mi";
 /// won't be rebuilt every time
 const IMPL_MI_EXTENSION: &str = ".impl.mi";
 
-pub struct ExecutableArtifactOptions {
-    pub backend: RunBackend,
-    pub use_tcc_run: bool,
-    pub os: OperatingSystem,
-    pub legacy_behavior: bool,
-    pub wasm_use_wat: bool,
+#[derive(Clone, Copy, Debug)]
+pub enum ExecutableArtifact {
+    Wasm {
+        use_wat: bool,
+    },
+    WasmGC {
+        use_wat: bool,
+    },
+    Js,
+    NativeExecutable {
+        os: OperatingSystem,
+        legacy_behavior: bool,
+    },
+    TccRunResponseFile,
+    LlvmExecutable {
+        os: OperatingSystem,
+        legacy_behavior: bool,
+    },
+}
+
+impl ExecutableArtifact {
+    fn target_backend(self) -> TargetBackend {
+        match self {
+            Self::Wasm { .. } => TargetBackend::Wasm,
+            Self::WasmGC { .. } => TargetBackend::WasmGC,
+            Self::Js => TargetBackend::Js,
+            Self::NativeExecutable { .. } | Self::TccRunResponseFile => TargetBackend::Native,
+            Self::LlvmExecutable { .. } => TargetBackend::LLVM,
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Wasm { use_wat } | Self::WasmGC { use_wat } if use_wat => ".wat",
+            Self::Wasm { .. } | Self::WasmGC { .. } => ".wasm",
+            Self::Js => ".js",
+            Self::NativeExecutable {
+                os,
+                legacy_behavior,
+            }
+            | Self::LlvmExecutable {
+                os,
+                legacy_behavior,
+            } => executable_ext(os, legacy_behavior),
+            Self::TccRunResponseFile => ".rspfile",
+        }
+    }
 }
 
 /// Target folder layout that matches the legacy (pre-beta) behavior
@@ -325,20 +366,14 @@ impl LegacyLayout {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        options: ExecutableArtifactOptions,
+        executable: ExecutableArtifact,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, options.backend.into());
+        let mut base_dir = self.package_dir(pkg_fqn, executable.target_backend());
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            make_executable_artifact_ext(
-                options.backend,
-                options.use_tcc_run,
-                options.os,
-                options.legacy_behavior,
-                options.wasm_use_wat,
-            ),
+            executable.extension(),
         ));
         base_dir
     }
@@ -613,22 +648,6 @@ fn linked_core_artifact_ext(
         TargetBackend::Js => ".js",
         TargetBackend::Native => ".c",
         TargetBackend::LLVM => object_file_ext(os),
-    }
-}
-
-fn make_executable_artifact_ext(
-    backend: RunBackend,
-    use_tcc_run: bool,
-    os: OperatingSystem,
-    legacy_behavior: bool,
-    wasm_use_wat: bool,
-) -> &'static str {
-    match backend {
-        RunBackend::Wasm | RunBackend::WasmGC if wasm_use_wat => ".wat",
-        RunBackend::Wasm | RunBackend::WasmGC => ".wasm",
-        RunBackend::Js => ".js",
-        RunBackend::Native if use_tcc_run => ".rspfile",
-        RunBackend::Native | RunBackend::Llvm => executable_ext(os, legacy_behavior),
     }
 }
 

@@ -44,7 +44,7 @@ mod utils;
 
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
-use crate::build_lower::artifact::LegacyLayoutBuilder;
+use crate::build_lower::artifact::{ExecutableArtifact, LegacyLayoutBuilder};
 use context::BuildPlanLowerContext;
 
 /// Knobs to tweak during build. Affects behaviors during lowering.
@@ -76,14 +76,31 @@ pub struct BuildOptions {
 }
 
 impl BuildOptions {
-    pub fn target_backend(&self) -> RunBackend {
-        self.target_backend
-    }
-
     pub fn use_tcc_run(&self) -> bool {
         let use_tcc_run = self.tcc_run.is_some();
         debug_assert!(!use_tcc_run || self.target_backend == RunBackend::Native);
         use_tcc_run
+    }
+
+    pub fn executable_artifact(&self, legacy_behavior: bool) -> ExecutableArtifact {
+        match self.target_backend {
+            RunBackend::Wasm => ExecutableArtifact::Wasm {
+                use_wat: self.output_wat,
+            },
+            RunBackend::WasmGC => ExecutableArtifact::WasmGC {
+                use_wat: self.output_wat,
+            },
+            RunBackend::Js => ExecutableArtifact::Js,
+            RunBackend::Native if self.use_tcc_run() => ExecutableArtifact::TccRunResponseFile,
+            RunBackend::Native => ExecutableArtifact::NativeExecutable {
+                os: self.os,
+                legacy_behavior,
+            },
+            RunBackend::Llvm => ExecutableArtifact::LlvmExecutable {
+                os: self.os,
+                legacy_behavior,
+            },
+        }
     }
 }
 
@@ -214,9 +231,7 @@ pub fn lower_build_plan(
     info!("Starting build plan lowering to n2 graph");
     debug!(
         "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
-        opt.target_backend(),
-        opt.opt_level,
-        opt.debug_symbols
+        opt.target_backend, opt.opt_level, opt.debug_symbols
     );
 
     let layout = LegacyLayoutBuilder::default()
