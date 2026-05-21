@@ -30,7 +30,7 @@ use crate::{
     build_lower::artifact::LegacyLayout,
     build_plan::{BuildPlan, FileDependencyKind},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::{BuildPlanNode, BuildTarget, RunBackend},
+    model::{BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
 };
 use moonutil::BINARIES;
@@ -80,7 +80,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     /// Some nodes are no-op in n2 build graph. Early bailing.
     fn is_node_noop(&self, node: BuildPlanNode) -> bool {
-        (!self.opt.target_backend.is_native()) && matches!(node, BuildPlanNode::MakeExecutable(_))
+        (!self.opt.target_backend().is_native()) && matches!(node, BuildPlanNode::MakeExecutable(_))
     }
 
     pub(super) fn get_package(&self, target: BuildTarget) -> &DiscoveredPackage {
@@ -293,7 +293,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     match self.layout.mi_of_build_target_impl_virtual(
                         self.packages,
                         &target,
-                        self.opt.target_backend.into(),
+                        self.opt.target_backend().into(),
                     ) {
                         crate::build_lower::artifact::MiPathResult::StdAbort(_) => {}
                         crate::build_lower::artifact::MiPathResult::Std(p) => {
@@ -312,7 +312,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     let mi_artifact_path = self.layout.mi_of_build_target(
                         self.packages,
                         &target,
-                        self.opt.target_backend.into(),
+                        self.opt.target_backend().into(),
                     );
                     out.push(mi_artifact_path);
                 };
@@ -366,14 +366,14 @@ impl<'a> BuildPlanLowerContext<'a> {
                     out.push(self.layout.mi_of_build_target(
                         self.packages,
                         &target,
-                        self.opt.target_backend.into(),
+                        self.opt.target_backend().into(),
                     ));
                 }
                 if core {
                     out.push(self.layout.core_of_build_target(
                         self.packages,
                         &target,
-                        self.opt.target_backend.into(),
+                        self.opt.target_backend().into(),
                     ));
                 }
             }
@@ -387,24 +387,24 @@ impl<'a> BuildPlanLowerContext<'a> {
                         file_name
                             .file_stem()
                             .expect("c stub file should have a file name"),
-                        self.opt.target_backend.into(),
+                        self.opt.target_backend().into(),
                         self.opt.os,
                     ),
                 );
             }
             BuildPlanNode::ArchiveOrLinkCStubs(_target) => {
-                if self.opt.target_backend == RunBackend::NativeTccRun {
+                if self.opt.use_tcc_run() {
                     out.push(self.layout.c_stub_link_dylib_path(
                         self.packages,
                         _target,
-                        self.opt.target_backend.into(),
+                        self.opt.target_backend().into(),
                         self.opt.os,
                     ));
                 } else {
                     out.push(self.layout.c_stub_archive_path(
                         self.packages,
                         _target,
-                        self.opt.target_backend.into(),
+                        self.opt.target_backend().into(),
                         self.opt.os,
                     ));
                 }
@@ -413,7 +413,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,
                     &target,
-                    self.opt.target_backend.into(),
+                    self.opt.target_backend().into(),
                     self.opt.os,
                     self.opt.output_wat,
                 ));
@@ -422,10 +422,13 @@ impl<'a> BuildPlanLowerContext<'a> {
                 out.push(self.layout.executable_of_build_target(
                     self.packages,
                     &target,
-                    self.opt.target_backend,
-                    self.opt.os,
-                    true,
-                    self.opt.output_wat,
+                    super::artifact::ExecutableArtifactOptions {
+                        backend: self.opt.target_backend(),
+                        use_tcc_run: self.opt.use_tcc_run(),
+                        os: self.opt.os,
+                        legacy_behavior: true,
+                        wasm_use_wat: self.opt.output_wat,
+                    },
                 ))
             }
             BuildPlanNode::GenerateTestInfo(target) => {
@@ -437,13 +440,13 @@ impl<'a> BuildPlanLowerContext<'a> {
                 out.push(self.layout.generated_test_driver(
                     self.packages,
                     &target,
-                    self.opt.target_backend.into(),
+                    self.opt.target_backend().into(),
                 ));
                 if meta {
                     out.push(self.layout.generated_test_driver_metadata(
                         self.packages,
                         &target,
-                        self.opt.target_backend.into(),
+                        self.opt.target_backend().into(),
                     ));
                 }
             }
@@ -451,20 +454,21 @@ impl<'a> BuildPlanLowerContext<'a> {
                 let module_name = self.modules.module_source(id);
                 out.push(
                     self.layout
-                        .bundle_result_path(self.opt.target_backend.into(), module_name.name()),
+                        .bundle_result_path(self.opt.target_backend().into(), module_name.name()),
                 );
             }
             BuildPlanNode::BuildRuntimeLib => {
-                out.push(
-                    self.layout
-                        .runtime_output_path(self.opt.target_backend, self.opt.os),
-                );
+                out.push(self.layout.runtime_output_path(
+                    self.opt.target_backend(),
+                    self.opt.use_tcc_run(),
+                    self.opt.os,
+                ));
             }
             BuildPlanNode::GenerateMbti(_target) => {
                 out.push(self.layout.generated_mbti_path(
                     self.packages,
                     &_target,
-                    self.opt.target_backend.into(),
+                    self.opt.target_backend().into(),
                 ));
             }
             BuildPlanNode::BuildDocs(_) => {
@@ -484,7 +488,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 out.push(self.layout.mi_of_build_target(
                     self.packages,
                     &t,
-                    self.opt.target_backend.into(),
+                    self.opt.target_backend().into(),
                 ));
             }
             BuildPlanNode::RunMoonLexPrebuild(pkg, idx) => {

@@ -23,10 +23,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{
-    common::RunMode,
-    compiler_flags::{CC, CompilerPaths},
-    cond_expr::OptLevel,
-    mooncakes::ModuleSource,
+    common::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel, mooncakes::ModuleSource,
 };
 use n2::graph::Graph as N2Graph;
 use tracing::instrument;
@@ -34,7 +31,7 @@ use tracing::instrument;
 use crate::{
     ResolveOutput,
     build_plan::BuildPlan,
-    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend},
+    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend, TccRunConfig},
     pkg_name::OptionalPackageFQNWithSource,
 };
 
@@ -56,6 +53,7 @@ pub struct BuildOptions {
     pub target_dir_root: PathBuf,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
     pub target_backend: RunBackend,
+    pub tcc_run: Option<TccRunConfig>,
     pub os: OperatingSystem,
     pub opt_level: OptLevel,
     pub action: RunMode,
@@ -75,8 +73,18 @@ pub struct BuildOptions {
     pub stdlib_path: Option<PathBuf>,
     pub runtime_dot_c_path: PathBuf,
     pub compiler_paths: CompilerPaths,
-    /// Resolved internal TCC toolchain when this invocation uses `tcc -run`.
-    pub internal_tcc: Option<CC>,
+}
+
+impl BuildOptions {
+    pub fn target_backend(&self) -> RunBackend {
+        self.target_backend
+    }
+
+    pub fn use_tcc_run(&self) -> bool {
+        let use_tcc_run = self.tcc_run.is_some();
+        debug_assert!(!use_tcc_run || self.target_backend == RunBackend::Native);
+        use_tcc_run
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -206,7 +214,9 @@ pub fn lower_build_plan(
     info!("Starting build plan lowering to n2 graph");
     debug!(
         "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
-        opt.target_backend, opt.opt_level, opt.debug_symbols
+        opt.target_backend(),
+        opt.opt_level,
+        opt.debug_symbols
     );
 
     let layout = LegacyLayoutBuilder::default()

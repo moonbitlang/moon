@@ -20,6 +20,7 @@ use std::path::PathBuf;
 
 use moonutil::{
     common::TargetBackend,
+    compiler_flags::CC,
     mooncakes::{ModuleId, result::ResolvedEnv},
 };
 
@@ -30,29 +31,41 @@ slotmap::new_key_type! {
     pub struct PackageId;
 }
 
-/// Backend that affect how the build and artifact generation is performed.
+/// User-visible backend selected for the build and run artifact shape.
 ///
-/// Note: This is different from [`TargetBackend`]. That enum is a high-level
-/// abstraction of the user's choice and what kind of output format `moonc`
-/// produces, but this also cares about what toolchains are used, etc.
+/// This mirrors [`TargetBackend`] and intentionally does not encode native C
+/// compiler or execution-tool choices.
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub enum RunBackend {
     WasmGC,
     Wasm,
     Js,
     Native,
-    /// Like `Native`, but uses `tcc -run` to execute the program directly. Does
-    /// not produce a standalone binary artifact.
-    NativeTccRun,
     Llvm,
+}
+
+/// Configuration for the optional native `tcc -run` path.
+///
+/// Normal native execution, LLVM execution, and all non-native backends do not
+/// carry this value.
+#[derive(Clone, Debug)]
+pub struct TccRunConfig {
+    internal_tcc: CC,
+}
+
+impl TccRunConfig {
+    pub fn new(internal_tcc: CC) -> Self {
+        Self { internal_tcc }
+    }
+
+    pub fn internal_tcc(&self) -> &CC {
+        &self.internal_tcc
+    }
 }
 
 impl RunBackend {
     pub fn is_native(self) -> bool {
-        matches!(
-            self,
-            RunBackend::Native | RunBackend::NativeTccRun | RunBackend::Llvm
-        )
+        matches!(self, RunBackend::Native | RunBackend::Llvm)
     }
 
     pub fn to_target(self) -> TargetBackend {
@@ -67,7 +80,6 @@ impl From<RunBackend> for TargetBackend {
             RunBackend::Wasm => TargetBackend::Wasm,
             RunBackend::Js => TargetBackend::Js,
             RunBackend::Native => TargetBackend::Native,
-            RunBackend::NativeTccRun => TargetBackend::Native,
             RunBackend::Llvm => TargetBackend::LLVM,
         }
     }

@@ -624,6 +624,7 @@ fn run_one_test_executable(
 
     let cmd = crate::run::command_for(
         ctx.build_meta.target_backend,
+        ctx.build_meta.tcc_run.as_ref(),
         &test.executable,
         Some(&test.args),
     );

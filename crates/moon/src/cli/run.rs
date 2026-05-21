@@ -112,10 +112,10 @@ pub(crate) struct RunSubcommand {
 /// `tcc -run`. Consumers that need a standalone executable, such as profilers,
 /// should disable it.
 pub(crate) struct BuildRunExecutableOptions {
-    /// Whether native debug builds may use `RunBackend::NativeTccRun`.
+    /// Whether native debug builds may use `tcc -run`.
     ///
-    /// `NativeTccRun` executes through `tcc @rspfile` and does not provide the
-    /// same standalone executable shape as the regular native backend.
+    /// `tcc -run` executes through `tcc @rspfile` and does not provide the same
+    /// standalone executable shape as regular native execution.
     pub(crate) try_tcc_run: bool,
     /// Whether dry-run output should include the final executable invocation.
     pub(crate) print_dry_run_run_command: bool,
@@ -141,6 +141,8 @@ pub(crate) struct RunExecutable {
     pub(crate) executable: PathBuf,
     /// Backend-specific runner to use for this artifact.
     pub(crate) target_backend: moonbuild_rupes_recta::model::RunBackend,
+    /// Present only when native debug execution selected `tcc -run`.
+    pub(crate) tcc_run: Option<moonbuild_rupes_recta::model::TccRunConfig>,
     pub(crate) opt_level: moonutil::cond_expr::OptLevel,
     pub(crate) target_dir: PathBuf,
     source_dir: PathBuf,
@@ -274,6 +276,7 @@ fn build_wasm_file_executable_from_arg(
     if cli.dry_run {
         let mut run_cmd = crate::run::command_for(
             moonbuild_rupes_recta::model::RunBackend::WasmGC,
+            None,
             &wasm_path,
             None,
         );
@@ -284,6 +287,7 @@ fn build_wasm_file_executable_from_arg(
     Ok(RunExecutable {
         executable: wasm_path,
         target_backend: moonbuild_rupes_recta::model::RunBackend::WasmGC,
+        tcc_run: None,
         opt_level: moonutil::cond_expr::OptLevel::Debug,
         target_dir: print_dir.clone(),
         source_dir: print_dir,
@@ -486,7 +490,12 @@ pub(crate) fn plan_run_rr_from_resolved(
 #[instrument(level = Level::DEBUG, skip_all)]
 fn get_run_cmd(build_meta: &rr_build::BuildMeta, argv: &[String]) -> tokio::process::Command {
     let executable = get_run_executable(build_meta);
-    let mut cmd = crate::run::command_for(build_meta.target_backend, executable, None);
+    let mut cmd = crate::run::command_for(
+        build_meta.target_backend,
+        build_meta.tcc_run.as_ref(),
+        executable,
+        None,
+    );
     cmd.args(argv);
     cmd
 }
@@ -657,6 +666,7 @@ fn build_executable_from_plan(
         return Ok(RunExecutable {
             executable: get_run_executable(build_meta).to_path_buf(),
             target_backend: build_meta.target_backend,
+            tcc_run: build_meta.tcc_run.clone(),
             opt_level: build_meta.opt_level,
             target_dir: target_dir.to_path_buf(),
             source_dir: source_dir.to_path_buf(),
@@ -681,6 +691,7 @@ fn build_executable_from_plan(
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
         target_backend: build_meta.target_backend,
+        tcc_run: build_meta.tcc_run.clone(),
         opt_level: build_meta.opt_level,
         target_dir: target_dir.to_path_buf(),
         source_dir: source_dir.to_path_buf(),
@@ -716,6 +727,7 @@ fn run_executable(
 
     let mut run_cmd = crate::run::command_for(
         executable.target_backend,
+        executable.tcc_run.as_ref(),
         executable.executable.as_path(),
         None,
     );

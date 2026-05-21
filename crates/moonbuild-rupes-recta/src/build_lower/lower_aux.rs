@@ -51,12 +51,12 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         let output_driver = self.layout.generated_test_driver(
             self.packages,
             &target,
-            self.opt.target_backend.into(),
+            self.opt.target_backend().into(),
         );
         let output_metadata = self.layout.generated_test_driver_metadata(
             self.packages,
             &target,
-            self.opt.target_backend.into(),
+            self.opt.target_backend().into(),
         );
         let driver_kind = match target.kind {
             TargetKind::Source => panic!("Source package cannot be a test driver"),
@@ -85,7 +85,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
             driver_kind,
-            target_backend: self.opt.target_backend.into(),
+            target_backend: self.opt.target_backend().into(),
             patch_file,
             pkg_name: &pkg_full_name,
             max_concurrent_tests: package.raw.max_concurrent_tests,
@@ -112,7 +112,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         let module = self.modules.module_source(module_id);
         let output = self
             .layout
-            .bundle_result_path(self.opt.target_backend.into(), module.name());
+            .bundle_result_path(self.opt.target_backend().into(), module.name());
         let info = self
             .build_plan
             .bundle_info(module_id)
@@ -123,7 +123,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             inputs.push(self.layout.core_of_build_target(
                 self.packages,
                 dep,
-                self.opt.target_backend.into(),
+                self.opt.target_backend().into(),
             ));
         }
 
@@ -137,32 +137,26 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_compile_runtime(&mut self) -> anyhow::Result<BuildCommand> {
-        let artifact_path = self
-            .layout
-            .runtime_output_path(self.opt.target_backend, self.opt.os);
+        let artifact_path = self.layout.runtime_output_path(
+            self.opt.target_backend(),
+            self.opt.use_tcc_run(),
+            self.opt.os,
+        );
 
         let runtime_c_path = self.opt.runtime_dot_c_path.clone();
 
-        let output_ty;
-        let link_moonbitrun;
-        match self.opt.target_backend {
+        let use_tcc_run = self.opt.use_tcc_run();
+        let (output_ty, link_moonbitrun) = match self.opt.target_backend() {
             RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => {
                 panic!("Runtime compilation is not applicable for non-native backends")
             }
-            RunBackend::Native | RunBackend::Llvm => {
-                output_ty = CCOutputType::Object;
-                link_moonbitrun = true;
-            }
-            RunBackend::NativeTccRun => {
-                output_ty = CCOutputType::SharedLib;
-                link_moonbitrun = false;
-            }
+            RunBackend::Native if use_tcc_run => (CCOutputType::SharedLib, false),
+            RunBackend::Native | RunBackend::Llvm => (CCOutputType::Object, true),
         };
 
         let resolved_cc = moonutil::compiler_flags::default_native_toolchain()?
             .cc()
             .clone();
-        let use_tcc_run = matches!(self.opt.target_backend, RunBackend::NativeTccRun);
         let use_simdutf = !use_tcc_run
             && resolved_cc.can_use_simdutf()
             && self.opt.compiler_paths.simdutf_object_paths().is_some();
@@ -198,12 +192,16 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_generate_mbti(&mut self, target: BuildTarget) -> BuildCommand {
-        let input =
-            self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
-        let output =
-            self.layout
-                .generated_mbti_path(self.packages, &target, self.opt.target_backend.into());
+        let input = self.layout.mi_of_build_target(
+            self.packages,
+            &target,
+            self.opt.target_backend().into(),
+        );
+        let output = self.layout.generated_mbti_path(
+            self.packages,
+            &target,
+            self.opt.target_backend().into(),
+        );
 
         let cmd = Mooninfo {
             mi_in: input.into(),

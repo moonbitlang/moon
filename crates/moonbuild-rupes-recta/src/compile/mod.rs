@@ -20,17 +20,13 @@ use std::{path::PathBuf, str::FromStr};
 
 use indexmap::IndexMap;
 use log::{debug, info};
-use moonutil::{
-    common::RunMode,
-    compiler_flags::{CC, CompilerPaths},
-    cond_expr::OptLevel,
-};
+use moonutil::{common::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel};
 use tracing::{Level, instrument};
 
 use crate::{
     build_lower::{self, WarningCondition},
     build_plan::{self, BuildEnvironment, InputDirective},
-    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend},
+    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend, TccRunConfig},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -41,8 +37,10 @@ use crate::{
 pub struct CompileConfig {
     /// Target directory, i.e. `_build/`
     pub target_dir: PathBuf,
-    /// The backend to use for the compilation.
+    /// The backend selected for this build.
     pub target_backend: RunBackend,
+    /// Configuration for `tcc -run`, if the native build selected it.
+    pub tcc_run: Option<TccRunConfig>,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
     /// The action done in this operation, currently only used in legacy directory layout
@@ -74,8 +72,6 @@ pub struct CompileConfig {
     pub warn_list: Option<String>,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
-    /// Resolved internal TCC toolchain when this invocation uses `tcc -run`.
-    pub internal_tcc: Option<CC>,
 }
 
 /// The output information of the compilation.
@@ -124,6 +120,7 @@ pub fn compile(
 
     let build_env = BuildEnvironment {
         target_backend: cx.target_backend,
+        tcc_run: cx.tcc_run.clone(),
         opt_level: cx.opt_level,
         action: cx.action,
         std: cx.stdlib_path.is_some(),
@@ -149,6 +146,7 @@ pub fn compile(
         },
         target_dir_root: cx.target_dir.clone(),
         target_backend: cx.target_backend,
+        tcc_run: cx.tcc_run.clone(),
         opt_level: cx.opt_level,
         action: cx.action,
 
@@ -163,7 +161,6 @@ pub fn compile(
 
         stdlib_path: cx.stdlib_path.clone(),
         compiler_paths,
-        internal_tcc: cx.internal_tcc.clone(),
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
         runtime_dot_c_path,
     };

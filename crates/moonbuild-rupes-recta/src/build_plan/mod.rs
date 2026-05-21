@@ -61,7 +61,7 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend},
+    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TccRunConfig},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
     user_warning::UserWarning,
@@ -326,6 +326,7 @@ pub struct BuildBundleInfo {
 pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
     pub target_backend: RunBackend,
+    pub tcc_run: Option<TccRunConfig>,
     pub opt_level: OptLevel,
     pub action: RunMode,
     /// Whether compiling requires the standard library.
