@@ -194,6 +194,8 @@ Examples:
 - GCC-like drivers use flags such as `-o`, `-c`, `-shared`, `-L`, and `-Wl,...`
 - `clang` is usually invoked with GCC-like syntax, but a Clang target ending in `msvc` should not
   automatically receive GNU assumptions such as `-lm`
+- TCC on macOS may need an explicit active SDK library path because its built-in SDK search paths
+  can point at the standalone Command Line Tools SDK instead of the selected Xcode SDK.
 
 This is why Moon records both:
 
@@ -207,6 +209,10 @@ The `-lm` behavior belongs to this semantic layer, not just to executable lookup
 ### Compile
 
 `make_cc_command*` uses `cc_path` for compile steps (`-c` or `/c`) and backend-specific flags.
+For TCC on macOS, Moon also passes the active SDK `usr/lib` path reported by
+`xcrun --sdk macosx --show-sdk-path` when it resolves to an existing directory.
+If `xcrun` is missing or returns an unusable path, Moon omits the extra `-L` flag instead of
+failing command construction.
 
 ### Link
 

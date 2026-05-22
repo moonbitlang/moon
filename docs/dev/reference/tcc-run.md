@@ -60,6 +60,11 @@ The executable runners only see "call `tcc` with `@<response-file>`",
 which avoids leaking flags/paths out of the pipeline
 and keeps the runners loosely coupled to the build system.
 
+On macOS the response file includes the active SDK `usr/lib` search path when `xcrun` resolves it
+to an existing directory, so bundled TCC can find system libraries even when the standalone Command
+Line Tools SDK is not installed. If the SDK path cannot be resolved, Moon leaves the response file
+unchanged and lets the later TCC invocation report any missing library normally.
+
 ## Execution at runtime
 
 When `moon` later executes the target,

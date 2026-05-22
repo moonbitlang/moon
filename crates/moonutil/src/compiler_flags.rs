@@ -778,6 +778,7 @@ fn add_linker_library_paths<P: AsRef<Path>>(
     lpath: &str,
 ) {
     if cc.is_tcc() {
+        add_tcc_macos_sdk_library_path(buf);
         buf.push(format!("-L{lpath}"));
     }
     if cc.is_gcc_like()
@@ -965,11 +966,46 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
     }
 }
 
+#[cfg(target_os = "macos")]
+fn resolve_macos_sdk_lib_path() -> Option<PathBuf> {
+    let output = Command::new("xcrun")
+        .args(["--sdk", "macosx", "--show-sdk-path"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let sdk_root = String::from_utf8_lossy(&output.stdout);
+    let sdk_root = sdk_root.lines().next()?.trim();
+    if sdk_root.is_empty() {
+        return None;
+    }
+
+    let sdk_lib_path = Path::new(sdk_root).join("usr").join("lib");
+    sdk_lib_path.is_dir().then_some(sdk_lib_path)
+}
+
+#[cfg(target_os = "macos")]
+static MACOS_SDK_LIB_PATH: std::sync::LazyLock<Option<PathBuf>> =
+    std::sync::LazyLock::new(resolve_macos_sdk_lib_path);
+
+#[cfg(target_os = "macos")]
+fn add_tcc_macos_sdk_library_path(buf: &mut Vec<String>) {
+    if let Some(sdk_lib_path) = MACOS_SDK_LIB_PATH.as_ref() {
+        buf.push(format!("-L{}", sdk_lib_path.display()));
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn add_tcc_macos_sdk_library_path(_buf: &mut Vec<String>) {}
+
 fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpath: &str) {
     if cc.is_msvc() {
         buf.push(format!("/I{ipath}"));
     } else if cc.is_tcc() {
         buf.push(format!("-I{ipath}"));
+        add_tcc_macos_sdk_library_path(buf);
         buf.push(format!("-L{lpath}"));
     } else if cc.is_gcc_like() {
         buf.push(format!("-I{ipath}"));
@@ -1339,6 +1375,49 @@ mod tests {
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
         }
+    }
+
+    #[test]
+    fn tcc_compile_driver_keeps_configured_toolchain_lib_path() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "custom-lib".to_string(),
+        };
+        let mut config = executable_cc_config();
+        config.no_sys_header = true;
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Tcc, None),
+            config,
+            &[] as &[&str],
+            &[] as &[&str],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|flag| flag == "-Lcustom-lib"));
+    }
+
+    #[test]
+    fn tcc_linker_keeps_configured_toolchain_lib_path() {
+        let command = make_linker_command_resolved(
+            fake_cc(CCKind::Tcc, None),
+            LinkerConfig::<&Path> {
+                link_moonbitrun: false,
+                link_libbacktrace: false,
+                output_ty: OutputType::Executable,
+                link_shared_runtime: None,
+            },
+            &[] as &[&str],
+            &["main.o"],
+            "build/main",
+            "build/main/main",
+            "custom-lib",
+        );
+
+        assert!(command.iter().any(|flag| flag == "-Lcustom-lib"));
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]

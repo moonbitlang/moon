@@ -1,4 +1,5 @@
 -I$MOON_HOME/include
+...
 -L$MOON_HOME/lib
 -g
 -DMOONBIT_NATIVE_NO_SYS_HEADER
