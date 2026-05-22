@@ -405,6 +405,11 @@ pub(crate) fn get_warning_entries_by_mnemonic(mnemonic: &str) -> Vec<&'static Wa
 }
 
 #[cfg(test)]
+pub(crate) fn warning_entries() -> &'static [WarningEntry] {
+    WARNING_ENTRIES
+}
+
+#[cfg(test)]
 mod tests {
     use std::process::Command;
 
