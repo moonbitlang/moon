@@ -9,12 +9,12 @@ trait MoonBit_Async_Test_Driver {
 }
 
 ///|
-impl MoonBit_Async_Test_Driver with run_async_tests(_) {
+impl MoonBit_Async_Test_Driver with fn run_async_tests(_) {
   ()
 }
 
 ///|
-impl MoonBit_Async_Test_Driver with is_being_cancelled() {
+impl MoonBit_Async_Test_Driver with fn is_being_cancelled() {
   false
 }
 
@@ -31,7 +31,7 @@ trait MoonBit_Test_Driver {
 }
 
 ///|
-impl MoonBit_Test_Driver with run_test(_, _, _, _, _) {
+impl MoonBit_Test_Driver with fn run_test(_, _, _, _, _) {
   false
 }
 

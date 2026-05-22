@@ -7,7 +7,7 @@ let moonbit_test_driver_internal_async_tests_with_args : MoonBitTestDriverIntern
 ] = {} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args
 
 ///|
-impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_With_Args with run_test(
+impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_With_Args with fn run_test(
   async_tests,
   filename,
   index,

@@ -3,7 +3,7 @@
 
 ///|
 #cfg(not(any(target="wasm", target="wasm-gc")))
-impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl with run_async_tests(
+impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl with fn run_async_tests(
   tests,
 ) {
   let moonbit_test_driver_internal_max_concurrent_tests : Int = 0 // REPLACE ME: moonbit_test_driver_internal_max_concurrent_tests
@@ -26,6 +26,6 @@ impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl with run_async
 
 ///|
 #cfg(not(any(target="wasm", target="wasm-gc")))
-impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl with is_being_cancelled() {
+impl MoonBit_Async_Test_Driver for MoonBit_Async_Test_Driver_Impl with fn is_being_cancelled() {
   @moonbitlang/async.is_being_cancelled()
 }

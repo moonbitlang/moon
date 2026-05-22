@@ -52,7 +52,7 @@ use moonutil::{
         BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
         WHITEBOX_TEST_PATCH,
     },
-    compiler_flags::{CC, NativeToolchainSelection},
+    compiler_flags::{self, CC, NativeToolchainSelection},
     cond_expr::OptLevel as BuildProfile,
     dirs::WorkspaceEnv,
     features::FeatureGate,
@@ -334,19 +334,31 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
-        let internal_tcc =
-            check_tcc_availability(target_backend, resolve_output, input_nodes, output);
-        info!("`tcc -run` availability: {}", internal_tcc.is_some());
-
+        let mut internal_tcc = None;
         let target_backend = match target_backend {
             TargetBackend::Wasm => RunBackend::Wasm,
             TargetBackend::WasmGC => RunBackend::WasmGC,
             TargetBackend::Js => RunBackend::Js,
             TargetBackend::Native => {
-                if self.try_tcc_run
-                    && internal_tcc.is_some()
-                    && self.opt_level == BuildProfile::Debug
-                {
+                let can_try_tcc_run = if !self.try_tcc_run {
+                    info!("Disabling `tcc -run`: not requested");
+                    false
+                } else if self.opt_level != BuildProfile::Debug {
+                    info!("Disabling `tcc -run`: only available for debug builds");
+                    false
+                } else if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
+                    info!("Disabling `tcc -run`: only supported on Linux and macOS");
+                    false
+                } else {
+                    true
+                };
+
+                if can_try_tcc_run {
+                    internal_tcc = check_tcc_run_availability(resolve_output, input_nodes, output);
+                    info!("`tcc -run` availability: {}", internal_tcc.is_some());
+                }
+
+                if internal_tcc.is_some() {
                     RunBackend::NativeTccRun
                 } else {
                     RunBackend::Native
@@ -356,17 +368,15 @@ impl CompilePreConfig {
         };
         info!("Final run backend: {:?}", target_backend);
 
-        let native_toolchain = if target_backend.is_native() {
-            Some(NativeToolchainSelection::system_first())
-        } else {
-            None
+        let native_toolchain = match target_backend {
+            RunBackend::Native | RunBackend::Llvm => Some(NativeToolchainSelection::system_first()),
+            RunBackend::NativeTccRun => Some(NativeToolchainSelection::system_then_internal_tcc()),
+            RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => None,
         };
 
-        let internal_tcc = (target_backend == RunBackend::NativeTccRun).then(|| {
-            internal_tcc
-                .clone()
-                .expect("NativeTccRun should only be selected when internal tcc is available")
-        });
+        if target_backend != RunBackend::NativeTccRun {
+            internal_tcc = None;
+        }
 
         Ok(CompileConfig {
             target_dir: self.target_dir,
@@ -657,35 +667,19 @@ pub fn plan_fmt(
 /// Check if we can actually run `tcc -run`.
 ///
 /// This is for usage in `moon run` and `moon test`. Based on the legacy impl,
-/// only if no packages override their C/C++ toolchain, we can use `tcc -run`.
-fn check_tcc_availability(
-    target_backend: TargetBackend,
+/// only if neither the user nor any package overrides the C/C++ toolchain, we
+/// can use `tcc -run`.
+fn check_tcc_run_availability(
     resolve_output: &ResolveOutput,
     input_nodes: &[BuildPlanNode],
     output: UserDiagnostics,
 ) -> Option<CC> {
-    // Only for native target. Yes, not even LLVM.
-    if target_backend != TargetBackend::Native {
-        info!("Disabling `tcc -run`: Only available for native target backend");
+    if compiler_flags::has_cc_env_override() {
+        info!("Disabling `tcc -run`: MOON_CC is set");
         return None;
     }
 
-    // Check platform availability
-    if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
-        info!("`tcc -run` is only supported on Linux and macOS");
-        return None;
-    }
-
-    // Check if TCC is available
-    let tcc = match CC::internal_tcc() {
-        Ok(t) => t,
-        Err(_) => {
-            output.warn("Cannot find TCC compiler in the system; disabling `tcc -run`");
-            return None;
-        }
-    };
-
-    // Check if any package overrides the C/C++ toolchain
+    // Check if any package overrides the C/C++ toolchain before probing TCC.
     for node in input_nodes {
         if let BuildPlanNode::MakeExecutable(build_target) = node {
             let package = resolve_output.pkg_dirs.get_package(build_target.package);
@@ -717,7 +711,13 @@ fn check_tcc_availability(
         }
     }
 
-    Some(tcc)
+    match CC::internal_tcc() {
+        Ok(tcc) => Some(tcc),
+        Err(_) => {
+            output.warn("Cannot find TCC compiler in the system; disabling `tcc -run`");
+            None
+        }
+    }
 }
 
 /// Generate metadata file `packages.json` in the target directory.

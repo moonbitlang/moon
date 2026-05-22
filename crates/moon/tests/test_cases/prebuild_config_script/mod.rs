@@ -2,7 +2,7 @@ use std::cell::OnceCell;
 
 use expect_test::expect_file;
 
-use crate::{TestDir, assert_success, get_err_stderr, get_stdout, util};
+use crate::{TestDir, assert_success, get_err_stderr, get_stdout, get_stdout_with_envs, util};
 
 // Notice the two `this-is-added-by-config-script`
 #[test]
@@ -18,7 +18,12 @@ fn test_prebuild_config_py() {
 }
 
 fn test_prebuild_config_common(dir: TestDir) {
-    let stdout = get_stdout(&dir, ["build", "--target", "native", "--dry-run"]);
+    let cc = if cfg!(windows) { "cl" } else { "cc" };
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["build", "--target", "native", "--dry-run"],
+        [("MOON_CC", cc)],
+    );
     println!("{}", &stdout);
     let lines = stdout.lines().collect::<Vec<_>>();
 
@@ -37,7 +42,8 @@ fn test_prebuild_config_common(dir: TestDir) {
             assert!(line.contains("-l______this_is_added_by_config_script_______"));
             assert!(line.contains("-lmylib"));
             assert!(line.contains("-L/my-search-path"));
-        } else if line.contains("cl.exe") // cl.exe might be quoted
+        } else if (line.contains("cl.exe") // cl.exe might be quoted
+            || line.starts_with("cl "))
             && line.contains("/Fe./_build/native/debug/build/main/main.exe")
             && cfg!(windows)
         {
