@@ -20,6 +20,7 @@ use std::path::PathBuf;
 
 use moonutil::{
     common::TargetBackend,
+    compiler_flags::CC,
     mooncakes::{ModuleId, result::ResolvedEnv},
 };
 
@@ -30,29 +31,41 @@ slotmap::new_key_type! {
     pub struct PackageId;
 }
 
-/// Backend that affect how the build and artifact generation is performed.
+/// User-visible backend selected for the build and run artifact shape.
 ///
-/// Note: This is different from [`TargetBackend`]. That enum is a high-level
-/// abstraction of the user's choice and what kind of output format `moonc`
-/// produces, but this also cares about what toolchains are used, etc.
+/// This mirrors [`TargetBackend`] and intentionally does not encode native C
+/// compiler or execution-tool choices.
 #[derive(Clone, Debug, Copy, PartialEq)]
 pub enum RunBackend {
     WasmGC,
     Wasm,
     Js,
     Native,
-    /// Like `Native`, but uses `tcc -run` to execute the program directly. Does
-    /// not produce a standalone binary artifact.
-    NativeTccRun,
     Llvm,
+}
+
+/// Configuration for the optional native `tcc -run` path.
+///
+/// Normal native execution, LLVM execution, and all non-native backends do not
+/// carry this value.
+#[derive(Clone, Debug)]
+pub struct TccRunConfig {
+    internal_tcc: CC,
+}
+
+impl TccRunConfig {
+    pub fn new(internal_tcc: CC) -> Self {
+        Self { internal_tcc }
+    }
+
+    pub fn internal_tcc(&self) -> &CC {
+        &self.internal_tcc
+    }
 }
 
 impl RunBackend {
     pub fn is_native(self) -> bool {
-        matches!(
-            self,
-            RunBackend::Native | RunBackend::NativeTccRun | RunBackend::Llvm
-        )
+        matches!(self, RunBackend::Native | RunBackend::Llvm)
     }
 
     pub fn to_target(self) -> TargetBackend {
@@ -67,7 +80,6 @@ impl From<RunBackend> for TargetBackend {
             RunBackend::Wasm => TargetBackend::Wasm,
             RunBackend::Js => TargetBackend::Js,
             RunBackend::Native => TargetBackend::Native,
-            RunBackend::NativeTccRun => TargetBackend::Native,
             RunBackend::Llvm => TargetBackend::LLVM,
         }
     }
@@ -181,10 +193,14 @@ pub enum BuildPlanNode {
     /// Link the `.core` file into an executable or library for the given target.
     LinkCore(BuildTarget),
 
-    /// If the output from `LinkCore` is not yet executable, make it executable.
+    /// The final runnable artifact for a target.
     ///
-    /// This is mainly for native targets, where the build output is a C file
-    /// that needs further compilation and linking to become an executable.
+    /// For wasm and js, `LinkCore` already emits the final `.wasm`, `.wat`, or
+    /// `.js` artifact, so this node is retained as the final artifact node but
+    /// lowers to no command.
+    ///
+    /// For native targets, the output from `LinkCore` is a C file or object
+    /// file that needs further compilation and linking to become an executable.
     ///
     /// In TCC mode, since linking is done at the same time as running, this
     /// step writes a response file containing the linking flags for TCC to use.

@@ -42,7 +42,7 @@ use moonbuild_rupes_recta::{
     build_plan::InputDirective,
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
-    model::{Artifacts, BuildPlanNode, PackageId, RunBackend, TargetKind},
+    model::{Artifacts, BuildPlanNode, PackageId, RunBackend, TargetKind, TccRunConfig},
     prebuild::run_prebuild_config,
     user_warning::UserWarning,
 };
@@ -52,7 +52,7 @@ use moonutil::{
         BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
         WHITEBOX_TEST_PATCH,
     },
-    compiler_flags::{self, CC, NativeToolchainSelection},
+    compiler_flags::{self, CC},
     cond_expr::OptLevel as BuildProfile,
     dirs::WorkspaceEnv,
     features::FeatureGate,
@@ -230,6 +230,8 @@ pub struct BuildMeta {
 
     /// The target backend used in this compile process
     pub target_backend: RunBackend,
+    /// Configuration for `tcc -run`, if this compile process selected it.
+    pub tcc_run: Option<TccRunConfig>,
 
     /// The main optimization level used in this compile process
     pub opt_level: BuildProfile,
@@ -334,53 +336,26 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
-        let mut internal_tcc = None;
-        let target_backend = match target_backend {
-            TargetBackend::Wasm => RunBackend::Wasm,
-            TargetBackend::WasmGC => RunBackend::WasmGC,
-            TargetBackend::Js => RunBackend::Js,
-            TargetBackend::Native => {
-                let can_try_tcc_run = if !self.try_tcc_run {
-                    info!("Disabling `tcc -run`: not requested");
-                    false
-                } else if self.opt_level != BuildProfile::Debug {
-                    info!("Disabling `tcc -run`: only available for debug builds");
-                    false
-                } else if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
-                    info!("Disabling `tcc -run`: only supported on Linux and macOS");
-                    false
-                } else {
-                    true
-                };
-
-                if can_try_tcc_run {
-                    internal_tcc = check_tcc_run_availability(resolve_output, input_nodes, output);
-                    info!("`tcc -run` availability: {}", internal_tcc.is_some());
-                }
-
-                if internal_tcc.is_some() {
-                    RunBackend::NativeTccRun
-                } else {
-                    RunBackend::Native
-                }
-            }
-            TargetBackend::LLVM => RunBackend::Llvm,
+        let (run_backend, tcc_run) = match target_backend {
+            TargetBackend::Wasm => (RunBackend::Wasm, None),
+            TargetBackend::WasmGC => (RunBackend::WasmGC, None),
+            TargetBackend::Js => (RunBackend::Js, None),
+            TargetBackend::Native => (
+                RunBackend::Native,
+                self.select_tcc_run_config(resolve_output, input_nodes, output),
+            ),
+            TargetBackend::LLVM => (RunBackend::Llvm, None),
         };
-        info!("Final run backend: {:?}", target_backend);
-
-        let native_toolchain = match target_backend {
-            RunBackend::Native | RunBackend::Llvm => Some(NativeToolchainSelection::system_first()),
-            RunBackend::NativeTccRun => Some(NativeToolchainSelection::system_then_internal_tcc()),
-            RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => None,
-        };
-
-        if target_backend != RunBackend::NativeTccRun {
-            internal_tcc = None;
-        }
+        info!(
+            "Final run backend: {:?}, tcc-run enabled: {}",
+            run_backend,
+            tcc_run.is_some()
+        );
 
         Ok(CompileConfig {
             target_dir: self.target_dir,
-            target_backend,
+            target_backend: run_backend,
+            tcc_run,
             opt_level: self.opt_level,
             action: self.action,
             debug_symbols: self.debug_symbols,
@@ -398,9 +373,36 @@ impl CompilePreConfig {
             warning_condition: self.warning_condition,
             warn_list: self.warn_list,
             info_no_alias: self.info_no_alias,
-            internal_tcc,
-            native_toolchain,
         })
+    }
+
+    fn select_tcc_run_config(
+        &self,
+        resolve_output: &ResolveOutput,
+        input_nodes: &[BuildPlanNode],
+        output: UserDiagnostics,
+    ) -> Option<TccRunConfig> {
+        if !self.try_tcc_run {
+            info!("Disabling `tcc -run`: not requested");
+            return None;
+        }
+        if self.opt_level != BuildProfile::Debug {
+            info!("Disabling `tcc -run`: only available for debug builds");
+            return None;
+        }
+        if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
+            info!("Disabling `tcc -run`: only supported on Linux and macOS");
+            return None;
+        }
+
+        let Some(internal_tcc) = check_tcc_run_availability(resolve_output, input_nodes, output)
+        else {
+            info!("`tcc -run` availability: false");
+            return None;
+        };
+
+        info!("`tcc -run` availability: true");
+        Some(TccRunConfig::new(internal_tcc))
     }
 }
 
@@ -614,6 +616,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         resolve_output,
         artifacts: compile_output.artifacts,
         target_backend: cx.target_backend,
+        tcc_run: cx.tcc_run.clone(),
         opt_level: cx.opt_level,
     };
 

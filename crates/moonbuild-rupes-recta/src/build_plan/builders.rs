@@ -44,7 +44,7 @@ use crate::{
     build_plan::{BuildBundleInfo, FileDependencyKind, PrebuildInfo},
     cond_comp::{self, CompileCondition},
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TargetKind},
+    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
     pkg_name::PackageFQNWithSource,
     user_warning::UserWarning,
 };
@@ -60,10 +60,14 @@ const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
 
 impl<'a> BuildPlanConstructor<'a> {
     fn effective_native_toolchain(&self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-        self.build_env
-            .native_toolchain
-            .ok_or_else(|| anyhow::anyhow!("native C toolchain is not selected for this build"))?
-            .resolve_with_package_override(package_cc)
+        debug_assert!(self.build_env.target_backend.is_native());
+        moonutil::compiler_flags::effective_native_toolchain(
+            package_cc,
+            self.build_env
+                .tcc_run
+                .as_ref()
+                .map(|config| config.internal_tcc()),
+        )
     }
 
     fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
@@ -694,7 +698,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         // If we're tcc run, also depend on the runtime library
-        if self.build_env.target_backend == RunBackend::NativeTccRun {
+        if self.build_env.tcc_run.is_some() {
             let make_exec_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
             self.add_edge(node, make_exec_node);
         }

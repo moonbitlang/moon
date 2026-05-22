@@ -52,7 +52,7 @@ use std::{
 use log::{debug, info};
 use moonutil::{
     common::{RunMode, TargetBackend},
-    compiler_flags::{NativeToolchainSelection, Toolchain},
+    compiler_flags::Toolchain,
     cond_expr::OptLevel,
     mooncakes::ModuleId,
 };
@@ -61,7 +61,7 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend},
+    model::{BuildPlanNode, BuildTarget, PackageId, RunBackend, TccRunConfig},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
     user_warning::UserWarning,
@@ -326,6 +326,7 @@ pub struct BuildBundleInfo {
 pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
     pub target_backend: RunBackend,
+    pub tcc_run: Option<TccRunConfig>,
     pub opt_level: OptLevel,
     pub action: RunMode,
     /// Whether compiling requires the standard library.
@@ -334,8 +335,6 @@ pub struct BuildEnvironment {
     pub std: bool,
     /// Commandline_level warnings to enable/disable
     pub warn_list: Option<String>,
-    /// Native toolchain selection policy, only when the backend needs one.
-    pub native_toolchain: Option<NativeToolchainSelection>,
 }
 
 /// Directives provided along the input actions.

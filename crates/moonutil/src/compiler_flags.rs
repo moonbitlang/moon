@@ -70,54 +70,6 @@ pub struct Toolchain {
     source: ToolchainSource,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NativeToolchainSelection {
-    internal_tcc_fallback: bool,
-}
-
-impl NativeToolchainSelection {
-    pub fn system_first() -> Self {
-        Self {
-            internal_tcc_fallback: false,
-        }
-    }
-
-    pub fn system_then_internal_tcc() -> Self {
-        Self {
-            internal_tcc_fallback: true,
-        }
-    }
-
-    pub fn resolve_default(self) -> anyhow::Result<Toolchain> {
-        match try_default_cc() {
-            Ok(cc) => Ok(Toolchain::from_cc(cc)),
-            Err(system_err) if self.internal_tcc_fallback => try_internal_tcc()
-                .with_context(|| {
-                    format!(
-                        "failed to resolve fallback internal tcc after system C compiler detection failed: {system_err:#}"
-                    )
-                })
-                .map(Toolchain::from_cc),
-            Err(err) => Err(err),
-        }
-    }
-
-    pub fn resolve_with_package_override(
-        self,
-        package_cc: Option<&CC>,
-    ) -> anyhow::Result<Toolchain> {
-        if let Some(env_cc) = ENV_CC.as_ref() {
-            return Ok(
-                Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc)
-            );
-        }
-        if let Some(package_cc) = package_cc {
-            return Ok(Toolchain::from_package_override(package_cc.clone()));
-        }
-        self.resolve_default()
-    }
-}
-
 impl Toolchain {
     pub fn from_env_override(cc: CC) -> Self {
         Self {
@@ -579,11 +531,30 @@ pub fn has_cc_env_override() -> bool {
     env::var_os(ENV_MOON_CC).is_some()
 }
 
-pub fn try_default_cc() -> anyhow::Result<CC> {
+pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::Result<Toolchain> {
     if let Some(env_cc) = ENV_CC.as_ref() {
-        return Ok(env_cc.clone());
+        return Ok(Toolchain::from_env_override(env_cc.clone()));
     }
-    try_system_cc()
+    match try_system_cc() {
+        Ok(cc) => Ok(Toolchain::from_path_probe(cc)),
+        Err(err) => match internal_tcc_fallback {
+            Some(internal_tcc) => Ok(Toolchain::from_path_probe(internal_tcc.clone())),
+            None => Err(err),
+        },
+    }
+}
+
+pub fn effective_native_toolchain(
+    package_cc: Option<&CC>,
+    internal_tcc_fallback: Option<&CC>,
+) -> anyhow::Result<Toolchain> {
+    if let Some(env_cc) = ENV_CC.as_ref() {
+        return Ok(Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc));
+    }
+    if let Some(package_cc) = package_cc {
+        return Ok(Toolchain::from_package_override(package_cc.clone()));
+    }
+    default_native_toolchain(internal_tcc_fallback)
 }
 
 #[derive(Clone, Copy, PartialEq)]

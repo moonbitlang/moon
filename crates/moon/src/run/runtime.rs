@@ -21,8 +21,7 @@
 use std::path::Path;
 
 use moonbuild::entry::TestArgs;
-use moonbuild_rupes_recta::model::RunBackend;
-use moonutil::compiler_flags::CC;
+use moonbuild_rupes_recta::model::{RunBackend, TccRunConfig};
 use tokio::process::Command;
 
 /// Returns a command to run the given MoonBit executable of a specific
@@ -39,14 +38,16 @@ use tokio::process::Command;
 ///
 /// ### Note
 ///
-/// Currently there's no support for using `tcc` to execute the target program.
 pub(crate) fn command_for(
     backend: RunBackend,
+    tcc_run: Option<&TccRunConfig>,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
 ) -> Command {
-    match backend {
-        RunBackend::Wasm | RunBackend::WasmGC => {
+    debug_assert!(tcc_run.is_none() || backend == RunBackend::Native);
+
+    match (backend, tcc_run) {
+        (RunBackend::Wasm | RunBackend::WasmGC, _) => {
             let mut cmd = Command::new(&*moonutil::BINARIES.moonrun);
             if let Some(t) = test {
                 cmd.arg("--test-args");
@@ -56,7 +57,7 @@ pub(crate) fn command_for(
             cmd.arg("--");
             cmd
         }
-        RunBackend::Js => {
+        (RunBackend::Js, _) => {
             if test.is_some() {
                 // Also write package.json to the directory of the .js file being required
                 // to prevent node from finding the user's package.json with "type": "module"
@@ -73,17 +74,17 @@ pub(crate) fn command_for(
             }
             cmd
         }
-        RunBackend::Native | RunBackend::Llvm => {
-            let mut cmd = Command::new(mbt_executable);
+        (RunBackend::Native, Some(tcc_run)) => {
+            let tcc = tcc_run.internal_tcc();
+            let mut cmd = Command::new(tcc.cc_path());
+            cmd.arg(format!("@{}", mbt_executable.display()));
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }
             cmd
         }
-        RunBackend::NativeTccRun => {
-            let tcc = CC::internal_tcc().expect("TCC must be available for TCC run backend");
-            let mut cmd = Command::new(tcc.cc_path());
-            cmd.arg(format!("@{}", mbt_executable.display()));
+        (RunBackend::Native | RunBackend::Llvm, _) => {
+            let mut cmd = Command::new(mbt_executable);
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }

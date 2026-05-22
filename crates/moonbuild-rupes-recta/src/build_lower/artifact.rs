@@ -44,6 +44,56 @@ const MI_EXTENSION: &str = ".mi";
 /// Implementation package will generate a dummy mi file so that it
 /// won't be rebuilt every time
 const IMPL_MI_EXTENSION: &str = ".impl.mi";
+
+#[derive(Clone, Copy, Debug)]
+pub enum ExecutableArtifact {
+    Wasm {
+        use_wat: bool,
+    },
+    WasmGC {
+        use_wat: bool,
+    },
+    Js,
+    NativeExecutable {
+        os: OperatingSystem,
+        legacy_behavior: bool,
+    },
+    TccRunResponseFile,
+    LlvmExecutable {
+        os: OperatingSystem,
+        legacy_behavior: bool,
+    },
+}
+
+impl ExecutableArtifact {
+    fn target_backend(self) -> TargetBackend {
+        match self {
+            Self::Wasm { .. } => TargetBackend::Wasm,
+            Self::WasmGC { .. } => TargetBackend::WasmGC,
+            Self::Js => TargetBackend::Js,
+            Self::NativeExecutable { .. } | Self::TccRunResponseFile => TargetBackend::Native,
+            Self::LlvmExecutable { .. } => TargetBackend::LLVM,
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Wasm { use_wat } | Self::WasmGC { use_wat } if use_wat => ".wat",
+            Self::Wasm { .. } | Self::WasmGC { .. } => ".wasm",
+            Self::Js => ".js",
+            Self::NativeExecutable {
+                os,
+                legacy_behavior,
+            }
+            | Self::LlvmExecutable {
+                os,
+                legacy_behavior,
+            } => executable_ext(os, legacy_behavior),
+            Self::TccRunResponseFile => ".rspfile",
+        }
+    }
+}
+
 /// Target folder layout that matches the legacy (pre-beta) behavior
 #[derive(Builder)]
 pub struct LegacyLayout {
@@ -316,17 +366,14 @@ impl LegacyLayout {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: RunBackend,
-        os: OperatingSystem,
-        legacy_behavior: bool,
-        wasm_use_wat: bool,
+        executable: ExecutableArtifact,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
-        let mut base_dir = self.package_dir(pkg_fqn, backend.into());
+        let mut base_dir = self.package_dir(pkg_fqn, executable.target_backend());
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            make_executable_artifact_ext(backend, os, legacy_behavior, wasm_use_wat),
+            executable.extension(),
         ));
         base_dir
     }
@@ -368,18 +415,23 @@ impl LegacyLayout {
         result
     }
 
-    pub fn runtime_output_path(&self, backend: RunBackend, os: OperatingSystem) -> PathBuf {
+    pub fn runtime_output_path(
+        &self,
+        backend: RunBackend,
+        use_tcc_run: bool,
+        os: OperatingSystem,
+    ) -> PathBuf {
         let mut result = self.target_base_dir.clone();
         self.push_opt_and_run_mode(backend.into(), &mut result);
         match backend {
             RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
                 panic!("Runtime output path is not applicable for non-native backends")
             }
+            RunBackend::Native if use_tcc_run => {
+                result.push(format!("libruntime{}", dynamic_library_ext(os)))
+            }
             RunBackend::Native | RunBackend::Llvm => {
                 result.push(format!("runtime{}", object_file_ext(os)))
-            }
-            RunBackend::NativeTccRun => {
-                result.push(format!("libruntime{}", dynamic_library_ext(os)))
             }
         }
         result
@@ -596,22 +648,6 @@ fn linked_core_artifact_ext(
         TargetBackend::Js => ".js",
         TargetBackend::Native => ".c",
         TargetBackend::LLVM => object_file_ext(os),
-    }
-}
-
-fn make_executable_artifact_ext(
-    backend: RunBackend,
-    os: OperatingSystem,
-    legacy_behavior: bool,
-    wasm_use_wat: bool,
-) -> &'static str {
-    match backend {
-        RunBackend::Wasm | RunBackend::WasmGC if wasm_use_wat => ".wat",
-        RunBackend::Wasm | RunBackend::WasmGC => ".wasm",
-        RunBackend::Js => ".js",
-        RunBackend::Native | RunBackend::Llvm => executable_ext(os, legacy_behavior),
-        // NB: TCC run relies on C artifacts and a response file to run the program
-        RunBackend::NativeTccRun => ".rspfile",
     }
 }
 
