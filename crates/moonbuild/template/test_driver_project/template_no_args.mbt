@@ -6,7 +6,7 @@ let moonbit_test_driver_internal_no_args_tests : MoonBitTestDriverInternalTestMa
 ] = {} // REPLACE ME: moonbit_test_driver_internal_no_args_tests
 
 ///|
-impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_No_Args with run_test(
+impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_No_Args with fn run_test(
   _,
   filename,
   index,
