@@ -56,7 +56,7 @@ This document contains the help content for the `moon` command-line program.
 * `clean` — Remove the _build directory
 * `fmt` — Format source code
 * `doc` — Generate documentation or searching documentation for a symbol
-* `explain` — Explain diagnostics from the compiler
+* `explain` — Explain compiler diagnostics and language topics
 * `info` — Generate public interface (`.mbti`) files for all packages in the module or workspace
 * `bench` — Run benchmarks in the current package
 * `add` — Add a dependency
@@ -357,19 +357,21 @@ Generate documentation or searching documentation for a symbol
 
 ## `moon explain`
 
-Explain diagnostics from the compiler
+Explain compiler diagnostics and language topics
 
-**Usage:** `moon explain [OPTIONS]`
+**Usage:** `moon explain <--diagnostic [<ID_OR_NAME>]|--attribute [<NAME>]>`
 
 Resources:
     Docs: https://docs.moonbitlang.com
     Skills: https://github.com/moonbitlang/skills
 
-    Use `moon explain --diagnostics` to list warning mnemonics and IDs.
+    Use `moon explain --diagnostic` to list diagnostic codes and names.
+    Use `moon explain --attribute` to list attributes.
 
 ###### **Options:**
 
-* `--diagnostics <ID_OR_MNEMONIC>` — Explain diagnostics. Without a query, list warning mnemonics and IDs from `moonc`
+* `--diagnostic <ID_OR_NAME>` — Explain diagnostics. Without a query, list diagnostic codes and names
+* `--attribute <NAME>` — Explain attributes. Without a query, list attribute names
 
 
 

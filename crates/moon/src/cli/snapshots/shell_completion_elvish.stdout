@@ -45,7 +45,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand clean 'Remove the _build directory'
             cand fmt 'Format source code'
             cand doc 'Generate documentation or searching documentation for a symbol'
-            cand explain 'Explain diagnostics from the compiler'
+            cand explain 'Explain compiler diagnostics and language topics'
             cand info 'Generate public interface (`.mbti`) files for all packages in the module or workspace'
             cand bench 'Run benchmarks in the current package'
             cand add 'Add a dependency'
@@ -390,7 +390,8 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --help 'Print help'
         }
         &'moon;explain'= {
-            cand --diagnostics 'Explain diagnostics. Without a query, list warning mnemonics and IDs from `moonc`'
+            cand --diagnostic 'Explain diagnostics. Without a query, list diagnostic codes and names'
+            cand --attribute 'Explain attributes. Without a query, list attribute names'
             cand --manifest-path 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand -q 'Suppress output'
@@ -1026,7 +1027,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand clean 'Remove the _build directory'
             cand fmt 'Format source code'
             cand doc 'Generate documentation or searching documentation for a symbol'
-            cand explain 'Explain diagnostics from the compiler'
+            cand explain 'Explain compiler diagnostics and language topics'
             cand info 'Generate public interface (`.mbti`) files for all packages in the module or workspace'
             cand bench 'Run benchmarks in the current package'
             cand add 'Add a dependency'

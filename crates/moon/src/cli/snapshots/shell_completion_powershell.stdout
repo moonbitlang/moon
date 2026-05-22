@@ -48,7 +48,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the _build directory')
             [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
             [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Generate documentation or searching documentation for a symbol')
-            [CompletionResult]::new('explain', 'explain', [CompletionResultType]::ParameterValue, 'Explain diagnostics from the compiler')
+            [CompletionResult]::new('explain', 'explain', [CompletionResultType]::ParameterValue, 'Explain compiler diagnostics and language topics')
             [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Generate public interface (`.mbti`) files for all packages in the module or workspace')
             [CompletionResult]::new('bench', 'bench', [CompletionResultType]::ParameterValue, 'Run benchmarks in the current package')
             [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add a dependency')
@@ -405,7 +405,8 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;explain' {
-            [CompletionResult]::new('--diagnostics', 'diagnostics', [CompletionResultType]::ParameterName, 'Explain diagnostics. Without a query, list warning mnemonics and IDs from `moonc`')
+            [CompletionResult]::new('--diagnostic', 'diagnostic', [CompletionResultType]::ParameterName, 'Explain diagnostics. Without a query, list diagnostic codes and names')
+            [CompletionResult]::new('--attribute', 'attribute', [CompletionResultType]::ParameterName, 'Explain attributes. Without a query, list attribute names')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
@@ -1100,7 +1101,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the _build directory')
             [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
             [CompletionResult]::new('doc', 'doc', [CompletionResultType]::ParameterValue, 'Generate documentation or searching documentation for a symbol')
-            [CompletionResult]::new('explain', 'explain', [CompletionResultType]::ParameterValue, 'Explain diagnostics from the compiler')
+            [CompletionResult]::new('explain', 'explain', [CompletionResultType]::ParameterValue, 'Explain compiler diagnostics and language topics')
             [CompletionResult]::new('info', 'info', [CompletionResultType]::ParameterValue, 'Generate public interface (`.mbti`) files for all packages in the module or workspace')
             [CompletionResult]::new('bench', 'bench', [CompletionResultType]::ParameterValue, 'Run benchmarks in the current package')
             [CompletionResult]::new('add', 'add', [CompletionResultType]::ParameterValue, 'Add a dependency')
