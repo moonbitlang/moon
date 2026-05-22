@@ -1599,8 +1599,12 @@ mod tests {
         );
         assert_eq!(json["executables"][0]["summary"]["profiled_samples"], 1);
         assert_eq!(json["executables"][1]["summary"]["profiled_samples"], 2);
+        let trace_path = json["executables"][0]["artifacts"]["trace"]
+            .as_str()
+            .expect("trace path")
+            .replace('\\', "/");
         assert_eq!(
-            json["executables"][0]["artifacts"]["trace"],
+            trace_path,
             "./_build/native/release/profile/test/ts/main_internal_test/profile.trace"
         );
     }
