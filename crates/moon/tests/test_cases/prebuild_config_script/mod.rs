@@ -60,6 +60,33 @@ fn test_prebuild_config_common(dir: TestDir) {
 }
 
 #[test]
+#[cfg(windows)]
+fn test_prebuild_config_js_with_clang() {
+    let dir = TestDir::new("prebuild_config_script/js");
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["build", "--target", "native", "--dry-run"],
+        [("MOON_CC", "clang")],
+    );
+    println!("{}", &stdout);
+
+    let found_final_link = OnceCell::<()>::new();
+    for line in stdout.lines() {
+        if line.starts_with("clang ")
+            && line.contains(" -o ./_build/native/debug/build/main/main.exe")
+        {
+            found_final_link.set(()).expect("final linking found twice");
+            assert!(line.contains("-l______this_is_added_by_config_script_______"));
+            assert!(line.contains("-lmylib"));
+            assert!(line.contains("-L/my-search-path"));
+            assert!(!line.contains("/LIBPATH:/my-search-path"));
+        }
+    }
+
+    found_final_link.get().expect("final linking not found");
+}
+
+#[test]
 #[cfg(unix)]
 fn test_prebuild_config_tcc_rspfile_snapshot() {
     let dir = TestDir::new("prebuild_config_script/tcc_rspfile");

@@ -61,3 +61,30 @@ fn test_prebuild_link_config_self() {
         assert!(found_test_links >= 1, "test executable linking not found");
     }
 }
+
+#[test]
+#[cfg(windows)]
+fn test_prebuild_link_config_self_with_clang() {
+    let dir = TestDir::new("prebuild_link_config_self/prebuild_link_config_self.in");
+    let build_stdout = get_stdout_with_envs(
+        &dir,
+        ["build", "--target", "native", "--dry-run"],
+        [("MOON_CC", "clang")],
+    );
+    println!("{}", &build_stdout);
+
+    let found_final_link = OnceCell::<()>::new();
+    for line in build_stdout.lines() {
+        if line.starts_with("clang ")
+            && line.contains(" -o ./_build/native/debug/build/main/main.exe")
+        {
+            found_final_link.set(()).expect("final linking found twice");
+            assert!(line.contains("-l__prebuild_self_link_flag__"));
+            assert!(line.contains("-lprebuildselflib"));
+            assert!(line.contains("-L/prebuild-self-path"));
+            assert!(!line.contains("/LIBPATH:/prebuild-self-path"));
+        }
+    }
+
+    found_final_link.get().expect("final linking not found");
+}

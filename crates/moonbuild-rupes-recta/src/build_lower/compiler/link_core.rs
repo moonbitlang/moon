@@ -77,9 +77,9 @@ pub(crate) struct MooncLinkCore<'a> {
 
     /// Extra options passed from user configuration.
     pub extra_link_opts: &'a [String],
-    /// Whether the selected native toolchain targets MSVC.
+    /// LLVM target triple to pass to `moonc link-core`.
     #[cfg(target_os = "windows")]
-    pub native_toolchain_is_msvc: bool,
+    pub llvm_target: Option<&'a str>,
 }
 
 /// WebAssembly-specific linking configuration
@@ -263,12 +263,12 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
             args.push(opt.to_string());
         }
 
-        // Windows-specific LLVM target workaround
-        // FIXME: We should always provide target info for LLVM
         #[cfg(target_os = "windows")]
-        if self.target_backend == TargetBackend::LLVM && self.native_toolchain_is_msvc {
-            args.push("-llvm-target".to_string());
-            args.push("x86_64-pc-windows-msvc".to_string());
+        if self.target_backend == TargetBackend::LLVM {
+            if let Some(llvm_target) = self.llvm_target {
+                args.push("-llvm-target".to_string());
+                args.push(llvm_target.to_string());
+            }
         }
     }
 }
