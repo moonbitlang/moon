@@ -414,6 +414,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.packages,
                     &target,
                     self.opt.target_backend.into(),
+                    self.opt.native_target,
                     self.opt.os,
                     self.opt.output_wat,
                 ));

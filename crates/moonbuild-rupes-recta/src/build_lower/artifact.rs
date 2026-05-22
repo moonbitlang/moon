@@ -33,7 +33,7 @@ use moonutil::{
 
 use crate::{
     discover::DiscoverResult,
-    model::{BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
+    model::{BuildTarget, NativeTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
     pkg_name::PackageFQN,
 };
 
@@ -348,6 +348,7 @@ impl LegacyLayout {
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
         backend: TargetBackend,
+        native_target: Option<NativeTarget>,
         os: OperatingSystem,
         wasm_use_wat: bool,
     ) -> PathBuf {
@@ -356,7 +357,7 @@ impl LegacyLayout {
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            linked_core_artifact_ext(backend, os, wasm_use_wat)
+            linked_core_artifact_ext(backend, native_target, os, wasm_use_wat)
         ));
         base_dir
     }
@@ -639,6 +640,7 @@ fn build_kind_suffix_filename(kind: TargetKind) -> &'static str {
 
 fn linked_core_artifact_ext(
     backend: TargetBackend,
+    native_target: Option<NativeTarget>,
     os: OperatingSystem,
     wasm_use_wat: bool, // TODO: centralize knobs
 ) -> &'static str {
@@ -646,6 +648,7 @@ fn linked_core_artifact_ext(
         TargetBackend::Wasm | TargetBackend::WasmGC if wasm_use_wat => ".wat",
         TargetBackend::Wasm | TargetBackend::WasmGC => ".wasm",
         TargetBackend::Js => ".js",
+        TargetBackend::Native if native_target.is_some() => object_file_ext(os),
         TargetBackend::Native => ".c",
         TargetBackend::LLVM => object_file_ext(os),
     }

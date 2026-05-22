@@ -44,6 +44,39 @@ pub enum RunBackend {
     Llvm,
 }
 
+pub const ENV_MOONBIT_NEW_NATIVE: &str = "MOONBIT_NEW_NATIVE";
+
+/// Concrete native object-code backend selected under the `native` surface target.
+///
+/// `RunBackend::Native` remains the user-visible native backend. This type
+/// only describes the experimental direct object-code lowering used behind it.
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum NativeTarget {
+    Aarch64AppleDarwin,
+}
+
+impl NativeTarget {
+    pub fn from_env_for_host() -> Option<Self> {
+        if std::env::var(ENV_MOONBIT_NEW_NATIVE).as_deref() != Ok("1") {
+            return None;
+        }
+        Self::from_host(std::env::consts::ARCH, std::env::consts::OS)
+    }
+
+    pub fn from_host(arch: &str, os: &str) -> Option<Self> {
+        match (arch, os) {
+            ("aarch64", "macos") => Some(Self::Aarch64AppleDarwin),
+            _ => None,
+        }
+    }
+
+    pub fn moonc_target_flag(self) -> &'static str {
+        match self {
+            Self::Aarch64AppleDarwin => "aarch64-apple-darwin",
+        }
+    }
+}
+
 /// Configuration for the optional native `tcc -run` path.
 ///
 /// Normal native execution, LLVM execution, and all non-native backends do not
@@ -527,5 +560,20 @@ impl std::str::FromStr for OperatingSystem {
             "none" => Ok(OperatingSystem::None),
             _ => Err(format!("Unsupported OS: {}", s)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NativeTarget;
+
+    #[test]
+    fn native_target_selection_is_host_specific() {
+        assert_eq!(
+            NativeTarget::from_host("aarch64", "macos"),
+            Some(NativeTarget::Aarch64AppleDarwin)
+        );
+        assert_eq!(NativeTarget::from_host("x86_64", "macos"), None);
+        assert_eq!(NativeTarget::from_host("aarch64", "linux"), None);
     }
 }

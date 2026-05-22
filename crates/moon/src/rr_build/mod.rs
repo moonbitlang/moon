@@ -42,7 +42,9 @@ use moonbuild_rupes_recta::{
     build_plan::InputDirective,
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
-    model::{Artifacts, BuildPlanNode, PackageId, RunBackend, TargetKind, TccRunConfig},
+    model::{
+        Artifacts, BuildPlanNode, NativeTarget, PackageId, RunBackend, TargetKind, TccRunConfig,
+    },
     prebuild::run_prebuild_config,
     user_warning::UserWarning,
 };
@@ -230,6 +232,8 @@ pub struct BuildMeta {
 
     /// The target backend used in this compile process
     pub target_backend: RunBackend,
+    /// Experimental direct object-code backend selected under native, if any.
+    pub native_target: Option<NativeTarget>,
     /// Configuration for `tcc -run`, if this compile process selected it.
     pub tcc_run: Option<TccRunConfig>,
 
@@ -336,13 +340,24 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
+        let native_target = match target_backend {
+            TargetBackend::Native => NativeTarget::from_env_for_host(),
+            _ => None,
+        };
+        info!("New native target: {:?}", native_target);
+
         let (run_backend, tcc_run) = match target_backend {
             TargetBackend::Wasm => (RunBackend::Wasm, None),
             TargetBackend::WasmGC => (RunBackend::WasmGC, None),
             TargetBackend::Js => (RunBackend::Js, None),
             TargetBackend::Native => (
                 RunBackend::Native,
-                self.select_tcc_run_config(resolve_output, input_nodes, output),
+                if native_target.is_some() {
+                    info!("Disabling `tcc -run`: new native backend selected");
+                    None
+                } else {
+                    self.select_tcc_run_config(resolve_output, input_nodes, output)
+                },
             ),
             TargetBackend::LLVM => (RunBackend::Llvm, None),
         };
@@ -355,6 +370,7 @@ impl CompilePreConfig {
         Ok(CompileConfig {
             target_dir: self.target_dir,
             target_backend: run_backend,
+            native_target,
             tcc_run,
             opt_level: self.opt_level,
             action: self.action,
@@ -616,6 +632,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         resolve_output,
         artifacts: compile_output.artifacts,
         target_backend: cx.target_backend,
+        native_target: cx.native_target,
         tcc_run: cx.tcc_run.clone(),
         opt_level: cx.opt_level,
     };

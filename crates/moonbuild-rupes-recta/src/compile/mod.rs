@@ -26,7 +26,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::{self, WarningCondition},
     build_plan::{self, BuildEnvironment, InputDirective},
-    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend, TccRunConfig},
+    model::{Artifacts, BuildPlanNode, NativeTarget, OperatingSystem, RunBackend, TccRunConfig},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -39,6 +39,8 @@ pub struct CompileConfig {
     pub target_dir: PathBuf,
     /// The backend selected for this build.
     pub target_backend: RunBackend,
+    /// Experimental direct object-code backend selected under native, if any.
+    pub native_target: Option<NativeTarget>,
     /// Configuration for `tcc -run`, if the native build selected it.
     pub tcc_run: Option<TccRunConfig>,
     /// The optimization level to use for the compilation.
@@ -120,6 +122,7 @@ pub fn compile(
 
     let build_env = BuildEnvironment {
         target_backend: cx.target_backend,
+        native_target: cx.native_target,
         tcc_run: cx.tcc_run.clone(),
         opt_level: cx.opt_level,
         action: cx.action,
@@ -146,6 +149,7 @@ pub fn compile(
         },
         target_dir_root: cx.target_dir.clone(),
         target_backend: cx.target_backend,
+        native_target: cx.native_target,
         tcc_run: cx.tcc_run.clone(),
         opt_level: cx.opt_level,
         action: cx.action,
