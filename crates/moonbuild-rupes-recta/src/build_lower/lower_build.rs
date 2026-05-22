@@ -26,7 +26,7 @@ use std::{
 use moonutil::{
     common::RunMode,
     compiler_flags::{
-        ArchiverConfigBuilder, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
+        ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
         OutputType as CCOutputType, make_archiver_command_resolved, make_cc_command_resolved,
         make_cc_command_resolved_with_link_flags, make_linker_command_resolved,
     },
@@ -804,7 +804,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             (false, false) => CCOptLevel::None,
         };
         // `tcc run` uses shared runtime, others use static runtime
-        let use_shared_runtime = matches!(self.opt.target_backend, RunBackend::NativeTccRun);
+        let use_shared_runtime = self.opt.use_tcc_run();
 
         let config = CCConfigBuilder::default()
             .no_sys_header(true)
@@ -868,10 +868,12 @@ impl<'a> BuildPlanLowerContext<'a> {
             RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
                 panic!("C stubs are not supported for non-native backends")
             }
+            RunBackend::Native if self.opt.use_tcc_run() => {
+                self.lower_link_c_stubs(target, info, &object_files)
+            }
             RunBackend::Native | RunBackend::Llvm => {
                 self.lower_archive_c_stubs(target, info, &object_files)
             }
-            RunBackend::NativeTccRun => self.lower_link_c_stubs(target, info, &object_files),
         }
     }
 
@@ -932,9 +934,11 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
         // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
-        let runtime_dylib = self
-            .layout
-            .runtime_output_path(self.opt.target_backend, self.opt.os);
+        let runtime_dylib = self.layout.runtime_output_path(
+            self.opt.target_backend,
+            self.opt.use_tcc_run(),
+            self.opt.os,
+        );
         let runtime_parent = runtime_dylib
             .parent()
             .expect("runtime dylib should have a parent directory");
@@ -986,8 +990,15 @@ impl<'a> BuildPlanLowerContext<'a> {
                     "Non-native make-executable should be already matched and should not be here"
                 )
             }
-            RunBackend::Native | RunBackend::Llvm => self.lower_build_exe_regular(target, info),
-            RunBackend::NativeTccRun => self.build_tcc_run_driver_command(target, info),
+            RunBackend::Native => {
+                if let Some(tcc_run) = &self.opt.tcc_run {
+                    let internal_tcc = tcc_run.internal_tcc().clone();
+                    self.build_tcc_run_driver_command(target, info, internal_tcc)
+                } else {
+                    self.lower_build_exe_regular(target, info)
+                }
+            }
+            RunBackend::Llvm => self.lower_build_exe_regular(target, info),
         }
     }
 
@@ -1043,14 +1054,7 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let dest = self
             .layout
-            .executable_of_build_target(
-                self.packages,
-                &target,
-                self.opt.target_backend,
-                self.opt.os,
-                true,
-                self.opt.output_wat,
-            )
+            .executable_of_build_target(self.packages, &target, self.opt.executable_artifact(true))
             .display()
             .to_string();
 
@@ -1104,13 +1108,8 @@ impl<'a> BuildPlanLowerContext<'a> {
         &self,
         target: BuildTarget,
         info: &MakeExecutableInfo,
+        cc: CC,
     ) -> BuildCommand {
-        let cc = self
-            .opt
-            .internal_tcc
-            .clone()
-            .expect("Should not go to tcc run path without tcc available");
-
         let mut sources = vec![];
 
         // Runtime path
@@ -1176,10 +1175,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         let rsp_path = self.layout.executable_of_build_target(
             self.packages,
             &target,
-            self.opt.target_backend,
-            self.opt.os,
-            false,
-            self.opt.output_wat,
+            self.opt.executable_artifact(false),
         );
 
         rsp_cmdline.push(rsp_path.display().to_string());

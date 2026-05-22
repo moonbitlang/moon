@@ -137,36 +137,31 @@ impl<'a> super::BuildPlanLowerContext<'a> {
 
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_compile_runtime(&mut self) -> anyhow::Result<BuildCommand> {
-        let artifact_path = self
-            .layout
-            .runtime_output_path(self.opt.target_backend, self.opt.os);
+        let artifact_path = self.layout.runtime_output_path(
+            self.opt.target_backend,
+            self.opt.use_tcc_run(),
+            self.opt.os,
+        );
 
         let runtime_c_path = self.opt.runtime_dot_c_path.clone();
 
-        let output_ty;
-        let link_moonbitrun;
-        match self.opt.target_backend {
+        let use_tcc_run = self.opt.use_tcc_run();
+        let (output_ty, link_moonbitrun) = match self.opt.target_backend {
             RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => {
                 panic!("Runtime compilation is not applicable for non-native backends")
             }
-            RunBackend::Native | RunBackend::Llvm => {
-                output_ty = CCOutputType::Object;
-                link_moonbitrun = true;
-            }
-            RunBackend::NativeTccRun => {
-                output_ty = CCOutputType::SharedLib;
-                link_moonbitrun = false;
-            }
+            RunBackend::Native if use_tcc_run => (CCOutputType::SharedLib, false),
+            RunBackend::Native | RunBackend::Llvm => (CCOutputType::Object, true),
         };
 
-        let resolved_cc = self
-            .opt
-            .native_toolchain
-            .ok_or_else(|| anyhow::anyhow!("native C toolchain is not selected for this build"))?
-            .resolve_default()?
-            .cc()
-            .clone();
-        let use_tcc_run = matches!(self.opt.target_backend, RunBackend::NativeTccRun);
+        let resolved_cc = moonutil::compiler_flags::default_native_toolchain(
+            self.opt
+                .tcc_run
+                .as_ref()
+                .map(|config| config.internal_tcc()),
+        )?
+        .cc()
+        .clone();
         let use_simdutf = !use_tcc_run
             && resolved_cc.can_use_simdutf()
             && self.opt.compiler_paths.simdutf_object_paths().is_some();
