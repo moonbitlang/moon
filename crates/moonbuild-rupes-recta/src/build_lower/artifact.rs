@@ -354,6 +354,9 @@ impl LegacyLayout {
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
+        if backend == TargetBackend::Native && native_target.is_some() {
+            base_dir.push("__moonbit_link_core__");
+        }
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
