@@ -24,3 +24,18 @@ include!(concat!(env!("OUT_DIR"), "/error_code_docs.rs"));
 pub fn get_error_code_doc(error_code: &str) -> Option<&'static str> {
     ERROR_DOCS.get(error_code).copied()
 }
+
+pub fn get_all_error_code_docs() -> Vec<(&'static str, &'static str)> {
+    let mut docs: Vec<_> = ERROR_DOCS.iter().map(|(code, doc)| (*code, *doc)).collect();
+    docs.sort_by(|(left, _), (right, _)| left.cmp(right));
+    docs
+}
+
+pub fn get_all_attribute_docs() -> Vec<(&'static str, &'static str)> {
+    let mut docs: Vec<_> = ATTRIBUTE_DOCS
+        .iter()
+        .map(|(attribute, doc)| (*attribute, *doc))
+        .collect();
+    docs.sort_by(|(left, _), (right, _)| left.cmp(right));
+    docs
+}

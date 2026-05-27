@@ -885,13 +885,17 @@ _moon() {
             return 0
             ;;
         moon__explain)
-            opts="-q -v -h --diagnostics --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --diagnostic --attribute --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --diagnostics)
+                --diagnostic)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --attribute)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

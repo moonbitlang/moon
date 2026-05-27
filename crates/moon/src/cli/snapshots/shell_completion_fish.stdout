@@ -46,7 +46,7 @@ complete -c moon -n "__fish_moon_needs_command" -f -a "generate-test-driver" -d 
 complete -c moon -n "__fish_moon_needs_command" -f -a "clean" -d 'Remove the _build directory'
 complete -c moon -n "__fish_moon_needs_command" -f -a "fmt" -d 'Format source code'
 complete -c moon -n "__fish_moon_needs_command" -f -a "doc" -d 'Generate documentation or searching documentation for a symbol'
-complete -c moon -n "__fish_moon_needs_command" -f -a "explain" -d 'Explain diagnostics from the compiler'
+complete -c moon -n "__fish_moon_needs_command" -f -a "explain" -d 'Explain compiler diagnostics and language topics'
 complete -c moon -n "__fish_moon_needs_command" -f -a "info" -d 'Generate public interface (`.mbti`) files for all packages in the module or workspace'
 complete -c moon -n "__fish_moon_needs_command" -f -a "bench" -d 'Run benchmarks in the current package'
 complete -c moon -n "__fish_moon_needs_command" -f -a "add" -d 'Add a dependency'
@@ -308,7 +308,8 @@ complete -c moon -n "__fish_moon_using_subcommand doc" -l trace -d 'Trace the ex
 complete -c moon -n "__fish_moon_using_subcommand doc" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand doc" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand doc" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand explain" -l diagnostics -d 'Explain diagnostics. Without a query, list warning mnemonics and IDs from `moonc`' -r
+complete -c moon -n "__fish_moon_using_subcommand explain" -l diagnostic -d 'Explain diagnostics. Without a query, list diagnostic codes and names' -r
+complete -c moon -n "__fish_moon_using_subcommand explain" -l attribute -d 'Explain attributes. Without a query, list attribute names' -r
 complete -c moon -n "__fish_moon_using_subcommand explain" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand explain" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand explain" -s q -l quiet -d 'Suppress output'
@@ -705,7 +706,7 @@ complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subc
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help" -f -a "clean" -d 'Remove the _build directory'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help" -f -a "fmt" -d 'Format source code'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help" -f -a "doc" -d 'Generate documentation or searching documentation for a symbol'
-complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help" -f -a "explain" -d 'Explain diagnostics from the compiler'
+complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help" -f -a "explain" -d 'Explain compiler diagnostics and language topics'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help" -f -a "info" -d 'Generate public interface (`.mbti`) files for all packages in the module or workspace'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help" -f -a "bench" -d 'Run benchmarks in the current package'
 complete -c moon -n "__fish_moon_using_subcommand help; and not __fish_seen_subcommand_from new bundle build check prove run test generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help" -f -a "add" -d 'Add a dependency'

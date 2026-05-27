@@ -36,7 +36,7 @@ fn test_moon_help() {
               clean                  Remove the _build directory
               fmt                    Format source code
               doc                    Generate documentation or searching documentation for a symbol
-              explain                Explain diagnostics from the compiler
+              explain                Explain compiler diagnostics and language topics
               info                   Generate public interface (`.mbti`) files for all packages in the module or workspace
               bench                  Run benchmarks in the current package
               add                    Add a dependency
@@ -227,29 +227,65 @@ fn test_moon_info_help_explains_target_and_default_behavior() {
 }
 
 #[test]
-fn test_moon_explain_diagnostics_lists_warnings() {
+fn test_moon_explain_diagnostic_lists_compiler_warnings_and_integrated_docs() {
     let dir = TestDir::new_empty();
-    let output = get_stdout(&dir, ["explain", "--diagnostics"]);
+    let output = get_stdout(&dir, ["explain", "--diagnostic"]);
     assert!(output.starts_with("Available warnings: \n"));
-    assert!(output.contains("unused_value               Unused variable or function."));
-    assert!(output.contains("partial_match              Partial pattern matching."));
+    assert!(output.contains("partial_match              Partial pattern matching.                                       11 error"));
+    assert!(output.contains("note: default alert exceptions: alert_unsafe=off"));
+    assert!(output.contains("Available non-warning diagnostics:"));
+    assert!(output.contains("E4056  diagnostic method_duplicate"));
 }
 
 #[test]
 fn test_moon_explain_diagnostics_number_uses_integrated_docs() {
     let dir = TestDir::new_empty();
-    let output = get_stdout(&dir, ["explain", "--diagnostics", "2"]);
+    let output = get_stdout(&dir, ["explain", "--diagnostic", "2"]);
     assert!(output.starts_with("# E0002\n"));
     assert!(output.contains("Warning name: `unused_value`"));
     assert!(output.contains("Unused variable."));
 }
 
 #[test]
+fn test_moon_explain_diagnostics_alias_uses_integrated_docs() {
+    let dir = TestDir::new_empty();
+    let output = get_stdout(&dir, ["explain", "--diagnostics", "2"]);
+    assert!(output.starts_with("# E0002\n"));
+    assert!(output.contains("Warning name: `unused_value`"));
+}
+
+#[test]
 fn test_moon_explain_diagnostics_mnemonic_uses_integrated_docs() {
     let dir = TestDir::new_empty();
-    let output = get_stdout(&dir, ["explain", "--diagnostics", "unused_value"]);
+    let output = get_stdout(&dir, ["explain", "--diagnostic", "unused_value"]);
     assert!(output.contains("# E0001"));
     assert!(output.contains("# E0002"));
+}
+
+#[test]
+fn test_moon_explain_diagnostics_name_uses_integrated_docs() {
+    let dir = TestDir::new_empty();
+    let output = get_stdout(&dir, ["explain", "--diagnostic", "method_duplicate"]);
+    assert!(output.starts_with("# E4056\n"));
+    assert!(output.contains("Compiler diagnostic name: `method_duplicate`"));
+}
+
+#[test]
+fn test_moon_explain_attribute_lists_integrated_docs() {
+    let dir = TestDir::new_empty();
+    let output = get_stdout(&dir, ["explain", "--attribute"]);
+    assert!(output.starts_with("Available attributes:\n"));
+    assert!(output.contains("#alert"));
+    assert!(output.contains("#coverage.skip"));
+    assert!(output.contains("#visibility"));
+}
+
+#[test]
+fn test_moon_explain_attribute_name_uses_integrated_docs() {
+    let dir = TestDir::new_empty();
+    let output = get_stdout(&dir, ["explain", "--attribute", "alert"]);
+    assert!(output.starts_with("# Alert Attribute\n"));
+    assert!(output.contains("The `#alert` attribute attaches a category and message to an API."));
 }
 
 #[test]
@@ -258,13 +294,14 @@ fn test_moon_explain_without_flags_shows_guidance() {
     check(
         get_err_stderr(&dir, ["explain"]),
         expect![[r#"
-            Explain diagnostics from the compiler
+            Explain compiler diagnostics and language topics
 
-            Usage: moon explain [OPTIONS]
+            Usage: moon explain [OPTIONS] <--diagnostic [<ID_OR_NAME>]|--attribute [<NAME>]>
 
             Options:
-                  --diagnostics [<ID_OR_MNEMONIC>]  Explain diagnostics. Without a query, list warning mnemonics and IDs from `moonc`
-              -h, --help                            Print help
+                  --diagnostic [<ID_OR_NAME>]  Explain diagnostics. Without a query, list diagnostic codes and names
+                  --attribute [<NAME>]         Explain attributes. Without a query, list attribute names
+              -h, --help                       Print help
 
             Common Options:
                   --target-dir <TARGET_DIR>  The target directory. Defaults to `<project-root>/_build`
@@ -277,7 +314,8 @@ fn test_moon_explain_without_flags_shows_guidance() {
                 Docs: https://docs.moonbitlang.com
                 Skills: https://github.com/moonbitlang/skills
 
-                Use `moon explain --diagnostics` to list warning mnemonics and IDs.
+                Use `moon explain --diagnostic` to list diagnostic codes and names.
+                Use `moon explain --attribute` to list attributes.
         "#]],
     );
 }

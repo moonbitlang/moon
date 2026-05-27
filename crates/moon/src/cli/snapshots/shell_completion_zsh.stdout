@@ -394,7 +394,8 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (explain)
 _arguments "${_arguments_options[@]}" : \
-'--diagnostics=[Explain diagnostics. Without a query, list warning mnemonics and IDs from \`moonc\`]' \
+'--diagnostic=[Explain diagnostics. Without a query, list diagnostic codes and names]' \
+'--attribute=[Explain attributes. Without a query, list attribute names]' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '-q[Suppress output]' \
@@ -1492,7 +1493,7 @@ _moon_commands() {
 'clean:Remove the _build directory' \
 'fmt:Format source code' \
 'doc:Generate documentation or searching documentation for a symbol' \
-'explain:Explain diagnostics from the compiler' \
+'explain:Explain compiler diagnostics and language topics' \
 'info:Generate public interface (\`.mbti\`) files for all packages in the module or workspace' \
 'bench:Run benchmarks in the current package' \
 'add:Add a dependency' \
@@ -1647,7 +1648,7 @@ _moon__help_commands() {
 'clean:Remove the _build directory' \
 'fmt:Format source code' \
 'doc:Generate documentation or searching documentation for a symbol' \
-'explain:Explain diagnostics from the compiler' \
+'explain:Explain compiler diagnostics and language topics' \
 'info:Generate public interface (\`.mbti\`) files for all packages in the module or workspace' \
 'bench:Run benchmarks in the current package' \
 'add:Add a dependency' \
