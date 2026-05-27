@@ -287,7 +287,7 @@ pub enum MoonModJSONFormatErrorKind {
     SupportedTargets(anyhow::Error),
 }
 
-fn validate_module_dsl_deps(
+pub fn validate_module_dsl_deps(
     deps: Option<&IndexMap<String, crate::dependency::SourceDependencyInfo>>,
 ) -> anyhow::Result<()> {
     use crate::dependency::SourceDependencyInfo;

@@ -311,6 +311,41 @@ fn test_reading_module_warns_when_moon_mod_shadows_json() {
 }
 
 #[test]
+fn test_fmt_moon_mod_json_migration_local_deps_fail() {
+    let dir = TestDir::new_empty();
+    std::fs::create_dir_all(dir.join("main")).unwrap();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+  "name": "test/local_deps",
+  "deps": {
+    "example/local": { "path": "../local" }
+  }
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(dir.join("main/moon.pkg"), r#"options("is-main": true)"#).unwrap();
+    std::fs::write(dir.join("main/main.mbt"), "fn main { println(1) }\n").unwrap();
+
+    let stderr = get_err_stderr(&dir, ["fmt", "--dry-run"]);
+    assert!(
+        stderr.contains("moon.mod does not support local dependency `example/local`"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("moon.work"), "{stderr}");
+
+    let stderr = get_err_stderr(&dir, ["fmt"]);
+    assert!(
+        stderr.contains("moon.mod does not support local dependency `example/local`"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("moon.work"), "{stderr}");
+    assert!(!dir.join("moon.mod").exists());
+    assert!(dir.join("moon.mod.json").exists());
+}
+
+#[test]
 fn test_fmt_moon_mod_local_deps_fail() {
     let dir = TestDir::new_empty();
     std::fs::create_dir_all(dir.join("main")).unwrap();
