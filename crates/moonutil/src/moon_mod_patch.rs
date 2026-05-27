@@ -40,7 +40,7 @@ use crate::{
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum MoonModPatch {
-    InsertImportItem {
+    UpsertImportItem {
         name: String,
         version: semver::Version,
     },
@@ -202,9 +202,12 @@ fn locate_import_items(contents: &str, names: Vec<String>) -> IndexMap<String, I
 
 pub fn patch_module_dsl(mut patched: String, patch: MoonModPatch) -> String {
     match patch {
-        MoonModPatch::InsertImportItem { name, version } => {
+        MoonModPatch::UpsertImportItem { name, version } => {
             let quoted = format!("\"{name}@{version}\"");
-            if let Some(tail) = locate_import_rbrace(&patched) {
+            let mut items = locate_import_items(&patched, vec![name.clone()]);
+            if let Some(item) = items.shift_remove(&name) {
+                patched.replace_range(item.string, &quoted);
+            } else if let Some(tail) = locate_import_rbrace(&patched) {
                 patched.insert_str(tail.start, &format!("  {quoted},\n"));
             } else {
                 patched = format!("{patched}\nimport {{\n  {quoted},\n}}\n");
@@ -270,7 +273,7 @@ options(
 )
 "#
         .to_string();
-        let patch = MoonModPatch::InsertImportItem {
+        let patch = MoonModPatch::UpsertImportItem {
             name: "example/dep".to_string(),
             version: Version::new(1, 2, 3),
         };
@@ -303,7 +306,7 @@ import {
 }
 "#
         .to_string();
-        let patch = MoonModPatch::InsertImportItem {
+        let patch = MoonModPatch::UpsertImportItem {
             name: "example/dep".to_string(),
             version: Version::new(1, 2, 3),
         };
@@ -317,6 +320,33 @@ import {
               "example/other@0.1.0",
               // comment
               "example/dep@1.2.3",
+            }
+        "#]]
+        .assert_eq(&output);
+    }
+
+    #[test]
+    fn patch_module_dsl_upserts_existing_import() {
+        let input = r#"name = "example/mod"
+
+import {
+  "example/dep@1.0.0", // dep comment
+  "example/other@0.1.0",
+}
+"#
+        .to_string();
+        let patch = MoonModPatch::UpsertImportItem {
+            name: "example/dep".to_string(),
+            version: Version::new(1, 2, 3),
+        };
+        let output = patch_module_dsl(input, patch);
+
+        expect![[r#"
+            name = "example/mod"
+
+            import {
+              "example/dep@1.2.3", // dep comment
+              "example/other@0.1.0",
             }
         "#]]
         .assert_eq(&output);
@@ -494,7 +524,7 @@ import {
 import { "example/other@0.1.0", }
 "#
         .to_string();
-        let patch = MoonModPatch::InsertImportItem {
+        let patch = MoonModPatch::UpsertImportItem {
             name: "example/dep".to_string(),
             version: Version::new(1, 2, 3),
         };
