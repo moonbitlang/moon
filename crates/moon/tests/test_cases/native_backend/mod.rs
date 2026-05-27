@@ -4,6 +4,8 @@ use moonbuild_debug::graph::ENV_VAR;
 use crate::{TestDir, build_graph::compare_graphs_with_replacements, get_stdout_with_envs};
 
 mod cc_flags;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+mod new_native_e2e;
 mod parallel_msvc;
 #[cfg(unix)]
 mod simdutf;
