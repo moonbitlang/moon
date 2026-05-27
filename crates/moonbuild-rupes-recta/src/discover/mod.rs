@@ -50,8 +50,9 @@ use moonutil::mooncakes::{
 use moonutil::package::MoonPkg;
 use moonutil::{
     common::{
-        IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOONBITLANG_ABORT,
-        read_module_desc_file_in_dir, read_package_desc_file_in_dir_with_supported_targets_decl,
+        IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON,
+        MOONBITLANG_ABORT, read_module_desc_file_in_dir,
+        read_package_desc_file_in_dir_with_supported_targets_decl, warn_if_shadowed_manifest,
     },
     mooncakes::ModuleSourceKind,
     package::resolve_supported_targets,
@@ -87,6 +88,12 @@ pub fn discover_packages(
         };
 
         let dir = dirs.get(id).expect("Bad module ID to get directory");
+        warn_if_shadowed_manifest(
+            dir,
+            MOON_MOD_JSON,
+            MOON_MOD,
+            &format!("at module root '{}'", dir.display()),
+        );
         discover_packages_for_mod(&mut res, dir, id, env.resolved_module(id))?;
     }
 
@@ -155,6 +162,12 @@ pub fn discover_local_project(
     let mut pkg_dirs = DiscoverResult::default();
 
     for module_dir in module_dirs {
+        warn_if_shadowed_manifest(
+            &module_dir,
+            MOON_MOD_JSON,
+            MOON_MOD,
+            &format!("at module root '{}'", module_dir.display()),
+        );
         let module = read_module_desc_file_in_dir(&module_dir).map_err(|inner| {
             DiscoverError::CantReadLocalModuleFile {
                 path: module_dir.clone(),
@@ -325,6 +338,12 @@ fn discover_one_package(
     let fqn = PackageFQN::new(m.clone(), pkg_path);
 
     // Discover the package config
+    warn_if_shadowed_manifest(
+        abs,
+        MOON_PKG_JSON,
+        MOON_PKG,
+        &format!("at package root '{}'", abs.display()),
+    );
     let (pkg_json, supported_targets_decl) =
         read_package_desc_file_in_dir_with_supported_targets_decl(abs).map_err(|e| {
             DiscoverError::CantReadPackageFile {

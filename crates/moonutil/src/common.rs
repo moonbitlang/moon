@@ -519,7 +519,7 @@ fn read_package_from_json_with_supported_targets_decl(
     let file = File::open(path)?;
     let reader = BufReader::new(file);
     let j = serde_json_lenient::from_reader(reader).context(format!("Failed to parse {path:?}"))?;
-    let emit_warnings = should_warn_pkg(path);
+    let emit_warnings = should_warn_manifest(path);
     convert_pkg_json_to_package_with_supported_targets_decl(j, emit_warnings)
 }
 
@@ -530,15 +530,54 @@ fn read_package_from_dsl_with_supported_targets_decl(
     let file = File::open(path)?;
     let str = std::io::read_to_string(file)?;
     let dsl = moon_pkg::parse(&str)?;
-    let emit_warnings = should_warn_pkg(path);
+    let emit_warnings = should_warn_manifest(path);
     convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, emit_warnings)
 }
 
-/// avoid emit warnings for moon.pkg in .mooncakes
-fn should_warn_pkg(path: &Path) -> bool {
+/// Avoid emitting manifest warnings for dependency cache files in .mooncakes.
+fn should_warn_manifest(path: &Path) -> bool {
     !path
         .components()
         .any(|component| component.as_os_str() == DEP_PATH)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ManifestFormat {
+    New,
+    Legacy,
+}
+
+pub fn preferred_manifest_in_dir(
+    dir: &Path,
+    new_manifest: &'static str,
+    legacy_manifest: &'static str,
+) -> Option<(PathBuf, ManifestFormat)> {
+    let new_path = dir.join(new_manifest);
+    let legacy_path = dir.join(legacy_manifest);
+    match (new_path.exists(), legacy_path.exists()) {
+        (true, true) => Some((new_path, ManifestFormat::New)),
+        (true, false) => Some((new_path, ManifestFormat::New)),
+        (false, true) => Some((legacy_path, ManifestFormat::Legacy)),
+        (false, false) => None,
+    }
+}
+
+pub fn warn_if_shadowed_manifest(
+    dir: &Path,
+    legacy_manifest: &'static str,
+    new_manifest: &'static str,
+    location: &str,
+) {
+    if !should_warn_manifest(dir)
+        || !dir.join(new_manifest).exists()
+        || !dir.join(legacy_manifest).exists()
+    {
+        return;
+    }
+
+    eprintln!(
+        "Warning: Both {legacy_manifest} and {new_manifest} exist {location}, using the new format {new_manifest}. Please remove the deprecated {legacy_manifest}."
+    );
 }
 
 pub fn write_module_json_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::Result<()> {
@@ -603,21 +642,16 @@ pub fn write_package_json_to_file(pkg: &MoonPkgJSON, path: &Path) -> anyhow::Res
 }
 
 pub fn read_module_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonMod> {
-    let mod_path = dir.join(MOON_MOD);
-    if mod_path.exists() {
-        return read_module_from_dsl(&mod_path);
-    }
-
-    let mod_json_path = dir.join(MOON_MOD_JSON);
-    if !mod_json_path.exists() {
-        bail!(
+    match preferred_manifest_in_dir(dir, MOON_MOD, MOON_MOD_JSON) {
+        Some((path, ManifestFormat::New)) => read_module_from_dsl(&path),
+        Some((path, ManifestFormat::Legacy)) => Ok(read_module_from_json(&path)?),
+        None => bail!(
             "Failed to find `{}` or `{}` for module at path `{}`",
             MOON_MOD,
             MOON_MOD_JSON,
             dir.display()
-        );
+        ),
     }
-    Ok(read_module_from_json(&mod_json_path)?)
 }
 
 pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
@@ -627,18 +661,20 @@ pub fn read_package_desc_file_in_dir(dir: &Path) -> anyhow::Result<MoonPkg> {
 pub fn read_package_desc_file_in_dir_with_supported_targets_decl(
     dir: &Path,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
-    if dir.join(MOON_PKG).exists() {
-        read_package_from_dsl_with_supported_targets_decl(&dir.join(MOON_PKG))
-    } else if dir.join(MOON_PKG_JSON).exists() {
-        read_package_from_json_with_supported_targets_decl(&dir.join(MOON_PKG_JSON))
-            .context(format!("Failed to load {:?}", dir.join(MOON_PKG_JSON)))
-    } else {
-        bail!(
+    match preferred_manifest_in_dir(dir, MOON_PKG, MOON_PKG_JSON) {
+        Some((path, ManifestFormat::New)) => {
+            read_package_from_dsl_with_supported_targets_decl(&path)
+        }
+        Some((path, ManifestFormat::Legacy)) => {
+            read_package_from_json_with_supported_targets_decl(&path)
+                .context(format!("Failed to load {:?}", path))
+        }
+        None => bail!(
             "Failed to find `{}` or `{}` for package at path `{}`",
             MOON_PKG,
             MOON_PKG_JSON,
             dir.display()
-        );
+        ),
     }
 }
 

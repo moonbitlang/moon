@@ -197,17 +197,7 @@ fn format_moon_mod_node(
         OsStr::new(MOON_MOD),
     );
 
-    if has_dsl && has_json {
-        user_warnings.push(UserWarning::new(format!(
-            "Both {} and {} exist at module root '{}', using the new format {}. Please remove the deprecated {}.",
-            MOON_MOD_JSON,
-            MOON_MOD,
-            module_dir.display(),
-            MOON_MOD,
-            MOON_MOD_JSON
-        )));
-        format_moon_mod_dsl(graph, cfg, &moon_mod, &target_moon_mod, module_dir)?;
-    } else if has_dsl {
+    if has_dsl {
         format_moon_mod_dsl(graph, cfg, &moon_mod, &target_moon_mod, module_dir)?;
     } else if cfg.migrate_moon_mod_json {
         user_warnings.push(UserWarning::new(format!(
@@ -635,16 +625,8 @@ fn format_moon_pkg_node(
     // Output to target directory
     let target_moon_pkg = layout.format_artifact_path(&pkg.fqn, std::ffi::OsStr::new("moon.pkg"));
 
-    if has_dsl && has_json {
-        // Both files exist: prefer moon.pkg (new format), warn about duplicate
-        user_warnings.push(UserWarning::new(format!(
-            "Both {} and {} exist in package '{}', using the new format {}. Please remove the deprecated {}.",
-            MOON_PKG_JSON, MOON_PKG, pkg.fqn, MOON_PKG, MOON_PKG_JSON
-        )));
+    if has_dsl {
         // Format moon.pkg (new format)
-        format_moon_pkg_dsl(graph, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
-    } else if has_dsl {
-        // Only moon.pkg exists: format it
         format_moon_pkg_dsl(graph, cfg, &moon_pkg_dsl, &target_moon_pkg, pkg)
     } else if cfg.migrate_moon_pkg_json {
         // Only moon.pkg.json exists: migrate to moon.pkg
