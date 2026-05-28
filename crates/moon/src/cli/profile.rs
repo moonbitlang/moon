@@ -19,8 +19,9 @@
 use std::{
     collections::HashMap,
     ffi::OsStr,
+    fs::File,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
 };
 
 use anyhow::{Context, bail};
@@ -37,8 +38,53 @@ use crate::cli::run::{BuildRunExecutableOptions, build_run_executable};
 
 const DEFAULT_TOP: usize = 12;
 const MIN_ACTIONABLE_SAMPLES: usize = 100;
+const PERF_SAMPLE_FREQUENCY_HZ: u32 = 100;
+const PERF_SAMPLE_WEIGHT_MS: f64 = 1000.0 / PERF_SAMPLE_FREQUENCY_HZ as f64;
 pub(crate) const MOON_TEST_PROFILE_COMMAND: &str = "`moon test --profile`";
 const PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE: &str = "Profile mode reports performance only; run `moon test` without `--profile` for pass/fail validation.";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProfileBackend {
+    Xctrace,
+    Perf,
+}
+
+impl ProfileBackend {
+    fn profiler_backend(self) -> &'static str {
+        match self {
+            ProfileBackend::Xctrace => "xctrace",
+            ProfileBackend::Perf => "perf",
+        }
+    }
+
+    fn template(self) -> &'static str {
+        match self {
+            ProfileBackend::Xctrace => "Time Profiler",
+            ProfileBackend::Perf => "cpu-clock DWARF call graph",
+        }
+    }
+
+    fn export_format(self) -> &'static str {
+        match self {
+            ProfileBackend::Xctrace => "xctrace time-profile XML",
+            ProfileBackend::Perf => "perf script",
+        }
+    }
+
+    fn parser(self) -> &'static str {
+        match self {
+            ProfileBackend::Xctrace => "moon-xctrace-time-profile-v1",
+            ProfileBackend::Perf => "moon-perf-script-v1",
+        }
+    }
+
+    fn terminal_title(self) -> &'static str {
+        match self {
+            ProfileBackend::Xctrace => "native macOS Time Profiler",
+            ProfileBackend::Perf => "native Linux perf",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct ProfileAgentReport {
@@ -78,6 +124,7 @@ struct ProfileTarget {
 struct ProfileArtifacts {
     trace: Option<PathBuf>,
     time_profile_xml: Option<PathBuf>,
+    perf_script: Option<PathBuf>,
     stdout: Option<PathBuf>,
     json_report: Option<PathBuf>,
 }
@@ -179,6 +226,7 @@ struct RuntimeAttributionKey {
 
 struct CapturedProfile {
     name: String,
+    profiler_backend: ProfileBackend,
     output_dir: PathBuf,
     target: ProfileTarget,
     artifacts: ProfileArtifacts,
@@ -266,6 +314,7 @@ pub(crate) fn profile_executable(
     };
     let json_path = captured.output_dir.join("profile.json");
     let report = build_report(
+        captured.profiler_backend,
         captured.parsed,
         captured.target,
         with_json_report(captured.artifacts, json_path.clone()),
@@ -291,13 +340,31 @@ fn capture_profile_executable(
         target_backend,
         opt_level,
     } = request;
-    let trace_path = output_dir.join("profile.trace");
+    let command_name = match run_mode {
+        RunMode::Run => "`moon run --profile`",
+        RunMode::Test => MOON_TEST_PROFILE_COMMAND,
+        _ => "`moon --profile`",
+    };
+    let profiler_backend = ensure_profile_available(command_name)?;
+    let trace_path = match profiler_backend {
+        ProfileBackend::Xctrace => output_dir.join("profile.trace"),
+        ProfileBackend::Perf => output_dir.join("perf.data"),
+    };
     let xml_path = output_dir.join("time-profile.xml");
+    let perf_script_path = output_dir.join("perf-script.txt");
     let stdout_path = output_dir.join("stdout.txt");
 
     if cli.dry_run {
-        print_xctrace_record_command(&trace_path, &stdout_path, &executable, &args);
-        print_xctrace_export_command(&trace_path, &xml_path);
+        match profiler_backend {
+            ProfileBackend::Xctrace => {
+                print_xctrace_record_command(&trace_path, &stdout_path, &executable, &args);
+                print_xctrace_export_command(&trace_path, &xml_path);
+            }
+            ProfileBackend::Perf => {
+                print_perf_record_command(&trace_path, &stdout_path, &executable, &args);
+                print_perf_script_command(&trace_path, &perf_script_path);
+            }
+        }
         return Ok(None);
     }
 
@@ -315,20 +382,42 @@ fn capture_profile_executable(
         );
     }
 
-    run_xctrace_record(&trace_path, &stdout_path, &executable, &args)?;
-    run_xctrace_export(&trace_path, &xml_path)?;
-
-    let parsed = parse_xctrace_time_profile(&xml_path)?;
+    let (parsed, artifacts) = match profiler_backend {
+        ProfileBackend::Xctrace => {
+            run_xctrace_record(&trace_path, &stdout_path, &executable, &args)?;
+            run_xctrace_export(&trace_path, &xml_path)?;
+            (
+                parse_xctrace_time_profile(&xml_path)?,
+                ProfileArtifacts {
+                    trace: Some(trace_path),
+                    time_profile_xml: Some(xml_path),
+                    perf_script: None,
+                    stdout: Some(stdout_path),
+                    json_report: None,
+                },
+            )
+        }
+        ProfileBackend::Perf => {
+            run_perf_record(&trace_path, &stdout_path, &executable, &args)?;
+            run_perf_script(&trace_path, &perf_script_path)?;
+            (
+                parse_perf_script(&perf_script_path)?,
+                ProfileArtifacts {
+                    trace: Some(trace_path),
+                    time_profile_xml: None,
+                    perf_script: Some(perf_script_path),
+                    stdout: Some(stdout_path),
+                    json_report: None,
+                },
+            )
+        }
+    };
     Ok(Some(CapturedProfile {
         name: executable_profile_name(&executable),
+        profiler_backend,
         output_dir,
         target: profile_target(run_mode, target_backend, opt_level, Some(executable), args),
-        artifacts: ProfileArtifacts {
-            trace: Some(trace_path),
-            time_profile_xml: Some(xml_path),
-            stdout: Some(stdout_path),
-            json_report: None,
-        },
+        artifacts,
         parsed,
     }))
 }
@@ -340,7 +429,7 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     {
         bail!("`moon run --profile` currently supports only `--target native`");
     }
-    // Time Profiler records a native process. Build release-with-symbols by
+    // Native profilers record a native process. Build release-with-symbols by
     // default so samples are useful without requiring extra flags from users.
     build_flags.target = vec![SurfaceTarget::Native];
     if !build_flags.debug && !build_flags.release {
@@ -409,7 +498,9 @@ pub(crate) fn profile_test_invocations(
     }
     if !cli.dry_run {
         let json_path = session_dir.join("profile.json");
+        let profiler_backend = ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
         let report = build_test_report(
+            profiler_backend,
             build_meta.target_backend,
             build_meta.opt_level,
             with_json_report(ProfileArtifacts::default(), json_path.clone()),
@@ -546,12 +637,23 @@ fn strip_current_dir(path: &Path) -> &Path {
     path.strip_prefix(".").unwrap_or(path)
 }
 
-pub(crate) fn ensure_profile_available(command_name: &str) -> anyhow::Result<()> {
-    if !cfg!(target_os = "macos") {
-        bail!("{command_name} currently supports macOS only");
+fn current_profile_backend(command_name: &str) -> anyhow::Result<ProfileBackend> {
+    if cfg!(target_os = "macos") {
+        Ok(ProfileBackend::Xctrace)
+    } else if cfg!(target_os = "linux") {
+        Ok(ProfileBackend::Perf)
+    } else {
+        bail!("{command_name} currently supports macOS and Linux only");
     }
+}
 
-    ensure_xctrace_available(command_name)
+pub(crate) fn ensure_profile_available(command_name: &str) -> anyhow::Result<ProfileBackend> {
+    let profiler_backend = current_profile_backend(command_name)?;
+    match profiler_backend {
+        ProfileBackend::Xctrace => ensure_xctrace_available(command_name)?,
+        ProfileBackend::Perf => ensure_perf_available(command_name)?,
+    }
+    Ok(profiler_backend)
 }
 
 fn ensure_xctrace_available(command_name: &str) -> anyhow::Result<()> {
@@ -570,6 +672,23 @@ fn ensure_xctrace_available(command_name: &str) -> anyhow::Result<()> {
          Try:\n  xcode-select --install\n\n\
          If xctrace reports an Xcode license error:\n  sudo xcodebuild -license accept",
         stderr.trim()
+    )
+}
+
+fn ensure_perf_available(command_name: &str) -> anyhow::Result<()> {
+    let output = Command::new("perf")
+        .arg("--version")
+        .output()
+        .context("failed to execute `perf --version`")?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    bail!(
+        "{command_name} on Linux requires `perf`.\n\n\
+         `perf --version` failed with:\n{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
     )
 }
 
@@ -636,6 +755,74 @@ fn xctrace_record_command(
     cmd
 }
 
+fn perf_record_command(data_path: &Path, executable: &Path, args: &[String]) -> Command {
+    let mut cmd = Command::new("perf");
+    cmd.args(["record", "--quiet", "-F"]);
+    cmd.arg(PERF_SAMPLE_FREQUENCY_HZ.to_string());
+    cmd.args(["-e", "cpu-clock", "--call-graph", "dwarf", "-o"]);
+    cmd.arg(data_path);
+    cmd.arg("--");
+    cmd.arg(executable);
+    cmd.args(args);
+    cmd
+}
+
+fn perf_script_command(data_path: &Path) -> Command {
+    let mut cmd = Command::new("perf");
+    cmd.args(["script", "-i"]);
+    cmd.arg(data_path);
+    cmd
+}
+
+fn run_perf_record(
+    data_path: &Path,
+    stdout_path: &Path,
+    executable: &Path,
+    args: &[String],
+) -> anyhow::Result<()> {
+    let stdout = File::create(stdout_path)
+        .with_context(|| format!("failed to create stdout file `{}`", stdout_path.display()))?;
+    let mut cmd = perf_record_command(data_path, executable, args);
+    let output = cmd
+        .stdout(Stdio::from(stdout))
+        .output()
+        .context("failed to execute `perf record`")?;
+    if !output.status.success() {
+        bail!(
+            "`perf record` failed with {}\n{}{}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+            perf_permission_hint()
+        );
+    }
+    Ok(())
+}
+
+fn run_perf_script(data_path: &Path, script_path: &Path) -> anyhow::Result<()> {
+    let script = File::create(script_path)
+        .with_context(|| format!("failed to create perf script `{}`", script_path.display()))?;
+    let mut cmd = perf_script_command(data_path);
+    let output = cmd
+        .stdout(Stdio::from(script))
+        .output()
+        .context("failed to execute `perf script`")?;
+    if !output.status.success() {
+        bail!(
+            "`perf script` failed with {}\n{}{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+fn perf_permission_hint() -> &'static str {
+    "If this is a permissions issue, check `/proc/sys/kernel/perf_event_paranoid`. \
+     You may need to lower it or run with sufficient privileges for profiling on this machine."
+}
+
 fn xctrace_export_command(trace_path: &Path, xml_path: &Path) -> Command {
     let mut cmd = Command::new("xcrun");
     cmd.args(["xctrace", "export", "--quiet", "--input"]);
@@ -658,29 +845,159 @@ fn print_xctrace_record_command(
     args: &[String],
 ) {
     let cmd = xctrace_record_command(trace_path, stdout_path, executable, args);
-    print_command(cmd);
+    print_command(&cmd);
 }
 
 fn print_xctrace_export_command(trace_path: &Path, xml_path: &Path) {
     let cmd = xctrace_export_command(trace_path, xml_path);
-    print_command(cmd);
+    print_command(&cmd);
 }
 
-fn print_command(cmd: Command) {
+fn print_perf_record_command(
+    data_path: &Path,
+    stdout_path: &Path,
+    executable: &Path,
+    args: &[String],
+) {
+    let cmd = perf_record_command(data_path, executable, args);
+    print_command_with_stdout_redirect(&cmd, stdout_path);
+}
+
+fn print_perf_script_command(data_path: &Path, script_path: &Path) {
+    let cmd = perf_script_command(data_path);
+    print_command_with_stdout_redirect(&cmd, script_path);
+}
+
+fn print_command(cmd: &Command) {
+    println!("{}", command_line(cmd));
+}
+
+fn print_command_with_stdout_redirect(cmd: &Command, stdout_path: &Path) {
+    let mut line = command_line(cmd);
+    line.push_str(" > ");
+    let stdout_path = stdout_path.to_string_lossy().into_owned();
+    line.push_str(&moonutil::shlex::join_unix(std::iter::once(
+        stdout_path.as_str(),
+    )));
+    println!("{line}");
+}
+
+fn command_line(cmd: &Command) -> String {
     let parts = std::iter::once(cmd.get_program())
         .chain(cmd.get_args())
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
-    println!(
-        "{}",
-        moonutil::shlex::join_unix(parts.iter().map(String::as_str))
-    );
+    moonutil::shlex::join_unix(parts.iter().map(String::as_str))
 }
 
 fn parse_xctrace_time_profile(path: &Path) -> anyhow::Result<ParsedProfile> {
     let xml = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read xctrace export `{}`", path.display()))?;
     Ok(parse_xctrace_time_profile_xml(&xml))
+}
+
+fn parse_perf_script(path: &Path) -> anyhow::Result<ParsedProfile> {
+    let script = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read perf script `{}`", path.display()))?;
+    Ok(parse_perf_script_output(&script))
+}
+
+fn parse_perf_script_output(script: &str) -> ParsedProfile {
+    let mut parsed = ParsedProfile {
+        sample_weight_ms: PERF_SAMPLE_WEIGHT_MS,
+        ..Default::default()
+    };
+    let mut stack = Vec::new();
+    let mut in_sample = false;
+
+    for line in script.lines() {
+        if line.trim().is_empty() {
+            finish_perf_sample(&mut parsed, &mut stack, &mut in_sample);
+            continue;
+        }
+
+        if is_perf_sample_header(line) {
+            finish_perf_sample(&mut parsed, &mut stack, &mut in_sample);
+            in_sample = true;
+            parsed.observed_rows += 1;
+        } else if is_perf_stack_line(line)
+            && in_sample
+            && let Some(symbol) = parse_perf_stack_symbol(line)
+        {
+            stack.push(symbol);
+        }
+    }
+
+    finish_perf_sample(&mut parsed, &mut stack, &mut in_sample);
+    parsed
+}
+
+fn finish_perf_sample(parsed: &mut ParsedProfile, stack: &mut Vec<String>, in_sample: &mut bool) {
+    if !*in_sample {
+        return;
+    }
+
+    parsed.running_samples += 1;
+    if stack.is_empty() {
+        parsed.missing_stack_samples += 1;
+    } else {
+        record_profile_stack(parsed, std::mem::take(stack), PERF_SAMPLE_WEIGHT_MS);
+    }
+    stack.clear();
+    *in_sample = false;
+}
+
+fn is_perf_stack_line(line: &str) -> bool {
+    line.chars().next().is_some_and(char::is_whitespace)
+}
+
+fn is_perf_sample_header(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let Some(first) = trimmed.split_whitespace().next() else {
+        return false;
+    };
+    !looks_like_perf_address(first)
+        && trimmed.contains('[')
+        && trimmed.contains(']')
+        && trimmed.contains(':')
+}
+
+fn parse_perf_stack_symbol(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let without_address = match trimmed.split_once(char::is_whitespace) {
+        Some((first, rest)) if looks_like_perf_address(first) => rest.trim_start(),
+        _ => trimmed,
+    };
+    let symbol = without_address
+        .split(" (")
+        .next()
+        .unwrap_or(without_address)
+        .trim();
+    let symbol = strip_perf_symbol_offset(symbol).trim();
+    if symbol.is_empty() {
+        None
+    } else {
+        Some(symbol.to_string())
+    }
+}
+
+fn looks_like_perf_address(token: &str) -> bool {
+    let token = token.strip_prefix("0x").unwrap_or(token);
+    !token.is_empty() && token.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+fn strip_perf_symbol_offset(symbol: &str) -> &str {
+    symbol
+        .rfind("+0x")
+        .map(|offset| &symbol[..offset])
+        .unwrap_or(symbol)
 }
 
 fn parse_xctrace_time_profile_xml(xml: &str) -> ParsedProfile {
@@ -734,33 +1051,37 @@ fn parse_xctrace_time_profile_xml(xml: &str) -> ParsedProfile {
             parsed.missing_stack_samples += 1;
             continue;
         };
-        let stack = stack
-            .into_iter()
-            .filter(|name| is_profile_symbol(name))
-            .collect::<Vec<_>>();
-        if stack.is_empty() {
-            parsed.samples_without_profile_symbols += 1;
-            continue;
-        }
-
-        parsed.total_samples += 1;
-        parsed.profiled_time_ms += weight;
-        record_runtime_leaf_attribution(&mut parsed, &stack, weight);
-
-        let top = stack[0].clone();
-        *parsed.self_counts.entry(top.clone()).or_default() += 1;
-        *parsed.self_ms.entry(top).or_default() += weight;
-
-        let mut seen = std::collections::HashSet::new();
-        for symbol in stack {
-            if seen.insert(symbol.clone()) {
-                *parsed.inclusive_counts.entry(symbol.clone()).or_default() += 1;
-                *parsed.inclusive_ms.entry(symbol).or_default() += weight;
-            }
-        }
+        record_profile_stack(&mut parsed, stack, weight);
     }
 
     parsed
+}
+
+fn record_profile_stack(parsed: &mut ParsedProfile, stack: Vec<String>, weight: f64) {
+    let stack = stack
+        .into_iter()
+        .filter(|name| is_profile_symbol(name))
+        .collect::<Vec<_>>();
+    if stack.is_empty() {
+        parsed.samples_without_profile_symbols += 1;
+        return;
+    }
+
+    parsed.total_samples += 1;
+    parsed.profiled_time_ms += weight;
+    record_runtime_leaf_attribution(parsed, &stack, weight);
+
+    let top = stack[0].clone();
+    *parsed.self_counts.entry(top.clone()).or_default() += 1;
+    *parsed.self_ms.entry(top).or_default() += weight;
+
+    let mut seen = std::collections::HashSet::new();
+    for symbol in stack {
+        if seen.insert(symbol.clone()) {
+            *parsed.inclusive_counts.entry(symbol.clone()).or_default() += 1;
+            *parsed.inclusive_ms.entry(symbol).or_default() += weight;
+        }
+    }
 }
 
 fn record_runtime_leaf_attribution(parsed: &mut ParsedProfile, stack: &[String], weight: f64) {
@@ -904,6 +1225,7 @@ fn is_profile_symbol(name: &str) -> bool {
 }
 
 fn build_report(
+    profiler_backend: ProfileBackend,
     parsed: ParsedProfile,
     target: ProfileTarget,
     artifacts: ProfileArtifacts,
@@ -921,10 +1243,10 @@ fn build_report(
         report_kind: "moon.profile.agent".to_string(),
         producer: ProfileProducer {
             tool: "moon".to_string(),
-            profiler_backend: "xctrace".to_string(),
-            template: "Time Profiler".to_string(),
-            export_format: "xctrace time-profile XML".to_string(),
-            parser: "moon-xctrace-time-profile-v1".to_string(),
+            profiler_backend: profiler_backend.profiler_backend().to_string(),
+            template: profiler_backend.template().to_string(),
+            export_format: profiler_backend.export_format().to_string(),
+            parser: profiler_backend.parser().to_string(),
         },
         target,
         artifacts,
@@ -939,12 +1261,13 @@ fn build_report(
             "runtime_leaf_attributed_to_user attributes selected runtime/library leaf samples to the nearest non-runtime MoonBit frame higher in the sampled stack.".to_string(),
             "percent_of_profiled_samples uses profiled_samples after ignoring non-running samples and running stacks without MoonBit/runtime symbols.".to_string(),
             "For moon test --profile, top-level rankings merge all profiled test executables; per-executable rankings remain under executables[].".to_string(),
-            "Open artifacts.trace for a single-executable report, or executables[].artifacts.trace for a merged test report, in Instruments when call-tree context or timeline ordering is needed.".to_string(),
+            profile_trace_note(profiler_backend).to_string(),
         ],
     }
 }
 
 fn build_test_report(
+    profiler_backend: ProfileBackend,
     target_backend: RunBackend,
     opt_level: OptLevel,
     artifacts: ProfileArtifacts,
@@ -957,6 +1280,7 @@ fn build_test_report(
         executable_reports.push(build_executable_report(captured));
     }
     build_report(
+        profiler_backend,
         merged,
         profile_target(RunMode::Test, target_backend, opt_level, None, Vec::new()),
         artifacts,
@@ -974,6 +1298,17 @@ fn build_executable_report(captured: CapturedProfile) -> ProfileExecutableReport
         rankings,
         observations,
         data_quality,
+    }
+}
+
+fn profile_trace_note(profiler_backend: ProfileBackend) -> &'static str {
+    match profiler_backend {
+        ProfileBackend::Xctrace => {
+            "Open artifacts.trace for a single-executable report, or executables[].artifacts.trace for a merged test report, in Instruments when call-tree context or timeline ordering is needed."
+        }
+        ProfileBackend::Perf => {
+            "Inspect artifacts.trace for a single-executable report, or executables[].artifacts.trace for a merged test report, with `perf report -i` when call-tree context is needed."
+        }
     }
 }
 
@@ -1283,7 +1618,7 @@ fn skip_inclusive_symbol(symbol: &str) -> bool {
 
 fn render_terminal_report(report: &ProfileAgentReport) -> String {
     let mut out = String::new();
-    out.push_str("Profile: native macOS Time Profiler\n");
+    out.push_str(&format!("Profile: {}\n", terminal_title_for_report(report)));
     out.push_str(&format!("Executables: {}\n", report.summary.executables));
     out.push_str(&format!(
         "Samples: {}, sample weight: {:.2}ms\n",
@@ -1323,12 +1658,27 @@ fn render_terminal_report(report: &ProfileAgentReport) -> String {
         ));
     }
     if let Some(trace) = &report.artifacts.trace {
-        out.push_str("Open the full trace in Instruments:\n");
-        out.push_str(&format!("  open {}\n", trace.display()));
+        match report.producer.profiler_backend.as_str() {
+            "perf" => {
+                out.push_str("Inspect the full trace with perf:\n");
+                out.push_str(&format!("  perf report -i {}\n", trace.display()));
+            }
+            _ => {
+                out.push_str("Open the full trace in Instruments:\n");
+                out.push_str(&format!("  open {}\n", trace.display()));
+            }
+        }
     } else if !report.executables.is_empty() {
         out.push_str("Open per-executable traces listed in the JSON report.\n");
     }
     out
+}
+
+fn terminal_title_for_report(report: &ProfileAgentReport) -> &'static str {
+    match report.producer.profiler_backend.as_str() {
+        "perf" => ProfileBackend::Perf.terminal_title(),
+        _ => ProfileBackend::Xctrace.terminal_title(),
+    }
 }
 
 fn render_entries(out: &mut String, entries: &[ProfileEntry], limit: usize) {
@@ -1369,10 +1719,10 @@ mod tests {
     use moonutil::{common::RunMode, cond_expr::OptLevel};
 
     use super::{
-        CapturedProfile, PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE, ProfileArtifacts, build_report,
-        build_test_report, default_output_dir, parse_xctrace_time_profile_xml, profile_target,
-        render_terminal_report, sanitize_path_component, test_profile_output_dir_for_executable,
-        with_json_report,
+        CapturedProfile, PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE, ProfileArtifacts, ProfileBackend,
+        build_report, build_test_report, default_output_dir, parse_perf_script_output,
+        parse_xctrace_time_profile_xml, profile_target, render_terminal_report,
+        sanitize_path_component, test_profile_output_dir_for_executable, with_json_report,
     };
 
     #[test]
@@ -1423,6 +1773,40 @@ mod tests {
     }
 
     #[test]
+    fn parses_perf_script_callchains() {
+        let script = r#"
+            main 1234 [001] 10.000000: cpu-clock:
+        55ba00000001 _M0hot+0x14 (/tmp/main.exe)
+        55ba00000002 _M0owner (/tmp/main.exe)
+        7f0000000003 __libc_start_main (/usr/lib/libc.so.6)
+
+            main 1234 [001] 10.010000: cpu-clock:
+        55ba00000004 moonbit_make_string+0x20 (/tmp/main.exe)
+        55ba00000005 _M0owner (/tmp/main.exe)
+
+            main 1234 [001] 10.020000: cpu-clock:
+        7f0000000006 __libc_poll (/usr/lib/libc.so.6)
+"#;
+
+        let parsed = parse_perf_script_output(script);
+        assert_eq!(parsed.observed_rows, 3);
+        assert_eq!(parsed.running_samples, 3);
+        assert_eq!(parsed.total_samples, 2);
+        assert_eq!(parsed.samples_without_profile_symbols, 1);
+        assert_eq!(parsed.self_counts["_M0hot"], 1);
+        assert_eq!(parsed.self_counts["moonbit_make_string"], 1);
+        assert_eq!(parsed.inclusive_counts["_M0owner"], 2);
+        assert_eq!(parsed.profiled_time_ms, 20.0);
+        assert_eq!(
+            parsed.runtime_attribution_counts[&super::RuntimeAttributionKey {
+                user_symbol: "_M0owner".to_string(),
+                runtime_symbol: "moonbit_make_string".to_string(),
+            }],
+            1
+        );
+    }
+
+    #[test]
     fn agent_report_keeps_detailed_json_shape_and_human_stdout() {
         let xml = r#"
 <trace-query-result><node>
@@ -1433,6 +1817,7 @@ mod tests {
 "#;
         let parsed = parse_xctrace_time_profile_xml(xml);
         let report = build_report(
+            ProfileBackend::Xctrace,
             parsed,
             profile_target(
                 RunMode::Run,
@@ -1449,6 +1834,7 @@ mod tests {
                     time_profile_xml: Some(PathBuf::from(
                         "./_build/native/release/profile/main/time-profile.xml",
                     )),
+                    perf_script: None,
                     stdout: Some(PathBuf::from(
                         "./_build/native/release/profile/main/stdout.txt",
                     )),
@@ -1503,6 +1889,7 @@ mod tests {
 "#;
         let parsed = parse_xctrace_time_profile_xml(xml);
         let report = build_report(
+            ProfileBackend::Xctrace,
             parsed,
             profile_target(
                 RunMode::Run,
@@ -1519,6 +1906,7 @@ mod tests {
                     time_profile_xml: Some(PathBuf::from(
                         "./_build/native/release/profile/main/time-profile.xml",
                     )),
+                    perf_script: None,
                     stdout: Some(PathBuf::from(
                         "./_build/native/release/profile/main/stdout.txt",
                     )),
@@ -1567,6 +1955,7 @@ mod tests {
 "#,
         );
         let report = build_test_report(
+            ProfileBackend::Xctrace,
             RunBackend::Native,
             OptLevel::Release,
             with_json_report(
@@ -1613,6 +2002,7 @@ mod tests {
         let output_dir = PathBuf::from(format!("./_build/native/release/profile/test/ts/{name}"));
         CapturedProfile {
             name: name.to_string(),
+            profiler_backend: ProfileBackend::Xctrace,
             output_dir: output_dir.clone(),
             target: profile_target(
                 RunMode::Test,
@@ -1626,6 +2016,7 @@ mod tests {
             artifacts: ProfileArtifacts {
                 trace: Some(output_dir.join("profile.trace")),
                 time_profile_xml: Some(output_dir.join("time-profile.xml")),
+                perf_script: None,
                 stdout: Some(output_dir.join("stdout.txt")),
                 json_report: None,
             },

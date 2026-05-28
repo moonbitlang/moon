@@ -244,7 +244,7 @@ Run a main package
 
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
-* `--profile` — Profile the native executable using Time Profiler on macOS
+* `--profile` — Profile the native executable using Time Profiler on macOS or perf on Linux
 
 
 
@@ -291,7 +291,7 @@ Test the current package
   Default value: `256`
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the tests
-* `--profile` — Profile native test executables using Time Profiler on macOS
+* `--profile` — Profile native test executables using Time Profiler on macOS or perf on Linux
 * `--no-parallelize` — Run the tests in a target backend sequentially
 * `--outline` — Print the outline of tests to be executed and exit
 * `--test-failure-json` — Print failure message in JSON format
