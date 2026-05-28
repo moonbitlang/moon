@@ -300,6 +300,17 @@ readme = "README.md""#
 }
 
 #[test]
+fn test_reading_module_warns_when_moon_mod_shadows_json() {
+    let dir = TestDir::new("fmt_moon_mod_both.in");
+    let stderr = get_stderr(&dir, ["check", "--dry-run"]);
+
+    assert!(
+        stderr.contains("Both moon.mod.json and moon.mod exist at module root"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn test_fmt_moon_mod_local_deps_fail() {
     let dir = TestDir::new_empty();
     std::fs::create_dir_all(dir.join("main")).unwrap();

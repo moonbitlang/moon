@@ -26,7 +26,7 @@ use anyhow::{Context, bail};
 use moonutil::{
     common::{
         MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE, read_module_desc_file_in_dir,
-        write_module_json_to_file,
+        warn_if_shadowed_manifest, write_module_json_to_file,
     },
     dependency::SourceDependencyInfo,
     module::{MoonMod, convert_module_to_mod_json},
@@ -182,6 +182,12 @@ fn resolve_workspace_member(path: &Path) -> anyhow::Result<PathBuf> {
     if !member_dir.is_dir() {
         bail!("workspace member `{}` is not a directory", path.display());
     }
+    warn_if_shadowed_manifest(
+        &member_dir,
+        MOON_MOD_JSON,
+        MOON_MOD,
+        &format!("at module root '{}'", member_dir.display()),
+    );
     read_module_desc_file_in_dir(&member_dir).with_context(|| {
         format!(
             "workspace member `{}` does not contain `{}` or `{}`",
@@ -229,6 +235,12 @@ fn workspace_roots(member_dirs: &[PathBuf]) -> anyhow::Result<ResolvedRootModule
     let mut roots = ResolvedRootModules::with_key();
 
     for member_dir in member_dirs {
+        warn_if_shadowed_manifest(
+            member_dir,
+            MOON_MOD_JSON,
+            MOON_MOD,
+            &format!("at module root '{}'", member_dir.display()),
+        );
         let module = Arc::new(read_module_desc_file_in_dir(member_dir)?);
         let source = moonutil::mooncakes::ModuleSource::from_local_module(&module, member_dir);
         roots.insert(ResolvedModule::new(source, module));
