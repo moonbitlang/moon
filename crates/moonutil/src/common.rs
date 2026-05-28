@@ -287,7 +287,7 @@ pub enum MoonModJSONFormatErrorKind {
     SupportedTargets(anyhow::Error),
 }
 
-fn validate_module_dsl_deps(
+pub fn validate_module_dsl_deps(
     deps: Option<&IndexMap<String, crate::dependency::SourceDependencyInfo>>,
 ) -> anyhow::Result<()> {
     use crate::dependency::SourceDependencyInfo;
@@ -304,7 +304,7 @@ fn validate_module_dsl_deps(
             }
             SourceDependencyInfo::Local(_) => {
                 bail!(
-                    "moon.mod does not support local dependency `{}` in `import`; use workspace configuration in `moon.work` instead",
+                    "moon.mod does not support local dependency `{}` in `import`; use workspace configuration in `moon.work` instead. See https://docs.moonbitlang.com/en/latest/toolchain/moon/module.html#dependency-management",
                     name
                 );
             }

@@ -34,8 +34,10 @@ use log::*;
 use std::{collections::HashSet, ffi::OsStr, path::Path};
 
 use anyhow::Context;
-use moonutil::common::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK};
-use moonutil::mooncakes::ModuleSourceKind;
+use moonutil::common::{
+    MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK, validate_module_dsl_deps,
+};
+use moonutil::mooncakes::{ModuleSourceKind, result::ResolvedModule};
 use moonutil::workspace::workspace_manifest_path;
 use n2::graph::Build;
 
@@ -131,13 +133,14 @@ pub fn build_graph_for_fmt(
     // If no path filter is provided, find and format `moon.mod`/`moon.mod.json`.
     if selected_packages.is_none() {
         for &module_id in &resolved.root_module_ids {
-            match resolved.root_modules[module_id].source().source() {
+            let module = &resolved.root_modules[module_id];
+            match module.source().source() {
                 ModuleSourceKind::Local(path) | ModuleSourceKind::Stdlib(path) => {
                     has_module_manifest |= format_moon_mod_node(
                         &mut graph,
                         cfg,
                         &layout,
-                        resolved.root_modules[module_id].source(),
+                        module,
                         path,
                         &mut user_warnings,
                     )?
@@ -179,7 +182,7 @@ fn format_moon_mod_node(
     graph: &mut n2::graph::Graph,
     cfg: &FmtConfig,
     layout: &LegacyLayout,
-    module_source: &moonutil::mooncakes::ModuleSource,
+    module: &ResolvedModule,
     module_dir: &Path,
     user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<bool> {
@@ -193,7 +196,7 @@ fn format_moon_mod_node(
     }
 
     let target_moon_mod = layout.format_artifact_path(
-        &PackageFQN::new(module_source.clone(), PackagePath::empty()),
+        &PackageFQN::new(module.source().clone(), PackagePath::empty()),
         OsStr::new(MOON_MOD),
     );
 
@@ -212,6 +215,7 @@ fn format_moon_mod_node(
             &moon_mod_json,
             &target_moon_mod,
             &moon_mod,
+            module.module_info(),
             module_dir,
         )?;
     }
@@ -283,8 +287,12 @@ fn format_moon_mod_json_migrate(
     moon_mod_json: &Path,
     target_moon_mod: &Path,
     moon_mod: &Path,
+    module_info: &moonutil::module::MoonMod,
     module_dir: &Path,
 ) -> anyhow::Result<()> {
+    // moon.mod `import` cannot represent local dependencies; those must live in moon.work.
+    validate_module_dsl_deps(Some(&module_info.deps))?;
+
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
             moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
