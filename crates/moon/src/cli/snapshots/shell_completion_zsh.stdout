@@ -308,6 +308,71 @@ _arguments "${_arguments_options[@]}" : \
 '*::PATH -- Run tests for a filesystem path. If in a project, `PATH` may point to a package directory or a file inside a package; otherwise, runs in a temporary project:_files' \
 && ret=0
 ;;
+(cram)
+_arguments "${_arguments_options[@]}" : \
+'--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
+'--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
+'-q[Suppress output]' \
+'--quiet[Suppress output]' \
+'-v[Increase verbosity]' \
+'--verbose[Increase verbosity]' \
+'--trace[Trace the execution of the program]' \
+'--dry-run[Do not actually run the command]' \
+'(--dry-run)--build-graph[]' \
+":: :_moon__cram_commands" \
+"*::: :->cram" \
+&& ret=0
+
+    case $state in
+    (cram)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-cram-command-$line[1]:"
+        case $line[1] in
+            (test)
+_arguments "${_arguments_options[@]}" : \
+'--target=[Native is the only target supported by cram test]:TARGET:(native)' \
+'--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
+'--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
+'--release[Build native release executables]' \
+'-q[Suppress output]' \
+'--quiet[Suppress output]' \
+'-v[Increase verbosity]' \
+'--verbose[Increase verbosity]' \
+'--trace[Trace the execution of the program]' \
+'--dry-run[Do not actually run the command]' \
+'(--dry-run)--build-graph[]' \
+'*::SCRUT_ARGS -- Arguments passed to `moon-cram test`:' \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+":: :_moon__cram__help_commands" \
+"*::: :->help" \
+&& ret=0
+
+    case $state in
+    (help)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-cram-help-command-$line[1]:"
+        case $line[1] in
+            (test)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+(help)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
+        esac
+    ;;
+esac
+;;
 (generate-test-driver)
 _arguments "${_arguments_options[@]}" : \
 '*--doctest-only=[Files that need to be mapped, but only extract the doctests, not main contents]:DOCTEST_ONLY_FILES:_files' \
@@ -1240,6 +1305,26 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(cram)
+_arguments "${_arguments_options[@]}" : \
+":: :_moon__help__cram_commands" \
+"*::: :->cram" \
+&& ret=0
+
+    case $state in
+    (cram)
+        words=($line[1] "${words[@]}")
+        (( CURRENT += 1 ))
+        curcontext="${curcontext%:*:*}:moon-help-cram-command-$line[1]:"
+        case $line[1] in
+            (test)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
+        esac
+    ;;
+esac
+;;
 (generate-test-driver)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1491,6 +1576,7 @@ _moon_commands() {
 'prove:Prove the current package' \
 'run:Run a main package' \
 'test:Test the current package' \
+'cram:Run cram tests with project binaries on PATH (experimental)' \
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around \`moonc gen-test-info\`, which does the actual parsing and generation' \
 'clean:Remove the _build directory' \
 'fmt:Format source code' \
@@ -1606,6 +1692,37 @@ _moon__coverage__report_commands() {
     local commands; commands=()
     _describe -t commands 'moon coverage report commands' commands "$@"
 }
+(( $+functions[_moon__cram_commands] )) ||
+_moon__cram_commands() {
+    local commands; commands=(
+'test:Build native executables, then run cram tests with their directories on PATH' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'moon cram commands' commands "$@"
+}
+(( $+functions[_moon__cram__help_commands] )) ||
+_moon__cram__help_commands() {
+    local commands; commands=(
+'test:Build native executables, then run cram tests with their directories on PATH' \
+'help:Print this message or the help of the given subcommand(s)' \
+    )
+    _describe -t commands 'moon cram help commands' commands "$@"
+}
+(( $+functions[_moon__cram__help__help_commands] )) ||
+_moon__cram__help__help_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon cram help help commands' commands "$@"
+}
+(( $+functions[_moon__cram__help__test_commands] )) ||
+_moon__cram__help__test_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon cram help test commands' commands "$@"
+}
+(( $+functions[_moon__cram__test_commands] )) ||
+_moon__cram__test_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon cram test commands' commands "$@"
+}
 (( $+functions[_moon__doc_commands] )) ||
 _moon__doc_commands() {
     local commands; commands=()
@@ -1646,6 +1763,7 @@ _moon__help_commands() {
 'prove:Prove the current package' \
 'run:Run a main package' \
 'test:Test the current package' \
+'cram:Run cram tests with project binaries on PATH (experimental)' \
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around \`moonc gen-test-info\`, which does the actual parsing and generation' \
 'clean:Remove the _build directory' \
 'fmt:Format source code' \
@@ -1729,6 +1847,18 @@ _moon__help__coverage__clean_commands() {
 _moon__help__coverage__report_commands() {
     local commands; commands=()
     _describe -t commands 'moon help coverage report commands' commands "$@"
+}
+(( $+functions[_moon__help__cram_commands] )) ||
+_moon__help__cram_commands() {
+    local commands; commands=(
+'test:Build native executables, then run cram tests with their directories on PATH' \
+    )
+    _describe -t commands 'moon help cram commands' commands "$@"
+}
+(( $+functions[_moon__help__cram__test_commands] )) ||
+_moon__help__cram__test_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help cram test commands' commands "$@"
 }
 (( $+functions[_moon__help__doc_commands] )) ||
 _moon__help__doc_commands() {

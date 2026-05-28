@@ -23,6 +23,7 @@ pub(crate) mod bundle;
 pub(crate) mod check;
 pub(crate) mod clean;
 pub(crate) mod coverage;
+pub(crate) mod cram;
 pub(crate) mod deps;
 pub(crate) mod doc;
 pub(crate) mod explain;
@@ -54,6 +55,7 @@ pub(crate) use bundle::*;
 pub(crate) use check::*;
 pub(crate) use clean::*;
 pub(crate) use coverage::*;
+pub(crate) use cram::*;
 pub(crate) use deps::*;
 pub(crate) use doc::*;
 pub(crate) use explain::*;
@@ -111,6 +113,8 @@ pub(crate) enum MoonBuildSubcommands {
     Prove(ProveSubcommand),
     Run(RunSubcommand),
     Test(TestSubcommand),
+    #[clap(hide = true)]
+    Cram(CramSubcommand),
     #[clap(hide = true)]
     GenerateTestDriver(GenerateTestDriverSubcommand),
     Clean(CleanSubcommand),

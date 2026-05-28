@@ -195,6 +195,7 @@ pub fn main() {
         Check(c) => cli::run_check(&flags, &c),
         Prove(p) => cli::run_prove(&flags, &p),
         Clean(_) => cli::run_clean(&flags),
+        Cram(c) => cli::run_cram(&flags, c),
         Coverage(c) => cli::run_coverage(flags, c),
         Doc(d) => cli::run_doc(flags, d),
         Fetch(f) => cli::fetch_cli(flags, f),

@@ -41,6 +41,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand prove 'Prove the current package'
             cand run 'Run a main package'
             cand test 'Test the current package'
+            cand cram 'Run cram tests with project binaries on PATH (experimental)'
             cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
             cand clean 'Remove the _build directory'
             cand fmt 'Format source code'
@@ -315,6 +316,40 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --build-graph 'build-graph'
             cand -h 'Print help'
             cand --help 'Print help'
+        }
+        &'moon;cram'= {
+            cand --manifest-path 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+            cand test 'Build native executables, then run cram tests with their directories on PATH'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;cram;test'= {
+            cand --target 'Native is the only target supported by cram test'
+            cand --manifest-path 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)'
+            cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand --release 'Build native release executables'
+            cand -q 'Suppress output'
+            cand --quiet 'Suppress output'
+            cand -v 'Increase verbosity'
+            cand --verbose 'Increase verbosity'
+            cand --trace 'Trace the execution of the program'
+            cand --dry-run 'Do not actually run the command'
+            cand --build-graph 'build-graph'
+        }
+        &'moon;cram;help'= {
+            cand test 'Build native executables, then run cram tests with their directories on PATH'
+            cand help 'Print this message or the help of the given subcommand(s)'
+        }
+        &'moon;cram;help;test'= {
+        }
+        &'moon;cram;help;help'= {
         }
         &'moon;generate-test-driver'= {
             cand --doctest-only 'Files that need to be mapped, but only extract the doctests, not main contents'
@@ -1025,6 +1060,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand prove 'Prove the current package'
             cand run 'Run a main package'
             cand test 'Test the current package'
+            cand cram 'Run cram tests with project binaries on PATH (experimental)'
             cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
             cand clean 'Remove the _build directory'
             cand fmt 'Format source code'
@@ -1066,6 +1102,11 @@ set edit:completion:arg-completer[moon] = {|@words|
         &'moon;help;run'= {
         }
         &'moon;help;test'= {
+        }
+        &'moon;help;cram'= {
+            cand test 'Build native executables, then run cram tests with their directories on PATH'
+        }
+        &'moon;help;cram;test'= {
         }
         &'moon;help;generate-test-driver'= {
         }

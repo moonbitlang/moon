@@ -1,0 +1,6 @@
+# Runs executable from PATH
+
+```mooncram
+$ main.exe
+Hello from cram!
+```
