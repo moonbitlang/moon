@@ -157,7 +157,7 @@ pub fn add(
         let patch = if bin {
             MoonModPatch::Rewrite(convert_module_to_mod_json(Arc::unwrap_or_clone(m)))
         } else {
-            MoonModPatch::InsertImportItem {
+            MoonModPatch::UpsertImportItem {
                 name: pkg_name_str,
                 version: version.clone(),
             }
