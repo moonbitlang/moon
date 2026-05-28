@@ -138,6 +138,15 @@ pub fn add(
             },
         );
     } else {
+        if m.deps.contains_key(&pkg_name_str) {
+            eprintln!(
+                "{}: dependency `{pkg_name_str}` already exists, `moon add` will not update it. \
+                To update the dependency, run `moon update {pkg_name_str}@<version>` or `moon update {pkg_name_str}` for the latest version.",
+                "Warning".yellow().bold(),
+            );
+            return Ok(0);
+        }
+
         m.deps.insert(
             pkg_name_str.clone(),
             SourceDependencyInfo::Simple(version.clone()),
@@ -157,7 +166,7 @@ pub fn add(
         let patch = if bin {
             MoonModPatch::Rewrite(convert_module_to_mod_json(Arc::unwrap_or_clone(m)))
         } else {
-            MoonModPatch::UpsertImportItem {
+            MoonModPatch::InsertImportItem {
                 name: pkg_name_str,
                 version: version.clone(),
             }
