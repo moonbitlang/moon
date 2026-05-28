@@ -1776,13 +1776,13 @@ mod tests {
     fn parses_perf_script_callchains() {
         let script = r#"
             main 1234 [001] 10.000000: cpu-clock:
-        55ba00000001 _M0hot+0x14 (/tmp/main.exe)
-        55ba00000002 _M0owner (/tmp/main.exe)
+        400000000001 _M0hot+0x14 (/tmp/main.exe)
+        400000000002 _M0owner (/tmp/main.exe)
         7f0000000003 __libc_start_main (/usr/lib/libc.so.6)
 
             main 1234 [001] 10.010000: cpu-clock:
-        55ba00000004 moonbit_make_string+0x20 (/tmp/main.exe)
-        55ba00000005 _M0owner (/tmp/main.exe)
+        400000000004 moonbit_make_string+0x20 (/tmp/main.exe)
+        400000000005 _M0owner (/tmp/main.exe)
 
             main 1234 [001] 10.020000: cpu-clock:
         7f0000000006 __libc_poll (/usr/lib/libc.so.6)
