@@ -454,6 +454,7 @@ Add a dependency
 ###### **Options:**
 
 * `--bin` — Whether to add the dependency as a binary
+* `-u`, `--upgrade` — Upgrade an existing dependency
 * `--no-update` — Do not update the registry index before adding the dependency
 
 

@@ -425,7 +425,7 @@ _moon() {
             return 0
             ;;
         moon__add)
-            opts="-q -v -h --bin --no-update --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <MODULE>"
+            opts="-u -q -v -h --bin --upgrade --no-update --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <MODULE>"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
