@@ -59,6 +59,16 @@ static BUILD_VAR_REGEX: LazyLock<Regex> =
 const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
 
 impl<'a> BuildPlanConstructor<'a> {
+    fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
+        if self.build_env.native_target.is_some() {
+            err.context(
+                "new native backend requires a C compiler/linker driver; install clang/cc or set MOON_CC",
+            )
+        } else {
+            err
+        }
+    }
+
     fn effective_native_toolchain(&self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
         debug_assert!(self.build_env.target_backend.is_native());
         moonutil::compiler_flags::effective_native_toolchain(
@@ -740,7 +750,12 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let effective_native_toolchain = self
             .effective_native_toolchain(stub_cc.as_ref())
-            .map_err(|e| BuildPlanConstructError::FailedToSetStubCC(e, pkg.fqn.clone().into()))?;
+            .map_err(|e| {
+                BuildPlanConstructError::FailedToSetStubCC(
+                    self.new_native_linker_context(e),
+                    pkg.fqn.clone().into(),
+                )
+            })?;
 
         self.propagate_link_config(
             &effective_native_toolchain,
@@ -878,9 +893,13 @@ impl<'a> BuildPlanConstructor<'a> {
             link_pkgs.push(target.package);
         }
 
-        let effective_native_toolchain = self
-            .effective_native_toolchain(cc.as_ref())
-            .map_err(|e| BuildPlanConstructError::FailedToSetCC(e, pkg.fqn.clone().into()))?;
+        let effective_native_toolchain =
+            self.effective_native_toolchain(cc.as_ref()).map_err(|e| {
+                BuildPlanConstructError::FailedToSetCC(
+                    self.new_native_linker_context(e),
+                    pkg.fqn.clone().into(),
+                )
+            })?;
 
         self.propagate_link_config(
             &effective_native_toolchain,

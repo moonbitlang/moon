@@ -31,7 +31,7 @@ use tracing::instrument;
 use crate::{
     ResolveOutput,
     build_plan::BuildPlan,
-    model::{Artifacts, BuildPlanNode, OperatingSystem, RunBackend, TccRunConfig},
+    model::{Artifacts, BuildPlanNode, NativeTarget, OperatingSystem, RunBackend, TccRunConfig},
     pkg_name::OptionalPackageFQNWithSource,
 };
 
@@ -53,6 +53,7 @@ pub struct BuildOptions {
     pub target_dir_root: PathBuf,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
     pub target_backend: RunBackend,
+    pub native_target: Option<NativeTarget>,
     pub tcc_run: Option<TccRunConfig>,
     pub os: OperatingSystem,
     pub opt_level: OptLevel,
@@ -79,6 +80,7 @@ impl BuildOptions {
     pub fn use_tcc_run(&self) -> bool {
         let use_tcc_run = self.tcc_run.is_some();
         debug_assert!(!use_tcc_run || self.target_backend == RunBackend::Native);
+        debug_assert!(!use_tcc_run || self.native_target.is_none());
         use_tcc_run
     }
 

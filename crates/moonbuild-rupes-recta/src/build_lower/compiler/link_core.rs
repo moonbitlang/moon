@@ -27,6 +27,7 @@ use moonutil::package::{ImportMemory, JsFormat, MemoryLimits};
 use crate::build_lower::compiler::{
     CmdlineAbstraction, CompilationFlags, CompiledPackageName, PackageSource,
 };
+use crate::model::NativeTarget;
 
 /// Abstraction for `moonc link-core`.
 ///
@@ -60,6 +61,8 @@ pub(crate) struct MooncLinkCore<'a> {
     // Target and compilation configuration
     /// The target backend to link for.
     pub target_backend: TargetBackend,
+    /// Concrete direct object-code backend selected under native, if any.
+    pub native_target: Option<NativeTarget>,
     /// Compilation flags - reuse existing structure, symbols maps to -g, no_opt maps to -O0
     pub flags: CompilationFlags,
     /// Whether this project is linked to be used for testing. Test projects
@@ -181,7 +184,12 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // Target backend
         args.push("-target".to_string());
-        args.push(self.target_backend.to_flag().to_string());
+        args.push(
+            self.native_target
+                .map(NativeTarget::moonc_target_flag)
+                .unwrap_or_else(|| self.target_backend.to_flag())
+                .to_string(),
+        );
 
         // Debug and optimization flags (using CompilationFlags)
         // symbols maps to -g, no_opt maps to -O0

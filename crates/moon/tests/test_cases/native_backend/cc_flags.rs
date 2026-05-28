@@ -187,6 +187,44 @@ fn test_native_backend_cc_flags_with_env_override() {
 }
 
 #[test]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+fn test_native_backend_new_native_with_env_override() {
+    let dir = TestDir::new("native_backend/cc_flags");
+    let envs = &[
+        ("MOONBIT_NEW_NATIVE", "1"),
+        ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+    ];
+    assert_native_backend_graph(
+        &dir,
+        "build_native_new_native_env_graph.jsonl",
+        &["build", "--target", "native", "--dry-run", "--sort-input"],
+        envs,
+        expect_file!["cc_flags/build_native_new_native_env_graph.jsonl.snap"],
+    );
+    assert_native_backend_graph(
+        &dir,
+        "test_native_new_native_env_graph.jsonl",
+        &["test", "--target", "native", "--dry-run", "--sort-input"],
+        envs,
+        expect_file!["cc_flags/test_native_new_native_env_graph.jsonl.snap"],
+    );
+    assert_native_backend_graph(
+        &dir,
+        "run_native_new_native_env_graph.jsonl",
+        &[
+            "run",
+            "main",
+            "--target",
+            "native",
+            "--dry-run",
+            "--sort-input",
+        ],
+        envs,
+        expect_file!["cc_flags/run_native_new_native_env_graph.jsonl.snap"],
+    );
+}
+
+#[test]
 #[cfg(windows)]
 fn test_native_backend_clang_uses_target_specific_libm_behavior() {
     let in_ci = std::env::var("CI").is_ok();

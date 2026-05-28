@@ -617,6 +617,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.packages,
             &target,
             self.opt.target_backend.into(),
+            self.opt.native_target,
             self.opt.os,
             self.opt.output_wat,
         );
@@ -650,6 +651,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             package_sources: &package_sources,
             stdlib_core_source: None,
             target_backend: self.opt.target_backend.into(),
+            native_target: self.opt.native_target,
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(target, package),
@@ -994,6 +996,8 @@ impl<'a> BuildPlanLowerContext<'a> {
                 if let Some(tcc_run) = &self.opt.tcc_run {
                     let internal_tcc = tcc_run.internal_tcc().clone();
                     self.build_tcc_run_driver_command(target, info, internal_tcc)
+                } else if self.opt.native_target.is_some() {
+                    self.lower_link_new_native_exe(target, info)
                 } else {
                     self.lower_build_exe_regular(target, info)
                 }
@@ -1102,6 +1106,75 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    fn lower_link_new_native_exe(
+        &mut self,
+        target: BuildTarget,
+        info: &MakeExecutableInfo,
+    ) -> BuildCommand {
+        let mut sources = vec![];
+        self.append_all_artifacts_of(BuildPlanNode::LinkCore(target), &mut sources);
+        self.append_all_artifacts_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
+        for &stub_tgt in &info.link_c_stubs {
+            self.append_all_artifacts_of(
+                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt),
+                &mut sources,
+            );
+        }
+
+        let cc = info.effective_native_toolchain.cc().clone();
+        let simdutf_objects = if cc.can_use_simdutf() {
+            self.opt
+                .compiler_paths
+                .simdutf_object_paths()
+                .map(|objects| objects.into_iter().collect::<Vec<_>>())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        sources.extend(simdutf_objects.iter().cloned());
+
+        let dest = self
+            .layout
+            .executable_of_build_target(self.packages, &target, self.opt.executable_artifact(true))
+            .display()
+            .to_string();
+
+        let pkg_dir = self
+            .layout
+            .package_dir(
+                &self.get_package(target).fqn,
+                self.opt.target_backend.into(),
+            )
+            .display()
+            .to_string();
+
+        let config = LinkerConfigBuilder::<&Path>::default()
+            .link_moonbitrun(true)
+            .link_libbacktrace(true)
+            .output_ty(CCOutputType::Executable)
+            .build()
+            .expect("Failed to build LinkerConfig for new native executable");
+
+        let source_args = sources
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>();
+        let linker_cmd = make_linker_command_resolved(
+            cc,
+            config,
+            &info.link_flags,
+            &source_args,
+            &pkg_dir,
+            &dest,
+            &self.opt.compiler_paths.lib_path,
+        );
+
+        BuildCommand {
+            extra_inputs: simdutf_objects,
+            commandline: linker_cmd.into(),
+        }
+    }
+
     /// Build the command for `tcc -run` to execute when running, as well as
     /// putting that into a response file.
     fn build_tcc_run_driver_command(
@@ -1152,6 +1225,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.packages,
             &target,
             self.opt.target_backend.into(),
+            self.opt.native_target,
             self.opt.os,
             self.opt.output_wat,
         );
