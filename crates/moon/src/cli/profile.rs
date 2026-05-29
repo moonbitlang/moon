@@ -40,7 +40,16 @@ const DEFAULT_TOP: usize = 12;
 const MIN_ACTIONABLE_SAMPLES: usize = 100;
 const PERF_SAMPLE_FREQUENCY_HZ: u32 = 100;
 const PERF_SAMPLE_WEIGHT_MS: f64 = 1000.0 / PERF_SAMPLE_FREQUENCY_HZ as f64;
+const PERF_COMMAND: &str = "perf";
+const PERF_PERMISSION_HINT: &str = concat!(
+    "If this is a permissions issue, check `/proc/sys/kernel/perf_event_paranoid`. ",
+    "You may need to lower it or run with sufficient privileges for profiling on this machine."
+);
+const PERF_SCRIPT_LIBRARY_SEPARATOR: &str = " (";
+const PERF_SYMBOL_OFFSET_SEPARATOR: &str = "+0x";
+const MOON_RUN_PROFILE_COMMAND: &str = "`moon run --profile`";
 pub(crate) const MOON_TEST_PROFILE_COMMAND: &str = "`moon test --profile`";
+const MOON_PROFILE_COMMAND: &str = "`moon --profile`";
 const PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE: &str = "Profile mode reports performance only; run `moon test` without `--profile` for pass/fail validation.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +135,7 @@ struct ProfileArtifacts {
     time_profile_xml: Option<PathBuf>,
     perf_script: Option<PathBuf>,
     stdout: Option<PathBuf>,
+    stderr: Option<PathBuf>,
     json_report: Option<PathBuf>,
 }
 
@@ -238,7 +248,7 @@ pub(crate) struct ProfileRequest {
     pub(crate) executable: PathBuf,
     /// Arguments passed after the executable in the profiled invocation.
     pub(crate) args: Vec<String>,
-    /// Directory where the trace, exported XML, stdout, and JSON report are written.
+    /// Directory where the trace, exported data, stdout/stderr, and JSON report are written.
     pub(crate) output_dir: PathBuf,
     /// Moon command mode that requested the profile.
     pub(crate) run_mode: RunMode,
@@ -249,13 +259,13 @@ pub(crate) struct ProfileRequest {
 }
 
 pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    ensure_profile_available("`moon run --profile`")?;
+    ensure_profile_available(MOON_RUN_PROFILE_COMMAND)?;
 
     if cmd.command.is_some() {
-        bail!("`moon run --profile` does not support inline `-e` source");
+        bail!("{MOON_RUN_PROFILE_COMMAND} does not support inline `-e` source");
     }
     if cmd.package_or_mbt_file.as_deref() == Some("-") {
-        bail!("`moon run --profile` does not support stdin source");
+        bail!("{MOON_RUN_PROFILE_COMMAND} does not support stdin source");
     }
 
     run_profile_materialized(cli, cmd)
@@ -278,7 +288,7 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
     built.ensure_build_success()?;
 
     if built.target_backend != RunBackend::Native {
-        bail!("`moon run --profile` currently supports only the native backend");
+        bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend");
     }
 
     let output_dir = default_output_dir(
@@ -341,9 +351,9 @@ fn capture_profile_executable(
         opt_level,
     } = request;
     let command_name = match run_mode {
-        RunMode::Run => "`moon run --profile`",
+        RunMode::Run => MOON_RUN_PROFILE_COMMAND,
         RunMode::Test => MOON_TEST_PROFILE_COMMAND,
-        _ => "`moon --profile`",
+        _ => MOON_PROFILE_COMMAND,
     };
     let profiler_backend = ensure_profile_available(command_name)?;
     let trace_path = match profiler_backend {
@@ -353,6 +363,7 @@ fn capture_profile_executable(
     let xml_path = output_dir.join("time-profile.xml");
     let perf_script_path = output_dir.join("perf-script.txt");
     let stdout_path = output_dir.join("stdout.txt");
+    let stderr_path = output_dir.join("stderr.txt");
 
     if cli.dry_run {
         match profiler_backend {
@@ -361,7 +372,13 @@ fn capture_profile_executable(
                 print_xctrace_export_command(&trace_path, &xml_path);
             }
             ProfileBackend::Perf => {
-                print_perf_record_command(&trace_path, &stdout_path, &executable, &args);
+                print_perf_record_command(
+                    &trace_path,
+                    &stdout_path,
+                    &stderr_path,
+                    &executable,
+                    &args,
+                );
                 print_perf_script_command(&trace_path, &perf_script_path);
             }
         }
@@ -393,12 +410,13 @@ fn capture_profile_executable(
                     time_profile_xml: Some(xml_path),
                     perf_script: None,
                     stdout: Some(stdout_path),
+                    stderr: None,
                     json_report: None,
                 },
             )
         }
         ProfileBackend::Perf => {
-            run_perf_record(&trace_path, &stdout_path, &executable, &args)?;
+            run_perf_record(&trace_path, &stdout_path, &stderr_path, &executable, &args)?;
             run_perf_script(&trace_path, &perf_script_path)?;
             (
                 parse_perf_script(&perf_script_path)?,
@@ -407,6 +425,7 @@ fn capture_profile_executable(
                     time_profile_xml: None,
                     perf_script: Some(perf_script_path),
                     stdout: Some(stdout_path),
+                    stderr: Some(stderr_path),
                     json_report: None,
                 },
             )
@@ -427,7 +446,7 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
     if !build_flags.target.is_empty()
         && build_flags.resolve_single_target_backend()? != Some(TargetBackend::Native)
     {
-        bail!("`moon run --profile` currently supports only `--target native`");
+        bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only `--target native`");
     }
     // Native profilers record a native process. Build release-with-symbols by
     // default so samples are useful without requiring extra flags from users.
@@ -676,20 +695,9 @@ fn ensure_xctrace_available(command_name: &str) -> anyhow::Result<()> {
 }
 
 fn ensure_perf_available(command_name: &str) -> anyhow::Result<()> {
-    let output = Command::new("perf")
-        .arg("--version")
-        .output()
-        .context("failed to execute `perf --version`")?;
-    if output.status.success() {
-        return Ok(());
-    }
-
-    bail!(
-        "{command_name} on Linux requires `perf`.\n\n\
-         `perf --version` failed with:\n{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    )
+    which::which(PERF_COMMAND)
+        .with_context(|| format!("{command_name} on Linux requires `{PERF_COMMAND}` on PATH"))?;
+    Ok(())
 }
 
 fn run_xctrace_record(
@@ -756,7 +764,7 @@ fn xctrace_record_command(
 }
 
 fn perf_record_command(data_path: &Path, executable: &Path, args: &[String]) -> Command {
-    let mut cmd = Command::new("perf");
+    let mut cmd = Command::new(PERF_COMMAND);
     cmd.args(["record", "--quiet", "-F"]);
     cmd.arg(PERF_SAMPLE_FREQUENCY_HZ.to_string());
     cmd.args(["-e", "cpu-clock", "--call-graph", "dwarf", "-o"]);
@@ -768,7 +776,7 @@ fn perf_record_command(data_path: &Path, executable: &Path, args: &[String]) -> 
 }
 
 fn perf_script_command(data_path: &Path) -> Command {
-    let mut cmd = Command::new("perf");
+    let mut cmd = Command::new(PERF_COMMAND);
     cmd.args(["script", "-i"]);
     cmd.arg(data_path);
     cmd
@@ -777,23 +785,28 @@ fn perf_script_command(data_path: &Path) -> Command {
 fn run_perf_record(
     data_path: &Path,
     stdout_path: &Path,
+    stderr_path: &Path,
     executable: &Path,
     args: &[String],
 ) -> anyhow::Result<()> {
     let stdout = File::create(stdout_path)
         .with_context(|| format!("failed to create stdout file `{}`", stdout_path.display()))?;
+    let stderr = File::create(stderr_path)
+        .with_context(|| format!("failed to create stderr file `{}`", stderr_path.display()))?;
     let mut cmd = perf_record_command(data_path, executable, args);
-    let output = cmd
+    let status = cmd
         .stdout(Stdio::from(stdout))
-        .output()
+        .stderr(Stdio::from(stderr))
+        .status()
         .context("failed to execute `perf record`")?;
-    if !output.status.success() {
+    if !status.success() {
         bail!(
-            "`perf record` failed with {}\n{}{}\n{}",
-            output.status,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-            perf_permission_hint()
+            "`perf record` failed with {status}\n\
+             Program stdout: {}\n\
+             Program/perf stderr: {}\n\
+             {PERF_PERMISSION_HINT}",
+            stdout_path.display(),
+            stderr_path.display(),
         );
     }
     Ok(())
@@ -816,11 +829,6 @@ fn run_perf_script(data_path: &Path, script_path: &Path) -> anyhow::Result<()> {
         );
     }
     Ok(())
-}
-
-fn perf_permission_hint() -> &'static str {
-    "If this is a permissions issue, check `/proc/sys/kernel/perf_event_paranoid`. \
-     You may need to lower it or run with sufficient privileges for profiling on this machine."
 }
 
 fn xctrace_export_command(trace_path: &Path, xml_path: &Path) -> Command {
@@ -856,11 +864,12 @@ fn print_xctrace_export_command(trace_path: &Path, xml_path: &Path) {
 fn print_perf_record_command(
     data_path: &Path,
     stdout_path: &Path,
+    stderr_path: &Path,
     executable: &Path,
     args: &[String],
 ) {
     let cmd = perf_record_command(data_path, executable, args);
-    print_command_with_stdout_redirect(&cmd, stdout_path);
+    print_command_with_output_redirects(&cmd, stdout_path, Some(stderr_path));
 }
 
 fn print_perf_script_command(data_path: &Path, script_path: &Path) {
@@ -873,13 +882,26 @@ fn print_command(cmd: &Command) {
 }
 
 fn print_command_with_stdout_redirect(cmd: &Command, stdout_path: &Path) {
+    print_command_with_output_redirects(cmd, stdout_path, None);
+}
+
+fn print_command_with_output_redirects(
+    cmd: &Command,
+    stdout_path: &Path,
+    stderr_path: Option<&Path>,
+) {
     let mut line = command_line(cmd);
-    line.push_str(" > ");
-    let stdout_path = stdout_path.to_string_lossy().into_owned();
-    line.push_str(&moonutil::shlex::join_unix(std::iter::once(
-        stdout_path.as_str(),
-    )));
+    append_shell_redirect(&mut line, " > ", stdout_path);
+    if let Some(stderr_path) = stderr_path {
+        append_shell_redirect(&mut line, " 2> ", stderr_path);
+    }
     println!("{line}");
+}
+
+fn append_shell_redirect(line: &mut String, operator: &str, path: &Path) {
+    line.push_str(operator);
+    let path = path.to_string_lossy().into_owned();
+    line.push_str(&moonutil::shlex::join_unix(std::iter::once(path.as_str())));
 }
 
 fn command_line(cmd: &Command) -> String {
@@ -953,16 +975,25 @@ fn is_perf_stack_line(line: &str) -> bool {
 
 fn is_perf_sample_header(line: &str) -> bool {
     let trimmed = line.trim_start();
-    if trimmed.is_empty() {
-        return false;
-    }
-    let Some(first) = trimmed.split_whitespace().next() else {
+    let Some((metadata, _event)) = trimmed.split_once(':') else {
         return false;
     };
-    !looks_like_perf_address(first)
-        && trimmed.contains('[')
-        && trimmed.contains(']')
-        && trimmed.contains(':')
+    let mut fields = metadata.split_whitespace().rev();
+    let Some(timestamp) = fields.next() else {
+        return false;
+    };
+    let Some(cpu) = fields.next() else {
+        return false;
+    };
+    let Some(pid) = fields.next() else {
+        return false;
+    };
+    let has_command = fields.next().is_some();
+
+    has_command
+        && timestamp.parse::<f64>().is_ok()
+        && is_perf_cpu_token(cpu)
+        && is_perf_pid_token(pid)
 }
 
 fn parse_perf_stack_symbol(line: &str) -> Option<String> {
@@ -971,12 +1002,9 @@ fn parse_perf_stack_symbol(line: &str) -> Option<String> {
         return None;
     }
 
-    let without_address = match trimmed.split_once(char::is_whitespace) {
-        Some((first, rest)) if looks_like_perf_address(first) => rest.trim_start(),
-        _ => trimmed,
-    };
+    let without_address = strip_perf_address_column(trimmed);
     let symbol = without_address
-        .split(" (")
+        .split(PERF_SCRIPT_LIBRARY_SEPARATOR)
         .next()
         .unwrap_or(without_address)
         .trim();
@@ -988,14 +1016,37 @@ fn parse_perf_stack_symbol(line: &str) -> Option<String> {
     }
 }
 
-fn looks_like_perf_address(token: &str) -> bool {
+fn is_perf_cpu_token(token: &str) -> bool {
+    token
+        .strip_prefix('[')
+        .and_then(|token| token.strip_suffix(']'))
+        .is_some_and(|cpu| !cpu.is_empty() && cpu.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn is_perf_pid_token(token: &str) -> bool {
+    token
+        .split('/')
+        .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn strip_perf_address_column(line: &str) -> &str {
+    match line.split_once(char::is_whitespace) {
+        Some((first, rest)) if parse_perf_address(first).is_some() => rest.trim_start(),
+        _ => line,
+    }
+}
+
+fn parse_perf_address(token: &str) -> Option<u64> {
     let token = token.strip_prefix("0x").unwrap_or(token);
-    !token.is_empty() && token.chars().all(|c| c.is_ascii_hexdigit())
+    if token.is_empty() {
+        return None;
+    }
+    u64::from_str_radix(token, 16).ok()
 }
 
 fn strip_perf_symbol_offset(symbol: &str) -> &str {
     symbol
-        .rfind("+0x")
+        .rfind(PERF_SYMBOL_OFFSET_SEPARATOR)
         .map(|offset| &symbol[..offset])
         .unwrap_or(symbol)
 }
@@ -1630,6 +1681,9 @@ fn render_terminal_report(report: &ProfileAgentReport) -> String {
     if let Some(stdout) = &report.artifacts.stdout {
         out.push_str(&format!("Program stdout: {}\n", stdout.display()));
     }
+    if let Some(stderr) = &report.artifacts.stderr {
+        out.push_str(&format!("Program stderr: {}\n", stderr.display()));
+    }
     if !report.data_quality.warnings.is_empty() {
         out.push('\n');
         out.push_str("Warnings:\n");
@@ -1838,6 +1892,7 @@ mod tests {
                     stdout: Some(PathBuf::from(
                         "./_build/native/release/profile/main/stdout.txt",
                     )),
+                    stderr: None,
                     json_report: None,
                 },
                 PathBuf::from("./_build/native/release/profile/main/profile.json"),
@@ -1910,6 +1965,7 @@ mod tests {
                     stdout: Some(PathBuf::from(
                         "./_build/native/release/profile/main/stdout.txt",
                     )),
+                    stderr: None,
                     json_report: None,
                 },
                 PathBuf::from("./_build/native/release/profile/main/profile.json"),
@@ -2018,6 +2074,7 @@ mod tests {
                 time_profile_xml: Some(output_dir.join("time-profile.xml")),
                 perf_script: None,
                 stdout: Some(output_dir.join("stdout.txt")),
+                stderr: None,
                 json_report: None,
             },
             parsed,

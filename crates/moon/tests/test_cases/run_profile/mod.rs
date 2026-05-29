@@ -22,16 +22,12 @@ fn xcrun_version_shim() -> (tempfile::TempDir, String) {
 }
 
 #[cfg(target_os = "linux")]
-fn perf_version_shim() -> (tempfile::TempDir, String) {
+fn perf_path_shim() -> (tempfile::TempDir, String) {
     use std::os::unix::fs::PermissionsExt;
 
     let tmp = tempfile::tempdir().expect("failed to create temporary directory");
     let shim_path = tmp.path().join("perf");
-    std::fs::write(
-        &shim_path,
-        "#!/usr/bin/env sh\nif [ \"$1\" = \"--version\" ]; then\n  exit 0\nfi\nexit 0\n",
-    )
-    .unwrap();
+    std::fs::write(&shim_path, "#!/usr/bin/env sh\nexit 0\n").unwrap();
     let mut perms = std::fs::metadata(&shim_path).unwrap().permissions();
     perms.set_mode(0o755);
     std::fs::set_permissions(&shim_path, perms).unwrap();
@@ -117,7 +113,7 @@ fn test_moon_run_profile_dry_run_prints_perf_commands() {
     use crate::dry_run_utils::line_with;
 
     let dir = TestDir::new("hello");
-    let (_tmp, path) = perf_version_shim();
+    let (_tmp, path) = perf_path_shim();
 
     let output = get_stdout_with_envs(
         &dir,
@@ -148,6 +144,10 @@ fn test_moon_run_profile_dry_run_prints_perf_commands() {
     assert!(
         record_cmd.contains("stdout.txt"),
         "record command missing stdout redirection: {record_cmd}"
+    );
+    assert!(
+        record_cmd.contains("stderr.txt"),
+        "record command missing stderr redirection: {record_cmd}"
     );
     assert!(
         script_cmd.contains("perf-script.txt"),
