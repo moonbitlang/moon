@@ -44,6 +44,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('prove', 'prove', [CompletionResultType]::ParameterValue, 'Prove the current package')
             [CompletionResult]::new('run', 'run', [CompletionResultType]::ParameterValue, 'Run a main package')
             [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Test the current package')
+            [CompletionResult]::new('cram', 'cram', [CompletionResultType]::ParameterValue, 'Run cram tests with project binaries on PATH (experimental)')
             [CompletionResult]::new('generate-test-driver', 'generate-test-driver', [CompletionResultType]::ParameterValue, 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation')
             [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the _build directory')
             [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
@@ -316,6 +317,37 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--test-failure-json', 'test-failure-json', [CompletionResultType]::ParameterName, 'Print failure message in JSON format')
             [CompletionResult]::new('--doc', 'doc', [CompletionResultType]::ParameterName, 'Run doc test')
             [CompletionResult]::new('--include-skipped', 'include-skipped', [CompletionResultType]::ParameterName, 'Include skipped tests. Automatically implied when `--[doc-]index` is set')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            break
+        }
+        'moon;cram' {
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
+            [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
+            [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--verbose', 'verbose', [CompletionResultType]::ParameterName, 'Increase verbosity')
+            [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
+            [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
+            [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Build native executables, then run cram tests with their directories on PATH')
+            break
+        }
+        'moon;cram;test' {
+            [CompletionResult]::new('--target', 'target', [CompletionResultType]::ParameterName, 'Native is the only target supported by cram test')
+            [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
+            [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
+            [CompletionResult]::new('--release', 'release', [CompletionResultType]::ParameterName, 'Build native release executables')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('-v', 'v', [CompletionResultType]::ParameterName, 'Increase verbosity')
@@ -1099,6 +1131,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('prove', 'prove', [CompletionResultType]::ParameterValue, 'Prove the current package')
             [CompletionResult]::new('run', 'run', [CompletionResultType]::ParameterValue, 'Run a main package')
             [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Test the current package')
+            [CompletionResult]::new('cram', 'cram', [CompletionResultType]::ParameterValue, 'Run cram tests with project binaries on PATH (experimental)')
             [CompletionResult]::new('generate-test-driver', 'generate-test-driver', [CompletionResultType]::ParameterValue, 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation')
             [CompletionResult]::new('clean', 'clean', [CompletionResultType]::ParameterValue, 'Remove the _build directory')
             [CompletionResult]::new('fmt', 'fmt', [CompletionResultType]::ParameterValue, 'Format source code')
@@ -1147,6 +1180,13 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;help;test' {
+            break
+        }
+        'moon;help;cram' {
+            [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Build native executables, then run cram tests with their directories on PATH')
+            break
+        }
+        'moon;help;cram;test' {
             break
         }
         'moon;help;generate-test-driver' {

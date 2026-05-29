@@ -108,6 +108,253 @@ fn test_external_subcommand_delegation_handles_interrupt() {
     );
 }
 
+#[test]
+fn test_cram_dry_run_builds_native_release_and_prints_delegation() {
+    let dir = TestDir::new("hello");
+    let stdout = get_stdout(
+        &dir,
+        ["--dry-run", "cram", "test", "--release", "--", "--list"],
+    );
+
+    assert!(
+        stdout.contains("./_build/native/release/build/main/main.exe"),
+        "dry-run should build the native release executable:\n{stdout}"
+    );
+
+    let cram_line = stdout.lines().last().unwrap_or_default();
+    let path_separator = if cfg!(windows) { ";" } else { ":" };
+    assert!(
+        cram_line.contains(&format!(
+            "'PATH=./_build/native/release/build/main{path_separator}$PATH'"
+        )),
+        "dry-run should print moon-cram with the computed PATH:\n{stdout}"
+    );
+    assert!(
+        cram_line.contains("moon-cram") && cram_line.ends_with(" test --list"),
+        "dry-run should print moon-cram with forwarded args:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_delegates_with_built_binary_dirs_on_path() {
+    let dir = TestDir::new("hello");
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["cram", "test", "--shell", "bash"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+
+    assert!(
+        stdout.contains("fake-moon-cram-args=test|--shell|bash"),
+        "moon-cram should receive passthrough args:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("fake-moon-cram-path=$ROOT/_build/native/debug/build/main"),
+        "moon-cram PATH should include the built executable directory:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_makes_built_executable_available_on_path() {
+    let dir = TestDir::new("cram");
+
+    let stdout = get_stdout(&dir, ["cram", "test", "tests/cram"]);
+
+    assert!(
+        stdout.contains("Result: 1 document(s) with 1 testcase(s): 1 succeeded"),
+        "moon-cram should run the cram test that invokes the built executable by name:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_test_help_shows_wrapper_options() {
+    let dir = TestDir::new_empty();
+
+    let stdout = get_stdout(&dir, ["cram", "test", "--help"]);
+
+    assert!(
+        stdout.contains("--release") && stdout.contains("--target <TARGET>"),
+        "moon cram test help should show Moon-owned wrapper options:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_parent_help_shows_wrapper_subcommands() {
+    let dir = TestDir::new_empty();
+
+    let stdout = get_stdout(&dir, ["cram", "--help"]);
+
+    assert!(
+        stdout.contains("test") && stdout.contains("Build native executables"),
+        "moon cram help should show Moon-owned wrapper subcommands:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_parent_flag_delegates_to_moon_cram() {
+    let dir = TestDir::new_empty();
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["cram", "--version"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+
+    assert!(
+        stdout.contains("fake-moon-cram-args=--version"),
+        "moon cram parent flags should be handled by moon-cram:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_parent_flag_after_moon_global_delegates_to_moon_cram() {
+    let dir = TestDir::new_empty();
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["-q", "cram", "--version"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+
+    assert!(
+        stdout.contains("fake-moon-cram-args=--version"),
+        "moon cram parent flags should still delegate after Moon globals:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_non_test_subcommand_delegates_to_moon_cram() {
+    let dir = TestDir::new_empty();
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["cram", "list", "--json"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+
+    assert!(
+        stdout.contains("fake-moon-cram-args=list|--json"),
+        "non-test cram invocations should be handled by moon-cram:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_cram_build_path_error_does_not_delegate_to_moon_cram() {
+    let dir = TestDir::new_empty();
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["build", "cram", "--bad-flag"],
+        [(
+            "MOON_CRAM_OVERRIDE",
+            fake_cram.to_string_lossy().into_owned(),
+        )],
+    );
+
+    assert!(
+        stderr.contains("unexpected argument '--bad-flag'"),
+        "cram path under moon build should stay a build parse error:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_cram_rejects_unresolved_runner_before_build_path() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{ "name": "username/cram-shadow" }"#,
+    )
+    .expect("failed to write module manifest");
+    std::fs::create_dir_all(dir.join("moon-cram")).expect("failed to create main package");
+    std::fs::write(
+        dir.join("moon-cram/moon.pkg.json"),
+        r#"{ "is-main": true }"#,
+    )
+    .expect("failed to write package manifest");
+    std::fs::write(
+        dir.join("moon-cram/main.mbt"),
+        "fn main { println(\"shadowed\") }\n",
+    )
+    .expect("failed to write main source");
+
+    let empty_path = tempfile::TempDir::new().expect("failed to create empty PATH dir");
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["cram", "test"],
+        [
+            ("MOON_CRAM_OVERRIDE".to_string(), "moon-cram".to_string()),
+            (
+                "PATH".to_string(),
+                empty_path.path().to_string_lossy().into_owned(),
+            ),
+        ],
+    );
+
+    assert!(
+        stderr.contains("no such subcommand: `cram`"),
+        "unresolved moon-cram should fail before built executable dirs enter PATH:\n{stderr}"
+    );
+}
+
+#[test]
+fn test_cram_build_failure_prevents_delegation() {
+    let dir = TestDir::new_empty();
+    std::fs::write(dir.join("moon.mod.json"), r#"{ "name": "username/fail" }"#)
+        .expect("failed to write module manifest");
+    std::fs::create_dir_all(dir.join("main")).expect("failed to create main package");
+    std::fs::write(dir.join("main/moon.pkg.json"), r#"{ "is-main": true }"#)
+        .expect("failed to write package manifest");
+    std::fs::write(dir.join("main/main.mbt"), "fn main { missing }\n")
+        .expect("failed to write invalid source");
+
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    let fake_cram = compile_fake_cram_fixture(fake_bin_dir.path());
+    let marker = fake_bin_dir.path().join("moon-cram-ran");
+
+    let _stderr = get_err_stderr_with_envs(
+        &dir,
+        ["cram", "test"],
+        [
+            (
+                "MOON_CRAM_OVERRIDE",
+                fake_cram.to_string_lossy().into_owned(),
+            ),
+            (
+                "FAKE_MOON_CRAM_MARKER",
+                marker.to_string_lossy().into_owned(),
+            ),
+        ],
+    );
+
+    assert!(
+        !marker.exists(),
+        "moon-cram should not run after build failure"
+    );
+}
+
 #[cfg(unix)]
 fn interruptible_moon_command(dir: &impl AsRef<std::path::Path>) -> std::process::Command {
     moon_process_cmd(dir)
@@ -167,6 +414,21 @@ fn compile_signal_fixture(fake_bin_dir: &std::path::Path) {
         status.success(),
         "failed to compile fake moon-test-behavior"
     );
+}
+
+fn compile_fake_cram_fixture(fake_bin_dir: &std::path::Path) -> PathBuf {
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_moon_cram.rs");
+    let executable = fake_bin_dir.join(format!("fake-moon-cram{}", std::env::consts::EXE_SUFFIX));
+    let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let status = std::process::Command::new(rustc)
+        .arg("--edition=2021")
+        .arg(&source)
+        .arg("-o")
+        .arg(&executable)
+        .status()
+        .expect("failed to compile fake moon-cram");
+    assert!(status.success(), "failed to compile fake moon-cram");
+    executable
 }
 
 #[cfg(any(unix, windows))]
