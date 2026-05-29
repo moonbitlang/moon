@@ -204,7 +204,7 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
     //   with the existing local index.
     let index_dir = moonutil::moon_dir::index();
     let mut index_updated = false;
-    if !cmd.no_update {
+    if !cmd.no_update && (!cmd.upgrade || !cmd.package_path.contains('@')) {
         let had_index = index_dir.exists();
         let registry_config = RegistryConfig::load();
         match mooncake::update::update(&index_dir, &registry_config) {
@@ -236,6 +236,10 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
         unqual: pkgname.into(),
     };
 
+    if cmd.upgrade && cmd.bin {
+        bail!("--bin cannot be used with --upgrade");
+    }
+
     if parts.len() == 2 {
         let version: &str = parts[1];
         let version = version.parse()?;
@@ -248,6 +252,7 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
             cmd.bin,
             &version,
             cli.quiet,
+            cmd.upgrade,
         )
     } else {
         mooncake::pkg::add::add_latest(
@@ -259,6 +264,7 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
             cmd.bin,
             cli.quiet,
             index_updated,
+            cmd.upgrade,
         )
     }
 }

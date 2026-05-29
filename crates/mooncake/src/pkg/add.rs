@@ -16,7 +16,9 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use anyhow::bail;
 use colored::Colorize;
+use indexmap::IndexMap;
 use moonutil::common::{
     MOON_MOD, MOONBITLANG_CORE, read_module_desc_file_in_dir, write_module_json_to_file,
 };
@@ -42,6 +44,10 @@ pub struct AddSubcommand {
     #[clap(long)]
     pub bin: bool,
 
+    /// Upgrade an existing dependency
+    #[clap(short = 'u', long)]
+    pub upgrade: bool,
+
     /// Do not update the registry index before adding the dependency
     #[clap(long)]
     pub no_update: bool,
@@ -57,6 +63,7 @@ pub fn add_latest(
     bin: bool,
     quiet: bool,
     index_updated: bool,
+    upgrade: bool,
 ) -> anyhow::Result<i32> {
     let pkg_name_str = pkg_name.to_string();
     if pkg_name_str == MOONBITLANG_CORE {
@@ -96,6 +103,7 @@ pub fn add_latest(
         bin,
         &latest_version,
         quiet,
+        upgrade,
     )
 }
 
@@ -115,6 +123,7 @@ pub fn add(
     bin: bool,
     version: &Version,
     quiet: bool,
+    upgrade: bool,
 ) -> anyhow::Result<i32> {
     let mut m = read_module_desc_file_in_dir(module_dir)?;
 
@@ -128,7 +137,27 @@ pub fn add(
         std::process::exit(0);
     }
 
-    if bin {
+    if upgrade {
+        let Some(dep) = m.deps.get_mut(&pkg_name_str) else {
+            bail!(
+                "the dependency `{pkg_name_str}` could not be found; use `moon add {pkg_name_str}` to add it"
+            );
+        };
+
+        if dep.path().is_some() || dep.git().is_some() {
+            bail!("dependency `{pkg_name_str}` is not a registry dependency");
+        }
+
+        if dep.version() == Some(version) {
+            eprintln!(
+                "{}: dependency `{pkg_name_str}` is already at version {version}",
+                "Warning".yellow().bold(),
+            );
+            return Ok(0);
+        }
+
+        dep.set_version(Some(version.clone()));
+    } else if bin {
         let bin_deps = m.bin_deps.get_or_insert_with(indexmap::IndexMap::new);
         bin_deps.insert(
             pkg_name_str.clone(),
@@ -138,10 +167,32 @@ pub fn add(
             },
         );
     } else {
+        if m.deps.contains_key(&pkg_name_str) {
+            eprintln!(
+                "{}: dependency `{pkg_name_str}` already exists, `moon add` will not update it. \
+                To update the dependency, run `moon add --upgrade {pkg_name_str}@<version>` or `moon add --upgrade {pkg_name_str}` for the latest version.",
+                "Warning".yellow().bold(),
+            );
+            return Ok(0);
+        }
+
         m.deps.insert(
             pkg_name_str.clone(),
             SourceDependencyInfo::Simple(version.clone()),
         );
+    }
+
+    if upgrade {
+        if module_dir.join(MOON_MOD).exists() {
+            patch_module_dsl_to_file(
+                module_dir,
+                MoonModPatch::UpdateImportItems(IndexMap::from([(pkg_name_str, version.clone())])),
+            )?;
+        } else {
+            let new_j = convert_module_to_mod_json(m);
+            write_module_json_to_file(&new_j, module_dir)?;
+        }
+        return Ok(0);
     }
 
     let m = Arc::new(m);
@@ -157,7 +208,7 @@ pub fn add(
         let patch = if bin {
             MoonModPatch::Rewrite(convert_module_to_mod_json(Arc::unwrap_or_clone(m)))
         } else {
-            MoonModPatch::UpsertImportItem {
+            MoonModPatch::InsertImportItem {
                 name: pkg_name_str,
                 version: version.clone(),
             }

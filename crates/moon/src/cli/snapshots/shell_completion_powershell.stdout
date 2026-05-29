@@ -487,6 +487,8 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--bin', 'bin', [CompletionResultType]::ParameterName, 'Whether to add the dependency as a binary')
+            [CompletionResult]::new('-u', 'u', [CompletionResultType]::ParameterName, 'Upgrade an existing dependency')
+            [CompletionResult]::new('--upgrade', 'upgrade', [CompletionResultType]::ParameterName, 'Upgrade an existing dependency')
             [CompletionResult]::new('--no-update', 'no-update', [CompletionResultType]::ParameterName, 'Do not update the registry index before adding the dependency')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')

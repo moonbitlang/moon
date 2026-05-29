@@ -734,6 +734,7 @@ fn test_moon_add_help_includes_no_update() {
     let dir = TestDir::new_empty();
     let out = get_stdout(&dir, ["add", "--help"]).replace("moon.exe", "moon");
     assert!(out.contains("--no-update"));
+    assert!(out.contains("--upgrade"));
 }
 
 #[test]
