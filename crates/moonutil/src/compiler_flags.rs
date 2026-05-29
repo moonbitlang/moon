@@ -1484,6 +1484,70 @@ mod tests {
     }
 
     #[test]
+    fn clang_msvc_target_keeps_clang_driver_syntax() {
+        let paths = CompilerPaths {
+            include_path: "headers".to_string(),
+            lib_path: "lib".to_string(),
+        };
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")),
+            executable_cc_config(),
+            &[] as &[&str],
+            &["-lprebuildselflib", "-L/prebuild-self-path"],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main.exe"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|flag| flag == "-o"));
+        assert!(command.iter().any(|flag| flag == "build/main/main.exe"));
+        assert!(command.iter().any(|flag| flag == "-Iheaders"));
+        assert!(command.iter().any(|flag| flag == "-lprebuildselflib"));
+        assert!(command.iter().any(|flag| flag == "-L/prebuild-self-path"));
+        assert!(!command.iter().any(|flag| flag == "-lm"));
+        assert!(!command.iter().any(|flag| flag.starts_with("/Fe")));
+        assert!(!command.iter().any(|flag| flag.starts_with("/Fo")));
+        assert!(!command.iter().any(|flag| flag == "/link"));
+        assert!(!command.iter().any(|flag| flag.starts_with("/LIBPATH:")));
+    }
+
+    #[test]
+    fn msvc_driver_keeps_msvc_driver_syntax() {
+        let paths = CompilerPaths {
+            include_path: "headers".to_string(),
+            lib_path: "lib".to_string(),
+        };
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Msvc, None),
+            executable_cc_config(),
+            &[] as &[&str],
+            &["prebuildselflib.lib", "/LIBPATH:/prebuild-self-path"],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main.exe"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|flag| flag == "/Febuild/main/main.exe"));
+        assert!(command.iter().any(|flag| flag == "/Iheaders"));
+        assert!(command.iter().any(|flag| flag == "/nologo"));
+        assert!(command.iter().any(|flag| flag == "/link"));
+        assert!(command.iter().any(|flag| flag == "/LIBPATH:lib"));
+        assert!(command.iter().any(|flag| flag == "prebuildselflib.lib"));
+        assert!(
+            command
+                .iter()
+                .any(|flag| flag == "/LIBPATH:/prebuild-self-path")
+        );
+        assert!(!command.iter().any(|flag| flag == "-o"));
+        assert!(!command.iter().any(|flag| flag == "-Iheaders"));
+        assert!(!command.iter().any(|flag| flag == "-lprebuildselflib"));
+    }
+
+    #[test]
     fn simdutf_requires_supported_host_and_non_tcc_compiler() {
         assert_eq!(
             fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")).can_use_simdutf(),
@@ -1713,6 +1777,13 @@ mod tests {
     fn try_from_path_recognizes_clang_exe() {
         let cc = CC::try_from_path("C:/llvm/bin/clang.exe").expect("parse clang.exe");
         assert!(matches!(cc.cc_kind, CCKind::Clang));
+    }
+
+    #[test]
+    fn try_from_path_recognizes_clang_cl_as_msvc_driver() {
+        let cc = CC::try_from_path("C:/llvm/bin/clang-cl.exe").expect("parse clang-cl.exe");
+        assert!(matches!(cc.cc_kind, CCKind::Msvc));
+        assert!(cc.target_triple.is_none());
     }
 
     fn normalize_path_separators(path: &str) -> String {

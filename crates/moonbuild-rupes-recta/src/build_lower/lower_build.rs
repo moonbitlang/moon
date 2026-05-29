@@ -659,10 +659,18 @@ impl<'a> BuildPlanLowerContext<'a> {
             exports: package.exported_functions(self.opt.target_backend.into()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
             #[cfg(target_os = "windows")]
-            native_toolchain_is_msvc: self
-                .build_plan
-                .get_make_executable_info(&target)
-                .is_some_and(|info| info.effective_native_toolchain.cc().is_msvc()),
+            llvm_target: if self.opt.target_backend == RunBackend::Llvm
+                && self
+                    .build_plan
+                    .get_make_executable_info(&target)
+                    .is_some_and(|info| info.effective_native_toolchain.cc().is_msvc())
+            {
+                // Preserve the legacy `cl` workaround; broader MSVC ABI target
+                // selection needs a separate policy.
+                Some("x86_64-pc-windows-msvc")
+            } else {
+                None
+            },
         };
 
         // Ensure n2 sees stdlib core bundle changes as inputs
