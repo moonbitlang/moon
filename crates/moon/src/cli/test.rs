@@ -274,7 +274,7 @@ pub(crate) struct TestSubcommand {
     #[clap(long, conflicts_with = "profile")]
     pub build_only: bool,
 
-    /// Profile native test executables using Time Profiler on macOS
+    /// Profile native test executables using Time Profiler on macOS or perf on Linux
     #[clap(long, conflicts_with_all = ["build_only", "update", "outline"])]
     pub profile: bool,
 
@@ -440,7 +440,7 @@ fn effective_test_build_flags(build_flags: &BuildFlags, profile: bool) -> BuildF
     };
 
     if profile {
-        // Time Profiler records a native process. Use release-with-symbols by
+        // Native profilers record a native process. Use release-with-symbols by
         // default so the resulting samples are useful without extra flags.
         build_flags.target = vec![SurfaceTarget::Native];
         if !build_flags.debug && !build_flags.release {

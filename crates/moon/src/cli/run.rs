@@ -101,7 +101,7 @@ pub(crate) struct RunSubcommand {
     #[clap(long, conflicts_with = "profile")]
     pub build_only: bool,
 
-    /// Profile the native executable using Time Profiler on macOS
+    /// Profile the native executable using Time Profiler on macOS or perf on Linux
     #[clap(long)]
     pub profile: bool,
 }
