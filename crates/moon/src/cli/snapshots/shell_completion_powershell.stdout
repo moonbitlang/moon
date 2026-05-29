@@ -338,8 +338,9 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
             [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
             [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
             [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Build native executables, then run cram tests with their directories on PATH')
-            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
             break
         }
         'moon;cram;test' {
@@ -354,17 +355,8 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--trace', 'trace', [CompletionResultType]::ParameterName, 'Trace the execution of the program')
             [CompletionResult]::new('--dry-run', 'dry-run', [CompletionResultType]::ParameterName, 'Do not actually run the command')
             [CompletionResult]::new('--build-graph', 'build-graph', [CompletionResultType]::ParameterName, 'build-graph')
-            break
-        }
-        'moon;cram;help' {
-            [CompletionResult]::new('test', 'test', [CompletionResultType]::ParameterValue, 'Build native executables, then run cram tests with their directories on PATH')
-            [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Print this message or the help of the given subcommand(s)')
-            break
-        }
-        'moon;cram;help;test' {
-            break
-        }
-        'moon;cram;help;help' {
+            [CompletionResult]::new('-h', 'h', [CompletionResultType]::ParameterName, 'Print help')
+            [CompletionResult]::new('--help', 'help', [CompletionResultType]::ParameterName, 'Print help')
             break
         }
         'moon;generate-test-driver' {

@@ -327,8 +327,9 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --trace 'Trace the execution of the program'
             cand --dry-run 'Do not actually run the command'
             cand --build-graph 'build-graph'
+            cand -h 'Print help'
+            cand --help 'Print help'
             cand test 'Build native executables, then run cram tests with their directories on PATH'
-            cand help 'Print this message or the help of the given subcommand(s)'
         }
         &'moon;cram;test'= {
             cand --target 'Native is the only target supported by cram test'
@@ -342,14 +343,8 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --trace 'Trace the execution of the program'
             cand --dry-run 'Do not actually run the command'
             cand --build-graph 'build-graph'
-        }
-        &'moon;cram;help'= {
-            cand test 'Build native executables, then run cram tests with their directories on PATH'
-            cand help 'Print this message or the help of the given subcommand(s)'
-        }
-        &'moon;cram;help;test'= {
-        }
-        &'moon;cram;help;help'= {
+            cand -h 'Print help'
+            cand --help 'Print help'
         }
         &'moon;generate-test-driver'= {
             cand --doctest-only 'Files that need to be mapped, but only extract the doctests, not main contents'

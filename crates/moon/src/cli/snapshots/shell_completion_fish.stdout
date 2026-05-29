@@ -258,15 +258,15 @@ complete -c moon -n "__fish_moon_using_subcommand test" -l trace -d 'Trace the e
 complete -c moon -n "__fish_moon_using_subcommand test" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand test" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand test" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test help" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
-complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test help" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
-complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test help" -s q -l quiet -d 'Suppress output'
-complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test help" -s v -l verbose -d 'Increase verbosity'
-complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test help" -l trace -d 'Trace the execution of the program'
-complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test help" -l dry-run -d 'Do not actually run the command'
-complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test help" -l build-graph
-complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test help" -f -a "test" -d 'Build native executables, then run cram tests with their directories on PATH'
-complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
+complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
+complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test" -s q -l quiet -d 'Suppress output'
+complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test" -s v -l verbose -d 'Increase verbosity'
+complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test" -l trace -d 'Trace the execution of the program'
+complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test" -l dry-run -d 'Do not actually run the command'
+complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test" -l build-graph
+complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test" -s h -l help -d 'Print help'
+complete -c moon -n "__fish_moon_using_subcommand cram; and not __fish_seen_subcommand_from test" -f -a "test" -d 'Build native executables, then run cram tests with their directories on PATH'
 complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcommand_from test" -l target -d 'Native is the only target supported by cram test' -r -f -a "{native\t''}"
 complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcommand_from test" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcommand_from test" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
@@ -276,8 +276,7 @@ complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcomma
 complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcommand_from test" -l trace -d 'Trace the execution of the program'
 complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcommand_from test" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcommand_from test" -l build-graph
-complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcommand_from help" -f -a "test" -d 'Build native executables, then run cram tests with their directories on PATH'
-complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcommand_from help" -f -a "help" -d 'Print this message or the help of the given subcommand(s)'
+complete -c moon -n "__fish_moon_using_subcommand cram; and __fish_seen_subcommand_from test" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l doctest-only -d 'Files that need to be mapped, but only extract the doctests, not main contents' -r -F
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l output-driver -d 'The output test driver `.mbt` file' -r -F
 complete -c moon -n "__fish_moon_using_subcommand generate-test-driver" -l output-metadata -d 'The output test metadata file' -r -F

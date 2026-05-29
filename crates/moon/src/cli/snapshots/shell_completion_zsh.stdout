@@ -319,6 +319,8 @@ _arguments "${_arguments_options[@]}" : \
 '--trace[Trace the execution of the program]' \
 '--dry-run[Do not actually run the command]' \
 '(--dry-run)--build-graph[]' \
+'-h[Print help]' \
+'--help[Print help]' \
 ":: :_moon__cram_commands" \
 "*::: :->cram" \
 && ret=0
@@ -342,32 +344,10 @@ _arguments "${_arguments_options[@]}" : \
 '--trace[Trace the execution of the program]' \
 '--dry-run[Do not actually run the command]' \
 '(--dry-run)--build-graph[]' \
+'-h[Print help]' \
+'--help[Print help]' \
 '*::SCRUT_ARGS -- Arguments passed to `moon-cram test`:' \
 && ret=0
-;;
-(help)
-_arguments "${_arguments_options[@]}" : \
-":: :_moon__cram__help_commands" \
-"*::: :->help" \
-&& ret=0
-
-    case $state in
-    (help)
-        words=($line[1] "${words[@]}")
-        (( CURRENT += 1 ))
-        curcontext="${curcontext%:*:*}:moon-cram-help-command-$line[1]:"
-        case $line[1] in
-            (test)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-(help)
-_arguments "${_arguments_options[@]}" : \
-&& ret=0
-;;
-        esac
-    ;;
-esac
 ;;
         esac
     ;;
@@ -1696,27 +1676,8 @@ _moon__coverage__report_commands() {
 _moon__cram_commands() {
     local commands; commands=(
 'test:Build native executables, then run cram tests with their directories on PATH' \
-'help:Print this message or the help of the given subcommand(s)' \
     )
     _describe -t commands 'moon cram commands' commands "$@"
-}
-(( $+functions[_moon__cram__help_commands] )) ||
-_moon__cram__help_commands() {
-    local commands; commands=(
-'test:Build native executables, then run cram tests with their directories on PATH' \
-'help:Print this message or the help of the given subcommand(s)' \
-    )
-    _describe -t commands 'moon cram help commands' commands "$@"
-}
-(( $+functions[_moon__cram__help__help_commands] )) ||
-_moon__cram__help__help_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon cram help help commands' commands "$@"
-}
-(( $+functions[_moon__cram__help__test_commands] )) ||
-_moon__cram__help__test_commands() {
-    local commands; commands=()
-    _describe -t commands 'moon cram help test commands' commands "$@"
 }
 (( $+functions[_moon__cram__test_commands] )) ||
 _moon__cram__test_commands() {

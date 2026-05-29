@@ -130,6 +130,7 @@ pub fn main() {
     let raw_args = std::env::args_os().collect::<Vec<_>>();
     let cli = cli::MoonBuildCli::try_parse_from(&raw_args).unwrap_or_else(|err| {
         cli::exit_if_ide_help_request(&err, &raw_args);
+        cli::exit_if_cram_external_request(&err, &raw_args);
         err.exit();
     });
     let mut flags = cli.flags;

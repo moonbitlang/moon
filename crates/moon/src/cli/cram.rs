@@ -17,12 +17,13 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     path::{Path, PathBuf},
     process::Command,
 };
 
 use anyhow::Context;
+use clap::error::ErrorKind;
 use clap::{Subcommand, ValueEnum};
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonutil::{
@@ -42,20 +43,22 @@ use super::{BuildFlags, UniversalFlags};
 
 /// Run cram tests with project binaries on PATH (experimental)
 #[derive(Debug, clap::Parser, Clone)]
-#[clap(disable_help_flag(true))]
+#[clap(disable_help_subcommand(true))]
 pub(crate) struct CramSubcommand {
     #[clap(subcommand)]
-    pub command: CramCommand,
+    pub command: Option<CramCommand>,
 }
 
 #[derive(Clone, Debug, Subcommand)]
 pub(crate) enum CramCommand {
     Test(CramTestSubcommand),
+
+    #[clap(external_subcommand)]
+    External(Vec<String>),
 }
 
 /// Build native executables, then run cram tests with their directories on PATH
 #[derive(Debug, clap::Parser, Clone)]
-#[clap(disable_help_flag(true))]
 pub(crate) struct CramTestSubcommand {
     /// Build native release executables
     #[clap(long)]
@@ -84,9 +87,20 @@ struct ParsedCramArgs {
 
 #[instrument(skip_all)]
 pub(crate) fn run_cram(cli: &UniversalFlags, cmd: CramSubcommand) -> anyhow::Result<i32> {
-    let parsed = cram_args(cmd.command);
+    match cmd.command {
+        Some(CramCommand::Test(cmd)) => run_cram_test(cli, cmd),
+        Some(CramCommand::External(args)) => delegate_moon_cram(args),
+        None => delegate_moon_cram(Vec::new()),
+    }
+}
 
-    let moon_cram = moonutil::BINARIES.moon_cram.clone();
+fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Result<i32> {
+    let parsed = cram_args(cmd);
+    let moon_cram = if cli.dry_run {
+        moonutil::BINARIES.moon_cram.clone()
+    } else {
+        resolve_moon_cram()?
+    };
     if is_scrut_help_request(&parsed.cram_args) {
         let mut command = Command::new(moon_cram);
         command.args(parsed.cram_args);
@@ -166,8 +180,100 @@ pub(crate) fn run_cram(cli: &UniversalFlags, cmd: CramSubcommand) -> anyhow::Res
     Ok(process::delegate(&mut command)?.code().unwrap_or(0))
 }
 
-fn cram_args(cmd: CramCommand) -> ParsedCramArgs {
-    let CramCommand::Test(cmd) = cmd;
+fn delegate_moon_cram(args: Vec<String>) -> anyhow::Result<i32> {
+    delegate_moon_cram_with_current_dir(None, args)
+}
+
+fn delegate_moon_cram_with_current_dir(
+    current_dir: Option<&Path>,
+    args: impl IntoIterator<Item = impl AsRef<OsStr>>,
+) -> anyhow::Result<i32> {
+    let mut command = Command::new(resolve_moon_cram()?);
+    if let Some(dir) = current_dir {
+        command.current_dir(dir);
+    }
+    command.args(args);
+    Ok(process::delegate(&mut command)?.code().unwrap_or(0))
+}
+
+pub(crate) fn exit_if_cram_external_request(err: &clap::Error, raw_args: &[OsString]) {
+    if err.kind() != ErrorKind::UnknownArgument {
+        return;
+    }
+
+    let Some((current_dir, args)) = cram_external_args(raw_args) else {
+        return;
+    };
+    match delegate_moon_cram_with_current_dir(current_dir.as_deref(), args) {
+        Ok(code) => std::process::exit(code),
+        Err(err) => {
+            eprintln!("Error: {err:?}");
+            std::process::exit(-1);
+        }
+    }
+}
+
+fn cram_external_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
+    let mut current_dir = None;
+    let mut index = 1;
+    while index < raw_args.len() {
+        let arg = &raw_args[index];
+
+        if arg == OsStr::new("-C") {
+            index += 1;
+            if let Some(dir) = raw_args.get(index) {
+                current_dir = Some(PathBuf::from(dir));
+            }
+        } else if matches!(
+            arg.to_str(),
+            Some("--manifest-path" | "--target-dir" | "--unstable-feature" | "-Z")
+        ) {
+            index += 1;
+        } else if is_global_bool_arg(arg) {
+        } else {
+            let tail = &raw_args[index + 1..];
+            return (arg == OsStr::new("cram") && is_external_cram_tail(tail))
+                .then(|| (current_dir, tail.to_vec()));
+        }
+        index += 1;
+    }
+    None
+}
+
+fn is_global_bool_arg(arg: &OsStr) -> bool {
+    matches!(
+        arg.to_str(),
+        Some(
+            "-V" | "--version"
+                | "-q"
+                | "--quiet"
+                | "-v"
+                | "--verbose"
+                | "--trace"
+                | "--dry-run"
+                | "--build-graph"
+        )
+    )
+}
+
+fn is_external_cram_tail(tail: &[OsString]) -> bool {
+    matches!(tail.first(), Some(arg) if arg != OsStr::new("test"))
+}
+
+fn resolve_moon_cram() -> anyhow::Result<PathBuf> {
+    let moon_cram = moonutil::BINARIES.moon_cram.clone();
+    if moon_cram.is_absolute() || moon_cram.components().count() > 1 {
+        return Ok(moon_cram);
+    }
+    which::which(&moon_cram).with_context(|| {
+        format!(
+            "no such subcommand: `cram`, is `{}` a valid executable accessible via your `PATH`?",
+            moon_cram.display()
+        )
+    })
+}
+
+fn cram_args(cmd: CramTestSubcommand) -> ParsedCramArgs {
     let build_flags = BuildFlags {
         release: cmd.release,
         target: cmd
@@ -274,12 +380,22 @@ mod tests {
     use super::*;
     use clap::Parser;
 
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    fn parse_command(args: &[&str]) -> CramCommand {
+        CramSubcommand::try_parse_from(std::iter::once("moon cram").chain(args.iter().copied()))
+            .unwrap()
+            .command
+            .unwrap()
+    }
+
     fn parse(args: &[&str]) -> ParsedCramArgs {
-        let cmd = CramSubcommand::try_parse_from(
-            std::iter::once("moon cram").chain(args.iter().copied()),
-        )
-        .unwrap();
-        cram_args(cmd.command)
+        let CramCommand::Test(cmd) = parse_command(args) else {
+            panic!("expected `moon cram test` to parse as the built-in cram test wrapper");
+        };
+        cram_args(cmd)
     }
 
     #[test]
@@ -301,8 +417,18 @@ mod tests {
     }
 
     #[test]
-    fn forwards_scrut_help_flag() {
-        let parsed = parse(&["test", "--help"]);
+    fn shows_wrapper_help_for_test_help_flag() {
+        let err = CramSubcommand::try_parse_from(["moon cram", "test", "--help"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::DisplayHelp);
+        let help = err.to_string();
+        assert!(help.contains("--release"));
+        assert!(help.contains("--target <TARGET>"));
+        assert!(help.contains("Arguments passed to `moon-cram test`"));
+    }
+
+    #[test]
+    fn forwards_scrut_help_flag_after_separator() {
+        let parsed = parse(&["test", "--", "--help"]);
         assert_eq!(parsed.cram_args, ["test", "--help"]);
         assert!(is_scrut_help_request(&parsed.cram_args));
     }
@@ -325,6 +451,74 @@ mod tests {
         let err =
             CramSubcommand::try_parse_from(["moon cram", "test", "--target=wasm-gc"]).unwrap_err();
         assert!(err.to_string().contains("invalid value"));
+    }
+
+    #[test]
+    fn delegates_unknown_cram_subcommand() {
+        let CramCommand::External(args) = parse_command(&["list", "--json"]) else {
+            panic!("expected unknown cram subcommand to parse as external args");
+        };
+        assert_eq!(args, ["list", "--json"]);
+    }
+
+    #[test]
+    fn shows_wrapper_help_for_parent_help_flag() {
+        let err = CramSubcommand::try_parse_from(["moon cram", "--help"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::DisplayHelp);
+        let help = err.to_string();
+        assert!(help.contains("Run cram tests with project binaries on PATH"));
+        assert!(help.contains("test"));
+    }
+
+    #[test]
+    fn detects_parent_flag_as_external_cram_args() {
+        assert_eq!(
+            cram_external_args(&os(&["moon", "cram", "--version"])),
+            Some((None, os(&["--version"])))
+        );
+    }
+
+    #[test]
+    fn detects_parent_flag_as_external_cram_args_after_global_flag() {
+        assert_eq!(
+            cram_external_args(&os(&["moon", "-q", "cram", "--version"])),
+            Some((None, os(&["--version"])))
+        );
+    }
+
+    #[test]
+    fn detects_parent_flag_as_external_cram_args_after_global_value_flag() {
+        assert_eq!(
+            cram_external_args(&os(&[
+                "moon",
+                "--target-dir",
+                "_build-alt",
+                "cram",
+                "--version"
+            ])),
+            Some((None, os(&["--version"])))
+        );
+    }
+
+    #[test]
+    fn preserves_chdir_for_external_cram_args() {
+        assert_eq!(
+            cram_external_args(&os(&["moon", "-C", "sub", "cram", "--version"])),
+            Some((Some(PathBuf::from("sub")), os(&["--version"])))
+        );
+    }
+
+    #[test]
+    fn ignores_cram_argument_under_other_top_level_subcommand() {
+        assert_eq!(
+            cram_external_args(&os(&["moon", "build", "cram", "--bad-flag"])),
+            None
+        );
+    }
+
+    #[test]
+    fn keeps_builtin_test_parse_errors_in_moon() {
+        assert_eq!(cram_external_args(&os(&["moon", "cram", "test"])), None);
     }
 
     #[test]

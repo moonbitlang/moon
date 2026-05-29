@@ -141,17 +141,8 @@ _moon() {
             moon__coverage__help,report)
                 cmd="moon__coverage__help__report"
                 ;;
-            moon__cram,help)
-                cmd="moon__cram__help"
-                ;;
             moon__cram,test)
                 cmd="moon__cram__test"
-                ;;
-            moon__cram__help,help)
-                cmd="moon__cram__help__help"
-                ;;
-            moon__cram__help,test)
-                cmd="moon__cram__help__test"
                 ;;
             moon__help,add)
                 cmd="moon__help__add"
@@ -868,7 +859,7 @@ _moon() {
             return 0
             ;;
         moon__cram)
-            opts="-q -v --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph test help"
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help test"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -889,50 +880,8 @@ _moon() {
             COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
             return 0
             ;;
-        moon__cram__help)
-            opts="test help"
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__cram__help__help)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
-        moon__cram__help__test)
-            opts=""
-            if [[ ${cur} == -* || ${COMP_CWORD} -eq 4 ]] ; then
-                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-                return 0
-            fi
-            case "${prev}" in
-                *)
-                    COMPREPLY=()
-                    ;;
-            esac
-            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
-            return 0
-            ;;
         moon__cram__test)
-            opts="-q -v --release --target --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph [SCRUT_ARGS]..."
+            opts="-q -v -h --release --target --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [SCRUT_ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
