@@ -29,13 +29,6 @@ fn test_moon_test_succ() {
 
 #[test]
 fn test_moon_test_succ_llvm() {
-    let llvm_prelude = util::toolchain_root_for_tests()
-        .join("lib/core/_build/llvm/release/bundle/prelude/prelude.mi");
-    if !llvm_prelude.exists() {
-        eprintln!("skipping llvm test driver test: toolchain does not provide llvm stdlib");
-        return;
-    }
-
     let dir = TestDir::new("moon_test/succ");
     let output = moon_cmd(&dir)
         .env("MOON_OVERRIDE", moon_bin())
