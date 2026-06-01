@@ -45,8 +45,11 @@ fn moon_bin(binary_name: &str, env_var: &str) -> PathBuf {
         return in_path;
     }
 
-    // Fallback: just rely on PATH
-    PathBuf::from(binary_name)
+    panic!(
+        "failed to resolve MoonBit tool `{binary_name}`; looked in `{}` and PATH. \
+         Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
+        in_toolchain.display()
+    )
 }
 
 fn which_bin(candidates: &[&str], env_var: &str) -> Option<PathBuf> {
@@ -126,3 +129,22 @@ pub static BINARIES: CachedBinaries = CachedBinaries {
     python: LazyLock::new(|| which_bin(&["python", "python3"], "MOON_PYTHON_OVERRIDE")),
     git: LazyLock::new(|| which_bin(&["git"], "MOON_GIT_OVERRIDE")),
 };
+
+#[cfg(test)]
+mod tests {
+    use super::moon_bin;
+
+    #[test]
+    #[should_panic(expected = "failed to resolve MoonBit tool")]
+    fn unresolved_moon_bin_panics_instead_of_bare_fallback() {
+        let binary_name = format!(
+            "__missing_moonbit_tool_for_binary_resolution_test_{}__",
+            std::process::id()
+        );
+        let env_var = format!(
+            "__MISSING_MOONBIT_TOOL_OVERRIDE_FOR_BINARY_RESOLUTION_TEST_{}__",
+            std::process::id()
+        );
+        moon_bin(&binary_name, &env_var);
+    }
+}
