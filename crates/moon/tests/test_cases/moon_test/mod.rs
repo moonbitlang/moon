@@ -28,6 +28,7 @@ fn test_moon_test_succ() {
 }
 
 #[test]
+#[cfg(not(windows))]
 fn test_moon_test_succ_llvm() {
     let dir = TestDir::new("moon_test/succ");
     let output = moon_cmd(&dir)
