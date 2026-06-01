@@ -1,5 +1,5 @@
 ///|
-#cfg(target="native")
+#cfg(any(target="native", target="llvm"))
 #test_entry
 fn main {
   let async_tests = []
@@ -83,7 +83,7 @@ pub fn moonbit_test_driver_internal_execute(
 }
 
 ///|
-#cfg(not(target="native"))
+#cfg(not(any(target="native", target="llvm")))
 pub fn moonbit_test_driver_finish() -> Unit {
   // {COVERAGE_END}
 }

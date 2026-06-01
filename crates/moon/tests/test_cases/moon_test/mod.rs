@@ -28,6 +28,39 @@ fn test_moon_test_succ() {
 }
 
 #[test]
+fn test_moon_test_succ_llvm() {
+    let llvm_prelude = util::toolchain_root_for_tests()
+        .join("lib/core/_build/llvm/release/bundle/prelude/prelude.mi");
+    if !llvm_prelude.exists() {
+        eprintln!("skipping llvm test driver test: toolchain does not provide llvm stdlib");
+        return;
+    }
+
+    let dir = TestDir::new("moon_test/succ");
+    let output = moon_cmd(&dir)
+        .env("MOON_OVERRIDE", moon_bin())
+        .args([
+            "test",
+            "--target",
+            "llvm",
+            "--sort-input",
+            "--no-parallelize",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    check(
+        std::str::from_utf8(&output).unwrap(),
+        expect![[r#"
+            Total tests: 6, passed: 6, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_moon_test_hello_exec() {
     let dir = TestDir::new("moon_test/hello_exec");
     check(
