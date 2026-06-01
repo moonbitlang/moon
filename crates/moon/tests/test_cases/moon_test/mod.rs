@@ -28,6 +28,33 @@ fn test_moon_test_succ() {
 }
 
 #[test]
+#[cfg(not(windows))]
+fn test_moon_test_succ_llvm() {
+    let dir = TestDir::new("moon_test/succ");
+    let output = moon_cmd(&dir)
+        .env("MOON_OVERRIDE", moon_bin())
+        .args([
+            "test",
+            "--target",
+            "llvm",
+            "--sort-input",
+            "--no-parallelize",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    check(
+        std::str::from_utf8(&output).unwrap(),
+        expect![[r#"
+            Total tests: 6, passed: 6, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_moon_test_hello_exec() {
     let dir = TestDir::new("moon_test/hello_exec");
     check(

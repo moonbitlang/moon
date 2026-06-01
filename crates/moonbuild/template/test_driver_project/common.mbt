@@ -2,7 +2,7 @@
 fn moonbit_test_driver_internal_error_to_string(x : Error) -> String = "%error.to_string"
 
 ///|
-#cfg(target="native")
+#cfg(any(target="native", target="llvm"))
 fn string_get(s : String, index : Int) -> Int = "%string_get"
 
 ///|
@@ -10,11 +10,11 @@ fn string_get(s : String, index : Int) -> Int = "%string_get"
 fn moonbit_unsafe_char_from_int(x : Int) -> Char = "%identity"
 
 ///|
-#cfg(target="native")
+#cfg(any(target="native", target="llvm"))
 const MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE = true
 
 ///|
-#cfg(not(target="native"))
+#cfg(not(any(target="native", target="llvm")))
 const MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE = false
 
 // =========================================================
@@ -90,11 +90,11 @@ fn moonbit_test_driver_internal_string_from_extern(
 // =========================================================
 
 // =========================================================
-// ================= BEGIN NATIVE SPECIFIC =================
+// ============== BEGIN NATIVE/LLVM SPECIFIC ===============
 // =========================================================
 
 ///|
-#cfg(target="native")
+#cfg(any(target="native", target="llvm"))
 fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude.Array[
   (String, Int),
 ] {
@@ -205,11 +205,11 @@ fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude
 }
 
 ///|
-#cfg(target="native")
+#cfg(any(target="native", target="llvm"))
 fn moonbit_test_driver_internal_get_cli_args_ffi() -> FixedArray[Bytes] = "$moonbit.get_cli_args"
 
 // =========================================================
-// ================== END NATIVE SPECIFIC ==================
+// =============== END NATIVE/LLVM SPECIFIC ================
 // =========================================================
 
 // =========================================================
