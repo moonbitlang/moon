@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-05-11.
+// Snapshot generated from `moonc check -warn-help` on 2026-06-01.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -390,6 +390,16 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "unnecessary_view_op",
         description: "Unnecessary `[:]` view operator",
         id: 75,
+    },
+    WarningEntry {
+        mnemonic: "lexmatch_first_match",
+        description: "Using `lexmatch` with first-match semantics.",
+        id: 76,
+    },
+    WarningEntry {
+        mnemonic: "lexmatch_longest_match",
+        description: "Using `lexmatch` with longest-match semantics.",
+        id: 77,
     },
 ];
 

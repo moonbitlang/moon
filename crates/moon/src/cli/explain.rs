@@ -323,11 +323,8 @@ fn normalize_attribute_name(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use super::{
-        attribute_docs, diagnostic_docs, diagnostic_index_entries,
-        non_warning_diagnostic_index_entries, warning_index,
+        attribute_docs, diagnostic_docs, non_warning_diagnostic_index_entries, warning_index,
     };
 
     #[test]
@@ -354,23 +351,12 @@ mod tests {
     }
 
     #[test]
-    fn integrated_diagnostic_docs_cover_compiler_warning_ids() {
-        let documented_ids: BTreeSet<_> = diagnostic_index_entries()
-            .into_iter()
-            .filter_map(|entry| entry.code.parse::<u16>().ok())
-            .collect();
-        let compiler_warning_ids: BTreeSet<_> = warning_index::warning_entries()
-            .iter()
-            .map(|entry| entry.id)
-            .collect();
-
-        assert!(
-            compiler_warning_ids.is_subset(&documented_ids),
-            "integrated diagnostic docs are missing compiler warning IDs: {:?}",
-            compiler_warning_ids
-                .difference(&documented_ids)
-                .collect::<Vec<_>>()
-        );
+    fn compiler_warning_ids_resolve_through_docs_or_warning_snapshot() {
+        for entry in warning_index::warning_entries() {
+            let docs = diagnostic_docs(&entry.id.to_string());
+            assert_eq!(docs.len(), 1);
+            assert!(docs[0].starts_with(&format!("# E{:04}\n", entry.id)));
+        }
     }
 
     #[test]

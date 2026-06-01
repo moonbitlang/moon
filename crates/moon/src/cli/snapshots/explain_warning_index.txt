@@ -68,3 +68,5 @@
 0073	unnecessary_annotation	unnecessary type annotation
 0074	missing_doc	Missing documentation for public definition
 0075	unnecessary_view_op	Unnecessary `[:]` view operator
+0076	lexmatch_first_match	Using `lexmatch` with first-match semantics.
+0077	lexmatch_longest_match	Using `lexmatch` with longest-match semantics.
