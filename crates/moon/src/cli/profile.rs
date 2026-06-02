@@ -283,6 +283,8 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
             // The dry-run output should show the profiled invocation, not the
             // plain executable command that `moon run` would normally print.
             print_dry_run_run_command: false,
+            suppress_build_progress: false,
+            quiet_sync: false,
         },
     )?;
     built.ensure_build_success()?;

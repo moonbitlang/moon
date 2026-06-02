@@ -29,8 +29,9 @@ use moonutil::common::MbtTestInfo;
 pub fn create_progress_console(
     callback: Option<Box<dyn Fn(&str) + Send>>,
     verbose: bool,
+    suppress_progress: bool,
 ) -> Box<dyn Progress> {
-    if terminal::use_fancy() {
+    if !suppress_progress && terminal::use_fancy() {
         Box::new(FancyConsoleProgress::new(verbose, callback))
     } else {
         Box::new(DumbConsoleProgress::new(verbose, callback))

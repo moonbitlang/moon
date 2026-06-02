@@ -119,6 +119,10 @@ pub(crate) struct BuildRunExecutableOptions {
     pub(crate) try_tcc_run: bool,
     /// Whether dry-run output should include the final executable invocation.
     pub(crate) print_dry_run_run_command: bool,
+    /// Whether to suppress build progress output from n2.
+    pub(crate) suppress_build_progress: bool,
+    /// Whether dependency sync/install progress should stay quiet.
+    pub(crate) quiet_sync: bool,
 }
 
 impl BuildRunExecutableOptions {
@@ -126,6 +130,17 @@ impl BuildRunExecutableOptions {
         Self {
             try_tcc_run: !cli.dry_run,
             print_dry_run_run_command: true,
+            suppress_build_progress: false,
+            quiet_sync: false,
+        }
+    }
+
+    fn for_inline_run(cli: &UniversalFlags) -> Self {
+        Self {
+            try_tcc_run: !cli.dry_run,
+            print_dry_run_run_command: true,
+            suppress_build_progress: !cli.verbose,
+            quiet_sync: !cli.verbose,
         }
     }
 }
@@ -154,6 +169,7 @@ pub(crate) struct RunExecutable {
 struct BuildExecutableFromPlanOptions {
     force_success_exit: bool,
     print_dry_run_run_command: bool,
+    suppress_build_progress: bool,
 }
 
 impl RunExecutable {
@@ -181,7 +197,14 @@ fn run_stdin_source_as_single_file(
         .read_to_string(&mut source)
         .context("failed to read `.mbtx` source from stdin")?;
 
-    run_source_as_single_file(cli, cmd, source, "stdin.mbtx", "stdin")
+    run_source_as_single_file(
+        cli,
+        cmd,
+        source,
+        "stdin.mbtx",
+        "stdin",
+        BuildRunExecutableOptions::for_run(cli),
+    )
 }
 
 fn run_inline_source_as_single_file(
@@ -193,7 +216,14 @@ fn run_inline_source_as_single_file(
         .clone()
         .expect("inline script should be present when `moon run -e` is selected");
 
-    run_source_as_single_file(cli, cmd, source, "command.mbtx", "command")
+    run_source_as_single_file(
+        cli,
+        cmd,
+        source,
+        "command.mbtx",
+        "command",
+        BuildRunExecutableOptions::for_inline_run(cli),
+    )
 }
 
 fn run_source_as_single_file(
@@ -202,6 +232,7 @@ fn run_source_as_single_file(
     source: String,
     temp_name: &str,
     source_name: &str,
+    options: BuildRunExecutableOptions,
 ) -> anyhow::Result<i32> {
     let temp_dir = tempfile::TempDir::new()
         .with_context(|| format!("failed to create temporary directory for {source_name} run"))?;
@@ -231,7 +262,7 @@ fn run_source_as_single_file(
         build_only,
         profile,
     };
-    let result = run_single_file_from_arg(cli, cmd);
+    let result = run_single_file_from_arg_with_options(cli, cmd, options);
     drop(temp_dir);
     result
 }
@@ -413,7 +444,8 @@ fn build_package_executable(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_project_manifest_path(project_manifest_path.as_deref());
+    .with_project_manifest_path(project_manifest_path.as_deref())
+    .with_quiet_sync(options.quiet_sync);
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
@@ -433,6 +465,7 @@ fn build_package_executable(
         BuildExecutableFromPlanOptions {
             force_success_exit: selected_target_backend.is_some(),
             print_dry_run_run_command: options.print_dry_run_run_command,
+            suppress_build_progress: options.suppress_build_progress,
         },
     )
 }
@@ -523,9 +556,12 @@ fn resolve_run_selection(
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn run_single_file_from_arg(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    let executable =
-        build_single_file_executable_from_arg(cli, &cmd, BuildRunExecutableOptions::for_run(cli))?;
+fn run_single_file_from_arg_with_options(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    options: BuildRunExecutableOptions,
+) -> anyhow::Result<i32> {
+    let executable = build_single_file_executable_from_arg(cli, &cmd, options)?;
     run_executable(cli, &cmd, executable)
 }
 
@@ -578,7 +614,8 @@ fn build_single_file_executable(
         false,
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    );
+    )
+    .with_quiet_sync(options.quiet_sync);
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         target_dir.as_path(),
@@ -635,6 +672,7 @@ fn build_single_file_executable(
         BuildExecutableFromPlanOptions {
             force_success_exit: false,
             print_dry_run_run_command: options.print_dry_run_run_command,
+            suppress_build_progress: options.suppress_build_progress,
         },
     )
 }
@@ -685,7 +723,8 @@ fn build_executable_from_plan(
         &cli.unstable_feature,
         cli.verbose,
         UserDiagnostics::from_flags(cli),
-    );
+    )
+    .with_suppressed_progress(options.suppress_build_progress);
     let build_result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
 
     Ok(RunExecutable {

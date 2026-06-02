@@ -183,6 +183,7 @@ pub fn auto_sync_for_single_file_rr(
     mooncakes_dir: &Path,
     sync_flags: &AutoSyncFlags,
     front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
+    quiet: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let mut synth_deps = IndexMap::new();
     if let Some(deps_map) = front_matter_deps {
@@ -203,7 +204,7 @@ pub fn auto_sync_for_single_file_rr(
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         mooncakes_dir,
         roots,
-        false,
+        quiet,
         false,
         sync_flags.dont_sync(),
         false,

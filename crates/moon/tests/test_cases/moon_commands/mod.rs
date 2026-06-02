@@ -810,7 +810,8 @@ fn test_moon_run_command_string_reads_inline_script() {
         )
         .assert()
         .success()
-        .stdout_eq("hello from run -e\n");
+        .stdout_eq("hello from run -e\n")
+        .stderr_eq("");
 }
 
 #[test]
@@ -828,7 +829,32 @@ fn test_moon_run_command_string_short_alias_c_reads_inline_script() {
         )
         .assert()
         .success()
-        .stdout_eq("hello from run -c\n");
+        .stdout_eq("hello from run -c\n")
+        .stderr_eq("");
+}
+
+#[test]
+fn test_moon_run_command_string_invalid_source_keeps_diagnostics_on_stderr() {
+    let dir = TestDir::new_empty();
+    let assert = snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .arg("run")
+        .arg("-e")
+        .arg(r#"println("hello")"#)
+        .assert()
+        .failure();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(stdout.contains("failed:"), "stdout: {stdout}");
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(
+        stderr.contains("Missing main function in the main package"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("Parse error, unexpected token"),
+        "stderr: {stderr}"
+    );
+    assert!(!stderr.contains("failed:"), "stderr: {stderr}");
 }
 
 #[test]
