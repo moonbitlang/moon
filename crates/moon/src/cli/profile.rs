@@ -285,6 +285,7 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
             print_dry_run_run_command: false,
             suppress_build_progress: false,
             quiet_sync: false,
+            default_target_backend: TargetBackend::default(),
         },
     )?;
     built.ensure_build_success()?;

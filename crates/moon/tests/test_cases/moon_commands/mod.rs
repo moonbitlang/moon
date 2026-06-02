@@ -858,6 +858,80 @@ fn test_moon_run_command_string_invalid_source_keeps_diagnostics_on_stderr() {
 }
 
 #[test]
+fn test_moon_run_command_string_defaults_to_native() {
+    let dir = TestDir::new_empty();
+    let stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "-e",
+            r#"fn main {
+  println("hello from run -e")
+}
+"#,
+            "--dry-run",
+        ],
+    );
+
+    assert!(stdout.contains("-target native"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("./_build/native/debug/build/single/single.core"),
+        "stdout: {stdout}"
+    );
+    assert!(!stdout.contains("-target wasm-gc"), "stdout: {stdout}");
+}
+
+#[test]
+fn test_moon_run_command_string_explicit_target_overrides_native_default() {
+    let dir = TestDir::new_empty();
+    let stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "-e",
+            r#"fn main {
+  println("hello from run -e")
+}
+"#,
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+        ],
+    );
+
+    assert!(stdout.contains("-target wasm-gc"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("moonrun ./_build/wasm-gc/debug/build/single/single.wasm --"),
+        "stdout: {stdout}"
+    );
+    assert!(!stdout.contains("-target native"), "stdout: {stdout}");
+}
+
+#[test]
+fn test_moon_run_command_string_short_alias_c_defaults_to_native() {
+    let dir = TestDir::new_empty();
+    let stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "-c",
+            r#"fn main {
+  println("hello from run -c")
+}
+"#,
+            "--dry-run",
+        ],
+    );
+
+    assert!(stdout.contains("-target native"), "stdout: {stdout}");
+    assert!(
+        stdout.contains("./_build/native/debug/build/single/single.core"),
+        "stdout: {stdout}"
+    );
+    assert!(!stdout.contains("-target wasm-gc"), "stdout: {stdout}");
+}
+
+#[test]
 fn test_moon_run_command_string_conflicts_with_other_inputs() {
     let dir = TestDir::new_empty();
 

@@ -123,6 +123,8 @@ pub(crate) struct BuildRunExecutableOptions {
     pub(crate) suppress_build_progress: bool,
     /// Whether dependency sync/install progress should stay quiet.
     pub(crate) quiet_sync: bool,
+    /// Backend to use when neither CLI flags nor single-file metadata selects one.
+    pub(crate) default_target_backend: TargetBackend,
 }
 
 impl BuildRunExecutableOptions {
@@ -132,6 +134,7 @@ impl BuildRunExecutableOptions {
             print_dry_run_run_command: true,
             suppress_build_progress: false,
             quiet_sync: false,
+            default_target_backend: TargetBackend::default(),
         }
     }
 
@@ -141,6 +144,7 @@ impl BuildRunExecutableOptions {
             print_dry_run_run_command: true,
             suppress_build_progress: !cli.verbose,
             quiet_sync: !cli.verbose,
+            default_target_backend: TargetBackend::Native,
         }
     }
 }
@@ -623,13 +627,15 @@ fn build_single_file_executable(
         &input_path,
         true,
     )?;
-    let selected_target_backend = selected_target_backend.or(backend);
+    let selected_target_backend = selected_target_backend
+        .or(backend)
+        .unwrap_or(options.default_target_backend);
 
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
         &cmd.build_flags,
-        selected_target_backend,
+        Some(selected_target_backend),
         &target_dir,
         RunMode::Run,
     );
