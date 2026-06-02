@@ -877,6 +877,7 @@ pub struct BuildConfig {
 
     /// Verbose output for build progress and command echo
     verbose: bool,
+    suppress_progress: bool,
     user_diagnostics: UserDiagnostics,
 
     /// The patch file to use
@@ -898,9 +899,15 @@ impl BuildConfig {
             explain_errors: false,
             n2_explain: unstable_features.rr_n2_explain,
             verbose,
+            suppress_progress: false,
             user_diagnostics,
             patch_file: None,
         }
+    }
+
+    pub(crate) fn with_suppressed_progress(mut self, suppress_progress: bool) -> Self {
+        self.suppress_progress = suppress_progress;
+        self
     }
 }
 
@@ -914,6 +921,7 @@ impl Default for BuildConfig {
             explain_errors: false,
             n2_explain: false,
             verbose: false,
+            suppress_progress: false,
             user_diagnostics: UserDiagnostics::default(),
             patch_file: None,
         }
@@ -1011,15 +1019,18 @@ pub fn execute_build_partial(
         .unwrap();
 
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
-    let mut prog_console = match cfg.output_style {
-        OutputStyle::Raw => {
-            create_progress_console(Some(Box::new(no_render_callback())), cfg.verbose)
-        }
+    let mut prog_console: Box<dyn n2::progress::Progress> = match cfg.output_style {
+        OutputStyle::Raw => create_progress_console(
+            Some(Box::new(no_render_callback())),
+            cfg.verbose,
+            cfg.suppress_progress,
+        ),
         OutputStyle::Fancy | OutputStyle::Json => create_progress_console(
             Some(Box::new(capture_diagnostics_callback(Arc::clone(
                 &result_catcher,
             )))),
             cfg.verbose,
+            cfg.suppress_progress,
         ),
     };
     let mut work = n2::work::Work::new(
@@ -1039,11 +1050,14 @@ pub fn execute_build_partial(
     want_files(&mut work).context("Failed to determine the files to be built")?;
 
     // The actual execution done by the n2 executor
-    let res = work.run().context("Failed to run n2 graph")?;
+    let res = work.run().context("Failed to run n2 graph");
+    drop(work);
+    drop(prog_console); // Ensure the progress bar won't mess with diagnostic output
+    let res = res?;
+    let build_succeeded = res.is_some();
 
     let mut result_catcher = result_catcher.lock().unwrap();
-    drop(prog_console); // Ensure the progress bar won't mess with diagnostic output
-    process_captured_diagnostics(&mut result_catcher, cfg);
+    process_captured_diagnostics(&mut result_catcher, cfg, build_succeeded);
     let stats = N2RunStats {
         n_tasks_executed: res,
         n_errors: result_catcher.n_errors,
@@ -1079,7 +1093,15 @@ fn no_render_callback() -> impl Fn(&str) {
     }
 }
 
-fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) {
+fn should_render_non_diagnostic_build_output(cfg: &BuildConfig, build_succeeded: bool) -> bool {
+    !(cfg.suppress_progress && build_succeeded)
+}
+
+fn process_captured_diagnostics(
+    catcher: &mut ResultCatcher,
+    cfg: &BuildConfig,
+    build_succeeded: bool,
+) {
     let mut has_unprocessed = false;
     match cfg.output_style {
         OutputStyle::Json => {
@@ -1102,7 +1124,9 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
                     Err(_) => {
                         // Non-diagnostics output, just print as-is
                         // This could happen for installing binaries dependencies etc.
-                        eprintln!("{content}");
+                        if should_render_non_diagnostic_build_output(cfg, build_succeeded) {
+                            eprintln!("{content}");
+                        }
                     }
                 };
             }
@@ -1131,7 +1155,9 @@ fn process_captured_diagnostics(catcher: &mut ResultCatcher, cfg: &BuildConfig) 
                     Err(_) => {
                         // Non-diagnostics output, just print as-is
                         // This could happen for installing binaries dependencies etc.
-                        eprintln!("{content}");
+                        if should_render_non_diagnostic_build_output(cfg, build_succeeded) {
+                            eprintln!("{content}");
+                        }
                     }
                 };
             }

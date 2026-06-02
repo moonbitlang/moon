@@ -85,6 +85,7 @@ impl ResolveOutput {
 #[derive(Debug)]
 pub struct ResolveConfig {
     sync_flags: AutoSyncFlags,
+    quiet_sync: bool,
     no_std: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
@@ -285,6 +286,7 @@ impl ResolveConfig {
     ) -> Self {
         Self {
             sync_flags: AutoSyncFlags { frozen },
+            quiet_sync: false,
             no_std,
             enable_coverage,
             workspace_env,
@@ -301,6 +303,7 @@ impl ResolveConfig {
     ) -> Self {
         Self {
             sync_flags,
+            quiet_sync: false,
             no_std,
             enable_coverage,
             workspace_env,
@@ -310,6 +313,11 @@ impl ResolveConfig {
 
     pub fn with_project_manifest_path(mut self, project_manifest_path: Option<&Path>) -> Self {
         self.project_manifest_path = project_manifest_path.map(Path::to_path_buf);
+        self
+    }
+
+    pub fn with_quiet_sync(mut self, quiet_sync: bool) -> Self {
+        self.quiet_sync = quiet_sync;
         self
     }
 }
@@ -360,7 +368,7 @@ pub fn resolve(
         source_dir,
         mooncakes_dir,
         &cfg.sync_flags,
-        false,
+        cfg.quiet_sync,
         cfg.no_std,
         cfg.workspace_env.clone(),
         cfg.project_manifest_path.as_deref(),
@@ -483,6 +491,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         mooncakes_dir,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),
+        cfg.quiet_sync,
     )
     .map_err(ResolveError::SyncModulesError)?;
     // Discover all packages in resolved modules
