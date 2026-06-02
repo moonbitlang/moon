@@ -622,7 +622,7 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub index: &'a Option<TestIndexRange>,
     pub doc_index: &'a Option<u32>,
     pub update: bool,
-    pub limit: u32,
+    pub update_limit: u32,
     pub auto_sync_flags: &'a AutoSyncFlags,
     pub build_only: bool,
     pub profile: bool,
@@ -646,7 +646,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             index: &cmd.index,
             doc_index: &cmd.doc_index,
             update: cmd.update,
-            limit: cmd.limit,
+            update_limit: cmd.limit,
             auto_sync_flags: &cmd.auto_sync_flags,
             build_only: cmd.build_only,
             profile: cmd.profile,
@@ -670,7 +670,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             index: &cmd.index,
             doc_index: &None,
             update: false,
-            limit: 256, // FIXME: unsure about why this default, shouldn't bench have only 1 run?
+            update_limit: 256, // FIXME: unsure about why this default, shouldn't bench have only 1 run?
             auto_sync_flags: &cmd.auto_sync_flags,
             build_only: cmd.build_only,
             profile: false,
@@ -1509,7 +1509,7 @@ fn rr_test_from_plan(
     )? {
         TestBuildExecution::DryRun => return Ok(0),
         TestBuildExecution::BuildFailed(exit_code) => return Ok(exit_code),
-        TestBuildExecution::Built(built) => built,
+        TestBuildExecution::Built(built) => *built,
     };
 
     if cmd.outline {
@@ -1590,10 +1590,10 @@ fn rr_test_from_plan(
             }
 
             // Apply loop count limits
-            if loop_count >= cmd.limit {
+            if loop_count >= cmd.update_limit {
                 user_diagnostics.warn(format!(
                     "reached the limit of {} update passes, stopping further updates.",
-                    cmd.limit
+                    cmd.update_limit
                 ));
                 break;
             }
@@ -1694,7 +1694,7 @@ struct BuiltTestExecution {
 enum TestBuildExecution {
     DryRun,
     BuildFailed(i32),
-    Built(BuiltTestExecution),
+    Built(Box<BuiltTestExecution>),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1746,11 +1746,11 @@ fn execute_test_build_from_plan(
         ));
     }
 
-    Ok(TestBuildExecution::Built(BuiltTestExecution {
+    Ok(TestBuildExecution::Built(Box::new(BuiltTestExecution {
         _lock: lock,
         build_config,
         build_graph_backup,
-    }))
+    })))
 }
 
 /// Collect test artifacts for --build-only mode, matching legacy behavior.

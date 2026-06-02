@@ -465,7 +465,7 @@ _moon() {
             return 0
             ;;
         moon__bench)
-            opts="-g -d -j -p -f -i -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --package --file --index --frozen --build-only --no-parallelize --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-g -d -j -p -f -i -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --package --file --index --frozen --build-only --no-parallelize --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -489,6 +489,10 @@ _moon() {
                     ;;
                 --render-no-loc)
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
+                    return 0
+                    ;;
+                --diagnostic-limit)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --package)
@@ -531,7 +535,7 @@ _moon() {
             return 0
             ;;
         moon__build)
-            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
+            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --frozen --watch --package --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -555,6 +559,10 @@ _moon() {
                     ;;
                 --render-no-loc)
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
+                    return 0
+                    ;;
+                --diagnostic-limit)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --package)
@@ -577,7 +585,7 @@ _moon() {
             return 0
             ;;
         moon__bundle)
-            opts="-g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --all --frozen --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --all --frozen --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -601,6 +609,10 @@ _moon() {
                     ;;
                 --render-no-loc)
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
+                    return 0
+                    ;;
+                --diagnostic-limit)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --manifest-path)
@@ -619,7 +631,7 @@ _moon() {
             return 0
             ;;
         moon__check)
-            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --watch --package-path --patch-file --no-mi --explain --fmt --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
+            opts="-g -d -j -w -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --frozen --watch --package-path --patch-file --no-mi --explain --fmt --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -643,6 +655,10 @@ _moon() {
                     ;;
                 --render-no-loc)
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
+                    return 0
+                    ;;
+                --diagnostic-limit)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --package-path)
@@ -2213,7 +2229,7 @@ _moon() {
             return 0
             ;;
         moon__prove)
-            opts="-d -j -q -v -h --why3-config --frozen --deny-warn --no-render --output-json --warn-list --jobs --render-no-loc --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
+            opts="-d -j -q -v -h --why3-config --frozen --deny-warn --no-render --output-json --warn-list --jobs --render-no-loc --diagnostic-limit --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2237,6 +2253,10 @@ _moon() {
                     ;;
                 --render-no-loc)
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
+                    return 0
+                    ;;
+                --diagnostic-limit)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --manifest-path)
@@ -2321,7 +2341,7 @@ _moon() {
             return 0
             ;;
         moon__run)
-            opts="-e -g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --frozen --build-only --profile --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PACKAGE_OR_MBT_FILE] [ARGS]..."
+            opts="-e -g -d -j -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --frozen --build-only --profile --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PACKAGE_OR_MBT_FILE] [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2349,6 +2369,10 @@ _moon() {
                     ;;
                 --render-no-loc)
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
+                    return 0
+                    ;;
+                --diagnostic-limit)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --manifest-path)
@@ -2415,7 +2439,7 @@ _moon() {
             return 0
             ;;
         moon__test)
-            opts="-g -d -j -p -i -u -l -f -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --package --file --index --doc-index --update --limit --frozen --build-only --profile --no-parallelize --outline --test-failure-json --patch-file --doc --include-skipped --filter --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
+            opts="-g -d -j -p -i -u -l -f -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --package --file --index --doc-index --update --limit --frozen --build-only --profile --no-parallelize --outline --test-failure-json --patch-file --doc --include-skipped --filter --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2439,6 +2463,10 @@ _moon() {
                     ;;
                 --render-no-loc)
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
+                    return 0
+                    ;;
+                --diagnostic-limit)
+                    COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
                 --package)

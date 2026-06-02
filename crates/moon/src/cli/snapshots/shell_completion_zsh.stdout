@@ -65,6 +65,7 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
+'--diagnostic-limit=[Limit the number of rendered diagnostics]:N: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '(--nostd)--std[Enable the standard library (default)]' \
@@ -103,6 +104,7 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
+'--diagnostic-limit=[Limit the number of rendered diagnostics]:N: ' \
 '--package=[]:PACKAGE: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
@@ -144,6 +146,7 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
+'--diagnostic-limit=[Limit the number of rendered diagnostics]:N: ' \
 '--package-path=[Legacy package directory path relative to the module source root (\`source\` in \`moon.mod.json\`)]:PACKAGE_DIR:_files' \
 '--patch-file=[The patch file to check. Only valid when the selector resolves to a single package]:PATCH_FILE:_files' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
@@ -189,6 +192,7 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
+'--diagnostic-limit=[Limit the number of rendered diagnostics]:N: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' \
@@ -216,6 +220,7 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
+'--diagnostic-limit=[Limit the number of rendered diagnostics]:N: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '(--nostd)--std[Enable the standard library (default)]' \
@@ -274,6 +279,7 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
+'--diagnostic-limit=[Limit the number of rendered diagnostics]:N: ' \
 '*-p+[Run test in the specified package]:PACKAGE: ' \
 '*--package=[Run test in the specified package]:PACKAGE: ' \
 '--file=[Run test in the specified file. Only valid when \`--package\` is also specified]:FILE: ' \
@@ -499,6 +505,7 @@ _arguments "${_arguments_options[@]}" : \
 '-j+[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--jobs=[Set the max number of jobs to run in parallel]:JOBS: ' \
 '--render-no-loc=[Render no-location diagnostics starting from a certain level]:MIN_LEVEL:(info warn error)' \
+'--diagnostic-limit=[Limit the number of rendered diagnostics]:N: ' \
 '*-p+[Run test in the specified package]:PACKAGE: ' \
 '*--package=[Run test in the specified package]:PACKAGE: ' \
 '-f+[Run test in the specified file. Only valid when \`--package\` is also specified]:FILE: ' \

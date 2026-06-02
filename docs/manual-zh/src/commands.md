@@ -132,6 +132,7 @@ Build the current package
 
   Possible values: `info`, `warn`, `error`
 
+* `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically build artifacts
 
@@ -171,6 +172,7 @@ Check the current package, but don't build object files
 
   Possible values: `info`, `warn`, `error`
 
+* `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically check files
 * `--patch-file <PATCH_FILE>` — The patch file to check. Only valid when the selector resolves to a single package
@@ -205,6 +207,7 @@ Prove the current package
 
   Possible values: `info`, `warn`, `error`
 
+* `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
 
 
 
@@ -244,6 +247,7 @@ Run a main package
 
   Possible values: `info`, `warn`, `error`
 
+* `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
 * `--profile` — Profile the native executable using Time Profiler on macOS or perf on Linux
@@ -306,6 +310,7 @@ Test the current package
 
   Possible values: `info`, `warn`, `error`
 
+* `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when a single file is selected. Implies `--include-skipped`
 * `--doc-index <DOC_INDEX>` — Run only the index-th doc test in the file. Only valid when a single file is selected. Implies `--include-skipped`
@@ -456,6 +461,7 @@ Run benchmarks in the current package
 
   Possible values: `info`, `warn`, `error`
 
+* `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified

@@ -34,6 +34,7 @@ use std::{
 };
 
 use anyhow::Context;
+use clap::ValueEnum;
 use indexmap::IndexMap;
 use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
@@ -867,6 +868,8 @@ pub struct BuildConfig {
     output_style: OutputStyle,
     /// Render no-location diagnostics above this level
     render_no_loc: DiagnosticLevel,
+    /// Maximum number of diagnostics to display after deduplication.
+    diagnostic_limit: Option<usize>,
 
     /// Generate metadata file `packages.json`
     pub generate_metadata: bool,
@@ -897,6 +900,7 @@ impl BuildConfig {
             parallelism: flags.jobs,
             output_style: flags.output_style(),
             render_no_loc: flags.render_no_loc,
+            diagnostic_limit: flags.diagnostic_limit,
             generate_metadata: false,
             explain_errors: false,
             n2_explain: unstable_features.rr_n2_explain,
@@ -919,6 +923,7 @@ impl Default for BuildConfig {
             parallelism: None,
             output_style: OutputStyle::Raw,
             render_no_loc: DiagnosticLevel::Error,
+            diagnostic_limit: None,
             generate_metadata: false,
             explain_errors: false,
             n2_explain: false,
@@ -1134,10 +1139,63 @@ fn process_captured_diagnostics(
             }
 
             // In JSON mode, just print raw content after dedup.
-            for file_diagnostics in by_file.values() {
-                for (diag, content) in file_diagnostics {
-                    println!("{content}");
-                    catcher.append_diag(diag);
+            match cfg.diagnostic_limit {
+                None => {
+                    for file_diagnostics in by_file.values() {
+                        for (diag, content) in file_diagnostics {
+                            println!("{content}");
+                            catcher.append_diag(diag);
+                        }
+                    }
+                }
+                Some(limit) => {
+                    let build_config = cfg;
+                    let mut displayed = 0;
+                    let mut hidden_errors = 0;
+                    let mut total_warnings = 0;
+                    let mut displayed_warnings = 0;
+                    let mut non_errors = Vec::new();
+
+                    for file_diagnostics in by_file.values() {
+                        for (diag, content) in file_diagnostics {
+                            if diagnostic_is_error(diag) {
+                                if displayed < limit {
+                                    println!("{content}");
+                                    catcher.append_diag(diag);
+                                    displayed += 1;
+                                } else {
+                                    hidden_errors += 1;
+                                }
+                                continue;
+                            }
+
+                            if diagnostic_is_warning(diag) {
+                                total_warnings += 1;
+                            }
+                            if displayed < limit {
+                                non_errors.push((diag, content));
+                            }
+                        }
+                    }
+
+                    if displayed < limit {
+                        for (diag, content) in non_errors {
+                            println!("{content}");
+                            catcher.append_diag(diag);
+                            displayed += 1;
+                            if diagnostic_is_warning(diag) {
+                                displayed_warnings += 1;
+                            }
+                            if displayed == limit {
+                                break;
+                            }
+                        }
+                    }
+
+                    let hidden_warnings = total_warnings - displayed_warnings;
+                    warn_limited_diagnostics(hidden_errors, hidden_warnings, build_config);
+                    catcher.n_errors += hidden_errors;
+                    catcher.n_warnings += hidden_warnings;
                 }
             }
         }
@@ -1165,15 +1223,82 @@ fn process_captured_diagnostics(
             }
 
             let patch_file = cfg.patch_file.as_ref();
-            for file_diagnostics in by_file.values() {
-                for diag in file_diagnostics {
-                    let kind = diag.render_diagnostics(
-                        n2::terminal::use_fancy(),
-                        patch_file,
-                        cfg.explain_errors,
-                        cfg.render_no_loc,
-                    );
-                    catcher.append_kind(kind);
+            match cfg.diagnostic_limit {
+                None => {
+                    for file_diagnostics in by_file.values() {
+                        for diag in file_diagnostics {
+                            let kind = diag.render_diagnostics(
+                                n2::terminal::use_fancy(),
+                                patch_file,
+                                cfg.explain_errors,
+                                cfg.render_no_loc,
+                            );
+                            catcher.append_kind(kind);
+                        }
+                    }
+                }
+                Some(limit) => {
+                    let build_config = cfg;
+                    let mut displayed = 0;
+                    let mut hidden_errors = 0;
+                    let mut total_warnings = 0;
+                    let mut displayed_warnings = 0;
+                    let mut non_errors = Vec::new();
+
+                    for file_diagnostics in by_file.values() {
+                        for diag in file_diagnostics {
+                            if !diagnostic_is_renderable(diag, build_config) {
+                                continue;
+                            }
+
+                            if diagnostic_is_error(diag) {
+                                if displayed < limit {
+                                    let kind = diag.render_diagnostics(
+                                        n2::terminal::use_fancy(),
+                                        patch_file,
+                                        build_config.explain_errors,
+                                        build_config.render_no_loc,
+                                    );
+                                    catcher.append_kind(kind);
+                                    displayed += 1;
+                                } else {
+                                    hidden_errors += 1;
+                                }
+                                continue;
+                            }
+
+                            if diagnostic_is_warning(diag) {
+                                total_warnings += 1;
+                            }
+                            if displayed < limit {
+                                non_errors.push(diag);
+                            }
+                        }
+                    }
+
+                    if displayed < limit {
+                        for diag in non_errors {
+                            let kind = diag.render_diagnostics(
+                                n2::terminal::use_fancy(),
+                                patch_file,
+                                build_config.explain_errors,
+                                build_config.render_no_loc,
+                            );
+                            catcher.append_kind(kind);
+                            displayed += 1;
+                            if diagnostic_is_warning(diag) {
+                                displayed_warnings += 1;
+                            }
+                            if displayed == limit {
+                                break;
+                            }
+                        }
+                    }
+
+                    let hidden_warnings = total_warnings - displayed_warnings;
+                    warn_limited_diagnostics(hidden_errors, hidden_warnings, build_config);
+                    catcher.n_errors += hidden_errors;
+                    catcher.n_warnings += hidden_warnings;
                 }
             }
         }
@@ -1184,5 +1309,34 @@ fn process_captured_diagnostics(
         cfg.user_diagnostics.warn(
             "Some diagnostics could not be rendered, please run with --no-render to see raw output.",
         );
+    }
+}
+
+fn diagnostic_is_error(diag: &MooncDiagnostic) -> bool {
+    diag.level == "error"
+}
+
+fn diagnostic_is_warning(diag: &MooncDiagnostic) -> bool {
+    matches!(diag.level.as_str(), "warn" | "warning")
+}
+
+fn diagnostic_is_renderable(diag: &MooncDiagnostic, cfg: &BuildConfig) -> bool {
+    if !diag.path.is_empty() {
+        return true;
+    }
+
+    DiagnosticLevel::from_str(&diag.level, true).is_ok_and(|level| level >= cfg.render_no_loc)
+}
+
+fn warn_limited_diagnostics(
+    hidden_errors: usize,
+    hidden_warnings: usize,
+    build_config: &BuildConfig,
+) {
+    if hidden_errors != 0 || hidden_warnings != 0 {
+        build_config.user_diagnostics.warn(format!(
+            "diagnostic output limited by --diagnostic-limit: {} errors and {} warnings were not displayed.",
+            hidden_errors, hidden_warnings
+        ));
     }
 }
