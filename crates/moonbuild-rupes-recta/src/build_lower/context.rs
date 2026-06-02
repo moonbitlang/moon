@@ -188,10 +188,10 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         let mut output_paths = vec![];
         self.append_all_artifacts_of(node, &mut output_paths);
-        if let Commandline::Args(args) = &cmd.commandline {
+        if let Commandline::Args(command) = &cmd.commandline {
             for output_path in &output_paths {
                 self.command_args_by_output
-                    .insert(output_path.clone(), args.clone());
+                    .insert(output_path.clone(), command.args().to_vec());
             }
         }
         let outs = build_outs(&mut self.graph, output_paths);

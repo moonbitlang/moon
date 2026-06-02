@@ -18,7 +18,10 @@
 
 //! Lowers a [Build plan](crate::build_plan) into `n2`'s Build graph
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::{Path, PathBuf},
+};
 
 use indexmap::IndexMap;
 use log::{debug, info};
@@ -42,9 +45,7 @@ mod lower_aux;
 mod lower_build;
 mod utils;
 
-pub use utils::{
-    build_ins, build_n2_fileloc, build_outs, command_tool_inputs, command_tool_inputs_with_extra,
-};
+pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
 use crate::build_lower::artifact::{ExecutableArtifact, LegacyLayoutBuilder};
 use context::BuildPlanLowerContext;
@@ -137,6 +138,54 @@ pub enum LoweringError {
 /// Structured command argv keyed by each generated output path.
 pub type CommandArgMap = BTreeMap<PathBuf, Vec<String>>;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct StructuredCommand {
+    args: Vec<String>,
+    tool_inputs: Vec<PathBuf>,
+}
+
+impl StructuredCommand {
+    pub(crate) fn new(args: Vec<String>) -> Self {
+        Self {
+            args,
+            tool_inputs: vec![],
+        }
+    }
+
+    pub(crate) fn with_tool_inputs(
+        args: Vec<String>,
+        tool_inputs: impl IntoIterator<Item = impl AsRef<Path>>,
+    ) -> Self {
+        let tool_inputs = tool_inputs
+            .into_iter()
+            .filter_map(|path| trackable_tool_input(path.as_ref()))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        Self { args, tool_inputs }
+    }
+
+    pub(crate) fn args(&self) -> &[String] {
+        &self.args
+    }
+
+    pub(crate) fn tool_inputs(&self) -> &[PathBuf] {
+        &self.tool_inputs
+    }
+}
+
+impl From<Vec<String>> for StructuredCommand {
+    fn from(args: Vec<String>) -> Self {
+        Self::new(args)
+    }
+}
+
+fn trackable_tool_input(path: &Path) -> Option<PathBuf> {
+    // Explicit env overrides may still be bare names; n2 can only track paths.
+    (path.is_absolute() || path.components().count() > 1).then(|| path.to_path_buf())
+}
+
 pub struct LoweringResult {
     /// The lowered n2 build graph.
     pub build_graph: N2Graph,
@@ -187,7 +236,7 @@ pub struct LoweringResult {
 #[derive(Debug, Clone)]
 enum Commandline {
     /// This commandline will be joined using the platform's default convention.
-    Args(Vec<String>),
+    Args(StructuredCommand),
 
     /// This verbatim string will be plugged into the build graph as-is.
     /// Use with caution.
@@ -198,7 +247,13 @@ enum Commandline {
 
 impl From<Vec<String>> for Commandline {
     fn from(v: Vec<String>) -> Self {
-        Commandline::Args(v)
+        Commandline::Args(v.into())
+    }
+}
+
+impl From<StructuredCommand> for Commandline {
+    fn from(command: StructuredCommand) -> Self {
+        Commandline::Args(command)
     }
 }
 
@@ -206,8 +261,8 @@ impl Commandline {
     /// Convert this to the string representation expected by n2.
     fn to_n2_string(&self) -> String {
         match self {
-            Commandline::Args(args) => {
-                moonutil::shlex::join_native(args.iter().map(|x| x.as_str()))
+            Commandline::Args(command) => {
+                moonutil::shlex::join_native(command.args().iter().map(|x| x.as_str()))
             }
             Commandline::Verbatim(s) => s.clone(),
         }
@@ -216,7 +271,7 @@ impl Commandline {
     /// Return tool binaries that should be tracked as inputs of this command.
     fn tool_inputs(&self) -> Vec<PathBuf> {
         match self {
-            Commandline::Args(args) => command_tool_inputs(args),
+            Commandline::Args(command) => command.tool_inputs().to_vec(),
             Commandline::Verbatim(_) => vec![],
         }
     }
@@ -281,4 +336,63 @@ pub fn lower_build_plan(
         command_args_by_output: ctx.command_args_by_output,
         artifacts: out_artifcts,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Commandline, StructuredCommand};
+    use std::path::PathBuf;
+
+    #[test]
+    fn structured_command_tracks_only_declared_tools() {
+        let command = StructuredCommand::with_tool_inputs(
+            vec![
+                "/toolchain/bin/moonc".to_string(),
+                "/toolchain/bin/moonfmt".to_string(),
+            ],
+            ["/toolchain/bin/moonc"],
+        );
+
+        assert_eq!(
+            command.tool_inputs(),
+            &[PathBuf::from("/toolchain/bin/moonc")]
+        );
+    }
+
+    #[test]
+    fn structured_command_tracks_multiple_tools_deterministically() {
+        let command = StructuredCommand::with_tool_inputs(
+            vec!["/toolchain/bin/moonrun".to_string()],
+            [
+                "/toolchain/bin/moonyacc.wasm",
+                "/toolchain/bin/moonrun",
+                "/toolchain/bin/moonyacc.wasm",
+            ],
+        );
+
+        assert_eq!(
+            command.tool_inputs(),
+            &[
+                PathBuf::from("/toolchain/bin/moonrun"),
+                PathBuf::from("/toolchain/bin/moonyacc.wasm")
+            ]
+        );
+    }
+
+    #[test]
+    fn structured_command_skips_bare_tool_names() {
+        let command = StructuredCommand::with_tool_inputs(
+            vec!["moon".to_string()],
+            ["moon", "relative/moon"],
+        );
+
+        assert_eq!(command.tool_inputs(), &[PathBuf::from("relative/moon")]);
+    }
+
+    #[test]
+    fn verbatim_command_has_no_tool_inputs() {
+        let command = Commandline::Verbatim("moon generate".to_string());
+
+        assert!(command.tool_inputs().is_empty());
+    }
 }

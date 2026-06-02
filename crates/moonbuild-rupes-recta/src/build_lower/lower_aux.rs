@@ -30,7 +30,7 @@ use tracing::{Level, instrument};
 
 use crate::{
     build_lower::{
-        Commandline,
+        Commandline, StructuredCommand,
         compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     },
     build_plan::BuildTargetInfo,
@@ -279,9 +279,11 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             .clone();
         let output = mbtlex_path.with_extension("mbt");
 
+        let moonrun = &*moonutil::BINARIES.moonrun;
+        let moonlex = &*moonutil::BINARIES.moonlex;
         let commandline = vec![
-            moonutil::BINARIES.moonrun.display().to_string(),
-            moonutil::BINARIES.moonlex.display().to_string(),
+            moonrun.display().to_string(),
+            moonlex.display().to_string(),
             "--".into(),
             mbtlex_path.display().to_string(),
             "-o".into(),
@@ -289,7 +291,11 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         ];
 
         BuildCommand {
-            commandline: commandline.into(),
+            commandline: StructuredCommand::with_tool_inputs(
+                commandline,
+                [moonrun.as_path(), moonlex.as_path()],
+            )
+            .into(),
             extra_inputs: vec![mbtlex_path],
         }
     }
@@ -303,9 +309,11 @@ impl<'a> super::BuildPlanLowerContext<'a> {
             .clone();
         let output = mby_path.with_extension("mbt");
 
+        let moonrun = &*moonutil::BINARIES.moonrun;
+        let moonyacc = &*moonutil::BINARIES.moonyacc;
         let commandline = vec![
-            moonutil::BINARIES.moonrun.display().to_string(),
-            moonutil::BINARIES.moonyacc.display().to_string(),
+            moonrun.display().to_string(),
+            moonyacc.display().to_string(),
             "--".into(),
             mby_path.display().to_string(),
             "-o".into(),
@@ -313,7 +321,11 @@ impl<'a> super::BuildPlanLowerContext<'a> {
         ];
 
         BuildCommand {
-            commandline: commandline.into(),
+            commandline: StructuredCommand::with_tool_inputs(
+                commandline,
+                [moonrun.as_path(), moonyacc.as_path()],
+            )
+            .into(),
             extra_inputs: vec![mby_path],
         }
     }
