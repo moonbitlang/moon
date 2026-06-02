@@ -30,9 +30,9 @@ mod mooninfo;
 mod prove;
 
 use std::borrow::Cow;
-use std::ffi::OsStr;
 use std::path::Path;
 
+use crate::build_lower::StructuredCommand;
 use crate::model::TargetKind;
 use crate::pkg_name::PackageFQN;
 
@@ -232,10 +232,11 @@ pub(super) trait CmdlineAbstraction {
     fn to_args(&self, args: &mut Vec<String>);
 
     /// Build the full command with executable and arguments.
-    fn build_command(&self, executable: impl AsRef<OsStr>) -> Vec<String> {
-        let mut args = vec![executable.as_ref().to_string_lossy().into_owned()];
+    fn build_command(&self, executable: impl AsRef<Path>) -> StructuredCommand {
+        let executable = executable.as_ref();
+        let mut args = vec![executable.to_string_lossy().into_owned()];
         self.to_args(&mut args);
-        args
+        StructuredCommand::with_tool_inputs(args, [executable])
     }
 }
 

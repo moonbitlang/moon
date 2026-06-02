@@ -52,7 +52,9 @@ use crate::{
     special_cases::{is_self_coverage_lib, should_skip_coverage},
 };
 
-use super::{BuildCommand, Commandline, compiler, context::BuildPlanLowerContext};
+use super::{
+    BuildCommand, Commandline, StructuredCommand, compiler, context::BuildPlanLowerContext,
+};
 
 impl<'a> BuildPlanLowerContext<'a> {
     fn compiler_source_files(&self, info: &BuildTargetInfo) -> Vec<PathBuf> {
@@ -1237,12 +1239,10 @@ impl<'a> BuildPlanLowerContext<'a> {
         // a response file so that `tcc` will run it later.
         //
         // We have a tool for this: `moon tool write-tcc-rsp-file <out> <args...>`
-        let moonbuild = moonutil::BINARIES
-            .moonbuild
-            .to_str()
-            .expect("moonbuild path is valid UTF-8");
+        let moonbuild = &*moonutil::BINARIES.moonbuild;
+        let moonbuild_arg = moonbuild.to_str().expect("moonbuild path is valid UTF-8");
         let mut rsp_cmdline = vec![
-            moonbuild.to_string(),
+            moonbuild_arg.to_string(),
             "tool".to_string(),
             "write-tcc-rsp-file".to_string(),
         ];
@@ -1257,7 +1257,8 @@ impl<'a> BuildPlanLowerContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: rsp_cmdline.into(),
+            commandline: StructuredCommand::with_tool_inputs(rsp_cmdline, [moonbuild.as_path()])
+                .into(),
         }
     }
 
