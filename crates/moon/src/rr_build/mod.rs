@@ -317,6 +317,7 @@ impl CompilePreConfig {
     fn into_compile_config(
         self,
         final_target_backend: TargetBackend,
+        native_target: Option<NativeTarget>,
         is_core: bool,
         resolve_output: &ResolveOutput,
         input_nodes: &[BuildPlanNode],
@@ -340,10 +341,7 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
-        let native_target = match target_backend {
-            TargetBackend::Native => NativeTarget::from_env_for_host(),
-            _ => None,
-        };
+        debug_assert!(target_backend == TargetBackend::Native || native_target.is_none());
         info!("New native target: {:?}", native_target);
 
         let (run_backend, tcc_run) = match target_backend {
@@ -583,6 +581,10 @@ pub(crate) fn plan_resolved_build_from_intent(
 
     // Expand user intents to concrete BuildPlanNode inputs
     info!("Expanding user intents to build plan nodes");
+    let native_target = match planning_context.target_backend {
+        TargetBackend::Native => NativeTarget::from_env_for_host(),
+        _ => None,
+    };
     let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
     let mut intent_messages = Vec::new();
     for i in &intent.intents {
@@ -592,6 +594,7 @@ pub(crate) fn plan_resolved_build_from_intent(
             &mut intent_messages,
             &intent.directive,
             planning_context.target_backend,
+            native_target,
         );
     }
     for message in &intent_messages {
@@ -599,6 +602,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     }
     let cx = preconfig.into_compile_config(
         planning_context.target_backend,
+        native_target,
         planning_context.is_core,
         &resolve_output,
         &input_nodes,

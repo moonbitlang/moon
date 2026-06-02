@@ -398,6 +398,12 @@ impl CC {
         )
     }
 
+    pub fn targets_darwin(&self) -> bool {
+        self.target_triple
+            .as_deref()
+            .is_some_and(|triple| triple.contains("apple-darwin"))
+    }
+
     pub fn is_full_featured_gcc_like(&self) -> bool {
         matches!(self.cc_kind, CCKind::SystemCC | CCKind::Gcc | CCKind::Clang)
     }
@@ -805,6 +811,8 @@ fn add_linker_shared_lib_flags(
     if config.output_ty == OutputType::SharedLib {
         if cc.is_msvc() {
             buf.push("/LD".to_string());
+        } else if cc.targets_darwin() {
+            buf.push("-dynamiclib".to_string());
         } else if cc.is_gcc_like() {
             buf.push("-shared".to_string());
             buf.push("-fPIC".to_string());

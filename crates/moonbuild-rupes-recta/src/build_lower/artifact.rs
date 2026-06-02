@@ -58,6 +58,9 @@ pub enum ExecutableArtifact {
         os: OperatingSystem,
         legacy_behavior: bool,
     },
+    NativeDylib {
+        os: OperatingSystem,
+    },
     TccRunResponseFile,
     LlvmExecutable {
         os: OperatingSystem,
@@ -71,7 +74,9 @@ impl ExecutableArtifact {
             Self::Wasm { .. } => TargetBackend::Wasm,
             Self::WasmGC { .. } => TargetBackend::WasmGC,
             Self::Js => TargetBackend::Js,
-            Self::NativeExecutable { .. } | Self::TccRunResponseFile => TargetBackend::Native,
+            Self::NativeExecutable { .. } | Self::NativeDylib { .. } | Self::TccRunResponseFile => {
+                TargetBackend::Native
+            }
             Self::LlvmExecutable { .. } => TargetBackend::LLVM,
         }
     }
@@ -89,6 +94,7 @@ impl ExecutableArtifact {
                 os,
                 legacy_behavior,
             } => executable_ext(os, legacy_behavior),
+            Self::NativeDylib { os } => dynamic_library_ext(os),
             Self::TccRunResponseFile => ".rspfile",
         }
     }

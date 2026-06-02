@@ -104,6 +104,17 @@ impl BuildOptions {
             },
         }
     }
+
+    pub fn uses_native_dylib_runner(&self) -> bool {
+        self.target_backend == RunBackend::Native
+            && self.native_target.is_some()
+            && self.os == OperatingSystem::MacOS
+            && !self.use_tcc_run()
+    }
+
+    pub(crate) fn native_dylib_artifact(&self) -> ExecutableArtifact {
+        ExecutableArtifact::NativeDylib { os: self.os }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

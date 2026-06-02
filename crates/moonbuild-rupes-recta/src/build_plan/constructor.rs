@@ -355,6 +355,14 @@ impl<'a> BuildPlanConstructor<'a> {
                     );
                 }
             }
+            BuildPlanNode::MakeNativeDylib(build_target) => {
+                assert!(
+                    self.res.make_executable_info.contains_key(&build_target),
+                    "Make executable info for {:?} should be present when resolving node {:?}",
+                    build_target,
+                    node
+                );
+            }
             BuildPlanNode::GenerateMbti(_build_target) => (),
             BuildPlanNode::Bundle(module_id) => {
                 assert!(
@@ -479,7 +487,9 @@ impl<'a> BuildPlanConstructor<'a> {
                     pending list, it should be already resolved."
                 )
             }
-            BuildPlanNode::MakeExecutable(target) => self.build_make_exec_link_core(node, target),
+            BuildPlanNode::MakeExecutable(target) | BuildPlanNode::MakeNativeDylib(target) => {
+                self.build_make_exec_link_core(node, target)
+            }
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),

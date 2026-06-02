@@ -32,9 +32,10 @@ use tokio::process::Command;
 /// args that are passed to the test executable. The function **may create
 /// temporary files** to support test execution.
 ///
-/// `mbt_executable` is the final MoonBit executable to run, such as a `.wasm`
-/// file in WASM or WASM-GC backends, a `.js` file in JS backend, or a native
-/// executable in Native or LLVM backends.
+/// `mbt_executable` is the final MoonBit artifact to run, such as a `.wasm`
+/// file in WASM or WASM-GC backends, a `.js` file in JS backend, a native
+/// executable in LLVM or classic Native backends, or a native `.dylib` loaded
+/// by `moon-native-runner` for the new macOS native backend.
 ///
 /// ### Note
 ///
@@ -83,6 +84,14 @@ pub(crate) fn command_for(
             }
             cmd
         }
+        (RunBackend::Native, _) if is_native_dylib(mbt_executable) => {
+            let mut cmd = Command::new(&*moonutil::BINARIES.moon_native_runner);
+            cmd.arg(mbt_executable);
+            if let Some(t) = test {
+                cmd.arg(t.to_cli_args_for_native());
+            }
+            cmd
+        }
         (RunBackend::Native | RunBackend::Llvm, _) => {
             let mut cmd = Command::new(mbt_executable);
             if let Some(t) = test {
@@ -91,4 +100,10 @@ pub(crate) fn command_for(
             cmd
         }
     }
+}
+
+fn is_native_dylib(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension == "dylib")
 }

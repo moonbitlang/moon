@@ -534,7 +534,9 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
 
         // FIXME: artifact index relies on implementation of append_artifact_of
         match node {
-            BuildPlanNode::MakeExecutable(_) => working.executable(&artifacts.artifacts[0]),
+            BuildPlanNode::MakeExecutable(_) | BuildPlanNode::MakeNativeDylib(_) => {
+                working.executable(&artifacts.artifacts[0])
+            }
             BuildPlanNode::GenerateTestInfo(_) => working.meta(&artifacts.artifacts[1]),
             _ => panic!("Unexpected artifact for test: {:?}", artifacts.node),
         };

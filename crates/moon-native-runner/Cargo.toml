@@ -1,0 +1,12 @@
+[package]
+name = "moon-native-runner"
+version = "0.1.20260201"
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "moon-native-runner"
+path = "src/main.rs"
+
+[dependencies]
+libc.workspace = true

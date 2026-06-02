@@ -29,7 +29,7 @@ use crate::{
     build_plan::InputDirective,
     cond_comp::get_file_target_backend,
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    model::{BuildPlanNode, BuildTarget, NativeTarget, PackageId, TargetKind},
     resolve::ResolveOutput,
     user_warning::UserWarning,
 };
@@ -68,7 +68,10 @@ impl UserIntent {
         user_messages: &mut Vec<UserWarning>,
         directive: &InputDirective,
         target_backend: TargetBackend,
+        native_target: Option<NativeTarget>,
     ) {
+        let use_native_dylib_runner =
+            target_backend == TargetBackend::Native && native_target.is_some();
         match self {
             UserIntent::Build(pkg) => {
                 let pkg_info = resolved.pkg_dirs.get_package(pkg);
@@ -79,6 +82,9 @@ impl UserIntent {
                     let t = pkg.build_target(TargetKind::Source);
                     if is_linkable(pkg_info) {
                         out.push(BuildPlanNode::make_executable(t));
+                        if use_native_dylib_runner {
+                            out.push(BuildPlanNode::make_native_dylib(t));
+                        }
                     } else {
                         out.push(BuildPlanNode::build_core(t));
                     }
@@ -90,7 +96,7 @@ impl UserIntent {
                     // Pure virtual package: we can't do anything
                 } else {
                     let t = pkg.build_target(TargetKind::Source);
-                    out.push(BuildPlanNode::make_executable(t));
+                    append_runnable_node(out, t, use_native_dylib_runner);
                 }
             }
             UserIntent::Check(pkg) => {
@@ -182,7 +188,7 @@ impl UserIntent {
                         {
                             continue;
                         }
-                        out.push(BuildPlanNode::make_executable(t));
+                        append_runnable_node(out, t, use_native_dylib_runner);
                         out.push(BuildPlanNode::generate_test_info(t));
                     }
                 }
@@ -203,6 +209,18 @@ impl UserIntent {
                 // else: skip virtual packages to mirror `moon info` behavior
             }
         }
+    }
+}
+
+fn append_runnable_node(
+    out: &mut Vec<BuildPlanNode>,
+    target: BuildTarget,
+    use_native_dylib_runner: bool,
+) {
+    if use_native_dylib_runner {
+        out.push(BuildPlanNode::make_native_dylib(target));
+    } else {
+        out.push(BuildPlanNode::make_executable(target));
     }
 }
 

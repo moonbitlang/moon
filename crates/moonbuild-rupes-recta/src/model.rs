@@ -241,6 +241,10 @@ pub enum BuildPlanNode {
     /// execution logic.
     MakeExecutable(BuildTarget),
 
+    /// Link the new native object-code output into a dynamic library runnable
+    /// through `moon-native-runner`.
+    MakeNativeDylib(BuildTarget),
+
     /// Generate test driver and metadata for the given test target.
     GenerateTestInfo(BuildTarget),
 
@@ -301,6 +305,10 @@ impl BuildPlanNode {
         Self::MakeExecutable(target)
     }
 
+    pub fn make_native_dylib(target: BuildTarget) -> Self {
+        Self::MakeNativeDylib(target)
+    }
+
     pub fn generate_test_info(target: BuildTarget) -> Self {
         Self::GenerateTestInfo(target)
     }
@@ -314,6 +322,7 @@ impl BuildPlanNode {
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::MakeExecutable(target)
+            | BuildPlanNode::MakeNativeDylib(target)
             | BuildPlanNode::GenerateTestInfo(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
             BuildPlanNode::BuildCStub(_, _)
@@ -378,6 +387,14 @@ impl BuildPlanNode {
             BuildPlanNode::MakeExecutable(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("make executable {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::MakeNativeDylib(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!(
+                    "make native dylib {}{}",
+                    fqn,
+                    kind_suffix(build_target.kind)
+                )
             }
             BuildPlanNode::GenerateTestInfo(build_target) => {
                 let fqn = packages.fqn(build_target.package);
@@ -482,6 +499,10 @@ impl BuildPlanNode {
             BuildPlanNode::MakeExecutable(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@MakeExecutable", fqn, t.kind)
+            }
+            BuildPlanNode::MakeNativeDylib(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@MakeNativeDylib", fqn, t.kind)
             }
             BuildPlanNode::GenerateTestInfo(t) => {
                 let fqn = packages.fqn(t.package);

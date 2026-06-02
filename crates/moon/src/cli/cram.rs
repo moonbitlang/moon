@@ -305,7 +305,10 @@ fn collect_executable_dirs(
     let mut dirs = Vec::new();
     for (build_meta, _) in planned_runs {
         for (node, artifacts) in &build_meta.artifacts {
-            if !matches!(node, BuildPlanNode::MakeExecutable(_)) {
+            if !matches!(
+                node,
+                BuildPlanNode::MakeExecutable(_) | BuildPlanNode::MakeNativeDylib(_)
+            ) {
                 continue;
             }
             for artifact in &artifacts.artifacts {

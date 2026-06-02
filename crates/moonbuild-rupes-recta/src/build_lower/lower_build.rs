@@ -39,7 +39,8 @@ use tracing::{Level, instrument};
 
 use crate::{
     build_lower::{
-        WarningCondition, artifact,
+        WarningCondition,
+        artifact::{self, ExecutableArtifact},
         compiler::{
             BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, ErrorFormat, JsConfig,
             MiDependency, PackageSource, WasmConfig,
@@ -1006,6 +1007,19 @@ impl<'a> BuildPlanLowerContext<'a> {
         }
     }
 
+    #[instrument(level = Level::DEBUG, skip(self, info))]
+    pub(super) fn lower_make_native_dylib(
+        &mut self,
+        target: BuildTarget,
+        info: &MakeExecutableInfo,
+    ) -> BuildCommand {
+        assert!(
+            self.opt.uses_native_dylib_runner(),
+            "MakeNativeDylib is only supported by the new macOS native backend"
+        );
+        self.lower_link_new_native_dylib(target, info)
+    }
+
     fn lower_build_exe_regular(
         &mut self,
         target: BuildTarget,
@@ -1111,6 +1125,52 @@ impl<'a> BuildPlanLowerContext<'a> {
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
+        let (cc, sources, simdutf_objects, pkg_dir) =
+            self.collect_new_native_link_sources(target, info);
+        let dest = self.new_native_link_dest(target, self.opt.executable_artifact(true));
+        let linker_cmd = self.make_new_native_link_command(
+            cc,
+            CCOutputType::Executable,
+            info,
+            &sources,
+            &pkg_dir,
+            &dest,
+        );
+
+        BuildCommand {
+            extra_inputs: simdutf_objects,
+            commandline: linker_cmd.into(),
+        }
+    }
+
+    fn lower_link_new_native_dylib(
+        &mut self,
+        target: BuildTarget,
+        info: &MakeExecutableInfo,
+    ) -> BuildCommand {
+        let (cc, sources, simdutf_objects, pkg_dir) =
+            self.collect_new_native_link_sources(target, info);
+        let dest = self.new_native_link_dest(target, self.opt.native_dylib_artifact());
+        let linker_cmd = self.make_new_native_link_command(
+            cc,
+            CCOutputType::SharedLib,
+            info,
+            &sources,
+            &pkg_dir,
+            &dest,
+        );
+
+        BuildCommand {
+            extra_inputs: simdutf_objects,
+            commandline: linker_cmd.into(),
+        }
+    }
+
+    fn collect_new_native_link_sources(
+        &mut self,
+        target: BuildTarget,
+        info: &MakeExecutableInfo,
+    ) -> (CC, Vec<PathBuf>, Vec<PathBuf>, String) {
         let mut sources = vec![];
         self.append_all_artifacts_of(BuildPlanNode::LinkCore(target), &mut sources);
         self.append_all_artifacts_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
@@ -1133,12 +1193,6 @@ impl<'a> BuildPlanLowerContext<'a> {
         };
         sources.extend(simdutf_objects.iter().cloned());
 
-        let dest = self
-            .layout
-            .executable_of_build_target(self.packages, &target, self.opt.executable_artifact(true))
-            .display()
-            .to_string();
-
         let pkg_dir = self
             .layout
             .package_dir(
@@ -1148,31 +1202,45 @@ impl<'a> BuildPlanLowerContext<'a> {
             .display()
             .to_string();
 
+        (cc, sources, simdutf_objects, pkg_dir)
+    }
+
+    fn new_native_link_dest(&self, target: BuildTarget, artifact: ExecutableArtifact) -> String {
+        self.layout
+            .executable_of_build_target(self.packages, &target, artifact)
+            .display()
+            .to_string()
+    }
+
+    fn make_new_native_link_command(
+        &self,
+        cc: CC,
+        output_ty: CCOutputType,
+        info: &MakeExecutableInfo,
+        sources: &[PathBuf],
+        pkg_dir: &str,
+        dest: &str,
+    ) -> Vec<String> {
         let config = LinkerConfigBuilder::<&Path>::default()
             .link_moonbitrun(true)
             .link_libbacktrace(true)
-            .output_ty(CCOutputType::Executable)
+            .output_ty(output_ty)
             .build()
-            .expect("Failed to build LinkerConfig for new native executable");
+            .expect("Failed to build LinkerConfig for new native artifact");
 
         let source_args = sources
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
-        let linker_cmd = make_linker_command_resolved(
+        make_linker_command_resolved(
             cc,
             config,
             &info.link_flags,
             &source_args,
-            &pkg_dir,
-            &dest,
+            pkg_dir,
+            dest,
             &self.opt.compiler_paths.lib_path,
-        );
-
-        BuildCommand {
-            extra_inputs: simdutf_objects,
-            commandline: linker_cmd.into(),
-        }
+        )
     }
 
     /// Build the command for `tcc -run` to execute when running, as well as

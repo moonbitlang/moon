@@ -812,31 +812,33 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let link_core_node = self.need_node(BuildPlanNode::LinkCore(target));
 
-        // Add edges to all dependencies
-        // Note that we have already replaced unnecessary dependencies
-        for target in &link_core_deps {
-            let dep_node = BuildPlanNode::BuildCore(*target);
-            self.need_node(dep_node);
-            self.add_edge_spec(
-                link_core_node,
-                dep_node,
-                FileDependencyKind::BuildCore {
-                    mi: false,
-                    core: true,
-                },
-            );
-        }
-
         // Use DFS-built order directly (dependencies first, then dependents).
         let targets = link_core_deps.iter().copied().collect::<Vec<_>>();
-        let link_core_info = LinkCoreInfo {
-            linked_order: targets.clone(),
-            abort_overridden,
-            // std: self.build_env.std, // Can move std/nostd to per-package info
-        };
-        self.res.link_core_info.insert(target, link_core_info);
+        if !self.resolved.contains(&link_core_node) {
+            // Add edges to all dependencies
+            // Note that we have already replaced unnecessary dependencies
+            for target in &link_core_deps {
+                let dep_node = BuildPlanNode::BuildCore(*target);
+                self.need_node(dep_node);
+                self.add_edge_spec(
+                    link_core_node,
+                    dep_node,
+                    FileDependencyKind::BuildCore {
+                        mi: false,
+                        core: true,
+                    },
+                );
+            }
 
-        self.resolved_node(link_core_node);
+            let link_core_info = LinkCoreInfo {
+                linked_order: targets.clone(),
+                abort_overridden,
+                // std: self.build_env.std, // Can move std/nostd to per-package info
+            };
+            self.res.link_core_info.insert(target, link_core_info);
+
+            self.resolved_node(link_core_node);
+        }
 
         // ===== Make Executable =====
 

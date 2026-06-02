@@ -1588,6 +1588,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "moon-native-runner"
+version = "0.1.20260201"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "moon-test-util"
 version = "0.1.0"
 dependencies = [

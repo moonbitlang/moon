@@ -52,6 +52,43 @@ fn moon_bin(binary_name: &str, env_var: &str) -> PathBuf {
     )
 }
 
+fn moon_bin_or_fallback(binary_name: &str, env_var: &str) -> PathBuf {
+    if let Some(path) = std::env::var_os(env_var) {
+        return PathBuf::from(path);
+    }
+
+    let in_toolchain = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
+    if in_toolchain.exists() {
+        return in_toolchain;
+    }
+
+    if let Some(next_to_moon) = find_binary_next_to_current_exe(binary_name) {
+        return next_to_moon;
+    }
+
+    if let Ok(in_path) = which::which(binary_name) {
+        return in_path;
+    }
+
+    get_fallback_binary(binary_name)
+}
+
+fn find_binary_next_to_current_exe(binary_name: &str) -> Option<PathBuf> {
+    let current_exe = std::env::current_exe().ok()?;
+    let current_dir = current_exe.parent()?;
+    let mut candidates = vec![current_dir.to_path_buf()];
+    if current_dir.file_name().is_some_and(|name| name == "deps")
+        && let Some(parent) = current_dir.parent()
+    {
+        candidates.push(parent.to_path_buf());
+    }
+
+    candidates.into_iter().find_map(|dir| {
+        let candidate = ensure_exe_extension(dir.join(binary_name));
+        candidate.exists().then_some(candidate)
+    })
+}
+
 fn which_bin(candidates: &[&str], env_var: &str) -> Option<PathBuf> {
     if let Some(custom_path) = std::env::var_os(env_var) {
         return Some(PathBuf::from(custom_path));
@@ -72,6 +109,7 @@ pub struct CachedBinaries {
     pub moonfmt: LazyLock<PathBuf>,
     pub mooninfo: LazyLock<PathBuf>,
     pub moonlex: LazyLock<PathBuf>,
+    pub moon_native_runner: LazyLock<PathBuf>,
     pub moonrun: LazyLock<PathBuf>,
     pub moonyacc: LazyLock<PathBuf>,
     pub moon_cram: LazyLock<PathBuf>,
@@ -91,6 +129,7 @@ impl CachedBinaries {
             ("moonfmt", self.moonfmt.clone()),
             ("mooninfo", self.mooninfo.clone()),
             ("moonlex", self.moonlex.clone()),
+            ("moon-native-runner", self.moon_native_runner.clone()),
             ("moonrun", self.moonrun.clone()),
             ("moonyacc", self.moonyacc.clone()),
             ("moon_cove_report", self.moon_cove_report.clone()),
@@ -121,6 +160,9 @@ pub static BINARIES: CachedBinaries = CachedBinaries {
     moonfmt: LazyLock::new(|| moon_bin("moonfmt", "MOONFMT_OVERRIDE")),
     mooninfo: LazyLock::new(|| moon_bin("mooninfo", "MOONINFO_OVERRIDE")),
     moonlex: LazyLock::new(|| moon_bin("moonlex.wasm", "MOONLEX_OVERRIDE")),
+    moon_native_runner: LazyLock::new(|| {
+        moon_bin_or_fallback("moon-native-runner", "MOON_NATIVE_RUNNER_OVERRIDE")
+    }),
     moonrun: LazyLock::new(|| moon_bin("moonrun", "MOONRUN_OVERRIDE")),
     moonyacc: LazyLock::new(|| moon_bin("moonyacc.wasm", "MOONYACC_OVERRIDE")),
     moon_cram: LazyLock::new(|| moon_bin("moon-cram", "MOON_CRAM_OVERRIDE")),

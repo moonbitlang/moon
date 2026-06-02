@@ -151,6 +151,13 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .expect("Make executable info should be present for MakeExecutable nodes");
                 self.lower_make_exe(target, info)
             }
+            BuildPlanNode::MakeNativeDylib(target) => {
+                let info = self
+                    .build_plan
+                    .get_make_executable_info(&target)
+                    .expect("Make executable info should be present for MakeNativeDylib nodes");
+                self.lower_make_native_dylib(target, info)
+            }
             BuildPlanNode::GenerateMbti(target) => self.lower_generate_mbti(target),
             BuildPlanNode::BuildVirtual(target) => self.lower_parse_mbti(node, target),
             BuildPlanNode::Bundle(module_id) => self.lower_bundle(node, module_id),
@@ -424,6 +431,13 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.packages,
                     &target,
                     self.opt.executable_artifact(true),
+                ))
+            }
+            BuildPlanNode::MakeNativeDylib(target) => {
+                out.push(self.layout.executable_of_build_target(
+                    self.packages,
+                    &target,
+                    self.opt.native_dylib_artifact(),
                 ))
             }
             BuildPlanNode::GenerateTestInfo(target) => {
