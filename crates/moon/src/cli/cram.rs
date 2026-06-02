@@ -343,7 +343,7 @@ fn print_dry_run_cram_command(
     executable_dirs: &[PathBuf],
     source_dir: &Path,
 ) {
-    let replacer = moonbuild_debug::graph::PathNormalizer::new(source_dir);
+    let replacer = moonbuild::dry_run::PathNormalizer::new(source_dir);
     let mut args = vec![
         format!(
             "PATH={}",
@@ -364,7 +364,7 @@ fn print_dry_run_cram_command(
 
 fn display_path_with_executable_dirs(
     executable_dirs: &[PathBuf],
-    replacer: &moonbuild_debug::graph::PathNormalizer,
+    replacer: &moonbuild::dry_run::PathNormalizer,
 ) -> String {
     let separator = if cfg!(windows) { ";" } else { ":" };
     executable_dirs
