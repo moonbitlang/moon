@@ -235,6 +235,69 @@ fn test_moon_fmt_extra_args() {
 }
 
 #[test]
+fn test_moon_fmt_graph_tracks_tool_binaries() {
+    let dir = TestDir::new("fmt");
+    let is_tool_input =
+        |input: &str, name: &str| input == name || input.ends_with(&format!("/{name}"));
+
+    let graph_file = tempfile::NamedTempFile::new().unwrap();
+    snap_dry_run_graph(&dir, ["fmt", "--dry-run"], &graph_file.path());
+    let graph = moonbuild_debug::graph::BuildGraphDump::read_from(
+        std::fs::File::open(graph_file.path()).unwrap(),
+    )
+    .unwrap();
+    let format_node = graph
+        .nodes
+        .iter()
+        .find(|node| {
+            node.command
+                .as_deref()
+                .is_some_and(|command| command.starts_with("moonfmt "))
+        })
+        .expect("fmt graph should contain a moonfmt node");
+    assert!(
+        format_node
+            .inputs
+            .iter()
+            .any(|input| is_tool_input(input, "moonfmt")),
+        "moonfmt node inputs: {:?}",
+        format_node.inputs
+    );
+
+    let graph_file = tempfile::NamedTempFile::new().unwrap();
+    snap_dry_run_graph(&dir, ["fmt", "--check", "--dry-run"], &graph_file.path());
+    let graph = moonbuild_debug::graph::BuildGraphDump::read_from(
+        std::fs::File::open(graph_file.path()).unwrap(),
+    )
+    .unwrap();
+    let check_node = graph
+        .nodes
+        .iter()
+        .find(|node| {
+            node.command
+                .as_deref()
+                .is_some_and(|command| command.starts_with("moon tool format-and-diff "))
+        })
+        .expect("fmt --check graph should contain a format-and-diff node");
+    assert!(
+        check_node
+            .inputs
+            .iter()
+            .any(|input| is_tool_input(input, "moon")),
+        "format-and-diff node inputs: {:?}",
+        check_node.inputs
+    );
+    assert!(
+        check_node
+            .inputs
+            .iter()
+            .any(|input| is_tool_input(input, "moonfmt")),
+        "format-and-diff node inputs: {:?}",
+        check_node.inputs
+    );
+}
+
+#[test]
 fn test_moon_fmt_block_style() {
     let dir = TestDir::new("fmt");
     let output = get_stdout(&dir, ["fmt", "--block-style", "--sort-input", "--dry-run"]);

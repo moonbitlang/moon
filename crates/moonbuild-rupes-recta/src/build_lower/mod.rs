@@ -42,7 +42,9 @@ mod lower_aux;
 mod lower_build;
 mod utils;
 
-pub use utils::{build_ins, build_n2_fileloc, build_outs};
+pub use utils::{
+    build_ins, build_n2_fileloc, build_outs, command_tool_inputs, command_tool_inputs_with_extra,
+};
 
 use crate::build_lower::artifact::{ExecutableArtifact, LegacyLayoutBuilder};
 use context::BuildPlanLowerContext;
@@ -190,7 +192,7 @@ enum Commandline {
     /// This verbatim string will be plugged into the build graph as-is.
     /// Use with caution.
     ///
-    /// This variant currently is only used in prebuild commands.
+    /// This variant is mainly used for prebuild commands.
     Verbatim(String),
 }
 
@@ -208,6 +210,14 @@ impl Commandline {
                 moonutil::shlex::join_native(args.iter().map(|x| x.as_str()))
             }
             Commandline::Verbatim(s) => s.clone(),
+        }
+    }
+
+    /// Return tool binaries that should be tracked as inputs of this command.
+    fn tool_inputs(&self) -> Vec<PathBuf> {
+        match self {
+            Commandline::Args(args) => command_tool_inputs(args),
+            Commandline::Verbatim(_) => vec![],
         }
     }
 }

@@ -31,7 +31,11 @@
 //! module into a more generic one, probably named "source utility" or similar.
 
 use log::*;
-use std::{collections::HashSet, ffi::OsStr, path::Path};
+use std::{
+    collections::HashSet,
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context;
 use moonutil::common::{
@@ -44,7 +48,7 @@ use n2::graph::Build;
 use crate::{
     build_lower::{
         artifact::{LegacyLayout, LegacyLayoutBuilder},
-        build_ins, build_n2_fileloc, build_outs,
+        build_ins, build_n2_fileloc, build_outs, command_tool_inputs_with_extra,
     },
     discover::{DiscoveredLocalProject, DiscoveredPackage, discover_local_project},
     model::PackageId,
@@ -88,6 +92,34 @@ pub struct FmtConfig {
 
     /// Migrate moon.pkg.json to moon.pkg when only the JSON file exists.
     pub migrate_moon_pkg_json: bool,
+}
+
+fn build_ins_with_command(
+    graph: &mut n2::graph::Graph,
+    paths: impl IntoIterator<Item = impl AsRef<Path>>,
+    command: &[String],
+) -> n2::graph::BuildIns {
+    build_ins_with_command_and_tools(graph, paths, command, std::iter::empty::<PathBuf>())
+}
+
+fn build_ins_with_command_and_tools(
+    graph: &mut n2::graph::Graph,
+    paths: impl IntoIterator<Item = impl AsRef<Path>>,
+    command: &[String],
+    extra_tools: impl IntoIterator<Item = impl AsRef<Path>>,
+) -> n2::graph::BuildIns {
+    let mut inputs = paths
+        .into_iter()
+        .map(|path| path.as_ref().to_path_buf())
+        .collect::<Vec<_>>();
+    inputs.extend(command_tool_inputs_with_extra(command, extra_tools));
+    inputs.sort();
+    inputs.dedup();
+    build_ins(graph, inputs)
+}
+
+fn format_and_diff_tools() -> Vec<PathBuf> {
+    vec![moonutil::BINARIES.moonfmt.clone()]
 }
 
 /// Generate the necessary build graph for the formatter operation.
@@ -244,7 +276,8 @@ fn format_moon_mod_dsl(
             cmd.push("--warn".into());
         }
 
-        let ins = build_ins(graph, [moon_mod]);
+        let ins =
+            build_ins_with_command_and_tools(graph, [moon_mod], &cmd, format_and_diff_tools());
         let outs = build_outs(graph, [target_moon_mod]);
         let mut build = Build::new(
             build_n2_fileloc(format!("check moon.mod format {}", module_dir.display())),
@@ -265,7 +298,7 @@ fn format_moon_mod_dsl(
             target_moon_mod.to_string_lossy().into_owned(),
         ];
 
-        let ins = build_ins(graph, [moon_mod]);
+        let ins = build_ins_with_command(graph, [moon_mod], &fmt_cmd);
         let outs = build_outs(graph, [target_moon_mod]);
         let mut build = Build::new(
             build_n2_fileloc(format!("format moon.mod {}", module_dir.display())),
@@ -307,7 +340,8 @@ fn format_moon_mod_json_migrate(
             cmd.push("--warn".into());
         }
 
-        let ins = build_ins(graph, [moon_mod_json]);
+        let ins =
+            build_ins_with_command_and_tools(graph, [moon_mod_json], &cmd, format_and_diff_tools());
         let outs = build_outs(graph, [target_moon_mod]);
         let mut build = Build::new(
             build_n2_fileloc(format!(
@@ -330,7 +364,7 @@ fn format_moon_mod_json_migrate(
             target_moon_mod.to_string_lossy().into_owned(),
         ];
 
-        let ins = build_ins(graph, [moon_mod_json]);
+        let ins = build_ins_with_command(graph, [moon_mod_json], &fmt_cmd);
         let outs = build_outs(graph, [target_moon_mod]);
         let mut build = Build::new(
             build_n2_fileloc(format!("format moon.mod.json {}", module_dir.display())),
@@ -358,7 +392,7 @@ fn format_moon_mod_json_migrate(
             ]
         };
 
-        let ins = build_ins(graph, [target_moon_mod]);
+        let ins = build_ins_with_command(graph, [target_moon_mod], &cp_cmd);
         let outs = build_outs(graph, [moon_mod]);
         let mut build = Build::new(
             build_n2_fileloc(format!("copy moon.mod {}", module_dir.display())),
@@ -381,7 +415,7 @@ fn format_moon_mod_json_migrate(
             vec!["rm".into(), moon_mod_json.to_string_lossy().into_owned()]
         };
 
-        let ins = build_ins(graph, [moon_mod]);
+        let ins = build_ins_with_command(graph, [moon_mod], &rm_cmd);
         let faked_rm_output = format!("{}.removed", moon_mod_json.to_string_lossy());
         let outs = build_outs(graph, [&faked_rm_output]);
         let mut build = Build::new(
@@ -529,7 +563,12 @@ fn format_node(
         cmd
     };
 
-    let ins = build_ins(graph, [file]);
+    let extra_tools = if cfg.check_only || cfg.warn_only {
+        format_and_diff_tools()
+    } else {
+        vec![]
+    };
+    let ins = build_ins_with_command_and_tools(graph, [file], &cmd, extra_tools);
     let outs = build_outs(graph, [&out_file]);
     let mut build = Build::new(
         build_n2_fileloc(format!("format {}", file.display())),
@@ -569,7 +608,7 @@ fn format_moon_work_dsl(
             cmd.push("--warn".into());
         }
 
-        let ins = build_ins(graph, [moon_work]);
+        let ins = build_ins_with_command(graph, [moon_work], &cmd);
         let outs = build_outs(graph, [target_moon_work]);
         let mut build = Build::new(build_n2_fileloc("check moon.work format"), ins, outs);
         build.cmdline = Some(moonutil::shlex::join_native(cmd.iter().map(|x| x.as_str())));
@@ -589,7 +628,7 @@ fn format_moon_work_dsl(
             target_moon_work.to_string_lossy().into_owned(),
         ];
 
-        let ins = build_ins(graph, [moon_work]);
+        let ins = build_ins_with_command(graph, [moon_work], &fmt_cmd);
         let outs = build_outs(graph, [target_moon_work.to_string_lossy().into_owned()]);
         let mut build = Build::new(build_n2_fileloc("format moon.work"), ins, outs);
         build.cmdline = Some(moonutil::shlex::join_native(
@@ -682,7 +721,8 @@ fn format_moon_pkg_dsl(
             cmd.push("--warn".into());
         }
 
-        let ins = build_ins(graph, [moon_pkg]);
+        let ins =
+            build_ins_with_command_and_tools(graph, [moon_pkg], &cmd, format_and_diff_tools());
         let outs = build_outs(graph, [target_moon_pkg]);
         let mut build = Build::new(
             build_n2_fileloc(format!("check moon.pkg format {}", pkg.fqn)),
@@ -705,7 +745,7 @@ fn format_moon_pkg_dsl(
             target_moon_pkg.to_string_lossy().into_owned(),
         ];
 
-        let ins = build_ins(graph, [moon_pkg]);
+        let ins = build_ins_with_command(graph, [moon_pkg], &fmt_cmd);
         let outs = build_outs(graph, [target_moon_pkg]);
         let mut build = Build::new(
             build_n2_fileloc(format!("format moon.pkg {}", pkg.fqn)),
@@ -759,7 +799,8 @@ fn format_moon_pkg_json_migrate(
             cmd.push("--warn".into());
         }
 
-        let ins = build_ins(graph, [moon_pkg_json]);
+        let ins =
+            build_ins_with_command_and_tools(graph, [moon_pkg_json], &cmd, format_and_diff_tools());
         let outs = build_outs(graph, [target_moon_pkg]);
         let mut build = Build::new(
             build_n2_fileloc(format!("check moon.pkg.json migration {}", pkg.fqn)),
@@ -780,7 +821,7 @@ fn format_moon_pkg_json_migrate(
             target_moon_pkg.to_string_lossy().into_owned(),
         ];
 
-        let ins = build_ins(graph, [moon_pkg_json]);
+        let ins = build_ins_with_command(graph, [moon_pkg_json], &fmt_cmd);
         let outs = build_outs(graph, [target_moon_pkg.to_string_lossy().into_owned()]);
         let mut build = Build::new(
             build_n2_fileloc(format!("format moon.pkg.json {}", pkg.fqn)),
@@ -809,7 +850,7 @@ fn format_moon_pkg_json_migrate(
             ]
         };
 
-        let ins = build_ins(graph, [target_moon_pkg]);
+        let ins = build_ins_with_command(graph, [target_moon_pkg], &cp_cmd);
         let outs = build_outs(graph, [moon_pkg.to_string_lossy().into_owned()]);
         let mut build = Build::new(
             build_n2_fileloc(format!("copy moon.pkg {}", pkg.fqn)),
@@ -833,7 +874,7 @@ fn format_moon_pkg_json_migrate(
             vec!["rm".into(), moon_pkg_json.to_string_lossy().into_owned()]
         };
 
-        let ins = build_ins(graph, [moon_pkg]);
+        let ins = build_ins_with_command(graph, [moon_pkg], &rm_cmd);
         // The `rm` command does not actually produce an output file, so we fake one to ensure this build task will run in n2.
         // If moon.pkg.json is removed successfully, this branch will not be executed again next time.
         let faked_rm_output = format!("{}.removed", moon_pkg_json.to_string_lossy());
