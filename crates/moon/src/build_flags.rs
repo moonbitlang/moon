@@ -100,6 +100,10 @@ pub struct BuildFlags {
     /// Render no-location diagnostics starting from a certain level
     #[clap(long, value_name = "MIN_LEVEL", default_value = "error")]
     pub render_no_loc: DiagnosticLevel,
+
+    /// Limit the number of rendered diagnostics
+    #[clap(long = "diagnostic-limit", value_name = "N")]
+    pub diagnostic_limit: Option<usize>,
 }
 
 impl Default for BuildFlags {
@@ -124,6 +128,7 @@ impl Default for BuildFlags {
             enable_value_tracing: false,
             jobs: None,
             render_no_loc: DiagnosticLevel::Error,
+            diagnostic_limit: None,
         }
     }
 }

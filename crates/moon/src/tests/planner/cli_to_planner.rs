@@ -74,6 +74,7 @@ fn command_string_run_parses_as_expected() {
                     enable_value_tracing: false,
                     jobs: None,
                     render_no_loc: Error,
+                    diagnostic_limit: None,
                 },
                 args: [],
                 auto_sync_flags: AutoSyncFlags {
@@ -96,6 +97,19 @@ fn command_string_run_short_alias_e_still_parses() {
         Some(r#"fn main { println("hello") }"#)
     );
     assert_eq!(cmd.package_or_mbt_file, None);
+}
+
+#[test]
+fn run_diagnostic_limit_parses() {
+    let (_, cmd) = parse_run_command(&[
+        "run",
+        "--diagnostic-limit",
+        "10",
+        "-e",
+        r#"fn main { println("hello") }"#,
+    ]);
+
+    assert_eq!(cmd.build_flags.diagnostic_limit, Some(10));
 }
 
 #[test]
@@ -149,6 +163,7 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                     enable_value_tracing: false,
                     jobs: None,
                     render_no_loc: Error,
+                    diagnostic_limit: None,
                 },
                 package: None,
                 file: None,
@@ -173,6 +188,23 @@ fn native_target_dry_run_test_command_parses_as_expected() {
         )
     "#]]
     .assert_debug_eq(&(cli, cmd));
+}
+
+#[test]
+fn test_diagnostic_limit_parses_without_update() {
+    let (_, cmd) = parse_test_command(&["test", "--diagnostic-limit", "10"]);
+
+    assert_eq!(cmd.build_flags.diagnostic_limit, Some(10));
+    assert!(!cmd.update);
+}
+
+#[test]
+fn test_update_limit_still_parses_with_update() {
+    let (_, cmd) = parse_test_command(&["test", "--update", "--limit", "10"]);
+
+    assert_eq!(cmd.limit, 10);
+    assert_eq!(cmd.build_flags.diagnostic_limit, None);
+    assert!(cmd.update);
 }
 
 #[test]

@@ -79,6 +79,10 @@ pub(crate) struct ProveSubcommand {
     /// Render no-location diagnostics starting from a certain level
     #[clap(long, value_name = "MIN_LEVEL", default_value = "error")]
     pub render_no_loc: DiagnosticLevel,
+
+    /// Limit the number of rendered diagnostics
+    #[clap(long = "diagnostic-limit", value_name = "N")]
+    pub diagnostic_limit: Option<usize>,
 }
 
 impl ProveSubcommand {
@@ -90,6 +94,7 @@ impl ProveSubcommand {
             warn_list: self.warn_list.clone(),
             jobs: self.jobs,
             render_no_loc: self.render_no_loc,
+            diagnostic_limit: self.diagnostic_limit,
             ..BuildFlags::default()
         }
     }

@@ -1,5 +1,13 @@
 use super::*;
 
+fn trim_trailing_spaces(s: String) -> String {
+    let mut trimmed = s.lines().map(str::trim_end).collect::<Vec<_>>().join("\n");
+    if s.ends_with('\n') {
+        trimmed.push('\n');
+    }
+    trimmed
+}
+
 #[test]
 fn test_dedup_diag() {
     let dir = TestDir::new("dedup_diag.in");
@@ -10,6 +18,72 @@ fn test_dedup_diag() {
         expect![[r#"
             {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/test.mbt","loc":"3:7-3:8","message":"Warning (unused_value): Unused variable 'a'"}
             Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    )
+}
+
+#[test]
+fn test_diagnostic_limit_output_json() {
+    let dir = TestDir::new("dedup_diag_limit.in");
+    let out = get_stdout(&dir, ["test", "--output-json", "--diagnostic-limit", "1"]);
+
+    check(
+        out,
+        expect![[r#"
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/test.mbt","loc":"3:7-3:8","message":"Warning (unused_value): Unused variable 'a'"}
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+
+    let dir = TestDir::new("dedup_diag_limit.in");
+    let err = get_stderr(&dir, ["test", "--output-json", "--diagnostic-limit", "1"]);
+
+    check(
+        err,
+        expect![[r#"
+            Warning: diagnostic output limited by --diagnostic-limit: 0 errors and 1 warnings were not displayed.
+        "#]],
+    )
+}
+
+#[test]
+fn test_diagnostic_limit_rendered_output() {
+    let dir = TestDir::new("dedup_diag_limit.in");
+    let err = trim_trailing_spaces(get_stderr(&dir, ["test", "--diagnostic-limit", "1"]));
+
+    check(
+        err,
+        expect![[r#"
+            Warning: [0002]
+               ╭─[ $ROOT/test.mbt:3:7 ]
+               │
+             3 │   let a = 1
+               │       ┬
+               │       ╰── Warning (unused_value): Unused variable 'a'
+            ───╯
+            Warning: diagnostic output limited by --diagnostic-limit: 0 errors and 1 warnings were not displayed.
+        "#]],
+    )
+}
+
+#[test]
+fn test_diagnostic_limit_prioritizes_errors() {
+    let dir = TestDir::new("dedup_diag_error_limit.in");
+    let err = trim_trailing_spaces(get_err_stderr(&dir, ["check", "--diagnostic-limit", "1"]));
+
+    check(
+        err,
+        expect![[r#"
+            Error: [4021]
+               ╭─[ $ROOT/z_error.mbt:3:3 ]
+               │
+             3 │   missing_identifier
+               │   ─────────┬────────
+               │            ╰────────── The value identifier missing_identifier is unbound.
+            ───╯
+            Warning: diagnostic output limited by --diagnostic-limit: 0 errors and 3 warnings were not displayed.
+            Failed with 3 warnings, 1 errors.
+            Error: failed when checking project
         "#]],
     )
 }

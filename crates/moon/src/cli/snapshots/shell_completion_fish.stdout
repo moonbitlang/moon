@@ -85,6 +85,7 @@ complete -c moon -n "__fish_moon_using_subcommand bundle" -l target -d 'Select o
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand bundle" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
+complete -c moon -n "__fish_moon_using_subcommand bundle" -l diagnostic-limit -d 'Limit the number of rendered diagnostics' -r
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand bundle" -l std -d 'Enable the standard library (default)'
@@ -113,6 +114,7 @@ complete -c moon -n "__fish_moon_using_subcommand build" -l target -d 'Select ou
 complete -c moon -n "__fish_moon_using_subcommand build" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand build" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand build" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
+complete -c moon -n "__fish_moon_using_subcommand build" -l diagnostic-limit -d 'Limit the number of rendered diagnostics' -r
 complete -c moon -n "__fish_moon_using_subcommand build" -l package -r
 complete -c moon -n "__fish_moon_using_subcommand build" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand build" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
@@ -142,6 +144,7 @@ complete -c moon -n "__fish_moon_using_subcommand check" -l target -d 'Select ou
 complete -c moon -n "__fish_moon_using_subcommand check" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand check" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand check" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
+complete -c moon -n "__fish_moon_using_subcommand check" -l diagnostic-limit -d 'Limit the number of rendered diagnostics' -r
 complete -c moon -n "__fish_moon_using_subcommand check" -l package-path -d 'Legacy package directory path relative to the module source root (`source` in `moon.mod.json`)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand check" -l patch-file -d 'The patch file to check. Only valid when the selector resolves to a single package' -r -F
 complete -c moon -n "__fish_moon_using_subcommand check" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
@@ -175,6 +178,7 @@ complete -c moon -n "__fish_moon_using_subcommand prove" -l why3-config -d 'Use 
 complete -c moon -n "__fish_moon_using_subcommand prove" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand prove" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand prove" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
+complete -c moon -n "__fish_moon_using_subcommand prove" -l diagnostic-limit -d 'Limit the number of rendered diagnostics' -r
 complete -c moon -n "__fish_moon_using_subcommand prove" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand prove" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand prove" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
@@ -192,6 +196,7 @@ complete -c moon -n "__fish_moon_using_subcommand run" -l target -d 'Select outp
 complete -c moon -n "__fish_moon_using_subcommand run" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand run" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand run" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
+complete -c moon -n "__fish_moon_using_subcommand run" -l diagnostic-limit -d 'Limit the number of rendered diagnostics' -r
 complete -c moon -n "__fish_moon_using_subcommand run" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand run" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand run" -l std -d 'Enable the standard library (default)'
@@ -229,6 +234,7 @@ complete -c moon -n "__fish_moon_using_subcommand test" -l target -d 'Select out
 complete -c moon -n "__fish_moon_using_subcommand test" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
+complete -c moon -n "__fish_moon_using_subcommand test" -l diagnostic-limit -d 'Limit the number of rendered diagnostics' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -s p -l package -d 'Run test in the specified package' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -l file -d 'Run test in the specified file. Only valid when `--package` is also specified' -r
 complete -c moon -n "__fish_moon_using_subcommand test" -s i -l index -d 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when a single file is selected. Implies `--include-skipped`' -r
@@ -363,6 +369,7 @@ complete -c moon -n "__fish_moon_using_subcommand bench" -l target -d 'Select ou
 complete -c moon -n "__fish_moon_using_subcommand bench" -l warn-list -d 'Warn list config' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s j -l jobs -d 'Set the max number of jobs to run in parallel' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -l render-no-loc -d 'Render no-location diagnostics starting from a certain level' -r -f -a "{info\t'',warn\t'',error\t''}"
+complete -c moon -n "__fish_moon_using_subcommand bench" -l diagnostic-limit -d 'Limit the number of rendered diagnostics' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s p -l package -d 'Run test in the specified package' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s f -l file -d 'Run test in the specified file. Only valid when `--package` is also specified' -r
 complete -c moon -n "__fish_moon_using_subcommand bench" -s i -l index -d 'Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified' -r
