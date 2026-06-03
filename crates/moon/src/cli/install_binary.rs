@@ -197,15 +197,24 @@ pub(super) fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
         (path_part, false)
     };
 
-    let version = if let Some(version) = version {
-        let version =
-            Version::parse(version).with_context(|| format!("Invalid version `{version}`"))?;
-        Some(version)
+    let (parsed, version) = if let Some(version) = version {
+        let normalized = format!("{path_part}@{version}");
+        let parsed = registry_path::parse_package_at_version_path(&normalized)
+            .with_context(|| format!("Invalid package path `{input}`"))?;
+        let version = Version::parse(&parsed.version)
+            .with_context(|| format!("Invalid version `{}`", parsed.version))?;
+        (
+            registry_path::InstallStylePath {
+                module: parsed.module,
+                package: parsed.package,
+            },
+            Some(version),
+        )
     } else {
-        None
+        let parsed = registry_path::parse_install_style_path(path_part)
+            .with_context(|| format!("Invalid package path `{input}`"))?;
+        (parsed, None)
     };
-    let parsed = registry_path::parse_install_style_path(path_part)
-        .with_context(|| format!("Invalid package path `{input}`"))?;
 
     Ok(PackageSpec {
         module_name: parsed.module,

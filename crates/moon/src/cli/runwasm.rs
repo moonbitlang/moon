@@ -299,18 +299,13 @@ fn parse_module_version_coordinate(
 ) -> anyhow::Result<RunWasmCoordinate> {
     validate_components(input, module_part, "module")?;
     validate_components(input, package_path, "package")?;
-    if module_part.split('/').count() != 2 {
-        bail!("Invalid runwasm coordinate `{input}`: module name must be in format `user/module`");
-    }
+    let parsed = registry_path::parse_module_at_version_path(input)
+        .with_context(|| format!("Invalid runwasm coordinate `{input}`"))?;
     let version = Version::parse(version)
         .with_context(|| format!("Invalid version `{version}` in runwasm coordinate"))?;
-    let module_name = ModuleName::from(module_part);
-    if module_name.username.is_empty() {
-        bail!("Invalid runwasm coordinate `{input}`: module name must include a username");
-    }
     Ok(RunWasmCoordinate {
-        module_name,
-        package_path: package_path.to_string(),
+        module_name: parsed.module,
+        package_path: parsed.package,
         version: Some(version),
     })
 }
@@ -321,11 +316,18 @@ fn parse_install_style_coordinate(
     version: Option<Version>,
 ) -> anyhow::Result<RunWasmCoordinate> {
     validate_components(input, path_part, "package")?;
-    let parsed = registry_path::parse_install_style_path(path_part)
-        .with_context(|| format!("Invalid runwasm coordinate `{input}`"))?;
+    let (module_name, package_path) = if version.is_some() {
+        let parsed = registry_path::parse_package_at_version_path(input)
+            .with_context(|| format!("Invalid runwasm coordinate `{input}`"))?;
+        (parsed.module, parsed.package)
+    } else {
+        let parsed = registry_path::parse_install_style_path(path_part)
+            .with_context(|| format!("Invalid runwasm coordinate `{input}`"))?;
+        (parsed.module, parsed.package)
+    };
     Ok(RunWasmCoordinate {
-        module_name: parsed.module,
-        package_path: parsed.package,
+        module_name,
+        package_path,
         version,
     })
 }

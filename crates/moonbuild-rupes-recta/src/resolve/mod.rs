@@ -247,6 +247,11 @@ mod tests {
         assert_eq!(version.as_deref(), Some("0.4.38"));
         assert_eq!(package.as_deref(), Some("stack"));
     }
+
+    #[test]
+    fn split_import_path_rejects_package_version_suffix() {
+        assert!(split_import_path("moonbitlang/x/stack@0.4.38").is_err());
+    }
 }
 
 impl ResolveConfig {

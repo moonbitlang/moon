@@ -48,21 +48,19 @@ pub trait Registry {
     ///
     /// Resolution rules:
     /// - If `allow_explicit_version` is `true` and `path` contains `@`,
-    ///   the part before the rightmost `@` is treated as the module name and
-    ///   the part right after `@` (up to next `/`) is treated as version.
+    ///   resolve `username/module@version[/package]`.
     /// - `moonbitlang/core[/package]` is resolved directly and uses
     ///   [`DEFAULT_VERSION`] as its version.
-    /// - Otherwise, resolve by longest-prefix match against existing modules in
-    ///   the registry (for example, `a/b/c/d` prefers module `a/b/c` over `a/b`)
-    ///   and fill the module version with that module's latest version.
+    /// - Otherwise, resolve the first two path segments as the module name and
+    ///   fill the module version with that module's latest version.
     ///
-    /// Returns `None` if the path is malformed, explicit versions are disallowed,
+    /// Returns an error if the path is malformed, explicit versions are disallowed,
     /// or no module can be resolved from registry metadata.
     fn resolve_path(
         &self,
         path: &str,
         allow_explicit_version: bool,
-    ) -> Option<(ModuleName, String, String)> {
+    ) -> anyhow::Result<(ModuleName, String, String)> {
         path::resolve_registry_path(path, allow_explicit_version, |module| {
             self.all_versions_of(module).ok().and_then(|versions| {
                 versions
@@ -119,7 +117,7 @@ where
         &self,
         path: &str,
         allow_explicit_version: bool,
-    ) -> Option<(ModuleName, String, String)> {
+    ) -> anyhow::Result<(ModuleName, String, String)> {
         (**self).resolve_path(path, allow_explicit_version)
     }
 }
@@ -157,7 +155,7 @@ where
         &self,
         path: &str,
         allow_explicit_version: bool,
-    ) -> Option<(ModuleName, String, String)> {
+    ) -> anyhow::Result<(ModuleName, String, String)> {
         (**self).resolve_path(path, allow_explicit_version)
     }
 }
@@ -177,13 +175,13 @@ mod tests {
     fn resolve_path_uses_latest_version_for_unversioned_path() {
         let mut registry = MockRegistry::new();
         registry
-            .add_module_full("path/to/module", "0.2.0", [])
-            .add_module_full("path/to/module", "0.1.0", []);
+            .add_module_full("path/to", "0.2.0", [])
+            .add_module_full("path/to", "0.1.0", []);
 
         let (name, version, full_path) = registry
             .resolve_path("path/to/module/a/b", true)
             .expect("module path should resolve");
-        assert_eq!(name.to_string(), "path/to/module");
+        assert_eq!(name.to_string(), "path/to");
         assert_eq!(version, "0.2.0");
         assert_eq!(full_path, "path/to/module/a/b");
     }
@@ -192,13 +190,13 @@ mod tests {
     fn resolve_path_latest_prefers_release_over_same_base_prerelease() {
         let mut registry = MockRegistry::new();
         registry
-            .add_module_full("path/to/module", "1.2.0-rc.1", [])
-            .add_module_full("path/to/module", "1.2.0", []);
+            .add_module_full("path/to", "1.2.0-rc.1", [])
+            .add_module_full("path/to", "1.2.0", []);
 
         let (name, version, full_path) = registry
             .resolve_path("path/to/module/a/b", true)
             .expect("module path should resolve");
-        assert_eq!(name.to_string(), "path/to/module");
+        assert_eq!(name.to_string(), "path/to");
         assert_eq!(version, "1.2.0");
         assert_eq!(full_path, "path/to/module/a/b");
     }
@@ -207,31 +205,29 @@ mod tests {
     fn resolve_path_latest_uses_prerelease_when_it_is_semver_max() {
         let mut registry = MockRegistry::new();
         registry
-            .add_module_full("path/to/module", "1.2.9", [])
-            .add_module_full("path/to/module", "1.3.0-rc.1", []);
+            .add_module_full("path/to", "1.2.9", [])
+            .add_module_full("path/to", "1.3.0-rc.1", []);
 
         let (name, version, full_path) = registry
             .resolve_path("path/to/module/a/b", true)
             .expect("module path should resolve");
-        assert_eq!(name.to_string(), "path/to/module");
+        assert_eq!(name.to_string(), "path/to");
         assert_eq!(version, "1.3.0-rc.1");
         assert_eq!(full_path, "path/to/module/a/b");
     }
 
     #[test]
-    fn resolve_path_longest_prefix() {
+    fn resolve_path_uses_first_two_segments_as_module() {
         let mut registry = MockRegistry::new();
         registry
-            .add_module_full("a/b/c", "0.2.0", [])
-            .add_module_full("a/b/c", "0.1.0", [])
-            .add_module_full("a/b/c/d/e", "0.3.0", [])
-            .add_module_full("a/b/c/d/e", "0.1.0", []);
+            .add_module_full("a/b", "0.2.0", [])
+            .add_module_full("a/b", "0.1.0", []);
 
         let (name, version, full_path) = registry
             .resolve_path("a/b/c/d/e/f/g", true)
             .expect("module path should resolve");
-        assert_eq!(name.to_string(), "a/b/c/d/e");
-        assert_eq!(version, "0.3.0");
+        assert_eq!(name.to_string(), "a/b");
+        assert_eq!(version, "0.2.0");
         assert_eq!(full_path, "a/b/c/d/e/f/g");
     }
 
@@ -266,16 +262,37 @@ mod tests {
     }
 
     #[test]
-    fn resolve_path_uses_explicit_version_boundary() {
+    fn resolve_path_uses_explicit_version_package_suffix_after_two_segment_module() {
         let mut registry = MockRegistry::new();
-        registry.add_module_full("moonbitlang/x/fs", "0.4.39", []);
+        registry.add_module_full("moonbitlang/x", "0.4.39", []);
 
         let (name, version, full_path) = registry
-            .resolve_path("moonbitlang/x/fs@0.4.39/path", true)
-            .expect("module root explicit version should resolve");
-        assert_eq!(name.to_string(), "moonbitlang/x/fs");
+            .resolve_path("moonbitlang/x@0.4.39/fs/path", true)
+            .expect("explicit version path should resolve");
+        assert_eq!(name.to_string(), "moonbitlang/x");
         assert_eq!(version, "0.4.39");
         assert_eq!(full_path, "moonbitlang/x/fs/path");
+    }
+
+    #[test]
+    fn resolve_path_rejects_three_segment_explicit_module_name() {
+        let registry = MockRegistry::new();
+        assert!(
+            registry
+                .resolve_path("moonbitlang/x/fs@0.4.39/path", true)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn resolve_path_rejects_package_version_suffix() {
+        let mut registry = MockRegistry::new();
+        registry.add_module_full("moonbitlang/x", "0.4.39", []);
+        assert!(
+            registry
+                .resolve_path("moonbitlang/x/fs@0.4.39", true)
+                .is_err()
+        );
     }
 
     #[test]
@@ -284,7 +301,7 @@ mod tests {
         assert!(
             registry
                 .resolve_path("moonbitlang/core/list@0.4.38", true)
-                .is_none()
+                .is_err()
         );
     }
 
@@ -294,8 +311,8 @@ mod tests {
         registry.add_module_full("moonbitlang/x/fs", "0.4.39", []);
         assert!(
             registry
-                .resolve_path("moonbitlang/x/fs@0.4.39/path", false)
-                .is_none()
+                .resolve_path("moonbitlang/x@0.4.39/fs", false)
+                .is_err()
         );
     }
 }

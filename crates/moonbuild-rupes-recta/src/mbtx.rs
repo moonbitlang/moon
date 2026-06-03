@@ -21,7 +21,7 @@ use std::str::FromStr;
 
 use anyhow::Context;
 use indexmap::IndexMap;
-use mooncake::registry::Registry;
+use mooncake::registry::{Registry, path as registry_path};
 use moonutil::{common::MOONBITLANG_CORE, dependency::SourceDependencyInfo, package::Import};
 
 #[derive(Default)]
@@ -171,12 +171,27 @@ fn split_mbtx_import_path(
     if path.starts_with(&format!("{MOONBITLANG_CORE}@")) {
         anyhow::bail!("moonbitlang/core imports must not specify a version");
     }
+
+    if path.contains('@') {
+        let parsed = registry_path::parse_module_at_version_path(path).with_context(|| {
+            format!(
+                "import path '{path}' must be in the form \
+'username/module@version[/package/path]'"
+            )
+        })?;
+        let full_path_without_version = parsed.full_path_without_version();
+        return Ok((
+            parsed.module.to_string(),
+            parsed.version,
+            full_path_without_version,
+        ));
+    }
+
     let (module, version, full_path_without_version) = registry
-        .resolve_path(path, true)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "import path '{path}' must be in the form 'username/module[/package/path]' or \
-'path/to/module@version[/package/path]'; \
+        .resolve_path(path, false)
+        .with_context(|| {
+            format!(
+                "import path '{path}' must be in the form 'username/module[/package/path]'; \
 if version is omitted, the module path must be resolvable from local registry index (run `moon update` if needed)"
             )
         })?;
@@ -248,19 +263,19 @@ mod tests {
     fn split_mbtx_import_path_supports_module_package() {
         let registry = OnlineRegistry::mooncakes_io();
         let (module, version, package) =
-            split_mbtx_import_path("path/to/module@0.4.38/package/path", &registry)
+            split_mbtx_import_path("path/module@0.4.38/package/path", &registry)
                 .expect("module package import should parse");
-        assert_eq!(module, "path/to/module");
+        assert_eq!(module, "path/module");
         assert_eq!(version, "0.4.38");
-        assert_eq!(package, "path/to/module/package/path");
+        assert_eq!(package, "path/module/package/path");
     }
 
     #[test]
     fn split_mbtx_import_path_normalizes_relative_package_with_module_prefix() {
         let registry = OnlineRegistry::mooncakes_io();
-        let (module, version, package) = split_mbtx_import_path("a/b/c@version/d/e", &registry)
+        let (module, version, package) = split_mbtx_import_path("a/b@version/c/d/e", &registry)
             .expect("module package import should parse");
-        assert_eq!(module, "a/b/c");
+        assert_eq!(module, "a/b");
         assert_eq!(version, "version");
         assert_eq!(package, "a/b/c/d/e");
     }
@@ -268,22 +283,17 @@ mod tests {
     #[test]
     fn split_mbtx_import_path_supports_module_root() {
         let registry = OnlineRegistry::mooncakes_io();
-        let (module, version, package) = split_mbtx_import_path("path/to/module@0.4.38", &registry)
+        let (module, version, package) = split_mbtx_import_path("path/module@0.4.38", &registry)
             .expect("module root import should parse");
-        assert_eq!(module, "path/to/module");
+        assert_eq!(module, "path/module");
         assert_eq!(version, "0.4.38");
-        assert_eq!(package, "path/to/module");
+        assert_eq!(package, "path/module");
     }
 
     #[test]
-    fn split_mbtx_import_path_preserves_three_segment_module_with_version() {
+    fn split_mbtx_import_path_rejects_three_segment_module_with_version() {
         let registry = OnlineRegistry::mooncakes_io();
-        let (module, version, package) =
-            split_mbtx_import_path("moonbitlang/x/fs@0.4.39/path", &registry)
-                .expect("existing resolver accepts explicit multi-segment modules");
-        assert_eq!(module, "moonbitlang/x/fs");
-        assert_eq!(version, "0.4.39");
-        assert_eq!(package, "moonbitlang/x/fs/path");
+        assert!(split_mbtx_import_path("moonbitlang/x/fs@0.4.39/path", &registry).is_err());
     }
 
     #[test]
@@ -395,12 +405,11 @@ import {
 
     #[test]
     fn parse_mbtx_imports_supports_top_level_package_path() {
-        let parsed =
-            parse_imports_from_source("import { \"path/to/module@0.4.38/path/to/pkg\" }\n")
-                .expect("value should parse");
+        let parsed = parse_imports_from_source("import { \"path/module@0.4.38/path/to/pkg\" }\n")
+            .expect("value should parse");
         assert_eq!(parsed.imports.len(), 1);
-        assert_eq!(parsed.imports[0].get_path(), "path/to/module/path/to/pkg");
-        assert!(parsed.deps.contains_key("path/to/module"));
+        assert_eq!(parsed.imports[0].get_path(), "path/module/path/to/pkg");
+        assert!(parsed.deps.contains_key("path/module"));
     }
 
     #[test]
