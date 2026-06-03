@@ -112,11 +112,9 @@ fn test_runwasm_uses_cached_asset_and_forwards_args() {
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-[
-  "[..]registry[..]cache[..]assets[..]moonbitlang[..]parser[..]0.3.3[..]cmd[..]moonfmt[..]moonfmt.wasm",
-  "--arg1",
-  "arg2",
-]
+[..]/registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm
+--arg1
+arg2
 
 "#]])
         .stderr_eq("");

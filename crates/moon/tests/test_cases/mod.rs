@@ -538,7 +538,8 @@ fn test_moon_run_with_cli_args() {
             "run", "main", "--", "中文", "😄👍", "hello", "1242", "--flag",
         ],
     );
-    assert!(s.contains("  \"中文\",\n  \"😄👍\",\n  \"hello\",\n  \"1242\",\n  \"--flag\","));
+    let expected_args = "中文\n😄👍\nhello\n1242\n--flag\n";
+    assert!(s.contains(expected_args));
 
     moon_cmd(&dir).args(["build"]).assert().success();
     let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
@@ -552,7 +553,7 @@ fn test_moon_run_with_cli_args() {
         .stdout
         .clone();
     let s = replace_dir(std::str::from_utf8(&stdout).unwrap(), &dir);
-    assert!(s.contains("  \"中文\",\n  \"😄👍\",\n  \"hello\",\n  \"1242\",\n  \"--flag\","));
+    assert!(s.contains(expected_args));
 
     let stdout = moon_cmd(&dir)
         .arg("run")
@@ -601,7 +602,7 @@ fn test_moon_run_with_cli_args() {
             "run", "main", "--target", "js", "--", "中文", "😄👍", "hello", "1242", "--flag",
         ],
     );
-    assert!(s.contains("  \"中文\",\n  \"😄👍\",\n  \"hello\",\n  \"1242\",\n  \"--flag\","));
+    assert!(s.contains(expected_args));
 }
 
 #[cfg(unix)]

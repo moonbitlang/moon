@@ -1,5 +1,8 @@
 fn main {
-  @debug.to_string(get_args()) |> println
+  let args = get_args()
+  for i = 0; i < args.length(); i = i + 1 {
+    println(args[i])
+  }
 }
 
 fn env_get_var(s : ExternString) -> ExternString = "__moonbit_fs_unstable" "env_get_var"
