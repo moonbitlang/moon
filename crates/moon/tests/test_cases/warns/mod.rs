@@ -264,9 +264,7 @@ fn test_deny_warn() {
 
     check(
         get_err_stdout(&dir, ["check", "--deny-warn", "--sort-input"]),
-        expect![[r#"
-            failed: moonc check -error-format json -w @a $ROOT/lib/hello.mbt -o $ROOT/_build/wasm-gc/debug/check/lib/lib.mi -pkg username/hello/lib -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc -workspace-path $ROOT -all-pkgs $ROOT/_build/wasm-gc/debug/check/all_pkgs.json
-        "#]],
+        expect![""],
     );
 
     check(
@@ -306,8 +304,6 @@ fn test_deny_warn() {
 
     check(
         get_err_stdout(&dir, ["build", "--deny-warn", "--sort-input"]),
-        expect![[r#"
-            failed: moonc build-package -error-format json -w @a $ROOT/lib/hello.mbt -o $ROOT/_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -std-path $MOON_HOME/lib/core/_build/wasm-gc/release/bundle -i $MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude -pkg-sources username/hello/lib:$ROOT/lib -target wasm-gc -g -O0 -source-map -workspace-path $ROOT -all-pkgs $ROOT/_build/wasm-gc/debug/build/all_pkgs.json
-        "#]],
+        expect![""],
     );
 }

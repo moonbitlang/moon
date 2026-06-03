@@ -1391,7 +1391,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4979f22fdb869068da03c9f7528f8297c6fd2606bc3a4affe42e6a823fdb8da4"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -1785,7 +1785,7 @@ dependencies = [
 [[package]]
 name = "n2"
 version = "0.1.5"
-source = "git+https://github.com/moonbitlang/n2.git?rev=81b6be11b3b880b1e6acac063fb9e1a27aafe5bb#81b6be11b3b880b1e6acac063fb9e1a27aafe5bb"
+source = "git+https://github.com/moonbitlang/n2.git?rev=113d577c65f9ebf350f1f9f7359a242e64883b37#113d577c65f9ebf350f1f9f7359a242e64883b37"
 dependencies = [
  "anyhow",
  "argh",
