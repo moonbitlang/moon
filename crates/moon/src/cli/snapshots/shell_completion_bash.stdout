@@ -90,6 +90,9 @@ _moon() {
             moon,run)
                 cmd="moon__run"
                 ;;
+            moon,runwasm)
+                cmd="moon__runwasm"
+                ;;
             moon,shell-completion)
                 cmd="moon__shell__completion"
                 ;;
@@ -221,6 +224,9 @@ _moon() {
                 ;;
             moon__help,run)
                 cmd="moon__help__run"
+                ;;
+            moon__help,runwasm)
+                cmd="moon__help__runwasm"
                 ;;
             moon__help,shell-completion)
                 cmd="moon__help__shell__completion"
@@ -403,7 +409,7 @@ _moon() {
 
     case "${cmd}" in
         moon)
-            opts="-V -C -q -v -Z -h --version --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check prove run test cram generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
+            opts="-V -C -q -v -Z -h --version --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --unstable-feature --help new bundle build check prove run runwasm test cram generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 1 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1131,7 +1137,7 @@ _moon() {
             return 0
             ;;
         moon__help)
-            opts="new bundle build check prove run test cram generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
+            opts="new bundle build check prove run runwasm test cram generate-test-driver clean fmt doc explain info bench add remove install tree fetch work login whoami register publish package update coverage generate-build-matrix upgrade shell-completion version tool ide help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -1649,6 +1655,20 @@ _moon() {
             return 0
             ;;
         moon__help__run)
+            opts=""
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__help__runwasm)
             opts=""
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
@@ -2331,6 +2351,28 @@ _moon() {
                     COMPREPLY=($(compgen -W "info warn error" -- "${cur}"))
                     return 0
                     ;;
+                --manifest-path)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --target-dir)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                *)
+                    COMPREPLY=()
+                    ;;
+            esac
+            COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+            return 0
+            ;;
+        moon__runwasm)
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE[@VERSION]> [ARGS]..."
+            if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
+                COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+                return 0
+            fi
+            case "${prev}" in
                 --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

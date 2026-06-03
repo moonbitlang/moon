@@ -215,6 +215,7 @@ pub fn main() {
         Register(r) => cli::mooncake_adapter::register_cli(flags, r),
         Remove(r) => cli::remove_cli(flags, r),
         Run(r) => cli::run_run(&flags, r),
+        RunWasm(r) => cli::run_runwasm(&flags, r),
         Test(t) => cli::run_test(flags, t),
         Tree(t) => cli::tree_cli(flags, t),
         Update(u) => cli::update_cli(flags, u),
