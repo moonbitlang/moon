@@ -20,7 +20,7 @@ use std::{io::Write, path::PathBuf};
 
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::model::RunBackend;
-use mooncake::registry::{OnlineRegistry, Registry};
+use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
     cli::UniversalFlags,
     common::FileLock,
@@ -321,22 +321,11 @@ fn parse_install_style_coordinate(
     version: Option<Version>,
 ) -> anyhow::Result<RunWasmCoordinate> {
     validate_components(input, path_part, "package")?;
-    let components = path_part.split('/').collect::<Vec<_>>();
-    if components.len() < 2 {
-        bail!("Invalid runwasm coordinate `{input}`: must be in format `user/module/package`");
-    }
-    let module_name = ModuleName {
-        username: components[0].into(),
-        unqual: components[1].into(),
-    };
-    let package_path = if components.len() > 2 {
-        components[2..].join("/")
-    } else {
-        String::new()
-    };
+    let parsed = registry_path::parse_install_style_path(path_part)
+        .with_context(|| format!("Invalid runwasm coordinate `{input}`"))?;
     Ok(RunWasmCoordinate {
-        module_name,
-        package_path,
+        module_name: parsed.module,
+        package_path: parsed.package,
         version,
     })
 }

@@ -19,12 +19,12 @@
 #[cfg(test)]
 pub(crate) mod mock;
 pub(crate) mod online;
+pub mod path;
 
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
-use moonutil::common::{MOD_NAME_STDLIB, MOONBITLANG_CORE};
 use moonutil::module::MoonMod;
-use moonutil::mooncakes::{DEFAULT_VERSION, ModuleName};
+use moonutil::mooncakes::ModuleName;
 pub use online::*;
 use semver::Version;
 
@@ -63,82 +63,13 @@ pub trait Registry {
         path: &str,
         allow_explicit_version: bool,
     ) -> Option<(ModuleName, String, String)> {
-        let contains_at = path.contains('@');
-
-        // reject paths like `moonbitlang/core@version` and `moonbitlang/core/path@version`
-        if path.starts_with(&format!("{MOONBITLANG_CORE}@"))
-            || contains_at && path.starts_with(&format!("{MOONBITLANG_CORE}/"))
-        {
-            return None;
-        }
-
-        // handle `moonbitlang/core` and `moonbitlang/core/path` (no @ in path) special case
-        if path == MOONBITLANG_CORE
-            || !contains_at && path.starts_with(&format!("{MOONBITLANG_CORE}/"))
-        {
-            return Some((
-                MOD_NAME_STDLIB.clone(),
-                DEFAULT_VERSION.to_string(),
-                path.to_string(),
-            ));
-        }
-
-        match (allow_explicit_version, contains_at) {
-            // handle explicit version case
-            // "path/to/module@version/package/path"
-            // "path/to/module@version"
-            (true, true) => {
-                if let Some((module_name, tail)) = path.rsplit_once('@') {
-                    let module_name = module_name.parse::<ModuleName>().ok()?;
-                    if module_name.username.is_empty() {
-                        return None;
-                    }
-                    let (version, package) = match tail.split_once('/') {
-                        Some((version, package)) => (version, package),
-                        None => (tail, ""),
-                    };
-                    if version.is_empty() {
-                        return None;
-                    }
-                    let module_name_str = module_name.to_string();
-                    let full_path_without_version = match package {
-                        "" => module_name_str,
-                        pkg => format!("{module_name_str}/{pkg}"),
-                    };
-                    Some((module_name, version.to_string(), full_path_without_version))
-                } else {
-                    panic!("unreachable: contains_at is true but no '@' found");
-                }
-            }
-            // reject explicit version case when disallowed
-            (false, true) => None,
-            // handle unversioned path case, try longest-prefix match to find the module and its latest version
-            // "a/b/c/d" -> prefer "a/b/c" over "a/b"
-            (_, false) => {
-                let segments: Vec<&str> = path.split('/').collect();
-                if segments.len() < 2 || segments.iter().any(|s| s.is_empty()) {
-                    return None;
-                }
-
-                for segment_count in (2..=segments.len()).rev() {
-                    let candidate_str = segments[..segment_count].join("/");
-                    let candidate = candidate_str.parse::<ModuleName>().ok()?;
-                    if candidate.username.is_empty() {
-                        return None;
-                    }
-                    let latest_version =
-                        self.all_versions_of(&candidate).ok().and_then(|versions| {
-                            versions
-                                .last_key_value()
-                                .map(|(latest_version, _)| latest_version.to_string())
-                        });
-                    if let Some(latest_version) = latest_version {
-                        return Some((candidate, latest_version, path.to_string()));
-                    }
-                }
-                None
-            }
-        }
+        path::resolve_registry_path(path, allow_explicit_version, |module| {
+            self.all_versions_of(module).ok().and_then(|versions| {
+                versions
+                    .last_key_value()
+                    .map(|(latest_version, _)| latest_version.to_string())
+            })
+        })
     }
 
     fn get_latest_version(&self, name: &ModuleName) -> Option<Arc<MoonMod>> {
@@ -341,10 +272,20 @@ mod tests {
 
         let (name, version, full_path) = registry
             .resolve_path("moonbitlang/x/fs@0.4.39/path", true)
-            .expect("explicit version path should resolve");
+            .expect("module root explicit version should resolve");
         assert_eq!(name.to_string(), "moonbitlang/x/fs");
         assert_eq!(version, "0.4.39");
         assert_eq!(full_path, "moonbitlang/x/fs/path");
+    }
+
+    #[test]
+    fn resolve_path_rejects_versioned_core_package_suffix() {
+        let registry = MockRegistry::new();
+        assert!(
+            registry
+                .resolve_path("moonbitlang/core/list@0.4.38", true)
+                .is_none()
+        );
     }
 
     #[test]

@@ -23,7 +23,7 @@ use moonbuild_rupes_recta::{
     intent::UserIntent,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
 };
-use mooncake::registry::{OnlineRegistry, Registry};
+use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
     cli::UniversalFlags,
     common::{FileLock, MOON_MOD, MOON_MOD_JSON, RunMode, TargetBackend},
@@ -182,14 +182,11 @@ pub(super) fn is_local_path(s: &str) -> bool {
         || s.chars().nth(1) == Some(':') // Windows drive letter
 }
 
-/// Yet another package path parser because we need to parse wildcard patterns.
 pub(super) fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
     let (path_part, version) = if let Some(at_pos) = input.rfind('@') {
         let path = &input[..at_pos];
         let version_str = &input[at_pos + 1..];
-        let version = Version::parse(version_str)
-            .with_context(|| format!("Invalid version `{}`", version_str))?;
-        (path, Some(version))
+        (path, Some(version_str))
     } else {
         (input, None)
     };
@@ -200,30 +197,19 @@ pub(super) fn parse_package_spec(input: &str) -> anyhow::Result<PackageSpec> {
         (path_part, false)
     };
 
-    let components: Vec<&str> = path_part.split('/').collect();
-
-    if components.len() < 2 {
-        bail!(
-            "Invalid package path `{}`: must be in format `user/module/package`",
-            input
-        );
-    }
-
-    let module_name = ModuleName {
-        username: components[0].into(),
-        unqual: components[1].into(),
-    };
-
-    let package_path = if components.len() > 2 {
-        Some(components[2..].join("/"))
+    let version = if let Some(version) = version {
+        let version =
+            Version::parse(version).with_context(|| format!("Invalid version `{version}`"))?;
+        Some(version)
     } else {
-        // user/module or user/module/... -> package at root
-        Some(String::new())
+        None
     };
+    let parsed = registry_path::parse_install_style_path(path_part)
+        .with_context(|| format!("Invalid package path `{input}`"))?;
 
     Ok(PackageSpec {
-        module_name,
-        package_path,
+        module_name: parsed.module,
+        package_path: Some(parsed.package),
         version,
         is_wildcard,
     })
