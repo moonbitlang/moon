@@ -275,60 +275,32 @@ fn parse_runwasm_coordinate(input: &str) -> anyhow::Result<RunWasmCoordinate> {
         bail!("Invalid runwasm coordinate `{input}`: wildcard package paths are not supported");
     }
 
-    if let Some((module_part, version_and_package)) = input.split_once('@')
-        && let Some((version, package_path)) = version_and_package.split_once('/')
-    {
-        return parse_module_version_coordinate(input, module_part, version, package_path);
+    if input.contains('@') {
+        let parsed = if let Ok(parsed) = registry_path::parse_module_at_version_path(input) {
+            parsed
+        } else if let Ok(parsed) = registry_path::parse_package_at_version_path(input) {
+            parsed
+        } else {
+            bail!("Invalid runwasm coordinate `{input}`");
+        };
+        validate_components(input, &parsed.full_path_without_version(), "package")?;
+        let version = Version::parse(&parsed.version).with_context(|| {
+            format!("Invalid version `{}` in runwasm coordinate", parsed.version)
+        })?;
+        return Ok(RunWasmCoordinate {
+            module_name: parsed.module,
+            package_path: parsed.package,
+            version: Some(version),
+        });
     }
 
-    let (path_part, version) = if let Some((path, version)) = input.rsplit_once('@') {
-        let version = Version::parse(version)
-            .with_context(|| format!("Invalid version `{version}` in runwasm coordinate"))?;
-        (path, Some(version))
-    } else {
-        (input, None)
-    };
-    parse_install_style_coordinate(input, path_part, version)
-}
-
-fn parse_module_version_coordinate(
-    input: &str,
-    module_part: &str,
-    version: &str,
-    package_path: &str,
-) -> anyhow::Result<RunWasmCoordinate> {
-    validate_components(input, module_part, "module")?;
-    validate_components(input, package_path, "package")?;
-    let parsed = registry_path::parse_module_at_version_path(input)
+    validate_components(input, input, "package")?;
+    let parsed = registry_path::parse_install_style_path(input)
         .with_context(|| format!("Invalid runwasm coordinate `{input}`"))?;
-    let version = Version::parse(version)
-        .with_context(|| format!("Invalid version `{version}` in runwasm coordinate"))?;
     Ok(RunWasmCoordinate {
         module_name: parsed.module,
         package_path: parsed.package,
-        version: Some(version),
-    })
-}
-
-fn parse_install_style_coordinate(
-    input: &str,
-    path_part: &str,
-    version: Option<Version>,
-) -> anyhow::Result<RunWasmCoordinate> {
-    validate_components(input, path_part, "package")?;
-    let (module_name, package_path) = if version.is_some() {
-        let parsed = registry_path::parse_package_at_version_path(input)
-            .with_context(|| format!("Invalid runwasm coordinate `{input}`"))?;
-        (parsed.module, parsed.package)
-    } else {
-        let parsed = registry_path::parse_install_style_path(path_part)
-            .with_context(|| format!("Invalid runwasm coordinate `{input}`"))?;
-        (parsed.module, parsed.package)
-    };
-    Ok(RunWasmCoordinate {
-        module_name,
-        package_path,
-        version,
+        version: None,
     })
 }
 
