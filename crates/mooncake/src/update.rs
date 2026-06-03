@@ -315,13 +315,12 @@ fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
             return Err(anyhow::Error::from(e).context("failed to replace symbols directory"));
         }
 
-        if let Err(e) = std::fs::remove_dir_all(&backup_dir) {
-            eprintln!(
-                "{}: failed to remove old symbols directory at `{}`: {e}",
-                "Warning".yellow().bold(),
+        std::fs::remove_dir_all(&backup_dir).with_context(|| {
+            format!(
+                "failed to remove old symbols directory at `{}`",
                 backup_dir.display()
-            );
-        }
+            )
+        })?;
     } else {
         std::fs::rename(&tmp_dir, &target_dir)
             .context("failed to move symbols directory into place")?;
@@ -369,7 +368,7 @@ pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Re
     let registry_dir = target_dir
         .parent()
         .context("registry index directory has no parent")?;
-    update_symbols(registry_dir)?;
+    let _ = update_symbols(registry_dir);
 
     Ok(0)
 }
