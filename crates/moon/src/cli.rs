@@ -39,6 +39,7 @@ pub(crate) mod process;
 pub(crate) mod profile;
 pub(crate) mod prove;
 pub(crate) mod run;
+pub(crate) mod runwasm;
 pub(crate) mod shell_completion;
 pub(crate) mod test;
 pub(crate) mod tool;
@@ -75,6 +76,7 @@ use moonutil::{
 pub(crate) use new::*;
 pub(crate) use prove::*;
 pub(crate) use run::*;
+pub(crate) use runwasm::*;
 pub(crate) use shell_completion::*;
 pub(crate) use test::*;
 pub(crate) use tool::*;
@@ -112,6 +114,8 @@ pub(crate) enum MoonBuildSubcommands {
     Check(CheckSubcommand),
     Prove(ProveSubcommand),
     Run(RunSubcommand),
+    #[clap(name = "runwasm")]
+    RunWasm(RunWasmSubcommand),
     Test(TestSubcommand),
     #[clap(hide = true)]
     Cram(CramSubcommand),

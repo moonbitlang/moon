@@ -1568,6 +1568,7 @@ dependencies = [
  "notify",
  "petgraph",
  "rand 0.8.5",
+ "reqwest",
  "semver",
  "serde",
  "serde_json",

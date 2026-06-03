@@ -10,6 +10,7 @@ This document contains the help content for the `moon` command-line program.
 * [`moon check`↴](#moon-check)
 * [`moon prove`↴](#moon-prove)
 * [`moon run`↴](#moon-run)
+* [`moon runwasm`↴](#moon-runwasm)
 * [`moon test`↴](#moon-test)
 * [`moon clean`↴](#moon-clean)
 * [`moon fmt`↴](#moon-fmt)
@@ -52,6 +53,7 @@ This document contains the help content for the `moon` command-line program.
 * `check` — Check the current package, but don't build object files
 * `prove` — Prove the current package
 * `run` — Run a main package
+* `runwasm` — Run a prebuilt WebAssembly binary from Mooncakes
 * `test` — Test the current package
 * `clean` — Remove the _build directory
 * `fmt` — Format source code
@@ -245,6 +247,28 @@ Run a main package
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not run the code
 * `--profile` — Profile the native executable using Time Profiler on macOS or perf on Linux
+
+
+
+## `moon runwasm`
+
+Run a prebuilt WebAssembly binary published as a Mooncakes asset.
+
+Accepted coordinate forms:
+  moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
+  moon runwasm moonbitlang/parser@0.3.3/cmd/moonfmt
+  moon runwasm moonbitlang/parser/cmd/moonfmt
+
+Pinned coordinates use the given version directly. Unpinned coordinates resolve
+the latest version from the registry index. Fetched wasm files are cached under
+$MOON_HOME/registry/cache/assets and reused on later runs.
+
+**Usage:** `moon runwasm <PACKAGE[@VERSION]> [ARGS]...`
+
+###### **Arguments:**
+
+* `<PACKAGE[@VERSION]>` — Mooncakes package coordinate of the prebuilt wasm binary
+* `<ARGS>` — The arguments provided to the wasm program
 
 
 

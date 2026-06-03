@@ -32,6 +32,7 @@ fn test_moon_help() {
               check                  Check the current package, but don't build object files
               prove                  Prove the current package
               run                    Run a main package
+              runwasm                Run a prebuilt WebAssembly binary from Mooncakes
               test                   Test the current package
               clean                  Remove the _build directory
               fmt                    Format source code
@@ -78,6 +79,68 @@ fn test_moon_help() {
               -Z, --unstable-feature <UNSTABLE_FEATURE>
                       Unstable flags to MoonBuild [env: MOON_UNSTABLE=] [default: ]
         "#]],
+    );
+}
+
+#[test]
+fn test_runwasm_uses_cached_asset_and_forwards_args() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::copy(
+        dir.join("_build/wasm-gc/debug/build/main/main.wasm"),
+        &cache_path,
+    )
+    .unwrap();
+
+    let assert = moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args([
+            "runwasm",
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+            "--arg1",
+            "arg2",
+        ])
+        .assert()
+        .success()
+        .stderr_eq("");
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    assert!(
+        stdout.contains("/registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm"),
+        "expected cached wasm path in stdout, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(r#""--arg1""#),
+        "expected forwarded --arg1 in stdout, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(r#""arg2""#),
+        "expected forwarded arg2 in stdout, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_runwasm_rejects_dry_run() {
+    let dir = TestDir::new_empty();
+    let stderr = get_err_stderr(
+        &dir,
+        [
+            "--dry-run",
+            "runwasm",
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+        ],
+    );
+    assert!(
+        stderr.contains("--dry-run is not supported for `moon runwasm`"),
+        "expected dry-run rejection, got:\n{stderr}"
     );
 }
 

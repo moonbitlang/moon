@@ -250,6 +250,23 @@ _arguments "${_arguments_options[@]}" : \
 '*::args -- The arguments provided to the program to be run:' \
 && ret=0
 ;;
+(runwasm)
+_arguments "${_arguments_options[@]}" : \
+'--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
+'--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
+'-q[Suppress output]' \
+'--quiet[Suppress output]' \
+'-v[Increase verbosity]' \
+'--verbose[Increase verbosity]' \
+'--trace[Trace the execution of the program]' \
+'--dry-run[Do not actually run the command]' \
+'(--dry-run)--build-graph[]' \
+'-h[Print help (see more with '\''--help'\'')]' \
+'--help[Print help (see more with '\''--help'\'')]' \
+':package -- Mooncakes package coordinate of the prebuilt wasm binary:' \
+'*::args -- The arguments provided to the wasm program:' \
+&& ret=0
+;;
 (test)
 _arguments "${_arguments_options[@]}" : \
 '*--target=[Select output target]:TARGET:(wasm wasm-gc js native llvm all)' \
@@ -1281,6 +1298,10 @@ _arguments "${_arguments_options[@]}" : \
 _arguments "${_arguments_options[@]}" : \
 && ret=0
 ;;
+(runwasm)
+_arguments "${_arguments_options[@]}" : \
+&& ret=0
+;;
 (test)
 _arguments "${_arguments_options[@]}" : \
 && ret=0
@@ -1555,6 +1576,7 @@ _moon_commands() {
 'check:Check the current package, but don'\''t build object files' \
 'prove:Prove the current package' \
 'run:Run a main package' \
+'runwasm:Run a prebuilt WebAssembly binary from Mooncakes' \
 'test:Test the current package' \
 'cram:Run cram tests with project binaries on PATH (experimental)' \
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around \`moonc gen-test-info\`, which does the actual parsing and generation' \
@@ -1723,6 +1745,7 @@ _moon__help_commands() {
 'check:Check the current package, but don'\''t build object files' \
 'prove:Prove the current package' \
 'run:Run a main package' \
+'runwasm:Run a prebuilt WebAssembly binary from Mooncakes' \
 'test:Test the current package' \
 'cram:Run cram tests with project binaries on PATH (experimental)' \
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around \`moonc gen-test-info\`, which does the actual parsing and generation' \
@@ -1954,6 +1977,11 @@ _moon__help__run_commands() {
     local commands; commands=()
     _describe -t commands 'moon help run commands' commands "$@"
 }
+(( $+functions[_moon__help__runwasm_commands] )) ||
+_moon__help__runwasm_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon help runwasm commands' commands "$@"
+}
 (( $+functions[_moon__help__shell-completion_commands] )) ||
 _moon__help__shell-completion_commands() {
     local commands; commands=()
@@ -2152,6 +2180,11 @@ _moon__remove_commands() {
 _moon__run_commands() {
     local commands; commands=()
     _describe -t commands 'moon run commands' commands "$@"
+}
+(( $+functions[_moon__runwasm_commands] )) ||
+_moon__runwasm_commands() {
+    local commands; commands=()
+    _describe -t commands 'moon runwasm commands' commands "$@"
 }
 (( $+functions[_moon__shell-completion_commands] )) ||
 _moon__shell-completion_commands() {
