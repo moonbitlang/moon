@@ -180,8 +180,7 @@ fn split_mbtx_import_path(
 if version is omitted, the module path must be resolvable from local registry index (run `moon update` if needed)"
             )
         })?;
-    let module = module.to_string();
-    Ok((module, version, full_path_without_version))
+    Ok((module.to_string(), version, full_path_without_version))
 }
 
 /// Remove the leading `import {...}` declaration in `.mbtx`, then write the
@@ -274,6 +273,17 @@ mod tests {
         assert_eq!(module, "path/to/module");
         assert_eq!(version, "0.4.38");
         assert_eq!(package, "path/to/module");
+    }
+
+    #[test]
+    fn split_mbtx_import_path_preserves_three_segment_module_with_version() {
+        let registry = OnlineRegistry::mooncakes_io();
+        let (module, version, package) =
+            split_mbtx_import_path("moonbitlang/x/fs@0.4.39/path", &registry)
+                .expect("existing resolver accepts explicit multi-segment modules");
+        assert_eq!(module, "moonbitlang/x/fs");
+        assert_eq!(version, "0.4.39");
+        assert_eq!(package, "moonbitlang/x/fs/path");
     }
 
     #[test]

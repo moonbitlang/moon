@@ -31,7 +31,10 @@ use indexmap::IndexMap;
 use log::{debug, info};
 use std::str::FromStr;
 
-use mooncake::pkg::sync::{auto_sync, auto_sync_for_single_file_rr};
+use mooncake::{
+    pkg::sync::{auto_sync, auto_sync_for_single_file_rr},
+    registry::path as registry_path,
+};
 use moonutil::{
     common::{
         MBTI_USER_WRITTEN, MOONBITLANG_CORE, MbtMdHeader, TargetBackend, parse_front_matter_config,
@@ -219,37 +222,8 @@ fn parse_front_matter_imports(
 }
 
 fn split_import_path(path: &str) -> anyhow::Result<(String, Option<String>, Option<String>)> {
-    let parts: Vec<&str> = path.split('/').collect();
-    if parts.len() < 2 {
-        anyhow::bail!(
-            "import path '{path}' must be in the form 'username/module@version[/package]'"
-        );
-    }
-    let username = parts[0];
-    let module_and_version = parts[1];
-    let mut module_parts = module_and_version.splitn(2, '@');
-    let module = module_parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("import path '{path}' has an empty module name"))?;
-    let version = module_parts.next();
-    if module.is_empty() {
-        anyhow::bail!("import path '{path}' has an empty module name");
-    }
-    let version = match version {
-        Some("") => anyhow::bail!("import path '{path}' has an empty version"),
-        Some(v) => Some(v.to_string()),
-        None => None,
-    };
-    let package = if parts.len() > 2 {
-        let pkg = parts[2..].join("/");
-        if pkg.is_empty() {
-            anyhow::bail!("import path '{path}' has an empty package path");
-        }
-        Some(pkg)
-    } else {
-        None
-    };
-    Ok((format!("{username}/{module}"), version, package))
+    let parsed = registry_path::parse_front_matter_import_path(path)?;
+    Ok((parsed.module, parsed.version, parsed.package))
 }
 
 #[cfg(test)]
