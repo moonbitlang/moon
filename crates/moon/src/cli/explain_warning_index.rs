@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-06-01.
+// Snapshot generated from `moonc check -warn-help` on 2026-06-03.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -400,6 +400,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "lexmatch_longest_match",
         description: "Using `lexmatch` with longest-match semantics.",
         id: 77,
+    },
+    WarningEntry {
+        mnemonic: "result_error_return",
+        description: "Using `Result[T, E]` where `E` is an error type.",
+        id: 78,
     },
 ];
 
