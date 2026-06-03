@@ -19,11 +19,13 @@
 //! Handles spawning of a child process under the govern of `moon run`
 
 use std::process::{ExitStatus, Stdio};
+use std::time::Instant;
 
 use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use moonutil::platform::macos_with_sigchild_blocked;
 use tokio::process::Command;
+use tracing::debug;
 #[cfg(windows)]
 use tracing::warn;
 
@@ -66,10 +68,18 @@ pub(crate) async fn run<'a>(
     cmd.kill_on_drop(true); // to prevent zombie processes;
 
     // Preventing race conditions with SIGCHLD handlers, see definition for info
+    let spawn_start = Instant::now();
     let mut child = macos_with_sigchild_blocked(|| {
         cmd.spawn()
             .with_context(|| format!("Failed to spawn command {:?}", cmd))
     })?;
+    let child_pid = child.id();
+    let child_start = Instant::now();
+    debug!(
+        child_pid = ?child_pid,
+        duration_ms = spawn_start.elapsed().as_secs_f64() * 1000.0,
+        "spawn_child_process_finished"
+    );
     #[cfg(windows)]
     if let Err(err) = assign_child_to_job(&child) {
         warn!(?err, "Failed to assign child process to job object");
@@ -110,14 +120,24 @@ pub(crate) async fn run<'a>(
     }
 
     // Wait for the child process to finish
+    let post_stdout_wait_start = Instant::now();
+    let mut killed = false;
     let status = tokio::select! {
         res = child.wait() => res,
         _ = shutdown.cancelled() => {
+            killed = true;
             let _ = child.start_kill();
             child.wait().await
         }
-    }
-    .context("Failed to wait for child process")?;
+    };
+    debug!(
+        child_pid = ?child_pid,
+        killed = killed,
+        duration_ms = child_start.elapsed().as_secs_f64() * 1000.0,
+        post_stdout_wait_duration_ms = post_stdout_wait_start.elapsed().as_secs_f64() * 1000.0,
+        "child_process_finished"
+    );
+    let status = status.context("Failed to wait for child process")?;
 
     if let Some(task) = stderr_pipe_task {
         task.await
