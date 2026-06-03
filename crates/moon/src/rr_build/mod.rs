@@ -352,12 +352,7 @@ impl CompilePreConfig {
             TargetBackend::Js => (RunBackend::Js, None),
             TargetBackend::Native => (
                 RunBackend::Native,
-                if native_target.is_some() {
-                    info!("Disabling `tcc -run`: new native backend selected");
-                    None
-                } else {
-                    self.select_tcc_run_config(resolve_output, input_nodes, output)
-                },
+                self.select_tcc_run_config(resolve_output, input_nodes, output),
             ),
             TargetBackend::LLVM => (RunBackend::Llvm, None),
         };

@@ -424,7 +424,14 @@ impl<'a> BuildPlanLowerContext<'a> {
                     self.packages,
                     &target,
                     self.opt.executable_artifact(true),
-                ))
+                ));
+                if self.opt.use_tcc_run() && self.opt.native_target.is_some() {
+                    out.push(self.layout.native_tcc_run_dylib_of_build_target(
+                        self.packages,
+                        &target,
+                        self.opt.os,
+                    ));
+                }
             }
             BuildPlanNode::GenerateTestInfo(target) => {
                 let meta = if let FileDependencyKind::GenerateTestInfo { meta } = edge {

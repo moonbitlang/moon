@@ -382,6 +382,22 @@ impl LegacyLayout {
         base_dir
     }
 
+    pub fn native_tcc_run_dylib_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let mut base_dir = self.package_dir(pkg_fqn, TargetBackend::Native);
+        base_dir.push(format!(
+            "{}{}",
+            artifact(pkg_fqn, target.kind),
+            dynamic_library_ext(os),
+        ));
+        base_dir
+    }
+
     pub fn generated_test_driver(
         &self,
         pkg_list: &DiscoverResult,

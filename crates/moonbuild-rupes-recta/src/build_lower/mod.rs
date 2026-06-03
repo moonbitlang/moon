@@ -80,7 +80,6 @@ impl BuildOptions {
     pub fn use_tcc_run(&self) -> bool {
         let use_tcc_run = self.tcc_run.is_some();
         debug_assert!(!use_tcc_run || self.target_backend == RunBackend::Native);
-        debug_assert!(!use_tcc_run || self.native_target.is_none());
         use_tcc_run
     }
 

@@ -54,6 +54,8 @@ use crate::{
 
 use super::{BuildCommand, Commandline, compiler, context::BuildPlanLowerContext};
 
+const NATIVE_TCC_DYLIB_RUNNER: &str = "native_dylib_runner.c";
+
 impl<'a> BuildPlanLowerContext<'a> {
     fn compiler_source_files(&self, info: &BuildTargetInfo) -> Vec<PathBuf> {
         let mut files = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
@@ -994,8 +996,12 @@ impl<'a> BuildPlanLowerContext<'a> {
             }
             RunBackend::Native => {
                 if let Some(tcc_run) = &self.opt.tcc_run {
-                    let internal_tcc = tcc_run.internal_tcc().clone();
-                    self.build_tcc_run_driver_command(target, info, internal_tcc)
+                    if self.opt.native_target.is_some() {
+                        self.build_new_native_tcc_run_driver_command(target, info)
+                    } else {
+                        let internal_tcc = tcc_run.internal_tcc().clone();
+                        self.build_tcc_run_driver_command(target, info, internal_tcc)
+                    }
                 } else if self.opt.native_target.is_some() {
                     self.lower_link_new_native_exe(target, info)
                 } else {
@@ -1172,6 +1178,94 @@ impl<'a> BuildPlanLowerContext<'a> {
         BuildCommand {
             extra_inputs: simdutf_objects,
             commandline: linker_cmd.into(),
+        }
+    }
+
+    fn build_new_native_tcc_run_driver_command(
+        &self,
+        target: BuildTarget,
+        info: &MakeExecutableInfo,
+    ) -> BuildCommand {
+        let mut sources = vec![];
+        self.append_all_artifacts_of(BuildPlanNode::LinkCore(target), &mut sources);
+        for &stub_tgt in &info.link_c_stubs {
+            self.append_all_artifacts_of(
+                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt),
+                &mut sources,
+            );
+        }
+
+        let dylib_out =
+            self.layout
+                .native_tcc_run_dylib_of_build_target(self.packages, &target, self.opt.os);
+        let dest_dir = dylib_out
+            .parent()
+            .expect("native tcc-run dylib should have a parent directory")
+            .display()
+            .to_string();
+
+        let runtime_dylib = self.layout.runtime_output_path(
+            self.opt.target_backend,
+            self.opt.use_tcc_run(),
+            self.opt.os,
+        );
+        let runtime_parent = runtime_dylib
+            .parent()
+            .expect("runtime dylib should have a parent directory");
+
+        let linker_cfg = LinkerConfigBuilder::<&Path>::default()
+            .link_moonbitrun(false)
+            .link_libbacktrace(false)
+            .output_ty(CCOutputType::SharedLib)
+            .link_shared_runtime(Some(runtime_parent))
+            .build()
+            .expect("Failed to build LinkerConfig for new native tcc-run dylib");
+
+        let source_args = sources
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>();
+        let linker_cmd = make_linker_command_resolved(
+            info.effective_native_toolchain.cc().clone(),
+            linker_cfg,
+            &info.link_flags,
+            &source_args,
+            &dest_dir,
+            &dylib_out.display().to_string(),
+            &self.opt.compiler_paths.lib_path,
+        );
+
+        let rsp_path = self.layout.executable_of_build_target(
+            self.packages,
+            &target,
+            self.opt.executable_artifact(false),
+        );
+        let runner_path =
+            Path::new(&self.opt.compiler_paths.lib_path).join(NATIVE_TCC_DYLIB_RUNNER);
+
+        let moonbuild = moonutil::BINARIES
+            .moonbuild
+            .to_str()
+            .expect("moonbuild path is valid UTF-8");
+        let rsp_cmdline = vec![
+            moonbuild.to_string(),
+            "tool".to_string(),
+            "write-tcc-rsp-file".to_string(),
+            rsp_path.display().to_string(),
+            "-B".to_string(),
+            self.opt.compiler_paths.lib_path.clone(),
+            "-run".to_string(),
+            runner_path.display().to_string(),
+            dylib_out.display().to_string(),
+        ];
+
+        let linker_cmd = moonutil::shlex::join_unix(linker_cmd.iter().map(|x| x.as_str()));
+        let rsp_cmd = moonutil::shlex::join_unix(rsp_cmdline.iter().map(|x| x.as_str()));
+        let commandline = Commandline::Verbatim(format!("{linker_cmd} && {rsp_cmd}"));
+
+        BuildCommand {
+            extra_inputs: vec![runner_path],
+            commandline,
         }
     }
 
