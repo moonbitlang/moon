@@ -31,6 +31,37 @@ use crate::zip_util::extract_zip_to_dir;
 
 const SYMBOLS_URL: &str = "https://download.mooncakes.io/symbols.zip";
 
+#[derive(Debug)]
+struct CommandOutput {
+    stdout: String,
+    stderr: String,
+}
+
+impl CommandOutput {
+    fn from_output(output: &std::process::Output) -> Self {
+        Self {
+            stdout: String::from_utf8_lossy(&output.stdout)
+                .trim_end()
+                .to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr)
+                .trim_end()
+                .to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for CommandOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.stdout.is_empty() {
+            write!(f, "\ngit stdout:\n{}", self.stdout)?;
+        }
+        if !self.stderr.is_empty() {
+            write!(f, "\ngit stderr:\n{}", self.stderr)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error("failed to clone registry index")]
 struct CloneRegistryIndexError {
@@ -46,8 +77,11 @@ enum CloneRegistryIndexErrorKind {
     #[error(transparent)]
     IO(#[from] std::io::Error),
 
-    #[error("non-zero exit code: {0}")]
-    NonZeroExitCode(std::process::ExitStatus),
+    #[error("non-zero exit code: {status}{output}")]
+    NonZeroExitCode {
+        status: std::process::ExitStatus,
+        output: CommandOutput,
+    },
 }
 
 fn clone_registry_index(
@@ -67,7 +101,7 @@ fn clone_registry_index(
         source: CloneRegistryIndexErrorKind::IO(e),
     })?;
 
-    let mut child = moonutil::git::git_command(
+    let child = moonutil::git::git_command(
         &[
             "clone",
             &registry_config.index,
@@ -79,12 +113,17 @@ fn clone_registry_index(
         source: CloneRegistryIndexErrorKind::GitCommandError(e),
     })?;
 
-    let status = child.wait().map_err(|e| CloneRegistryIndexError {
-        source: CloneRegistryIndexErrorKind::IO(e),
-    })?;
-    if !status.success() {
+    let output = child
+        .wait_with_output()
+        .map_err(|e| CloneRegistryIndexError {
+            source: CloneRegistryIndexErrorKind::IO(e),
+        })?;
+    if !output.status.success() {
         return Err(CloneRegistryIndexError {
-            source: CloneRegistryIndexErrorKind::NonZeroExitCode(status),
+            source: CloneRegistryIndexErrorKind::NonZeroExitCode {
+                status: output.status,
+                output: CommandOutput::from_output(&output),
+            },
         });
     }
     Ok(())
