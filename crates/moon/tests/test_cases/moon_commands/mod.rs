@@ -101,7 +101,7 @@ fn test_runwasm_uses_cached_asset_and_forwards_args() {
     )
     .unwrap();
 
-    let assert = moon_cmd(&dir)
+    moon_cmd(&dir)
         .env("MOON_HOME", moon_home.path())
         .args([
             "runwasm",
@@ -111,20 +111,15 @@ fn test_runwasm_uses_cached_asset_and_forwards_args() {
         ])
         .assert()
         .success()
+        .stdout_eq(snapbox::str![[r#"
+[
+  "[..]registry[..]cache[..]assets[..]moonbitlang[..]parser[..]0.3.3[..]cmd[..]moonfmt[..]moonfmt.wasm",
+  "--arg1",
+  "arg2",
+]
+
+"#]])
         .stderr_eq("");
-    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
-    assert!(
-        stdout.contains("/registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm"),
-        "expected cached wasm path in stdout, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains(r#""--arg1""#),
-        "expected forwarded --arg1 in stdout, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains(r#""arg2""#),
-        "expected forwarded arg2 in stdout, got:\n{stdout}"
-    );
 }
 
 #[test]
