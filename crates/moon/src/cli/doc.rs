@@ -92,7 +92,7 @@ fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
 pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
-    let doc_source_dir = project
+    let selected_module_dir = project
         .selected_module()
         .map(|module| module.root.clone())
         .ok_or_else(|| {
@@ -137,7 +137,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         output,
         &resolve_output,
     )?;
-    let module_id = selected_doc_module_id(&resolve_output, &doc_source_dir)?;
+    let module_id = selected_doc_module_id(&resolve_output, &selected_module_dir)?;
     let intent = vec![UserIntent::Doc(module_id)].into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
@@ -166,7 +166,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     rr_build::generate_all_pkgs_json(&build_meta)?;
     // Generate metadata for `moondoc`
     rr_build::generate_metadata(
-        &doc_source_dir,
+        &source_dir,
         &target_dir,
         &build_meta,
         &build_graph,
@@ -198,7 +198,6 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
                 static_dir.display()
             );
         }
-        let module_id = selected_doc_module_id(&build_meta.resolve_output, &doc_source_dir)?;
         let full_name = build_meta
             .resolve_output
             .module_rel
