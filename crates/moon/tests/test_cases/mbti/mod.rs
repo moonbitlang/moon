@@ -2,7 +2,6 @@ use super::*;
 use moonutil::common::MBTI_GENERATED;
 
 #[test]
-#[cfg(unix)]
 fn test_mbti() {
     let dir = TestDir::new("mbti");
     let _ = get_stdout(&dir, ["info"]);
@@ -51,7 +50,6 @@ fn test_mbti() {
 }
 
 #[test]
-#[cfg(unix)]
 fn test_mbti_no_alias() {
     let dir = TestDir::new("mbti");
     let _ = get_stdout(&dir, ["info", "--no-alias"]);

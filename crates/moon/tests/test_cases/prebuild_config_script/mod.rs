@@ -1,6 +1,8 @@
 use std::cell::OnceCell;
 
-use crate::{TestDir, assert_success, get_err_stderr, get_stdout, get_stdout_with_envs, util};
+use crate::{TestDir, assert_success, get_err_stderr, get_stdout_with_envs};
+#[cfg(unix)]
+use crate::{get_stdout, util};
 
 // Notice the two `this-is-added-by-config-script`
 #[test]

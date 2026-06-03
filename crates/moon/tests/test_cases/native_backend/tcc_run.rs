@@ -1,10 +1,9 @@
 use crate::TestDir;
 use expect_test::expect_file;
 
-use super::assert_native_backend_graph_no_env;
+use super::unix_graph::assert_native_backend_graph_no_env;
 
 #[test]
-#[cfg(unix)]
 fn test_native_backend_tcc_run() {
     let dir = TestDir::new("native_backend/tcc_run");
     assert_native_backend_graph_no_env(

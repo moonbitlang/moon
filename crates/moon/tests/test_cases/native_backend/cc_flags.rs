@@ -5,9 +5,11 @@ use std::process::Command;
 use crate::TestDir;
 #[cfg(windows)]
 use crate::{TestDir, get_stdout_with_envs};
+#[cfg(unix)]
 use expect_test::expect_file;
 
-use super::{assert_native_backend_graph, assert_native_backend_graph_no_env};
+#[cfg(unix)]
+use super::unix_graph::{assert_native_backend_graph, assert_native_backend_graph_no_env};
 
 #[cfg(windows)]
 fn link_commands_with_compiler(output: &str, compiler_name: &str) -> Vec<String> {

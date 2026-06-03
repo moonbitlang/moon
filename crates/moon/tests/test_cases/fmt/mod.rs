@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(unix)]
 use moonutil::common::BUILD_DIR;
 
 #[test]

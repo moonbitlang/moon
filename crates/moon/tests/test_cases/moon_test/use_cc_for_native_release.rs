@@ -17,7 +17,6 @@ fn assert_dry_run_graph(
     });
 }
 
-#[cfg(unix)]
 #[test]
 fn test_use_cc_for_native_release() {
     let dir = TestDir::new("moon_test/hello_exec_fntest");
