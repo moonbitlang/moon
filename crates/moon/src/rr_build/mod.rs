@@ -489,6 +489,7 @@ impl ResolvedBuildPlanningContext {
 /// backend. Commands that already resolved raw CLI selectors can use the
 /// returned backend to compute `CalcUserIntentOutput` outside the shared RR
 /// planning pipeline.
+#[instrument(level = Level::DEBUG, skip_all)]
 pub(crate) fn prepare_resolved_build(
     preconfig: &CompilePreConfig,
     unstable_features: &FeatureGate,
@@ -559,6 +560,7 @@ pub(crate) fn prepare_resolved_build(
 /// At this boundary, command adapters have already resolved user selectors and
 /// command-specific directives into `CalcUserIntentOutput`. RR consumes those
 /// identities plus the build-model paths stored in `ResolveOutput`.
+#[instrument(level = Level::DEBUG, skip_all)]
 pub(crate) fn plan_resolved_build_from_intent(
     preconfig: CompilePreConfig,
     unstable_features: &FeatureGate,
