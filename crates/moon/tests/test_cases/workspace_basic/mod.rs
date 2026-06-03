@@ -1527,7 +1527,7 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
     let metadata = replace_dir(&metadata, &dir);
     let metadata: serde_json::Value = serde_json::from_str(&metadata).unwrap();
 
-    assert_eq!(metadata["source_dir"], "$ROOT/app");
+    assert_eq!(metadata["source_dir"], "$ROOT");
     assert_eq!(metadata["name"], "workspace");
     assert_eq!(metadata["deps"], serde_json::json!(["alice/liba"]));
 
