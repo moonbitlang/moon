@@ -31,6 +31,37 @@ use crate::zip_util::extract_zip_to_dir;
 
 const SYMBOLS_URL: &str = "https://download.mooncakes.io/symbols.zip";
 
+#[derive(Debug)]
+struct CommandOutput {
+    stdout: String,
+    stderr: String,
+}
+
+impl CommandOutput {
+    fn from_output(output: &std::process::Output) -> Self {
+        Self {
+            stdout: String::from_utf8_lossy(&output.stdout)
+                .trim_end()
+                .to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr)
+                .trim_end()
+                .to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for CommandOutput {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.stdout.is_empty() {
+            write!(f, "\ngit stdout:\n{}", self.stdout)?;
+        }
+        if !self.stderr.is_empty() {
+            write!(f, "\ngit stderr:\n{}", self.stderr)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error("failed to clone registry index")]
 struct CloneRegistryIndexError {
@@ -46,8 +77,11 @@ enum CloneRegistryIndexErrorKind {
     #[error(transparent)]
     IO(#[from] std::io::Error),
 
-    #[error("non-zero exit code: {0}")]
-    NonZeroExitCode(std::process::ExitStatus),
+    #[error("non-zero exit code: {status}{output}")]
+    NonZeroExitCode {
+        status: std::process::ExitStatus,
+        output: CommandOutput,
+    },
 }
 
 fn clone_registry_index(
@@ -67,7 +101,7 @@ fn clone_registry_index(
         source: CloneRegistryIndexErrorKind::IO(e),
     })?;
 
-    let mut child = moonutil::git::git_command(
+    let child = moonutil::git::git_command(
         &[
             "clone",
             &registry_config.index,
@@ -79,12 +113,17 @@ fn clone_registry_index(
         source: CloneRegistryIndexErrorKind::GitCommandError(e),
     })?;
 
-    let status = child.wait().map_err(|e| CloneRegistryIndexError {
-        source: CloneRegistryIndexErrorKind::IO(e),
-    })?;
-    if !status.success() {
+    let output = child
+        .wait_with_output()
+        .map_err(|e| CloneRegistryIndexError {
+            source: CloneRegistryIndexErrorKind::IO(e),
+        })?;
+    if !output.status.success() {
         return Err(CloneRegistryIndexError {
-            source: CloneRegistryIndexErrorKind::NonZeroExitCode(status),
+            source: CloneRegistryIndexErrorKind::NonZeroExitCode {
+                status: output.status,
+                output: CommandOutput::from_output(&output),
+            },
         });
     }
     Ok(())
@@ -289,6 +328,8 @@ fn download_symbols_zip() -> anyhow::Result<bytes::Bytes> {
 }
 
 fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
+    let data = download_symbols_zip()?;
+
     std::fs::create_dir_all(registry_dir)
         .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
 
@@ -296,7 +337,6 @@ fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
         .context("failed to create temp directory for symbols")?;
     std::fs::create_dir_all(&tmp_dir)?;
 
-    let data = download_symbols_zip()?;
     if let Err(e) = extract_zip_to_dir(&tmp_dir, data) {
         let _ = std::fs::remove_dir_all(&tmp_dir);
         return Err(e);
@@ -315,13 +355,12 @@ fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
             return Err(anyhow::Error::from(e).context("failed to replace symbols directory"));
         }
 
-        if let Err(e) = std::fs::remove_dir_all(&backup_dir) {
-            eprintln!(
-                "{}: failed to remove old symbols directory at `{}`: {e}",
-                "Warning".yellow().bold(),
+        std::fs::remove_dir_all(&backup_dir).with_context(|| {
+            format!(
+                "failed to remove old symbols directory at `{}`",
                 backup_dir.display()
-            );
-        }
+            )
+        })?;
     } else {
         std::fs::rename(&tmp_dir, &target_dir)
             .context("failed to move symbols directory into place")?;
@@ -369,7 +408,12 @@ pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Re
     let registry_dir = target_dir
         .parent()
         .context("registry index directory has no parent")?;
-    update_symbols(registry_dir)?;
+    if let Err(e) = update_symbols(registry_dir) {
+        eprintln!(
+            "{}: failed to update symbols: {e:#}",
+            "Warning".yellow().bold()
+        );
+    }
 
     Ok(0)
 }
