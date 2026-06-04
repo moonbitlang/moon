@@ -328,6 +328,8 @@ fn download_symbols_zip() -> anyhow::Result<bytes::Bytes> {
 }
 
 fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
+    let data = download_symbols_zip()?;
+
     std::fs::create_dir_all(registry_dir)
         .with_context(|| format!("failed to create `{}`", registry_dir.display()))?;
 
@@ -335,7 +337,6 @@ fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
         .context("failed to create temp directory for symbols")?;
     std::fs::create_dir_all(&tmp_dir)?;
 
-    let data = download_symbols_zip()?;
     if let Err(e) = extract_zip_to_dir(&tmp_dir, data) {
         let _ = std::fs::remove_dir_all(&tmp_dir);
         return Err(e);
@@ -407,7 +408,12 @@ pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Re
     let registry_dir = target_dir
         .parent()
         .context("registry index directory has no parent")?;
-    let _ = update_symbols(registry_dir);
+    if let Err(e) = update_symbols(registry_dir) {
+        eprintln!(
+            "{}: failed to update symbols: {e:#}",
+            "Warning".yellow().bold()
+        );
+    }
 
     Ok(0)
 }
