@@ -910,6 +910,16 @@ fn test_moon_run_command_string_invalid_source_keeps_diagnostics_on_stderr() {
 }
 
 #[test]
+fn test_moon_run_command_string_invalid_source_shows_failed_command_in_verbose_mode() {
+    let dir = TestDir::new_empty();
+    moon_cmd(&dir)
+        .args(["run", "--verbose", "-e", r#"println("hello")"#])
+        .assert()
+        .failure()
+        .stdout_eq("failed: [..]moonc[..] build-package [..]\n");
+}
+
+#[test]
 fn test_moon_run_command_string_defaults_to_native() {
     let dir = TestDir::new_empty();
     let stdout = get_stdout(
