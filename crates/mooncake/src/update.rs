@@ -62,6 +62,23 @@ impl std::fmt::Display for CommandOutput {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateOutput {
+    Verbose,
+    Quiet,
+}
+
+impl UpdateOutput {
+    fn emit(self, message: impl std::fmt::Display) {
+        if matches!(self, UpdateOutput::Verbose) {
+            eprintln!("{message}");
+        }
+    }
+
+    fn warn(self, message: impl std::fmt::Display) {
+        eprintln!("{}: {message}", "Warning".yellow().bold());
+    }
+}
 #[derive(Debug, thiserror::Error)]
 #[error("failed to clone registry index")]
 struct CloneRegistryIndexError {
@@ -159,6 +176,7 @@ fn unique_sibling_dir(parent: &Path, prefix: &str) -> std::io::Result<PathBuf> {
 fn safe_reclone_registry_index(
     registry_config: &RegistryConfig,
     target_dir: &Path,
+    output: UpdateOutput,
 ) -> Result<(), UpdateError> {
     // Determine parent directory so we can `rename` within the same filesystem.
     let Some(parent) = target_dir.parent() else {
@@ -202,11 +220,10 @@ fn safe_reclone_registry_index(
     }
 
     if let Err(e) = std::fs::remove_dir_all(&backup_dir) {
-        eprintln!(
-            "{}: failed to remove old registry index at `{}`: {e}",
-            "Warning".yellow().bold(),
+        output.warn(format!(
+            "failed to remove old registry index at `{}`: {e}",
             backup_dir.display()
-        );
+        ));
     }
 
     Ok(())
@@ -327,7 +344,7 @@ fn download_symbols_zip() -> anyhow::Result<bytes::Bytes> {
     Ok(data)
 }
 
-fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
+fn update_symbols(registry_dir: &Path, output: UpdateOutput) -> anyhow::Result<()> {
     let data = download_symbols_zip()?;
 
     std::fs::create_dir_all(registry_dir)
@@ -366,11 +383,19 @@ fn update_symbols(registry_dir: &Path) -> anyhow::Result<()> {
             .context("failed to move symbols directory into place")?;
     }
 
-    eprintln!("{}", "Symbols updated successfully".bold().green());
+    output.emit("Symbols updated successfully".bold().green());
     Ok(())
 }
 
 pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Result<i32> {
+    update_with_output(target_dir, registry_config, UpdateOutput::Verbose)
+}
+
+pub fn update_with_output(
+    target_dir: &Path,
+    registry_config: &RegistryConfig,
+    output: UpdateOutput,
+) -> anyhow::Result<i32> {
     if target_dir.exists() {
         let url = get_remote_url(target_dir).map_err(|e| UpdateError {
             source: UpdateErrorKind::GetRemoteUrlError(e),
@@ -379,40 +404,37 @@ pub fn update(target_dir: &Path, registry_config: &RegistryConfig) -> anyhow::Re
             let result = pull_latest_registry_index(target_dir);
             match result {
                 Err(_) => {
-                    eprintln!(
+                    output.emit(format!(
                         "failed to update registry, {}",
                         "re-cloning".bold().yellow()
-                    );
-                    safe_reclone_registry_index(registry_config, target_dir)?;
-                    eprintln!("{}", "Registry index re-cloned successfully".bold().green());
+                    ));
+                    safe_reclone_registry_index(registry_config, target_dir, output)?;
+                    output.emit("Registry index re-cloned successfully".bold().green());
                 }
                 Ok(()) => {
-                    eprintln!("{}", "Registry index updated successfully".bold().green());
+                    output.emit("Registry index updated successfully".bold().green());
                 }
             }
         } else {
-            eprintln!(
+            output.emit(format!(
                 "Registry index is not cloned from the same URL, {}",
                 "re-cloning".yellow().bold()
-            );
-            safe_reclone_registry_index(registry_config, target_dir)?;
-            eprintln!("{}", "Registry index re-cloned successfully".bold().green());
+            ));
+            safe_reclone_registry_index(registry_config, target_dir, output)?;
+            output.emit("Registry index re-cloned successfully".bold().green());
         }
     } else {
         clone_registry_index(registry_config, target_dir).map_err(|e| UpdateError {
             source: UpdateErrorKind::CloneRegistryIndexError(e),
         })?;
-        eprintln!("{}", "Registry index cloned successfully".bold().green());
+        output.emit("Registry index cloned successfully".bold().green());
     }
 
     let registry_dir = target_dir
         .parent()
         .context("registry index directory has no parent")?;
-    if let Err(e) = update_symbols(registry_dir) {
-        eprintln!(
-            "{}: failed to update symbols: {e:#}",
-            "Warning".yellow().bold()
-        );
+    if let Err(e) = update_symbols(registry_dir, output) {
+        output.warn(format!("failed to update symbols: {e:#}"));
     }
 
     Ok(0)

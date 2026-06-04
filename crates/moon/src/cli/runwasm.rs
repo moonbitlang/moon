@@ -150,7 +150,11 @@ fn resolve_latest_version(
     let registry_config = RegistryConfig::load();
     let had_index = index_dir.exists();
 
-    match mooncake::update::update(&index_dir, &registry_config) {
+    match mooncake::update::update_with_output(
+        &index_dir,
+        &registry_config,
+        mooncake::update::UpdateOutput::Quiet,
+    ) {
         Ok(_) => output.info("Updated registry index"),
         Err(e) => {
             if had_index {
