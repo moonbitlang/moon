@@ -62,6 +62,7 @@ mod indirect_dep;
 mod inline_test;
 mod js_test_build_only;
 mod main_package;
+#[cfg(unix)]
 mod mbti;
 mod moon_bench;
 mod moon_build_package;
@@ -76,6 +77,7 @@ mod moon_new;
 mod moon_prove;
 mod moon_test;
 mod moon_version;
+#[cfg(unix)]
 mod native_abort_trace;
 mod native_backend;
 mod native_stub_stability;

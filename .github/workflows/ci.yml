@@ -169,6 +169,10 @@ jobs:
       - name: Build
         run: cargo build
 
+      - name: Clippy (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
       - name: Set built binary to PATH (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: echo "$GITHUB_WORKSPACE/target/debug" >> $GITHUB_PATH

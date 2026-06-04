@@ -1,4 +1,5 @@
 mod patch;
+#[cfg(unix)]
 mod use_cc_for_native_release;
 mod with_cfg;
 

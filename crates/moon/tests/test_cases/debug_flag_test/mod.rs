@@ -1,9 +1,10 @@
+#[cfg(unix)]
 use expect_test::expect;
 
-use crate::{TestDir, dry_run_utils::line_with, get_stdout, util::check};
+use crate::{TestDir, dry_run_utils::line_with, get_stdout};
 
 #[cfg(unix)]
-use crate::get_err_stderr;
+use crate::{get_err_stderr, util::check};
 
 #[test]
 fn run_dry_run_uses_selected_profile_for_runtime_artifact() {
