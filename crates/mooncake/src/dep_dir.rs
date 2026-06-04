@@ -201,6 +201,7 @@ pub(crate) fn sync_deps(
     pkg_list: &ResolvedEnv,
     quiet: bool,
     frozen: bool,
+    verbose: bool,
 ) -> anyhow::Result<()> {
     // If nothing needs to be installed, don't bother
     let target_dep_dir = pkg_list_to_dep_dir_state(pkg_list.all_modules());
@@ -212,7 +213,7 @@ pub(crate) fn sync_deps(
     // Ensure the directory exists.
     std::fs::create_dir_all(dep_dir.path())?;
     // Lock with a file within the directory
-    let _lock = FileLock::lock(dep_dir.path()).with_context(|| {
+    let _lock = FileLock::lock_with_verbosity(dep_dir.path(), verbose).with_context(|| {
         format!(
             "Unable to lock folder `{}` for downloading dependencies",
             dep_dir.path().display()

@@ -1382,15 +1382,21 @@ impl Drop for FileLock {
 
 impl FileLock {
     pub fn lock(path: &std::path::Path) -> std::io::Result<Self> {
+        Self::lock_with_verbosity(path, true)
+    }
+
+    pub fn lock_with_verbosity(path: &std::path::Path, verbose: bool) -> std::io::Result<Self> {
         let file = std::fs::File::create(path.join(MOON_LOCK))?;
         match file.try_lock_exclusive() {
             Ok(_) => Ok(FileLock { _file: file }),
             Err(_) => {
-                #[cfg(not(test))]
-                eprintln!(
-                    "Blocking waiting for file lock {} ...",
-                    path.join(MOON_LOCK).display()
-                );
+                if verbose {
+                    #[cfg(not(test))]
+                    eprintln!(
+                        "Blocking waiting for file lock {} ...",
+                        path.join(MOON_LOCK).display()
+                    );
+                }
                 file.lock_exclusive()
                     .map_err(|e| std::io::Error::new(e.kind(), "failed to lock target dir"))?;
                 Ok(FileLock { _file: file })

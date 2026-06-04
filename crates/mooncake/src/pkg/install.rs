@@ -22,6 +22,7 @@ use crate::{
     resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
 };
 
+use super::sync::SyncOutputOptions;
 use anyhow::Context;
 use moonutil::{
     common::{MOONBITLANG_CORE, read_module_desc_file_in_dir},
@@ -93,13 +94,21 @@ pub fn install(
     let m = Arc::new(m);
     let ms = ModuleSource::from_local_module(&m, source_dir);
     let (roots, _) = ResolvedModule::only_one_module(ms, m);
-    install_impl(mooncakes_dir, roots, quiet, verbose, false, no_std).map(|_| 0)
+    install_impl(
+        mooncakes_dir,
+        roots,
+        SyncOutputOptions::new(quiet, true),
+        verbose,
+        false,
+        no_std,
+    )
+    .map(|_| 0)
 }
 
 pub(crate) fn install_impl(
     mooncakes_dir: &Path,
     roots: ResolvedRootModules,
-    quiet: bool,
+    output_options: SyncOutputOptions,
     verbose: bool,
     dont_sync: bool,
     no_std: bool,
@@ -123,8 +132,9 @@ pub(crate) fn install_impl(
         &dep_dir,
         resolve_config.registry.as_ref(),
         &res,
-        quiet,
+        output_options.quiet(),
         dont_sync,
+        output_options.verbose(),
     )
     .context("When installing packages")?;
 
