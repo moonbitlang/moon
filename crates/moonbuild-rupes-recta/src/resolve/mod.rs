@@ -32,7 +32,7 @@ use log::{debug, info};
 use std::str::FromStr;
 
 use mooncake::{
-    pkg::sync::{auto_sync, auto_sync_for_single_file_rr},
+    pkg::sync::{SyncOutputOptions, auto_sync, auto_sync_for_single_file_rr},
     registry::path as registry_path,
 };
 use moonutil::{
@@ -88,7 +88,7 @@ impl ResolveOutput {
 #[derive(Debug)]
 pub struct ResolveConfig {
     sync_flags: AutoSyncFlags,
-    quiet_sync: bool,
+    sync_output: SyncOutputOptions,
     no_std: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
@@ -265,7 +265,7 @@ impl ResolveConfig {
     ) -> Self {
         Self {
             sync_flags: AutoSyncFlags { frozen },
-            quiet_sync: false,
+            sync_output: SyncOutputOptions::default(),
             no_std,
             enable_coverage,
             workspace_env,
@@ -282,7 +282,7 @@ impl ResolveConfig {
     ) -> Self {
         Self {
             sync_flags,
-            quiet_sync: false,
+            sync_output: SyncOutputOptions::default(),
             no_std,
             enable_coverage,
             workspace_env,
@@ -296,7 +296,12 @@ impl ResolveConfig {
     }
 
     pub fn with_quiet_sync(mut self, quiet_sync: bool) -> Self {
-        self.quiet_sync = quiet_sync;
+        self.sync_output = self.sync_output.with_quiet(quiet_sync);
+        self
+    }
+
+    pub fn with_sync_output(mut self, sync_output: SyncOutputOptions) -> Self {
+        self.sync_output = sync_output;
         self
     }
 }
@@ -347,7 +352,7 @@ pub fn resolve(
         source_dir,
         mooncakes_dir,
         &cfg.sync_flags,
-        cfg.quiet_sync,
+        cfg.sync_output,
         cfg.no_std,
         cfg.workspace_env.clone(),
         cfg.project_manifest_path.as_deref(),
@@ -471,7 +476,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         mooncakes_dir,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),
-        cfg.quiet_sync,
+        cfg.sync_output,
     )
     .map_err(ResolveError::SyncModulesError)?;
     // Discover all packages in resolved modules

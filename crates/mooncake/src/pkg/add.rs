@@ -30,7 +30,7 @@ use semver::Version;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::pkg::{install::install_impl, roots_for_selected_module};
+use crate::pkg::{install::install_impl, roots_for_selected_module, sync::SyncOutputOptions};
 use crate::registry::{self, Registry};
 
 /// Add a dependency
@@ -202,7 +202,14 @@ pub fn add(
         Arc::clone(&m),
         project_manifest_path,
     )?;
-    install_impl(mooncakes_dir, roots, quiet, false, false, true)?;
+    install_impl(
+        mooncakes_dir,
+        roots,
+        SyncOutputOptions::new(quiet, true),
+        false,
+        false,
+        true,
+    )?;
 
     if module_dir.join(MOON_MOD).exists() {
         let patch = if bin {

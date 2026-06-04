@@ -35,6 +35,37 @@ use moonutil::{
 };
 use semver::Version;
 
+#[derive(Debug, Clone, Copy)]
+pub struct SyncOutputOptions {
+    quiet: bool,
+    verbose: bool,
+}
+
+impl SyncOutputOptions {
+    pub fn new(quiet: bool, verbose: bool) -> Self {
+        Self { quiet, verbose }
+    }
+
+    pub fn quiet(self) -> bool {
+        self.quiet
+    }
+
+    pub fn verbose(self) -> bool {
+        self.verbose
+    }
+
+    pub fn with_quiet(mut self, quiet: bool) -> Self {
+        self.quiet = quiet;
+        self
+    }
+}
+
+impl Default for SyncOutputOptions {
+    fn default() -> Self {
+        Self::new(false, true)
+    }
+}
+
 /// Given the specified source directory, resolve the module dependency relation
 /// and their directories
 ///
@@ -43,7 +74,7 @@ pub fn auto_sync(
     source_dir: &Path,
     mooncakes_dir: &Path,
     cli: &AutoSyncFlags,
-    quiet: bool,
+    output_options: SyncOutputOptions,
     no_std: bool,
     workspace_env: WorkspaceEnv,
     project_manifest_path: Option<&Path>,
@@ -72,7 +103,7 @@ pub fn auto_sync(
             return resolve_workspace_sync(
                 mooncakes_dir,
                 cli,
-                quiet,
+                output_options,
                 no_std,
                 manifest_dir.as_path(),
                 read_workspace_file(project_manifest_path)?,
@@ -94,7 +125,7 @@ pub fn auto_sync(
             return resolve_workspace_sync(
                 mooncakes_dir,
                 cli,
-                quiet,
+                output_options,
                 no_std,
                 &workspace_root,
                 workspace,
@@ -103,15 +134,28 @@ pub fn auto_sync(
     } else if !matches!(workspace_env, WorkspaceEnv::Off)
         && let Some(workspace) = read_workspace(source_dir)?
     {
-        return resolve_workspace_sync(mooncakes_dir, cli, quiet, no_std, source_dir, workspace);
+        return resolve_workspace_sync(
+            mooncakes_dir,
+            cli,
+            output_options,
+            no_std,
+            source_dir,
+            workspace,
+        );
     }
 
     let module = Arc::new(read_module_desc_file_in_dir(source_dir)?);
     let source = ModuleSource::from_local_module(&module, source_dir);
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
-    let (resolved_env, sync_result) =
-        super::install::install_impl(mooncakes_dir, roots, quiet, false, cli.dont_sync(), no_std)?;
+    let (resolved_env, sync_result) = super::install::install_impl(
+        mooncakes_dir,
+        roots,
+        output_options,
+        false,
+        cli.dont_sync(),
+        no_std,
+    )?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((resolved_env, sync_result, None))
 }
@@ -119,7 +163,7 @@ pub fn auto_sync(
 fn resolve_workspace_sync(
     mooncakes_dir: &Path,
     cli: &AutoSyncFlags,
-    quiet: bool,
+    output_options: SyncOutputOptions,
     no_std: bool,
     workspace_root: &Path,
     workspace: MoonWork,
@@ -131,8 +175,14 @@ fn resolve_workspace_sync(
         roots.insert(ResolvedModule::new(source, module));
     }
 
-    let (resolved_env, sync_result) =
-        super::install::install_impl(mooncakes_dir, roots, quiet, false, cli.dont_sync(), no_std)?;
+    let (resolved_env, sync_result) = super::install::install_impl(
+        mooncakes_dir,
+        roots,
+        output_options,
+        false,
+        cli.dont_sync(),
+        no_std,
+    )?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((resolved_env, sync_result, Some(workspace)))
 }
@@ -169,7 +219,7 @@ pub fn auto_sync_for_single_mbt_md(
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         mooncakes_dir,
         roots,
-        moonbuild_opt.quiet,
+        SyncOutputOptions::new(moonbuild_opt.quiet, true),
         moonbuild_opt.verbose,
         dont_sync,
         false,
@@ -183,7 +233,7 @@ pub fn auto_sync_for_single_file_rr(
     mooncakes_dir: &Path,
     sync_flags: &AutoSyncFlags,
     front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
-    quiet: bool,
+    output_options: SyncOutputOptions,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let mut synth_deps = IndexMap::new();
     if let Some(deps_map) = front_matter_deps {
@@ -204,7 +254,7 @@ pub fn auto_sync_for_single_file_rr(
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         mooncakes_dir,
         roots,
-        quiet,
+        output_options,
         false,
         sync_flags.dont_sync(),
         false,

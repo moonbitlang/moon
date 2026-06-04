@@ -22,6 +22,7 @@ use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{
     ResolveOutput, build_plan::InputDirective, intent::UserIntent, model::PackageId,
 };
+use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::common::{FileLock, RunMode, TargetBackend, TestArtifacts, is_moon_pkg_exist};
 use moonutil::dirs::{PackageDirs, ProjectProbe};
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -106,6 +107,27 @@ pub(crate) struct RunSubcommand {
     pub profile: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RunOutputVerbosity {
+    verbose: bool,
+}
+
+impl RunOutputVerbosity {
+    fn from_flags(cli: &UniversalFlags) -> Self {
+        Self {
+            verbose: cli.verbose,
+        }
+    }
+
+    fn sync_output(self) -> SyncOutputOptions {
+        SyncOutputOptions::new(!self.verbose, self.verbose)
+    }
+
+    fn suppress_build_progress(self) -> bool {
+        !self.verbose
+    }
+}
+
 /// Controls how `moon run` builds the executable before it is consumed.
 ///
 /// Normal execution preserves the existing debug-native fast path by allowing
@@ -116,15 +138,12 @@ pub(crate) struct BuildRunExecutableOptions {
     ///
     /// `tcc -run` executes through `tcc @rspfile` and does not provide the same
     /// standalone executable shape as regular native execution.
-    pub(crate) try_tcc_run: bool,
+    try_tcc_run: bool,
     /// Whether dry-run output should include the final executable invocation.
-    pub(crate) print_dry_run_run_command: bool,
-    /// Whether to suppress build progress output from n2.
-    pub(crate) suppress_build_progress: bool,
-    /// Whether dependency sync/install progress should stay quiet.
-    pub(crate) quiet_sync: bool,
+    print_dry_run_run_command: bool,
+    output: RunOutputVerbosity,
     /// Backend to use when neither CLI flags nor single-file metadata selects one.
-    pub(crate) default_target_backend: TargetBackend,
+    default_target_backend: TargetBackend,
 }
 
 impl BuildRunExecutableOptions {
@@ -132,8 +151,7 @@ impl BuildRunExecutableOptions {
         Self {
             try_tcc_run: !cli.dry_run,
             print_dry_run_run_command: true,
-            suppress_build_progress: false,
-            quiet_sync: false,
+            output: RunOutputVerbosity::from_flags(cli),
             default_target_backend: TargetBackend::default(),
         }
     }
@@ -142,9 +160,21 @@ impl BuildRunExecutableOptions {
         Self {
             try_tcc_run: !cli.dry_run,
             print_dry_run_run_command: true,
-            suppress_build_progress: !cli.verbose,
-            quiet_sync: !cli.verbose,
+            output: RunOutputVerbosity::from_flags(cli),
             default_target_backend: TargetBackend::Native,
+        }
+    }
+
+    pub(crate) fn for_profile(cli: &UniversalFlags) -> Self {
+        Self {
+            // Profiling needs a stable executable path for xctrace to launch.
+            // The TCC fast path may run directly from generated C instead.
+            try_tcc_run: false,
+            // The dry-run output should show the profiled invocation, not the
+            // plain executable command that `moon run` would normally print.
+            print_dry_run_run_command: false,
+            output: RunOutputVerbosity::from_flags(cli),
+            default_target_backend: TargetBackend::default(),
         }
     }
 }
@@ -173,7 +203,7 @@ pub(crate) struct RunExecutable {
 struct BuildExecutableFromPlanOptions {
     force_success_exit: bool,
     print_dry_run_run_command: bool,
-    suppress_build_progress: bool,
+    output: RunOutputVerbosity,
 }
 
 impl RunExecutable {
@@ -449,7 +479,7 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_project_manifest_path(project_manifest_path.as_deref())
-    .with_quiet_sync(options.quiet_sync);
+    .with_sync_output(options.output.sync_output());
     let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
@@ -469,7 +499,7 @@ fn build_package_executable(
         BuildExecutableFromPlanOptions {
             force_success_exit: selected_target_backend.is_some(),
             print_dry_run_run_command: options.print_dry_run_run_command,
-            suppress_build_progress: options.suppress_build_progress,
+            output: options.output,
         },
     )
 }
@@ -619,7 +649,7 @@ fn build_single_file_executable(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_quiet_sync(options.quiet_sync);
+    .with_sync_output(options.output.sync_output());
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         target_dir.as_path(),
@@ -678,7 +708,7 @@ fn build_single_file_executable(
         BuildExecutableFromPlanOptions {
             force_success_exit: false,
             print_dry_run_run_command: options.print_dry_run_run_command,
-            suppress_build_progress: options.suppress_build_progress,
+            output: options.output,
         },
     )
 }
@@ -720,7 +750,7 @@ fn build_executable_from_plan(
         });
     }
 
-    let lock = FileLock::lock(target_dir)?;
+    let lock = FileLock::lock_with_verbosity(target_dir, options.output.verbose)?;
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(target_dir, build_meta, RunMode::Run)?;
 
@@ -730,7 +760,7 @@ fn build_executable_from_plan(
         cli.verbose,
         UserDiagnostics::from_flags(cli),
     )
-    .with_suppressed_progress(options.suppress_build_progress);
+    .with_suppressed_progress(options.output.suppress_build_progress());
     let build_result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
 
     Ok(RunExecutable {

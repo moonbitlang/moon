@@ -273,21 +273,8 @@ pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyh
 
 fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
     let run_cmd = profile_run_subcommand(cmd.clone())?;
-    let mut built = build_run_executable(
-        cli,
-        &run_cmd,
-        BuildRunExecutableOptions {
-            // Profiling needs a stable executable path for xctrace to launch.
-            // The TCC fast path may run directly from generated C instead.
-            try_tcc_run: false,
-            // The dry-run output should show the profiled invocation, not the
-            // plain executable command that `moon run` would normally print.
-            print_dry_run_run_command: false,
-            suppress_build_progress: false,
-            quiet_sync: false,
-            default_target_backend: TargetBackend::default(),
-        },
-    )?;
+    let mut built =
+        build_run_executable(cli, &run_cmd, BuildRunExecutableOptions::for_profile(cli))?;
     built.ensure_build_success()?;
 
     if built.target_backend != RunBackend::Native {
