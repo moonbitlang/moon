@@ -892,15 +892,11 @@ fn test_moon_run_command_string_short_alias_c_reads_inline_script() {
 #[test]
 fn test_moon_run_command_string_invalid_source_keeps_diagnostics_on_stderr() {
     let dir = TestDir::new_empty();
-    let assert = snapbox::cmd::Command::new(moon_bin())
-        .current_dir(&dir)
-        .arg("run")
-        .arg("-e")
-        .arg(r#"println("hello")"#)
+    let assert = moon_cmd(&dir)
+        .args(["run", "-e", r#"println("hello")"#])
         .assert()
-        .failure();
-    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
-    assert!(stdout.contains("failed:"), "stdout: {stdout}");
+        .failure()
+        .stdout_eq("");
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
     assert!(
         stderr.contains("Missing main function in the main package"),
