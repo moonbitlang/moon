@@ -182,22 +182,16 @@ pub fn parse_front_matter_import_path(path: &str) -> anyhow::Result<FrontMatterI
     })
 }
 
-/// Resolve import-style registry paths.
-pub fn resolve_registry_path(
+/// Resolve unversioned import-style registry paths.
+pub fn resolve_unversioned_registry_path(
     path: &str,
-    allow_explicit_version: bool,
     mut latest_version_of: impl FnMut(&ModuleName) -> Option<String>,
 ) -> anyhow::Result<(ModuleName, String, String)> {
-    let contains_at = path.contains('@');
-
-    if path.starts_with(&format!("{MOONBITLANG_CORE}@"))
-        || contains_at && path.starts_with(&format!("{MOONBITLANG_CORE}/"))
-    {
-        anyhow::bail!("moonbitlang/core imports must not specify a version");
+    if path.contains('@') {
+        anyhow::bail!("explicit versions are not allowed in this registry path");
     }
 
-    if path == MOONBITLANG_CORE || !contains_at && path.starts_with(&format!("{MOONBITLANG_CORE}/"))
-    {
+    if path == MOONBITLANG_CORE || path.starts_with(&format!("{MOONBITLANG_CORE}/")) {
         return Ok((
             MOD_NAME_STDLIB.clone(),
             DEFAULT_VERSION.to_string(),
@@ -205,28 +199,17 @@ pub fn resolve_registry_path(
         ));
     }
 
-    match (allow_explicit_version, contains_at) {
-        (true, true) => {
-            let parsed = parse_module_at_version_path(path)?;
-            let full_path_without_version = parsed.full_path_without_version();
-            Ok((parsed.module, parsed.version, full_path_without_version))
-        }
-        (false, true) => {
-            anyhow::bail!("explicit versions are not allowed in this registry path")
-        }
-        (_, false) => {
-            let parsed = parse_install_style_path(path)?;
-            let latest_version = latest_version_of(&parsed.module)
-                .ok_or_else(|| anyhow::anyhow!("module `{}` not found", parsed.module))?;
-            Ok((parsed.module, latest_version, path.to_string()))
-        }
-    }
+    let parsed = parse_install_style_path(path)?;
+    let latest_version = latest_version_of(&parsed.module)
+        .ok_or_else(|| anyhow::anyhow!("module `{}` not found", parsed.module))?;
+    Ok((parsed.module, latest_version, path.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_module_at_version_path, parse_package_at_version_path, resolve_registry_path,
+        parse_module_at_version_path, parse_package_at_version_path,
+        resolve_unversioned_registry_path,
     };
 
     #[test]
@@ -257,8 +240,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_registry_path_uses_first_two_segments_for_unversioned_path() {
-        let resolved = resolve_registry_path("a/b/c/d", true, |module| {
+    fn resolve_unversioned_registry_path_uses_first_two_segments() {
+        let resolved = resolve_unversioned_registry_path("a/b/c/d", |module| {
             (module.to_string() == "a/b").then(|| "1.0.0".to_string())
         })
         .unwrap();

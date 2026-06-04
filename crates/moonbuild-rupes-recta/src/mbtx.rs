@@ -188,7 +188,7 @@ fn split_mbtx_import_path(
     }
 
     let (module, version, full_path_without_version) = registry
-        .resolve_path(path, false)
+        .resolve_unversioned_path(path)
         .with_context(|| {
             format!(
                 "import path '{path}' must be in the form 'username/module[/package/path]'; \
