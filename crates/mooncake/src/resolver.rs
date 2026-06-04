@@ -266,8 +266,24 @@ pub(crate) fn resolve_with_default_env(
 /// to the resolve graph, and mark it as the standard library.
 fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
     let core_dir = moon_dir::core();
-    let loaded_core =
-        read_module_desc_file_in_dir(&core_dir).context("Cannot load the core file")?;
+    let loaded_core = read_module_desc_file_in_dir(&core_dir).with_context(|| {
+        if core_dir.exists() {
+            format!(
+                "Cannot load the core file. The standard library at `{}` \
+                 does not appear to be bundled. Run `moon -C {} bundle --target all` \
+                 to bundle it",
+                core_dir.display(),
+                core_dir.display()
+            )
+        } else {
+            format!(
+                "Cannot load the core file. The standard library directory `{}` \
+                 does not exist. Reinstall the MoonBit toolchain, or set \
+                 $MOON_CORE_OVERRIDE to a checkout of moonbitlang/core",
+                core_dir.display()
+            )
+        }
+    })?;
     let source = ModuleSource::from_stdlib(&loaded_core, &core_dir);
     let id = res.add_module(source, Arc::new(loaded_core));
     res.register_stdlib(id);
