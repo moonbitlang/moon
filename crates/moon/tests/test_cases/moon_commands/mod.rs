@@ -32,7 +32,7 @@ fn test_moon_help() {
               check                  Check the current package, but don't build object files
               prove                  Prove the current package
               run                    Run a main package
-              runwasm                Run a prebuilt WebAssembly binary from Mooncakes
+              runwasm                Run a local target as WebAssembly or a prebuilt WebAssembly binary
               test                   Test the current package
               clean                  Remove the _build directory
               fmt                    Format source code
@@ -80,6 +80,47 @@ fn test_moon_help() {
                       Unstable flags to MoonBuild [env: MOON_UNSTABLE=] [default: ]
         "#]],
     );
+}
+
+#[test]
+fn test_runwasm_runs_local_package_as_wasm_and_forwards_args() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["runwasm", "main", "--arg1", "arg2"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..]/_build/wasm/debug/build/main/main.wasm
+--arg1
+arg2
+
+"#]]);
+}
+
+#[test]
+fn test_runwasm_runs_local_wasm_file_and_forwards_args() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+
+    moon_cmd(&dir)
+        .args([
+            "runwasm",
+            "_build/wasm-gc/debug/build/main/main.wasm",
+            "--arg1",
+            "arg2",
+        ])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..]/_build/wasm-gc/debug/build/main/main.wasm
+--arg1
+arg2
+
+"#]])
+        .stderr_eq("");
 }
 
 #[test]
@@ -132,7 +173,7 @@ fn test_runwasm_rejects_dry_run() {
         ],
     );
     assert!(
-        stderr.contains("--dry-run is not supported for `moon runwasm`"),
+        stderr.contains("--dry-run is not supported for Mooncakes assets in `moon runwasm`"),
         "expected dry-run rejection, got:\n{stderr}"
     );
 }

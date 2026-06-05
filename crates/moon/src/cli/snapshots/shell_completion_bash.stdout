@@ -2391,7 +2391,7 @@ _moon() {
             return 0
             ;;
         moon__runwasm)
-            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PACKAGE[@VERSION]> [ARGS]..."
+            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <PATH|PACKAGE[@VERSION]> [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
