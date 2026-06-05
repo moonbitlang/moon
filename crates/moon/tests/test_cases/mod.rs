@@ -36,6 +36,7 @@ mod backend;
 mod backend_config;
 mod bench2;
 mod blackbox;
+mod build_package_dep_core;
 mod check_fmt;
 mod circle_pkg_ab_001_test;
 mod clean;
