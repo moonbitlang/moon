@@ -268,7 +268,7 @@ _arguments "${_arguments_options[@]}" : \
 '(--dry-run)--build-graph[]' \
 '-h[Print help (see more with '\''--help'\'')]' \
 '--help[Print help (see more with '\''--help'\'')]' \
-':package -- Mooncakes package coordinate of the prebuilt wasm binary:' \
+':package -- Local package/file path or Mooncakes package coordinate of the prebuilt wasm binary:' \
 '*::args -- The arguments provided to the wasm program:' \
 && ret=0
 ;;
@@ -1583,7 +1583,7 @@ _moon_commands() {
 'check:Check the current package, but don'\''t build object files' \
 'prove:Prove the current package' \
 'run:Run a main package' \
-'runwasm:Run a prebuilt WebAssembly binary from Mooncakes' \
+'runwasm:Run a local target as WebAssembly or a prebuilt WebAssembly binary' \
 'test:Test the current package' \
 'cram:Run cram tests with project binaries on PATH (experimental)' \
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around \`moonc gen-test-info\`, which does the actual parsing and generation' \
@@ -1752,7 +1752,7 @@ _moon__help_commands() {
 'check:Check the current package, but don'\''t build object files' \
 'prove:Prove the current package' \
 'run:Run a main package' \
-'runwasm:Run a prebuilt WebAssembly binary from Mooncakes' \
+'runwasm:Run a local target as WebAssembly or a prebuilt WebAssembly binary' \
 'test:Test the current package' \
 'cram:Run cram tests with project binaries on PATH (experimental)' \
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around \`moonc gen-test-info\`, which does the actual parsing and generation' \
