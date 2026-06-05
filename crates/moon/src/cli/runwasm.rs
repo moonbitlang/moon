@@ -32,6 +32,7 @@ use moonutil::{
 };
 use reqwest::{StatusCode, header::USER_AGENT};
 use semver::Version;
+use sha2::{Digest, Sha256};
 use tracing::instrument;
 
 use super::{BuildFlags, RunSubcommand};
@@ -75,6 +76,7 @@ struct RunWasmCoordinate {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ResolvedRunWasmAsset {
     url: String,
+    checksum_url: String,
     cache_path: PathBuf,
 }
 
@@ -93,20 +95,39 @@ impl RunWasmCoordinate {
 
     fn with_version(self, version: Version, registry: &str) -> ResolvedRunWasmAsset {
         let binary_name = self.binary_name();
-        let url = asset_url(
-            registry,
-            &self.module_name,
-            &self.package_path,
-            &version,
-            &binary_name,
-        );
-        let cache_path = asset_cache_path(
-            &self.module_name,
-            &self.package_path,
-            &version,
-            &binary_name,
-        );
-        ResolvedRunWasmAsset { url, cache_path }
+        let base = registry.trim_end_matches('/');
+        let module = self.module_name.to_string();
+        let url = if self.package_path.is_empty() {
+            format!("{base}/assets/{module}@{version}/{binary_name}.wasm")
+        } else {
+            format!(
+                "{base}/assets/{module}@{version}/{}/{}.wasm",
+                self.package_path, binary_name
+            )
+        };
+
+        let mut cache_path = moonutil::moon_dir::cache()
+            .join("assets")
+            .join(self.module_name.username.as_str());
+        for segment in self.module_name.unqual.split('/') {
+            cache_path.push(segment);
+        }
+        cache_path.push(version.to_string());
+        for segment in self
+            .package_path
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+        {
+            cache_path.push(segment);
+        }
+        cache_path.push(format!("{binary_name}.wasm"));
+
+        let checksum_url = format!("{url}.sha256");
+        ResolvedRunWasmAsset {
+            url,
+            checksum_url,
+            cache_path,
+        }
     }
 }
 
@@ -239,7 +260,7 @@ fn ensure_cached_wasm(
 fn ensure_cached_wasm_with(
     asset: &ResolvedRunWasmAsset,
     output: UserDiagnostics,
-    download: impl FnOnce(&str) -> anyhow::Result<Vec<u8>>,
+    mut download: impl FnMut(&str) -> anyhow::Result<Vec<u8>>,
 ) -> anyhow::Result<PathBuf> {
     if asset.cache_path.exists() {
         output.info(format!(
@@ -259,6 +280,8 @@ fn ensure_cached_wasm_with(
             parent.display()
         )
     })?;
+    // The lock covers the whole check/download/publish sequence. Waiters re-check
+    // after acquiring it; an existing final wasm means another process finished.
     let _lock = FileLock::lock(parent)
         .with_context(|| format!("failed to lock cache directory {}", parent.display()))?;
 
@@ -270,23 +293,59 @@ fn ensure_cached_wasm_with(
         return Ok(asset.cache_path.clone());
     }
 
+    let checksum_bytes = download(&asset.checksum_url)?;
+    let expected_checksum = parse_sha256_checksum(&checksum_bytes)
+        .with_context(|| format!("invalid SHA-256 checksum from {}", asset.checksum_url))?;
     output.info(format!("Downloading {}", asset.url));
     let bytes = download(&asset.url)?;
+    let actual_checksum = sha256_hex(&bytes);
+    if actual_checksum != expected_checksum {
+        bail!(
+            "prebuilt wasm checksum mismatch for {}: expected {}, got {}",
+            asset.url,
+            expected_checksum,
+            actual_checksum
+        );
+    }
 
-    let tmp_path = asset.cache_path.with_extension("wasm.download");
-    let mut tmp = std::fs::File::create(&tmp_path)
-        .with_context(|| format!("failed to create download file {}", tmp_path.display()))?;
-    tmp.write_all(&bytes)
-        .context("failed to write downloaded wasm to cache")?;
-    std::fs::rename(&tmp_path, &asset.cache_path).with_context(|| {
-        format!(
-            "failed to move downloaded wasm from {} to {}",
-            tmp_path.display(),
-            asset.cache_path.display()
-        )
-    })?;
+    write_atomic(&asset.cache_path, &bytes)?;
 
     Ok(asset.cache_path.clone())
+}
+
+fn parse_sha256_checksum(bytes: &[u8]) -> anyhow::Result<String> {
+    let text = std::str::from_utf8(bytes).context("SHA-256 checksum is not valid UTF-8")?;
+    let checksum = text
+        .split_whitespace()
+        .next()
+        .context("SHA-256 checksum is empty")?;
+    if checksum.len() != 64 || !checksum.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("SHA-256 checksum must be a 64-character hex digest");
+    }
+    Ok(checksum.to_ascii_lowercase())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let parent = path.parent().context("cache path has no parent")?;
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create download file in {}", parent.display()))?;
+    tmp.write_all(bytes)
+        .with_context(|| format!("failed to write download file {}", tmp.path().display()))?;
+    tmp.as_file()
+        .sync_all()
+        .with_context(|| format!("failed to sync download file {}", tmp.path().display()))?;
+    tmp.persist(path).with_context(|| {
+        let path = path.display();
+        format!("failed to move downloaded file to {path}")
+    })?;
+    if let Ok(dir) = std::fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
 }
 
 fn download_wasm(url: &str) -> anyhow::Result<Vec<u8>> {
@@ -296,20 +355,15 @@ fn download_wasm(url: &str) -> anyhow::Result<Vec<u8>> {
         .header(USER_AGENT, format!("moon/{}", env!("CARGO_PKG_VERSION")))
         .send()
         .with_context(|| format!("failed to download prebuilt wasm from {url}"))?;
-    report_missing_asset_for_404(response.status())?;
+    if response.status() == StatusCode::NOT_FOUND {
+        bail!("Prebuilt wasm asset does not exist");
+    }
     let data = response
         .error_for_status()
         .with_context(|| format!("prebuilt wasm download returned error status for {url}"))?
         .bytes()
         .with_context(|| format!("failed to read prebuilt wasm response from {url}"))?;
     Ok(data.to_vec())
-}
-
-fn report_missing_asset_for_404(status: StatusCode) -> anyhow::Result<()> {
-    if status == StatusCode::NOT_FOUND {
-        bail!("Prebuilt wasm asset does not exist");
-    }
-    Ok(())
 }
 
 fn parse_runwasm_coordinate(input: &str) -> anyhow::Result<RunWasmCoordinate> {
@@ -358,44 +412,6 @@ fn validate_components(input: &str, path: &str, label: &str) -> anyhow::Result<(
         bail!("Invalid runwasm coordinate `{input}`: invalid {label} path component");
     }
     Ok(())
-}
-
-fn asset_url(
-    registry: &str,
-    module_name: &ModuleName,
-    package_path: &str,
-    version: &Version,
-    binary_name: &str,
-) -> String {
-    let base = registry.trim_end_matches('/');
-    let module = module_name.to_string();
-    if package_path.is_empty() {
-        format!("{base}/assets/{module}@{version}/{binary_name}.wasm")
-    } else {
-        format!("{base}/assets/{module}@{version}/{package_path}/{binary_name}.wasm")
-    }
-}
-
-fn asset_cache_path(
-    module_name: &ModuleName,
-    package_path: &str,
-    version: &Version,
-    binary_name: &str,
-) -> PathBuf {
-    let mut path = moonutil::moon_dir::cache()
-        .join("assets")
-        .join(module_name.username.as_str());
-    for segment in module_name.unqual.split('/') {
-        path.push(segment);
-    }
-    path.push(version.to_string());
-    for segment in package_path
-        .split('/')
-        .filter(|segment| !segment.is_empty())
-    {
-        path.push(segment);
-    }
-    path.join(format!("{binary_name}.wasm"))
 }
 
 #[cfg(test)]
@@ -491,6 +507,10 @@ mod tests {
             resolved.url,
             "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm"
         );
+        assert_eq!(
+            resolved.checksum_url,
+            "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm.sha256"
+        );
     }
 
     #[test]
@@ -504,28 +524,82 @@ mod tests {
     }
 
     #[test]
-    fn cache_miss_uses_downloader_once_and_writes_file() {
+    fn parse_sha256sum_output() {
+        let checksum = "ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789";
+        assert_eq!(
+            parse_sha256_checksum(format!("{checksum}  moonfmt.wasm\n").as_bytes()).unwrap(),
+            checksum.to_ascii_lowercase()
+        );
+        assert!(parse_sha256_checksum(b"not-a-checksum").is_err());
+        assert!(parse_sha256_checksum(b"").is_err());
+    }
+
+    #[test]
+    fn cache_miss_downloads_checksum_and_writes_file() {
         let cache_dir = tempfile::TempDir::new().unwrap();
         let parsed = parse("moonbitlang/parser/cmd/moonfmt@0.3.3");
         let mut asset = parsed.with_version("0.3.3".parse().unwrap(), "https://mooncakes.io");
         asset.cache_path = cache_dir.path().join("moonfmt.wasm");
+        let wasm = b"\0asmtest".to_vec();
+        let checksum = sha256_hex(&wasm);
+        let mut urls = Vec::new();
         let path = ensure_cached_wasm_with(&asset, UserDiagnostics::default(), |url| {
-            assert_eq!(
-                url,
-                "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm"
-            );
-            Ok(b"\0asmtest".to_vec())
+            urls.push(url.to_string());
+            if url.ends_with(".sha256") {
+                Ok(format!("{checksum}  moonfmt.wasm\n").into_bytes())
+            } else {
+                Ok(wasm.clone())
+            }
         })
         .unwrap();
         assert_eq!(std::fs::read(path).unwrap(), b"\0asmtest");
+        assert!(!cache_dir.path().join("moonfmt.wasm.sha256").exists());
+        assert_eq!(
+            urls,
+            [
+                "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm.sha256",
+                "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm",
+            ]
+        );
     }
 
     #[test]
-    fn download_status_404_reports_missing_asset() {
-        let err = report_missing_asset_for_404(StatusCode::NOT_FOUND)
-            .unwrap_err()
-            .to_string();
-        assert_eq!(err, "Prebuilt wasm asset does not exist");
-        assert!(report_missing_asset_for_404(StatusCode::INTERNAL_SERVER_ERROR).is_ok());
+    fn cache_hit_uses_existing_wasm_without_downloading() {
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let parsed = parse("moonbitlang/parser/cmd/moonfmt@0.3.3");
+        let mut asset = parsed.with_version("0.3.3".parse().unwrap(), "https://mooncakes.io");
+        asset.cache_path = cache_dir.path().join("moonfmt.wasm");
+        let wasm = b"\0asmtest";
+        std::fs::write(&asset.cache_path, wasm).unwrap();
+
+        let path = ensure_cached_wasm_with(&asset, UserDiagnostics::default(), |_| {
+            bail!("cache hit should not download")
+        })
+        .unwrap();
+
+        assert_eq!(path, asset.cache_path);
+        assert!(!cache_dir.path().join(moonutil::common::MOON_LOCK).exists());
+    }
+
+    #[test]
+    fn checksum_mismatch_rejects_download() {
+        let cache_dir = tempfile::TempDir::new().unwrap();
+        let parsed = parse("moonbitlang/parser/cmd/moonfmt@0.3.3");
+        let mut asset = parsed.with_version("0.3.3".parse().unwrap(), "https://mooncakes.io");
+        asset.cache_path = cache_dir.path().join("moonfmt.wasm");
+        let expected_checksum = sha256_hex(b"expected wasm");
+
+        let err = ensure_cached_wasm_with(&asset, UserDiagnostics::default(), |url| {
+            if url.ends_with(".sha256") {
+                Ok(format!("{expected_checksum}\n").into_bytes())
+            } else {
+                Ok(b"different wasm".to_vec())
+            }
+        })
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("prebuilt wasm checksum mismatch"));
+        assert!(!asset.cache_path.exists());
     }
 }
