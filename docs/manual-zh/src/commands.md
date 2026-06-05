@@ -53,7 +53,7 @@ This document contains the help content for the `moon` command-line program.
 * `check` — Check the current package, but don't build object files
 * `prove` — Prove the current package
 * `run` — Run a main package
-* `runwasm` — Run a local target as WebAssembly or a prebuilt WebAssembly binary
+* `runwasm` — Run a local package as WebAssembly or a prebuilt WebAssembly binary
 * `test` — Test the current package
 * `clean` — Remove the _build directory
 * `fmt` — Format source code
@@ -256,12 +256,11 @@ Run a main package
 
 ## `moon runwasm`
 
-Run a local target as WebAssembly or a prebuilt WebAssembly binary published as a Mooncakes asset.
+Run a local package as WebAssembly or a prebuilt WebAssembly binary published as a Mooncakes asset.
 
-Local inputs are handled like `moon run --target wasm`:
+Local package inputs are handled like `moon run --target wasm`:
   moon runwasm main
-  moon runwasm ./main/main.mbt
-  moon runwasm ./target/main.wasm
+  moon runwasm ./main
 
 Accepted Mooncakes coordinate forms:
   moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
@@ -272,11 +271,11 @@ Pinned coordinates use the given version directly. Unpinned coordinates resolve
 the latest version from the registry index. Fetched wasm files are cached under
 $MOON_HOME/registry/cache/assets and reused on later runs.
 
-**Usage:** `moon runwasm <PATH|PACKAGE[@VERSION]> [ARGS]...`
+**Usage:** `moon runwasm <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]...`
 
 ###### **Arguments:**
 
-* `<PATH|PACKAGE[@VERSION]>` — Local package/file path or Mooncakes package coordinate of the prebuilt wasm binary
+* `<LOCAL_PACKAGE|PACKAGE[@VERSION]>` — Local package path or Mooncakes package coordinate of the prebuilt wasm binary
 * `<ARGS>` — The arguments provided to the wasm program
 
 
