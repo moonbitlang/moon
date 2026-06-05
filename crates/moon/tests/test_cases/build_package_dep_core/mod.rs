@@ -31,7 +31,7 @@ fn test_build_package_tracks_dependency_core_artifact() {
     check(
         second_build,
         expect![[r#"
-            Finished. moon: ran 2 tasks, now up to date
+            Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
 }
