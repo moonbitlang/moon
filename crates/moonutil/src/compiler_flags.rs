@@ -416,6 +416,12 @@ impl CC {
             .is_some_and(|target| target.contains("msvc"))
     }
 
+    pub fn targets_apple_darwin(&self) -> bool {
+        self.target_triple
+            .as_deref()
+            .is_some_and(|target| target.contains("apple-darwin"))
+    }
+
     pub fn should_link_libm(&self) -> bool {
         self.is_full_featured_gcc_like() && !self.targets_msvc()
     }
@@ -1375,6 +1381,14 @@ mod tests {
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
         }
+    }
+
+    #[test]
+    fn detects_apple_darwin_target_triple() {
+        assert!(fake_cc(CCKind::Clang, Some("arm64-apple-darwin25.5.0")).targets_apple_darwin());
+        assert!(fake_cc(CCKind::Gcc, Some("aarch64-apple-darwin")).targets_apple_darwin());
+        assert!(!fake_cc(CCKind::Gcc, Some("x86_64-unknown-linux-gnu")).targets_apple_darwin());
+        assert!(!fake_cc(CCKind::Gcc, None).targets_apple_darwin());
     }
 
     #[test]

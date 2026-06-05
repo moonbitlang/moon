@@ -47,12 +47,32 @@ use crate::{
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
+    model::{
+        BuildPlanNode, BuildTarget, NativeTarget, OperatingSystem, PackageId, RunBackend,
+        TargetKind,
+    },
     pkg_name::{PackageFQN, PackagePath},
     special_cases::{is_self_coverage_lib, should_skip_coverage},
 };
 
 use super::{BuildCommand, Commandline, compiler, context::BuildPlanLowerContext};
+
+fn commandline_with_dsymutil(cmd: &[String], dest: &str) -> Commandline {
+    let cmd_str = moonutil::shlex::join_unix(cmd.iter().map(|x| x.as_str()));
+    let dsymutil_args = ["dsymutil", dest];
+    let dsymutil_cmd_str = moonutil::shlex::join_unix(dsymutil_args.iter().copied());
+    Commandline::Verbatim(format!("{cmd_str} && {dsymutil_cmd_str}"))
+}
+
+fn should_run_new_native_dsymutil(
+    native_target: Option<NativeTarget>,
+    debug_symbols: bool,
+    cc: &CC,
+) -> bool {
+    native_target == Some(NativeTarget::Aarch64AppleDarwin)
+        && debug_symbols
+        && cc.targets_apple_darwin()
+}
 
 impl<'a> BuildPlanLowerContext<'a> {
     fn compiler_source_files(&self, info: &BuildTargetInfo) -> Vec<PathBuf> {
@@ -1090,12 +1110,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             && self.opt.target_backend == RunBackend::Llvm
             && self.opt.debug_symbols
         {
-            // Convert cc_cmd to shell command string and append dsymutil
-            let cc_cmd_str = moonutil::shlex::join_unix(cc_cmd.iter().map(|x| x.as_str()));
-            let dsymutil_args = ["dsymutil", &dest];
-            let dsymutil_cmd_str = moonutil::shlex::join_unix(dsymutil_args.iter().copied());
-            let combined_cmd = format!("{} && {}", cc_cmd_str, dsymutil_cmd_str);
-            Commandline::Verbatim(combined_cmd)
+            commandline_with_dsymutil(&cc_cmd, &dest)
         } else {
             cc_cmd.into()
         };
@@ -1159,6 +1174,9 @@ impl<'a> BuildPlanLowerContext<'a> {
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
+        let run_dsymutil =
+            should_run_new_native_dsymutil(self.opt.native_target, self.opt.debug_symbols, &cc);
+
         let linker_cmd = make_linker_command_resolved(
             cc,
             config,
@@ -1169,9 +1187,15 @@ impl<'a> BuildPlanLowerContext<'a> {
             &self.opt.compiler_paths.lib_path,
         );
 
+        let commandline = if run_dsymutil {
+            commandline_with_dsymutil(&linker_cmd, &dest)
+        } else {
+            linker_cmd.into()
+        };
+
         BuildCommand {
             extra_inputs: simdutf_objects,
-            commandline: linker_cmd.into(),
+            commandline,
         }
     }
 
