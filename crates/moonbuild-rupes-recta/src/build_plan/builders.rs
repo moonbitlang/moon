@@ -239,12 +239,16 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    /// Specify a need on the `.mi` interface of a dependency.
+    /// Specify a need on the interface artifacts of a dependency.
+    ///
+    /// In this build graph, "interface" usually means both `.mi` and `.core`
+    /// for normal package builds. The `.mi` is the compiler interface passed
+    /// via `-i`; the `.core` is tracked as an n2 input so implementation-only
+    /// dependency changes dirty downstream build-package actions. Check-only
+    /// paths still require just `.mi`.
     ///
     /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
     /// nodes based on the property of the dependency package.
-    /// `BuildWithCoreInput` also records the dependency `.core` as an n2 input
-    /// for downstream build-package actions, without changing compiler args.
     ///
     /// Backend compatibility is checked by `check_backend_compatibility_for_mi_dep`.
     /// Keep this function focused on graph wiring only.
