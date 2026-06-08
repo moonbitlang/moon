@@ -116,6 +116,32 @@ Implementation-wise:
 [rr_home]: /crates/moonbuild-rupes-recta/src/lib.rs
 [n2]: https://github.com/moonbitlang/n2
 
+### Directory and environment facts
+
+Directory discovery is intentionally front-loaded. Command entry points should
+calculate facts such as the selected project root, target directory, workspace
+selection, and `.mooncakes` directory once, then pass those facts into later
+phases. Later phases should not rediscover them from the working directory.
+
+This is part of the compiler-style shape of the RR pipeline: for directory and
+project facts, the command layer captures user input and passes the result
+forward instead of letting later phases infer it again. In particular:
+
+- project and workspace selection are captured before package discovery;
+- the `.mooncakes` directory is passed into resolve and then threaded through
+  `ResolveOutput`;
+- the target directory is passed into planning/lowering and used for generated
+  build files and n2 state; and
+- package and module directories come from discovery results, not from later
+  path guessing.
+
+Toolchain and host facts are not fully centralized today. `rr_build` and
+`compile` still make some host-dependent decisions while preparing planning and
+lowering. They should follow the same rule where practical: if a phase needs the
+host OS, compiler paths, standard-library path, or native toolchain choices,
+those should be captured by a dedicated environment step and passed forward as
+explicit input instead of being rediscovered at each use site.
+
 ## Project discovery and layout
 
 Currently, most subcommands in `moon` still work on a single input module [^input_module]
