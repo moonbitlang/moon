@@ -115,23 +115,69 @@ pub struct BuildPlan {
     input_nodes: Vec<BuildPlanNode>,
 }
 
+/// Logical artifacts that can be requested from build-plan nodes.
+///
+/// These are planning-level package artifacts. Lowering remains responsible for
+/// mapping them to concrete paths.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlanArtifactKind {
+    /// Package interface artifact, currently written as a `.mi` file.
+    Interface,
+    /// Compiler Core IR artifact, currently written as a `.core` file.
+    CoreIr,
+}
+
+/// The logical artifacts needed from a dependency node.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlanArtifactNeed {
+    Interface,
+    CoreIr,
+    InterfaceAndCoreIr,
+}
+
+impl PlanArtifactNeed {
+    pub fn contains(self, kind: PlanArtifactKind) -> bool {
+        match self {
+            Self::Interface => matches!(kind, PlanArtifactKind::Interface),
+            Self::CoreIr => matches!(kind, PlanArtifactKind::CoreIr),
+            Self::InterfaceAndCoreIr => true,
+        }
+    }
+
+    pub fn is_subset_of(self, other: Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::Interface, Self::Interface)
+                | (Self::CoreIr, Self::CoreIr)
+                | (_, Self::InterfaceAndCoreIr)
+        )
+    }
+
+    pub fn union(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Interface, Self::Interface) => Self::Interface,
+            (Self::CoreIr, Self::CoreIr) => Self::CoreIr,
+            _ => Self::InterfaceAndCoreIr,
+        }
+    }
+}
+
 /// Additional information about a build plan's edge
 ///
-/// # TODO
-///
-/// This is a temporary solution to determine which file is being depended on by
-/// the consumer node.
+/// `Artifacts` is the package-artifact selector shared by `Check` and
+/// `BuildCore`. Proof and test-info edges still keep node-specific selectors
+/// here.
 ///
 /// A more generic solution might be involving creating associated types for
 /// each node kind, specifying their output file list and order, and then
 /// use a bitmap or index list to specify which files are being depended on.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileDependencyKind {
     /// Depending on all files available
     AllFiles,
 
-    /// Depending on specific files of a `BuildCore` node.
-    BuildCore { mi: bool, core: bool },
+    /// Depending on logical artifacts produced by a node.
+    Artifacts(PlanArtifactNeed),
 
     /// Depending on proof artifacts of an `EmitProof`/`Prove` node.
     ProofArtifacts { mi: bool, mlw: bool, report: bool },
@@ -288,6 +334,7 @@ pub struct LinkCoreInfo {
     // pub std: bool,
 }
 
+#[derive(Debug)]
 pub struct BuildCStubsInfo {
     /// The effective native toolchain for compiling the C stubs
     pub(crate) effective_native_toolchain: Toolchain,
@@ -298,6 +345,7 @@ pub struct BuildCStubsInfo {
     pub(crate) link_flags: Vec<String>,
 }
 
+#[derive(Debug)]
 pub struct MakeExecutableInfo {
     /// The effective native toolchain for this executable step
     pub(crate) effective_native_toolchain: Toolchain,
@@ -310,6 +358,7 @@ pub struct MakeExecutableInfo {
 }
 
 /// Resolved information about a prebuild command.
+#[derive(Debug)]
 pub struct PrebuildInfo {
     pub(crate) resolved_inputs: Vec<PathBuf>,
     pub(crate) resolved_outputs: Vec<PathBuf>,

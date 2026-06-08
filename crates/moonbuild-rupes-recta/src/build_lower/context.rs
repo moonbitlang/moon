@@ -28,7 +28,7 @@ use tracing::{Level, instrument};
 use crate::{
     ResolveOutput,
     build_lower::artifact::LegacyLayout,
-    build_plan::{BuildPlan, FileDependencyKind},
+    build_plan::{BuildPlan, FileDependencyKind, PlanArtifactKind},
     discover::{DiscoverResult, DiscoveredPackage},
     model::{BuildPlanNode, BuildTarget},
     pkg_solve::DepRelationship,
@@ -358,8 +358,12 @@ impl<'a> BuildPlanLowerContext<'a> {
                     .get_build_target_info(&target)
                     .expect("Build target info should be present for BuildCore nodes");
                 let (mi, core) = match edge {
-                    FileDependencyKind::BuildCore { mi, core } => (mi, core),
-                    _ => (true, true),
+                    FileDependencyKind::AllFiles => (true, true),
+                    FileDependencyKind::Artifacts(need) => (
+                        need.contains(PlanArtifactKind::Interface),
+                        need.contains(PlanArtifactKind::CoreIr),
+                    ),
+                    _ => panic!("BuildCore only supports logical artifact or AllFiles edges"),
                 };
                 if mi && info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test()
                 {

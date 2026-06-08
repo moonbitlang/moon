@@ -24,7 +24,7 @@ use std::collections::HashSet;
 
 use crate::{
     ResolveOutput,
-    build_plan::{FileDependencyKind, InputDirective},
+    build_plan::{FileDependencyKind, InputDirective, PlanArtifactNeed},
     model::{BuildPlanNode, BuildTarget, PackageId},
     prebuild::PrebuildOutput,
     user_warning::UserWarning,
@@ -57,6 +57,64 @@ pub(super) struct BuildPlanConstructor<'a> {
     /// Only compiled in debug builds (cfg(debug_assertions)).
     #[cfg(debug_assertions)]
     pub(super) need_node_sources: HashMap<BuildPlanNode, Vec<(&'static str, u32, u32)>>,
+}
+
+fn merge_edge_kind(dst: &mut FileDependencyKind, src: FileDependencyKind) {
+    if matches!(src, FileDependencyKind::AllFiles) {
+        *dst = FileDependencyKind::AllFiles;
+        return;
+    }
+
+    match dst {
+        FileDependencyKind::AllFiles => {}
+        FileDependencyKind::Artifacts(dst_need) => {
+            let FileDependencyKind::Artifacts(need) = src else {
+                panic!(
+                    "Cannot merge incompatible edge kinds: {:?} and {:?}",
+                    dst, src
+                );
+            };
+            *dst_need = dst_need.union(need);
+        }
+        FileDependencyKind::ProofArtifacts {
+            mi: dst_mi,
+            mlw: dst_mlw,
+            report: dst_report,
+        } => {
+            let FileDependencyKind::ProofArtifacts { mi, mlw, report } = src else {
+                panic!(
+                    "Cannot merge incompatible edge kinds: {:?} and {:?}",
+                    dst, src
+                );
+            };
+            *dst_mi |= mi;
+            *dst_mlw |= mlw;
+            *dst_report |= report;
+        }
+        FileDependencyKind::GenerateTestInfo { meta: dst_meta } => {
+            let FileDependencyKind::GenerateTestInfo { meta } = src else {
+                panic!(
+                    "Cannot merge incompatible edge kinds: {:?} and {:?}",
+                    dst, src
+                );
+            };
+            *dst_meta |= meta;
+        }
+    }
+}
+
+fn edge_for_coalesced_check(edge: FileDependencyKind) -> FileDependencyKind {
+    match edge {
+        FileDependencyKind::AllFiles => FileDependencyKind::Artifacts(PlanArtifactNeed::Interface),
+        FileDependencyKind::Artifacts(need) => {
+            assert!(
+                need.is_subset_of(PlanArtifactNeed::Interface),
+                "Check only produces an interface artifact"
+            );
+            FileDependencyKind::Artifacts(need)
+        }
+        _ => panic!("Check edges can only request logical artifacts"),
+    }
 }
 
 impl<'a> BuildPlanConstructor<'a> {
@@ -137,56 +195,6 @@ impl<'a> BuildPlanConstructor<'a> {
     /// is also a fix for the virtual package semantics, because virtual
     /// packages don't know if they will be built or checked.
     fn postprocess_coalesce(&mut self) {
-        fn merge_edge_kind(dst: &mut FileDependencyKind, src: FileDependencyKind) {
-            if matches!(src, FileDependencyKind::AllFiles) {
-                *dst = FileDependencyKind::AllFiles;
-                return;
-            }
-
-            match dst {
-                FileDependencyKind::AllFiles => {
-                    *dst = FileDependencyKind::AllFiles;
-                }
-                FileDependencyKind::BuildCore {
-                    mi: dst_mi,
-                    core: dst_core,
-                } => {
-                    let FileDependencyKind::BuildCore { mi, core } = src else {
-                        panic!(
-                            "Cannot merge incompatible edge kinds: {:?} and {:?}",
-                            dst, src
-                        );
-                    };
-                    *dst_mi |= mi;
-                    *dst_core |= core;
-                }
-                FileDependencyKind::ProofArtifacts {
-                    mi: dst_mi,
-                    mlw: dst_mlw,
-                    report: dst_report,
-                } => {
-                    let FileDependencyKind::ProofArtifacts { mi, mlw, report } = src else {
-                        panic!(
-                            "Cannot merge incompatible edge kinds: {:?} and {:?}",
-                            dst, src
-                        );
-                    };
-                    *dst_mi |= mi;
-                    *dst_mlw |= mlw;
-                    *dst_report |= report;
-                }
-                FileDependencyKind::GenerateTestInfo { meta: dst_meta } => {
-                    let FileDependencyKind::GenerateTestInfo { meta } = src else {
-                        panic!(
-                            "Cannot merge incompatible edge kinds: {:?} and {:?}",
-                            dst, src
-                        );
-                    };
-                    *dst_meta |= meta;
-                }
-            }
-        }
-
         // list of nodes to coalesce and their input/output edges
         let mut plan = IndexMap::new();
         for node in self.res.all_nodes() {
@@ -225,6 +233,7 @@ impl<'a> BuildPlanConstructor<'a> {
             let to = *to;
             // Input edges
             for &(source, edge) in in_edges {
+                let edge = edge_for_coalesced_check(edge);
                 // Check if source is also coalesced
                 let source = if let Some((new_source, _, _)) = plan.get(&source) {
                     *new_source
@@ -404,9 +413,15 @@ impl<'a> BuildPlanConstructor<'a> {
     ) {
         // verify edge kind
         match (edge, end) {
-            (FileDependencyKind::BuildCore { .. }, BuildPlanNode::BuildCore(..)) => {}
-            (FileDependencyKind::BuildCore { .. }, _) => {
-                panic!("BuildCore edge can only point to BuildCore node")
+            (FileDependencyKind::Artifacts(need), BuildPlanNode::Check(..)) => {
+                assert!(
+                    need.is_subset_of(PlanArtifactNeed::Interface),
+                    "Check only produces an interface artifact"
+                );
+            }
+            (FileDependencyKind::Artifacts(_), BuildPlanNode::BuildCore(..)) => {}
+            (FileDependencyKind::Artifacts(_), _) => {
+                panic!("logical artifact edges can only point to Check or BuildCore nodes")
             }
             (
                 FileDependencyKind::ProofArtifacts { .. },
@@ -511,5 +526,40 @@ impl<'a> BuildPlanConstructor<'a> {
             self.warn_if_main_package_uses_blackbox_inputs(pkg, &regular_files);
         }
         self.res.build_target_infos.insert(target, info);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{edge_for_coalesced_check, merge_edge_kind};
+    use crate::build_plan::{FileDependencyKind, PlanArtifactNeed};
+
+    #[test]
+    fn coalesced_check_all_files_requests_build_core_interface() {
+        assert_eq!(
+            edge_for_coalesced_check(FileDependencyKind::AllFiles),
+            FileDependencyKind::Artifacts(PlanArtifactNeed::Interface)
+        );
+    }
+
+    #[test]
+    fn merging_logical_artifact_edges_unions_needs() {
+        let mut edge = FileDependencyKind::Artifacts(PlanArtifactNeed::Interface);
+
+        merge_edge_kind(
+            &mut edge,
+            FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr),
+        );
+
+        assert_eq!(
+            edge,
+            FileDependencyKind::Artifacts(PlanArtifactNeed::InterfaceAndCoreIr)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Check only produces an interface artifact")]
+    fn coalesced_check_rejects_core_ir_artifact_need() {
+        edge_for_coalesced_check(FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr));
     }
 }

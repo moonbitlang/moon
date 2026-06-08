@@ -41,7 +41,7 @@ use regex::Regex;
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
-    build_plan::{BuildBundleInfo, FileDependencyKind, PrebuildInfo},
+    build_plan::{BuildBundleInfo, FileDependencyKind, PlanArtifactNeed, PrebuildInfo},
     cond_comp::{self, CompileCondition},
     discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
@@ -247,9 +247,6 @@ impl<'a> BuildPlanConstructor<'a> {
     /// dependency changes dirty downstream build-package actions. Check-only
     /// paths still require just `.mi`.
     ///
-    /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
-    /// nodes based on the property of the dependency package.
-    ///
     /// Backend compatibility is checked by `check_backend_compatibility_for_mi_dep`.
     /// Keep this function focused on graph wiring only.
     fn need_interface_of_dep(
@@ -274,15 +271,20 @@ impl<'a> BuildPlanConstructor<'a> {
             self.need_node(BuildPlanNode::BuildCore(dep))
         };
 
-        let edge_kind = if let BuildPlanNode::BuildCore(_) = dep_node {
-            FileDependencyKind::BuildCore {
-                mi: true,
-                core: mode.core_as_input(),
+        let edge = match dep_node {
+            BuildPlanNode::Check(_) => FileDependencyKind::Artifacts(PlanArtifactNeed::Interface),
+            BuildPlanNode::BuildCore(_) if !mode.core_as_input() => {
+                FileDependencyKind::Artifacts(PlanArtifactNeed::Interface)
             }
-        } else {
-            FileDependencyKind::AllFiles
+            BuildPlanNode::BuildCore(_) => {
+                FileDependencyKind::Artifacts(PlanArtifactNeed::InterfaceAndCoreIr)
+            }
+            BuildPlanNode::BuildVirtual(_) => FileDependencyKind::AllFiles,
+            _ => unreachable!(
+                "need_interface_of_dep only schedules Check, BuildCore or BuildVirtual"
+            ),
         };
-        self.add_edge_spec(node, dep_node, edge_kind);
+        self.add_edge_spec(node, dep_node, edge);
     }
 
     /// Specify a need on the proof artifacts of a dependency.
@@ -845,10 +847,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge_spec(
                 link_core_node,
                 dep_node,
-                FileDependencyKind::BuildCore {
-                    mi: false,
-                    core: true,
-                },
+                FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr),
             );
         }
 
@@ -1184,10 +1183,7 @@ impl<'a> BuildPlanConstructor<'a> {
             self.add_edge_spec(
                 _node,
                 build_node,
-                FileDependencyKind::BuildCore {
-                    mi: false,
-                    core: true,
-                },
+                FileDependencyKind::Artifacts(PlanArtifactNeed::CoreIr),
             );
 
             if pkg.is_virtual() {
