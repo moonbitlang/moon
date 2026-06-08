@@ -58,6 +58,22 @@ static BUILD_VAR_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{build\.([a-zA-Z0-9_]+)\}").expect("invalid build var regex"));
 const PROOF_ENABLED_WARN_SUPPRESSIONS: &str = "-1-2-3-29";
 
+#[derive(Clone, Copy)]
+enum DependencyInterfaceMode {
+    CheckOnly,
+    BuildWithCoreInput,
+}
+
+impl DependencyInterfaceMode {
+    fn check_only(self) -> bool {
+        matches!(self, Self::CheckOnly)
+    }
+
+    fn core_as_input(self) -> bool {
+        matches!(self, Self::BuildWithCoreInput)
+    }
+}
+
 impl<'a> BuildPlanConstructor<'a> {
     fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
         if self.build_env.native_target.is_some() {
@@ -196,10 +212,10 @@ impl<'a> BuildPlanConstructor<'a> {
 
     /// Validate backend compatibility for a dependency edge that needs `.mi`.
     ///
-    /// This function is intentionally parallel to `need_mi_of_dep`: callers can
+    /// This function is intentionally parallel to `need_interface_of_dep`: callers can
     /// choose policy (hard error vs warning+skip) before mutating the graph.
     ///
-    /// Note: This mirrors the stdlib short-circuit used by `need_mi_of_dep`.
+    /// Note: This mirrors the stdlib short-circuit used by `need_interface_of_dep`.
     /// When stdlib is injected, stdlib package deps are not planned and should
     /// not be backend-checked here either.
     fn check_backend_compatibility_for_mi_dep(
@@ -223,14 +239,25 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    /// Specify a need on the `.mi` of a dependency.
+    /// Specify a need on the interface artifacts of a dependency.
+    ///
+    /// In this build graph, "interface" usually means both `.mi` and `.core`
+    /// for normal package builds. The `.mi` is the compiler interface passed
+    /// via `-i`; the `.core` is tracked as an n2 input so implementation-only
+    /// dependency changes dirty downstream build-package actions. Check-only
+    /// paths still require just `.mi`.
     ///
     /// This dynamically maps into either `Build`, `Check` or `BuildVirtual`
     /// nodes based on the property of the dependency package.
     ///
     /// Backend compatibility is checked by `check_backend_compatibility_for_mi_dep`.
     /// Keep this function focused on graph wiring only.
-    fn need_mi_of_dep(&mut self, node: BuildPlanNode, dep: BuildTarget, check_only: bool) {
+    fn need_interface_of_dep(
+        &mut self,
+        node: BuildPlanNode,
+        dep: BuildTarget,
+        mode: DependencyInterfaceMode,
+    ) {
         // Skip stdlib packages when stdlib is injected, since we can use prebuilt .mi files.
         // When building the stdlib itself (build_env.std == false), treat stdlib packages
         // like normal packages and build their dependencies.
@@ -241,18 +268,16 @@ impl<'a> BuildPlanConstructor<'a> {
         let pkg_info = self.input.pkg_dirs.get_package(dep.package);
         let dep_node = if pkg_info.is_virtual() {
             self.need_node(BuildPlanNode::BuildVirtual(dep.package))
-        } else if check_only {
+        } else if mode.check_only() {
             self.need_node(BuildPlanNode::Check(dep))
         } else {
             self.need_node(BuildPlanNode::BuildCore(dep))
         };
 
-        // Since this function is specifically for needing `.mi` files,
-        // we can set this at the edge
         let edge_kind = if let BuildPlanNode::BuildCore(_) = dep_node {
             FileDependencyKind::BuildCore {
                 mi: true,
-                core: false,
+                core: mode.core_as_input(),
             }
         } else {
             FileDependencyKind::AllFiles
@@ -366,7 +391,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_mi_of_dep(node, dep, true);
+            self.need_interface_of_dep(node, dep, DependencyInterfaceMode::CheckOnly);
         }
 
         self.need_all_package_prebuild(node, target.package);
@@ -393,9 +418,9 @@ impl<'a> BuildPlanConstructor<'a> {
             `BuildVirtual` action instead"
         );
 
-        // Build depends on `.mi`` of all dependencies. Although Check can
-        // also emit `.mi` files, since we're building, this action actually
-        // means we need to build all dependencies.
+        // Build consumes `.mi` compiler inputs from all dependencies. It also
+        // tracks normal dependency `.core` artifacts in n2 so implementation
+        // changes in dependencies dirty downstream build-package actions.
         self.need_node(node);
         for dep in self
             .input
@@ -404,7 +429,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .neighbors_directed(target, petgraph::Direction::Outgoing)
         {
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_mi_of_dep(node, dep, false);
+            self.need_interface_of_dep(node, dep, DependencyInterfaceMode::BuildWithCoreInput);
         }
 
         // If the given target is a test, we will also need to generate the test driver.
@@ -1277,7 +1302,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Generate mbti relies on the `.mi` files spitted out by `moonc`, which
         // usually means `moonc check` instead of `moonc build`.
         self.check_backend_compatibility_for_mi_dep(_node, target)?;
-        self.need_mi_of_dep(_node, target, true);
+        self.need_interface_of_dep(_node, target, DependencyInterfaceMode::CheckOnly);
         self.resolved_node(_node);
         Ok(())
     }
@@ -1303,7 +1328,7 @@ impl<'a> BuildPlanConstructor<'a> {
             // Note: This depends on the `Check` node, which will be coalesced
             // to `Build` later if necessary.
             self.check_backend_compatibility_for_mi_dep(node, dep)?;
-            self.need_mi_of_dep(node, dep, true);
+            self.need_interface_of_dep(node, dep, DependencyInterfaceMode::CheckOnly);
         }
 
         self.resolved_node(node);
