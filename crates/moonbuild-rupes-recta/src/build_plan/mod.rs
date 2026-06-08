@@ -117,8 +117,9 @@ pub struct BuildPlan {
 
 /// Logical artifacts that can be requested from build-plan nodes.
 ///
-/// These are planning-level package artifacts. Lowering remains responsible for
-/// mapping them to concrete paths.
+/// These are planning-level package artifacts. `BuildActionPlan` expands them,
+/// together with node-specific edge selectors, into the logical artifact set
+/// consumed by backend lowering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlanArtifactKind {
     /// Package interface artifact, currently written as a `.mi` file.
@@ -166,7 +167,8 @@ impl PlanArtifactNeed {
 ///
 /// `Artifacts` is the package-artifact selector shared by `Check` and
 /// `BuildCore`. Proof and test-info edges still keep node-specific selectors
-/// here.
+/// here; `BuildActionPlan` is responsible for translating all edge selectors into
+/// `PlannedArtifact` values before backend lowering sees them.
 ///
 /// A more generic solution might be involving creating associated types for
 /// each node kind, specifying their output file list and order, and then
@@ -250,6 +252,38 @@ impl BuildPlan {
 
     pub fn input_nodes(&self) -> &[BuildPlanNode] {
         &self.input_nodes
+    }
+}
+
+#[cfg(test)]
+impl BuildPlan {
+    pub(crate) fn test_add_node(&mut self, node: BuildPlanNode) {
+        self.graph.add_node(node);
+    }
+
+    pub(crate) fn test_add_edge(
+        &mut self,
+        start: BuildPlanNode,
+        end: BuildPlanNode,
+        kind: FileDependencyKind,
+    ) {
+        self.graph.add_edge(start, end, kind);
+    }
+
+    pub(crate) fn test_insert_build_target_info(
+        &mut self,
+        target: BuildTarget,
+        info: BuildTargetInfo,
+    ) {
+        self.build_target_infos.insert(target, info);
+    }
+
+    pub(crate) fn test_insert_prebuild_info(
+        &mut self,
+        package: PackageId,
+        info: Vec<Option<PrebuildInfo>>,
+    ) {
+        self.prebuild_info.insert(package, info);
     }
 }
 

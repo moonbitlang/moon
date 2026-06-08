@@ -8,6 +8,7 @@ This is a reference documentation of the current MoonBuild behavior.
 * [Modules and packages](./modules-packages.md)
 * [Workspace](./workspace.md)
 * [Package build process](./build.md)
+* [Build plan artifact dependencies](./build-plan-artifact-dependencies.md)
 * [How binaries are found](./binaries.md)
 * [Native C toolchain resolution](./native-c-toolchain-resolution.md)
 * [Toolchain packaging layouts and discovery](./toolchain-layout.md)
