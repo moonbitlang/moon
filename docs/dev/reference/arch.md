@@ -139,8 +139,10 @@ Toolchain and host facts are not fully centralized today. `rr_build` and
 `compile` still make some host-dependent decisions while preparing planning and
 lowering. They should follow the same rule where practical: if a phase needs the
 host OS, compiler paths, standard-library path, or native toolchain choices,
-those should be captured by a dedicated environment step and passed forward as
-explicit input instead of being rediscovered at each use site.
+those should be owned by an explicit environment object and passed forward
+instead of being rediscovered at each use site. Such facts do not need to be
+eager: non-native builds should not resolve native-only OS/toolchain details
+unless a lowering path actually asks for them.
 
 ## Project discovery and layout
 

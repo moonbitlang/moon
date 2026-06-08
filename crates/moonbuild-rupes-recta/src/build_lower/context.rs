@@ -251,7 +251,7 @@ impl<'a> LoweringContext<'a> {
                             .file_stem()
                             .expect("c stub file should have a file name"),
                         self.opt.target_backend.into(),
-                        self.opt.os,
+                        self.opt.os(),
                     ),
                 );
             }
@@ -261,14 +261,14 @@ impl<'a> LoweringContext<'a> {
                         self.packages,
                         *package,
                         self.opt.target_backend.into(),
-                        self.opt.os,
+                        self.opt.os(),
                     ));
                 } else {
                     out.push(self.layout.c_stub_archive_path(
                         self.packages,
                         *package,
                         self.opt.target_backend.into(),
-                        self.opt.os,
+                        self.opt.os(),
                     ));
                 }
             }
@@ -278,7 +278,7 @@ impl<'a> LoweringContext<'a> {
                     target,
                     self.opt.target_backend.into(),
                     self.opt.native_target,
-                    self.opt.os,
+                    self.opt.os(),
                     self.opt.output_wat,
                 ));
             }
@@ -314,7 +314,7 @@ impl<'a> LoweringContext<'a> {
                 out.push(self.layout.runtime_output_path(
                     self.opt.target_backend,
                     self.opt.use_tcc_run(),
-                    self.opt.os,
+                    self.opt.os(),
                 ));
             }
             PlannedArtifact::GeneratedMbti { target, .. } => {

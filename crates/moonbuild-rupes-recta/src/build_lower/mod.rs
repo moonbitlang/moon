@@ -18,7 +18,7 @@
 
 //! Lowers the normalized action plan into `n2`'s build graph.
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
 
 use indexmap::IndexMap;
 use log::{debug, info};
@@ -47,6 +47,47 @@ pub use utils::{build_ins, build_n2_fileloc, build_outs};
 use crate::build_lower::artifact::{ExecutableArtifact, LegacyLayoutBuilder};
 use context::LoweringContext;
 
+/// Lazily resolved host/toolchain facts used during lowering.
+///
+/// The build pipeline passes this object explicitly so lower phases do not
+/// rediscover environment facts in place. Individual facts remain lazy because
+/// non-native backends do not need native OS/toolchain details.
+#[derive(Default)]
+pub struct LoweringEnvironment {
+    os: OnceLock<OperatingSystem>,
+    compiler_paths: OnceLock<CompilerPaths>,
+}
+
+impl Clone for LoweringEnvironment {
+    fn clone(&self) -> Self {
+        let cloned = Self::default();
+        if let Some(os) = self.os.get() {
+            let _ = cloned.os.set(*os);
+        }
+        if let Some(compiler_paths) = self.compiler_paths.get() {
+            let _ = cloned.compiler_paths.set(compiler_paths.clone());
+        }
+        cloned
+    }
+}
+
+impl LoweringEnvironment {
+    pub fn os(&self) -> OperatingSystem {
+        *self
+            .os
+            .get_or_init(|| OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"))
+    }
+
+    pub fn compiler_paths(&self) -> &CompilerPaths {
+        self.compiler_paths
+            .get_or_init(CompilerPaths::from_moon_dirs)
+    }
+
+    pub fn runtime_dot_c_path(&self) -> PathBuf {
+        PathBuf::from(&self.compiler_paths().lib_path).join("runtime.c")
+    }
+}
+
 /// Knobs to tweak during build. Affects behaviors during lowering.
 pub struct BuildOptions {
     pub main_module: Option<ModuleSource>,
@@ -55,7 +96,6 @@ pub struct BuildOptions {
     pub target_backend: RunBackend,
     pub native_target: Option<NativeTarget>,
     pub tcc_run: Option<TccRunConfig>,
-    pub os: OperatingSystem,
     pub opt_level: OptLevel,
     pub action: RunMode,
 
@@ -72,11 +112,22 @@ pub struct BuildOptions {
     // Environments
     /// Only `Some` if we import standard library.
     pub stdlib_path: Option<PathBuf>,
-    pub runtime_dot_c_path: PathBuf,
-    pub compiler_paths: CompilerPaths,
+    pub lowering_environment: LoweringEnvironment,
 }
 
 impl BuildOptions {
+    pub fn os(&self) -> OperatingSystem {
+        self.lowering_environment.os()
+    }
+
+    pub fn compiler_paths(&self) -> &CompilerPaths {
+        self.lowering_environment.compiler_paths()
+    }
+
+    pub fn runtime_dot_c_path(&self) -> PathBuf {
+        self.lowering_environment.runtime_dot_c_path()
+    }
+
     pub fn use_tcc_run(&self) -> bool {
         let use_tcc_run = self.tcc_run.is_some();
         debug_assert!(!use_tcc_run || self.target_backend == RunBackend::Native);
@@ -95,11 +146,11 @@ impl BuildOptions {
             RunBackend::Js => ExecutableArtifact::Js,
             RunBackend::Native if self.use_tcc_run() => ExecutableArtifact::TccRunResponseFile,
             RunBackend::Native => ExecutableArtifact::NativeExecutable {
-                os: self.os,
+                os: self.os(),
                 legacy_behavior,
             },
             RunBackend::Llvm => ExecutableArtifact::LlvmExecutable {
-                os: self.os,
+                os: self.os(),
                 legacy_behavior,
             },
         }

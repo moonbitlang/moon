@@ -627,7 +627,7 @@ impl<'a> LoweringContext<'a> {
             &target,
             self.opt.target_backend.into(),
             self.opt.native_target,
-            self.opt.os,
+            self.opt.os(),
             self.opt.output_wat,
         );
 
@@ -799,7 +799,7 @@ impl<'a> LoweringContext<'a> {
                 .file_stem()
                 .expect("stub lib should have a file name"),
             self.opt.target_backend.into(),
-            self.opt.os,
+            self.opt.os(),
         );
 
         // Match legacy to_opt_level function exactly
@@ -839,7 +839,7 @@ impl<'a> LoweringContext<'a> {
             [input_file.display().to_string()],
             &intermediate_dir,
             Some(&output_file.display().to_string()),
-            &self.opt.compiler_paths,
+            self.opt.compiler_paths(),
         );
 
         BuildCommand {
@@ -894,7 +894,7 @@ impl<'a> LoweringContext<'a> {
             self.packages,
             target,
             self.opt.target_backend.into(),
-            self.opt.os,
+            self.opt.os(),
         );
 
         let config = ArchiverConfigBuilder::default()
@@ -911,7 +911,7 @@ impl<'a> LoweringContext<'a> {
                 .map(|s| s.to_string_lossy())
                 .collect::<Vec<_>>(),
             &archive.display().to_string(),
-            &self.opt.compiler_paths,
+            self.opt.compiler_paths(),
         );
 
         BuildCommand {
@@ -931,7 +931,7 @@ impl<'a> LoweringContext<'a> {
             self.packages,
             target,
             self.opt.target_backend.into(),
-            self.opt.os,
+            self.opt.os(),
         );
         let dest_dir = dylib_out
             .parent()
@@ -944,7 +944,7 @@ impl<'a> LoweringContext<'a> {
         let runtime_dylib = self.layout.runtime_output_path(
             self.opt.target_backend,
             self.opt.use_tcc_run(),
-            self.opt.os,
+            self.opt.os(),
         );
         let runtime_parent = runtime_dylib
             .parent()
@@ -975,7 +975,7 @@ impl<'a> LoweringContext<'a> {
             &sources,
             &dest_dir,
             &dylib_out.display().to_string(),
-            &self.opt.compiler_paths.lib_path,
+            &self.opt.compiler_paths().lib_path,
         );
 
         // Note: Runtime input is tracked in build plan, so no need to add here.
@@ -1083,7 +1083,7 @@ impl<'a> LoweringContext<'a> {
         let cc = info.effective_native_toolchain.cc().clone();
         let simdutf_objects = if cc.can_use_simdutf() {
             self.opt
-                .compiler_paths
+                .compiler_paths()
                 .simdutf_object_paths()
                 .map(|objects| objects.into_iter().collect::<Vec<_>>())
                 .unwrap_or_default()
@@ -1132,12 +1132,12 @@ impl<'a> LoweringContext<'a> {
             sources.iter().map(|x| x.display().to_string()),
             &pkg_dir,
             Some(&dest),
-            &self.opt.compiler_paths,
+            self.opt.compiler_paths(),
         );
 
         // On macOS with LLVM backend and debug symbols, run dsymutil after linking
         // to generate the dSYM bundle for better debugging experience
-        let commandline = if self.opt.os == OperatingSystem::MacOS
+        let commandline = if self.opt.os() == OperatingSystem::MacOS
             && self.opt.target_backend == RunBackend::Llvm
             && self.opt.debug_symbols
         {
@@ -1163,7 +1163,7 @@ impl<'a> LoweringContext<'a> {
         let cc = info.effective_native_toolchain.cc().clone();
         let simdutf_objects = if cc.can_use_simdutf() {
             self.opt
-                .compiler_paths
+                .compiler_paths()
                 .simdutf_object_paths()
                 .map(|objects| objects.into_iter().collect::<Vec<_>>())
                 .unwrap_or_default()
@@ -1208,7 +1208,7 @@ impl<'a> LoweringContext<'a> {
             &source_args,
             &pkg_dir,
             &dest,
-            &self.opt.compiler_paths.lib_path,
+            &self.opt.compiler_paths().lib_path,
         );
 
         let commandline = if run_dsymutil {
@@ -1255,7 +1255,7 @@ impl<'a> LoweringContext<'a> {
             sources.iter().map(|x| x.to_string_lossy().into_owned()),
             "", // TCC is not MSVC, no need to set special dest dir
             None,
-            &self.opt.compiler_paths,
+            self.opt.compiler_paths(),
         );
 
         // The C file from moonc link-core
@@ -1265,7 +1265,7 @@ impl<'a> LoweringContext<'a> {
             &target,
             self.opt.target_backend.into(),
             self.opt.native_target,
-            self.opt.os,
+            self.opt.os(),
             self.opt.output_wat,
         );
         cmdline.push(c_file.display().to_string());

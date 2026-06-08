@@ -135,10 +135,10 @@ impl<'a> super::LoweringContext<'a> {
         let artifact_path = self.layout.runtime_output_path(
             self.opt.target_backend,
             self.opt.use_tcc_run(),
-            self.opt.os,
+            self.opt.os(),
         );
 
-        let runtime_c_path = self.opt.runtime_dot_c_path.clone();
+        let runtime_c_path = self.opt.runtime_dot_c_path();
 
         let use_tcc_run = self.opt.use_tcc_run();
         let (output_ty, link_moonbitrun) = match self.opt.target_backend {
@@ -159,7 +159,7 @@ impl<'a> super::LoweringContext<'a> {
         .clone();
         let use_simdutf = !use_tcc_run
             && resolved_cc.can_use_simdutf()
-            && self.opt.compiler_paths.simdutf_object_paths().is_some();
+            && self.opt.compiler_paths().simdutf_object_paths().is_some();
 
         let cc_cmd = make_cc_command_resolved(
             resolved_cc,
@@ -168,7 +168,9 @@ impl<'a> super::LoweringContext<'a> {
                 .output_ty(output_ty)
                 .opt_level(CCOptLevel::Speed)
                 .debug_info(true)
-                .allow_stacktrace(self.opt.debug_symbols && self.opt.os != OperatingSystem::Windows)
+                .allow_stacktrace(
+                    self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
+                )
                 .define_tinyc_macro(use_tcc_run)
                 .preserve_frame_pointer(use_tcc_run)
                 .link_moonbitrun(link_moonbitrun)
@@ -181,7 +183,7 @@ impl<'a> super::LoweringContext<'a> {
             [runtime_c_path.display().to_string()],
             &self.opt.target_dir_root.display().to_string(),
             Some(&artifact_path.display().to_string()),
-            &self.opt.compiler_paths,
+            self.opt.compiler_paths(),
         );
 
         Ok(BuildCommand {
