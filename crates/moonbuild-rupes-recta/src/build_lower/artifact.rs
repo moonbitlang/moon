@@ -33,7 +33,7 @@ use moonutil::{
 
 use crate::{
     discover::DiscoverResult,
-    model::{BuildTarget, NativeTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
+    model::{BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
     pkg_name::PackageFQN,
 };
 
@@ -63,6 +63,38 @@ pub enum ExecutableArtifact {
         os: OperatingSystem,
         legacy_behavior: bool,
     },
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum LinkedCoreArtifact {
+    Wasm { use_wat: bool },
+    WasmGC { use_wat: bool },
+    Js,
+    NativeC,
+    NativeObject { os: OperatingSystem },
+    LlvmObject { os: OperatingSystem },
+}
+
+impl LinkedCoreArtifact {
+    fn target_backend(self) -> TargetBackend {
+        match self {
+            Self::Wasm { .. } => TargetBackend::Wasm,
+            Self::WasmGC { .. } => TargetBackend::WasmGC,
+            Self::Js => TargetBackend::Js,
+            Self::NativeC | Self::NativeObject { .. } => TargetBackend::Native,
+            Self::LlvmObject { .. } => TargetBackend::LLVM,
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Wasm { use_wat } | Self::WasmGC { use_wat } if use_wat => ".wat",
+            Self::Wasm { .. } | Self::WasmGC { .. } => ".wasm",
+            Self::Js => ".js",
+            Self::NativeC => ".c",
+            Self::NativeObject { os } | Self::LlvmObject { os } => object_file_ext(os),
+        }
+    }
 }
 
 impl ExecutableArtifact {
@@ -347,20 +379,18 @@ impl LegacyLayout {
         &self,
         pkg_list: &DiscoverResult,
         target: &BuildTarget,
-        backend: TargetBackend,
-        native_target: Option<NativeTarget>,
-        os: OperatingSystem,
-        wasm_use_wat: bool,
+        linked_core: LinkedCoreArtifact,
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
+        let backend = linked_core.target_backend();
         let mut base_dir = self.package_dir(pkg_fqn, backend);
-        if backend == TargetBackend::Native && native_target.is_some() {
+        if matches!(linked_core, LinkedCoreArtifact::NativeObject { .. }) {
             base_dir.push("__moonbit_link_core__");
         }
         base_dir.push(format!(
             "{}{}",
             artifact(pkg_fqn, target.kind),
-            linked_core_artifact_ext(backend, native_target, os, wasm_use_wat)
+            linked_core.extension()
         ));
         base_dir
     }
@@ -638,22 +668,6 @@ fn build_kind_suffix_filename(kind: TargetKind) -> &'static str {
         TargetKind::BlackboxTest => "_blackbox_test",
         TargetKind::InlineTest => "_internal_test",
         TargetKind::SubPackage => "_sub",
-    }
-}
-
-fn linked_core_artifact_ext(
-    backend: TargetBackend,
-    native_target: Option<NativeTarget>,
-    os: OperatingSystem,
-    wasm_use_wat: bool, // TODO: centralize knobs
-) -> &'static str {
-    match backend {
-        TargetBackend::Wasm | TargetBackend::WasmGC if wasm_use_wat => ".wat",
-        TargetBackend::Wasm | TargetBackend::WasmGC => ".wasm",
-        TargetBackend::Js => ".js",
-        TargetBackend::Native if native_target.is_some() => object_file_ext(os),
-        TargetBackend::Native => ".c",
-        TargetBackend::LLVM => object_file_ext(os),
     }
 }
 

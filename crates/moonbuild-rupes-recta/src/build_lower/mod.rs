@@ -44,7 +44,7 @@ mod utils;
 
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
-use crate::build_lower::artifact::{ExecutableArtifact, LegacyLayoutBuilder};
+use crate::build_lower::artifact::{ExecutableArtifact, LegacyLayoutBuilder, LinkedCoreArtifact};
 use context::LoweringContext;
 
 /// Lazily resolved host/toolchain facts used during lowering.
@@ -153,6 +153,23 @@ impl BuildOptions {
                 os: self.os(),
                 legacy_behavior,
             },
+        }
+    }
+
+    pub fn linked_core_artifact(&self) -> LinkedCoreArtifact {
+        match self.target_backend {
+            RunBackend::Wasm => LinkedCoreArtifact::Wasm {
+                use_wat: self.output_wat,
+            },
+            RunBackend::WasmGC => LinkedCoreArtifact::WasmGC {
+                use_wat: self.output_wat,
+            },
+            RunBackend::Js => LinkedCoreArtifact::Js,
+            RunBackend::Native if self.native_target.is_some() => {
+                LinkedCoreArtifact::NativeObject { os: self.os() }
+            }
+            RunBackend::Native => LinkedCoreArtifact::NativeC,
+            RunBackend::Llvm => LinkedCoreArtifact::LlvmObject { os: self.os() },
         }
     }
 }

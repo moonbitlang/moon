@@ -625,10 +625,7 @@ impl<'a> LoweringContext<'a> {
         let out_file = self.layout.linked_core_of_build_target(
             self.packages,
             &target,
-            self.opt.target_backend.into(),
-            self.opt.native_target,
-            self.opt.os(),
-            self.opt.output_wat,
+            self.opt.linked_core_artifact(),
         );
 
         let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
@@ -1263,10 +1260,7 @@ impl<'a> LoweringContext<'a> {
         let c_file = self.layout.linked_core_of_build_target(
             self.packages,
             &target,
-            self.opt.target_backend.into(),
-            self.opt.native_target,
-            self.opt.os(),
-            self.opt.output_wat,
+            self.opt.linked_core_artifact(),
         );
         cmdline.push(c_file.display().to_string());
 

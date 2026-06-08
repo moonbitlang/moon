@@ -276,10 +276,7 @@ impl<'a> LoweringContext<'a> {
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,
                     target,
-                    self.opt.target_backend.into(),
-                    self.opt.native_target,
-                    self.opt.os(),
-                    self.opt.output_wat,
+                    self.opt.linked_core_artifact(),
                 ));
             }
             PlannedArtifact::Executable { target, .. } => {
