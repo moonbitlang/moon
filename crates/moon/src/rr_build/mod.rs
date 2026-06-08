@@ -30,6 +30,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    str::FromStr,
     sync::{Arc, Mutex},
 };
 
@@ -44,7 +45,8 @@ use moonbuild_rupes_recta::{
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
-        Artifacts, BuildPlanNode, NativeTarget, PackageId, RunBackend, TargetKind, TccRunConfig,
+        Artifacts, BuildPlanNode, NativeTarget, OperatingSystem, PackageId, RunBackend, TargetKind,
+        TccRunConfig,
     },
     prebuild::run_prebuild_config,
     user_warning::UserWarning,
@@ -55,7 +57,7 @@ use moonutil::{
         BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
         WHITEBOX_TEST_PATCH,
     },
-    compiler_flags::{self, CC},
+    compiler_flags::{self, CC, CompilerPaths},
     cond_expr::OptLevel as BuildProfile,
     dirs::WorkspaceEnv,
     features::FeatureGate,
@@ -381,6 +383,8 @@ impl CompilePreConfig {
             } else {
                 None
             },
+            os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
+            compiler_paths: CompilerPaths::from_moon_dirs(),
             enable_coverage: self.enable_coverage,
             output_wat: self.output_wat,
             debug_export_build_plan: self.debug_export_build_plan,

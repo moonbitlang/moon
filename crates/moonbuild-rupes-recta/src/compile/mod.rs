@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 use indexmap::IndexMap;
 use log::{debug, info};
@@ -53,6 +53,10 @@ pub struct CompileConfig {
     /// The path to the standard library's project root, or `None` if to not
     /// import the standard library during compilation.
     pub stdlib_path: Option<PathBuf>,
+    /// Host operating system captured before planning/lowering.
+    pub os: OperatingSystem,
+    /// Toolchain paths captured before planning/lowering.
+    pub compiler_paths: CompilerPaths,
 
     // MAINTAINERS: consider moving some of these to per-package/module options.
     /// Whether to export the build plan graph in the compile output.
@@ -140,8 +144,7 @@ pub fn compile(
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());
 
-    let compiler_paths = CompilerPaths::from_moon_dirs();
-    let runtime_dot_c_path = PathBuf::from(&compiler_paths.lib_path).join("runtime.c");
+    let runtime_dot_c_path = PathBuf::from(&cx.compiler_paths.lib_path).join("runtime.c");
     let lower_env = build_lower::BuildOptions {
         main_module: match resolve_output.local_modules() {
             &[module] => Some(resolve_output.module_rel.module_source(module).clone()),
@@ -164,8 +167,8 @@ pub fn compile(
         wasi_link: cx.wasi_link,
 
         stdlib_path: cx.stdlib_path.clone(),
-        compiler_paths,
-        os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
+        compiler_paths: cx.compiler_paths.clone(),
+        os: cx.os,
         runtime_dot_c_path,
     };
     let (build_graph, command_args_by_output, artifacts) = {
