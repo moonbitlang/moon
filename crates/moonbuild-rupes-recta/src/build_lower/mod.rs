@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Lowers a [Build plan](crate::build_plan) into `n2`'s Build graph
+//! Lowers the normalized action plan into `n2`'s build graph.
 
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -30,8 +30,8 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    build_plan::BuildPlan,
-    model::{Artifacts, BuildPlanNode, NativeTarget, OperatingSystem, RunBackend, TccRunConfig},
+    build_action_plan::{BuildActionId, BuildActionPlan},
+    model::{NativeTarget, OperatingSystem, RunBackend, TccRunConfig},
     pkg_name::OptionalPackageFQNWithSource,
 };
 
@@ -45,7 +45,7 @@ mod utils;
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
 use crate::build_lower::artifact::{ExecutableArtifact, LegacyLayoutBuilder};
-use context::BuildPlanLowerContext;
+use context::LoweringContext;
 
 /// Knobs to tweak during build. Affects behaviors during lowering.
 pub struct BuildOptions {
@@ -116,16 +116,16 @@ pub enum WarningCondition {
     Allow,
 }
 
-/// An error that may be raised during build plan lowering
+/// An error that may be raised during action plan lowering.
 #[derive(thiserror::Error, Debug)]
 pub enum LoweringError {
     #[error(
         "An error was reported by n2 (the build graph executor), \
-        when lowering for package {package}, build node {node:?}"
+        when lowering for package {package}, action {action:?}"
     )]
     N2 {
         package: OptionalPackageFQNWithSource,
-        node: BuildPlanNode,
+        action: BuildActionId,
         source: anyhow::Error,
     },
     #[error("Failed to resolve native C toolchain for runtime")]
@@ -143,11 +143,16 @@ pub struct LoweringResult {
     /// vectors before they are rendered into n2 command strings.
     pub command_args_by_output: CommandArgMap,
 
-    /// The list of artifacts corresponding to the root input nodes.
+    /// The list of artifacts corresponding to the root input actions.
     ///
     /// Rationale for being a map: users (especially tests) need to look up
-    /// artifacts corresponding to specific nodes for rebuilding.
-    pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
+    /// artifacts corresponding to specific actions for rebuilding.
+    pub artifacts: IndexMap<BuildActionId, LoweredArtifacts>,
+}
+
+pub struct LoweredArtifacts {
+    pub action: BuildActionId,
+    pub artifacts: Vec<PathBuf>,
 }
 
 /// The command to execute for n2.
@@ -223,14 +228,14 @@ struct BuildCommand {
     commandline: Commandline,
 }
 
-/// Lowers a [`BuildPlan`] into a n2 [Build Graph](n2::graph::Graph).
+/// Lowers a normalized action plan into an n2 [Build Graph](n2::graph::Graph).
 #[instrument(skip_all)]
 pub fn lower_build_plan(
     resolve_output: &ResolveOutput,
-    build_plan: &BuildPlan,
+    plan: &BuildActionPlan<'_>,
     opt: &BuildOptions,
 ) -> Result<LoweringResult, LoweringError> {
-    info!("Starting build plan lowering to n2 graph");
+    info!("Starting action plan lowering to n2 graph");
     debug!(
         "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
         opt.target_backend, opt.opt_level, opt.debug_symbols
@@ -245,30 +250,23 @@ pub fn lower_build_plan(
         .build()
         .expect("Failed to build legacy layout");
 
-    let mut ctx = BuildPlanLowerContext::new(layout, resolve_output, build_plan, opt);
+    let mut ctx = LoweringContext::new(layout, resolve_output, plan, opt);
 
-    for node in build_plan.all_nodes() {
-        debug!("Lowering build node: {:?}", node);
-        ctx.lower_node(node)?;
+    for id in plan.action_ids() {
+        debug!("Lowering action: {:?}", id);
+        ctx.lower_action(id)?;
     }
 
-    let mut out_artifcts = IndexMap::with_capacity(build_plan.input_nodes().len());
-    for n in build_plan.input_nodes() {
-        let mut a = vec![];
-        ctx.append_all_artifacts_of(*n, &mut a);
-        out_artifcts.insert(
-            *n,
-            Artifacts {
-                node: *n,
-                artifacts: a,
-            },
-        );
+    let mut out_artifacts = IndexMap::with_capacity(plan.input_action_ids().len());
+    for &action in plan.input_action_ids() {
+        let artifacts = ctx.planned_artifact_paths(plan.output_artifacts(action));
+        out_artifacts.insert(action, LoweredArtifacts { action, artifacts });
     }
 
-    info!("Build plan lowering completed successfully");
+    info!("Action plan lowering completed successfully");
     Ok(LoweringResult {
         build_graph: ctx.graph,
         command_args_by_output: ctx.command_args_by_output,
-        artifacts: out_artifcts,
+        artifacts: out_artifacts,
     })
 }

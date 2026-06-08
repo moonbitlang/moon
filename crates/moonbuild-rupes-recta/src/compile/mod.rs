@@ -168,15 +168,34 @@ pub fn compile(
         os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
         runtime_dot_c_path,
     };
-    let res = build_lower::lower_build_plan(resolve_output, &plan, &lower_env)?;
+    let (build_graph, command_args_by_output, artifacts) = {
+        let action_plan = plan.build_action_plan();
+        let res = build_lower::lower_build_plan(resolve_output, &action_plan, &lower_env)?;
+        let artifacts = res
+            .artifacts
+            .into_iter()
+            .map(|(action, lowered)| {
+                debug_assert_eq!(action, lowered.action);
+                let node = action_plan.build_plan_node(action);
+                (
+                    node,
+                    Artifacts {
+                        node,
+                        artifacts: lowered.artifacts,
+                    },
+                )
+            })
+            .collect();
+        (res.build_graph, res.command_args_by_output, artifacts)
+    };
 
     info!("Build graph lowering completed successfully");
     debug!("Final build graph created with n2");
 
     Ok(CompileOutput {
-        build_graph: res.build_graph,
-        command_args_by_output: res.command_args_by_output,
-        artifacts: res.artifacts,
+        build_graph,
+        command_args_by_output,
+        artifacts,
         user_warnings,
         build_plan: if cx.debug_export_build_plan {
             Some(Box::new(plan))

@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Loweing implementation for build nodes
+//! Lowering implementation for build actions.
 
 use std::{
     collections::{BTreeSet, HashSet},
@@ -38,6 +38,7 @@ use petgraph::Direction;
 use tracing::{Level, instrument};
 
 use crate::{
+    build_action_plan::{BuildActionId, PlannedArtifact},
     build_lower::{
         WarningCondition, artifact,
         compiler::{
@@ -47,15 +48,12 @@ use crate::{
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::DiscoveredPackage,
-    model::{
-        BuildPlanNode, BuildTarget, NativeTarget, OperatingSystem, PackageId, RunBackend,
-        TargetKind,
-    },
+    model::{BuildTarget, NativeTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
     special_cases::{is_self_coverage_lib, should_skip_coverage},
 };
 
-use super::{BuildCommand, Commandline, compiler, context::BuildPlanLowerContext};
+use super::{BuildCommand, Commandline, compiler, context::LoweringContext};
 
 fn commandline_with_dsymutil(cmd: &[String], dest: &str) -> Commandline {
     let cmd_str = moonutil::shlex::join_unix(cmd.iter().map(|x| x.as_str()));
@@ -74,7 +72,7 @@ fn should_run_new_native_dsymutil(
         && cc.targets_apple_darwin()
 }
 
-impl<'a> BuildPlanLowerContext<'a> {
+impl<'a> LoweringContext<'a> {
     fn compiler_source_files(&self, info: &BuildTargetInfo) -> Vec<PathBuf> {
         let mut files = info.files().map(|x| x.to_owned()).collect::<Vec<_>>();
         files.extend(info.mbtp_files().map(|x| x.to_owned()));
@@ -328,12 +326,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
-    pub(super) fn lower_check(
-        &self,
-        node: BuildPlanNode,
-        target: BuildTarget,
-        info: &BuildTargetInfo,
-    ) -> BuildCommand {
+    pub(super) fn lower_check(&self, target: BuildTarget, info: &BuildTargetInfo) -> BuildCommand {
         let package = self.get_package(target);
         let module = self.modules.module_info(package.module);
 
@@ -349,7 +342,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.layout
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend.into())
         };
-        let mi_inputs = self.mi_inputs_of(node, target);
+        let mi_inputs = self.mi_inputs_of(target);
 
         // Collect files iterator once so we can pass slices and extra inputs
         let files_vec = self.compiler_source_files(info);
@@ -406,7 +399,6 @@ impl<'a> BuildPlanLowerContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_emit_proof(
         &self,
-        _node: BuildPlanNode,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
@@ -455,12 +447,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
-    pub(super) fn lower_prove(
-        &self,
-        _node: BuildPlanNode,
-        target: BuildTarget,
-        info: &BuildTargetInfo,
-    ) -> BuildCommand {
+    pub(super) fn lower_prove(&self, target: BuildTarget, info: &BuildTargetInfo) -> BuildCommand {
         let package = self.get_package(target);
         let module = self.modules.module_info(package.module);
         let mi_inputs = self.prove_mi_inputs_of(target);
@@ -519,7 +506,6 @@ impl<'a> BuildPlanLowerContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_build_mbt(
         &self,
-        node: BuildPlanNode,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
@@ -535,7 +521,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             self.layout
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
 
-        let mi_inputs = self.mi_inputs_of(node, target);
+        let mi_inputs = self.mi_inputs_of(target);
 
         let mut files = self.compiler_source_files(info);
         match target.kind {
@@ -600,10 +586,13 @@ impl<'a> BuildPlanLowerContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_link_core(
         &mut self,
-        _node: BuildPlanNode,
         target: BuildTarget,
         info: &LinkCoreInfo,
+        make_executable_info: Option<&MakeExecutableInfo>,
     ) -> BuildCommand {
+        #[cfg(not(target_os = "windows"))]
+        let _ = make_executable_info;
+
         let package = self.get_package(target);
         let module = self.modules.module_info(package.module);
 
@@ -679,9 +668,7 @@ impl<'a> BuildPlanLowerContext<'a> {
             exports: package.exported_functions(self.opt.target_backend.into()),
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
             #[cfg(target_os = "windows")]
-            native_toolchain_is_msvc: self
-                .build_plan
-                .get_make_executable_info(&target)
+            native_toolchain_is_msvc: make_executable_info
                 .is_some_and(|info| info.effective_native_toolchain.cc().is_msvc()),
         };
 
@@ -864,7 +851,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_archive_or_link_c_stubs(
         &mut self,
-        node: BuildPlanNode,
+        action: BuildActionId,
         target: PackageId,
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
@@ -874,12 +861,10 @@ impl<'a> BuildPlanLowerContext<'a> {
         );
 
         let mut object_files = Vec::new();
-        for (input, edge) in self.build_plan.dependency_edges(node) {
-            // FIXME: we need a better way to separate the different kinds of input edges
-            if !matches!(input, BuildPlanNode::BuildCStub { .. }) {
-                continue;
+        for artifact in self.plan.dependency_artifacts(action) {
+            if matches!(artifact, PlannedArtifact::CStubObject { .. }) {
+                self.append_planned_artifact(&artifact, &mut object_files);
             }
-            self.append_artifact_of(input, edge, &mut object_files);
         }
 
         // There's two ways to handle this:
@@ -1003,9 +988,27 @@ impl<'a> BuildPlanLowerContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_make_exe(
         &mut self,
+        action: BuildActionId,
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
+        debug_assert!({
+            let planned_c_stubs = self
+                .plan
+                .dependency_artifacts(action)
+                .into_iter()
+                .filter_map(|artifact| match artifact {
+                    PlannedArtifact::CStubLibrary { package, .. } => Some(package),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            planned_c_stubs.len() == info.link_c_stubs.len()
+                && info
+                    .link_c_stubs
+                    .iter()
+                    .all(|package| planned_c_stubs.contains(package))
+        });
+
         match self.opt.target_backend {
             RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
                 panic!(
@@ -1015,19 +1018,58 @@ impl<'a> BuildPlanLowerContext<'a> {
             RunBackend::Native => {
                 if let Some(tcc_run) = &self.opt.tcc_run {
                     let internal_tcc = tcc_run.internal_tcc().clone();
-                    self.build_tcc_run_driver_command(target, info, internal_tcc)
+                    self.build_tcc_run_driver_command(action, target, info, internal_tcc)
                 } else if self.opt.native_target.is_some() {
-                    self.lower_link_new_native_exe(target, info)
+                    self.lower_link_new_native_exe(action, target, info)
                 } else {
-                    self.lower_build_exe_regular(target, info)
+                    self.lower_build_exe_regular(action, target, info)
                 }
             }
-            RunBackend::Llvm => self.lower_build_exe_regular(target, info),
+            RunBackend::Llvm => self.lower_build_exe_regular(action, target, info),
         }
+    }
+
+    fn native_executable_dependency_paths(
+        &self,
+        action: BuildActionId,
+        info: &MakeExecutableInfo,
+        include_linked_core: bool,
+    ) -> Vec<PathBuf> {
+        let artifacts = self.plan.dependency_artifacts(action);
+        let mut sources = Vec::new();
+
+        // Preserve the legacy linker order: linked core, runtime, then C stubs.
+        // Static library order can affect symbol resolution on Unix linkers.
+        if include_linked_core {
+            for artifact in artifacts
+                .iter()
+                .filter(|artifact| matches!(artifact, PlannedArtifact::LinkedCore { .. }))
+            {
+                self.append_planned_artifact(artifact, &mut sources);
+            }
+        }
+
+        for artifact in artifacts
+            .iter()
+            .filter(|artifact| matches!(artifact, PlannedArtifact::RuntimeLib { .. }))
+        {
+            self.append_planned_artifact(artifact, &mut sources);
+        }
+
+        for package in &info.link_c_stubs {
+            for artifact in artifacts.iter().filter(|artifact| {
+                matches!(artifact, PlannedArtifact::CStubLibrary { package: actual, .. } if actual == package)
+            }) {
+                self.append_planned_artifact(artifact, &mut sources);
+            }
+        }
+
+        sources
     }
 
     fn lower_build_exe_regular(
         &mut self,
+        action: BuildActionId,
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
@@ -1037,18 +1079,7 @@ impl<'a> BuildPlanLowerContext<'a> {
         // - compile the program (if needed)
         // - link with runtime library & artifacts of other C stubs
 
-        let mut sources = vec![];
-        // C artifact path
-        self.append_all_artifacts_of(BuildPlanNode::LinkCore(target), &mut sources);
-        // Runtime path
-        self.append_all_artifacts_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
-        // C stubs to link
-        for &stub_tgt in &info.link_c_stubs {
-            self.append_all_artifacts_of(
-                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt),
-                &mut sources,
-            );
-        }
+        let mut sources = self.native_executable_dependency_paths(action, info, true);
         let cc = info.effective_native_toolchain.cc().clone();
         let simdutf_objects = if cc.can_use_simdutf() {
             self.opt
@@ -1123,18 +1154,11 @@ impl<'a> BuildPlanLowerContext<'a> {
 
     fn lower_link_new_native_exe(
         &mut self,
+        action: BuildActionId,
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        let mut sources = vec![];
-        self.append_all_artifacts_of(BuildPlanNode::LinkCore(target), &mut sources);
-        self.append_all_artifacts_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
-        for &stub_tgt in &info.link_c_stubs {
-            self.append_all_artifacts_of(
-                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt),
-                &mut sources,
-            );
-        }
+        let mut sources = self.native_executable_dependency_paths(action, info, true);
 
         let cc = info.effective_native_toolchain.cc().clone();
         let simdutf_objects = if cc.can_use_simdutf() {
@@ -1203,21 +1227,12 @@ impl<'a> BuildPlanLowerContext<'a> {
     /// putting that into a response file.
     fn build_tcc_run_driver_command(
         &self,
+        action: BuildActionId,
         target: BuildTarget,
         info: &MakeExecutableInfo,
         cc: CC,
     ) -> BuildCommand {
-        let mut sources = vec![];
-
-        // Runtime path
-        self.append_all_artifacts_of(BuildPlanNode::BuildRuntimeLib, &mut sources);
-        // C stubs to link
-        for &stub_tgt in &info.link_c_stubs {
-            self.append_all_artifacts_of(
-                BuildPlanNode::ArchiveOrLinkCStubs(stub_tgt),
-                &mut sources,
-            );
-        }
+        let sources = self.native_executable_dependency_paths(action, info, false);
 
         let cfg = CCConfigBuilder::default()
             .no_sys_header(true) // -DMOONBIT_NATIVE_NO_SYS_HEADER for TCC
@@ -1286,7 +1301,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_parse_mbti(&mut self, node: BuildPlanNode, pid: PackageId) -> BuildCommand {
+    pub(super) fn lower_parse_mbti(&mut self, pid: PackageId) -> BuildCommand {
         let pkg = self.packages.get_package(pid);
         let Some(mbti_path) = &pkg.virtual_mbti else {
             panic!(
@@ -1302,7 +1317,7 @@ impl<'a> BuildPlanLowerContext<'a> {
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
 
         // Resolve interface dependencies from the dep graph (path:alias pairs)
-        let mi_inputs = self.mi_inputs_of(node, target);
+        let mi_inputs = self.mi_inputs_of(target);
 
         // Construct `moonc build-interface` command
         let mut cmd = compiler::MooncBuildInterface::new(
@@ -1328,11 +1343,7 @@ impl<'a> BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn mi_inputs_of(
-        &self,
-        _node: BuildPlanNode,
-        target: BuildTarget,
-    ) -> Vec<MiDependency<'a>> {
+    pub(super) fn mi_inputs_of(&self, target: BuildTarget) -> Vec<MiDependency<'a>> {
         let mut deps: Vec<MiDependency<'a>> = self
             .rel
             .dep_graph

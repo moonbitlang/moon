@@ -33,17 +33,16 @@ use crate::{
         Commandline,
         compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     },
-    build_plan::BuildTargetInfo,
-    model::{BuildPlanNode, BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
+    build_plan::{BuildTargetInfo, PrebuildInfo},
+    model::{BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
 };
 
 use super::{BuildCommand, compiler};
 
-impl<'a> super::BuildPlanLowerContext<'a> {
+impl<'a> super::LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_gen_test_driver(
         &mut self,
-        _node: BuildPlanNode,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
@@ -106,20 +105,16 @@ impl<'a> super::BuildPlanLowerContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_bundle(
         &mut self,
-        node: BuildPlanNode,
         module_id: ModuleId,
+        targets: &[BuildTarget],
     ) -> BuildCommand {
         let module = self.modules.module_source(module_id);
         let output = self
             .layout
             .bundle_result_path(self.opt.target_backend.into(), module.name());
-        let info = self
-            .build_plan
-            .bundle_info(module_id)
-            .expect("Bundle info should be present when lowering bundle node");
 
         let mut inputs = vec![];
-        for dep in info.bundle_targets.iter() {
+        for dep in targets {
             inputs.push(self.layout.core_of_build_target(
                 self.packages,
                 dep,
@@ -255,12 +250,7 @@ impl<'a> super::BuildPlanLowerContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_run_prebuild(&self, pkg: PackageId, idx: u32) -> BuildCommand {
-        let info = self
-            .build_plan
-            .get_prebuild_info(pkg, idx)
-            .expect("Prebuild info should be populated before lowering run prebuild");
-
+    pub(super) fn lower_run_prebuild(&self, info: &PrebuildInfo) -> BuildCommand {
         // Note: we are tracking dependencies between prebuild commands via n2.
         // Ideally we can do this ourselves, but n2 does it anyway so we don't bother.
 

@@ -66,9 +66,11 @@
     6. From this list of build actions, resolve the whole abstract build graph
        that represents the list of actions to be executed
        ([`crate::build_plan`]).
-    7. Lower the build graph to a concrete one acceptable by [`n2`] (which is an
-       in-process `ninja` equivalent) ([`crate::build_lower`]).
-    8. Execute the build graph using `n2`.
+    7. Convert the abstract build graph into the action-level build plan consumed
+       by backend lowering ([`crate::build_action_plan`]).
+    8. Lower the action-level build plan to a concrete graph acceptable by [`n2`]
+       (which is an in-process `ninja` equivalent) ([`crate::build_lower`]).
+    9. Execute the build graph using `n2`.
 
     Additional information about the build process, project layout, special
     cases, and random quirks of build systems can be found in the repository's
@@ -99,6 +101,7 @@
 
 #![warn(clippy::unwrap_used)] // We prefer clear panic messages
 
+pub mod build_action_plan;
 pub mod build_lower;
 pub mod build_plan;
 pub mod discover;
