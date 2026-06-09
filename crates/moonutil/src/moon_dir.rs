@@ -19,8 +19,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use crate::common::{BUILD_DIR, TargetBackend};
-
 pub struct MoonDirs {
     pub moon_home: PathBuf,
     pub moon_include_path: PathBuf,
@@ -129,26 +127,6 @@ pub fn core() -> PathBuf {
     lib().join("core")
 }
 
-pub fn core_bundle(backend: TargetBackend) -> PathBuf {
-    core()
-        .join(BUILD_DIR)
-        .join(backend.to_dir_name())
-        .join("release")
-        .join("bundle")
-}
-
-// core.core & abort.core(virtual pkg default impl)
-pub fn core_core(backend: TargetBackend) -> Vec<String> {
-    vec![
-        core_bundle(backend)
-            .join("abort")
-            .join("abort.core")
-            .display()
-            .to_string(),
-        core_bundle(backend).join("core.core").display().to_string(),
-    ]
-}
-
 pub fn cache() -> PathBuf {
     home().join("registry").join("cache")
 }
@@ -216,12 +194,7 @@ fn test_moon_dir() {
     "#]]
     .assert_debug_eq(&home_dirs);
 
-    let toolchain_dirs = [
-        bin(),
-        include(),
-        lib(),
-        core_bundle(TargetBackend::default()),
-    ];
+    let toolchain_dirs = [bin(), include(), lib()];
     dbg!(&toolchain_dirs);
     let toolchain_dirs = toolchain_dirs
         .iter()
@@ -238,7 +211,6 @@ fn test_moon_dir() {
             "bin",
             "include",
             "lib",
-            "lib|core|_build|wasm-gc|release|bundle",
         ]
     "#]]
     .assert_debug_eq(&toolchain_dirs);
