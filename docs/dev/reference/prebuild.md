@@ -99,6 +99,14 @@ Behavior:
 - Only declared outputs ending in `.mbt` or `.mbt.md` are included as MoonBit sources for
   compilation, and only when they live in the package directory itself.
 
+## Environment Capture
+
+- Module-level prebuild configuration scripts receive a snapshot of the process
+  environment captured by `rr_build` before prebuild execution.
+- Commands that skip prebuild configuration do not capture this environment.
+- The snapshot is passed to each module prebuild script as part of its prebuild
+  input; it is not rediscovered inside individual module execution.
+
 ## Failure Conditions
 
 A task is considered failed (for the build) if any of the following holds after substitution and tool semantics:

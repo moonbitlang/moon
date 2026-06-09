@@ -144,6 +144,12 @@ instead of being rediscovered at each use site. Such facts do not need to be
 eager: non-native builds should not resolve native-only OS/toolchain details
 unless a lowering path actually asks for them.
 
+Prebuild configuration is another environment-sensitive input. When prebuild
+configuration scripts run, `rr_build` captures the process environment
+explicitly and passes it to prebuild execution. Commands that skip prebuild,
+such as `check`, should not capture that environment just to construct a build
+plan.
+
 ## Project discovery and layout
 
 Currently, most subcommands in `moon` still work on a single input module [^input_module]

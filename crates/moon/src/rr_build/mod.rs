@@ -46,7 +46,7 @@ use moonbuild_rupes_recta::{
     model::{
         Artifacts, BuildPlanNode, NativeTarget, PackageId, RunBackend, TargetKind, TccRunConfig,
     },
-    prebuild::run_prebuild_config,
+    prebuild::{PrebuildEnvironment, run_prebuild_config},
     user_warning::UserWarning,
 };
 use moonutil::{
@@ -582,7 +582,8 @@ pub(crate) fn plan_resolved_build_from_intent(
         None
     } else {
         info!("Running prebuild configuration");
-        Some(run_prebuild_config(&resolve_output)?)
+        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
+        Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
     };
 
     // Expand user intents to concrete BuildPlanNode inputs
