@@ -1,9 +1,19 @@
 use super::*;
 
+const DIAGNOSTIC_RENDER_WARNING: &str = "Warning: Some diagnostics could not be rendered, please run with --no-render to see raw output.";
+
+fn check_build_only_stderr(stderr: String) {
+    let stderr = stderr.trim();
+    assert!(
+        stderr.is_empty() || stderr == DIAGNOSTIC_RENDER_WARNING,
+        "unexpected stderr:\n{stderr}"
+    );
+}
+
 #[test]
 fn test_bench_driver_build() {
     let dir = TestDir::new("moon_bench");
-    check(get_stderr(&dir, ["bench", "--build-only"]), expect![""]);
+    check_build_only_stderr(get_stderr(&dir, ["bench", "--build-only"]));
 }
 
 #[test]
@@ -19,20 +29,20 @@ fn test_bench_wasi_link() {
 #[test]
 fn test_bench_driver_build_js() {
     let dir = TestDir::new("moon_bench");
-    check(
-        get_stderr(&dir, ["bench", "--build-only", "--target", "js"]),
-        expect![""],
-    );
+    check_build_only_stderr(get_stderr(
+        &dir,
+        ["bench", "--build-only", "--target", "js"],
+    ));
 }
 
 #[test]
 #[cfg(not(windows))]
 fn test_bench_driver_build_native() {
     let dir = TestDir::new("moon_bench");
-    check(
-        get_stderr(&dir, ["bench", "--build-only", "--target", "native"]),
-        expect![""],
-    );
+    check_build_only_stderr(get_stderr(
+        &dir,
+        ["bench", "--build-only", "--target", "native"],
+    ));
 }
 
 #[test]

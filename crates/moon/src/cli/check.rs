@@ -345,7 +345,6 @@ fn run_check_for_single_file_rr(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
@@ -679,7 +678,6 @@ pub(crate) fn plan_check_rr_from_resolved(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
@@ -718,7 +716,6 @@ fn plan_check_rr_from_selection(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         selection.into_user_intent()?,

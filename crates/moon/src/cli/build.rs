@@ -270,7 +270,6 @@ pub(crate) fn plan_build_rr_from_resolved(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
@@ -314,7 +313,6 @@ fn plan_build_rr_from_resolved_with_scope(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
@@ -353,7 +351,6 @@ fn plan_build_rr_from_selection(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         selection.into_user_intent(),

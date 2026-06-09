@@ -592,7 +592,6 @@ fn run_test_in_single_file_rr(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
@@ -739,7 +738,6 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
@@ -883,7 +881,6 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,

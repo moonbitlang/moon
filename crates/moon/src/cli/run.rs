@@ -554,7 +554,6 @@ pub(crate) fn plan_run_rr_from_resolved(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
@@ -701,7 +700,6 @@ fn build_single_file_executable(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        &target_dir,
         output,
         planning_context,
         intent,

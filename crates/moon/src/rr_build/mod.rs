@@ -566,13 +566,13 @@ pub(crate) fn prepare_resolved_build(
 pub(crate) fn plan_resolved_build_from_intent(
     preconfig: CompilePreConfig,
     unstable_features: &FeatureGate,
-    target_dir: &Path,
     output: UserDiagnostics,
     planning_context: ResolvedBuildPlanningContext,
     intent: CalcUserIntentOutput,
     mooncake_bin_dir: &Path,
     resolve_output: ResolveOutput,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let target_dir = preconfig.target_dir.clone();
     info!("User intent calculated: {:?}", intent.intents);
     for warning in &intent.warnings {
         output.user_message(warning);
@@ -645,7 +645,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     };
 
     let db_path = n2_db_path(
-        target_dir,
+        &target_dir,
         cx.target_backend.into(),
         cx.opt_level,
         cx.action,
