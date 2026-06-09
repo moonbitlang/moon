@@ -76,7 +76,8 @@ In a broad sense, `moon` subcommands follows this order when executing project-b
 
 1. Resolve project layout
    - Discover module root.
-   - Resolve module-level dependencies.
+   - Sync module-level dependencies into the `.mooncakes` directory when needed.
+   - Resolve module-level dependencies from the synced dependency result.
    - Discover packages within modules.
    - Resolve package-level dependencies.
 2. Generate build graph based on the intent of the user [^graph]
@@ -124,16 +125,27 @@ selection, and `.mooncakes` directory once, then pass those facts into later
 phases. Later phases should not rediscover them from the working directory.
 
 This is part of the compiler-style shape of the RR pipeline: for directory and
-project facts, the command layer captures user input and passes the result
+project paths, the command layer captures user input and passes the result
 forward instead of letting later phases infer it again. In particular:
 
 - project and workspace selection are captured before package discovery;
-- the `.mooncakes` directory is passed into resolve and then threaded through
-  `ResolveOutput`;
+- the `.mooncakes` directory is computed during project discovery and passed
+  into dependency sync;
+- `$mooncake_bin` is resolved by the command adapter to a `mooncake_bin_dir`
+  path before build planning, so RR planning substitutes an already-computed
+  launcher directory instead of deriving it from project layout;
 - the target directory is passed into planning/lowering and used for generated
   build files and n2 state; and
 - package and module directories come from discovery results, not from later
   path guessing.
+
+Source directory, `.mooncakes` directory, target directory, and optional project
+manifest path are user/config facts from project discovery. The synced
+dependency result is derived data: it contains the resolved module
+relationships, module source directories, and workspace preferred target
+produced by dependency sync. `ResolveOutput` should contain resolved
+build-model data derived from those inputs, not repeat the captured discovery
+paths.
 
 Toolchain and host facts are not fully centralized today. `rr_build` and
 `compile` still make some host-dependent decisions while preparing planning and
@@ -149,6 +161,12 @@ configuration scripts run, `rr_build` captures the process environment
 explicitly and passes it to prebuild execution. Commands that skip prebuild,
 such as `check`, should not capture that environment just to construct a build
 plan.
+
+Dependency synchronization is explicit in the normal project path. Command
+adapters first call dependency sync, then pass the synced dependency result to
+package discovery and package relationship resolution. RR should not hide
+dependency downloads or `.mooncakes` directory updates behind a plain
+project-resolve call.
 
 ## Project discovery and layout
 

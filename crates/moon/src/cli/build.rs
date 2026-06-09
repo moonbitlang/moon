@@ -174,9 +174,15 @@ fn run_build_rr(
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    )
-    .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
+    );
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(
+        &resolve_cfg,
+        source_dir,
+        mooncakes_dir,
+        project_manifest_path,
+    )?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolve_output)
     } else {
@@ -190,6 +196,7 @@ fn run_build_rr(
         cmd,
         source_dir,
         target_dir,
+        &mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
     )?;
@@ -232,6 +239,7 @@ pub(crate) fn plan_build_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
@@ -266,6 +274,7 @@ pub(crate) fn plan_build_rr_from_resolved(
         output,
         planning_context,
         intent,
+        mooncake_bin_dir,
         resolve_output,
     )
 }
@@ -274,6 +283,7 @@ fn plan_build_rr_from_resolved_with_scope(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     scoped_packages: Vec<PackageId>,
@@ -308,6 +318,7 @@ fn plan_build_rr_from_resolved_with_scope(
         output,
         planning_context,
         intent,
+        mooncake_bin_dir,
         resolve_output,
     )
 }
@@ -316,6 +327,7 @@ fn plan_build_rr_from_selection(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     selection: ResolvedBuildSelection,
@@ -345,6 +357,7 @@ fn plan_build_rr_from_selection(
         output,
         planning_context,
         selection.into_user_intent(),
+        mooncake_bin_dir,
         resolve_output,
     )
 }
@@ -354,6 +367,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
     cmd: &BuildSubcommand,
     _source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
@@ -373,6 +387,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
                 cli,
                 cmd,
                 target_dir,
+                mooncake_bin_dir,
                 target_backend,
                 resolve_output,
                 ResolvedBuildSelection { packages },
@@ -384,6 +399,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
             cli,
             cmd,
             target_dir,
+            mooncake_bin_dir,
             Some(target_backend),
             resolve_output,
         )
@@ -402,12 +418,14 @@ pub(crate) fn plan_build_rr_from_resolved_all(
             .into_iter()
             .map(|selection| {
                 // Raw user selector paths/package names have already been
-                // resolved into PackageIds. RR will read build-model paths
-                // from ResolveOutput instead of reinterpreting those selectors.
+                // resolved into PackageIds. RR will use those identities plus
+                // the bin-dependency launcher directory captured by the
+                // command adapter.
                 plan_build_rr_from_selection(
                     cli,
                     cmd,
                     target_dir,
+                    mooncake_bin_dir,
                     selection.target_backend,
                     resolve_output.clone(),
                     ResolvedBuildSelection {
@@ -419,8 +437,15 @@ pub(crate) fn plan_build_rr_from_resolved_all(
     }
 
     if selections.is_empty() {
-        return plan_build_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
-            .map(|plan| vec![plan]);
+        return plan_build_rr_from_resolved(
+            cli,
+            cmd,
+            target_dir,
+            mooncake_bin_dir,
+            None,
+            resolve_output,
+        )
+        .map(|plan| vec![plan]);
     }
 
     selections
@@ -430,6 +455,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
                 cli,
                 cmd,
                 target_dir,
+                mooncake_bin_dir,
                 selection.target_backend,
                 resolve_output.clone(),
                 selection.packages,

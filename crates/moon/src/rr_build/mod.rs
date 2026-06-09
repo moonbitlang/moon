@@ -561,7 +561,7 @@ pub(crate) fn prepare_resolved_build(
 ///
 /// At this boundary, command adapters have already resolved user selectors and
 /// command-specific directives into `CalcUserIntentOutput`. RR consumes those
-/// identities plus the build-model paths stored in `ResolveOutput`.
+/// identities plus precomputed build-context paths from the command adapter.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub(crate) fn plan_resolved_build_from_intent(
     preconfig: CompilePreConfig,
@@ -570,6 +570,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     output: UserDiagnostics,
     planning_context: ResolvedBuildPlanningContext,
     intent: CalcUserIntentOutput,
+    mooncake_bin_dir: &Path,
     resolve_output: ResolveOutput,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     info!("User intent calculated: {:?}", intent.intents);
@@ -612,6 +613,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
+        mooncake_bin_dir,
         &resolve_output,
         &input_nodes,
         &intent.directive,

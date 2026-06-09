@@ -152,11 +152,15 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
     let path_filter = cmd.path.as_deref();
     let prove_why3_config = why3_config_path.clone();
 
-    let resolve_cfg = preconfig
-        .resolve_config()
-        .with_project_manifest_path(project_manifest_path.as_deref());
-    let resolve_output =
-        moonbuild_rupes_recta::resolve(&resolve_cfg, &project_root, &mooncakes_dir)?;
+    let resolve_cfg = preconfig.resolve_config();
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(
+        &resolve_cfg,
+        &project_root,
+        &mooncakes_dir,
+        project_manifest_path.as_deref(),
+    )?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
 
     let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
@@ -180,6 +184,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         output,
         planning_context,
         intent,
+        &mooncake_bin_dir,
         resolve_output,
     )?;
     let proof_reports = planned_proof_reports(&build_meta);

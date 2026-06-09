@@ -129,5 +129,5 @@ pub mod util;
 
 // Reexports
 pub use compile::{CompileConfig, CompileOutput, compile};
-pub use resolve::{ResolveConfig, ResolveOutput, resolve};
+pub use resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies};
 pub use user_warning::{UserMessageLevel, UserWarning};

@@ -538,6 +538,7 @@ fn run_test_in_single_file_rr(
         single_file_path,
         false,
     )?;
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
     let selected_target_backend = if cmd.profile {
         Some(TargetBackend::Native)
     } else {
@@ -595,6 +596,7 @@ fn run_test_in_single_file_rr(
         output,
         planning_context,
         intent,
+        &mooncake_bin_dir,
         resolved,
     )?;
 
@@ -688,6 +690,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
@@ -740,6 +743,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         output,
         planning_context,
         intent,
+        mooncake_bin_dir,
         resolve_output,
     )?;
     Ok((build_meta, build_graph, filter))
@@ -749,6 +753,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter)>, anyhow::Error> {
@@ -757,6 +762,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
             cli,
             cmd,
             target_dir,
+            mooncake_bin_dir,
             Some(target_backend),
             resolve_output,
         )
@@ -769,8 +775,15 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
 
     if has_explicit_test_selector(cmd) {
         if selections.is_empty() {
-            return plan_test_or_bench_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
-                .map(|plan| vec![plan]);
+            return plan_test_or_bench_rr_from_resolved(
+                cli,
+                cmd,
+                target_dir,
+                mooncake_bin_dir,
+                None,
+                resolve_output,
+            )
+            .map(|plan| vec![plan]);
         }
 
         return selections
@@ -782,6 +795,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
                     cli,
                     cmd,
                     target_dir,
+                    mooncake_bin_dir,
                     selection.target_backend,
                     resolve_output.clone(),
                     resolved_selection,
@@ -791,8 +805,15 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
     }
 
     if selections.is_empty() {
-        return plan_test_or_bench_rr_from_resolved(cli, cmd, target_dir, None, resolve_output)
-            .map(|plan| vec![plan]);
+        return plan_test_or_bench_rr_from_resolved(
+            cli,
+            cmd,
+            target_dir,
+            mooncake_bin_dir,
+            None,
+            resolve_output,
+        )
+        .map(|plan| vec![plan]);
     }
 
     selections
@@ -804,6 +825,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
                 cli,
                 cmd,
                 target_dir,
+                mooncake_bin_dir,
                 selection.target_backend,
                 resolve_output.clone(),
                 resolved_selection,
@@ -816,6 +838,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     resolved_selection: ResolvedTestSelection,
@@ -864,6 +887,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         output,
         planning_context,
         intent,
+        mooncake_bin_dir,
         resolve_output,
     )?;
     Ok((build_meta, build_graph, filter))
@@ -950,22 +974,27 @@ fn run_test_rr(
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<i32, anyhow::Error> {
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
+    let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
+        cmd.auto_sync_flags.frozen,
+        !cmd.build_flags.std(),
+        cmd.build_flags.enable_coverage,
+        cli.workspace_env.clone(),
+    );
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(
+        &resolve_cfg,
+        source_dir,
+        mooncakes_dir,
+        project_manifest_path,
+    )?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
     let planned_runs = plan_test_or_bench_rr_from_resolved_all(
         cli,
         cmd,
         target_dir,
+        &mooncake_bin_dir,
         selected_target_backend,
-        moonbuild_rupes_recta::resolve(
-            &moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
-                cmd.auto_sync_flags.frozen,
-                !cmd.build_flags.std(),
-                cmd.build_flags.enable_coverage,
-                cli.workspace_env.clone(),
-            )
-            .with_project_manifest_path(project_manifest_path),
-            source_dir,
-            mooncakes_dir,
-        )?,
+        resolve_output,
     )?;
     let effective_display_backend_hint = if planned_runs.len() > 1 {
         Some(())

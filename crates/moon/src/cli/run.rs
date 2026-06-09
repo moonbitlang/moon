@@ -478,13 +478,20 @@ fn build_package_executable(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_project_manifest_path(project_manifest_path.as_deref())
     .with_sync_output(options.output.sync_output());
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(
+        &resolve_cfg,
+        &source_dir,
+        &mooncakes_dir,
+        project_manifest_path.as_deref(),
+    )?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
         cmd,
         &target_dir,
+        &mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
         options.try_tcc_run,
@@ -508,6 +515,7 @@ pub(crate) fn plan_run_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: ResolveOutput,
     try_tcc_run: bool,
@@ -550,6 +558,7 @@ pub(crate) fn plan_run_rr_from_resolved(
         output,
         planning_context,
         intent,
+        mooncake_bin_dir,
         resolve_output,
     )
 }
@@ -657,6 +666,7 @@ fn build_single_file_executable(
         &input_path,
         true,
     )?;
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);
@@ -695,6 +705,7 @@ fn build_single_file_executable(
         output,
         planning_context,
         intent,
+        &mooncake_bin_dir,
         resolved,
     )?;
 

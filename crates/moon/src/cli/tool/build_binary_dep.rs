@@ -88,9 +88,15 @@ pub(crate) fn run_build_binary_dep(
     // must resolve the packages before settling on the build config and then
     // running the build plan.
     let resolve_cfg =
-        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
-            .with_project_manifest_path(project_manifest_path.as_deref());
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(
+        &resolve_cfg,
+        &source_dir,
+        &mooncakes_dir,
+        project_manifest_path.as_deref(),
+    )?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
 
     // Note: There's a cyclic dependency!
     //
@@ -171,6 +177,7 @@ pub(crate) fn run_build_binary_dep(
             output,
             planning_context,
             intent,
+            &mooncake_bin_dir,
             // FIXME: cloning is not the best way to do this, it takes in this
             // type only to be returned in build meta. We should refactor later.
             resolve_output.clone(),

@@ -20,7 +20,7 @@
 
 #[cfg(debug_assertions)]
 use std::collections::HashMap;
-use std::collections::HashSet;
+use std::{collections::HashSet, path::Path};
 
 use crate::{
     ResolveOutput,
@@ -39,6 +39,7 @@ use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
 pub(super) struct BuildPlanConstructor<'a> {
     // Input environment
     pub(super) input: &'a ResolveOutput,
+    pub(super) mooncake_bin_dir: &'a Path,
     pub(super) build_env: &'a BuildEnvironment,
     pub(super) input_directive: &'a InputDirective,
     pub(super) prebuild_config: Option<&'a PrebuildOutput>,
@@ -120,12 +121,14 @@ fn edge_for_coalesced_check(edge: FileDependencyKind) -> FileDependencyKind {
 impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn new(
         resolved: &'a ResolveOutput,
+        mooncake_bin_dir: &'a Path,
         build_env: &'a BuildEnvironment,
         input_directive: &'a InputDirective,
         prebuild_config: Option<&'a PrebuildOutput>,
     ) -> Self {
         Self {
             input: resolved,
+            mooncake_bin_dir,
             build_env,
             input_directive,
             prebuild_config,

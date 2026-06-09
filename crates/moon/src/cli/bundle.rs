@@ -187,13 +187,20 @@ pub(crate) fn plan_bundle_rr(
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    )
-    .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)?;
+    );
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(
+        &resolve_cfg,
+        source_dir,
+        mooncakes_dir,
+        project_manifest_path,
+    )?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
     plan_bundle_rr_from_resolved(
         cli,
         cmd,
         target_dir,
+        &mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
     )
@@ -203,6 +210,7 @@ pub(crate) fn plan_bundle_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
@@ -223,6 +231,7 @@ pub(crate) fn plan_bundle_rr_from_resolved(
         output,
         planning_context,
         intent,
+        mooncake_bin_dir,
         resolve_output,
     )
 }

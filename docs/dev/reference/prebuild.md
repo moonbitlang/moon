@@ -37,9 +37,10 @@ Notes:
 - `input`/`output` are resolved relative to the package directory before substitution.
 - `$input`/`$output` expand to absolute file paths.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
-- `$mooncake_bin` expands to `<module-root>/.mooncakes/__moonbin__`.
-  This directory contains launchers installed for the current module's direct
-  `bin-deps`.
+- `$mooncake_bin` expands to `<project .mooncakes dir>/__moonbin__`.
+  The command adapter computes this `mooncake_bin_dir` from project discovery
+  before build planning; prebuild planning does not rediscover it from the
+  package or module directory.
 
 ## Placeholder Substitution
 
@@ -58,8 +59,8 @@ Only the `command` field is substituted. The following placeholders are recogniz
   Expands to the absolute path of the current package directory (the directory containing this `moon.pkg.json`).
 
 - `$mooncake_bin`  
-  Expands to the absolute path `<module-root>/.mooncakes/__moonbin__`.
-  This currently refers to launchers installed from the current module's direct
+  Expands to the absolute path `<project .mooncakes dir>/__moonbin__`.
+  This refers to launchers installed from the current project's direct
   `bin-deps`.
 
 Substitution semantics:
