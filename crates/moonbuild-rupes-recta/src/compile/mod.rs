@@ -16,17 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{path::PathBuf, str::FromStr};
-
 use indexmap::IndexMap;
 use log::{debug, info};
-use moonutil::{common::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel};
+use moonutil::{common::RunMode, cond_expr::OptLevel};
+use std::path::PathBuf;
 use tracing::{Level, instrument};
 
 use crate::{
-    build_lower::{self, WarningCondition},
+    build_lower::{self, LoweringEnvironment, WarningCondition},
     build_plan::{self, BuildEnvironment, InputDirective},
-    model::{Artifacts, BuildPlanNode, NativeTarget, OperatingSystem, RunBackend, TccRunConfig},
+    model::{Artifacts, BuildPlanNode, NativeTarget, RunBackend, TccRunConfig},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -53,6 +52,8 @@ pub struct CompileConfig {
     /// The path to the standard library's project root, or `None` if to not
     /// import the standard library during compilation.
     pub stdlib_path: Option<PathBuf>,
+    /// Host/toolchain facts resolved lazily during lowering.
+    pub lowering_environment: LoweringEnvironment,
 
     // MAINTAINERS: consider moving some of these to per-package/module options.
     /// Whether to export the build plan graph in the compile output.
@@ -140,8 +141,6 @@ pub fn compile(
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());
 
-    let compiler_paths = CompilerPaths::from_moon_dirs();
-    let runtime_dot_c_path = PathBuf::from(&compiler_paths.lib_path).join("runtime.c");
     let lower_env = build_lower::BuildOptions {
         main_module: match resolve_output.local_modules() {
             &[module] => Some(resolve_output.module_rel.module_source(module).clone()),
@@ -164,9 +163,7 @@ pub fn compile(
         wasi_link: cx.wasi_link,
 
         stdlib_path: cx.stdlib_path.clone(),
-        compiler_paths,
-        os: OperatingSystem::from_str(std::env::consts::OS).expect("Unknown"),
-        runtime_dot_c_path,
+        lowering_environment: cx.lowering_environment.clone(),
     };
     let (build_graph, command_args_by_output, artifacts) = {
         let action_plan = plan.build_action_plan();

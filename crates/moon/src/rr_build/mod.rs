@@ -39,7 +39,7 @@ use indexmap::IndexMap;
 use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
-    build_lower::{WarningCondition, artifact::n2_db_path},
+    build_lower::{LoweringEnvironment, WarningCondition, artifact::n2_db_path},
     build_plan::InputDirective,
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
@@ -381,6 +381,7 @@ impl CompilePreConfig {
             } else {
                 None
             },
+            lowering_environment: LoweringEnvironment::default(),
             enable_coverage: self.enable_coverage,
             output_wat: self.output_wat,
             debug_export_build_plan: self.debug_export_build_plan,
