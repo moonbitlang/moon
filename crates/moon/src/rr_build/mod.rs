@@ -430,7 +430,9 @@ impl CompilePreConfig {
 /// - `auto_sync_flags`: The flags to control module download & sync behavior.
 /// - `cli`: The universal CLI flags.
 /// - `build_flags`: The build-specific flags.
-/// - `selected_target_backend`: The backend selected for this invocation, if explicit.
+/// - `selected_target_backend`: The backend already selected by the command
+///   adapter. This may come from an explicit `--target` or from a scoped
+///   implicit preference resolved before planning.
 /// - `target_dir`: The target directory for the build.
 /// - `action`: The run mode (build, test, bench, etc.). This also affects the
 ///   default build profile (`moon build`/`run`/`test`/`fmt`/`check` default to
@@ -488,9 +490,9 @@ impl ResolvedBuildPlanningContext {
 /// Prepare the resolved build context before command intent is calculated.
 ///
 /// This step emits resolve-time diagnostics and determines the effective target
-/// backend. Commands that already resolved raw CLI selectors can use the
-/// returned backend to compute `CalcUserIntentOutput` outside the shared RR
-/// planning pipeline.
+/// backend. Commands that already resolved raw CLI selectors can pass a scoped
+/// backend in the preconfig and use the returned backend to compute
+/// `CalcUserIntentOutput` outside the shared RR planning pipeline.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub(crate) fn prepare_resolved_build(
     preconfig: &CompilePreConfig,

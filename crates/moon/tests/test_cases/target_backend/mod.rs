@@ -218,35 +218,35 @@ fn test_mixed_backend_run_info_bundle_are_target_aware() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
     let info_js = get_stdout(&dir, ["info", "--target", "js"]);
-    assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("web").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
-    assert!(info_js.contains(
+    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(!info_js.contains(
         "Package mixed/localdep/shared has requested interfaces different from canonical backend"
     ));
-    assert!(info_js.contains("pub fn shared_banner() -> String"));
-    assert!(info_js.contains("pub fn web_banner() -> String"));
+    assert!(!info_js.contains("pub fn shared_banner() -> String"));
+    assert!(!info_js.contains("pub fn web_banner() -> String"));
 
     let info_native = get_stdout(&dir, ["info", "--target", "native"]);
-    assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("web").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
-    assert!(info_native.contains(
+    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(!info_native.contains(
         "Package mixed/localdep/shared has requested interfaces different from canonical backend"
     ));
-    assert!(info_native.contains("pub fn shared_banner() -> String"));
-    assert!(info_native.contains("pub fn server_banner() -> String"));
+    assert!(!info_native.contains("pub fn shared_banner() -> String"));
+    assert!(!info_native.contains("pub fn server_banner() -> String"));
 
     let info_both = get_stdout(&dir, ["info", "--target", "js,native"]);
-    assert!(!dir.join("shared").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("web").join(MBTI_GENERATED).exists());
-    assert!(!dir.join("server").join(MBTI_GENERATED).exists());
-    assert!(info_both.contains(
+    assert!(dir.join("shared").join(MBTI_GENERATED).exists());
+    assert!(dir.join("web").join(MBTI_GENERATED).exists());
+    assert!(dir.join("server").join(MBTI_GENERATED).exists());
+    assert!(!info_both.contains(
         "Package mixed/localdep/shared has requested interfaces different from canonical backend"
     ));
-    assert!(info_both.contains("pub fn shared_banner() -> String"));
-    assert!(info_both.contains("pub fn web_banner() -> String"));
-    assert!(info_both.contains("pub fn server_banner() -> String"));
+    assert!(!info_both.contains("pub fn shared_banner() -> String"));
+    assert!(!info_both.contains("pub fn web_banner() -> String"));
+    assert!(!info_both.contains("pub fn server_banner() -> String"));
 
     let bundle_js = get_stdout(
         &dir,
@@ -342,6 +342,151 @@ fn test_build_paths_split_by_module_preferred_targets() {
 }
 
 #[test]
+fn test_workspace_preferred_target_wins_when_supported_and_falls_back_for_run() {
+    let dir = TestDir::new("workspace_preferred_target_override.in");
+    let commands: [(&str, &[&str]); 2] = [
+        (
+            "check",
+            &[
+                "check",
+                "js_preferred/src/lib",
+                "native_preferred/src/lib",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        ),
+        (
+            "build",
+            &[
+                "build",
+                "js_preferred/src/lib",
+                "native_preferred/src/lib",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        ),
+    ];
+
+    for (command, args) in commands {
+        let stdout = get_stdout(&dir, args.iter().copied());
+        let stderr = get_stderr(&dir, args.iter().copied());
+        assert!(
+            !stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+            "{command} stderr: {stderr}"
+        );
+        assert_contains_and_absent(
+            &stdout,
+            &[
+                "./_build/wasm-gc/",
+                "-target wasm-gc",
+                "./js_preferred/src/lib/extra.wasm-gc.mbt",
+                "./native_preferred/src/lib/extra.wasm-gc.mbt",
+            ],
+            &[
+                "./_build/js/",
+                "./_build/native/",
+                "-target js",
+                "-target native",
+                "./js_preferred/src/lib/extra.js.mbt",
+                "./js_preferred/src/lib/extra.native.mbt",
+                "./native_preferred/src/lib/extra.js.mbt",
+                "./native_preferred/src/lib/extra.native.mbt",
+            ],
+        );
+    }
+
+    let stdout = get_stdout(
+        &dir,
+        ["run", "native_preferred/src/main", "--dry-run", "--nostd"],
+    );
+    let stderr = get_stderr(
+        &dir,
+        ["run", "native_preferred/src/main", "--dry-run", "--nostd"],
+    );
+    assert!(
+        stderr.trim().is_empty(),
+        "implicit run target fallback should not print diagnostics, got: {stderr}"
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &[
+            "./_build/native/",
+            "-target native",
+            "./_build/native/debug/build/workspace/native_preferred/main/main.exe",
+        ],
+        &[
+            "./_build/js/",
+            "-target js",
+            "./_build/wasm-gc/",
+            "-target wasm-gc",
+        ],
+    );
+
+    let stderr = get_err_stderr(
+        &dir,
+        [
+            "run",
+            "native_preferred/src/main",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--nostd",
+        ],
+    );
+    assert!(
+        stderr.contains(
+            "Package 'workspace/native_preferred/main' does not support target backend 'wasm-gc'"
+        ),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn test_workspace_preferred_target_falls_back_to_supported_backend_for_explicit_paths() {
+    let dir = TestDir::new("workspace_preferred_target_override.in");
+
+    for command in ["check", "build"] {
+        let stdout = get_stdout(
+            &dir,
+            [
+                command,
+                "js_preferred/src/lib",
+                "native_preferred/src/main",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        );
+        let stderr = get_stderr(
+            &dir,
+            [
+                command,
+                "js_preferred/src/lib",
+                "native_preferred/src/main",
+                "--dry-run",
+                "--sort-input",
+                "--nostd",
+            ],
+        );
+        assert!(stderr.trim().is_empty(), "{command} stderr: {stderr}");
+        assert_contains_and_absent(
+            &stdout,
+            &[
+                "./_build/wasm-gc/",
+                "-target wasm-gc",
+                "./js_preferred/src/lib/extra.wasm-gc.mbt",
+                "./_build/native/",
+                "-target native",
+                "./native_preferred/src/main/main.mbt",
+            ],
+            &["./_build/js/", "-target js"],
+        );
+    }
+}
+
+#[test]
 fn test_supported_targets_empty_list_is_never_selected() {
     let dir = TestDir::new("supported_targets_empty.in");
 
@@ -351,6 +496,19 @@ fn test_supported_targets_empty_list_is_never_selected() {
             .contains("Package 'supported/empty/never' does not support target backend 'js'")
     );
     assert!(explicit_err.contains("Supported backends: []"));
+}
+
+#[test]
+fn test_broad_empty_supported_targets_are_skipped_without_error() {
+    let dir = TestDir::new("supported_targets_all_empty.in");
+
+    for command in ["check", "build"] {
+        let stdout = get_stdout(&dir, [command, "--dry-run", "--sort-input"]);
+        assert!(
+            !stdout.contains("./never/never.mbt"),
+            "{command} stdout: {stdout}"
+        );
+    }
 }
 
 #[test]

@@ -22,7 +22,8 @@
 //! 2. Resolve packages and decide which backend(s) to check:
 //!    - explicit `--target` keeps one backend;
 //!    - otherwise local packages are grouped by
-//!      `module preferred -> workspace preferred -> default backend`.
+//!      the first supported backend from
+//!      `workspace preferred -> module preferred -> default backend -> backend order`.
 //! 3. `plan_check_rr_from_resolved_all` turns those backend groups into an
 //!    ordered list of single-backend RR plans.
 //! 4. `plan_check_rr_from_resolved` still plans exactly one backend group.
@@ -44,7 +45,7 @@ use tracing::{Level, instrument};
 
 use crate::filter::{
     TargetPackageGroup, canonicalize_with_filename, ensure_package_supports_backend,
-    ensure_packages_support_backend, filter_pkg_by_dir, format_supported_backends,
+    ensure_packages_support_backend, filter_packages_for_backend, filter_pkg_by_dir,
     group_packages_by_preferred_backend, package_supports_backend, select_packages,
     select_supported_packages,
 };
@@ -731,13 +732,13 @@ pub(crate) fn resolve_check_target_selections(
     }
 
     let selected = resolve_selected_packages(resolve_output, cmd, source_dir, None, output)?;
-    let selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selections = group_packages_by_preferred_backend(resolve_output, selected.iter().copied());
 
     let mut filtered = Vec::new();
-    for selection in selections {
+    for selection in &selections {
         let packages = filter_packages_for_backend(
             resolve_output,
-            selection.packages,
+            selection.packages.clone(),
             selection.target_backend,
             output,
         )?;
@@ -747,6 +748,23 @@ pub(crate) fn resolve_check_target_selections(
                 packages,
             });
         }
+    }
+
+    if filtered.is_empty() && !selected.is_empty() {
+        // Broad workspace scans should mean "no package work" here, not fall
+        // back to the unsplit planner. Explicit selectors still report that no
+        // selected package supports the planned backend.
+        let target_backend = selections
+            .first()
+            .map(|selection| selection.target_backend)
+            .unwrap_or_default();
+        if cmd.package_path.is_some() || !cmd.path.is_empty() {
+            ensure_packages_support_backend(resolve_output, selected, target_backend)?;
+        }
+        return Ok(vec![TargetPackageGroup {
+            target_backend,
+            packages: Vec::new(),
+        }]);
     }
 
     Ok(filtered)
@@ -786,49 +804,6 @@ fn resolve_selected_packages(
                 .is_none_or(|backend| package_supports_backend(resolve_output, pkg, backend))
         })
         .collect())
-}
-
-fn filter_packages_for_backend(
-    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
-    packages: Vec<PackageId>,
-    target_backend: TargetBackend,
-    output: UserDiagnostics,
-) -> anyhow::Result<Vec<PackageId>> {
-    let mut supported = Vec::new();
-    let mut unsupported = Vec::new();
-
-    for pkg in packages {
-        if package_supports_backend(resolve_output, pkg, target_backend) {
-            supported.push(pkg);
-        } else {
-            unsupported.push(pkg);
-        }
-    }
-
-    if supported.is_empty() && !unsupported.is_empty() {
-        if let [pkg] = unsupported.as_slice() {
-            ensure_package_supports_backend(resolve_output, *pkg, target_backend)?;
-        } else {
-            ensure_packages_support_backend(
-                resolve_output,
-                unsupported.iter().copied(),
-                target_backend,
-            )?;
-        }
-    }
-
-    for pkg in unsupported {
-        let pkg_id = pkg;
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-        output.info(format!(
-            "skipping package `{}` because it does not support the selected target backend `{}`. Supported backends: {}",
-            pkg.fqn,
-            target_backend,
-            format_supported_backends(resolve_output, pkg_id),
-        ));
-    }
-
-    Ok(supported)
 }
 
 fn calc_user_intent_from_package_path(

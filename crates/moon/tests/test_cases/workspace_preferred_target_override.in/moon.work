@@ -1,0 +1,5 @@
+members = [
+  "./js_preferred",
+  "./native_preferred",
+]
+preferred_target = "wasm-gc"

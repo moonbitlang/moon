@@ -324,12 +324,31 @@ pub(crate) fn preferred_target_backend_for_package(
     resolve_output: &ResolveOutput,
     pkg_id: PackageId,
 ) -> TargetBackend {
-    let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
-    resolve_output
+    let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+    let module_id = pkg.module;
+    let module_preferred_target = resolve_output
         .module_rel
         .module_info(module_id)
-        .preferred_target
-        .or(resolve_output.workspace_preferred_target)
+        .preferred_target;
+    let preferred_candidates = [
+        resolve_output.workspace_preferred_target,
+        module_preferred_target,
+        Some(TargetBackend::default()),
+    ]
+    .into_iter()
+    .flatten();
+    let fallback_candidates = TargetBackend::all().iter().copied();
+    let mut candidates = Vec::new();
+
+    for target_backend in preferred_candidates.chain(fallback_candidates) {
+        if !candidates.contains(&target_backend) {
+            candidates.push(target_backend);
+        }
+    }
+
+    candidates
+        .into_iter()
+        .find(|target_backend| pkg.effective_supported_targets.contains(target_backend))
         .unwrap_or_default()
 }
 
@@ -412,6 +431,36 @@ where
     );
 }
 
+pub(crate) fn filter_packages_for_backend(
+    resolve_output: &ResolveOutput,
+    packages: Vec<PackageId>,
+    target_backend: TargetBackend,
+    output: UserDiagnostics,
+) -> anyhow::Result<Vec<PackageId>> {
+    let mut supported = Vec::new();
+    let mut unsupported = Vec::new();
+
+    for pkg in packages {
+        if package_supports_backend(resolve_output, pkg, target_backend) {
+            supported.push(pkg);
+        } else {
+            unsupported.push(pkg);
+        }
+    }
+
+    for pkg_id in unsupported {
+        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
+        output.info(format!(
+            "skipping package `{}` because it does not support the selected target backend `{}`. Supported backends: {}",
+            pkg.fqn,
+            target_backend,
+            format_supported_backends(resolve_output, pkg_id),
+        ));
+    }
+
+    Ok(supported)
+}
+
 pub(crate) fn select_supported_packages<I>(
     resolve_output: &ResolveOutput,
     paths: I,
@@ -447,6 +496,10 @@ where
         }
     }
 
+    // Workspace mode has no direct "select this member module" flag today, so
+    // users often pass shell-expanded directory spans. Keep the usable packages
+    // from that coarse selection and report skipped matches only in verbose
+    // diagnostics.
     for (path, pkg_id) in &unsupported {
         let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
         output.info(format!(

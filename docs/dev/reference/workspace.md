@@ -38,7 +38,7 @@ A workspace manifest defines:
 - `members`
   - the module directories contained by the workspace
 - `preferred_target`
-  - an optional default backend for the workspace
+  - an optional workspace target preference used before member module preferences
 
 Workspace members are canonicalized relative to the workspace root and deduped.
 
@@ -86,6 +86,7 @@ Representative examples:
 - `moon build`
 - `moon check`
 - `moon test`
+- `moon bench`
 - `moon fmt`
 - `moon info`
 
@@ -101,19 +102,31 @@ They do not need an implicit default member.
 
 Within this category, it helps to distinguish two subgroups:
 
-- **Workspace-wide planning commands**:
-  `moon build`, `moon check`
+- **Workspace-wide target-planning commands**:
+  `moon build`, `moon check`, `moon test`, `moon bench`
 - **Workspace-wide inspection or transformation commands**:
-  `moon test`, `moon fmt`, `moon info`
+  `moon fmt`, `moon info`
 
-All of them operate on the selected project rather than a single member, but
-`build` and `check` now have a more explicit workspace-wide planning model:
+All of them operate on the selected project rather than a single member. The
+target-planning commands use a more explicit workspace-wide planning model:
 
 - they accept package/path selectors across the selected project,
 - they may split one invocation into multiple backend-specific runs when
   `--target` is omitted,
-- and they use `module preferred_target -> workspace preferred_target ->
-  default backend` to decide those runs.
+- and they use the first supported backend from `workspace preferred_target ->
+  module preferred_target -> default backend -> backend order` to decide those
+  runs.
+
+Here `preferred_target` is a preference, not a capability declaration. A
+package's `supported_targets` still decides whether a preferred backend can be
+used for that package. The command-line `--target` flag is the hard override:
+when it is present, Moon does not fall back to another backend.
+
+Path selectors remain tolerant in this model. Moon does not currently have a
+direct command-line selector for "this workspace member module", so users often
+approximate that with shell-expanded directory spans. Those spans may include
+non-package directories or packages that do not support the selected backend;
+Moon skips those matches and keeps the supported packages.
 
 That makes them more than just "project-scoped"; they are the current
 workspace-wide target-planning commands.

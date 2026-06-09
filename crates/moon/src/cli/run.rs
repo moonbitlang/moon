@@ -28,7 +28,7 @@ use moonutil::dirs::{PackageDirs, ProjectProbe};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use tracing::{Level, instrument};
 
-use crate::filter::ensure_package_supports_backend;
+use crate::filter::{ensure_package_supports_backend, preferred_target_backend_for_package};
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
@@ -72,6 +72,11 @@ impl ResolvedRunSelection {
 }
 
 /// Run a main package
+///
+/// When `--target` is omitted, `moon run` uses the first backend supported by
+/// the selected package from workspace `preferred_target`, module
+/// `preferred-target`, `wasm-gc`, then the remaining backends in backend order.
+/// Explicit `--target` does not fall back.
 #[derive(Debug, clap::Parser, Clone)]
 #[clap(group = clap::ArgGroup::new("run_source").required(true).multiple(false))]
 pub(crate) struct RunSubcommand {
@@ -512,23 +517,25 @@ pub(crate) fn plan_run_rr_from_resolved(
     resolve_output: ResolveOutput,
     try_tcc_run: bool,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
-    let mut preconfig = preconfig_compile(
-        &cmd.auto_sync_flags,
-        cli,
-        &cmd.build_flags,
-        selected_target_backend,
-        target_dir,
-        RunMode::Run,
-    );
-    preconfig.try_tcc_run = try_tcc_run;
-
     let input_path = cmd
         .package_or_mbt_file
         .clone()
         .expect("package run planning requires a positional input");
     let value_tracing = cmd.build_flags.enable_value_tracing;
-
     let selection = resolve_run_selection(&input_path, &resolve_output)?;
+    let target_backend = selected_target_backend.unwrap_or_else(|| {
+        preferred_target_backend_for_package(&resolve_output, selection.package)
+    });
+    let mut preconfig = preconfig_compile(
+        &cmd.auto_sync_flags,
+        cli,
+        &cmd.build_flags,
+        Some(target_backend),
+        target_dir,
+        RunMode::Run,
+    );
+    preconfig.try_tcc_run = try_tcc_run;
+
     let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,

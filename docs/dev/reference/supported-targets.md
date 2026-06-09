@@ -64,13 +64,20 @@ separate feature and unchanged.
 
 ## Command behavior matrix
 
-`B` means the backend selected for this invocation.
+`B` means the backend selected for one planned run. A single command invocation
+may have multiple planned runs when implicit target selection splits packages
+by backend.
+For package-scoped target planning, when `--target` is omitted, Moon chooses
+`B` from the first supported implicit candidate in this order: workspace
+`preferred_target`, module `preferred-target`, `wasm-gc`, then the remaining
+backends in backend order. `--target` is the only hard request and does not
+fall back.
 
 | Command | Broad mode (no explicit package/path filter) | Explicit package/path mode |
 | --- | --- | --- |
-| `moon check` , `moon build` | keep packages that support `B` before root selection | selected package must support `B` |
-| `moon test` , `moon bench` | keep packages that support `B` | selected package(s) must support `B` |
-| `moon run` | N/A (explicit selector required) | selected package must support `B` |
+| `moon check` , `moon build` | keep packages that support `B` before root selection | path spans keep selected packages that support `B` and skip unsupported matches |
+| `moon test` , `moon bench` | keep packages that support `B` | path spans keep selected packages that support `B` and skip unsupported matches |
+| `moon run` | N/A (explicit selector required) | implicit preferences fall through silently; explicit `--target B` requires the selected package to support `B` |
 | `moon info` | write canonical `preferred-backend` output; inspect requested backend `B` | unsupported selected package(s) are skipped with warning |
 | `moon bundle` | planner skips package targets that do not support `B` | no package-level explicit filter |
 
@@ -78,7 +85,12 @@ Notes:
 
 * `--target all` expands to `wasm`,  `wasm-gc`,  `js`,  `native` (not `llvm`).
 * `llvm` is still a valid value in `supported_targets`.
-* `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm-gc`.
+* `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: the first supported candidate from workspace `preferred_target`, module `preferred-target`, `wasm-gc`, then the remaining backends in backend order.
+* Path selectors are intentionally tolerant in workspace mode. Moon does not
+  yet have a direct "select this workspace member module" flag, so users often
+  pass shell-expanded directory spans. Non-package paths and packages that do
+  not support the planned backend are skipped; a path selection that resolves
+  no supported package still fails.
 
 ## Dependency compatibility (fail-fast)
 

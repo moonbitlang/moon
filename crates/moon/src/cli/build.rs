@@ -29,9 +29,9 @@ use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    TargetPackageGroup, ensure_packages_support_backend, filter_pkg_by_dir,
-    group_packages_by_preferred_backend, match_packages_by_name_rr, package_supports_backend,
-    select_packages, select_supported_packages,
+    TargetPackageGroup, ensure_packages_support_backend, filter_packages_for_backend,
+    filter_pkg_by_dir, group_packages_by_preferred_backend, match_packages_by_name_rr,
+    package_supports_backend, select_packages, select_supported_packages,
 };
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
@@ -461,19 +461,42 @@ fn resolve_build_target_selections(
     }
 
     let selected = resolve_selected_build_packages(resolve_output, cmd, None, output)?;
-    let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
+    let selections = group_packages_by_preferred_backend(resolve_output, selected.iter().copied());
 
-    for selection in &mut selections {
-        selection.packages = selection
-            .packages
-            .iter()
-            .copied()
-            .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
-            .collect();
+    let mut filtered = Vec::new();
+    for selection in &selections {
+        let packages = filter_packages_for_backend(
+            resolve_output,
+            selection.packages.clone(),
+            selection.target_backend,
+            output,
+        )?;
+        if !packages.is_empty() {
+            filtered.push(TargetPackageGroup {
+                target_backend: selection.target_backend,
+                packages,
+            });
+        }
     }
-    selections.retain(|selection| !selection.packages.is_empty());
 
-    Ok(selections)
+    if filtered.is_empty() && !selected.is_empty() {
+        // Broad workspace scans should mean "no package work" here, not fall
+        // back to the unsplit planner. Explicit selectors still report that no
+        // selected package supports the planned backend.
+        let target_backend = selections
+            .first()
+            .map(|selection| selection.target_backend)
+            .unwrap_or_default();
+        if has_explicit_build_selector(cmd) {
+            ensure_packages_support_backend(resolve_output, selected, target_backend)?;
+        }
+        return Ok(vec![TargetPackageGroup {
+            target_backend,
+            packages: Vec::new(),
+        }]);
+    }
+
+    Ok(filtered)
 }
 
 fn resolve_selected_build_packages(

@@ -215,6 +215,8 @@ Prove the current package
 
 Run a main package
 
+When `--target` is omitted, `moon run` uses the first backend supported by the selected package from workspace `preferred_target`, module `preferred-target`, `wasm-gc`, then the remaining backends in backend order. Explicit `--target` does not fall back.
+
 **Usage:** `moon run [OPTIONS] <PACKAGE_OR_MBT_FILE|-e <SCRIPT>> [ARGS]...`
 
 ###### **Arguments:**
@@ -412,7 +414,7 @@ Resources:
 
 Generate public interface (`.mbti`) files for all packages in the module or workspace
 
-By default, `moon info` writes `pkg.generated.mbti` from each selected package's canonical backend: module `preferred-backend`, then workspace `preferred-backend`, then `wasm-gc`.
+By default, `moon info` writes `pkg.generated.mbti` from each selected package's canonical backend: the first supported backend from workspace `preferred_target`, module `preferred-target`, `wasm-gc`, then the remaining backends in backend order.
 
 `--target` inspects backend-specific interfaces and reports differences, but does not change which backend is written to `pkg.generated.mbti`.
 

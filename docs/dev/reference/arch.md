@@ -176,7 +176,11 @@ explicit workspace root via `moon.work`, following the same discovery precedence
 The workspace manifest is intentionally small. `moon.work` currently supports:
 
 - `members = ["./app", "./lib"]` to list workspace roots.
-- `preferred_target = "wasm-gc"` to set the preferred default target for the workspace.
+- `preferred_target = "wasm-gc"` to set the first workspace target preference
+  when `--target` is omitted. While the workspace is active, this preference is
+  considered before member module `preferred_target` values, but package
+  `supported_targets` can make Moon fall through to the next implicit
+  preference. Only `--target` is a hard backend request.
 
 When Moon writes `use` entries, relative paths are normalized with `/` separators. Absolute paths
 are kept as absolute OS-specific paths and are not made portable.
@@ -333,9 +337,11 @@ However, if the package does not contain whitebox test files,
 the "check whitebox" node will be omitted.
 If the package is virtual, then a list of virtual package checking nodes will be used instead.
 
-For `moon check` and `moon build` without an explicit `--target`, CLI planning
-may first split selected packages into multiple backend groups using
-`module preferred_target -> workspace preferred_target -> default backend`,
+For `moon check`, `moon build`, `moon test`, and `moon bench` without an
+explicit `--target`, CLI planning may first split selected packages into
+multiple backend groups using the first supported backend from
+`workspace preferred_target -> module preferred_target -> default backend ->
+backend order`,
 then emit intents separately for each backend group.
 
 This mapping is also on a migration path for main packages: release N keeps the

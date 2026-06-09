@@ -120,13 +120,13 @@ pub(super) fn plan_info_outputs(
 
 /// Determine the canonical backend for writing `.mbti` files:
 ///
-/// 1. Module's `preferred-backend` (if set in `moon.mod.json`)
-/// 2. Workspace's `preferred-backend` (if set in `moon.work`)
+/// 1. Workspace's `preferred_target` (if set in `moon.work`)
+/// 2. Module's `preferred-target` (if set in `moon.mod.json`)
 /// 3. `wasm-gc` (default fallback)
+/// 4. Other backends in backend order
 ///
-/// Note: If a package's `supported-targets` does NOT include the canonical backend,
-/// no `.mbti` file will be written. Users should set `preferred-backend` on the
-/// module or workspace to match their supported targets.
+/// The first candidate supported by the package becomes canonical. If none of
+/// the candidates is supported, no `.mbti` file will be written.
 impl InfoOutputPlan {
     pub(super) fn execution_targets(
         &self,
