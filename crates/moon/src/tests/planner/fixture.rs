@@ -36,6 +36,7 @@ use crate::cli::{
 pub(super) struct PlanningFixture {
     source_dir: PathBuf,
     target_dir: PathBuf,
+    mooncake_bin_dir: PathBuf,
     resolve_output: ResolveOutput,
 }
 
@@ -83,11 +84,19 @@ impl PlanningFixture {
             false,
             WorkspaceEnv::Auto,
         );
+        let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+        let synced_env = moonbuild_rupes_recta::sync_dependencies(
+            &resolve_cfg,
+            &source_dir,
+            &mooncakes_dir,
+            None,
+        )?;
         let resolve_output =
-            moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+            moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
         Ok(Self {
             source_dir,
             target_dir,
+            mooncake_bin_dir,
             resolve_output,
         })
     }
@@ -102,6 +111,7 @@ impl PlanningFixture {
             cli,
             &borrowed,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
@@ -127,6 +137,7 @@ impl PlanningFixture {
             cli,
             &borrowed,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             selected_target_backend,
             self.resolve_output.clone(),
         )
@@ -148,6 +159,7 @@ impl PlanningFixture {
             cli,
             &borrowed,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
@@ -164,6 +176,7 @@ impl PlanningFixture {
             cli,
             &borrowed,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )
@@ -192,6 +205,7 @@ impl PlanningFixture {
             cli,
             cmd,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
@@ -217,6 +231,7 @@ impl PlanningFixture {
             cmd,
             &self.source_dir,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             selected_target_backend,
             self.resolve_output.clone(),
         )
@@ -238,6 +253,7 @@ impl PlanningFixture {
             cli,
             cmd,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             selected_target_backend,
             self.resolve_output.clone(),
         )
@@ -254,6 +270,7 @@ impl PlanningFixture {
             cmd,
             &self.source_dir,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
         )?;
@@ -279,6 +296,7 @@ impl PlanningFixture {
             cmd,
             &self.source_dir,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             selected_target_backend,
             self.resolve_output.clone(),
         )
@@ -316,6 +334,7 @@ impl PlanningFixture {
             cli,
             &cmd,
             &self.target_dir,
+            &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
             !cli.dry_run,

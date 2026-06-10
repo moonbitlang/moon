@@ -18,13 +18,12 @@
 
 //! High-level abstraction that handles module and package resolving.
 //!
-//! This module is a relatively straightforward wrapper of relevant functions
-//! that needs to be called in order to resolve the build environment.
-//! Nevertheless, it should remain pretty useful as it abstracts away
-//! intermediate steps and provides a single entry point for resolving the
-//! build environment.
+//! Normal project resolution is split into an explicit dependency sync step and
+//! a package discovery/solve step. This keeps dependency-directory mutation
+//! visible to command adapters before RR consumes the synced dependencies as
+//! input.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Context;
 use indexmap::IndexMap;
@@ -63,8 +62,6 @@ pub struct ResolveOutput {
     pub module_rel: ResolvedEnv,
     /// Module directories
     pub module_dirs: DirSyncResult,
-    /// Threaded `.mooncakes` directory for this resolve run.
-    pub mooncakes_dir: PathBuf,
     /// Package directories
     pub pkg_dirs: DiscoverResult,
     /// Package dependency relationship
@@ -93,7 +90,6 @@ pub struct ResolveConfig {
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
     workspace_env: WorkspaceEnv,
-    project_manifest_path: Option<PathBuf>,
 }
 
 struct FrontMatterImports {
@@ -269,7 +265,6 @@ impl ResolveConfig {
             no_std,
             enable_coverage,
             workspace_env,
-            project_manifest_path: None,
         }
     }
 
@@ -286,13 +281,7 @@ impl ResolveConfig {
             no_std,
             enable_coverage,
             workspace_env,
-            project_manifest_path: None,
         }
-    }
-
-    pub fn with_project_manifest_path(mut self, project_manifest_path: Option<&Path>) -> Self {
-        self.project_manifest_path = project_manifest_path.map(Path::to_path_buf);
-        self
     }
 
     pub fn with_quiet_sync(mut self, quiet_sync: bool) -> Self {
@@ -335,15 +324,16 @@ impl ResolveError {
 }
 
 /// Performs the resolving process from a raw working directory, until all of
-/// the modules and packages affected are resolved.
+/// modules and package directories are ready for package discovery.
 #[instrument(skip_all)]
-pub fn resolve(
+pub fn sync_dependencies(
     cfg: &ResolveConfig,
     source_dir: &Path,
     mooncakes_dir: &Path,
-) -> Result<ResolveOutput, ResolveError> {
+    project_manifest_path: Option<&Path>,
+) -> Result<(ResolvedEnv, DirSyncResult, Option<TargetBackend>), ResolveError> {
     info!(
-        "Starting resolve process for source directory: {}",
+        "Starting dependency sync for source directory: {}",
         source_dir.display()
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
@@ -355,11 +345,26 @@ pub fn resolve(
         cfg.sync_output,
         cfg.no_std,
         cfg.workspace_env.clone(),
-        cfg.project_manifest_path.as_deref(),
+        project_manifest_path,
     )
     .map_err(ResolveError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");
     debug!("Resolved {} modules", resolved_env.module_count());
+
+    Ok((
+        resolved_env,
+        dir_sync_result,
+        workspace.and_then(|workspace| workspace.preferred_target),
+    ))
+}
+
+/// Resolves packages and package relationships from already synced dependencies.
+#[instrument(skip_all)]
+pub fn resolve_synced_project(
+    cfg: &ResolveConfig,
+    synced_dependencies: (ResolvedEnv, DirSyncResult, Option<TargetBackend>),
+) -> Result<ResolveOutput, ResolveError> {
+    let (resolved_env, dir_sync_result, workspace_preferred_target) = synced_dependencies;
 
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
     let main_is_core = {
@@ -401,10 +406,9 @@ pub fn resolve(
     Ok(ResolveOutput {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
-        mooncakes_dir: mooncakes_dir.to_path_buf(),
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
-        workspace_preferred_target: workspace.and_then(|workspace| workspace.preferred_target),
+        workspace_preferred_target,
         user_warnings,
     })
 }
@@ -511,7 +515,6 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     let res = ResolveOutput {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
-        mooncakes_dir: mooncakes_dir.to_path_buf(),
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
         workspace_preferred_target: None,

@@ -468,10 +468,18 @@ fn build_and_install_packages(
     let source_dir = package_dirs.source_dir;
     let target_dir = package_dirs.target_dir;
     let mooncakes_dir = package_dirs.mooncakes_dir;
+    let project_manifest_path = package_dirs.project_manifest_path;
 
     let resolve_cfg =
         ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(
+        &resolve_cfg,
+        &source_dir,
+        &mooncakes_dir,
+        project_manifest_path.as_deref(),
+    )?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
 
     let main_module_id = resolve_output.local_modules()[0];
     let Some(all_pkgs) = resolve_output.pkg_dirs.packages_for_module(main_module_id) else {
@@ -602,10 +610,10 @@ fn build_and_install_packages(
         let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
             preconfig,
             &cli.unstable_feature,
-            &target_dir,
             output,
             planning_context,
             intent,
+            &mooncake_bin_dir,
             resolve_output.clone(),
         )?;
 

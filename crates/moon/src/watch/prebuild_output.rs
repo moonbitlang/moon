@@ -88,7 +88,9 @@ fn push_prebuild_paths(
 mod tests {
     use super::*;
 
-    use moonbuild_rupes_recta::resolve::{ResolveConfig, resolve};
+    use moonbuild_rupes_recta::resolve::{
+        ResolveConfig, resolve_synced_project, sync_dependencies,
+    };
     use moonutil::dirs::WorkspaceEnv;
 
     #[test]
@@ -102,12 +104,12 @@ mod tests {
         )
         .unwrap();
 
-        let resolved = resolve(
-            &ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto),
-            temp_dir.path(),
-            &temp_dir.path().join(".mooncakes"),
-        )
-        .unwrap();
+        let resolve_cfg =
+            ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let mooncakes_dir = temp_dir.path().join(".mooncakes");
+        let synced_env =
+            sync_dependencies(&resolve_cfg, temp_dir.path(), &mooncakes_dir, None).unwrap();
+        let resolved = resolve_synced_project(&resolve_cfg, synced_env).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         assert!(watch_paths.ignored_paths.is_empty());
@@ -138,12 +140,12 @@ mod tests {
         )
         .unwrap();
 
-        let resolved = resolve(
-            &ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto),
-            temp_dir.path(),
-            &temp_dir.path().join(".mooncakes"),
-        )
-        .unwrap();
+        let resolve_cfg =
+            ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let mooncakes_dir = temp_dir.path().join(".mooncakes");
+        let synced_env =
+            sync_dependencies(&resolve_cfg, temp_dir.path(), &mooncakes_dir, None).unwrap();
+        let resolved = resolve_synced_project(&resolve_cfg, synced_env).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         let root = dunce::canonicalize(temp_dir.path()).unwrap();

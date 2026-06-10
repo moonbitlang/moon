@@ -22,7 +22,8 @@ use std::path::PathBuf;
 
 use anyhow::bail;
 use moonbuild_rupes_recta::{
-    ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId, resolve,
+    ResolveConfig, ResolveOutput, intent::UserIntent, model::PackageId, resolve_synced_project,
+    sync_dependencies,
 };
 use moonutil::{
     common::{RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
@@ -290,9 +291,15 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         !build_flags.std(),
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
-    )
-    .with_project_manifest_path(project_manifest_path.as_deref());
-    let resolve_output = resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+    );
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = sync_dependencies(
+        &resolve_cfg,
+        &source_dir,
+        &mooncakes_dir,
+        project_manifest_path.as_deref(),
+    )?;
+    let resolve_output = resolve_synced_project(&resolve_cfg, synced_env)?;
     let output = UserDiagnostics::from_flags(&cli);
     let selection = PackageSelection::new(&cmd, &resolve_output, output)?;
 
@@ -314,6 +321,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
             tgt,
             target_kind,
             &target_dir,
+            &mooncake_bin_dir,
             resolve_output.clone(),
             &selection,
             &output_plan,
@@ -344,6 +352,7 @@ fn run_info_rr_internal(
     target: TargetBackend,
     target_kind: imp::TargetKind,
     target_dir: &std::path::Path,
+    mooncake_bin_dir: &std::path::Path,
     resolve_output: ResolveOutput,
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
@@ -376,10 +385,10 @@ fn run_info_rr_internal(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
+        mooncake_bin_dir,
         resolve_output,
     )?;
     // Generate the all_pkgs.json for indirect dependency resolution

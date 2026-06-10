@@ -46,7 +46,7 @@ use moonbuild_rupes_recta::{
     model::{
         Artifacts, BuildPlanNode, NativeTarget, PackageId, RunBackend, TargetKind, TccRunConfig,
     },
-    prebuild::run_prebuild_config,
+    prebuild::{PrebuildEnvironment, run_prebuild_config},
     user_warning::UserWarning,
 };
 use moonutil::{
@@ -561,17 +561,18 @@ pub(crate) fn prepare_resolved_build(
 ///
 /// At this boundary, command adapters have already resolved user selectors and
 /// command-specific directives into `CalcUserIntentOutput`. RR consumes those
-/// identities plus the build-model paths stored in `ResolveOutput`.
+/// identities plus precomputed build-context paths from the command adapter.
 #[instrument(level = Level::DEBUG, skip_all)]
 pub(crate) fn plan_resolved_build_from_intent(
     preconfig: CompilePreConfig,
     unstable_features: &FeatureGate,
-    target_dir: &Path,
     output: UserDiagnostics,
     planning_context: ResolvedBuildPlanningContext,
     intent: CalcUserIntentOutput,
+    mooncake_bin_dir: &Path,
     resolve_output: ResolveOutput,
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let target_dir = preconfig.target_dir.clone();
     info!("User intent calculated: {:?}", intent.intents);
     for warning in &intent.warnings {
         output.user_message(warning);
@@ -582,7 +583,8 @@ pub(crate) fn plan_resolved_build_from_intent(
         None
     } else {
         info!("Running prebuild configuration");
-        Some(run_prebuild_config(&resolve_output)?)
+        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
+        Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
     };
 
     // Expand user intents to concrete BuildPlanNode inputs
@@ -611,6 +613,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
         &cx,
+        mooncake_bin_dir,
         &resolve_output,
         &input_nodes,
         &intent.directive,
@@ -642,7 +645,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     };
 
     let db_path = n2_db_path(
-        target_dir,
+        &target_dir,
         cx.target_backend.into(),
         cx.opt_level,
         cx.action,

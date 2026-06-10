@@ -50,14 +50,28 @@ pub struct ModulePrebuildOutput {
     pub vars: HashMap<String, String>,
 }
 
+/// Process environment made available to prebuild configuration scripts.
+#[derive(Debug)]
+pub struct PrebuildEnvironment {
+    vars: HashMap<String, String>,
+}
+
+impl PrebuildEnvironment {
+    pub fn new(vars: HashMap<String, String>) -> Self {
+        Self { vars }
+    }
+}
+
 #[instrument(skip_all)]
-pub fn run_prebuild_config(resolve_output: &ResolveOutput) -> anyhow::Result<PrebuildOutput> {
-    let env_vars: HashMap<String, String> = std::env::vars().collect();
+pub fn run_prebuild_config(
+    resolve_output: &ResolveOutput,
+    environment: &PrebuildEnvironment,
+) -> anyhow::Result<PrebuildOutput> {
     let mut output = PrebuildOutput::default();
 
     // Run prebuild scripts
     for (m, ms) in resolve_output.module_rel.all_modules_and_id() {
-        run_prebuild_for_module(m, ms, resolve_output, &env_vars, &mut output)?;
+        run_prebuild_for_module(m, ms, resolve_output, environment, &mut output)?;
     }
 
     Ok(output)
@@ -67,7 +81,7 @@ fn run_prebuild_for_module(
     m: ModuleId,
     ms: &ModuleSource,
     resolve_output: &ResolveOutput,
-    env_vars: &HashMap<String, String>,
+    environment: &PrebuildEnvironment,
     ret: &mut PrebuildOutput,
 ) -> anyhow::Result<()> {
     let m_info = &**resolve_output.module_rel.module_info(m);
@@ -77,7 +91,7 @@ fn run_prebuild_for_module(
     };
 
     // Run the prebuild script
-    let input = make_prebuild_input_from_module(m_dir, env_vars);
+    let input = make_prebuild_input_from_module(m_dir, &environment.vars);
     let output = moonbuild::build_script::run_build_script_for_module(ms, m_dir, input, prebuild)
         .context(format!(
         "Failed to run prebuild script for module {}",

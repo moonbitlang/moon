@@ -29,8 +29,8 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     common::{
-        DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOON_BIN_DIR, MOONCAKE_BIN, PKG_DIR,
-        TargetBackend, is_moon_mod, is_moon_pkg, is_moon_script_ignored,
+        DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOONCAKE_BIN, PKG_DIR, TargetBackend,
+        is_moon_mod, is_moon_pkg, is_moon_script_ignored,
     },
     compiler_flags::{CC, Toolchain},
     module::{MoonMod, MoonModRule},
@@ -1390,7 +1390,6 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let pkg = self.input.pkg_dirs.get_package(package);
         let module = &self.input.module_dirs[pkg.module];
-        let mooncakes_dir = &self.input.mooncakes_dir;
         let prebuild_cmd =
             &pkg.raw.pre_build.as_ref().expect("Prebuild must exist")[index as usize];
 
@@ -1457,7 +1456,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let command = handle_build_command_new(
             &command,
             module,
-            mooncakes_dir,
+            self.mooncake_bin_dir,
             &pkg.root_path,
             &input_paths,
             &output_paths,
@@ -1554,7 +1553,7 @@ static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(||
 /// dependency artifacts. Artifacts built by binary dependencies are placed in
 /// either of these two locations:
 ///
-/// - `<resolve-mooncakes-dir>/__moonbin__/[bin-target-name]`, if the artifact
+/// - `<project .mooncakes dir>/__moonbin__/[bin-target-name]`, if the artifact
 ///   comes from a regular dependency from the official registry.
 /// - At the root of the corresponding module's source directory, if the
 ///   artifact comes from a local dependency.
@@ -1571,7 +1570,7 @@ static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(||
 fn handle_build_command_new(
     command: &str,
     mod_source: &Path,
-    mooncakes_dir: &Path,
+    mooncake_bin_dir: &Path,
     pkg_source: &Path,
     input_files: &[PathBuf],
     output_files: &[PathBuf],
@@ -1600,10 +1599,9 @@ fn handle_build_command_new(
         // Insert replacement
         // See the IDs in CHECK_AUTOMATA
         match magic.pattern().as_usize() {
-            // $mooncake_bin => <resolve-mooncakes-dir>/__moonbin__
+            // $mooncake_bin => <project .mooncakes dir>/__moonbin__
             0 => {
-                let replacement = mooncakes_dir.join(MOON_BIN_DIR);
-                write!(reconstructed, "{}", replacement.display()).expect("write can't fail");
+                write!(reconstructed, "{}", mooncake_bin_dir.display()).expect("write can't fail");
             }
             // $mod_dir => <mod_source>
             1 => {

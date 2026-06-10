@@ -319,6 +319,7 @@ fn run_check_for_single_file_rr(
         &single_file_path,
         false,
     )?;
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
         .or(cmd.build_flags.resolve_single_target_backend()?)
         .or(backend);
@@ -344,10 +345,10 @@ fn run_check_for_single_file_rr(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
+        &mooncake_bin_dir,
         resolved,
     )
     .context("Failed to calculate build plan")?;
@@ -470,9 +471,16 @@ fn run_check_normal_internal_rr(
         !cmd.build_flags.std(),
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
+    );
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(
+        &resolve_cfg,
+        source_dir,
+        mooncakes_dir,
+        project_manifest_path,
     )
-    .with_project_manifest_path(project_manifest_path);
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, source_dir, mooncakes_dir)
+    .context("Failed to calculate build plan")?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)
         .context("Failed to calculate build plan")?;
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolve_output)
@@ -487,6 +495,7 @@ fn run_check_normal_internal_rr(
         cmd,
         source_dir,
         target_dir,
+        &mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
     )
@@ -545,6 +554,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
@@ -570,6 +580,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
             cmd,
             source_dir,
             target_dir,
+            mooncake_bin_dir,
             selected_target_backend,
             resolve_output,
         )
@@ -581,11 +592,13 @@ pub(crate) fn plan_check_rr_from_resolved_all(
         .map(|selection| {
             // The command adapter has resolved raw CLI selectors into
             // PackageIds. RR planning should use those identities and the
-            // build-model paths already stored in ResolveOutput.
+            // bin-dependency launcher directory captured by the command
+            // adapter.
             plan_check_rr_from_selection(
                 cli,
                 cmd,
                 target_dir,
+                mooncake_bin_dir,
                 selection.target_backend,
                 resolve_output.clone(),
                 ResolvedCheckSelection::from_command(selection.packages, cmd),
@@ -622,6 +635,7 @@ pub(crate) fn plan_check_rr_from_resolved(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
@@ -664,10 +678,10 @@ pub(crate) fn plan_check_rr_from_resolved(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         intent,
+        mooncake_bin_dir,
         resolve_output,
     )
 }
@@ -676,6 +690,7 @@ fn plan_check_rr_from_selection(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     selection: ResolvedCheckSelection,
@@ -701,10 +716,10 @@ fn plan_check_rr_from_selection(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        target_dir,
         output,
         planning_context,
         selection.into_user_intent()?,
+        mooncake_bin_dir,
         resolve_output,
     )
 }

@@ -19,7 +19,7 @@
 use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{common::RunMode, cond_expr::OptLevel};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::{
@@ -106,6 +106,7 @@ pub enum CompileGraphError {
 #[instrument(skip_all)]
 pub fn compile(
     cx: &CompileConfig,
+    mooncake_bin_dir: &Path,
     resolve_output: &ResolveOutput,
     input_nodes: &[BuildPlanNode],
     input_directive: &InputDirective,
@@ -132,6 +133,7 @@ pub fn compile(
     };
     let (plan, user_warnings) = build_plan::build_plan(
         resolve_output,
+        mooncake_bin_dir,
         &build_env,
         input_nodes,
         input_directive,

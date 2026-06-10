@@ -118,10 +118,15 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     );
     preconfig.docs_serve = cmd.serve;
 
-    let resolve_cfg = preconfig
-        .resolve_config()
-        .with_project_manifest_path(project_manifest_path.as_deref());
-    let resolve_output = moonbuild_rupes_recta::resolve(&resolve_cfg, &source_dir, &mooncakes_dir)?;
+    let resolve_cfg = preconfig.resolve_config();
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(
+        &resolve_cfg,
+        &source_dir,
+        &mooncakes_dir,
+        project_manifest_path.as_deref(),
+    )?;
+    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
 
     let output = UserDiagnostics::from_flags(&cli);
     let planning_context = rr_build::prepare_resolved_build(
@@ -136,10 +141,10 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        &target_dir,
         output,
         planning_context,
         intent,
+        &mooncake_bin_dir,
         resolve_output,
     )?;
 

@@ -491,6 +491,7 @@ pub enum BuildPlanConstructError {
 #[instrument(skip_all)]
 pub fn build_plan(
     resolved: &ResolveOutput,
+    mooncake_bin_dir: &Path,
     build_env: &BuildEnvironment,
     input: impl Iterator<Item = BuildPlanNode>,
     input_directive: &InputDirective,
@@ -502,8 +503,13 @@ pub fn build_plan(
         build_env.target_backend, build_env.opt_level
     );
 
-    let mut constructor =
-        BuildPlanConstructor::new(resolved, build_env, input_directive, prebuild_config);
+    let mut constructor = BuildPlanConstructor::new(
+        resolved,
+        mooncake_bin_dir,
+        build_env,
+        input_directive,
+        prebuild_config,
+    );
     constructor.build(input)?;
     let result = constructor.finish();
 
