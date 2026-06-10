@@ -49,11 +49,11 @@ important ones and why they exist.
   (`build_lower::artifact`), calls that would normally resolve `.core`, `.mi`,
   or `.phony_mi` files check whether the target package is the recorded abort
   package. If so, and **only when stdlib is injected**, the code switches to
-  the stdlib’s prebuilt `abort` outputs (`abort_core_path` / `abort_mi_path`)
-  because those artifacts are shipped as part of the toolchain rather than
-  being rebuilt per project. When **building the stdlib itself**, the abort
-  package must resolve to local `_build/...` artifacts, so the prebuilt paths
-  are explicitly *not* used.
+  the stdlib’s prebuilt `abort` outputs via `moonutil::toolchain` because
+  those artifacts are shipped as part of the toolchain rather than being
+  rebuilt per project. When **building the stdlib itself**, the abort package
+  must resolve to local `_build/...` artifacts, so the prebuilt paths are
+  explicitly *not* used.
 - **Stdlib bundle paths are toolchain facts.** The bundled stdlib layout
   (`_build/<backend>/release/bundle`, `abort/abort.core`, package `.mi`
   files, and related paths) is owned by `moonutil::toolchain`, backed by the

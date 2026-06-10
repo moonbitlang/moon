@@ -127,11 +127,10 @@ impl<'a> LoweringContext<'a> {
         is_main: bool,
     ) -> BuildCommonConfig<'a> {
         // Standard library settings
-        let stdlib_core_file = self
-            .opt
-            .stdlib_path
-            .as_ref()
-            .map(|x| artifact::core_bundle_path(x, self.opt.target_backend.into()).into());
+        let stdlib_core_file =
+            self.opt.stdlib_path.as_ref().map(|x| {
+                moonutil::toolchain::core_bundle_in(x, self.opt.target_backend.into()).into()
+            });
 
         // Warning and error settings
         let error_format = if self.opt.moonc_output_json {
@@ -603,12 +602,12 @@ impl<'a> LoweringContext<'a> {
             // The two stdlib core files must be linked in the correct order,
             // in order to get the correct order of initialization.
             if !info.abort_overridden {
-                core_input_files.push(artifact::abort_core_path(
+                core_input_files.push(moonutil::toolchain::abort_core_in(
                     stdlib,
                     self.opt.target_backend.into(),
                 ));
             }
-            core_input_files.push(artifact::core_core_path(
+            core_input_files.push(moonutil::toolchain::core_core_in(
                 stdlib,
                 self.opt.target_backend.into(),
             ));
@@ -673,11 +672,11 @@ impl<'a> LoweringContext<'a> {
         // Ensure n2 sees stdlib core bundle changes as inputs
         let mut extra_inputs = Vec::new();
         if let Some(stdlib) = &self.opt.stdlib_path {
-            extra_inputs.push(artifact::abort_core_path(
+            extra_inputs.push(moonutil::toolchain::abort_core_in(
                 stdlib,
                 self.opt.target_backend.into(),
             ));
-            extra_inputs.push(artifact::core_core_path(
+            extra_inputs.push(moonutil::toolchain::core_core_in(
                 stdlib,
                 self.opt.target_backend.into(),
             ));
@@ -1326,7 +1325,8 @@ impl<'a> LoweringContext<'a> {
         // Provide std path when stdlib is enabled
         if let Some(stdlib_root) = &self.opt.stdlib_path {
             cmd.stdlib_core_file = Some(
-                artifact::core_bundle_path(stdlib_root, self.opt.target_backend.into()).into(),
+                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.target_backend.into())
+                    .into(),
             );
         }
 

@@ -270,7 +270,7 @@ impl LegacyLayout {
             && abort == target.package
         {
             if target.kind == TargetKind::Source {
-                return abort_core_path(
+                return moonutil::toolchain::abort_core_in(
                     self.stdlib_dir
                         .as_ref()
                         .expect("Standard library should be present"),
@@ -324,7 +324,7 @@ impl LegacyLayout {
             && abort == target.package
         {
             if target.kind == TargetKind::Source {
-                return MiPathResult::StdAbort(abort_mi_path(
+                return MiPathResult::StdAbort(moonutil::toolchain::abort_mi_in(
                     self.stdlib_dir
                         .as_ref()
                         .expect("Standard library should be present"),
@@ -711,28 +711,6 @@ fn object_file_ext(os: OperatingSystem) -> &'static str {
         OperatingSystem::Linux | OperatingSystem::MacOS => ".o",
         OperatingSystem::None => panic!("No object file extension for no-OS targets"),
     }
-}
-
-pub fn core_bundle_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    moonutil::toolchain::core_bundle_in(core_root, backend)
-}
-
-/// Returns the path to abort.core for the given backend.
-pub fn abort_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    moonutil::toolchain::abort_core_in(core_root, backend)
-}
-
-pub fn abort_mi_path(
-    core_root: &Path,
-    backend: TargetBackend,
-    is_implementing_virtual: bool,
-) -> PathBuf {
-    moonutil::toolchain::abort_mi_in(core_root, backend, is_implementing_virtual)
-}
-
-/// Returns the path to core.core for the given backend.
-pub fn core_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    moonutil::toolchain::core_core_in(core_root, backend)
 }
 
 pub fn stdlib_mi_path(core_root: &Path, backend: TargetBackend, fqn: &PackageFQN) -> PathBuf {
