@@ -53,7 +53,8 @@ Accepted Mooncakes coordinate forms:
   moon runwasm moonbitlang/parser/cmd/moonfmt
 
 Pinned coordinates use the given version directly. Unpinned coordinates resolve
-the latest version from the registry index. Fetched wasm files are cached under
+the latest version from the registry index, updating it only when the module is
+absent from the local index. Fetched wasm files are cached under
 $MOON_HOME/registry/cache/assets and reused on later runs."#
 )]
 pub(crate) struct RunWasmSubcommand {
@@ -78,6 +79,13 @@ struct ResolvedRunWasmAsset {
     url: String,
     checksum_url: String,
     cache_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LatestVersionLookup {
+    Found(Version),
+    NoVersionInformation,
+    NotFound,
 }
 
 impl RunWasmCoordinate {
@@ -145,7 +153,7 @@ pub(crate) fn run_runwasm(cli: &UniversalFlags, cmd: RunWasmSubcommand) -> anyho
     let registry_config = RegistryConfig::load();
     let version = match coordinate.version.clone() {
         Some(version) => version,
-        None => resolve_latest_version(cli, &coordinate.module_name, output)?,
+        None => resolve_latest_version(&coordinate.module_name, output)?,
     };
     let asset = coordinate.with_version(version, &registry_config.registry);
     let wasm_path = ensure_cached_wasm(&asset, output)?;
@@ -204,7 +212,6 @@ fn runwasm_as_run_subcommand(cmd: RunWasmSubcommand) -> RunSubcommand {
 }
 
 fn resolve_latest_version(
-    cli: &UniversalFlags,
     module_name: &ModuleName,
     output: UserDiagnostics,
 ) -> anyhow::Result<Version> {
@@ -212,11 +219,49 @@ fn resolve_latest_version(
     let registry_config = RegistryConfig::load();
     let had_index = index_dir.exists();
 
-    match mooncake::update::update_with_output(
-        &index_dir,
-        &registry_config,
-        mooncake::update::UpdateOutput::Quiet,
-    ) {
+    resolve_latest_version_with(
+        module_name,
+        output,
+        had_index,
+        || latest_version_from_local_registry(module_name),
+        || {
+            mooncake::update::update_with_output(
+                &index_dir,
+                &registry_config,
+                mooncake::update::UpdateOutput::Quiet,
+            )
+            .map(|_| ())
+        },
+    )
+}
+
+fn latest_version_from_local_registry(module_name: &ModuleName) -> LatestVersionLookup {
+    let registry = OnlineRegistry::mooncakes_io();
+    let versions = match registry.all_versions_of(module_name) {
+        Ok(versions) => versions,
+        Err(_) => return LatestVersionLookup::NotFound,
+    };
+    versions
+        .last_key_value()
+        .map(|(version, _)| LatestVersionLookup::Found(version.clone()))
+        .unwrap_or(LatestVersionLookup::NoVersionInformation)
+}
+
+fn resolve_latest_version_with(
+    module_name: &ModuleName,
+    output: UserDiagnostics,
+    had_index: bool,
+    mut lookup_latest_version: impl FnMut() -> LatestVersionLookup,
+    mut update_registry: impl FnMut() -> anyhow::Result<()>,
+) -> anyhow::Result<Version> {
+    if let LatestVersionLookup::Found(version) = lookup_latest_version() {
+        output.info(format!(
+            "Resolved {module_name} latest version to {version}"
+        ));
+        return Ok(version);
+    }
+
+    match update_registry() {
         Ok(_) => output.info("Updated registry index"),
         Err(e) => {
             if had_index {
@@ -230,23 +275,21 @@ fn resolve_latest_version(
         }
     }
 
-    let registry = OnlineRegistry::mooncakes_io();
-    let module_info = registry.get_latest_version(module_name).ok_or_else(|| {
-        if had_index {
-            anyhow::anyhow!("Module `{module_name}` not found in registry")
-        } else {
-            anyhow::anyhow!("Module `{module_name}` not found in registry after updating the index")
+    let version = match lookup_latest_version() {
+        LatestVersionLookup::Found(version) => version,
+        LatestVersionLookup::NoVersionInformation => {
+            bail!("Module `{module_name}` has no version information")
         }
-    })?;
-    let version = module_info
-        .version
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("Module `{module_name}` has no version information"))?;
-    if !cli.quiet {
-        output.info(format!(
-            "Resolved {module_name} latest version to {version}"
-        ));
-    }
+        LatestVersionLookup::NotFound if had_index => {
+            bail!("Module `{module_name}` not found in registry")
+        }
+        LatestVersionLookup::NotFound => {
+            bail!("Module `{module_name}` not found in registry after updating the index")
+        }
+    };
+    output.info(format!(
+        "Resolved {module_name} latest version to {version}"
+    ));
     Ok(version)
 }
 
@@ -476,6 +519,81 @@ mod tests {
         assert_eq!(parsed.module_name.to_string(), "moonbitlang/parser");
         assert_eq!(parsed.package_path, "cmd/moonfmt");
         assert_eq!(parsed.version, None);
+    }
+
+    #[test]
+    fn latest_resolution_uses_local_registry_before_updating() {
+        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
+        let mut update_called = false;
+
+        let version = resolve_latest_version_with(
+            &module_name,
+            UserDiagnostics::default(),
+            true,
+            || LatestVersionLookup::Found("0.3.3".parse().unwrap()),
+            || {
+                update_called = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(version.to_string(), "0.3.3");
+        assert!(!update_called);
+    }
+
+    #[test]
+    fn latest_resolution_updates_after_local_registry_miss() {
+        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
+        let mut lookup_count = 0;
+        let mut update_called = false;
+
+        let version = resolve_latest_version_with(
+            &module_name,
+            UserDiagnostics::default(),
+            true,
+            || {
+                lookup_count += 1;
+                if lookup_count > 1 {
+                    LatestVersionLookup::Found("0.3.3".parse().unwrap())
+                } else {
+                    LatestVersionLookup::NotFound
+                }
+            },
+            || {
+                update_called = true;
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(version.to_string(), "0.3.3");
+        assert_eq!(lookup_count, 2);
+        assert!(update_called);
+    }
+
+    #[test]
+    fn latest_resolution_preserves_no_version_information_after_update() {
+        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
+        let mut update_called = false;
+
+        let err = resolve_latest_version_with(
+            &module_name,
+            UserDiagnostics::default(),
+            true,
+            || LatestVersionLookup::NoVersionInformation,
+            || {
+                update_called = true;
+                Ok(())
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err.to_string(),
+            "Module `moonbitlang/parser` has no version information"
+        );
+        assert!(update_called);
     }
 
     #[test]

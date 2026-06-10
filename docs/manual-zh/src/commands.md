@@ -268,7 +268,8 @@ Accepted Mooncakes coordinate forms:
   moon runwasm moonbitlang/parser/cmd/moonfmt
 
 Pinned coordinates use the given version directly. Unpinned coordinates resolve
-the latest version from the registry index. Fetched wasm files are cached under
+the latest version from the registry index, updating it only when the module is
+absent from the local index. Fetched wasm files are cached under
 $MOON_HOME/registry/cache/assets and reused on later runs.
 
 **Usage:** `moon runwasm <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]...`
