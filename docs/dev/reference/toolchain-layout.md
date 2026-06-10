@@ -29,6 +29,21 @@ This means we do **not** need to redesign the internal tree into `lib/moonbit/..
 
 Mutable user state must stay outside the package-managed prefix.
 
+## Code ownership
+
+In code, facts about the selected MoonBit toolchain tree should be accessed via
+`moonutil::toolchain`. This includes known tool executables, the toolchain root,
+`bin`/`lib`/`include`, and shipped stdlib artifacts under `lib/core`.
+
+Project-local layout remains outside this module. For example, `.mooncakes`,
+`_build`, resolved package roots, and workspace discovery are project facts,
+not toolchain facts.
+
+RR should not decide whether a build uses the installed stdlib by calling
+`moonutil::toolchain::core()` in lowering or metadata code. The command
+orchestration layer selects `stdlib_path` first, then passes that value through
+`CompileConfig`, `BuildMeta`, and `LegacyLayout`.
+
 ## Packaging layouts by system
 
 ### Homebrew formula

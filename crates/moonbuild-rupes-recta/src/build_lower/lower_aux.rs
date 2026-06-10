@@ -25,6 +25,7 @@ use moonutil::{
         make_cc_command_resolved,
     },
     mooncakes::{ModuleId, ModuleSourceKind},
+    toolchain::BINARIES,
 };
 use tracing::{Level, instrument};
 
@@ -90,7 +91,7 @@ impl<'a> super::LoweringContext<'a> {
             max_concurrent_tests: package.raw.max_concurrent_tests,
         };
 
-        let commandline = cmd.build_command(&*moonutil::BINARIES.moonbuild);
+        let commandline = cmd.build_command(&*BINARIES.moonbuild);
 
         // Track doctest files as extra inputs
         let mut extra_inputs = files_vec;
@@ -126,7 +127,7 @@ impl<'a> super::LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 
@@ -209,7 +210,7 @@ impl<'a> super::LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(&*moonutil::BINARIES.mooninfo).into(),
+            commandline: cmd.build_command(&*BINARIES.mooninfo).into(),
         }
     }
 
@@ -246,7 +247,7 @@ impl<'a> super::LoweringContext<'a> {
         );
 
         BuildCommand {
-            commandline: cmd.build_command(&*moonutil::BINARIES.moondoc).into(),
+            commandline: cmd.build_command(&*BINARIES.moondoc).into(),
             extra_inputs: vec![packages_json],
         }
     }
@@ -272,8 +273,8 @@ impl<'a> super::LoweringContext<'a> {
         let output = mbtlex_path.with_extension("mbt");
 
         let commandline = vec![
-            moonutil::BINARIES.moonrun.display().to_string(),
-            moonutil::BINARIES.moonlex.display().to_string(),
+            BINARIES.moonrun.display().to_string(),
+            BINARIES.moonlex.display().to_string(),
             "--".into(),
             mbtlex_path.display().to_string(),
             "-o".into(),
@@ -296,8 +297,8 @@ impl<'a> super::LoweringContext<'a> {
         let output = mby_path.with_extension("mbt");
 
         let commandline = vec![
-            moonutil::BINARIES.moonrun.display().to_string(),
-            moonutil::BINARIES.moonyacc.display().to_string(),
+            BINARIES.moonrun.display().to_string(),
+            BINARIES.moonyacc.display().to_string(),
             "--".into(),
             mby_path.display().to_string(),
             "-o".into(),

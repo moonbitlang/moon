@@ -147,14 +147,15 @@ produced by dependency sync. `ResolveOutput` should contain resolved
 build-model data derived from those inputs, not repeat the captured discovery
 paths.
 
-Toolchain and host facts are not fully centralized today. `rr_build` and
-`compile` still make some host-dependent decisions while preparing planning and
-lowering. They should follow the same rule where practical: if a phase needs the
-host OS, compiler paths, standard-library path, or native toolchain choices,
-those should be owned by an explicit environment object and passed forward
-instead of being rediscovered at each use site. Such facts do not need to be
-eager: non-native builds should not resolve native-only OS/toolchain details
-unless a lowering path actually asks for them.
+Toolchain and host facts follow the same rule. `moonutil::toolchain` owns facts
+about the selected MoonBit toolchain tree, including known tool binaries and
+the shipped standard-library artifact layout. Command orchestration decides
+whether those facts apply to the current build, then passes the selected facts
+forward. In particular, `rr_build` chooses `stdlib_path` from `use_std &&
+!is_core`; RR lowering, metadata generation, and `all_pkgs.json` generation
+consume the resulting `LegacyLayout` instead of rediscovering the installed
+stdlib. Such facts do not need to be eager: non-native builds should not resolve
+native-only OS/toolchain details unless a lowering path actually asks for them.
 
 Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment

@@ -33,7 +33,7 @@ use crate::{
     model::BuildTarget,
     pkg_solve::DepRelationship,
 };
-use moonutil::BINARIES;
+use moonutil::toolchain::BINARIES;
 
 use super::{
     BuildOptions, CommandArgMap, Commandline, LoweringError,

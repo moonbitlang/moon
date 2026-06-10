@@ -23,16 +23,15 @@ use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use moonutil::{
-    common::{RunMode, TargetBackend},
+    common::TargetBackend,
     cond_expr::{CompileCondition, OptLevel},
     module::ModuleDBJSON,
-    moon_dir::core,
     package::{AliasJSON, PackageJSON},
 };
 
 use crate::{
     ResolveOutput,
-    build_lower::artifact::{LegacyLayout, LegacyLayoutBuilder},
+    build_lower::artifact::LegacyLayout,
     cond_comp::file_metadatas,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::DepEdge,
@@ -49,18 +48,16 @@ pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
 pub fn gen_metadata_json(
     ctx: &ResolveOutput,
     source_dir: &Path,
-    target_dir: &Path,
+    layout: &LegacyLayout,
     opt_level: OptLevel,
     backend: TargetBackend,
-    mode: RunMode,
     check_commands: &CheckCommandMap,
 ) -> ModuleDBJSON {
-    let (main_module, name, deps, source) = match ctx.local_modules() {
+    let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
             let main_module = ctx.module_rel.module_source(main_module_id);
             let main_module_json = ctx.module_rel.module_info(main_module_id);
             (
-                Some(main_module.clone()),
                 main_module.name().to_string(),
                 main_module_json.deps.keys().cloned().collect(),
                 main_module_json.source.clone(),
@@ -77,23 +74,14 @@ pub fn gen_metadata_json(
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect();
-            (None, "workspace".to_string(), deps, None)
+            ("workspace".to_string(), deps, None)
         }
     };
-
-    let layout = LegacyLayoutBuilder::default()
-        .main_module(main_module)
-        .opt_level(opt_level)
-        .stdlib_dir(Some(core()))
-        .run_mode(mode)
-        .target_base_dir(target_dir.to_owned())
-        .build()
-        .expect("Failed to build legacy layout");
 
     let mut packages: Vec<PackageJSON> = ctx
         .pkg_dirs
         .all_packages(true)
-        .map(|(id, _)| gen_package_json(ctx, &layout, id, backend, check_commands))
+        .map(|(id, _)| gen_package_json(ctx, layout, id, backend, check_commands))
         .collect();
     packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));
 
