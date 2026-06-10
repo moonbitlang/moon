@@ -36,6 +36,7 @@ use moonutil::{
     module::{MoonMod, MoonModRule},
     mooncakes::ModuleId,
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
+    toolchain::BINARIES,
 };
 use regex::Regex;
 use tracing::{Level, debug, instrument, trace, warn};
@@ -1579,7 +1580,7 @@ fn handle_build_command_new(
 
     let mut reconstructed = String::new();
 
-    let moon_bin_path = moonutil::BINARIES.moonbuild.to_string_lossy();
+    let moon_bin_path = BINARIES.moonbuild.to_string_lossy();
 
     let command = if let Some(command) = command.strip_prefix(":embed ") {
         reconstructed.push_str(&format!("{} tool embed ", moon_bin_path));

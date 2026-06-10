@@ -33,6 +33,7 @@ use moonutil::{
     cond_expr::OptLevel,
     mooncakes::{CORE_MODULE, ModuleId},
     package::JsFormat,
+    toolchain::BINARIES,
 };
 use petgraph::Direction;
 use tracing::{Level, instrument};
@@ -392,7 +393,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 
@@ -442,7 +443,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 
@@ -499,7 +500,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 
@@ -578,7 +579,7 @@ impl<'a> LoweringContext<'a> {
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
         BuildCommand {
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
             extra_inputs,
         }
     }
@@ -687,7 +688,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 
@@ -1270,7 +1271,7 @@ impl<'a> LoweringContext<'a> {
         // a response file so that `tcc` will run it later.
         //
         // We have a tool for this: `moon tool write-tcc-rsp-file <out> <args...>`
-        let moonbuild = moonutil::BINARIES
+        let moonbuild = BINARIES
             .moonbuild
             .to_str()
             .expect("moonbuild path is valid UTF-8");
@@ -1332,7 +1333,7 @@ impl<'a> LoweringContext<'a> {
         BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
             extra_inputs: vec![mbti_path.clone()],
-            commandline: cmd.build_command(&*moonutil::BINARIES.moonc).into(),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 

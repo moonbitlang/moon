@@ -137,7 +137,9 @@ pub struct LegacyLayout {
     /// the layout used for multi-root workspaces.
     main_module: Option<ModuleSource>,
 
-    /// The directory of the standard library
+    /// The directory of the standard library.
+    ///
+    /// Only `Some` when the build imports prebuilt stdlib artifacts.
     stdlib_dir: Option<PathBuf>,
 
     /// The optimization level, debug or release
@@ -145,8 +147,6 @@ pub struct LegacyLayout {
     /// The operation done
     run_mode: RunMode,
 }
-
-const LEGACY_NON_MAIN_MODULE_DIR: &str = ".mooncakes";
 
 /// A common structure for generating artifact basenames of packages.
 ///
@@ -235,7 +235,7 @@ impl LegacyLayout {
                 // no nested directory for the working module
             }
             Some(_) => {
-                dir.push(LEGACY_NON_MAIN_MODULE_DIR);
+                dir.push(moonutil::common::DEP_PATH);
                 dir.extend(pkg.module().name().segments());
             }
             None => {
@@ -713,25 +713,13 @@ fn object_file_ext(os: OperatingSystem) -> &'static str {
     }
 }
 
-/// Get the bundled core bundle path for the given backend.
-///
-/// This is a recreation of [`moonutil::moon_dir::core`], which we hope will be
-/// removed in the future.
 pub fn core_bundle_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    let mut path = PathBuf::from(core_root);
-    path.push(moonutil::common::BUILD_DIR);
-    path.push(backend.to_dir_name());
-    path.push("release");
-    path.push("bundle");
-    path
+    moonutil::toolchain::core_bundle_in(core_root, backend)
 }
 
 /// Returns the path to abort.core for the given backend.
 pub fn abort_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    let mut path = core_bundle_path(core_root, backend);
-    path.push("abort");
-    path.push("abort.core");
-    path
+    moonutil::toolchain::abort_core_in(core_root, backend)
 }
 
 pub fn abort_mi_path(
@@ -739,34 +727,22 @@ pub fn abort_mi_path(
     backend: TargetBackend,
     is_implementing_virtual: bool,
 ) -> PathBuf {
-    let mut path = core_bundle_path(core_root, backend);
-    path.push("abort");
-    if is_implementing_virtual {
-        path.push(format!("abort{}", IMPL_MI_EXTENSION));
-    } else {
-        path.push(format!("abort{}", MI_EXTENSION));
-    }
-    path
+    moonutil::toolchain::abort_mi_in(core_root, backend, is_implementing_virtual)
 }
 
 /// Returns the path to core.core for the given backend.
 pub fn core_core_path(core_root: &Path, backend: TargetBackend) -> PathBuf {
-    let mut path = core_bundle_path(core_root, backend);
-    path.push("core.core");
-    path
+    moonutil::toolchain::core_core_in(core_root, backend)
 }
 
 pub fn stdlib_mi_path(core_root: &Path, backend: TargetBackend, fqn: &PackageFQN) -> PathBuf {
-    let mut path = core_bundle_path(core_root, backend);
     let package_name = fqn.package().as_str();
     let package_last_segment = fqn
         .package()
         .segments()
         .next_back()
         .expect("Package must have at least one segment");
-    path.push(package_name);
-    path.push(format!("{}{}", package_last_segment, MI_EXTENSION));
-    path
+    moonutil::toolchain::core_package_mi_in(core_root, backend, package_name, package_last_segment)
 }
 
 #[cfg(test)]

@@ -16,36 +16,16 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#![warn(clippy::clone_on_ref_ptr)]
+//! MoonBit toolchain layout and executable resolution.
+//!
+//! This module groups facts about the installed MoonBit toolchain: its root,
+//! shipped `bin`/`lib`/`include` directories, shipped standard-library
+//! artifacts, and resolved tool executable paths. Project-local build layout
+//! should live outside this module.
 
-mod binaries;
-pub mod build_script;
-pub mod cli;
-pub mod common;
-pub mod compiler_flags;
-pub mod cond_expr;
-pub mod demangle;
-pub mod dependency;
-pub mod dirs;
-pub mod error_code_docs;
-pub mod features;
-pub mod fuzzy_match;
-pub mod git;
-pub mod graph;
-pub mod module;
-pub mod moon_dir;
-pub mod moon_mod_patch;
-pub mod moon_pkg;
-pub mod mooncakes;
-pub mod package;
-pub mod path;
-pub mod platform;
-pub mod render;
-pub mod shlex;
-pub mod supported_targets;
-pub mod toolchain;
-pub mod user_warning;
-pub mod version;
-pub mod workspace;
-
-pub use binaries::BINARIES;
+pub use crate::BINARIES;
+pub use crate::binaries::CachedBinaries;
+pub use crate::moon_dir::{
+    MOON_DIRS, MoonDirs, abort_core_in, abort_mi_in, bin, core, core_bundle, core_bundle_in,
+    core_core, core_core_in, core_package_mi_in, include, is_toolchain_root, lib, toolchain_root,
+};

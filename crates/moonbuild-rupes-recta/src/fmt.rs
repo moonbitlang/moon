@@ -38,6 +38,7 @@ use moonutil::common::{
     MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK, validate_module_dsl_deps,
 };
 use moonutil::mooncakes::{ModuleSourceKind, result::ResolvedModule};
+use moonutil::toolchain::BINARIES;
 use moonutil::workspace::workspace_manifest_path;
 use n2::graph::Build;
 
@@ -232,7 +233,7 @@ fn format_moon_mod_dsl(
 ) -> anyhow::Result<()> {
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
@@ -258,7 +259,7 @@ fn format_moon_mod_dsl(
         graph.add_build(build)?;
     } else {
         let fmt_cmd = [
-            moonutil::BINARIES.moonfmt.to_string_lossy().into_owned(),
+            BINARIES.moonfmt.to_string_lossy().into_owned(),
             moon_mod.to_string_lossy().into_owned(),
             "-w".into(),
             "-o".into(),
@@ -295,7 +296,7 @@ fn format_moon_mod_json_migrate(
 
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
@@ -324,7 +325,7 @@ fn format_moon_mod_json_migrate(
         graph.add_build(build)?;
     } else {
         let fmt_cmd = [
-            moonutil::BINARIES.moonfmt.to_string_lossy().into_owned(),
+            BINARIES.moonfmt.to_string_lossy().into_owned(),
             moon_mod_json.to_string_lossy().into_owned(),
             "-o".into(),
             target_moon_mod.to_string_lossy().into_owned(),
@@ -498,7 +499,7 @@ fn format_node(
         .into_owned();
     let cmd: Vec<String> = if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
@@ -516,7 +517,7 @@ fn format_node(
         cmd
     } else {
         let mut cmd = vec![
-            moonutil::BINARIES.moonfmt.to_string_lossy().into_owned(),
+            BINARIES.moonfmt.to_string_lossy().into_owned(),
             file.to_string_lossy().into_owned(),
             "-w".into(),
             "-o".into(),
@@ -555,7 +556,7 @@ fn format_moon_work_dsl(
 ) -> anyhow::Result<()> {
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-workspace".into(),
             "--old".into(),
@@ -579,7 +580,7 @@ fn format_moon_work_dsl(
         graph.add_build(build)?;
     } else {
         let fmt_cmd: Vec<String> = vec![
-            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-workspace".into(),
             "--old".into(),
@@ -670,7 +671,7 @@ fn format_moon_pkg_dsl(
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
         let mut cmd = vec![
-            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
@@ -698,7 +699,7 @@ fn format_moon_pkg_dsl(
         // Format moon.pkg - use -w to write back to source and -o to target
         // This is consistent with how .mbt files are formatted
         let fmt_cmd: Vec<String> = vec![
-            moonutil::BINARIES.moonfmt.to_string_lossy().into_owned(),
+            BINARIES.moonfmt.to_string_lossy().into_owned(),
             moon_pkg.to_string_lossy().into_owned(),
             "-w".into(),
             "-o".into(),
@@ -747,7 +748,7 @@ fn format_moon_pkg_json_migrate(
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
         let mut cmd = vec![
-            moonutil::BINARIES.moonbuild.to_string_lossy().into_owned(),
+            BINARIES.moonbuild.to_string_lossy().into_owned(),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
@@ -774,7 +775,7 @@ fn format_moon_pkg_json_migrate(
     } else {
         // Step 1: Format moon.pkg.json to target directory
         let fmt_cmd: Vec<String> = vec![
-            moonutil::BINARIES.moonfmt.to_string_lossy().into_owned(),
+            BINARIES.moonfmt.to_string_lossy().into_owned(),
             moon_pkg_json.to_string_lossy().into_owned(),
             "-o".into(),
             target_moon_pkg.to_string_lossy().into_owned(),

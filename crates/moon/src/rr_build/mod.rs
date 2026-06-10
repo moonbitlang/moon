@@ -39,7 +39,10 @@ use indexmap::IndexMap;
 use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
-    build_lower::{LoweringEnvironment, WarningCondition, artifact::n2_db_path},
+    build_lower::{
+        LoweringEnvironment, WarningCondition,
+        artifact::{LegacyLayout, LegacyLayoutBuilder, n2_db_path},
+    },
     build_plan::InputDirective,
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
@@ -240,6 +243,9 @@ pub struct BuildMeta {
 
     /// The main optimization level used in this compile process
     pub opt_level: BuildProfile,
+
+    /// The standard library path selected for this build, if stdlib is imported.
+    pub stdlib_path: Option<PathBuf>,
 }
 
 /// Represents the result of the build process
@@ -367,6 +373,11 @@ impl CompilePreConfig {
             run_backend,
             tcc_run.is_some()
         );
+        let stdlib_path = if std {
+            Some(moonutil::toolchain::core())
+        } else {
+            None
+        };
 
         Ok(CompileConfig {
             target_dir: self.target_dir,
@@ -376,11 +387,7 @@ impl CompilePreConfig {
             opt_level: self.opt_level,
             action: self.action,
             debug_symbols: self.debug_symbols,
-            stdlib_path: if std {
-                Some(moonutil::moon_dir::core())
-            } else {
-                None
-            },
+            stdlib_path,
             lowering_environment: LoweringEnvironment::default(),
             enable_coverage: self.enable_coverage,
             output_wat: self.output_wat,
@@ -642,6 +649,7 @@ pub(crate) fn plan_resolved_build_from_intent(
         native_target: cx.native_target,
         tcc_run: cx.tcc_run.clone(),
         opt_level: cx.opt_level,
+        stdlib_path: cx.stdlib_path.clone(),
     };
 
     let db_path = n2_db_path(
@@ -770,13 +778,13 @@ pub fn generate_metadata(
     };
 
     let check_commands = collect_check_commands_by_output(build_input);
+    let layout = legacy_layout_for_build_meta(target_dir, build_meta, mode);
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
         &build_meta.resolve_output,
         source_dir,
-        target_dir,
+        &layout,
         build_meta.opt_level,
         build_meta.target_backend.into(),
-        mode,
         &check_commands,
     );
     let orig_meta = std::fs::read_to_string(&metadata_file);
@@ -787,6 +795,27 @@ pub fn generate_metadata(
         std::fs::write(&metadata_file, meta).context("Failed to write build metadata")?;
     }
     Ok(())
+}
+
+fn legacy_layout_for_build_meta(
+    target_dir: &Path,
+    build_meta: &BuildMeta,
+    mode: RunMode,
+) -> LegacyLayout {
+    let resolve_output = &build_meta.resolve_output;
+    let main_module = match resolve_output.local_modules() {
+        &[module_id] => Some(resolve_output.module_rel.module_source(module_id).clone()),
+        _ => None,
+    };
+
+    LegacyLayoutBuilder::default()
+        .opt_level(build_meta.opt_level)
+        .run_mode(mode)
+        .stdlib_dir(build_meta.stdlib_path.clone())
+        .target_base_dir(target_dir.to_owned())
+        .main_module(main_module)
+        .build()
+        .expect("Failed to build legacy layout")
 }
 
 fn collect_check_commands_by_output(
@@ -815,27 +844,7 @@ pub fn generate_all_pkgs_json(
     build_meta: &BuildMeta,
     mode: RunMode,
 ) -> anyhow::Result<()> {
-    let resolve_output = &build_meta.resolve_output;
-    let main_module = match resolve_output.local_modules() {
-        &[module_id] => Some(resolve_output.module_rel.module_source(module_id).clone()),
-        _ => None,
-    };
-    let is_core = main_module.as_ref().is_some_and(|module| module.is_core());
-    // the necessary information to calculate the layout of the `target`
-    // directory
-    // When building stdlib itself, don't point to prebuilt stdlib artifacts.
-    let layout = moonbuild_rupes_recta::build_lower::artifact::LegacyLayoutBuilder::default()
-        .opt_level(build_meta.opt_level)
-        .run_mode(mode)
-        .stdlib_dir(if is_core {
-            None
-        } else {
-            Some(moonutil::moon_dir::core())
-        })
-        .target_base_dir(target_dir.to_owned())
-        .main_module(main_module)
-        .build()
-        .expect("Failed to build legacy layout");
+    let layout = legacy_layout_for_build_meta(target_dir, build_meta, mode);
 
     let all_pkgs_path = layout.all_pkgs_of_build_target(build_meta.target_backend.into());
     let all_pkgs_json = moonbuild_rupes_recta::all_pkgs::gen_all_pkgs_json(
