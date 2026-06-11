@@ -360,8 +360,9 @@ If the package is virtual, then a list of virtual package checking nodes will be
 
 For `moon check` and `moon build` without an explicit `--target`, CLI planning
 may first split selected packages into multiple backend groups using
-`module preferred_target -> workspace preferred_target -> default backend`,
-then emit intents separately for each backend group.
+`workspace preferred_target -> module preferred_target -> default backend ->
+remaining backends` per module, then emit intents separately for each backend
+group.
 
 This mapping is also on a migration path for main packages: release N keeps the
 current nodes so warnings can be surfaced, while release N+1 will omit blackbox

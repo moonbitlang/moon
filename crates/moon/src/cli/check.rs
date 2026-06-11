@@ -22,7 +22,8 @@
 //! 2. Resolve packages and decide which backend(s) to check:
 //!    - explicit `--target` keeps one backend;
 //!    - otherwise local packages are grouped by
-//!      `module preferred -> workspace preferred -> default backend`.
+//!      `workspace preferred -> module preferred -> default backend`,
+//!      with fallback decided per module.
 //! 3. `plan_check_rr_from_resolved_all` turns those backend groups into an
 //!    ordered list of single-backend RR plans.
 //! 4. `plan_check_rr_from_resolved` still plans exactly one backend group.

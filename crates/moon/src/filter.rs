@@ -29,6 +29,7 @@ use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
 use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend, is_moon_pkg_exist};
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
+use moonutil::package::resolve_supported_targets;
 
 use crate::user_diagnostics::UserDiagnostics;
 
@@ -325,12 +326,30 @@ pub(crate) fn preferred_target_backend_for_package(
     pkg_id: PackageId,
 ) -> TargetBackend {
     let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
-    resolve_output
-        .module_rel
-        .module_info(module_id)
-        .preferred_target
-        .or(resolve_output.workspace_preferred_target)
-        .unwrap_or_default()
+    preferred_target_backend_for_module(resolve_output, module_id)
+}
+
+fn preferred_target_backend_for_module(
+    resolve_output: &ResolveOutput,
+    module_id: moonutil::mooncakes::ModuleId,
+) -> TargetBackend {
+    let module = resolve_output.module_rel.module_info(module_id);
+    let (module_supported_targets, _) =
+        resolve_supported_targets(module.supported_targets.as_ref())
+            .expect("module supported_targets should have been validated during discovery");
+
+    [
+        resolve_output.workspace_preferred_target,
+        module.preferred_target,
+        Some(TargetBackend::default()),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(TargetBackend::all().iter().copied())
+    // Implicit target preference is a module policy. Package-level
+    // supported_targets are applied later as filters under this module target.
+    .find(|target_backend| module_supported_targets.contains(target_backend))
+    .unwrap_or_default()
 }
 
 pub(crate) fn group_packages_by_preferred_backend(

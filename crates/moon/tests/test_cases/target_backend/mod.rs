@@ -100,6 +100,30 @@ fn assert_conflicting_workspace_preferred_targets_build_uses_module_backends(
     );
 }
 
+fn assert_workspace_preferred_target_policy(stdout: &str, stderr: &str) {
+    assert!(
+        !stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {stderr}"
+    );
+    assert_contains_and_absent(
+        stdout,
+        &[
+            "./_build/js/",
+            "./_build/native/",
+            "-target js",
+            "-target native",
+            "./app/src/main/extra.js.mbt",
+            "./defaulted/src/main/extra.js.mbt",
+            "./native_only/src/main/extra.native.mbt",
+        ],
+        &[
+            "./app/src/main/extra.native.mbt",
+            "./app/src/native_lib/extra.native.mbt",
+            "./defaulted/src/main/extra.wasm-gc.mbt",
+        ],
+    );
+}
+
 #[test]
 fn test_mixed_backend_explicit_selection_rejects_unsupported_backend() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
@@ -342,6 +366,95 @@ fn test_build_paths_split_by_module_preferred_targets() {
 }
 
 #[test]
+fn test_build_without_target_uses_workspace_preferred_target_policy() {
+    let dir = TestDir::new("workspace_preferred_target_policy.in");
+
+    let stdout = get_stdout(&dir, ["build", "--dry-run", "--sort-input"]);
+    let stderr = get_stderr(&dir, ["build", "--dry-run", "--sort-input"]);
+    assert_workspace_preferred_target_policy(&stdout, &stderr);
+}
+
+#[test]
+fn test_build_paths_use_workspace_preferred_target_policy() {
+    let dir = TestDir::new("workspace_preferred_target_policy.in");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            "app/src/main",
+            "native_only/src/main",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    let stderr = get_stderr(
+        &dir,
+        [
+            "build",
+            "app/src/main",
+            "native_only/src/main",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert!(
+        !stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {stderr}"
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &[
+            "./_build/js/",
+            "./_build/native/",
+            "-target js",
+            "-target native",
+            "./app/src/main/extra.js.mbt",
+            "./native_only/src/main/extra.native.mbt",
+        ],
+        &[
+            "./app/src/main/extra.native.mbt",
+            "./app/src/native_lib/extra.native.mbt",
+        ],
+    );
+}
+
+#[test]
+fn test_build_implicit_path_selection_does_not_fallback_per_package() {
+    let dir = TestDir::new("workspace_preferred_target_policy.in");
+
+    let stderr = get_err_stderr(
+        &dir,
+        ["build", "app/src/native_lib", "--dry-run", "--sort-input"],
+    );
+    assert!(stderr.contains(
+        "Package 'workspace_policy/app/native_lib' does not support target backend 'js'"
+    ));
+    assert!(stderr.contains("Supported backends: [native]"));
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            "app/src/native_lib",
+            "--target",
+            "native",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &[
+            "./_build/native/",
+            "-target native",
+            "./app/src/native_lib/extra.native.mbt",
+        ],
+        &["./_build/js/"],
+    );
+}
+
+#[test]
 fn test_supported_targets_empty_list_is_never_selected() {
     let dir = TestDir::new("supported_targets_empty.in");
 
@@ -421,6 +534,37 @@ fn test_supported_targets_transitive_mismatch_fails_fast() {
     assert!(run_err.contains("'supported/mismatch/main' requires 'supported/mismatch/lib'"));
     assert!(run_err.contains("requires 'supported/mismatch/lib'"));
     assert!(run_err.contains("supports [native]"));
+}
+
+#[test]
+fn test_run_without_target_uses_workspace_preferred_target() {
+    let dir = TestDir::new("workspace_preferred_target_policy.in");
+
+    let stdout = get_stdout(&dir, ["run", "app/src/main", "--dry-run", "--sort-input"]);
+    assert_contains_and_absent(
+        &stdout,
+        &["./_build/js/", "-target js", "./app/src/main/extra.js.mbt"],
+        &["./_build/native/", "./app/src/main/extra.native.mbt"],
+    );
+}
+
+#[test]
+fn test_run_without_target_falls_back_when_workspace_target_is_unsupported() {
+    let dir = TestDir::new("workspace_preferred_target_policy.in");
+
+    let stdout = get_stdout(
+        &dir,
+        ["run", "native_only/src/main", "--dry-run", "--sort-input"],
+    );
+    assert_contains_and_absent(
+        &stdout,
+        &[
+            "./_build/native/",
+            "-target native",
+            "./native_only/src/main/extra.native.mbt",
+        ],
+        &["./_build/js/"],
+    );
 }
 
 #[test]
@@ -601,6 +745,15 @@ fn test_check_paths_split_by_module_preferred_targets() {
 }
 
 #[test]
+fn test_check_without_target_uses_workspace_preferred_target_policy() {
+    let dir = TestDir::new("workspace_preferred_target_policy.in");
+
+    let stdout = get_stdout(&dir, ["check", "--dry-run", "--sort-input"]);
+    let stderr = get_stderr(&dir, ["check", "--dry-run", "--sort-input"]);
+    assert_workspace_preferred_target_policy(&stdout, &stderr);
+}
+
+#[test]
 fn test_check_last_executed_backend_wins_for_packages_json() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
@@ -696,6 +849,15 @@ fn test_bench_without_target_respects_module_preferred_targets() {
 }
 
 #[test]
+fn test_bench_without_target_uses_workspace_preferred_target_policy() {
+    let dir = TestDir::new("workspace_preferred_target_policy.in");
+
+    let stdout = get_stdout(&dir, ["bench", "--dry-run", "--sort-input"]);
+    let stderr = get_stderr(&dir, ["bench", "--dry-run", "--sort-input"]);
+    assert_workspace_preferred_target_policy(&stdout, &stderr);
+}
+
+#[test]
 fn test_test_without_target_respects_module_preferred_targets() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
 
@@ -722,6 +884,15 @@ fn test_test_without_target_respects_module_preferred_targets() {
             "./native_preferred/src/lib/extra.wasm-gc.mbt",
         ],
     );
+}
+
+#[test]
+fn test_test_without_target_uses_workspace_preferred_target_policy() {
+    let dir = TestDir::new("workspace_preferred_target_policy.in");
+
+    let stdout = get_stdout(&dir, ["test", "--dry-run", "--sort-input"]);
+    let stderr = get_stderr(&dir, ["test", "--dry-run", "--sort-input"]);
+    assert_workspace_preferred_target_policy(&stdout, &stderr);
 }
 
 #[test]
@@ -831,5 +1002,27 @@ fn test_info_paths_split_by_module_preferred_targets() {
             "pub fn native_extra() -> Int",
         ],
         &["native_wasm_gc_extra", "js_extra", "js_wasm_gc_extra"],
+    );
+}
+
+#[test]
+fn test_info_canonical_mbti_uses_module_preferred_target_then_wasm_gc() {
+    let dir = TestDir::new("workspace_preferred_target_policy.in");
+
+    get_stdout(&dir, ["info", "app/src/main", "defaulted/src/main"]);
+
+    let app_mbti = std::fs::read_to_string(dir.join("app/src/main").join(MBTI_GENERATED)).unwrap();
+    assert_contains_and_absent(
+        &app_mbti,
+        &["pub fn app_native_marker() -> Int"],
+        &["app_js_marker"],
+    );
+
+    let defaulted_mbti =
+        std::fs::read_to_string(dir.join("defaulted/src/main").join(MBTI_GENERATED)).unwrap();
+    assert_contains_and_absent(
+        &defaulted_mbti,
+        &["pub fn defaulted_wasm_gc_marker() -> Int"],
+        &["defaulted_js_marker"],
     );
 }

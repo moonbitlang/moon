@@ -112,8 +112,8 @@ All of them operate on the selected project rather than a single member, but
 - they accept package/path selectors across the selected project,
 - they may split one invocation into multiple backend-specific runs when
   `--target` is omitted,
-- and they use `module preferred_target -> workspace preferred_target ->
-  default backend` to decide those runs.
+- and they use `workspace preferred_target -> module preferred_target ->
+  default backend -> remaining backends` per module to decide those runs.
 
 That makes them more than just "project-scoped"; they are the current
 workspace-wide target-planning commands.

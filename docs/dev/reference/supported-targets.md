@@ -71,14 +71,24 @@ separate feature and unchanged.
 | `moon check` , `moon build` | keep packages that support `B` before root selection | selected package must support `B` |
 | `moon test` , `moon bench` | keep packages that support `B` | selected package(s) must support `B` |
 | `moon run` | N/A (explicit selector required) | selected package must support `B` |
-| `moon info` | write canonical `preferred-backend` output; inspect requested backend `B` | unsupported selected package(s) are skipped with warning |
+| `moon info` | write canonical `pkg.generated.mbti`; inspect requested backend `B` | unsupported selected package(s) are skipped with warning |
 | `moon bundle` | planner skips package targets that do not support `B` | no package-level explicit filter |
 
 Notes:
 
 * `--target all` expands to `wasm`,  `wasm-gc`,  `js`,  `native` (not `llvm`).
 * `llvm` is still a valid value in `supported_targets`.
-* `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm-gc`.
+* When `--target` is omitted, command execution chooses one backend per module:
+  the first backend supported by the module from workspace `preferred_target`,
+  module `preferred_target`, `wasm-gc`, then the remaining backend order.
+  Package-level `supported_targets` then filters packages within that module's
+  selected backend. A package that supports only a different backend is not
+  given its own implicit fallback; pass `--target` to select that package's
+  backend explicitly.
+* `moon info` writes `pkg.generated.mbti` only from the canonical backend of
+  each selected package: module `preferred-target`, then `wasm-gc`. Workspace
+  `preferred_target` is execution policy and does not affect this canonical
+  package-local output.
 
 ## Dependency compatibility (fail-fast)
 

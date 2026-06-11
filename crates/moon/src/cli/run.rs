@@ -28,7 +28,7 @@ use moonutil::dirs::{PackageDirs, ProjectProbe};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use tracing::{Level, instrument};
 
-use crate::filter::ensure_package_supports_backend;
+use crate::filter::{ensure_package_supports_backend, preferred_target_backend_for_package};
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
@@ -520,6 +520,18 @@ pub(crate) fn plan_run_rr_from_resolved(
     resolve_output: ResolveOutput,
     try_tcc_run: bool,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+    let input_path = cmd
+        .package_or_mbt_file
+        .clone()
+        .expect("package run planning requires a positional input");
+    let selection = resolve_run_selection(&input_path, &resolve_output)?;
+    let selected_target_backend = selected_target_backend.or_else(|| {
+        Some(preferred_target_backend_for_package(
+            &resolve_output,
+            selection.package,
+        ))
+    });
+
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
@@ -530,13 +542,8 @@ pub(crate) fn plan_run_rr_from_resolved(
     );
     preconfig.try_tcc_run = try_tcc_run;
 
-    let input_path = cmd
-        .package_or_mbt_file
-        .clone()
-        .expect("package run planning requires a positional input");
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
-    let selection = resolve_run_selection(&input_path, &resolve_output)?;
     let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,

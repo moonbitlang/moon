@@ -1,0 +1,6 @@
+members = [
+  "./app",
+  "./defaulted",
+  "./native_only",
+]
+preferred_target = "js"

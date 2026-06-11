@@ -29,9 +29,9 @@ use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::filter::{
-    TargetPackageGroup, ensure_packages_support_backend, filter_pkg_by_dir,
-    group_packages_by_preferred_backend, match_packages_by_name_rr, package_supports_backend,
-    select_packages, select_supported_packages,
+    TargetPackageGroup, ensure_package_supports_backend, ensure_packages_support_backend,
+    filter_pkg_by_dir, group_packages_by_preferred_backend, match_packages_by_name_rr,
+    package_supports_backend, select_packages, select_supported_packages,
 };
 use crate::rr_build;
 use crate::rr_build::BuildConfig;
@@ -484,15 +484,19 @@ fn resolve_build_target_selections(
     }
 
     let selected = resolve_selected_build_packages(resolve_output, cmd, None, output)?;
+    let fail_single_unsupported = has_explicit_build_selector(cmd) && selected.len() == 1;
     let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
 
     for selection in &mut selections {
-        selection.packages = selection
-            .packages
+        let packages = std::mem::take(&mut selection.packages);
+        selection.packages = packages
             .iter()
             .copied()
             .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
             .collect();
+        if fail_single_unsupported && selection.packages.is_empty() {
+            ensure_package_supports_backend(resolve_output, packages[0], selection.target_backend)?;
+        }
     }
     selections.retain(|selection| !selection.packages.is_empty());
 

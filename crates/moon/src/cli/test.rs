@@ -19,6 +19,7 @@
 use crate::cli::profile;
 use crate::filter::TargetPackageGroup;
 use crate::filter::canonicalize_with_filename;
+use crate::filter::ensure_package_supports_backend;
 use crate::filter::ensure_packages_support_backend;
 use crate::filter::filter_pkg_by_dir;
 use crate::filter::format_supported_backends;
@@ -1389,15 +1390,19 @@ fn resolve_test_target_selections(
     output: UserDiagnostics,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
     let selected = resolve_selected_test_packages(resolve_output, cmd, output)?;
+    let fail_single_unsupported = has_explicit_test_selector(cmd) && selected.len() == 1;
     let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
 
     for selection in &mut selections {
-        selection.packages = selection
-            .packages
+        let packages = std::mem::take(&mut selection.packages);
+        selection.packages = packages
             .iter()
             .copied()
             .filter(|&pkg| package_supports_backend(resolve_output, pkg, selection.target_backend))
             .collect();
+        if fail_single_unsupported && selection.packages.is_empty() {
+            ensure_package_supports_backend(resolve_output, packages[0], selection.target_backend)?;
+        }
     }
     selections.retain(|selection| !selection.packages.is_empty());
 

@@ -36,7 +36,7 @@ use moonutil::common::{MBTI_GENERATED, TargetBackend};
 use sha2::Digest;
 use tracing::error;
 
-use crate::{filter::preferred_target_backend_for_package, rr_build::BuildMeta};
+use crate::rr_build::BuildMeta;
 
 pub(super) struct InfoOutputPlan {
     packages: IndexMap<PackageId, PackageOutputPlan>,
@@ -104,8 +104,11 @@ pub(super) fn plan_info_outputs(
     for package_id in packages {
         planned.entry(package_id).or_insert_with(|| {
             let pkg = resolve_output.pkg_dirs.get_package(package_id);
-            let canonical_backend =
-                preferred_target_backend_for_package(resolve_output, package_id);
+            let canonical_backend = resolve_output
+                .module_rel
+                .module_info(pkg.module)
+                .preferred_target
+                .unwrap_or_default();
 
             PackageOutputPlan::new_from_fqn(
                 &pkg.fqn,
@@ -120,13 +123,12 @@ pub(super) fn plan_info_outputs(
 
 /// Determine the canonical backend for writing `.mbti` files:
 ///
-/// 1. Module's `preferred-backend` (if set in `moon.mod.json`)
-/// 2. Workspace's `preferred-backend` (if set in `moon.work`)
-/// 3. `wasm-gc` (default fallback)
+/// 1. Module's `preferred-target` (if set in `moon.mod.json`)
+/// 2. `wasm-gc` (default fallback)
 ///
 /// Note: If a package's `supported-targets` does NOT include the canonical backend,
-/// no `.mbti` file will be written. Users should set `preferred-backend` on the
-/// module or workspace to match their supported targets.
+/// no `.mbti` file will be written. Users should set `preferred-target` on the
+/// module to match their supported targets.
 impl InfoOutputPlan {
     pub(super) fn execution_targets(
         &self,
