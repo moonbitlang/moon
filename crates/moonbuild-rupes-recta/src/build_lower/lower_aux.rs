@@ -30,7 +30,7 @@ use moonutil::{
 use tracing::{Level, instrument};
 
 use crate::{
-    build_action_plan::{BuildActionId, PlannedArtifact},
+    build_action_plan::PlannedArtifact,
     build_lower::{
         Commandline,
         compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
@@ -39,24 +39,34 @@ use crate::{
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
 
-use super::{BuildCommand, compiler};
+use super::{BuildCommand, compiler, context::ActionProducts};
 
 impl<'a> super::LoweringContext<'a> {
-    #[instrument(level = Level::DEBUG, skip(self, info))]
+    #[instrument(level = Level::DEBUG, skip(self, products, info))]
     pub(super) fn lower_gen_test_driver(
         &mut self,
-        action: BuildActionId,
+        products: &ActionProducts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let output_driver = self.single_artifact_path(&PlannedArtifact::GeneratedTestDriver {
-            producer: action,
-            target,
+        let output_driver = products.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                PlannedArtifact::GeneratedTestDriver {
+                    target: artifact_target,
+                    ..
+                } if *artifact_target == target
+            )
         });
-        let output_metadata = self.single_artifact_path(&PlannedArtifact::GeneratedTestMetadata {
-            producer: action,
-            target,
+        let output_metadata = products.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                PlannedArtifact::GeneratedTestMetadata {
+                    target: artifact_target,
+                    ..
+                } if *artifact_target == target
+            )
         });
         let driver_kind = match target.kind {
             TargetKind::Source => panic!("Source package cannot be a test driver"),
@@ -103,32 +113,34 @@ impl<'a> super::LoweringContext<'a> {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, products))]
     pub(super) fn lower_bundle(
         &mut self,
-        action: BuildActionId,
+        products: &ActionProducts,
         module_id: ModuleId,
         targets: &[BuildTarget],
     ) -> BuildCommand {
-        let output = self.single_artifact_path(&PlannedArtifact::BundleResult {
-            producer: action,
-            module: module_id,
+        let output = products.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                PlannedArtifact::BundleResult {
+                    module: artifact_module,
+                    ..
+                } if *artifact_module == module_id
+            )
         });
 
         let mut inputs = vec![];
         for dep in targets {
-            inputs.push(
-                self.single_matching_dependency_path(action, |artifact| {
-                    matches!(
-                        artifact,
-                        PlannedArtifact::PackageCoreIr {
-                            target: artifact_target,
-                            ..
-                        } if artifact_target == dep
-                    )
-                })
-                .unwrap_or_else(|| unreachable!("Bundle targets should depend on core IR")),
-            );
+            inputs.push(products.single_dependency_path_matching(|artifact| {
+                matches!(
+                    artifact,
+                    PlannedArtifact::PackageCoreIr {
+                        target: artifact_target,
+                        ..
+                    } if artifact_target == dep
+                )
+            }));
         }
 
         let cmd = compiler::MooncBundleCore::new(&inputs, output);
@@ -139,13 +151,14 @@ impl<'a> super::LoweringContext<'a> {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, products))]
     pub(super) fn lower_compile_runtime(
         &mut self,
-        action: BuildActionId,
+        products: &ActionProducts,
     ) -> anyhow::Result<BuildCommand> {
-        let artifact_path =
-            self.single_artifact_path(&PlannedArtifact::RuntimeLib { producer: action });
+        let artifact_path = products.single_output_path_matching(|artifact| {
+            matches!(artifact, PlannedArtifact::RuntimeLib { .. })
+        });
 
         let runtime_c_path = self.opt.runtime_dot_c_path();
 
@@ -199,18 +212,23 @@ impl<'a> super::LoweringContext<'a> {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, products))]
     pub(super) fn lower_generate_mbti(
         &mut self,
-        action: BuildActionId,
+        products: &ActionProducts,
         target: BuildTarget,
     ) -> BuildCommand {
         let input =
             self.layout
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
-        let output = self.single_artifact_path(&PlannedArtifact::GeneratedMbti {
-            producer: action,
-            target,
+        let output = products.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                PlannedArtifact::GeneratedMbti {
+                    target: artifact_target,
+                    ..
+                } if *artifact_target == target
+            )
         });
 
         let cmd = Mooninfo {

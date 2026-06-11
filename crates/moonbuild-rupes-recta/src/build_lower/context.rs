@@ -60,6 +60,142 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) products: ProductTable,
 }
 
+pub(super) struct ActionProducts {
+    outputs: Vec<RealizedArtifact>,
+    dependencies: Vec<RealizedArtifact>,
+}
+
+struct RealizedArtifact {
+    artifact: PlannedArtifact,
+    paths: Vec<PathBuf>,
+}
+
+impl ActionProducts {
+    fn new(plan: &BuildActionPlan<'_>, products: &ProductTable, action: BuildActionId) -> Self {
+        let outputs = Self::realize(plan.output_artifacts(action), products);
+        let dependencies = Self::realize(plan.dependency_artifacts(action), products);
+        Self {
+            outputs,
+            dependencies,
+        }
+    }
+
+    fn realize(
+        artifacts: impl IntoIterator<Item = PlannedArtifact>,
+        products: &ProductTable,
+    ) -> Vec<RealizedArtifact> {
+        artifacts
+            .into_iter()
+            .map(|artifact| RealizedArtifact {
+                paths: products.paths(&artifact).to_vec(),
+                artifact,
+            })
+            .collect()
+    }
+
+    pub(super) fn dependency_paths(&self) -> Vec<PathBuf> {
+        Self::paths(&self.dependencies)
+    }
+
+    pub(super) fn output_paths(&self) -> Vec<PathBuf> {
+        Self::paths(&self.outputs)
+    }
+
+    pub(super) fn single_output_path(&self) -> PathBuf {
+        match self.outputs.as_slice() {
+            [artifact] => Self::single_realized_path(artifact),
+            [] => unreachable!("expected exactly one output artifact"),
+            _ => unreachable!(
+                "expected one output artifact, got {:?}",
+                self.output_artifacts()
+            ),
+        }
+    }
+
+    pub(super) fn single_output_path_matching(
+        &self,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> PathBuf {
+        self.optional_single_output_path_matching(matches)
+            .unwrap_or_else(|| unreachable!("expected one matching output artifact"))
+    }
+
+    pub(super) fn optional_single_output_path_matching(
+        &self,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> Option<PathBuf> {
+        Self::single_matching_path(&self.outputs, matches)
+    }
+
+    pub(super) fn single_dependency_path_matching(
+        &self,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> PathBuf {
+        Self::single_matching_path(&self.dependencies, matches)
+            .unwrap_or_else(|| unreachable!("expected one matching dependency artifact"))
+    }
+
+    pub(super) fn dependency_paths_matching(
+        &self,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> Vec<PathBuf> {
+        self.dependencies
+            .iter()
+            .filter(|realized| matches(&realized.artifact))
+            .flat_map(|realized| realized.paths.iter().cloned())
+            .collect()
+    }
+
+    pub(super) fn dependency_artifacts(&self) -> impl Iterator<Item = &PlannedArtifact> {
+        self.dependencies.iter().map(|realized| &realized.artifact)
+    }
+
+    fn paths(realized: &[RealizedArtifact]) -> Vec<PathBuf> {
+        realized
+            .iter()
+            .flat_map(|artifact| artifact.paths.iter().cloned())
+            .collect()
+    }
+
+    fn output_artifacts(&self) -> Vec<&PlannedArtifact> {
+        self.outputs
+            .iter()
+            .map(|realized| &realized.artifact)
+            .collect()
+    }
+
+    fn single_matching_path(
+        realized: &[RealizedArtifact],
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> Option<PathBuf> {
+        let matched = realized
+            .iter()
+            .filter(|realized| matches(&realized.artifact))
+            .collect::<Vec<_>>();
+        match matched.as_slice() {
+            [artifact] => Self::optional_single_realized_path(artifact),
+            [] => None,
+            _ => unreachable!("expected at most one matching artifact"),
+        }
+    }
+
+    fn single_realized_path(artifact: &RealizedArtifact) -> PathBuf {
+        Self::optional_single_realized_path(artifact)
+            .unwrap_or_else(|| unreachable!("expected exactly one path for artifact"))
+    }
+
+    fn optional_single_realized_path(artifact: &RealizedArtifact) -> Option<PathBuf> {
+        match artifact.paths.as_slice() {
+            [path] => Some(path.clone()),
+            [] => None,
+            _ => unreachable!(
+                "expected one path for artifact, got {:?}: {:?}",
+                artifact.paths, artifact.artifact
+            ),
+        }
+    }
+}
+
 impl<'a> LoweringContext<'a> {
     pub(super) fn new(
         layout: LegacyLayout,
@@ -98,41 +234,50 @@ impl<'a> LoweringContext<'a> {
         if self.is_action_noop(action) {
             return Ok(());
         }
+        let action_products = ActionProducts::new(self.plan, &self.products, id);
 
         // Lower the action to its commands. This step should be infallible.
         let cmd = match action {
-            BuildAction::Check { target, info } => self.lower_check(id, target, info),
-            BuildAction::EmitProof { target, info } => self.lower_emit_proof(id, target, info),
-            BuildAction::Prove { target, info } => self.lower_prove(id, target, info),
-            BuildAction::BuildCore { target, info } => self.lower_build_mbt(id, target, info),
+            BuildAction::Check { target, info } => self.lower_check(&action_products, target, info),
+            BuildAction::EmitProof { target, info } => {
+                self.lower_emit_proof(&action_products, target, info)
+            }
+            BuildAction::Prove { target, info } => self.lower_prove(&action_products, target, info),
+            BuildAction::BuildCore { target, info } => {
+                self.lower_build_mbt(&action_products, target, info)
+            }
             BuildAction::BuildCStub {
                 package,
                 index,
                 info,
-            } => self.lower_build_c_stub(id, package, index, info),
+            } => self.lower_build_c_stub(&action_products, package, index, info),
             BuildAction::ArchiveOrLinkCStubs { package, info } => {
-                self.lower_archive_or_link_c_stubs(id, package, info)
+                self.lower_archive_or_link_c_stubs(&action_products, package, info)
             }
             BuildAction::LinkCore {
                 target,
                 info,
                 make_executable_info,
-            } => self.lower_link_core(id, target, info, make_executable_info),
+            } => self.lower_link_core(&action_products, target, info, make_executable_info),
             BuildAction::MakeExecutable {
                 target,
                 info: Some(info),
-            } => self.lower_make_exe(id, target, info),
+            } => self.lower_make_exe(&action_products, target, info),
             BuildAction::MakeExecutable { info: None, .. } => {
                 panic!("native MakeExecutable actions should have executable info")
             }
             BuildAction::GenerateTestInfo { target, info } => {
-                self.lower_gen_test_driver(id, target, info)
+                self.lower_gen_test_driver(&action_products, target, info)
             }
-            BuildAction::GenerateMbti { target } => self.lower_generate_mbti(id, target),
+            BuildAction::GenerateMbti { target } => {
+                self.lower_generate_mbti(&action_products, target)
+            }
             BuildAction::BuildVirtual { package } => self.lower_parse_mbti(package),
-            BuildAction::Bundle { module, targets } => self.lower_bundle(id, module, targets),
+            BuildAction::Bundle { module, targets } => {
+                self.lower_bundle(&action_products, module, targets)
+            }
             BuildAction::BuildRuntimeLib => self
-                .lower_compile_runtime(id)
+                .lower_compile_runtime(&action_products)
                 .map_err(LoweringError::RuntimeNativeToolchain)?,
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
             BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info),
@@ -150,10 +295,7 @@ impl<'a> LoweringContext<'a> {
         // twice, once for the commandline and another here. This is currently
         // not a performance concern, but if you have found a way to optimize
         // this, or if you are duplicating a lot of code for it, please refactor.
-        let mut ins = vec![];
-        for artifact in self.plan.dependency_artifacts(id) {
-            self.append_planned_artifact(&artifact, &mut ins);
-        }
+        let mut ins = action_products.dependency_paths();
         ins.extend(cmd.extra_inputs);
         // Track tool binary dependencies so that n2 detects when compilers
         // or other toolchain binaries change (e.g. after a toolchain update)
@@ -164,10 +306,7 @@ impl<'a> LoweringContext<'a> {
         ins.sort(); // make sure the order is deterministic
         let ins = build_ins(&mut self.graph, ins);
 
-        let mut output_paths = vec![];
-        for artifact in self.plan.output_artifacts(id) {
-            self.append_planned_artifact(&artifact, &mut output_paths);
-        }
+        let output_paths = action_products.output_paths();
         if let Commandline::Args(args) = &cmd.commandline {
             for output_path in &output_paths {
                 self.command_args_by_output
@@ -222,66 +361,6 @@ impl<'a> LoweringContext<'a> {
             self.append_planned_artifact(&artifact, &mut paths);
         }
         paths
-    }
-
-    pub(super) fn single_artifact_path(&self, artifact: &PlannedArtifact) -> PathBuf {
-        self.optional_single_artifact_path(artifact)
-            .unwrap_or_else(|| unreachable!("expected exactly one path for artifact: {artifact:?}"))
-    }
-
-    pub(super) fn optional_single_artifact_path(
-        &self,
-        artifact: &PlannedArtifact,
-    ) -> Option<PathBuf> {
-        let paths = self.products.paths(artifact);
-        match paths {
-            [path] => Some(path.clone()),
-            [] => None,
-            _ => unreachable!("expected one path for artifact, got {paths:?}: {artifact:?}"),
-        }
-    }
-
-    pub(super) fn single_output_path(&self, action: BuildActionId) -> PathBuf {
-        let output_artifacts = self.plan.output_artifacts(action);
-        match output_artifacts.as_slice() {
-            [artifact] => self.single_artifact_path(artifact),
-            [] => unreachable!("expected exactly one output artifact for action: {action:?}"),
-            _ => unreachable!(
-                "expected one output artifact for action, got {output_artifacts:?}: {action:?}"
-            ),
-        }
-    }
-
-    pub(super) fn single_matching_output_path(
-        &self,
-        action: BuildActionId,
-        matches: impl Fn(&PlannedArtifact) -> bool,
-    ) -> Option<PathBuf> {
-        self.single_matching_artifact_path(self.plan.output_artifacts(action), matches)
-    }
-
-    pub(super) fn single_matching_dependency_path(
-        &self,
-        action: BuildActionId,
-        matches: impl Fn(&PlannedArtifact) -> bool,
-    ) -> Option<PathBuf> {
-        self.single_matching_artifact_path(self.plan.dependency_artifacts(action), matches)
-    }
-
-    fn single_matching_artifact_path(
-        &self,
-        artifacts: Vec<PlannedArtifact>,
-        matches: impl Fn(&PlannedArtifact) -> bool,
-    ) -> Option<PathBuf> {
-        let matched = artifacts
-            .iter()
-            .filter(|artifact| matches(artifact))
-            .collect::<Vec<_>>();
-        match matched.as_slice() {
-            [artifact] => self.optional_single_artifact_path(artifact),
-            [] => None,
-            _ => unreachable!("expected at most one matching artifact, got {matched:?}"),
-        }
     }
 
     fn lowered(&mut self, build: Build) -> Result<(), anyhow::Error> {

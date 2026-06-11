@@ -34,25 +34,12 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum SelectedBackend {
-    Wasm(WasmBackend),
-    WasmGc(WasmGcBackend),
-    Js(JsBackend),
+    Wasm { use_wat: bool },
+    WasmGc { use_wat: bool },
+    Js,
     C(CBackend),
-    Llvm(LlvmBackend),
+    Llvm { os: OperatingSystem },
 }
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct WasmBackend {
-    use_wat: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct WasmGcBackend {
-    use_wat: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct JsBackend;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CBackend {
@@ -61,11 +48,6 @@ pub(crate) struct CBackend {
     executable: CExecutableRealization,
     runtime: CRuntimeRealization,
     c_stubs: CStubLibraryRealization,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct LlvmBackend {
-    os: OperatingSystem,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -111,15 +93,15 @@ impl SelectedBackend {
         );
 
         match target_backend {
-            RunBackend::Wasm => Self::Wasm(WasmBackend {
+            RunBackend::Wasm => Self::Wasm {
                 use_wat: output_wat,
-            }),
-            RunBackend::WasmGC => Self::WasmGc(WasmGcBackend {
+            },
+            RunBackend::WasmGC => Self::WasmGc {
                 use_wat: output_wat,
-            }),
-            RunBackend::Js => Self::Js(JsBackend),
+            },
+            RunBackend::Js => Self::Js,
             RunBackend::Native => Self::C(CBackend::new(os(), native_target, use_tcc_run)),
-            RunBackend::Llvm => Self::Llvm(LlvmBackend { os: os() }),
+            RunBackend::Llvm => Self::Llvm { os: os() },
         }
     }
 
@@ -130,11 +112,25 @@ impl SelectedBackend {
         target: &BuildTarget,
     ) -> PathBuf {
         match self {
-            Self::Wasm(backend) => backend.linked_core_path(layout, packages, target),
-            Self::WasmGc(backend) => backend.linked_core_path(layout, packages, target),
-            Self::Js(backend) => backend.linked_core_path(layout, packages, target),
+            Self::Wasm { use_wat } => layout.linked_core_of_build_target(
+                packages,
+                target,
+                LinkedCoreArtifact::Wasm { use_wat },
+            ),
+            Self::WasmGc { use_wat } => layout.linked_core_of_build_target(
+                packages,
+                target,
+                LinkedCoreArtifact::WasmGC { use_wat },
+            ),
+            Self::Js => {
+                layout.linked_core_of_build_target(packages, target, LinkedCoreArtifact::Js)
+            }
             Self::C(backend) => backend.linked_core_path(layout, packages, target),
-            Self::Llvm(backend) => backend.linked_core_path(layout, packages, target),
+            Self::Llvm { os } => layout.linked_core_of_build_target(
+                packages,
+                target,
+                LinkedCoreArtifact::LlvmObject { os },
+            ),
         }
     }
 
@@ -145,19 +141,31 @@ impl SelectedBackend {
         target: &BuildTarget,
     ) -> PathBuf {
         match self {
-            Self::Wasm(backend) => backend.executable_path(layout, packages, target),
-            Self::WasmGc(backend) => backend.executable_path(layout, packages, target),
-            Self::Js(backend) => backend.executable_path(layout, packages, target),
+            Self::Wasm { use_wat } => layout.executable_of_build_target(
+                packages,
+                target,
+                ExecutableArtifact::Wasm { use_wat },
+            ),
+            Self::WasmGc { use_wat } => layout.executable_of_build_target(
+                packages,
+                target,
+                ExecutableArtifact::WasmGC { use_wat },
+            ),
+            Self::Js => layout.executable_of_build_target(packages, target, ExecutableArtifact::Js),
             Self::C(backend) => backend.executable_path(layout, packages, target),
-            Self::Llvm(backend) => backend.executable_path(layout, packages, target),
+            Self::Llvm { .. } => layout.executable_of_build_target(
+                packages,
+                target,
+                ExecutableArtifact::LlvmExecutable,
+            ),
         }
     }
 
     pub(crate) fn runtime_path(self, layout: &LegacyLayout) -> PathBuf {
         match self {
             Self::C(backend) => backend.runtime_path(layout),
-            Self::Llvm(backend) => backend.runtime_path(layout),
-            Self::Wasm(_) | Self::WasmGc(_) | Self::Js(_) => {
+            Self::Llvm { os } => layout.runtime_output_path(RunBackend::Llvm, false, os),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("runtime products are only realized for C or LLVM backends")
             }
         }
@@ -174,10 +182,8 @@ impl SelectedBackend {
             Self::C(backend) => {
                 backend.c_stub_library_path(layout, packages, package, target_backend)
             }
-            Self::Llvm(backend) => {
-                backend.c_stub_library_path(layout, packages, package, target_backend)
-            }
-            Self::Wasm(_) | Self::WasmGc(_) | Self::Js(_) => {
+            Self::Llvm { os } => layout.c_stub_archive_path(packages, package, target_backend, os),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("C stubs are only realized for C or LLVM backends")
             }
         }
@@ -186,8 +192,8 @@ impl SelectedBackend {
     pub(crate) fn c_stub_library_realization(self) -> CStubLibraryRealization {
         match self {
             Self::C(backend) => backend.c_stub_library_realization(),
-            Self::Llvm(_) => CStubLibraryRealization::StaticArchive,
-            Self::Wasm(_) | Self::WasmGc(_) | Self::Js(_) => {
+            Self::Llvm { .. } => CStubLibraryRealization::StaticArchive,
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("C stubs are only realized for C or LLVM backends")
             }
         }
@@ -196,95 +202,11 @@ impl SelectedBackend {
     pub(crate) fn uses_shared_runtime(self) -> bool {
         match self {
             Self::C(backend) => backend.uses_shared_runtime(),
-            Self::Llvm(_) => false,
-            Self::Wasm(_) | Self::WasmGc(_) | Self::Js(_) => {
+            Self::Llvm { .. } => false,
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("runtime products are only realized for C or LLVM backends")
             }
         }
-    }
-}
-
-impl WasmBackend {
-    fn linked_core_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        layout.linked_core_of_build_target(
-            packages,
-            target,
-            LinkedCoreArtifact::Wasm {
-                use_wat: self.use_wat,
-            },
-        )
-    }
-
-    fn executable_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        layout.executable_of_build_target(
-            packages,
-            target,
-            ExecutableArtifact::Wasm {
-                use_wat: self.use_wat,
-            },
-        )
-    }
-}
-
-impl WasmGcBackend {
-    fn linked_core_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        layout.linked_core_of_build_target(
-            packages,
-            target,
-            LinkedCoreArtifact::WasmGC {
-                use_wat: self.use_wat,
-            },
-        )
-    }
-
-    fn executable_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        layout.executable_of_build_target(
-            packages,
-            target,
-            ExecutableArtifact::WasmGC {
-                use_wat: self.use_wat,
-            },
-        )
-    }
-}
-
-impl JsBackend {
-    fn linked_core_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        layout.linked_core_of_build_target(packages, target, LinkedCoreArtifact::Js)
-    }
-
-    fn executable_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        layout.executable_of_build_target(packages, target, ExecutableArtifact::Js)
     }
 }
 
@@ -391,44 +313,6 @@ impl CBackend {
     }
 }
 
-impl LlvmBackend {
-    fn linked_core_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        layout.linked_core_of_build_target(
-            packages,
-            target,
-            LinkedCoreArtifact::LlvmObject { os: self.os },
-        )
-    }
-
-    fn executable_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        layout.executable_of_build_target(packages, target, ExecutableArtifact::LlvmExecutable)
-    }
-
-    fn runtime_path(self, layout: &LegacyLayout) -> PathBuf {
-        layout.runtime_output_path(RunBackend::Llvm, false, self.os)
-    }
-
-    fn c_stub_library_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        package: PackageId,
-        target_backend: TargetBackend,
-    ) -> PathBuf {
-        layout.c_stub_archive_path(packages, package, target_backend, self.os)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -439,10 +323,7 @@ mod tests {
             panic!("non-native backend should not resolve the host OS")
         });
 
-        assert!(matches!(
-            backend,
-            SelectedBackend::Wasm(WasmBackend { use_wat: true })
-        ));
+        assert!(matches!(backend, SelectedBackend::Wasm { use_wat: true }));
     }
 
     #[test]
@@ -495,7 +376,7 @@ mod tests {
             OperatingSystem::Windows
         });
 
-        assert!(matches!(backend, SelectedBackend::Llvm(_)));
+        assert!(matches!(backend, SelectedBackend::Llvm { .. }));
         assert_eq!(
             backend.c_stub_library_realization(),
             CStubLibraryRealization::StaticArchive
