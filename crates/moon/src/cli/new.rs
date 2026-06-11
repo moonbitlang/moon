@@ -104,12 +104,14 @@ pub(crate) fn run_new(cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Resul
                 .unwrap_or_else(|| "hello".to_string())
         }
     };
-    if project_name
-        .chars()
-        .any(|c| !c.is_ascii_alphanumeric() && c != '_')
-    {
+    let mut name_chars = project_name.chars();
+    let has_valid_start = name_chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+    let has_valid_rest = name_chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'));
+    if !has_valid_start || !has_valid_rest {
         bail!(
-            "Project name {} contains invalid characters. Only alphanumeric characters and underscore are allowed.",
+            "Project name {} contains invalid characters. Names must match package id syntax: start with an ASCII letter or underscore, followed by ASCII letters, digits, dashes, or underscores.",
             project_name
         );
     }

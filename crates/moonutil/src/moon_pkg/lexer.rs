@@ -74,7 +74,10 @@ pub enum Token {
     AS(Loc),
     #[token("import", with_span)]
     IMPORT(Loc),
-    #[regex(r"@[a-zA-Z_][a-zA-Z0-9_/]*", with_package_name)]
+    #[regex(
+        r"@[a-zA-Z_][a-zA-Z0-9_-]*(/[a-zA-Z_][a-zA-Z0-9_-]*)*",
+        with_package_name
+    )]
     PACKAGENAME((Loc, String)),
     EOF(Loc),
 }
@@ -725,6 +728,15 @@ options(
         )
     "#]]
     .assert_debug_eq(&tokens);
+}
+
+#[test]
+fn tokenize_package_name_with_dash() {
+    let tokens = tokenize(r#"import { "path/to/pkg" @pkg-A }"#).unwrap();
+    assert!(matches!(
+        &tokens[3],
+        Token::PACKAGENAME((_, alias)) if alias == "pkg-A"
+    ));
 }
 
 #[test]

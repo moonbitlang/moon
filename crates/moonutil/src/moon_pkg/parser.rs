@@ -478,6 +478,30 @@ f(
 }
 
 #[test]
+fn parse_import_alias_with_dash() {
+    let source = r#"
+import {
+  "path/to/pkg" @pkg-A,
+}
+    "#;
+
+    let tokens = tokenize(source).unwrap();
+    let ast = Parser::parse(tokens).unwrap();
+
+    assert_eq!(ast.entries.len(), 1);
+    assert_eq!(ast.entries[0].0, "import");
+    assert_eq!(
+        ast.entries[0].1,
+        json!([
+            {
+                "path": "path/to/pkg",
+                "alias": "pkg-A"
+            }
+        ])
+    );
+}
+
+#[test]
 fn parse_legacy_import_syntax() {
     let source = r#"
 import "test" {
