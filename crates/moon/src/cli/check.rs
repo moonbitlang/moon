@@ -447,7 +447,7 @@ fn run_check_normal_internal(
             || run_once(true, &watch_target),
             source_dir,
             source_dir,
-            target_dir,
+            &watch_target,
         )
     } else {
         run_once(false, target_dir).map(|output| if output.ok { 0 } else { 1 })
