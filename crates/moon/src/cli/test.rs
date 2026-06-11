@@ -1604,8 +1604,7 @@ fn rr_test_from_plan(
             // Promote test results
             let promotion_source = last_test_result.as_ref().unwrap_or(&test_result);
             let (rerun_count, rerun_filter_raw) =
-                perform_promotion(&build_meta.resolve_output.pkg_dirs, promotion_source)
-                    .expect("Failed to promote tests");
+                perform_promotion(&build_meta.resolve_output.pkg_dirs, promotion_source)?;
             debug!(
                 rerun_count,
                 pending_targets = rerun_filter_raw.0.len(),
@@ -1633,20 +1632,19 @@ fn rr_test_from_plan(
                 .expect("build graph backup should be present when update is true");
 
             // Calculate which files to rebuild
-            let want_files = rerun_filter_raw
+            let mut want_files = Vec::new();
+            for node in rerun_filter_raw
                 .0
                 .keys()
-                .cloned() // All targets to rerun
-                .flat_map(node_from_target) // converted to nodes
-                .flat_map(|node| {
-                    // their artifacts
-                    build_meta
-                        .artifacts
-                        .get(&node)
-                        .expect("test node from the last test run should have artifact")
-                        .artifacts
-                        .as_slice()
-                });
+                .cloned()
+                .flat_map(node_from_target)
+            {
+                let artifacts = build_meta
+                    .artifacts
+                    .get(&node)
+                    .with_context(|| format!("test node `{node:?}` should have artifacts"))?;
+                want_files.extend(artifacts.artifacts.iter().cloned());
+            }
 
             // Run the build
             let result = rr_build::execute_build_partial(
@@ -1657,9 +1655,9 @@ fn rr_test_from_plan(
                     trace!("requesting rerun artifacts");
                     for file_path in want_files {
                         let file_path_str = file_path.to_string_lossy();
-                        let file = work
-                            .lookup(&file_path_str)
-                            .expect("File should exist in work");
+                        let file = work.lookup(&file_path_str).with_context(|| {
+                            format!("file `{file_path_str}` should exist in work")
+                        })?;
                         work.want_file(file).context("Failed to want file")?;
                     }
                     Ok(())

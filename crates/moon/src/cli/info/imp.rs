@@ -23,7 +23,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use colored::Colorize;
 use indexmap::IndexMap;
 use moonbuild::expect::write_diff;
@@ -161,8 +161,10 @@ impl InfoOutputPlan {
 pub(super) fn promote_info_results<'a>(
     plan: &'a InfoOutputPlan,
     it: impl Iterator<Item = &'a (TargetBackend, BuildMeta)>,
-) {
-    for (_package, group) in collect_package_output_groups(plan, it) {
+) -> anyhow::Result<()> {
+    let groups = collect_package_output_groups(plan, it)?;
+
+    for (_package, group) in groups {
         let Some(source_path) = group
             .backend_files
             .get(&group.plan.canonical_backend)
@@ -183,6 +185,8 @@ pub(super) fn promote_info_results<'a>(
             }
         }
     }
+
+    Ok(())
 }
 
 pub(super) fn report_info_outputs<'a>(
@@ -196,7 +200,7 @@ pub(super) fn report_info_outputs<'a>(
 
     let requested_backends = requested_backends.iter().copied().collect::<BTreeSet<_>>();
 
-    for (_package, group) in collect_package_output_groups(plan, it) {
+    for (_package, group) in collect_package_output_groups(plan, it)? {
         report_info_output_for_package(&requested_backends, &group)?;
     }
 
@@ -206,7 +210,7 @@ pub(super) fn report_info_outputs<'a>(
 fn collect_package_output_groups<'a>(
     plan: &'a InfoOutputPlan,
     it: impl Iterator<Item = &'a (TargetBackend, BuildMeta)>,
-) -> IndexMap<PackageId, PackageOutputGroup<'a>> {
+) -> anyhow::Result<IndexMap<PackageId, PackageOutputGroup<'a>>> {
     let mut transposed = plan
         .packages
         .iter()
@@ -222,16 +226,14 @@ fn collect_package_output_groups<'a>(
                 continue;
             };
 
-            assert!(
-                artifact.artifacts.len() == 1,
-                "mbti generation should only produce one artifact"
-            );
-            let mbti_path = artifact.artifacts.first().unwrap();
+            let [mbti_path] = artifact.artifacts.as_slice() else {
+                bail!("mbti generation should only produce one artifact");
+            };
             group.insert(*backend, mbti_path);
         }
     }
 
-    transposed
+    Ok(transposed)
 }
 
 type ContentHash = [u8; 32];

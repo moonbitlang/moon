@@ -31,7 +31,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{
     ResolveConfig, discover::DiscoveredPackage, intent::UserIntent, model::PackageId,
 };
@@ -108,7 +108,7 @@ pub(crate) fn run_build_binary_dep(
     // in its own `bin_target`, and if not present, fall back to the main
     // module's preferred target backend (or default backend if not specified).
     let &[main_module_id] = resolve_output.local_modules() else {
-        panic!("Expected exactly one main module when building all packages");
+        bail!("building binary dependencies expects exactly one local module");
     };
     let main_module_ref = resolve_output.module_rel.module_info(main_module_id);
     let default_backend = main_module_ref.preferred_target.unwrap_or_default();
@@ -133,7 +133,7 @@ pub(crate) fn run_build_binary_dep(
                 resolve_output.local_modules(),
                 pkg_name,
                 output,
-            );
+            )?;
             for pkg in pkgs {
                 let pkg_ref = resolve_output.pkg_dirs.get_package(pkg);
                 let pkg_bin_target = pkg_ref.raw.bin_target.unwrap_or(default_backend);

@@ -337,7 +337,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         return Ok(1);
     }
 
-    imp::promote_info_results(&output_plan, all_meta.iter());
+    imp::promote_info_results(&output_plan, all_meta.iter())?;
     imp::report_info_outputs(&output_plan, all_meta.iter(), &requested_targets)?;
     Ok(0)
 }

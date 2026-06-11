@@ -138,9 +138,9 @@ pub(crate) fn match_packages_by_name_rr(
     main_modules: &[moonutil::mooncakes::ModuleId],
     needle: &str,
     output: UserDiagnostics,
-) -> Vec<PackageId> {
+) -> anyhow::Result<Vec<PackageId>> {
     let &[main_module_id] = main_modules else {
-        panic!("No multiple main modules are supported");
+        anyhow::bail!("package name matching expects exactly one local module");
     };
 
     let res = fuzzy_match_by_name(needle, &resolve_output.pkg_dirs);
@@ -156,7 +156,7 @@ pub(crate) fn match_packages_by_name_rr(
             ));
         }
     }
-    res
+    Ok(res)
 }
 
 impl AsNameMap<PackageId> for moonbuild_rupes_recta::discover::DiscoverResult {

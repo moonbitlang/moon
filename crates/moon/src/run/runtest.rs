@@ -186,7 +186,8 @@ pub(crate) fn run_tests(
 
         let work_queue: std::sync::Arc<std::sync::Mutex<std::slice::Iter<'_, _>>> =
             std::sync::Arc::new(std::sync::Mutex::new(invocations.iter()));
-        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let (result_tx, result_rx) =
+            std::sync::mpsc::channel::<anyhow::Result<(BuildTarget, TargetTestResult)>>();
 
         std::thread::scope(|s| {
             for _ in 0..parallelism {
@@ -195,7 +196,13 @@ pub(crate) fn run_tests(
 
                 s.spawn(move || {
                     // Each thread creates its own runtime
-                    let rt = default_rt().expect("Failed to create runtime");
+                    let rt = match default_rt().context("Failed to create runtime") {
+                        Ok(rt) => rt,
+                        Err(err) => {
+                            let _ = result_tx.send(Err(err));
+                            return;
+                        }
+                    };
                     let ctx = TestRunCtx {
                         build_meta,
                         rt: &rt,
@@ -205,23 +212,27 @@ pub(crate) fn run_tests(
                     };
 
                     loop {
-                        let r = {
-                            let mut queue = work_queue.lock().unwrap();
-                            queue.next()
+                        let r = match work_queue.lock() {
+                            Ok(mut queue) => queue.next().cloned(),
+                            Err(_) => {
+                                let _ = result_tx
+                                    .send(Err(anyhow::anyhow!("test work queue lock poisoned")));
+                                return;
+                            }
                         };
                         let Some(r) = r else { break };
 
                         debug!(target = ?r.target, executable = %r.executable.display(), "running test invocation");
-                        let res = run_one_test_executable(&ctx, r);
-                        let _ = result_tx.send((r.target, res));
+                        let res = run_one_test_executable(&ctx, &r).map(|res| (r.target, res));
+                        let _ = result_tx.send(res);
                     }
                 });
             }
         });
 
         drop(result_tx);
-        for (target, res) in result_rx {
-            let res = res?;
+        for res in result_rx {
+            let (target, res) = res?;
             let cases_for_target = res.map.values().map(IndexMap::len).sum::<usize>();
             trace!(?target, cases = cases_for_target, "merging test results");
             total_cases += cases_for_target;
@@ -239,7 +250,7 @@ pub(crate) fn run_tests(
     Ok(stats)
 }
 
-#[derive(derive_builder::Builder, Debug)]
+#[derive(Clone, Copy, derive_builder::Builder, Debug)]
 #[builder(derive(Debug))]
 struct TestExecutableToRun<'a> {
     target: BuildTarget,
@@ -445,7 +456,7 @@ pub(crate) fn collect_test_outline(
     include_skipped: bool,
     bench: bool,
 ) -> anyhow::Result<Vec<TestOutlineEntry>> {
-    let executables = gather_tests(build_meta);
+    let executables = gather_tests(build_meta)?;
     debug!(count = executables.len(), "collecting test outline entries");
     let mut entries = Vec::new();
 
@@ -516,14 +527,14 @@ pub(crate) fn collect_test_outline(
 
 /// Gather tests executables from the build metadata.
 #[instrument(level = "trace", skip(build_meta))]
-fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
+fn gather_tests(build_meta: &BuildMeta) -> anyhow::Result<Vec<TestExecutableToRun<'_>>> {
     let mut pending = HashMap::with_capacity(build_meta.artifacts.len());
     let mut results = vec![];
 
     for (node, artifacts) in &build_meta.artifacts {
-        let target = node
-            .extract_target()
-            .expect("All artifacts of tests should contain a build target");
+        let Some(target) = node.extract_target() else {
+            anyhow::bail!("All artifacts of tests should contain a build target");
+        };
         trace!(?target, node = ?node, "processing test artifact");
 
         let working = pending.entry(target).or_insert_with(|| {
@@ -534,9 +545,17 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
 
         // FIXME: artifact index relies on implementation of append_artifact_of
         match node {
-            BuildPlanNode::MakeExecutable(_) => working.executable(&artifacts.artifacts[0]),
-            BuildPlanNode::GenerateTestInfo(_) => working.meta(&artifacts.artifacts[1]),
-            _ => panic!("Unexpected artifact for test: {:?}", artifacts.node),
+            BuildPlanNode::MakeExecutable(_) => {
+                if let Some(executable) = artifacts.artifacts.first() {
+                    working.executable(executable);
+                }
+            }
+            BuildPlanNode::GenerateTestInfo(_) => {
+                if let Some(meta) = artifacts.artifacts.get(1) {
+                    working.meta(meta);
+                }
+            }
+            _ => anyhow::bail!("Unexpected artifact for test: {:?}", artifacts.node),
         };
 
         if let Ok(tgt) = working.build() {
@@ -553,14 +572,11 @@ fn gather_tests(build_meta: &BuildMeta) -> Vec<TestExecutableToRun<'_>> {
         "completed gathering test executables"
     );
 
-    assert_eq!(
-        pending.len(),
-        0,
-        "Some test targets are missing artifacts: {:?}",
-        &pending
-    );
+    if !pending.is_empty() {
+        anyhow::bail!("Some test targets are missing artifacts: {:?}", &pending);
+    }
 
-    results
+    Ok(results)
 }
 
 pub(crate) fn collect_test_invocations(
@@ -570,7 +586,7 @@ pub(crate) fn collect_test_invocations(
     bench: bool,
 ) -> anyhow::Result<Vec<TestInvocation>> {
     let mut invocations = Vec::new();
-    for test in gather_tests(build_meta) {
+    for test in gather_tests(build_meta)? {
         let meta_bytes = std::fs::read(test.meta)
             .with_context(|| format!("Failed to read test metadata at {}", test.meta.display()))?;
         let meta: MooncGenTestInfo = serde_json_lenient::from_slice(&meta_bytes)

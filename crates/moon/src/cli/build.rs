@@ -523,7 +523,7 @@ fn resolve_selected_build_packages(
             resolve_output.local_modules(),
             package_filter,
             output,
-        );
+        )?;
         if let Some(target_backend) = target_backend {
             ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
         }
@@ -563,7 +563,7 @@ fn calc_user_intent(
             resolve_output.local_modules(),
             package_filter,
             output,
-        );
+        )?;
         ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
         Ok(pkgs
             .into_iter()
