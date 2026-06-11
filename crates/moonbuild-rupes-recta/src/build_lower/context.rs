@@ -37,6 +37,7 @@ use moonutil::toolchain::BINARIES;
 
 use super::{
     BuildOptions, CommandArgMap, Commandline, LoweringError,
+    products::ProductTable,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
@@ -56,6 +57,131 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) rel: &'a DepRelationship,
     pub(crate) plan: &'a BuildActionPlan<'a>,
     pub(crate) opt: &'a BuildOptions,
+    pub(crate) products: ProductTable,
+}
+
+pub(super) struct ActionProducts {
+    outputs: Vec<RealizedArtifact>,
+    dependencies: Vec<RealizedArtifact>,
+}
+
+struct RealizedArtifact {
+    artifact: PlannedArtifact,
+    paths: Vec<PathBuf>,
+}
+
+impl ActionProducts {
+    fn new(plan: &BuildActionPlan<'_>, products: &ProductTable, action: BuildActionId) -> Self {
+        let outputs = Self::realize(plan.output_artifacts(action), products);
+        let dependencies = Self::realize(plan.dependency_artifacts(action), products);
+        Self {
+            outputs,
+            dependencies,
+        }
+    }
+
+    fn realize(
+        artifacts: impl IntoIterator<Item = PlannedArtifact>,
+        products: &ProductTable,
+    ) -> Vec<RealizedArtifact> {
+        artifacts
+            .into_iter()
+            .map(|artifact| RealizedArtifact {
+                paths: products.paths(&artifact).to_vec(),
+                artifact,
+            })
+            .collect()
+    }
+
+    pub(super) fn dependency_paths(&self) -> Vec<PathBuf> {
+        Self::paths(&self.dependencies)
+    }
+
+    pub(super) fn output_paths(&self) -> Vec<PathBuf> {
+        Self::paths(&self.outputs)
+    }
+
+    pub(super) fn single_output_path(&self) -> PathBuf {
+        match self.outputs.as_slice() {
+            [artifact] => Self::optional_single_realized_path(artifact)
+                .unwrap_or_else(|| unreachable!("expected exactly one path for artifact")),
+            [] => unreachable!("expected exactly one output artifact"),
+            _ => unreachable!(
+                "expected one output artifact, got {:?}",
+                self.outputs
+                    .iter()
+                    .map(|realized| &realized.artifact)
+                    .collect::<Vec<_>>()
+            ),
+        }
+    }
+
+    pub(super) fn single_output_path_matching(
+        &self,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> PathBuf {
+        self.optional_single_output_path_matching(matches)
+            .unwrap_or_else(|| unreachable!("expected one matching output artifact"))
+    }
+
+    pub(super) fn optional_single_output_path_matching(
+        &self,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> Option<PathBuf> {
+        Self::single_matching_path(&self.outputs, matches)
+    }
+
+    pub(super) fn single_dependency_path_matching(
+        &self,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> PathBuf {
+        Self::single_matching_path(&self.dependencies, matches)
+            .unwrap_or_else(|| unreachable!("expected one matching dependency artifact"))
+    }
+
+    pub(super) fn dependency_paths_matching(
+        &self,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> Vec<PathBuf> {
+        self.dependencies
+            .iter()
+            .filter(|realized| matches(&realized.artifact))
+            .flat_map(|realized| realized.paths.iter().cloned())
+            .collect()
+    }
+
+    fn paths(realized: &[RealizedArtifact]) -> Vec<PathBuf> {
+        realized
+            .iter()
+            .flat_map(|artifact| artifact.paths.iter().cloned())
+            .collect()
+    }
+
+    fn single_matching_path(
+        realized: &[RealizedArtifact],
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> Option<PathBuf> {
+        let matched = realized
+            .iter()
+            .filter(|realized| matches(&realized.artifact))
+            .collect::<Vec<_>>();
+        match matched.as_slice() {
+            [artifact] => Self::optional_single_realized_path(artifact),
+            [] => None,
+            _ => unreachable!("expected at most one matching artifact"),
+        }
+    }
+
+    fn optional_single_realized_path(artifact: &RealizedArtifact) -> Option<PathBuf> {
+        match artifact.paths.as_slice() {
+            [path] => Some(path.clone()),
+            [] => None,
+            _ => unreachable!(
+                "expected one path for artifact, got {:?}: {:?}",
+                artifact.paths, artifact.artifact
+            ),
+        }
+    }
 }
 
 impl<'a> LoweringContext<'a> {
@@ -65,6 +191,7 @@ impl<'a> LoweringContext<'a> {
         plan: &'a BuildActionPlan<'a>,
         opt: &'a BuildOptions,
     ) -> Self {
+        let products = ProductTable::new(&layout, resolve_output, plan, opt);
         Self {
             graph: N2Graph::default(),
             command_args_by_output: CommandArgMap::new(),
@@ -75,6 +202,7 @@ impl<'a> LoweringContext<'a> {
             module_dirs: &resolve_output.module_dirs,
             plan,
             opt,
+            products,
         }
     }
 
@@ -94,41 +222,50 @@ impl<'a> LoweringContext<'a> {
         if self.is_action_noop(action) {
             return Ok(());
         }
+        let action_products = ActionProducts::new(self.plan, &self.products, id);
 
         // Lower the action to its commands. This step should be infallible.
         let cmd = match action {
-            BuildAction::Check { target, info } => self.lower_check(target, info),
-            BuildAction::EmitProof { target, info } => self.lower_emit_proof(target, info),
-            BuildAction::Prove { target, info } => self.lower_prove(target, info),
-            BuildAction::BuildCore { target, info } => self.lower_build_mbt(target, info),
+            BuildAction::Check { target, info } => self.lower_check(&action_products, target, info),
+            BuildAction::EmitProof { target, info } => {
+                self.lower_emit_proof(&action_products, target, info)
+            }
+            BuildAction::Prove { target, info } => self.lower_prove(&action_products, target, info),
+            BuildAction::BuildCore { target, info } => {
+                self.lower_build_mbt(&action_products, target, info)
+            }
             BuildAction::BuildCStub {
                 package,
                 index,
                 info,
-            } => self.lower_build_c_stub(package, index, info),
+            } => self.lower_build_c_stub(&action_products, package, index, info),
             BuildAction::ArchiveOrLinkCStubs { package, info } => {
-                self.lower_archive_or_link_c_stubs(id, package, info)
+                self.lower_archive_or_link_c_stubs(&action_products, package, info)
             }
             BuildAction::LinkCore {
                 target,
                 info,
                 make_executable_info,
-            } => self.lower_link_core(target, info, make_executable_info),
+            } => self.lower_link_core(&action_products, target, info, make_executable_info),
             BuildAction::MakeExecutable {
                 target,
                 info: Some(info),
-            } => self.lower_make_exe(id, target, info),
+            } => self.lower_make_exe(&action_products, target, info),
             BuildAction::MakeExecutable { info: None, .. } => {
                 panic!("native MakeExecutable actions should have executable info")
             }
             BuildAction::GenerateTestInfo { target, info } => {
-                self.lower_gen_test_driver(target, info)
+                self.lower_gen_test_driver(&action_products, target, info)
             }
-            BuildAction::GenerateMbti { target } => self.lower_generate_mbti(target),
+            BuildAction::GenerateMbti { target } => {
+                self.lower_generate_mbti(&action_products, target)
+            }
             BuildAction::BuildVirtual { package } => self.lower_parse_mbti(package),
-            BuildAction::Bundle { module, targets } => self.lower_bundle(module, targets),
+            BuildAction::Bundle { module, targets } => {
+                self.lower_bundle(&action_products, module, targets)
+            }
             BuildAction::BuildRuntimeLib => self
-                .lower_compile_runtime()
+                .lower_compile_runtime(&action_products)
                 .map_err(LoweringError::RuntimeNativeToolchain)?,
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
             BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info),
@@ -146,10 +283,7 @@ impl<'a> LoweringContext<'a> {
         // twice, once for the commandline and another here. This is currently
         // not a performance concern, but if you have found a way to optimize
         // this, or if you are duplicating a lot of code for it, please refactor.
-        let mut ins = vec![];
-        for artifact in self.plan.dependency_artifacts(id) {
-            self.append_planned_artifact(&artifact, &mut ins);
-        }
+        let mut ins = action_products.dependency_paths();
         ins.extend(cmd.extra_inputs);
         // Track tool binary dependencies so that n2 detects when compilers
         // or other toolchain binaries change (e.g. after a toolchain update)
@@ -160,10 +294,7 @@ impl<'a> LoweringContext<'a> {
         ins.sort(); // make sure the order is deterministic
         let ins = build_ins(&mut self.graph, ins);
 
-        let mut output_paths = vec![];
-        for artifact in self.plan.output_artifacts(id) {
-            self.append_planned_artifact(&artifact, &mut output_paths);
-        }
+        let output_paths = action_products.output_paths();
         if let Commandline::Args(args) = &cmd.commandline {
             for output_path in &output_paths {
                 self.command_args_by_output
@@ -192,160 +323,14 @@ impl<'a> LoweringContext<'a> {
         build.can_dirty_on_output = self.plan.can_dirty_on_output(id);
 
         self.debug_print_command_and_files(id, &build);
-        self.lowered(build).map_err(|e| LoweringError::N2 {
-            package: fqn.into(),
-            action: id,
-            source: e,
-        })
-    }
-
-    /// Append the concrete path(s) corresponding to a planned artifact.
-    #[instrument(level = Level::DEBUG, skip(self, out))]
-    pub(super) fn append_planned_artifact(
-        &self,
-        artifact: &PlannedArtifact,
-        out: &mut Vec<PathBuf>,
-    ) {
-        match artifact {
-            PlannedArtifact::PackageInterface { producer, target } => {
-                self.append_package_interface(*producer, *target, out);
-            }
-            PlannedArtifact::PackageCoreIr { target, .. } => {
-                out.push(self.layout.core_of_build_target(
-                    self.packages,
-                    target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::ProofInterface { producer, target } => {
-                match self.plan.action(*producer) {
-                    BuildAction::EmitProof { .. } => {
-                        out.push(self.layout.emit_proof_mi_path(self.packages, target));
-                    }
-                    BuildAction::Prove { .. } => {
-                        out.push(self.layout.prove_mi_path(self.packages, target));
-                    }
-                    _ => panic!("proof interface producer should be a proof action"),
-                }
-            }
-            PlannedArtifact::ProofWhyml { producer, target } => match self.plan.action(*producer) {
-                BuildAction::EmitProof { .. } => {
-                    out.push(self.layout.emit_proof_whyml_path(self.packages, target));
-                }
-                BuildAction::Prove { .. } => {
-                    out.push(self.layout.prove_whyml_path(self.packages, target));
-                }
-                _ => panic!("proof whyml producer should be a proof action"),
-            },
-            PlannedArtifact::ProofReport { target, .. } => {
-                out.push(self.layout.prove_report_path(self.packages, target));
-            }
-            PlannedArtifact::CStubObject { package, index, .. } => {
-                let pkg = self.packages.get_package(*package);
-                let file_name = &pkg.c_stub_files[*index as usize];
-                out.push(
-                    self.layout.c_stub_object_path(
-                        self.packages,
-                        *package,
-                        file_name
-                            .file_stem()
-                            .expect("c stub file should have a file name"),
-                        self.opt.target_backend.into(),
-                        self.opt.os(),
-                    ),
-                );
-            }
-            PlannedArtifact::CStubLibrary { package, .. } => {
-                if self.opt.use_tcc_run() {
-                    out.push(self.layout.c_stub_link_dylib_path(
-                        self.packages,
-                        *package,
-                        self.opt.target_backend.into(),
-                        self.opt.os(),
-                    ));
-                } else {
-                    out.push(self.layout.c_stub_archive_path(
-                        self.packages,
-                        *package,
-                        self.opt.target_backend.into(),
-                        self.opt.os(),
-                    ));
-                }
-            }
-            PlannedArtifact::LinkedCore { target, .. } => {
-                out.push(self.layout.linked_core_of_build_target(
-                    self.packages,
-                    target,
-                    self.opt.linked_core_artifact(),
-                ));
-            }
-            PlannedArtifact::Executable { target, .. } => {
-                out.push(self.layout.executable_of_build_target(
-                    self.packages,
-                    target,
-                    self.opt.executable_artifact(true),
-                ))
-            }
-            PlannedArtifact::GeneratedTestDriver { target, .. } => {
-                out.push(self.layout.generated_test_driver(
-                    self.packages,
-                    target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::GeneratedTestMetadata { target, .. } => {
-                out.push(self.layout.generated_test_driver_metadata(
-                    self.packages,
-                    target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::BundleResult { module, .. } => {
-                let module_name = self.modules.module_source(*module);
-                out.push(
-                    self.layout
-                        .bundle_result_path(self.opt.target_backend.into(), module_name.name()),
-                );
-            }
-            PlannedArtifact::RuntimeLib { .. } => {
-                out.push(self.layout.runtime_output_path(
-                    self.opt.target_backend,
-                    self.opt.use_tcc_run(),
-                    self.opt.os(),
-                ));
-            }
-            PlannedArtifact::GeneratedMbti { target, .. } => {
-                out.push(self.layout.generated_mbti_path(
-                    self.packages,
-                    target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::DocsDir { .. } => {
-                // The output is a whole folder
-                out.push(self.layout.doc_dir())
-            }
-            PlannedArtifact::VirtualPackageInterface { package, .. } => {
-                // The interface generated from `.mbti` is the `.mi` of the source target
-                let t = package.build_target(crate::model::TargetKind::Source);
-                out.push(self.layout.mi_of_build_target(
-                    self.packages,
-                    &t,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::MoonLexGeneratedSource { package, index, .. } => {
-                let pkg_info = self.packages.get_package(*package);
-                let mbtlex_file = &pkg_info.mbt_lex_files[*index as usize];
-                out.push(mbtlex_file.with_extension("mbt"));
-            }
-            PlannedArtifact::MoonYaccGeneratedSource { package, index, .. } => {
-                let pkg_info = self.packages.get_package(*package);
-                let mbtyacc_file = &pkg_info.mbt_yacc_files[*index as usize];
-                out.push(mbtyacc_file.with_extension("mbt"));
-            }
-            PlannedArtifact::KnownPath { path, .. } => out.push(path.clone()),
-        }
+        self.graph
+            .add_build(build)
+            .map(|_| ())
+            .map_err(|e| LoweringError::N2 {
+                package: fqn.into(),
+                action: id,
+                source: e,
+            })
     }
 
     pub(super) fn planned_artifact_paths(
@@ -354,73 +339,9 @@ impl<'a> LoweringContext<'a> {
     ) -> Vec<PathBuf> {
         let mut paths = Vec::new();
         for artifact in artifacts {
-            self.append_planned_artifact(&artifact, &mut paths);
+            paths.extend(self.products.paths(&artifact).iter().cloned());
         }
         paths
-    }
-
-    fn append_package_interface(
-        &self,
-        producer: BuildActionId,
-        target: BuildTarget,
-        out: &mut Vec<PathBuf>,
-    ) {
-        match self.plan.action(producer) {
-            BuildAction::Check { info, .. } if info.check_mi_against.is_some() => {
-                // Generate a `.mi` artifact including the case besides normal
-                // cases:
-                // * --no-mi is enabled: need add mi to the artifacts so that n2
-                // run the command for it and notice in this case, the command
-                // will always be executed because it doesn't produce any output
-                // so n2 will think it's always dirty.
-                // * implementing a virtual package: no need to generate mi
-                // though, but still need to declare a `.mi` artifact so that n2
-                // executes it. And it actually produces a useless `.mi` file.
-                // So that n2 can check its timestamp to decide whether it
-                // needs to be rebuilt.
-                //
-                // Not generating `.mi` for the special case:
-                // * moonbitlang/core/abort when working on non-core packages.
-                // First, abort is injected as a dependency for every package.
-                // When working on core/non-core, abort will have a different
-                // PackageId. When working on non-core packages, the mi artifact
-                // of abort is not needed, and it avoids checking
-                // moonbitlang/core/abort, which is unnecessary. When working on
-                // core, the abort mi is returned as `Regular` below. So it will
-                // be actually checked.
-                match self.layout.mi_of_build_target_impl_virtual(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend.into(),
-                ) {
-                    crate::build_lower::artifact::MiPathResult::StdAbort(_) => {}
-                    crate::build_lower::artifact::MiPathResult::Std(p) => {
-                        // this should not happen because there is no
-                        // implementation package in stdlib other than abort
-                        tracing::warn!(
-                            "stdlib mi should not be needed for check as an implementation package: {:?}",
-                            p
-                        );
-                    }
-                    crate::build_lower::artifact::MiPathResult::Regular(p) => {
-                        out.push(p);
-                    }
-                }
-            }
-            BuildAction::Check { .. } | BuildAction::BuildCore { .. } => {
-                out.push(self.layout.mi_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            _ => panic!("package interface producer should be Check or BuildCore"),
-        }
-    }
-
-    fn lowered(&mut self, build: Build) -> Result<(), anyhow::Error> {
-        self.graph.add_build(build)?;
-        Ok(())
     }
 
     /// **For debug use only.** Prints debug information about a lowered action,

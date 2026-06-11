@@ -47,22 +47,12 @@ const IMPL_MI_EXTENSION: &str = ".impl.mi";
 
 #[derive(Clone, Copy, Debug)]
 pub enum ExecutableArtifact {
-    Wasm {
-        use_wat: bool,
-    },
-    WasmGC {
-        use_wat: bool,
-    },
+    Wasm { use_wat: bool },
+    WasmGC { use_wat: bool },
     Js,
-    NativeExecutable {
-        os: OperatingSystem,
-        legacy_behavior: bool,
-    },
+    NativeExecutable,
     TccRunResponseFile,
-    LlvmExecutable {
-        os: OperatingSystem,
-        legacy_behavior: bool,
-    },
+    LlvmExecutable,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -103,8 +93,8 @@ impl ExecutableArtifact {
             Self::Wasm { .. } => TargetBackend::Wasm,
             Self::WasmGC { .. } => TargetBackend::WasmGC,
             Self::Js => TargetBackend::Js,
-            Self::NativeExecutable { .. } | Self::TccRunResponseFile => TargetBackend::Native,
-            Self::LlvmExecutable { .. } => TargetBackend::LLVM,
+            Self::NativeExecutable | Self::TccRunResponseFile => TargetBackend::Native,
+            Self::LlvmExecutable => TargetBackend::LLVM,
         }
     }
 
@@ -113,14 +103,7 @@ impl ExecutableArtifact {
             Self::Wasm { use_wat } | Self::WasmGC { use_wat } if use_wat => ".wat",
             Self::Wasm { .. } | Self::WasmGC { .. } => ".wasm",
             Self::Js => ".js",
-            Self::NativeExecutable {
-                os,
-                legacy_behavior,
-            }
-            | Self::LlvmExecutable {
-                os,
-                legacy_behavior,
-            } => executable_ext(os, legacy_behavior),
+            Self::NativeExecutable | Self::LlvmExecutable => ".exe",
             Self::TccRunResponseFile => ".rspfile",
         }
     }
@@ -668,19 +651,6 @@ fn build_kind_suffix_filename(kind: TargetKind) -> &'static str {
         TargetKind::BlackboxTest => "_blackbox_test",
         TargetKind::InlineTest => "_internal_test",
         TargetKind::SubPackage => "_sub",
-    }
-}
-
-/// The extension for executables. The legacy behavior forces everything into an `.exe`.
-fn executable_ext(os: OperatingSystem, legacy_behavior: bool) -> &'static str {
-    if legacy_behavior {
-        ".exe"
-    } else {
-        match os {
-            OperatingSystem::Windows => ".exe",
-            OperatingSystem::Linux | OperatingSystem::MacOS => "",
-            OperatingSystem::None => panic!("No executable extension for no-OS targets"),
-        }
     }
 }
 

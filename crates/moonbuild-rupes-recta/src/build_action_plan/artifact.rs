@@ -25,7 +25,7 @@ use crate::model::{BuildTarget, PackageId};
 use super::BuildActionId;
 
 /// A logical artifact produced by a build action.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PlannedArtifact {
     PackageInterface {
         producer: BuildActionId,

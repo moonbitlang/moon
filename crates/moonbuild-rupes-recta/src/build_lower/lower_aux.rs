@@ -30,34 +30,44 @@ use moonutil::{
 use tracing::{Level, instrument};
 
 use crate::{
+    build_action_plan::PlannedArtifact,
     build_lower::{
         Commandline,
         compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     },
     build_plan::{BuildTargetInfo, PrebuildInfo},
-    model::{BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
+    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
 
-use super::{BuildCommand, compiler};
+use super::{BuildCommand, compiler, context::ActionProducts};
 
 impl<'a> super::LoweringContext<'a> {
-    #[instrument(level = Level::DEBUG, skip(self, info))]
+    #[instrument(level = Level::DEBUG, skip(self, products, info))]
     pub(super) fn lower_gen_test_driver(
         &mut self,
+        products: &ActionProducts,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let output_driver = self.layout.generated_test_driver(
-            self.packages,
-            &target,
-            self.opt.target_backend.into(),
-        );
-        let output_metadata = self.layout.generated_test_driver_metadata(
-            self.packages,
-            &target,
-            self.opt.target_backend.into(),
-        );
+        let output_driver = products.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                PlannedArtifact::GeneratedTestDriver {
+                    target: artifact_target,
+                    ..
+                } if *artifact_target == target
+            )
+        });
+        let output_metadata = products.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                PlannedArtifact::GeneratedTestMetadata {
+                    target: artifact_target,
+                    ..
+                } if *artifact_target == target
+            )
+        });
         let driver_kind = match target.kind {
             TargetKind::Source => panic!("Source package cannot be a test driver"),
             TargetKind::WhiteboxTest => DriverKind::Whitebox,
@@ -103,24 +113,34 @@ impl<'a> super::LoweringContext<'a> {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self, products))]
     pub(super) fn lower_bundle(
         &mut self,
+        products: &ActionProducts,
         module_id: ModuleId,
         targets: &[BuildTarget],
     ) -> BuildCommand {
-        let module = self.modules.module_source(module_id);
-        let output = self
-            .layout
-            .bundle_result_path(self.opt.target_backend.into(), module.name());
+        let output = products.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                PlannedArtifact::BundleResult {
+                    module: artifact_module,
+                    ..
+                } if *artifact_module == module_id
+            )
+        });
 
         let mut inputs = vec![];
         for dep in targets {
-            inputs.push(self.layout.core_of_build_target(
-                self.packages,
-                dep,
-                self.opt.target_backend.into(),
-            ));
+            inputs.push(products.single_dependency_path_matching(|artifact| {
+                matches!(
+                    artifact,
+                    PlannedArtifact::PackageCoreIr {
+                        target: artifact_target,
+                        ..
+                    } if artifact_target == dep
+                )
+            }));
         }
 
         let cmd = compiler::MooncBundleCore::new(&inputs, output);
@@ -131,23 +151,22 @@ impl<'a> super::LoweringContext<'a> {
         }
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_compile_runtime(&mut self) -> anyhow::Result<BuildCommand> {
-        let artifact_path = self.layout.runtime_output_path(
-            self.opt.target_backend,
-            self.opt.use_tcc_run(),
-            self.opt.os(),
-        );
+    #[instrument(level = Level::DEBUG, skip(self, products))]
+    pub(super) fn lower_compile_runtime(
+        &mut self,
+        products: &ActionProducts,
+    ) -> anyhow::Result<BuildCommand> {
+        let artifact_path = products.single_output_path_matching(|artifact| {
+            matches!(artifact, PlannedArtifact::RuntimeLib { .. })
+        });
 
         let runtime_c_path = self.opt.runtime_dot_c_path();
 
-        let use_tcc_run = self.opt.use_tcc_run();
-        let (output_ty, link_moonbitrun) = match self.opt.target_backend {
-            RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => {
-                panic!("Runtime compilation is not applicable for non-native backends")
-            }
-            RunBackend::Native if use_tcc_run => (CCOutputType::SharedLib, false),
-            RunBackend::Native | RunBackend::Llvm => (CCOutputType::Object, true),
+        let use_shared_runtime = self.opt.selected_backend.uses_shared_runtime();
+        let (output_ty, link_moonbitrun) = if use_shared_runtime {
+            (CCOutputType::SharedLib, false)
+        } else {
+            (CCOutputType::Object, true)
         };
 
         let resolved_cc = moonutil::compiler_flags::default_native_toolchain(
@@ -158,7 +177,7 @@ impl<'a> super::LoweringContext<'a> {
         )?
         .cc()
         .clone();
-        let use_simdutf = !use_tcc_run
+        let use_simdutf = !use_shared_runtime
             && resolved_cc.can_use_simdutf()
             && self.opt.compiler_paths().simdutf_object_paths().is_some();
 
@@ -172,8 +191,8 @@ impl<'a> super::LoweringContext<'a> {
                 .allow_stacktrace(
                     self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
                 )
-                .define_tinyc_macro(use_tcc_run)
-                .preserve_frame_pointer(use_tcc_run)
+                .define_tinyc_macro(use_shared_runtime)
+                .preserve_frame_pointer(use_shared_runtime)
                 .link_moonbitrun(link_moonbitrun)
                 .link_libbacktrace(output_ty == CCOutputType::SharedLib)
                 .define_use_shared_runtime_macro(false)
@@ -193,14 +212,24 @@ impl<'a> super::LoweringContext<'a> {
         })
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_generate_mbti(&mut self, target: BuildTarget) -> BuildCommand {
+    #[instrument(level = Level::DEBUG, skip(self, products))]
+    pub(super) fn lower_generate_mbti(
+        &mut self,
+        products: &ActionProducts,
+        target: BuildTarget,
+    ) -> BuildCommand {
         let input =
             self.layout
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
-        let output =
-            self.layout
-                .generated_mbti_path(self.packages, &target, self.opt.target_backend.into());
+        let output = products.single_output_path_matching(|artifact| {
+            matches!(
+                artifact,
+                PlannedArtifact::GeneratedMbti {
+                    target: artifact_target,
+                    ..
+                } if *artifact_target == target
+            )
+        });
 
         let cmd = Mooninfo {
             mi_in: input.into(),
