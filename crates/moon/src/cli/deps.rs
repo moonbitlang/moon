@@ -107,7 +107,9 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         return install_from_local(&cli, &local_path, &install_dir, false);
     }
 
-    let source = cmd.source.unwrap();
+    let source = cmd.source.ok_or_else(|| {
+        anyhow::anyhow!("`moon install` expects a package, local path, or git URL")
+    })?;
 
     // Local path install
     // These checks can't be done in clap because we need to inspect the value of source
