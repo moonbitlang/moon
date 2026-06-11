@@ -158,6 +158,58 @@ fn test_moon_new() {
 }
 
 #[test]
+fn test_moon_new_allows_pkg_id_project_names() {
+    let dir = TestDir::new_empty();
+    let valid_names = ["pkg-A", "_", "__", "_pkg", "pkg-", "pkg_", "A1-_"];
+
+    for (index, name) in valid_names.iter().enumerate() {
+        let path = format!("good{index}");
+        snapbox::cmd::Command::new(moon_bin())
+            .current_dir(&dir)
+            .args([
+                "new",
+                &path,
+                "--user",
+                "moonbitlang",
+                &format!("--name={name}"),
+            ])
+            .assert()
+            .success();
+    }
+
+    check(
+        get_stdout(&dir.join("good0"), ["run", "cmd/main"]),
+        expect![[r#"
+            Hello
+        "#]],
+    );
+}
+
+#[test]
+fn test_moon_new_rejects_invalid_pkg_id_project_names() {
+    let dir = TestDir::new_empty();
+    let invalid_names = ["", "-", "--", "-pkg", "1pkg", "pkg.name", "pkg/name"];
+
+    for (index, name) in invalid_names.iter().enumerate() {
+        let path = format!("bad{index}");
+        let args = vec![
+            "new".to_string(),
+            path.clone(),
+            "--user".to_string(),
+            "moonbitlang".to_string(),
+            format!("--name={name}"),
+        ];
+        let stderr = get_err_stderr(&dir, args);
+
+        assert!(
+            stderr.contains("Names must match package id syntax"),
+            "stderr for {name:?}: {stderr}"
+        );
+        assert!(!dir.join(path).exists());
+    }
+}
+
+#[test]
 fn test_moon_new_exist() {
     let dir = TestDir::new("moon_new/exist");
     dir.join("hello").rm_rf();

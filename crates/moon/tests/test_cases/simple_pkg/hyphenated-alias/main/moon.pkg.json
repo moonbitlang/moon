@@ -1,0 +1,6 @@
+{
+  "is-main": true,
+  "import": [
+    "username/hyphenated-alias/pkg-A"
+  ]
+}
