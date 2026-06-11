@@ -41,7 +41,8 @@ use tracing::{Level, instrument};
 use crate::{
     build_action_plan::{BuildActionId, PlannedArtifact},
     build_lower::{
-        WarningCondition, artifact,
+        CExecutableRealization, CStubLibraryRealization, SelectedBackend, WarningCondition,
+        artifact,
         compiler::{
             BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, ErrorFormat, JsConfig,
             MiDependency, PackageSource, WasmConfig,
@@ -586,6 +587,7 @@ impl<'a> LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_link_core(
         &mut self,
+        action: BuildActionId,
         target: BuildTarget,
         info: &LinkCoreInfo,
         make_executable_info: Option<&MakeExecutableInfo>,
@@ -622,11 +624,10 @@ impl<'a> LoweringContext<'a> {
             core_input_files.push(core_path);
         }
 
-        let out_file = self.layout.linked_core_of_build_target(
-            self.packages,
-            &target,
-            self.opt.linked_core_artifact(),
-        );
+        let out_file = self.single_artifact_path(&PlannedArtifact::LinkedCore {
+            producer: action,
+            target,
+        });
 
         let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
         let package_sources = info
@@ -777,27 +778,23 @@ impl<'a> LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_build_c_stub(
         &mut self,
+        action: BuildActionId,
         target: PackageId,
         index: u32,
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
-        assert!(
-            self.opt.target_backend.is_native(),
-            "Non-native make-executable should be already matched and should not be here"
-        );
+        if !self.opt.target_backend.is_native() {
+            unreachable!("C stubs are only lowered for C or LLVM backends")
+        }
 
         let package = self.packages.get_package(target);
 
         let input_file = &package.c_stub_files[index as usize];
-        let output_file = self.layout.c_stub_object_path(
-            self.packages,
-            target,
-            input_file
-                .file_stem()
-                .expect("stub lib should have a file name"),
-            self.opt.target_backend.into(),
-            self.opt.os(),
-        );
+        let output_file = self.single_artifact_path(&PlannedArtifact::CStubObject {
+            producer: action,
+            package: target,
+            index,
+        });
 
         // Match legacy to_opt_level function exactly
         let opt_level = match (
@@ -810,7 +807,7 @@ impl<'a> LoweringContext<'a> {
             (false, false) => CCOptLevel::None,
         };
         // `tcc run` uses shared runtime, others use static runtime
-        let use_shared_runtime = self.opt.use_tcc_run();
+        let use_shared_runtime = self.opt.selected_backend.uses_shared_runtime();
 
         let config = CCConfigBuilder::default()
             .no_sys_header(true)
@@ -852,10 +849,9 @@ impl<'a> LoweringContext<'a> {
         target: PackageId,
         info: &BuildCStubsInfo,
     ) -> BuildCommand {
-        assert!(
-            self.opt.target_backend.is_native(),
-            "Non-native make-executable should be already matched and should not be here"
-        );
+        if !self.opt.target_backend.is_native() {
+            unreachable!("C stubs are only lowered for C or LLVM backends")
+        }
 
         let mut object_files = Vec::new();
         for artifact in self.plan.dependency_artifacts(action) {
@@ -868,32 +864,27 @@ impl<'a> LoweringContext<'a> {
         // - When not using `tcc -run`, this creates an archive of the C stubs.
         // - When using `tcc -run`, this links the C stubs to an ELF .so, so tcc
         //   can load it at runtime.
-        match self.opt.target_backend {
-            RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
-                panic!("C stubs are not supported for non-native backends")
+        let output = self.single_artifact_path(&PlannedArtifact::CStubLibrary {
+            producer: action,
+            package: target,
+        });
+
+        match self.opt.selected_backend.c_stub_library_realization() {
+            CStubLibraryRealization::SharedLibraryForTccRun => {
+                self.lower_link_c_stubs(info, &object_files, output)
             }
-            RunBackend::Native if self.opt.use_tcc_run() => {
-                self.lower_link_c_stubs(target, info, &object_files)
-            }
-            RunBackend::Native | RunBackend::Llvm => {
-                self.lower_archive_c_stubs(target, info, &object_files)
+            CStubLibraryRealization::StaticArchive => {
+                self.lower_archive_c_stubs(info, &object_files, output)
             }
         }
     }
 
     fn lower_archive_c_stubs(
         &mut self,
-        target: PackageId,
         info: &BuildCStubsInfo,
         object_files: &[PathBuf],
+        archive: PathBuf,
     ) -> BuildCommand {
-        let archive = self.layout.c_stub_archive_path(
-            self.packages,
-            target,
-            self.opt.target_backend.into(),
-            self.opt.os(),
-        );
-
         let config = ArchiverConfigBuilder::default()
             .archive_moonbitrun(false)
             .build()
@@ -919,17 +910,10 @@ impl<'a> LoweringContext<'a> {
 
     fn lower_link_c_stubs(
         &mut self,
-        target: PackageId,
         info: &BuildCStubsInfo,
         object_files: &[PathBuf],
+        dylib_out: PathBuf,
     ) -> BuildCommand {
-        // Output: lib{pkg}.{DYN_EXT}, exactly like legacy gen_link_stub_to_dynamic_lib_command()
-        let dylib_out = self.layout.c_stub_link_dylib_path(
-            self.packages,
-            target,
-            self.opt.target_backend.into(),
-            self.opt.os(),
-        );
         let dest_dir = dylib_out
             .parent()
             .expect("c stub dylib should have a parent directory")
@@ -938,11 +922,7 @@ impl<'a> LoweringContext<'a> {
 
         // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
         // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
-        let runtime_dylib = self.layout.runtime_output_path(
-            self.opt.target_backend,
-            self.opt.use_tcc_run(),
-            self.opt.os(),
-        );
+        let runtime_dylib = self.opt.selected_backend.runtime_path(&self.layout);
         let runtime_parent = runtime_dylib
             .parent()
             .expect("runtime dylib should have a parent directory");
@@ -1006,23 +986,28 @@ impl<'a> LoweringContext<'a> {
                     .all(|package| planned_c_stubs.contains(package))
         });
 
-        match self.opt.target_backend {
-            RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
-                panic!(
-                    "Non-native make-executable should be already matched and should not be here"
-                )
+        match self.opt.selected_backend {
+            SelectedBackend::Wasm(_) | SelectedBackend::WasmGc(_) | SelectedBackend::Js(_) => {
+                unreachable!("non-native make-executable actions are no-ops during lowering")
             }
-            RunBackend::Native => {
-                if let Some(tcc_run) = &self.opt.tcc_run {
+            SelectedBackend::C(backend) => match backend.executable_realization() {
+                CExecutableRealization::WriteTccRunResponseFile => {
+                    let tcc_run = self
+                        .opt
+                        .tcc_run
+                        .as_ref()
+                        .expect("tcc-run realization should carry tcc-run config");
                     let internal_tcc = tcc_run.internal_tcc().clone();
                     self.build_tcc_run_driver_command(action, target, info, internal_tcc)
-                } else if self.opt.native_target.is_some() {
+                }
+                CExecutableRealization::LinkDirectObject => {
                     self.lower_link_new_native_exe(action, target, info)
-                } else {
+                }
+                CExecutableRealization::CompileAndLinkGeneratedC => {
                     self.lower_build_exe_regular(action, target, info)
                 }
-            }
-            RunBackend::Llvm => self.lower_build_exe_regular(action, target, info),
+            },
+            SelectedBackend::Llvm(_) => self.lower_build_exe_regular(action, target, info),
         }
     }
 
@@ -1104,11 +1089,7 @@ impl<'a> LoweringContext<'a> {
             .build()
             .expect("Failed to build CC configuration for executable");
 
-        let dest = self
-            .layout
-            .executable_of_build_target(self.packages, &target, self.opt.executable_artifact(true))
-            .display()
-            .to_string();
+        let dest = self.single_output_path(action).display().to_string();
 
         // This directory is used for MSVC to place intermediate files.
         // Each package should use their own to minimize conflicts.
@@ -1169,11 +1150,7 @@ impl<'a> LoweringContext<'a> {
         };
         sources.extend(simdutf_objects.iter().cloned());
 
-        let dest = self
-            .layout
-            .executable_of_build_target(self.packages, &target, self.opt.executable_artifact(true))
-            .display()
-            .to_string();
+        let dest = self.single_output_path(action).display().to_string();
 
         let pkg_dir = self
             .layout
@@ -1225,7 +1202,7 @@ impl<'a> LoweringContext<'a> {
     fn build_tcc_run_driver_command(
         &self,
         action: BuildActionId,
-        target: BuildTarget,
+        _target: BuildTarget,
         info: &MakeExecutableInfo,
         cc: CC,
     ) -> BuildCommand {
@@ -1257,11 +1234,15 @@ impl<'a> LoweringContext<'a> {
 
         // The C file from moonc link-core
         cmdline.push("-run".to_string());
-        let c_file = self.layout.linked_core_of_build_target(
-            self.packages,
-            &target,
-            self.opt.linked_core_artifact(),
-        );
+        let c_file = self
+            .plan
+            .dependency_artifacts(action)
+            .into_iter()
+            .find_map(|artifact| {
+                matches!(artifact, PlannedArtifact::LinkedCore { .. })
+                    .then(|| self.single_artifact_path(&artifact))
+            })
+            .expect("tcc-run executable should depend on linked core");
         cmdline.push(c_file.display().to_string());
 
         // Note: at this point, we have our TCC command.
@@ -1279,11 +1260,7 @@ impl<'a> LoweringContext<'a> {
             "tool".to_string(),
             "write-tcc-rsp-file".to_string(),
         ];
-        let rsp_path = self.layout.executable_of_build_target(
-            self.packages,
-            &target,
-            self.opt.executable_artifact(false),
-        );
+        let rsp_path = self.single_output_path(action);
 
         rsp_cmdline.push(rsp_path.display().to_string());
         rsp_cmdline.extend(cmdline.into_iter().skip(1)); // skip original `tcc` command

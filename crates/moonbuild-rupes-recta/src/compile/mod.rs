@@ -143,6 +143,13 @@ pub fn compile(
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());
 
+    let selected_backend = build_lower::SelectedBackend::new(
+        cx.target_backend,
+        cx.native_target,
+        cx.tcc_run.is_some(),
+        cx.output_wat,
+        || cx.lowering_environment.os(),
+    );
     let lower_env = build_lower::BuildOptions {
         main_module: match resolve_output.local_modules() {
             &[module] => Some(resolve_output.module_rel.module_source(module).clone()),
@@ -152,6 +159,7 @@ pub fn compile(
         target_backend: cx.target_backend,
         native_target: cx.native_target,
         tcc_run: cx.tcc_run.clone(),
+        selected_backend,
         opt_level: cx.opt_level,
         action: cx.action,
 

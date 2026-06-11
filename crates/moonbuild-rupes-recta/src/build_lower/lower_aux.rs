@@ -30,12 +30,13 @@ use moonutil::{
 use tracing::{Level, instrument};
 
 use crate::{
+    build_action_plan::{BuildActionId, PlannedArtifact},
     build_lower::{
         Commandline,
         compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     },
     build_plan::{BuildTargetInfo, PrebuildInfo},
-    model::{BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
+    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
 
 use super::{BuildCommand, compiler};
@@ -132,22 +133,20 @@ impl<'a> super::LoweringContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_compile_runtime(&mut self) -> anyhow::Result<BuildCommand> {
-        let artifact_path = self.layout.runtime_output_path(
-            self.opt.target_backend,
-            self.opt.use_tcc_run(),
-            self.opt.os(),
-        );
+    pub(super) fn lower_compile_runtime(
+        &mut self,
+        action: BuildActionId,
+    ) -> anyhow::Result<BuildCommand> {
+        let artifact_path =
+            self.single_artifact_path(&PlannedArtifact::RuntimeLib { producer: action });
 
         let runtime_c_path = self.opt.runtime_dot_c_path();
 
-        let use_tcc_run = self.opt.use_tcc_run();
-        let (output_ty, link_moonbitrun) = match self.opt.target_backend {
-            RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => {
-                panic!("Runtime compilation is not applicable for non-native backends")
-            }
-            RunBackend::Native if use_tcc_run => (CCOutputType::SharedLib, false),
-            RunBackend::Native | RunBackend::Llvm => (CCOutputType::Object, true),
+        let use_shared_runtime = self.opt.selected_backend.uses_shared_runtime();
+        let (output_ty, link_moonbitrun) = if use_shared_runtime {
+            (CCOutputType::SharedLib, false)
+        } else {
+            (CCOutputType::Object, true)
         };
 
         let resolved_cc = moonutil::compiler_flags::default_native_toolchain(
@@ -158,7 +157,7 @@ impl<'a> super::LoweringContext<'a> {
         )?
         .cc()
         .clone();
-        let use_simdutf = !use_tcc_run
+        let use_simdutf = !use_shared_runtime
             && resolved_cc.can_use_simdutf()
             && self.opt.compiler_paths().simdutf_object_paths().is_some();
 
@@ -172,8 +171,8 @@ impl<'a> super::LoweringContext<'a> {
                 .allow_stacktrace(
                     self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
                 )
-                .define_tinyc_macro(use_tcc_run)
-                .preserve_frame_pointer(use_tcc_run)
+                .define_tinyc_macro(use_shared_runtime)
+                .preserve_frame_pointer(use_shared_runtime)
                 .link_moonbitrun(link_moonbitrun)
                 .link_libbacktrace(output_ty == CCOutputType::SharedLib)
                 .define_use_shared_runtime_macro(false)

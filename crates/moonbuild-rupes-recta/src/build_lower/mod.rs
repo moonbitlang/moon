@@ -36,15 +36,19 @@ use crate::{
 };
 
 pub mod artifact;
+mod backend;
 mod compiler;
 mod context;
 mod lower_aux;
 mod lower_build;
+mod products;
 mod utils;
 
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
-use crate::build_lower::artifact::{ExecutableArtifact, LegacyLayoutBuilder, LinkedCoreArtifact};
+pub(crate) use backend::{CExecutableRealization, CStubLibraryRealization, SelectedBackend};
+
+use crate::build_lower::artifact::LegacyLayoutBuilder;
 use context::LoweringContext;
 
 /// Lazily resolved host/toolchain facts used during lowering.
@@ -96,6 +100,7 @@ pub struct BuildOptions {
     pub target_backend: RunBackend,
     pub native_target: Option<NativeTarget>,
     pub tcc_run: Option<TccRunConfig>,
+    pub(crate) selected_backend: SelectedBackend,
     pub opt_level: OptLevel,
     pub action: RunMode,
 
@@ -126,51 +131,6 @@ impl BuildOptions {
 
     pub fn runtime_dot_c_path(&self) -> PathBuf {
         self.lowering_environment.runtime_dot_c_path()
-    }
-
-    pub fn use_tcc_run(&self) -> bool {
-        let use_tcc_run = self.tcc_run.is_some();
-        debug_assert!(!use_tcc_run || self.target_backend == RunBackend::Native);
-        debug_assert!(!use_tcc_run || self.native_target.is_none());
-        use_tcc_run
-    }
-
-    pub fn executable_artifact(&self, legacy_behavior: bool) -> ExecutableArtifact {
-        match self.target_backend {
-            RunBackend::Wasm => ExecutableArtifact::Wasm {
-                use_wat: self.output_wat,
-            },
-            RunBackend::WasmGC => ExecutableArtifact::WasmGC {
-                use_wat: self.output_wat,
-            },
-            RunBackend::Js => ExecutableArtifact::Js,
-            RunBackend::Native if self.use_tcc_run() => ExecutableArtifact::TccRunResponseFile,
-            RunBackend::Native => ExecutableArtifact::NativeExecutable {
-                os: self.os(),
-                legacy_behavior,
-            },
-            RunBackend::Llvm => ExecutableArtifact::LlvmExecutable {
-                os: self.os(),
-                legacy_behavior,
-            },
-        }
-    }
-
-    pub fn linked_core_artifact(&self) -> LinkedCoreArtifact {
-        match self.target_backend {
-            RunBackend::Wasm => LinkedCoreArtifact::Wasm {
-                use_wat: self.output_wat,
-            },
-            RunBackend::WasmGC => LinkedCoreArtifact::WasmGC {
-                use_wat: self.output_wat,
-            },
-            RunBackend::Js => LinkedCoreArtifact::Js,
-            RunBackend::Native if self.native_target.is_some() => {
-                LinkedCoreArtifact::NativeObject { os: self.os() }
-            }
-            RunBackend::Native => LinkedCoreArtifact::NativeC,
-            RunBackend::Llvm => LinkedCoreArtifact::LlvmObject { os: self.os() },
-        }
     }
 }
 

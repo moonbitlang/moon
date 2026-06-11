@@ -37,6 +37,7 @@ use moonutil::toolchain::BINARIES;
 
 use super::{
     BuildOptions, CommandArgMap, Commandline, LoweringError,
+    products::ProductTable,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
@@ -56,6 +57,7 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) rel: &'a DepRelationship,
     pub(crate) plan: &'a BuildActionPlan<'a>,
     pub(crate) opt: &'a BuildOptions,
+    pub(crate) products: ProductTable,
 }
 
 impl<'a> LoweringContext<'a> {
@@ -65,6 +67,7 @@ impl<'a> LoweringContext<'a> {
         plan: &'a BuildActionPlan<'a>,
         opt: &'a BuildOptions,
     ) -> Self {
+        let products = ProductTable::new(&layout, resolve_output, plan, opt);
         Self {
             graph: N2Graph::default(),
             command_args_by_output: CommandArgMap::new(),
@@ -75,6 +78,7 @@ impl<'a> LoweringContext<'a> {
             module_dirs: &resolve_output.module_dirs,
             plan,
             opt,
+            products,
         }
     }
 
@@ -105,7 +109,7 @@ impl<'a> LoweringContext<'a> {
                 package,
                 index,
                 info,
-            } => self.lower_build_c_stub(package, index, info),
+            } => self.lower_build_c_stub(id, package, index, info),
             BuildAction::ArchiveOrLinkCStubs { package, info } => {
                 self.lower_archive_or_link_c_stubs(id, package, info)
             }
@@ -113,7 +117,7 @@ impl<'a> LoweringContext<'a> {
                 target,
                 info,
                 make_executable_info,
-            } => self.lower_link_core(target, info, make_executable_info),
+            } => self.lower_link_core(id, target, info, make_executable_info),
             BuildAction::MakeExecutable {
                 target,
                 info: Some(info),
@@ -128,7 +132,7 @@ impl<'a> LoweringContext<'a> {
             BuildAction::BuildVirtual { package } => self.lower_parse_mbti(package),
             BuildAction::Bundle { module, targets } => self.lower_bundle(module, targets),
             BuildAction::BuildRuntimeLib => self
-                .lower_compile_runtime()
+                .lower_compile_runtime(id)
                 .map_err(LoweringError::RuntimeNativeToolchain)?,
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
             BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info),
@@ -206,146 +210,7 @@ impl<'a> LoweringContext<'a> {
         artifact: &PlannedArtifact,
         out: &mut Vec<PathBuf>,
     ) {
-        match artifact {
-            PlannedArtifact::PackageInterface { producer, target } => {
-                self.append_package_interface(*producer, *target, out);
-            }
-            PlannedArtifact::PackageCoreIr { target, .. } => {
-                out.push(self.layout.core_of_build_target(
-                    self.packages,
-                    target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::ProofInterface { producer, target } => {
-                match self.plan.action(*producer) {
-                    BuildAction::EmitProof { .. } => {
-                        out.push(self.layout.emit_proof_mi_path(self.packages, target));
-                    }
-                    BuildAction::Prove { .. } => {
-                        out.push(self.layout.prove_mi_path(self.packages, target));
-                    }
-                    _ => panic!("proof interface producer should be a proof action"),
-                }
-            }
-            PlannedArtifact::ProofWhyml { producer, target } => match self.plan.action(*producer) {
-                BuildAction::EmitProof { .. } => {
-                    out.push(self.layout.emit_proof_whyml_path(self.packages, target));
-                }
-                BuildAction::Prove { .. } => {
-                    out.push(self.layout.prove_whyml_path(self.packages, target));
-                }
-                _ => panic!("proof whyml producer should be a proof action"),
-            },
-            PlannedArtifact::ProofReport { target, .. } => {
-                out.push(self.layout.prove_report_path(self.packages, target));
-            }
-            PlannedArtifact::CStubObject { package, index, .. } => {
-                let pkg = self.packages.get_package(*package);
-                let file_name = &pkg.c_stub_files[*index as usize];
-                out.push(
-                    self.layout.c_stub_object_path(
-                        self.packages,
-                        *package,
-                        file_name
-                            .file_stem()
-                            .expect("c stub file should have a file name"),
-                        self.opt.target_backend.into(),
-                        self.opt.os(),
-                    ),
-                );
-            }
-            PlannedArtifact::CStubLibrary { package, .. } => {
-                if self.opt.use_tcc_run() {
-                    out.push(self.layout.c_stub_link_dylib_path(
-                        self.packages,
-                        *package,
-                        self.opt.target_backend.into(),
-                        self.opt.os(),
-                    ));
-                } else {
-                    out.push(self.layout.c_stub_archive_path(
-                        self.packages,
-                        *package,
-                        self.opt.target_backend.into(),
-                        self.opt.os(),
-                    ));
-                }
-            }
-            PlannedArtifact::LinkedCore { target, .. } => {
-                out.push(self.layout.linked_core_of_build_target(
-                    self.packages,
-                    target,
-                    self.opt.linked_core_artifact(),
-                ));
-            }
-            PlannedArtifact::Executable { target, .. } => {
-                out.push(self.layout.executable_of_build_target(
-                    self.packages,
-                    target,
-                    self.opt.executable_artifact(true),
-                ))
-            }
-            PlannedArtifact::GeneratedTestDriver { target, .. } => {
-                out.push(self.layout.generated_test_driver(
-                    self.packages,
-                    target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::GeneratedTestMetadata { target, .. } => {
-                out.push(self.layout.generated_test_driver_metadata(
-                    self.packages,
-                    target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::BundleResult { module, .. } => {
-                let module_name = self.modules.module_source(*module);
-                out.push(
-                    self.layout
-                        .bundle_result_path(self.opt.target_backend.into(), module_name.name()),
-                );
-            }
-            PlannedArtifact::RuntimeLib { .. } => {
-                out.push(self.layout.runtime_output_path(
-                    self.opt.target_backend,
-                    self.opt.use_tcc_run(),
-                    self.opt.os(),
-                ));
-            }
-            PlannedArtifact::GeneratedMbti { target, .. } => {
-                out.push(self.layout.generated_mbti_path(
-                    self.packages,
-                    target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::DocsDir { .. } => {
-                // The output is a whole folder
-                out.push(self.layout.doc_dir())
-            }
-            PlannedArtifact::VirtualPackageInterface { package, .. } => {
-                // The interface generated from `.mbti` is the `.mi` of the source target
-                let t = package.build_target(crate::model::TargetKind::Source);
-                out.push(self.layout.mi_of_build_target(
-                    self.packages,
-                    &t,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            PlannedArtifact::MoonLexGeneratedSource { package, index, .. } => {
-                let pkg_info = self.packages.get_package(*package);
-                let mbtlex_file = &pkg_info.mbt_lex_files[*index as usize];
-                out.push(mbtlex_file.with_extension("mbt"));
-            }
-            PlannedArtifact::MoonYaccGeneratedSource { package, index, .. } => {
-                let pkg_info = self.packages.get_package(*package);
-                let mbtyacc_file = &pkg_info.mbt_yacc_files[*index as usize];
-                out.push(mbtyacc_file.with_extension("mbt"));
-            }
-            PlannedArtifact::KnownPath { path, .. } => out.push(path.clone()),
-        }
+        out.extend(self.products.paths(artifact).iter().cloned());
     }
 
     pub(super) fn planned_artifact_paths(
@@ -359,62 +224,23 @@ impl<'a> LoweringContext<'a> {
         paths
     }
 
-    fn append_package_interface(
-        &self,
-        producer: BuildActionId,
-        target: BuildTarget,
-        out: &mut Vec<PathBuf>,
-    ) {
-        match self.plan.action(producer) {
-            BuildAction::Check { info, .. } if info.check_mi_against.is_some() => {
-                // Generate a `.mi` artifact including the case besides normal
-                // cases:
-                // * --no-mi is enabled: need add mi to the artifacts so that n2
-                // run the command for it and notice in this case, the command
-                // will always be executed because it doesn't produce any output
-                // so n2 will think it's always dirty.
-                // * implementing a virtual package: no need to generate mi
-                // though, but still need to declare a `.mi` artifact so that n2
-                // executes it. And it actually produces a useless `.mi` file.
-                // So that n2 can check its timestamp to decide whether it
-                // needs to be rebuilt.
-                //
-                // Not generating `.mi` for the special case:
-                // * moonbitlang/core/abort when working on non-core packages.
-                // First, abort is injected as a dependency for every package.
-                // When working on core/non-core, abort will have a different
-                // PackageId. When working on non-core packages, the mi artifact
-                // of abort is not needed, and it avoids checking
-                // moonbitlang/core/abort, which is unnecessary. When working on
-                // core, the abort mi is returned as `Regular` below. So it will
-                // be actually checked.
-                match self.layout.mi_of_build_target_impl_virtual(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend.into(),
-                ) {
-                    crate::build_lower::artifact::MiPathResult::StdAbort(_) => {}
-                    crate::build_lower::artifact::MiPathResult::Std(p) => {
-                        // this should not happen because there is no
-                        // implementation package in stdlib other than abort
-                        tracing::warn!(
-                            "stdlib mi should not be needed for check as an implementation package: {:?}",
-                            p
-                        );
-                    }
-                    crate::build_lower::artifact::MiPathResult::Regular(p) => {
-                        out.push(p);
-                    }
-                }
-            }
-            BuildAction::Check { .. } | BuildAction::BuildCore { .. } => {
-                out.push(self.layout.mi_of_build_target(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend.into(),
-                ));
-            }
-            _ => panic!("package interface producer should be Check or BuildCore"),
+    pub(super) fn single_artifact_path(&self, artifact: &PlannedArtifact) -> PathBuf {
+        let paths = self.products.paths(artifact);
+        match paths {
+            [path] => path.clone(),
+            [] => unreachable!("expected exactly one path for artifact: {artifact:?}"),
+            _ => unreachable!("expected one path for artifact, got {paths:?}: {artifact:?}"),
+        }
+    }
+
+    pub(super) fn single_output_path(&self, action: BuildActionId) -> PathBuf {
+        let output_artifacts = self.plan.output_artifacts(action);
+        match output_artifacts.as_slice() {
+            [artifact] => self.single_artifact_path(artifact),
+            [] => unreachable!("expected exactly one output artifact for action: {action:?}"),
+            _ => unreachable!(
+                "expected one output artifact for action, got {output_artifacts:?}: {action:?}"
+            ),
         }
     }
 
