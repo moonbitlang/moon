@@ -363,7 +363,12 @@ fn run_check_for_single_file_rr(
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(target_dir)?;
+    let _lock = FileLock::lock(target_dir).with_context(|| {
+        format!(
+            "failed to acquire build lock in target directory `{}`",
+            target_dir.display()
+        )
+    })?;
 
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check)?;
@@ -512,7 +517,12 @@ fn run_check_normal_internal_rr(
         }
         true
     } else {
-        let _lock = FileLock::lock(target_dir)?;
+        let _lock = FileLock::lock(target_dir).with_context(|| {
+            format!(
+                "failed to acquire build lock in target directory `{}`",
+                target_dir.display()
+            )
+        })?;
         let mut cfg = BuildConfig::from_flags(
             &cmd.build_flags,
             &cli.unstable_feature,

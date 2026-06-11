@@ -792,7 +792,12 @@ pub fn generate_metadata(
 
     // Only overwrite if changed
     if !orig_meta.is_ok_and(|o| o == meta) {
-        std::fs::write(&metadata_file, meta).context("Failed to write build metadata")?;
+        std::fs::write(&metadata_file, meta).with_context(|| {
+            format!(
+                "Failed to write build metadata to {}",
+                metadata_file.display()
+            )
+        })?;
     }
     Ok(())
 }
@@ -1026,12 +1031,18 @@ pub fn execute_build_partial(
         .parent()
         .map(std::fs::create_dir_all)
         .transpose()
-        .context("Failed to create parent for build cache DB")?;
+        .with_context(|| {
+            format!(
+                "Failed to create parent for build cache DB at {}",
+                db_path.display()
+            )
+        })?;
 
     // Generate n2 state
 
     let mut hashes = n2::graph::Hashes::default();
-    let n2_db = n2::db::open(&db_path, &mut build_graph, &mut hashes)?;
+    let n2_db = n2::db::open(&db_path, &mut build_graph, &mut hashes)
+        .with_context(|| format!("Failed to open build cache DB at {}", db_path.display()))?;
 
     let parallelism = cfg
         .parallelism
