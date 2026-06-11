@@ -96,7 +96,7 @@ impl RunWasmCoordinate {
             self.package_path
                 .rsplit('/')
                 .next()
-                .expect("non-empty package path must have a last segment")
+                .unwrap_or(&self.package_path)
                 .to_string()
         }
     }
@@ -158,7 +158,7 @@ pub(crate) fn run_runwasm(cli: &UniversalFlags, cmd: RunWasmSubcommand) -> anyho
     let asset = coordinate.with_version(version, &registry_config.registry);
     let wasm_path = ensure_cached_wasm(&asset, output)?;
 
-    let mut run_cmd = crate::run::command_for(RunBackend::WasmGC, None, &wasm_path, None);
+    let mut run_cmd = crate::run::command_for(RunBackend::WasmGC, None, &wasm_path, None)?;
     run_cmd.args(&cmd.args);
 
     if cli.verbose {

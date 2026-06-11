@@ -627,7 +627,7 @@ fn run_one_test_executable(
         ctx.build_meta.tcc_run.as_ref(),
         &test.executable,
         Some(&test.args),
-    );
+    )?;
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if ctx.verbose {

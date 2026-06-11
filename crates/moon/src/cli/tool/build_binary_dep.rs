@@ -251,20 +251,24 @@ fn install_build_rr(
     bin_name: Option<&str>,
 ) -> anyhow::Result<()> {
     // Assume one artifact node and one artifact file
-    let (_node, arts) = meta.artifacts.get_index(0).unwrap();
+    let (_node, arts) = meta
+        .artifacts
+        .get_index(0)
+        .context("RR build should yield exactly one artifact node")?;
     let artifact = arts
         .artifacts
         .first()
         .context("RR build should yield exactly one artifact file")?;
 
     // Build command using existing runtime mapping, then shlex-join
-    let guard = crate::run::command_for(meta.target_backend, meta.tcc_run.as_ref(), artifact, None);
+    let guard =
+        crate::run::command_for(meta.target_backend, meta.tcc_run.as_ref(), artifact, None)?;
     let parts = std::iter::once(guard.as_std().get_program())
         .chain(guard.as_std().get_args())
         .map(|x| x.to_string_lossy().to_string())
         .collect::<Vec<_>>();
     let line = shlex::try_join(parts.iter().map(|s| &**s))
-        .expect("unexpected null byte in args when forming exec command");
+        .context("failed to join executable command arguments")?;
 
     // Determine filename
     // Matching legacy, it uses the following fallbacks:

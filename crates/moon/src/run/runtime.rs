@@ -20,6 +20,7 @@
 
 use std::path::Path;
 
+use anyhow::Context;
 use moonbuild::entry::TestArgs;
 use moonbuild_rupes_recta::model::{RunBackend, TccRunConfig};
 use tokio::process::Command;
@@ -43,15 +44,15 @@ pub(crate) fn command_for(
     tcc_run: Option<&TccRunConfig>,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
-) -> Command {
+) -> anyhow::Result<Command> {
     debug_assert!(tcc_run.is_none() || backend == RunBackend::Native);
 
-    match (backend, tcc_run) {
+    let cmd = match (backend, tcc_run) {
         (RunBackend::Wasm | RunBackend::WasmGC, _) => {
             let mut cmd = Command::new(&*moonutil::BINARIES.moonrun);
             if let Some(t) = test {
                 cmd.arg("--test-args");
-                cmd.arg(serde_json::to_string(t).unwrap());
+                cmd.arg(serde_json::to_string(t).context("failed to serialize test args")?);
             }
             cmd.arg(mbt_executable);
             cmd.arg("--");
@@ -70,7 +71,7 @@ pub(crate) fn command_for(
             cmd.arg("--enable-source-maps");
             cmd.arg(mbt_executable);
             if let Some(t) = test {
-                cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
+                cmd.arg(serde_json::to_string(t).context("failed to serialize test args")?);
             }
             cmd
         }
@@ -90,5 +91,7 @@ pub(crate) fn command_for(
             }
             cmd
         }
-    }
+    };
+
+    Ok(cmd)
 }

@@ -248,7 +248,7 @@ fn run_inline_source_as_single_file(
     let source = cmd
         .command
         .clone()
-        .expect("inline script should be present when `moon run -e` is selected");
+        .context("inline script should be present when `moon run -e` is selected")?;
 
     run_source_as_single_file(
         cli,
@@ -330,7 +330,7 @@ fn build_wasm_file_executable_from_arg(
     let input = cmd
         .package_or_mbt_file
         .as_deref()
-        .expect("wasm run from arg requires a positional input path");
+        .context("wasm run from arg requires a positional input path")?;
     let wasm_path =
         dunce::canonicalize(input).with_context(|| format!("failed to resolve path `{input}`"))?;
     if !wasm_path.is_file() {
@@ -344,7 +344,7 @@ fn build_wasm_file_executable_from_arg(
             None,
             &wasm_path,
             None,
-        );
+        )?;
         run_cmd.args(&cmd.args);
         rr_build::dry_print_command(run_cmd.as_std(), &print_dir, false);
     }
@@ -408,7 +408,7 @@ pub(crate) fn build_run_executable(
     let input = cmd
         .package_or_mbt_file
         .as_deref()
-        .expect("run executable source should be materialized before building");
+        .context("run executable source should be materialized before building")?;
     if Path::new(input)
         .extension()
         .is_some_and(|extension| extension == "wasm")
@@ -460,7 +460,7 @@ fn build_package_executable(
     let run_start_dir = resolve_run_start_dir(
         cmd.package_or_mbt_file
             .as_deref()
-            .expect("package run planning requires a positional input"),
+            .context("package run planning requires a positional input")?,
     )?;
     let PackageDirs {
         source_dir,
@@ -533,7 +533,7 @@ pub(crate) fn plan_run_rr_from_resolved(
     let input_path = cmd
         .package_or_mbt_file
         .clone()
-        .expect("package run planning requires a positional input");
+        .context("package run planning requires a positional input")?;
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
     let selection = resolve_run_selection(&input_path, &resolve_output)?;
@@ -563,28 +563,32 @@ pub(crate) fn plan_run_rr_from_resolved(
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn get_run_cmd(build_meta: &rr_build::BuildMeta, argv: &[String]) -> tokio::process::Command {
-    let executable = get_run_executable(build_meta);
+fn get_run_cmd(
+    build_meta: &rr_build::BuildMeta,
+    argv: &[String],
+) -> anyhow::Result<tokio::process::Command> {
+    let executable = get_run_executable(build_meta)?;
     let mut cmd = crate::run::command_for(
         build_meta.target_backend,
         build_meta.tcc_run.as_ref(),
         executable,
         None,
-    );
+    )?;
     cmd.args(argv);
-    cmd
+    Ok(cmd)
 }
 
 /// Extract the single executable artifact emitted for a `UserIntent::Run` plan.
-fn get_run_executable(build_meta: &rr_build::BuildMeta) -> &Path {
+fn get_run_executable(build_meta: &rr_build::BuildMeta) -> anyhow::Result<&Path> {
     let (_, artifact) = build_meta
         .artifacts
         .first()
-        .expect("Expected exactly one build node emitted by `calc_user_intent`");
+        .context("run plan must emit exactly one build node")?;
     artifact
         .artifacts
         .first()
-        .expect("Expected exactly one executable as the output of the build node")
+        .map(PathBuf::as_path)
+        .context("run plan must emit exactly one executable artifact")
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -617,7 +621,7 @@ fn build_single_file_executable_from_arg(
     let single_file_dirs = cli.source_tgt_dir.single_file_package_dirs(
         cmd.package_or_mbt_file
             .as_deref()
-            .expect("single-file run from arg requires a positional input path"),
+            .context("single-file run from arg requires a positional input path")?,
     )?;
     let target_dir = single_file_dirs.package_dirs.target_dir;
     let mooncakes_dir = single_file_dirs.package_dirs.mooncakes_dir;
@@ -690,7 +694,7 @@ fn build_single_file_executable(
     )?;
     let package = rr_build::local_packages(&resolved)
         .next()
-        .expect("Single-file project must synthesize exactly one package");
+        .context("single-file project must synthesize exactly one package")?;
     let directive = if value_tracing {
         rr_build::build_patch_directive_for_package(package, false, Some(package), None, false)?
     } else {
@@ -743,11 +747,11 @@ fn build_executable_from_plan(
         );
 
         if options.print_dry_run_run_command {
-            let run_cmd = get_run_cmd(build_meta, &cmd.args);
+            let run_cmd = get_run_cmd(build_meta, &cmd.args)?;
             rr_build::dry_print_command(run_cmd.as_std(), source_dir, false);
         }
         return Ok(RunExecutable {
-            executable: get_run_executable(build_meta).to_path_buf(),
+            executable: get_run_executable(build_meta)?.to_path_buf(),
             target_backend: build_meta.target_backend,
             tcc_run: build_meta.tcc_run.clone(),
             opt_level: build_meta.opt_level,
@@ -773,7 +777,7 @@ fn build_executable_from_plan(
     let build_result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
 
     Ok(RunExecutable {
-        executable: get_run_executable(build_meta).to_path_buf(),
+        executable: get_run_executable(build_meta)?.to_path_buf(),
         target_backend: build_meta.target_backend,
         tcc_run: build_meta.tcc_run.clone(),
         opt_level: build_meta.opt_level,
@@ -801,7 +805,7 @@ fn run_executable(
 
     let build_exit_code = executable
         .build_exit_code
-        .expect("non-dry run build should produce a build exit code");
+        .context("non-dry run build should produce a build exit code")?;
     if build_exit_code != 0 {
         if executable.force_success_exit {
             return Ok(0);
@@ -814,7 +818,7 @@ fn run_executable(
         executable.tcc_run.as_ref(),
         executable.executable.as_path(),
         None,
-    );
+    )?;
     run_cmd.args(&cmd.args);
     if cli.verbose {
         rr_build::dry_print_command(run_cmd.as_std(), &executable.source_dir, true);
