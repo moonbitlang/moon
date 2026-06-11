@@ -300,7 +300,7 @@ fn run_check_for_single_file_rr(
     let path = cmd
         .path
         .first()
-        .expect("path should be set in single-file mode");
+        .context("standalone single-file `moon check` expects exactly one `PATH`")?;
     let single_file_path = dunce::canonicalize(path)
         .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
@@ -402,11 +402,11 @@ fn get_user_intents_single_file(
     let m_packages = resolve_output
         .pkg_dirs
         .packages_for_module(resolve_output.local_modules()[0])
-        .expect("Local module must exist");
+        .context("single-file project must resolve a local module")?;
     let pkg = *m_packages
         .iter()
         .next()
-        .expect("Only one package should be resolved for single file package")
+        .context("single-file project must resolve exactly one package")?
         .1;
 
     Ok(vec![UserIntent::Check(pkg)].into())

@@ -99,7 +99,7 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
             })?
             .version
             .clone()
-            .unwrap();
+            .ok_or_else(|| anyhow::anyhow!("latest registry entry for `{pkg_name}` has no version"))?;
         if !cli.quiet {
             println!("Latest version of {pkg_name} is {latest_version}");
         }

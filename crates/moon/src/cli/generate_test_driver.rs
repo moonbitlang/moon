@@ -117,14 +117,17 @@ fn moonc_gen_test_info(
     generated
         .stdout
         .take()
-        .unwrap()
+        .context("failed to capture `moonc gen-test-info` stdout")?
         .read_to_string(&mut out)
         .with_context(|| gen_error_message(files))?;
     generated.wait()?;
 
     // when mauanlly execute command to generate test driver, we need to create the parent directory
-    if !output_path.parent().unwrap().exists() {
-        std::fs::create_dir_all(output_path.parent().unwrap())?;
+    let output_parent = output_path
+        .parent()
+        .with_context(|| format!("output path `{}` has no parent", output_path.display()))?;
+    if !output_parent.exists() {
+        std::fs::create_dir_all(output_parent)?;
     }
 
     let test_info_json_path = output_path;

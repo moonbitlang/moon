@@ -22,6 +22,8 @@ use std::{
     process::Stdio,
 };
 
+use anyhow::Context;
+
 #[derive(Debug, clap::Parser)]
 pub(crate) struct FormatWorkspaceSubcommand {
     /// The source path of the workspace file to format
@@ -76,18 +78,16 @@ pub(crate) fn run_format_workspace(cmd: FormatWorkspaceSubcommand) -> anyhow::Re
 
 fn print_diff(old: &Path, new: &Path) -> anyhow::Result<i32> {
     let mut execution = std::process::Command::new(moonutil::BINARIES.git_or_default())
-        .args([
-            "--no-pager",
-            "diff",
-            "--color=always",
-            "--no-index",
-            old.to_str().unwrap(),
-            new.to_str().unwrap(),
-        ])
+        .args(["--no-pager", "diff", "--color=always", "--no-index"])
+        .arg(old)
+        .arg(new)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()?;
-    let child_stdout = execution.stdout.take().unwrap();
+    let child_stdout = execution
+        .stdout
+        .take()
+        .context("failed to capture `git diff` stdout")?;
     let mut buf = String::new();
     let mut bufread = std::io::BufReader::new(child_stdout);
     while let Ok(n) = bufread.read_line(&mut buf) {
@@ -104,8 +104,8 @@ fn print_diff(old: &Path, new: &Path) -> anyhow::Result<i32> {
         _ => {
             eprintln!(
                 "failed to execute `git --no-pager diff --color=always --no-index {} {}`",
-                old.to_str().unwrap(),
-                new.to_str().unwrap()
+                old.display(),
+                new.display()
             );
             Ok(1)
         }
