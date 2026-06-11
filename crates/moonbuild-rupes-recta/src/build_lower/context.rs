@@ -101,10 +101,10 @@ impl<'a> LoweringContext<'a> {
 
         // Lower the action to its commands. This step should be infallible.
         let cmd = match action {
-            BuildAction::Check { target, info } => self.lower_check(target, info),
-            BuildAction::EmitProof { target, info } => self.lower_emit_proof(target, info),
-            BuildAction::Prove { target, info } => self.lower_prove(target, info),
-            BuildAction::BuildCore { target, info } => self.lower_build_mbt(target, info),
+            BuildAction::Check { target, info } => self.lower_check(id, target, info),
+            BuildAction::EmitProof { target, info } => self.lower_emit_proof(id, target, info),
+            BuildAction::Prove { target, info } => self.lower_prove(id, target, info),
+            BuildAction::BuildCore { target, info } => self.lower_build_mbt(id, target, info),
             BuildAction::BuildCStub {
                 package,
                 index,
@@ -126,11 +126,11 @@ impl<'a> LoweringContext<'a> {
                 panic!("native MakeExecutable actions should have executable info")
             }
             BuildAction::GenerateTestInfo { target, info } => {
-                self.lower_gen_test_driver(target, info)
+                self.lower_gen_test_driver(id, target, info)
             }
-            BuildAction::GenerateMbti { target } => self.lower_generate_mbti(target),
+            BuildAction::GenerateMbti { target } => self.lower_generate_mbti(id, target),
             BuildAction::BuildVirtual { package } => self.lower_parse_mbti(package),
-            BuildAction::Bundle { module, targets } => self.lower_bundle(module, targets),
+            BuildAction::Bundle { module, targets } => self.lower_bundle(id, module, targets),
             BuildAction::BuildRuntimeLib => self
                 .lower_compile_runtime(id)
                 .map_err(LoweringError::RuntimeNativeToolchain)?,
@@ -225,10 +225,18 @@ impl<'a> LoweringContext<'a> {
     }
 
     pub(super) fn single_artifact_path(&self, artifact: &PlannedArtifact) -> PathBuf {
+        self.optional_single_artifact_path(artifact)
+            .unwrap_or_else(|| unreachable!("expected exactly one path for artifact: {artifact:?}"))
+    }
+
+    pub(super) fn optional_single_artifact_path(
+        &self,
+        artifact: &PlannedArtifact,
+    ) -> Option<PathBuf> {
         let paths = self.products.paths(artifact);
         match paths {
-            [path] => path.clone(),
-            [] => unreachable!("expected exactly one path for artifact: {artifact:?}"),
+            [path] => Some(path.clone()),
+            [] => None,
             _ => unreachable!("expected one path for artifact, got {paths:?}: {artifact:?}"),
         }
     }
@@ -241,6 +249,38 @@ impl<'a> LoweringContext<'a> {
             _ => unreachable!(
                 "expected one output artifact for action, got {output_artifacts:?}: {action:?}"
             ),
+        }
+    }
+
+    pub(super) fn single_matching_output_path(
+        &self,
+        action: BuildActionId,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> Option<PathBuf> {
+        self.single_matching_artifact_path(self.plan.output_artifacts(action), matches)
+    }
+
+    pub(super) fn single_matching_dependency_path(
+        &self,
+        action: BuildActionId,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> Option<PathBuf> {
+        self.single_matching_artifact_path(self.plan.dependency_artifacts(action), matches)
+    }
+
+    fn single_matching_artifact_path(
+        &self,
+        artifacts: Vec<PlannedArtifact>,
+        matches: impl Fn(&PlannedArtifact) -> bool,
+    ) -> Option<PathBuf> {
+        let matched = artifacts
+            .iter()
+            .filter(|artifact| matches(artifact))
+            .collect::<Vec<_>>();
+        match matched.as_slice() {
+            [artifact] => self.optional_single_artifact_path(artifact),
+            [] => None,
+            _ => unreachable!("expected at most one matching artifact, got {matched:?}"),
         }
     }
 

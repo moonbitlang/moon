@@ -327,22 +327,34 @@ impl<'a> LoweringContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
-    pub(super) fn lower_check(&self, target: BuildTarget, info: &BuildTargetInfo) -> BuildCommand {
+    pub(super) fn lower_check(
+        &self,
+        action: BuildActionId,
+        target: BuildTarget,
+        info: &BuildTargetInfo,
+    ) -> BuildCommand {
         let package = self.get_package(target);
         let module = self.modules.module_info(package.module);
 
-        let mi_output = if info.check_mi_against.is_some() {
-            self.layout
-                .mi_of_build_target_impl_virtual(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend.into(),
-                )
-                .into_path()
-        } else {
-            self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into())
+        let package_interface = PlannedArtifact::PackageInterface {
+            producer: action,
+            target,
         };
+        let mi_output = self
+            .optional_single_artifact_path(&package_interface)
+            .unwrap_or_else(|| {
+                if info.check_mi_against.is_some() {
+                    self.layout
+                        .mi_of_build_target_impl_virtual(
+                            self.packages,
+                            &target,
+                            self.opt.target_backend.into(),
+                        )
+                        .into_path()
+                } else {
+                    unreachable!("regular Check actions should have one package interface product")
+                }
+            });
         let mi_inputs = self.mi_inputs_of(target);
 
         // Collect files iterator once so we can pass slices and extra inputs
@@ -400,6 +412,7 @@ impl<'a> LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_emit_proof(
         &self,
+        action: BuildActionId,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
@@ -410,7 +423,10 @@ impl<'a> LoweringContext<'a> {
         let files_vec = self.compiler_source_files(info);
 
         let backend = self.opt.target_backend.into();
-        let whyml_output = self.layout.emit_proof_whyml_path(self.packages, &target);
+        let whyml_output = self.single_artifact_path(&PlannedArtifact::ProofWhyml {
+            producer: action,
+            target,
+        });
         let dep_proofs = self.dep_proofs_of(target);
         let cmd = compiler::MooncProve {
             required: BuildCommonInput::new(
@@ -448,7 +464,12 @@ impl<'a> LoweringContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, info))]
-    pub(super) fn lower_prove(&self, target: BuildTarget, info: &BuildTargetInfo) -> BuildCommand {
+    pub(super) fn lower_prove(
+        &self,
+        action: BuildActionId,
+        target: BuildTarget,
+        info: &BuildTargetInfo,
+    ) -> BuildCommand {
         let package = self.get_package(target);
         let module = self.modules.module_info(package.module);
         let mi_inputs = self.prove_mi_inputs_of(target);
@@ -460,8 +481,14 @@ impl<'a> LoweringContext<'a> {
             .why3_config
             .clone()
             .unwrap_or_else(|| self.layout.why3_config_path());
-        let whyml_output = self.layout.prove_whyml_path(self.packages, &target);
-        let proof_report_output = self.layout.prove_report_path(self.packages, &target);
+        let whyml_output = self.single_artifact_path(&PlannedArtifact::ProofWhyml {
+            producer: action,
+            target,
+        });
+        let proof_report_output = self.single_artifact_path(&PlannedArtifact::ProofReport {
+            producer: action,
+            target,
+        });
         let dep_proofs = self.dep_proofs_of(target);
         // Why3 needs every reachable non-stdlib proof directory on its loadpath
         // once emitted proof artifacts live alongside package-local verification
@@ -507,20 +534,34 @@ impl<'a> LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_build_mbt(
         &self,
+        action: BuildActionId,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
         let module = self.modules.module_info(package.module);
 
-        let core_output = self.layout.core_of_build_target(
-            self.packages,
-            &target,
-            self.opt.target_backend.into(),
-        );
-        let mi_output =
-            self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
+        let core_output = self.single_artifact_path(&PlannedArtifact::PackageCoreIr {
+            producer: action,
+            target,
+        });
+        let mi_output = self
+            .single_matching_output_path(action, |artifact| {
+                matches!(
+                    artifact,
+                    PlannedArtifact::PackageInterface {
+                        target: artifact_target,
+                        ..
+                    } if *artifact_target == target
+                )
+            })
+            .unwrap_or_else(|| {
+                self.layout.mi_of_build_target(
+                    self.packages,
+                    &target,
+                    self.opt.target_backend.into(),
+                )
+            });
 
         let mi_inputs = self.mi_inputs_of(target);
 
@@ -528,11 +569,20 @@ impl<'a> LoweringContext<'a> {
         match target.kind {
             TargetKind::Source | TargetKind::SubPackage => {}
             TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest => {
-                files.push(self.layout.generated_test_driver(
-                    self.packages,
-                    &target,
-                    self.opt.target_backend.into(),
-                ));
+                let test_driver = self
+                    .single_matching_dependency_path(action, |artifact| {
+                        matches!(
+                            artifact,
+                            PlannedArtifact::GeneratedTestDriver {
+                                target: artifact_target,
+                                ..
+                            } if *artifact_target == target
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        unreachable!("test BuildCore actions should depend on a test driver")
+                    });
+                files.push(test_driver);
             }
         };
 
@@ -616,11 +666,17 @@ impl<'a> LoweringContext<'a> {
         }
         // Linked core targets
         for target in &info.linked_order {
-            let core_path = self.layout.core_of_build_target(
-                self.packages,
-                target,
-                self.opt.target_backend.into(),
-            );
+            let core_path = self
+                .single_matching_dependency_path(action, |artifact| {
+                    matches!(
+                        artifact,
+                        PlannedArtifact::PackageCoreIr {
+                            target: artifact_target,
+                            ..
+                        } if artifact_target == target
+                    )
+                })
+                .unwrap_or_else(|| unreachable!("LinkCore targets should depend on core IR"));
             core_input_files.push(core_path);
         }
 

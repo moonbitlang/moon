@@ -45,20 +45,19 @@ impl<'a> super::LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, info))]
     pub(super) fn lower_gen_test_driver(
         &mut self,
+        action: BuildActionId,
         target: BuildTarget,
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let output_driver = self.layout.generated_test_driver(
-            self.packages,
-            &target,
-            self.opt.target_backend.into(),
-        );
-        let output_metadata = self.layout.generated_test_driver_metadata(
-            self.packages,
-            &target,
-            self.opt.target_backend.into(),
-        );
+        let output_driver = self.single_artifact_path(&PlannedArtifact::GeneratedTestDriver {
+            producer: action,
+            target,
+        });
+        let output_metadata = self.single_artifact_path(&PlannedArtifact::GeneratedTestMetadata {
+            producer: action,
+            target,
+        });
         let driver_kind = match target.kind {
             TargetKind::Source => panic!("Source package cannot be a test driver"),
             TargetKind::WhiteboxTest => DriverKind::Whitebox,
@@ -107,21 +106,29 @@ impl<'a> super::LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_bundle(
         &mut self,
+        action: BuildActionId,
         module_id: ModuleId,
         targets: &[BuildTarget],
     ) -> BuildCommand {
-        let module = self.modules.module_source(module_id);
-        let output = self
-            .layout
-            .bundle_result_path(self.opt.target_backend.into(), module.name());
+        let output = self.single_artifact_path(&PlannedArtifact::BundleResult {
+            producer: action,
+            module: module_id,
+        });
 
         let mut inputs = vec![];
         for dep in targets {
-            inputs.push(self.layout.core_of_build_target(
-                self.packages,
-                dep,
-                self.opt.target_backend.into(),
-            ));
+            inputs.push(
+                self.single_matching_dependency_path(action, |artifact| {
+                    matches!(
+                        artifact,
+                        PlannedArtifact::PackageCoreIr {
+                            target: artifact_target,
+                            ..
+                        } if artifact_target == dep
+                    )
+                })
+                .unwrap_or_else(|| unreachable!("Bundle targets should depend on core IR")),
+            );
         }
 
         let cmd = compiler::MooncBundleCore::new(&inputs, output);
@@ -193,13 +200,18 @@ impl<'a> super::LoweringContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_generate_mbti(&mut self, target: BuildTarget) -> BuildCommand {
+    pub(super) fn lower_generate_mbti(
+        &mut self,
+        action: BuildActionId,
+        target: BuildTarget,
+    ) -> BuildCommand {
         let input =
             self.layout
                 .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
-        let output =
-            self.layout
-                .generated_mbti_path(self.packages, &target, self.opt.target_backend.into());
+        let output = self.single_artifact_path(&PlannedArtifact::GeneratedMbti {
+            producer: action,
+            target,
+        });
 
         let cmd = Mooninfo {
             mi_in: input.into(),
