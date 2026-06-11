@@ -256,7 +256,7 @@ impl<'a> LoweringContext<'a> {
                 );
             }
             PlannedArtifact::CStubLibrary { package, .. } => {
-                if self.opt.use_tcc_run() {
+                if self.opt.backend_pipeline.uses_tcc_run() {
                     out.push(self.layout.c_stub_link_dylib_path(
                         self.packages,
                         *package,
@@ -276,14 +276,14 @@ impl<'a> LoweringContext<'a> {
                 out.push(self.layout.linked_core_of_build_target(
                     self.packages,
                     target,
-                    self.opt.linked_core_artifact(),
+                    self.opt.backend_pipeline.linked_core_artifact(),
                 ));
             }
             PlannedArtifact::Executable { target, .. } => {
                 out.push(self.layout.executable_of_build_target(
                     self.packages,
                     target,
-                    self.opt.executable_artifact(true),
+                    self.opt.backend_pipeline.executable_artifact(),
                 ))
             }
             PlannedArtifact::GeneratedTestDriver { target, .. } => {
@@ -310,7 +310,7 @@ impl<'a> LoweringContext<'a> {
             PlannedArtifact::RuntimeLib { .. } => {
                 out.push(self.layout.runtime_output_path(
                     self.opt.target_backend,
-                    self.opt.use_tcc_run(),
+                    self.opt.backend_pipeline.uses_tcc_run(),
                     self.opt.os(),
                 ));
             }

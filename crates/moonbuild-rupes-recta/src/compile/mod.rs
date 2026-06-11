@@ -152,6 +152,13 @@ pub fn compile(
         target_backend: cx.target_backend,
         native_target: cx.native_target,
         tcc_run: cx.tcc_run.clone(),
+        backend_pipeline: build_lower::BackendPipeline::from_config(
+            cx.target_backend,
+            cx.native_target,
+            cx.tcc_run.is_some(),
+            cx.output_wat,
+            || cx.lowering_environment.os(),
+        ),
         opt_level: cx.opt_level,
         action: cx.action,
 

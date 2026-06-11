@@ -41,7 +41,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_action_plan::{BuildActionId, PlannedArtifact},
     build_lower::{
-        WarningCondition, artifact,
+        NativeExecutableRealization, WarningCondition, artifact,
         compiler::{
             BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, ErrorFormat, JsConfig,
             MiDependency, PackageSource, WasmConfig,
@@ -625,7 +625,7 @@ impl<'a> LoweringContext<'a> {
         let out_file = self.layout.linked_core_of_build_target(
             self.packages,
             &target,
-            self.opt.linked_core_artifact(),
+            self.opt.backend_pipeline.linked_core_artifact(),
         );
 
         let core_fqn = PackageFQN::new(CORE_MODULE.clone(), PackagePath::empty());
@@ -810,7 +810,7 @@ impl<'a> LoweringContext<'a> {
             (false, false) => CCOptLevel::None,
         };
         // `tcc run` uses shared runtime, others use static runtime
-        let use_shared_runtime = self.opt.use_tcc_run();
+        let use_shared_runtime = self.opt.backend_pipeline.uses_tcc_run();
 
         let config = CCConfigBuilder::default()
             .no_sys_header(true)
@@ -872,7 +872,7 @@ impl<'a> LoweringContext<'a> {
             RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
                 panic!("C stubs are not supported for non-native backends")
             }
-            RunBackend::Native if self.opt.use_tcc_run() => {
+            RunBackend::Native if self.opt.backend_pipeline.uses_tcc_run() => {
                 self.lower_link_c_stubs(target, info, &object_files)
             }
             RunBackend::Native | RunBackend::Llvm => {
@@ -940,7 +940,7 @@ impl<'a> LoweringContext<'a> {
         // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
         let runtime_dylib = self.layout.runtime_output_path(
             self.opt.target_backend,
-            self.opt.use_tcc_run(),
+            self.opt.backend_pipeline.uses_tcc_run(),
             self.opt.os(),
         );
         let runtime_parent = runtime_dylib
@@ -1006,23 +1006,24 @@ impl<'a> LoweringContext<'a> {
                     .all(|package| planned_c_stubs.contains(package))
         });
 
-        match self.opt.target_backend {
-            RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
-                panic!(
-                    "Non-native make-executable should be already matched and should not be here"
-                )
+        match self.opt.backend_pipeline.native_executable_realization() {
+            NativeExecutableRealization::WriteTccRunResponseFile => {
+                let internal_tcc = self
+                    .opt
+                    .tcc_run
+                    .as_ref()
+                    .expect("tcc-run pipeline requires tcc-run config")
+                    .internal_tcc()
+                    .clone();
+                self.build_tcc_run_driver_command(action, target, info, internal_tcc)
             }
-            RunBackend::Native => {
-                if let Some(tcc_run) = &self.opt.tcc_run {
-                    let internal_tcc = tcc_run.internal_tcc().clone();
-                    self.build_tcc_run_driver_command(action, target, info, internal_tcc)
-                } else if self.opt.native_target.is_some() {
-                    self.lower_link_new_native_exe(action, target, info)
-                } else {
-                    self.lower_build_exe_regular(action, target, info)
-                }
+            NativeExecutableRealization::LinkNativeObject => {
+                self.lower_link_new_native_exe(action, target, info)
             }
-            RunBackend::Llvm => self.lower_build_exe_regular(action, target, info),
+            NativeExecutableRealization::CompileAndLinkGeneratedC
+            | NativeExecutableRealization::LinkLlvmObject => {
+                self.lower_build_exe_regular(action, target, info)
+            }
         }
     }
 
@@ -1106,7 +1107,11 @@ impl<'a> LoweringContext<'a> {
 
         let dest = self
             .layout
-            .executable_of_build_target(self.packages, &target, self.opt.executable_artifact(true))
+            .executable_of_build_target(
+                self.packages,
+                &target,
+                self.opt.backend_pipeline.executable_artifact(),
+            )
             .display()
             .to_string();
 
@@ -1171,7 +1176,11 @@ impl<'a> LoweringContext<'a> {
 
         let dest = self
             .layout
-            .executable_of_build_target(self.packages, &target, self.opt.executable_artifact(true))
+            .executable_of_build_target(
+                self.packages,
+                &target,
+                self.opt.backend_pipeline.executable_artifact(),
+            )
             .display()
             .to_string();
 
@@ -1260,7 +1269,7 @@ impl<'a> LoweringContext<'a> {
         let c_file = self.layout.linked_core_of_build_target(
             self.packages,
             &target,
-            self.opt.linked_core_artifact(),
+            self.opt.backend_pipeline.linked_core_artifact(),
         );
         cmdline.push(c_file.display().to_string());
 
@@ -1282,7 +1291,7 @@ impl<'a> LoweringContext<'a> {
         let rsp_path = self.layout.executable_of_build_target(
             self.packages,
             &target,
-            self.opt.executable_artifact(false),
+            self.opt.backend_pipeline.executable_artifact(),
         );
 
         rsp_cmdline.push(rsp_path.display().to_string());

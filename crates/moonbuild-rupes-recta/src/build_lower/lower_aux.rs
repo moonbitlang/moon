@@ -135,13 +135,13 @@ impl<'a> super::LoweringContext<'a> {
     pub(super) fn lower_compile_runtime(&mut self) -> anyhow::Result<BuildCommand> {
         let artifact_path = self.layout.runtime_output_path(
             self.opt.target_backend,
-            self.opt.use_tcc_run(),
+            self.opt.backend_pipeline.uses_tcc_run(),
             self.opt.os(),
         );
 
         let runtime_c_path = self.opt.runtime_dot_c_path();
 
-        let use_tcc_run = self.opt.use_tcc_run();
+        let use_tcc_run = self.opt.backend_pipeline.uses_tcc_run();
         let (output_ty, link_moonbitrun) = match self.opt.target_backend {
             RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => {
                 panic!("Runtime compilation is not applicable for non-native backends")
