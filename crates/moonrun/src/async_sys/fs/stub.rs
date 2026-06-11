@@ -1,0 +1,330 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2024 International Digital Economy Academy
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use std::ffi::OsString;
+use std::fs::File;
+
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_sys::ported_fns;
+
+#[cfg(unix)]
+#[allow(dead_code)]
+pub(crate) type RawFileHandle = std::os::fd::RawFd;
+
+#[cfg(windows)]
+#[allow(dead_code)]
+pub(crate) type RawFileHandle = windows_sys::Win32::Foundation::HANDLE;
+
+ported_fns! {
+    #[ported(
+        source = "src/fs/stub.c",
+        original = "moonbitlang_async_dir_is_null"
+    )]
+    #[cfg(unix)]
+    #[allow(dead_code)]
+    pub(crate) fn dir_is_null(dir: *mut libc::DIR) -> bool {
+        dir.is_null()
+    }
+
+    #[ported(
+        source = "src/fs/stub.c",
+        original = "moonbitlang_async_errno_is_lock_violation"
+    )]
+    pub(crate) fn errno_is_lock_violation(errno: i32) -> bool {
+        #[cfg(unix)]
+        {
+            errno == libc::EWOULDBLOCK
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION;
+            errno == ERROR_LOCK_VIOLATION as i32
+        }
+    }
+
+    #[ported(
+        source = "src/fs/stub.c",
+        original = "moonbitlang_async_get_tmp_path"
+    )]
+    pub(crate) fn get_tmp_path() -> AsyncHostResult<OsString> {
+        tmp_path_from_native_stub()
+    }
+
+    #[ported(
+        source = "src/fs/stub.c",
+        original = "moonbitlang_async_try_lock_file"
+    )]
+    #[allow(dead_code)]
+    pub(crate) fn try_lock_file(handle: RawFileHandle, exclusive: bool) -> AsyncHostResult<()> {
+        try_lock_file_from_native_stub(handle, exclusive)
+    }
+
+    #[ported(
+        source = "src/fs/stub.c",
+        original = "moonbitlang_async_unlock_file"
+    )]
+    #[allow(dead_code)]
+    pub(crate) fn unlock_file(handle: RawFileHandle) -> AsyncHostResult<()> {
+        unlock_file_from_native_stub(handle)
+    }
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+fn try_lock_file_from_native_stub(fd: RawFileHandle, exclusive: bool) -> AsyncHostResult<()> {
+    let operation = libc::LOCK_NB
+        | if exclusive {
+            libc::LOCK_EX
+        } else {
+            libc::LOCK_SH
+        };
+    if unsafe { libc::flock(fd, operation) } == 0 {
+        Ok(())
+    } else {
+        Err(last_native_error())
+    }
+}
+
+#[cfg(unix)]
+#[allow(dead_code)]
+fn unlock_file_from_native_stub(fd: RawFileHandle) -> AsyncHostResult<()> {
+    if unsafe { libc::flock(fd, libc::LOCK_UN) } == 0 {
+        Ok(())
+    } else {
+        Err(last_native_error())
+    }
+}
+
+#[cfg(unix)]
+pub(crate) fn try_lock_std_file(file: &File, exclusive: bool) -> AsyncHostResult<()> {
+    use std::os::fd::AsRawFd;
+
+    try_lock_file(file.as_raw_fd(), exclusive)
+}
+
+#[cfg(unix)]
+pub(crate) fn unlock_std_file(file: &File) -> AsyncHostResult<()> {
+    use std::os::fd::AsRawFd;
+
+    unlock_file(file.as_raw_fd())
+}
+
+#[cfg(windows)]
+#[allow(dead_code)]
+fn try_lock_file_from_native_stub(handle: RawFileHandle, exclusive: bool) -> AsyncHostResult<()> {
+    use std::mem::zeroed;
+    use windows_sys::Win32::Storage::FileSystem::{
+        LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx,
+    };
+    use windows_sys::Win32::System::IO::OVERLAPPED;
+
+    let mut overlapped: OVERLAPPED = unsafe { zeroed() };
+    // Keep parity with async's native stub: lock a one-byte sentinel range at
+    // the end of the 64-bit file-position space.
+    overlapped.Anonymous.Anonymous.Offset = 0xfffffffe;
+    overlapped.Anonymous.Anonymous.OffsetHigh = 0xffffffff;
+    let flags = LOCKFILE_FAIL_IMMEDIATELY
+        | if exclusive {
+            LOCKFILE_EXCLUSIVE_LOCK
+        } else {
+            0
+        };
+
+    if unsafe { LockFileEx(handle, flags, 0, 1, 0, &mut overlapped) } != 0 {
+        Ok(())
+    } else {
+        Err(last_native_error())
+    }
+}
+
+#[cfg(windows)]
+#[allow(dead_code)]
+fn unlock_file_from_native_stub(handle: RawFileHandle) -> AsyncHostResult<()> {
+    use windows_sys::Win32::Storage::FileSystem::UnlockFile;
+
+    if unsafe { UnlockFile(handle, 0xfffffffe, 0xffffffff, 1, 0) } != 0 {
+        Ok(())
+    } else {
+        Err(last_native_error())
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn try_lock_std_file(file: &File, exclusive: bool) -> AsyncHostResult<()> {
+    use std::os::windows::io::AsRawHandle;
+
+    try_lock_file(file.as_raw_handle(), exclusive)
+}
+
+#[cfg(windows)]
+pub(crate) fn unlock_std_file(file: &File) -> AsyncHostResult<()> {
+    use std::os::windows::io::AsRawHandle;
+
+    unlock_file(file.as_raw_handle())
+}
+
+#[allow(dead_code)]
+fn last_native_error() -> AsyncHostError {
+    AsyncHostError::Native(
+        std::io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
+    )
+}
+
+#[cfg(unix)]
+fn tmp_path_from_native_stub() -> AsyncHostResult<OsString> {
+    // POSIX reserves TMPDIR for temporary-file placement. The async tmpdir
+    // layer concatenates this base path with a generated name, so the host
+    // normalizes the Unix base to include the separator.
+    Ok(std::env::var_os("TMPDIR")
+        .and_then(separator_terminated_unix_path)
+        .unwrap_or_else(default_unix_tmp_path))
+}
+
+#[cfg(all(unix, target_os = "android"))]
+fn default_unix_tmp_path() -> OsString {
+    OsString::from("/data/local/tmp/")
+}
+
+#[cfg(all(unix, not(target_os = "android")))]
+fn default_unix_tmp_path() -> OsString {
+    OsString::from("/tmp/")
+}
+
+#[cfg(unix)]
+fn separator_terminated_unix_path(path: OsString) -> Option<OsString> {
+    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+
+    let bytes = path.as_os_str().as_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+    if bytes.ends_with(b"/") {
+        return Some(path);
+    }
+
+    let mut bytes = path.into_vec();
+    bytes.push(b'/');
+    Some(OsString::from_vec(bytes))
+}
+
+#[cfg(windows)]
+fn tmp_path_from_native_stub() -> AsyncHostResult<OsString> {
+    use crate::async_host::AsyncHostError;
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::Foundation::{GetLastError, MAX_PATH};
+    use windows_sys::Win32::Storage::FileSystem::GetTempPath2W;
+
+    let mut buffer = [0u16; MAX_PATH as usize + 1];
+    let len = unsafe { GetTempPath2W(buffer.len() as u32, buffer.as_mut_ptr()) };
+    if len == 0 {
+        return Err(AsyncHostError::Native(unsafe { GetLastError() as i32 }));
+    }
+
+    let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+    Ok(OsString::from_wide(&buffer[..len]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tmp_path_is_non_empty_and_separator_terminated() {
+        let path = get_tmp_path().unwrap();
+
+        assert!(!path.as_os_str().is_empty());
+        let path = path.to_string_lossy();
+        assert!(path.ends_with('/') || path.ends_with('\\'));
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    #[test]
+    fn default_unix_tmp_path_matches_async_stub_fallback() {
+        use std::os::unix::ffi::OsStrExt;
+
+        assert_eq!(default_unix_tmp_path().as_os_str().as_bytes(), b"/tmp/");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tmpdir_env_value_is_separator_terminated() {
+        use std::os::unix::ffi::OsStrExt;
+
+        assert_eq!(
+            separator_terminated_unix_path(OsString::from("/var/tmp"))
+                .unwrap()
+                .as_os_str()
+                .as_bytes(),
+            b"/var/tmp/"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn empty_tmpdir_env_value_is_ignored() {
+        assert_eq!(separator_terminated_unix_path(OsString::from("")), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_lock_violation_matches_async_stub() {
+        assert!(errno_is_lock_violation(libc::EWOULDBLOCK));
+        assert!(!errno_is_lock_violation(libc::EINVAL));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_dir_is_null_matches_async_stub() {
+        assert!(dir_is_null(std::ptr::null_mut()));
+        assert!(!dir_is_null(
+            std::ptr::NonNull::<libc::DIR>::dangling().as_ptr()
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_try_lock_and_unlock_file_match_async_stub() {
+        use std::os::fd::AsRawFd;
+
+        let path =
+            std::env::temp_dir().join(format!("moonrun-async-lock-test-{}", std::process::id()));
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+
+        try_lock_file(file.as_raw_fd(), true).unwrap();
+        unlock_file(file.as_raw_fd()).unwrap();
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_invalid_lock_file_records_native_errno() {
+        assert_eq!(
+            try_lock_file(-1, true),
+            Err(AsyncHostError::Native(libc::EBADF))
+        );
+        assert_eq!(unlock_file(-1), Err(AsyncHostError::Native(libc::EBADF)));
+    }
+}

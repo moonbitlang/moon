@@ -311,6 +311,47 @@ fn test_moon_run_with_is_windows() {
 }
 
 #[test]
+fn test_moon_run_with_async_host_imports() {
+    let dir = TestDir::new("test_async_host.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("ok\n");
+}
+
+#[test]
+fn test_moon_run_with_async_host_invalid_c_buffer_traps() {
+    let dir = TestDir::new("test_async_host_invalid_c_buffer.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_file)
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: moonbit_v0.c_buffer_get failed: Fault
+[..]
+"#]]);
+}
+
+#[test]
 fn test_moon_fmt_skips_prebuild_output() {
     // Prepare a temp copy of the test case
     let dir = TestDir::new("test_fmt_skip_prebuild_output");
