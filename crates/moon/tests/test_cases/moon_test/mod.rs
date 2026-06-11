@@ -1,3 +1,21 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2024 International Digital Economy Academy
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
 mod patch;
 #[cfg(unix)]
 mod use_cc_for_native_release;
@@ -8,6 +26,115 @@ use expect_test::expect_file;
 use crate::dry_run_utils::assert_lines_in_order;
 
 use super::*;
+
+fn repo_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .unwrap()
+        .to_path_buf()
+}
+
+// Upstream async has tick-sensitive tests; keep wasm package runs isolated
+// from the Rust test harness's package-level concurrency.
+static ASYNC_WASM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn prepare_async_wasm_workspace(dir: &TestDir) -> std::path::PathBuf {
+    let repo_root = repo_root();
+    let async_dir = repo_root.join("third_party/moonbitlang_async");
+    let async_member = async_dir
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+
+    std::fs::write(
+        dir.join("moon.work"),
+        crate::util::read(dir.join("moon.work.template"))
+            .replace("@@ASYNC_MEMBER@@", &async_member),
+    )
+    .unwrap();
+    std::fs::copy(dir.join("app/moon.mod.template"), dir.join("app/moon.mod")).unwrap();
+
+    async_dir
+}
+
+fn build_moonrun() -> std::path::PathBuf {
+    let repo_root = repo_root();
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let mut build_moonrun = std::process::Command::new(cargo);
+    build_moonrun
+        .current_dir(&repo_root)
+        .args(["build", "--quiet", "-p", "moonrun"]);
+    if !cfg!(debug_assertions) {
+        build_moonrun.arg("--release");
+    }
+    let status = build_moonrun
+        .status()
+        .expect("failed to spawn cargo build for moonrun");
+    assert!(status.success(), "failed to build moonrun");
+
+    let mut path = std::env::current_exe().unwrap();
+    path.pop();
+    if path.ends_with("deps") {
+        path.pop();
+    }
+    path.join(format!("moonrun{}", std::env::consts::EXE_SUFFIX))
+}
+
+fn run_async_wasm_package(dir: &TestDir, package: &str) -> String {
+    let _guard = ASYNC_WASM_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let moonrun = build_moonrun();
+    let output = moon_cmd(dir)
+        .env("MOON_OVERRIDE", moon_bin())
+        .env("MOONRUN_OVERRIDE", &moonrun)
+        .args([
+            "-C",
+            "app/main",
+            "test",
+            "--target",
+            "wasm",
+            "--package",
+            package,
+            "--sort-input",
+            "--no-parallelize",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    std::str::from_utf8(&output).unwrap().to_owned()
+}
+
+fn run_upstream_async_wasm_package(package: &str) -> String {
+    let _guard = ASYNC_WASM_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let moonrun = build_moonrun();
+    let async_dir = repo_root().join("third_party/moonbitlang_async");
+    let output = moon_cmd(&async_dir)
+        .env("MOON_OVERRIDE", moon_bin())
+        .env("MOONRUN_OVERRIDE", &moonrun)
+        .args([
+            "test",
+            "--target",
+            "wasm",
+            "--package",
+            package,
+            "--sort-input",
+            "--no-parallelize",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    std::str::from_utf8(&output).unwrap().to_owned()
+}
 
 #[test]
 fn test_moon_test_succ() {
@@ -530,6 +657,75 @@ fn test_async_test() {
     );
     let last_line = out2.lines().last().unwrap_or("");
     check(last_line, expect!["Total tests: 1, passed: 0, failed: 1."])
+}
+
+#[test]
+fn test_async_wasm_workspace_timer() {
+    let dir = TestDir::new("moon_test/async_wasm_workspace_timer");
+    prepare_async_wasm_workspace(&dir);
+
+    check(
+        run_async_wasm_package(&dir, "moon/async_timer_workspace/main"),
+        expect![[r#"
+            timer resumed
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_async_wasm_workspace_fs_smoke() {
+    let dir = TestDir::new("moon_test/async_wasm_workspace_fs");
+    prepare_async_wasm_workspace(&dir);
+
+    check(
+        run_async_wasm_package(&dir, "moon/async_fs_workspace/main"),
+        expect![[r#"
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_async_wasm_upstream_src_package() {
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async"),
+        expect![[r#"
+            Total tests: 91, passed: 91, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_async_wasm_upstream_queue_packages() {
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async/aqueue"),
+        expect![[r#"
+            Total tests: 52, passed: 52, failed: 0.
+        "#]],
+    );
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async/cond_var"),
+        expect![[r#"
+            Total tests: 8, passed: 8, failed: 0.
+        "#]],
+    );
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async/semaphore"),
+        expect![[r#"
+            Total tests: 12, passed: 12, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_async_wasm_upstream_fs_package() {
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async/fs"),
+        expect![[r#"
+        Total tests: 42, passed: 42, failed: 0.
+        "#]],
+    );
 }
 
 #[test]
