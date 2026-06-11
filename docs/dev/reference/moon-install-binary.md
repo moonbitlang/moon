@@ -3,7 +3,7 @@
 > This page documents the binary-install mode of `moon install`.
 > It does not describe the legacy no-arg dependency-sync behavior.
 >
-> Status: expected behavior in this branch as of March 2, 2026.
+> Status: expected behavior in this branch as of September 18, 2026.
 
 ## Scope
 
@@ -45,8 +45,9 @@ Given `SOURCE`:
 
 1. If `--path <PATH>` is set, use local path mode.
 2. Else if `SOURCE` looks like a local path (`./`, `../`, `/`, or Windows drive), use local path mode.
-3. Else if `SOURCE` looks like a git URL, use git mode.
-4. Else, use registry mode.
+3. Else if `SOURCE` is a supported GitHub commit permalink, use archive mode.
+4. Else if `SOURCE` looks like a git URL, use git mode.
+5. Else, use registry mode.
 
 Practical caveat:
 
@@ -62,7 +63,7 @@ Wildcard rule: if selector ends with `/...` (or `...`), install all main package
 When matching packages after discovery:
 
 - registry selectors are matched by **package path**,
-- local/git selectors are matched by **filesystem path** (then converted to discovered packages).
+- local/git/archive selectors are matched by **filesystem path** (then converted to discovered packages).
 
 ## Expected behavior by mode
 
@@ -95,6 +96,41 @@ Rules:
   (root package path is empty string relative to `source` root).
 - With wildcard suffix: all `is-main: true` packages under the matched filesystem path prefix.
 
+### GitHub permalink mode
+
+Input form:
+
+- `moon install https://github.com/<owner>/<repo>/tree/<commit>[/<path...>]`
+- `<commit>` is a full 40-character commit SHA.
+- A root permalink can take a separate `PATH_IN_REPO`; paths support `/...`.
+
+Rules:
+
+- Only public repositories on `github.com` are supported. GitCode and other
+  hosted browser URL schemes are not recognized as permalinks.
+- Download `/<owner>/<repo>/archive/<commit>.tar.gz`, following HTTP redirects,
+  and extract the snapshot's single wrapper directory into temporary storage.
+  The wrapper name is discovered rather than reconstructed from the URL.
+- The requested SHA need not be on a branch: installation depends on GitHub
+  serving its archive. There is no Git clone/checkout or fallback in this mode.
+- Respect the archive supplied by the repository host, including
+  `.gitattributes` export exclusions and substitutions. A selected directory
+  absent from the archive is reported as missing; Moon does not override the
+  repository author's archive rules. No extra LFS or submodule download occurs.
+- Archive extraction preserves executable modes on Unix and symlinks where
+  supported by the host platform. Extraction cannot write through symlinks
+  outside the temporary destination.
+- Branch/tag tree URLs and abbreviated commit IDs are rejected. Use the
+  repository URL with `PATH_IN_REPO` and `--branch`, `--tag`, or `--rev` instead.
+  Moon does not guess where slash-containing branch names end.
+- Decode the selected path as UTF-8 exactly once; literal `+` stays `+`.
+  Query strings and fragments do not change the selected archive or package.
+- Credentials and custom ports in permalink URLs are rejected.
+- `--rev`, `--branch`, and `--tag` conflict with a permalink. A separate
+  `PATH_IN_REPO` conflicts with a directory already selected in the URL.
+- Package selection, nested-module discovery, wildcards, and repository path
+  containment use the same rules as Git mode, against the extracted source.
+
 ### Git mode
 
 Input form:
@@ -106,7 +142,8 @@ Rules:
 
 - Clone repo, optionally checkout ref.
 - `PATH_IN_REPO` is interpreted as a filesystem path inside the cloned repository.
-- Resolve selected filesystem path and find nearest ancestor containing `moon.mod.json` as module root.
+- Resolve the selected path and find the nearest ancestor containing `moon.mod`
+  or `moon.mod.json` as module root.
 - No wildcard:
   - no `PATH_IN_REPO`: install root package of detected module.
   - with `PATH_IN_REPO`: install exact package at the selected filesystem path.
@@ -116,7 +153,7 @@ Rules:
 Practical caveat:
 
 - If `PATH_IN_REPO` is omitted, the repository root must itself be a module root
-  (contain `moon.mod.json`) for installation to proceed.
+  (contain `moon.mod` or `moon.mod.json`) for installation to proceed.
   For nested-module repositories, pass `PATH_IN_REPO` explicitly.
 
 ## Shared behavior

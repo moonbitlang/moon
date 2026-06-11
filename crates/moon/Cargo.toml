@@ -61,6 +61,11 @@ shlex.workspace = true
 derive_builder.workspace = true
 sha2.workspace = true
 blake3.workspace = true
+percent-encoding.workspace = true
+reqwest.workspace = true
+flate2.workspace = true
+tar.workspace = true
+url.workspace = true
 
 ignore.workspace = true
 

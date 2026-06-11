@@ -46,7 +46,19 @@ struct PreparedBinDep {
 #[derive(Debug, clap::Parser)]
 #[clap(
     group = clap::ArgGroup::new("git_ref").multiple(false),
-    verbatim_doc_comment
+    verbatim_doc_comment,
+    after_help = "Examples:
+  moon install user/module/pkg
+  moon install user/module/cmd/...
+  moon install ./cmd/tool
+  moon install ./cmd/...
+  moon install https://github.com/owner/repo/tree/0123456789abcdef0123456789abcdef01234567/cmd/tool
+  moon install https://github.com/owner/repo.git cmd/tool --branch main
+  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+
+Paste a public GitHub directory permalink containing a full 40-character
+commit SHA to install from its source archive. For branches or tags, use the
+repository URL, PATH_IN_REPO, and --branch or --tag instead."
 )]
 pub struct InstallSubcommand {
     #[clap(
@@ -59,7 +71,7 @@ pub struct InstallSubcommand {
     #[clap(
         value_name = "PATH_IN_REPO",
         help = "Filesystem path inside git repo (git SOURCE only)",
-        long_help = "Filesystem path inside the cloned git repository.\nUsed only when SOURCE is a git URL.\n\nUse `/...` suffix to install all matching main packages under this path prefix."
+        long_help = "Filesystem path inside the repository source.\nUsed only when SOURCE is a git URL.\n\nUse `/...` suffix to install all matching main packages under this path prefix."
     )]
     pub path_in_repo: Option<String>,
 
