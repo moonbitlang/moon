@@ -1059,18 +1059,25 @@ impl<'a> LoweringContext<'a> {
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
         debug_assert!({
-            let planned_c_stubs = products
-                .dependency_artifacts()
-                .filter_map(|artifact| match artifact {
-                    PlannedArtifact::CStubLibrary { package, .. } => Some(*package),
-                    _ => None,
+            let planned_c_stub_count = products
+                .dependency_paths_matching(|artifact| {
+                    matches!(artifact, PlannedArtifact::CStubLibrary { .. })
                 })
-                .collect::<Vec<_>>();
-            planned_c_stubs.len() == info.link_c_stubs.len()
-                && info
-                    .link_c_stubs
-                    .iter()
-                    .all(|package| planned_c_stubs.contains(package))
+                .len();
+            planned_c_stub_count == info.link_c_stubs.len()
+                && info.link_c_stubs.iter().all(|package| {
+                    !products
+                        .dependency_paths_matching(|artifact| {
+                            matches!(
+                                artifact,
+                                PlannedArtifact::CStubLibrary {
+                                    package: actual,
+                                    ..
+                                } if actual == package
+                            )
+                        })
+                        .is_empty()
+                })
         });
 
         match self.opt.selected_backend {

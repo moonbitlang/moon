@@ -103,11 +103,15 @@ impl ActionProducts {
 
     pub(super) fn single_output_path(&self) -> PathBuf {
         match self.outputs.as_slice() {
-            [artifact] => Self::single_realized_path(artifact),
+            [artifact] => Self::optional_single_realized_path(artifact)
+                .unwrap_or_else(|| unreachable!("expected exactly one path for artifact")),
             [] => unreachable!("expected exactly one output artifact"),
             _ => unreachable!(
                 "expected one output artifact, got {:?}",
-                self.output_artifacts()
+                self.outputs
+                    .iter()
+                    .map(|realized| &realized.artifact)
+                    .collect::<Vec<_>>()
             ),
         }
     }
@@ -146,21 +150,10 @@ impl ActionProducts {
             .collect()
     }
 
-    pub(super) fn dependency_artifacts(&self) -> impl Iterator<Item = &PlannedArtifact> {
-        self.dependencies.iter().map(|realized| &realized.artifact)
-    }
-
     fn paths(realized: &[RealizedArtifact]) -> Vec<PathBuf> {
         realized
             .iter()
             .flat_map(|artifact| artifact.paths.iter().cloned())
-            .collect()
-    }
-
-    fn output_artifacts(&self) -> Vec<&PlannedArtifact> {
-        self.outputs
-            .iter()
-            .map(|realized| &realized.artifact)
             .collect()
     }
 
@@ -177,11 +170,6 @@ impl ActionProducts {
             [] => None,
             _ => unreachable!("expected at most one matching artifact"),
         }
-    }
-
-    fn single_realized_path(artifact: &RealizedArtifact) -> PathBuf {
-        Self::optional_single_realized_path(artifact)
-            .unwrap_or_else(|| unreachable!("expected exactly one path for artifact"))
     }
 
     fn optional_single_realized_path(artifact: &RealizedArtifact) -> Option<PathBuf> {
@@ -335,21 +323,14 @@ impl<'a> LoweringContext<'a> {
         build.can_dirty_on_output = self.plan.can_dirty_on_output(id);
 
         self.debug_print_command_and_files(id, &build);
-        self.lowered(build).map_err(|e| LoweringError::N2 {
-            package: fqn.into(),
-            action: id,
-            source: e,
-        })
-    }
-
-    /// Append the concrete path(s) corresponding to a planned artifact.
-    #[instrument(level = Level::DEBUG, skip(self, out))]
-    pub(super) fn append_planned_artifact(
-        &self,
-        artifact: &PlannedArtifact,
-        out: &mut Vec<PathBuf>,
-    ) {
-        out.extend(self.products.paths(artifact).iter().cloned());
+        self.graph
+            .add_build(build)
+            .map(|_| ())
+            .map_err(|e| LoweringError::N2 {
+                package: fqn.into(),
+                action: id,
+                source: e,
+            })
     }
 
     pub(super) fn planned_artifact_paths(
@@ -358,14 +339,9 @@ impl<'a> LoweringContext<'a> {
     ) -> Vec<PathBuf> {
         let mut paths = Vec::new();
         for artifact in artifacts {
-            self.append_planned_artifact(&artifact, &mut paths);
+            paths.extend(self.products.paths(&artifact).iter().cloned());
         }
         paths
-    }
-
-    fn lowered(&mut self, build: Build) -> Result<(), anyhow::Error> {
-        self.graph.add_build(build)?;
-        Ok(())
     }
 
     /// **For debug use only.** Prints debug information about a lowered action,

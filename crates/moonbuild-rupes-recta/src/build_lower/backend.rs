@@ -191,7 +191,7 @@ impl SelectedBackend {
 
     pub(crate) fn c_stub_library_realization(self) -> CStubLibraryRealization {
         match self {
-            Self::C(backend) => backend.c_stub_library_realization(),
+            Self::C(backend) => backend.c_stubs,
             Self::Llvm { .. } => CStubLibraryRealization::StaticArchive,
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("C stubs are only realized for C or LLVM backends")
@@ -201,7 +201,7 @@ impl SelectedBackend {
 
     pub(crate) fn uses_shared_runtime(self) -> bool {
         match self {
-            Self::C(backend) => backend.uses_shared_runtime(),
+            Self::C(backend) => backend.runtime == CRuntimeRealization::SharedLibraryForTccRun,
             Self::Llvm { .. } => false,
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("runtime products are only realized for C or LLVM backends")
@@ -303,14 +303,6 @@ impl CBackend {
             }
         }
     }
-
-    fn c_stub_library_realization(self) -> CStubLibraryRealization {
-        self.c_stubs
-    }
-
-    pub(crate) fn uses_shared_runtime(self) -> bool {
-        self.runtime == CRuntimeRealization::SharedLibraryForTccRun
-    }
 }
 
 #[cfg(test)]
@@ -340,10 +332,10 @@ mod tests {
             CExecutableRealization::WriteTccRunResponseFile
         );
         assert_eq!(
-            c_backend.c_stub_library_realization(),
+            backend.c_stub_library_realization(),
             CStubLibraryRealization::SharedLibraryForTccRun
         );
-        assert!(c_backend.uses_shared_runtime());
+        assert!(backend.uses_shared_runtime());
     }
 
     #[test]
@@ -364,10 +356,10 @@ mod tests {
             CExecutableRealization::LinkDirectObject
         );
         assert_eq!(
-            c_backend.c_stub_library_realization(),
+            backend.c_stub_library_realization(),
             CStubLibraryRealization::StaticArchive
         );
-        assert!(!c_backend.uses_shared_runtime());
+        assert!(!backend.uses_shared_runtime());
     }
 
     #[test]
