@@ -16,11 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Backend-specific product realization.
+//! Backend-specific lowering realization.
 //!
 //! Build planning deals in logical actions and artifacts. Lowering selects one
-//! backend branch, lets that branch decide concrete product paths, then hands
-//! those paths to command lowering and n2 graph construction.
+//! backend branch for command shape and runtime/linking behavior. Concrete
+//! product paths are resolved by `target_layout`.
 
 use crate::model::{NativeTarget, RunBackend};
 
@@ -147,7 +147,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn non_native_backends_do_not_resolve_operating_system() {
+    fn wasm_backend_carries_wat_setting() {
         let backend = SelectedBackend::new(RunBackend::Wasm, None, false, true);
 
         assert!(matches!(backend, SelectedBackend::Wasm { use_wat: true }));

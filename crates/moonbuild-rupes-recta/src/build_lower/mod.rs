@@ -138,8 +138,10 @@ impl BuildOptions {
         use_tcc_run
     }
 
-    pub fn executable_artifact(&self) -> ExecutableArtifact {
-        match self.target_backend {
+    pub fn artifact_path_options(&self) -> ArtifactPathOptions {
+        let os = self.os();
+        let use_tcc_run = self.use_tcc_run();
+        let executable = match self.target_backend {
             RunBackend::Wasm => ExecutableArtifact::Wasm {
                 use_wat: self.output_wat,
             },
@@ -147,14 +149,11 @@ impl BuildOptions {
                 use_wat: self.output_wat,
             },
             RunBackend::Js => ExecutableArtifact::Js,
-            RunBackend::Native if self.use_tcc_run() => ExecutableArtifact::TccRunResponseFile,
+            RunBackend::Native if use_tcc_run => ExecutableArtifact::TccRunResponseFile,
             RunBackend::Native => ExecutableArtifact::NativeExecutable,
             RunBackend::Llvm => ExecutableArtifact::LlvmExecutable,
-        }
-    }
-
-    pub fn linked_core_artifact(&self) -> LinkedCoreArtifact {
-        match self.target_backend {
+        };
+        let linked_core = match self.target_backend {
             RunBackend::Wasm => LinkedCoreArtifact::Wasm {
                 use_wat: self.output_wat,
             },
@@ -163,20 +162,18 @@ impl BuildOptions {
             },
             RunBackend::Js => LinkedCoreArtifact::Js,
             RunBackend::Native if self.native_target.is_some() => {
-                LinkedCoreArtifact::NativeObject { os: self.os() }
+                LinkedCoreArtifact::NativeObject { os }
             }
             RunBackend::Native => LinkedCoreArtifact::NativeC,
-            RunBackend::Llvm => LinkedCoreArtifact::LlvmObject { os: self.os() },
-        }
-    }
+            RunBackend::Llvm => LinkedCoreArtifact::LlvmObject { os },
+        };
 
-    pub fn artifact_path_options(&self) -> ArtifactPathOptions {
         ArtifactPathOptions {
             target_backend: self.target_backend,
-            use_tcc_run: self.use_tcc_run(),
-            os: self.os(),
-            executable: self.executable_artifact(),
-            linked_core: self.linked_core_artifact(),
+            use_tcc_run,
+            os,
+            executable,
+            linked_core,
         }
     }
 }
