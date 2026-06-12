@@ -697,19 +697,27 @@ fn test_async_wasm_upstream_src_package() {
 }
 
 #[test]
-fn test_async_wasm_upstream_queue_packages() {
+fn test_async_wasm_upstream_aqueue_package() {
     check(
         run_upstream_async_wasm_package("moonbitlang/async/aqueue"),
         expect![[r#"
             Total tests: 52, passed: 52, failed: 0.
         "#]],
     );
+}
+
+#[test]
+fn test_async_wasm_upstream_cond_var_package() {
     check(
         run_upstream_async_wasm_package("moonbitlang/async/cond_var"),
         expect![[r#"
             Total tests: 8, passed: 8, failed: 0.
         "#]],
     );
+}
+
+#[test]
+fn test_async_wasm_upstream_semaphore_package() {
     check(
         run_upstream_async_wasm_package("moonbitlang/async/semaphore"),
         expect![[r#"

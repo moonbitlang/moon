@@ -1798,7 +1798,7 @@ mod tests {
     #[test]
     fn dir_name_for_wasm_os_string_rejects_odd_windows_name_bytes() {
         assert_eq!(
-            encode_dir_name_for_wasm_os_string(&[b'f']),
+            encode_dir_name_for_wasm_os_string(b"f"),
             Err(AsyncHostError::Fault)
         );
     }
