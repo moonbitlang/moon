@@ -91,7 +91,7 @@ pub(super) fn dir_entry_length(
     let context = callback_context(&args);
     match with_dir_header(scope, &args, context, dir::entry_length) {
         Ok(value) => ret.set_int32(value),
-        Err(error) => throw_import_error(scope, "dir_entry_length", error),
+        Err(error) => throw_import_error(scope, "fs/dir_entry_length", error),
     }
 }
 
@@ -137,7 +137,7 @@ pub(super) fn dir_entry_is_dir(
     let context = callback_context(&args);
     match with_dir_header(scope, &args, context, dir::entry_is_dir) {
         Ok(value) => ret.set_int32(value),
-        Err(error) => throw_import_error(scope, "dir_entry_is_dir", error),
+        Err(error) => throw_import_error(scope, "fs/dir_entry_is_dir", error),
     }
 }
 
@@ -149,7 +149,7 @@ pub(super) fn dir_entry_is_hidden(
     let context = callback_context(&args);
     match with_dir_header(scope, &args, context, dir::entry_is_hidden) {
         Ok(value) => finish_bool(&mut ret, value),
-        Err(error) => throw_import_error(scope, "dir_entry_is_hidden", error),
+        Err(error) => throw_import_error(scope, "fs/dir_entry_is_hidden", error),
     }
 }
 

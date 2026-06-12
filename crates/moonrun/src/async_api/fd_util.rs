@@ -43,7 +43,13 @@ pub(super) fn get_atime_sec(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    file_time_i64(scope, &args, ATIME_SEC_OFFSET, "get_atime_sec", &mut ret);
+    file_time_i64(
+        scope,
+        &args,
+        ATIME_SEC_OFFSET,
+        "fd_util/get_atime_sec",
+        &mut ret,
+    );
 }
 
 pub(super) fn get_atime_nsec(
@@ -51,7 +57,13 @@ pub(super) fn get_atime_nsec(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    file_time_i32(scope, &args, ATIME_NSEC_OFFSET, "get_atime_nsec", &mut ret);
+    file_time_i32(
+        scope,
+        &args,
+        ATIME_NSEC_OFFSET,
+        "fd_util/get_atime_nsec",
+        &mut ret,
+    );
 }
 
 pub(super) fn get_mtime_sec(
@@ -59,7 +71,13 @@ pub(super) fn get_mtime_sec(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    file_time_i64(scope, &args, MTIME_SEC_OFFSET, "get_mtime_sec", &mut ret);
+    file_time_i64(
+        scope,
+        &args,
+        MTIME_SEC_OFFSET,
+        "fd_util/get_mtime_sec",
+        &mut ret,
+    );
 }
 
 pub(super) fn get_mtime_nsec(
@@ -67,7 +85,13 @@ pub(super) fn get_mtime_nsec(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    file_time_i32(scope, &args, MTIME_NSEC_OFFSET, "get_mtime_nsec", &mut ret);
+    file_time_i32(
+        scope,
+        &args,
+        MTIME_NSEC_OFFSET,
+        "fd_util/get_mtime_nsec",
+        &mut ret,
+    );
 }
 
 pub(super) fn get_ctime_sec(
@@ -75,7 +99,13 @@ pub(super) fn get_ctime_sec(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    file_time_i64(scope, &args, CTIME_SEC_OFFSET, "get_ctime_sec", &mut ret);
+    file_time_i64(
+        scope,
+        &args,
+        CTIME_SEC_OFFSET,
+        "fd_util/get_ctime_sec",
+        &mut ret,
+    );
 }
 
 pub(super) fn get_ctime_nsec(
@@ -83,7 +113,13 @@ pub(super) fn get_ctime_nsec(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    file_time_i32(scope, &args, CTIME_NSEC_OFFSET, "get_ctime_nsec", &mut ret);
+    file_time_i32(
+        scope,
+        &args,
+        CTIME_NSEC_OFFSET,
+        "fd_util/get_ctime_nsec",
+        &mut ret,
+    );
 }
 
 pub(super) fn pipe(

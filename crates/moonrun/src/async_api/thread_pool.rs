@@ -36,7 +36,7 @@ pub(super) fn free_job(
         context.host.free_job(args.i32(0)?)
     })();
     if let Err(error) = result {
-        throw_import_error(scope, "free_job", error);
+        throw_import_error(scope, "thread_pool/free_job", error);
         return;
     }
     ret.set_undefined();
@@ -54,7 +54,7 @@ pub(super) fn job_get_ret(
     })();
     match result {
         Ok(value) => ret.set_int32(value as i32),
-        Err(error) => throw_import_error(scope, "job_get_ret", error),
+        Err(error) => throw_import_error(scope, "thread_pool/job_get_ret", error),
     }
 }
 
@@ -70,7 +70,7 @@ pub(super) fn job_get_err(
     })();
     match result {
         Ok(value) => ret.set_int32(value),
-        Err(error) => throw_import_error(scope, "job_get_err", error),
+        Err(error) => throw_import_error(scope, "thread_pool/job_get_err", error),
     }
 }
 
@@ -82,7 +82,7 @@ pub(super) fn run_job(
     let context = callback_context(&args);
     let result = run_job_impl(scope, &args, context);
     if let Err(error) = result {
-        throw_import_error(scope, "run_job", error);
+        throw_import_error(scope, "thread_pool/run_job", error);
         return;
     }
     ret.set_undefined();
@@ -96,7 +96,7 @@ pub(super) fn complete_job(
     let context = callback_context(&args);
     let result = complete_job_impl(scope, &args, context);
     if let Err(error) = result {
-        throw_import_error(scope, "complete_job", error);
+        throw_import_error(scope, "thread_pool/complete_job", error);
         return;
     }
     ret.set_undefined();
@@ -114,7 +114,7 @@ pub(super) fn spawn_worker(
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "spawn_worker", error),
+        Err(error) => throw_import_error(scope, "thread_pool/spawn_worker", error),
     }
 }
 
@@ -129,7 +129,7 @@ pub(super) fn free_worker(
         context.host.free_worker(args.i32(0)?)
     })();
     if let Err(error) = result {
-        throw_import_error(scope, "free_worker", error);
+        throw_import_error(scope, "thread_pool/free_worker", error);
         return;
     }
     ret.set_undefined();
@@ -148,7 +148,7 @@ pub(super) fn wake_worker(
             .wake_worker(args.i32(0)?, args.i32(1)?, args.i32(2)?)
     })();
     if let Err(error) = result {
-        throw_import_error(scope, "wake_worker", error);
+        throw_import_error(scope, "thread_pool/wake_worker", error);
         return;
     }
     ret.set_undefined();
@@ -165,7 +165,7 @@ pub(super) fn worker_enter_idle(
         context.host.worker_enter_idle(args.i32(0)?)
     })();
     if let Err(error) = result {
-        throw_import_error(scope, "worker_enter_idle", error);
+        throw_import_error(scope, "thread_pool/worker_enter_idle", error);
         return;
     }
     ret.set_undefined();
@@ -183,7 +183,7 @@ pub(super) fn cancel_worker(
     })();
     match result {
         Ok(status) => ret.set_int32(status),
-        Err(error) => throw_import_error(scope, "cancel_worker", error),
+        Err(error) => throw_import_error(scope, "thread_pool/cancel_worker", error),
     }
 }
 
@@ -196,7 +196,7 @@ pub(super) fn fetch_completion(
     let result = fetch_completion_impl(scope, &args, context);
     match result {
         Ok(bytes) => ret.set_int32(bytes),
-        Err(error) => throw_import_error(scope, "fetch_completion", error),
+        Err(error) => throw_import_error(scope, "thread_pool/fetch_completion", error),
     }
 }
 
@@ -214,7 +214,7 @@ pub(super) fn make_sleep_job(
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_sleep_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_sleep_job", error),
     }
 }
 
@@ -227,7 +227,7 @@ pub(super) fn make_open_job(
     let result = make_open_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_open_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_open_job", error),
     }
 }
 
@@ -250,7 +250,7 @@ pub(super) fn make_read_job(
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_read_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_read_job", error),
     }
 }
 
@@ -263,7 +263,7 @@ pub(super) fn make_write_job(
     let result = make_write_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_write_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_write_job", error),
     }
 }
 
@@ -276,7 +276,7 @@ pub(super) fn make_file_kind_by_path_job(
     let result = make_file_kind_by_path_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_file_kind_by_path_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_file_kind_by_path_job", error),
     }
 }
 
@@ -294,7 +294,7 @@ pub(super) fn make_file_size_job(
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_file_size_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_file_size_job", error),
     }
 }
 
@@ -310,7 +310,7 @@ pub(super) fn get_file_size_result(
     })();
     match result {
         Ok(value) => ret.set(v8::BigInt::new_from_i64(scope, value).into()),
-        Err(error) => throw_import_error(scope, "get_file_size_result", error),
+        Err(error) => throw_import_error(scope, "thread_pool/get_file_size_result", error),
     }
 }
 
@@ -330,7 +330,7 @@ pub(super) fn make_file_time_job(
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_file_time_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_file_time_job", error),
     }
 }
 
@@ -343,7 +343,7 @@ pub(super) fn make_file_time_by_path_job(
     let result = make_file_time_by_path_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_file_time_by_path_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_file_time_by_path_job", error),
     }
 }
 
@@ -356,7 +356,7 @@ pub(super) fn make_access_job(
     let result = make_access_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_access_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_access_job", error),
     }
 }
 
@@ -369,7 +369,7 @@ pub(super) fn make_chmod_job(
     let result = make_chmod_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_chmod_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_chmod_job", error),
     }
 }
 
@@ -389,7 +389,7 @@ pub(super) fn make_fsync_job(
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_fsync_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_fsync_job", error),
     }
 }
 
@@ -409,7 +409,7 @@ pub(super) fn make_flock_job(
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_flock_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_flock_job", error),
     }
 }
 
@@ -422,7 +422,7 @@ pub(super) fn make_remove_job(
     let result = make_remove_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_remove_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_remove_job", error),
     }
 }
 
@@ -435,7 +435,7 @@ pub(super) fn make_rename_job(
     let result = make_rename_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_rename_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_rename_job", error),
     }
 }
 
@@ -448,7 +448,7 @@ pub(super) fn make_symlink_job(
     let result = make_symlink_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_symlink_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_symlink_job", error),
     }
 }
 
@@ -461,7 +461,7 @@ pub(super) fn make_mkdir_job(
     let result = make_mkdir_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_mkdir_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_mkdir_job", error),
     }
 }
 
@@ -474,7 +474,7 @@ pub(super) fn make_rmdir_job(
     let result = make_rmdir_job_impl(scope, &args, context);
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_rmdir_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_rmdir_job", error),
     }
 }
 
@@ -496,7 +496,7 @@ pub(super) fn make_readdir_job(
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_readdir_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_readdir_job", error),
     }
 }
 
@@ -510,7 +510,7 @@ pub(super) fn open_job_get_fd(
         context.host.open_job_get_fd(handle)
     }) {
         Ok(value) => ret.set_int32(value),
-        Err(error) => throw_import_error(scope, "open_job_get_fd", error),
+        Err(error) => throw_import_error(scope, "thread_pool/open_job_get_fd", error),
     }
 }
 
@@ -524,7 +524,7 @@ pub(super) fn open_job_get_kind(
         context.host.open_job_get_kind(handle)
     }) {
         Ok(value) => ret.set_int32(value),
-        Err(error) => throw_import_error(scope, "open_job_get_kind", error),
+        Err(error) => throw_import_error(scope, "thread_pool/open_job_get_kind", error),
     }
 }
 
@@ -538,7 +538,7 @@ pub(super) fn open_job_get_dev_id(
         context.host.open_job_get_dev_id(handle)
     }) {
         Ok(value) => ret.set(v8::BigInt::new_from_u64(scope, value).into()),
-        Err(error) => throw_import_error(scope, "open_job_get_dev_id", error),
+        Err(error) => throw_import_error(scope, "thread_pool/open_job_get_dev_id", error),
     }
 }
 
@@ -552,7 +552,7 @@ pub(super) fn open_job_get_file_id(
         context.host.open_job_get_file_id(handle)
     }) {
         Ok(value) => ret.set(v8::BigInt::new_from_u64(scope, value).into()),
-        Err(error) => throw_import_error(scope, "open_job_get_file_id", error),
+        Err(error) => throw_import_error(scope, "thread_pool/open_job_get_file_id", error),
     }
 }
 

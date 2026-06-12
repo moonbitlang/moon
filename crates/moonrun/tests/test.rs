@@ -346,7 +346,7 @@ fn test_moon_run_with_async_host_invalid_c_buffer_traps() {
         .assert()
         .failure()
         .stderr_eq(snapbox::str![[r#"
-Error: moonbit_v0.c_buffer_get failed: Fault
+Error: moonbit_v0.c_buffer/c_buffer_get failed: Fault
 [..]
 "#]]);
 }

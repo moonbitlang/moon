@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-fn c_buffer_get(buf : Int, index : Int) -> Byte = "moonbit_v0" "c_buffer_get"
+fn c_buffer_get(buf : Int, index : Int) -> Byte = "moonbit_v0" "c_buffer/c_buffer_get"
 
 ///|
 fn main {

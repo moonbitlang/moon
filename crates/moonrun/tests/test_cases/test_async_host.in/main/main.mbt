@@ -16,22 +16,22 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-fn get_platform() -> Int = "moonbit_v0" "get_platform"
+fn get_platform() -> Int = "moonbit_v0" "runtime/get_platform"
 
 ///|
-fn ms_since_epoch() -> Int64 = "moonbit_v0" "get_ms_since_epoch"
+fn ms_since_epoch() -> Int64 = "moonbit_v0" "time/get_ms_since_epoch"
 
 ///|
-fn sleep_ms(duration : Int) -> Int = "moonbit_v0" "sleep_ms"
+fn sleep_ms(duration : Int) -> Int = "moonbit_v0" "time/sleep_ms"
 
 ///|
-fn get_errno() -> Int = "moonbit_v0" "get_errno"
+fn get_errno() -> Int = "moonbit_v0" "os_error/get_errno"
 
 ///|
-fn get_tmp_path_len() -> Int = "moonbit_v0" "get_tmp_path_len"
+fn get_tmp_path_len() -> Int = "moonbit_v0" "fs/get_tmp_path_len"
 
 ///|
-fn get_tmp_path(dst : Int, len : Int) -> Int = "moonbit_v0" "get_tmp_path"
+fn get_tmp_path(dst : Int, len : Int) -> Int = "moonbit_v0" "fs/get_tmp_path"
 
 ///|
 #borrow(bytes)
@@ -39,28 +39,28 @@ extern "wasm" fn bytes_to_ptr(bytes : Bytes) -> Int =
   #|(func (param i32) (result i32) local.get 0)
 
 ///|
-fn blit_to_c(dst : Int, src : Int, offset : Int, len : Int) -> Unit = "moonbit_v0" "blit_to_c"
+fn blit_to_c(dst : Int, src : Int, offset : Int, len : Int) -> Unit = "moonbit_v0" "c_buffer/blit_to_c"
 
 ///|
-fn blit_from_c(src : Int, dst : Int, offset : Int, len : Int) -> Unit = "moonbit_v0" "blit_from_c"
+fn blit_from_c(src : Int, dst : Int, offset : Int, len : Int) -> Unit = "moonbit_v0" "c_buffer/blit_from_c"
 
 ///|
-fn c_buffer_get(buf : Int, index : Int) -> Byte = "moonbit_v0" "c_buffer_get"
+fn c_buffer_get(buf : Int, index : Int) -> Byte = "moonbit_v0" "c_buffer/c_buffer_get"
 
 ///|
-fn strlen(buf : Int) -> Int = "moonbit_v0" "strlen"
+fn strlen(buf : Int) -> Int = "moonbit_v0" "c_buffer/strlen"
 
 ///|
-fn pointer_is_null(ptr : Int) -> Bool = "moonbit_v0" "pointer_is_null"
+fn pointer_is_null(ptr : Int) -> Bool = "moonbit_v0" "c_buffer/pointer_is_null"
 
 ///|
-fn null_pointer() -> Int = "moonbit_v0" "null_pointer"
+fn null_pointer() -> Int = "moonbit_v0" "c_buffer/null_pointer"
 
 ///|
-fn errno_is_lock_violation(errno : Int) -> Bool = "moonbit_v0" "errno_is_lock_violation"
+fn errno_is_lock_violation(errno : Int) -> Bool = "moonbit_v0" "fs/errno_is_lock_violation"
 
 ///|
-fn make_tcp_socket(family : Int) -> Int = "moonbit_v0" "make_tcp_socket"
+fn make_tcp_socket(family : Int) -> Int = "moonbit_v0" "socket/make_tcp_socket"
 
 ///|
 fn assert_true(cond : Bool, message : String) -> Unit {

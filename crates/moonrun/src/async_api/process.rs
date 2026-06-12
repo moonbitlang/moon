@@ -49,7 +49,7 @@ pub(super) fn make_wait_for_process_job(
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
-        Err(error) => throw_import_error(scope, "make_wait_for_process_job", error),
+        Err(error) => throw_import_error(scope, "thread_pool/make_wait_for_process_job", error),
     }
 }
 

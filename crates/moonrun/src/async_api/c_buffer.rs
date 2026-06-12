@@ -30,7 +30,7 @@ pub(super) fn blit_to_c(
 ) {
     let context = callback_context(&args);
     if let Err(error) = blit_to_c_impl(scope, &args, context) {
-        throw_import_error(scope, "blit_to_c", error);
+        throw_import_error(scope, "c_buffer/blit_to_c", error);
         return;
     }
     ret.set_undefined();
@@ -43,7 +43,7 @@ pub(super) fn blit_from_c(
 ) {
     let context = callback_context(&args);
     if let Err(error) = blit_from_c_impl(scope, &args, context) {
-        throw_import_error(scope, "blit_from_c", error);
+        throw_import_error(scope, "c_buffer/blit_from_c", error);
         return;
     }
     ret.set_undefined();
@@ -57,7 +57,7 @@ pub(super) fn c_buffer_get(
     let context = callback_context(&args);
     match c_buffer_get_impl(scope, &args, context) {
         Ok(byte) => ret.set_int32(i32::from(byte)),
-        Err(error) => throw_import_error(scope, "c_buffer_get", error),
+        Err(error) => throw_import_error(scope, "c_buffer/c_buffer_get", error),
     }
 }
 
@@ -69,7 +69,7 @@ pub(super) fn strlen(
     let context = callback_context(&args);
     match strlen_impl(scope, &args, context) {
         Ok(len) => ret.set_int32(len),
-        Err(error) => throw_import_error(scope, "strlen", error),
+        Err(error) => throw_import_error(scope, "c_buffer/strlen", error),
     }
 }
 
@@ -89,7 +89,7 @@ pub(super) fn pointer_is_null(
     let mut args = ImportArgs::new(scope, &args);
     match args.i32(0) {
         Ok(ptr) => finish_bool(&mut ret, stub::pointer_is_null(ptr)),
-        Err(error) => throw_import_error(scope, "pointer_is_null", error),
+        Err(error) => throw_import_error(scope, "c_buffer/pointer_is_null", error),
     }
 }
 
