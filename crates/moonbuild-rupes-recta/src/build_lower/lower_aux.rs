@@ -31,10 +31,7 @@ use tracing::{Level, instrument};
 
 use crate::{
     build_action_plan::PlannedArtifact,
-    build_lower::{
-        Commandline,
-        compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
-    },
+    build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::{BuildTargetInfo, PrebuildInfo},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
@@ -297,8 +294,18 @@ impl<'a> super::LoweringContext<'a> {
         // Note: we are tracking dependencies between prebuild commands via n2.
         // Ideally we can do this ourselves, but n2 does it anyway so we don't bother.
 
+        let commandline = vec![
+            BINARIES.moonbuild.display().to_string(),
+            "tool".to_string(),
+            "exec".to_string(),
+            "--cwd".to_string(),
+            info.cwd.display().to_string(),
+            "--shell".to_string(),
+            info.command.clone(),
+        ];
+
         BuildCommand {
-            commandline: Commandline::Verbatim(info.command.clone()),
+            commandline: commandline.into(),
             extra_inputs: info.resolved_inputs.clone(),
         }
     }

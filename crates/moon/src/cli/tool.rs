@@ -19,6 +19,7 @@
 pub(crate) mod build_binary_dep;
 pub(crate) mod demangle;
 pub(crate) mod embed;
+pub(crate) mod exec;
 pub(crate) mod format_and_diff;
 pub(crate) mod format_workspace;
 pub(crate) mod write_rsp_file;

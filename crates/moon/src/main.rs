@@ -128,6 +128,16 @@ pub fn main() {
     panic::setup_panic_hook();
 
     let raw_args = std::env::args_os().collect::<Vec<_>>();
+    if cli::tool::exec::is_tool_exec(&raw_args) {
+        match cli::tool::exec::run_from_raw_args(&raw_args) {
+            Ok(code) => std::process::exit(code),
+            Err(err) => {
+                UserDiagnostics::default().error(format!("{:?}", err));
+                std::process::exit(-1);
+            }
+        }
+    }
+
     let cli = cli::MoonBuildCli::try_parse_from(&raw_args).unwrap_or_else(|err| {
         cli::exit_if_ide_help_request(&err, &raw_args);
         cli::exit_if_cram_external_request(&err, &raw_args);

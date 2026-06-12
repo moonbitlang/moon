@@ -1,0 +1,9 @@
+{
+  "pre-build": [
+    {
+      "input": "input.txt",
+      "output": "generated.mbt",
+      "command": ":embed --text -i cwd-marker.txt -o $output --name cwd_marker"
+    }
+  ]
+}

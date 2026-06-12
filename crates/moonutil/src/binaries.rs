@@ -33,6 +33,16 @@ fn moon_bin(binary_name: &str, env_var: &str) -> PathBuf {
         return PathBuf::from(path);
     }
 
+    if binary_name == "moon"
+        && let Ok(current_exe) = std::env::current_exe()
+        && current_exe
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name == "moon" || name == "moon.exe")
+    {
+        return dunce::canonicalize(&current_exe).unwrap_or(current_exe);
+    }
+
     // Try to find in the resolved toolchain root.
     let in_toolchain = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
     if in_toolchain.exists() {

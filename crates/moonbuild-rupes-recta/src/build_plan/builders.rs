@@ -1466,6 +1466,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let info = PrebuildInfo {
             resolved_inputs: input_paths,
             resolved_outputs: output_paths,
+            cwd: module.to_path_buf(),
             command,
         };
 

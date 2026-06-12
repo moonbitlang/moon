@@ -254,6 +254,7 @@ fn run_prebuild_exposes_resolved_outputs_as_known_paths() {
         vec![Some(PrebuildInfo {
             resolved_inputs: Vec::new(),
             resolved_outputs: vec![output.clone()],
+            cwd: PathBuf::from("."),
             command: "generate".to_string(),
         })],
     );
