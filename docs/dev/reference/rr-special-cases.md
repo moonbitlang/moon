@@ -45,15 +45,13 @@ important ones and why they exist.
 
 ## Artifact path overrides
 
-- **Abort artifacts live beside the stdlib.** When lowering build plans
-  (`build_lower::artifact`), calls that would normally resolve `.core`, `.mi`,
-  or `.phony_mi` files check whether the target package is the recorded abort
-  package. If so, and **only when stdlib is injected**, the code switches to
-  the stdlib’s prebuilt `abort` outputs via `moonutil::toolchain` because
-  those artifacts are shipped as part of the toolchain rather than being
-  rebuilt per project. When **building the stdlib itself**, the abort package
-  must resolve to local `_build/...` artifacts, so the prebuilt paths are
-  explicitly *not* used.
+- **Abort artifacts live beside the stdlib.** Artifact path resolution checks
+  whether a `.core` or `.mi` request targets the recorded abort package. If so,
+  and **only when stdlib is injected**, the resolver switches to the stdlib’s
+  prebuilt `abort` outputs via `moonutil::toolchain` because those artifacts are
+  shipped as part of the toolchain rather than being rebuilt per project. When
+  **building the stdlib itself**, the abort package must resolve to local
+  `_build/...` artifacts, so the prebuilt paths are explicitly *not* used.
 - **Stdlib bundle paths are toolchain facts.** The bundled stdlib layout
   (`_build/<backend>/release/bundle`, `abort/abort.core`, package `.mi`
   files, and related paths) is owned by `moonutil::toolchain`, backed by the
@@ -68,12 +66,12 @@ important ones and why they exist.
   `CompileConfig` / `BuildMeta`. For ordinary projects this is the installed
   toolchain core directory. When building `moonbitlang/core` itself, it is
   `None`, so stdlib packages resolve to local `_build/...` artifacts.
-- **RR consumes the selected layout.** `CompileConfig`, lowering options,
-  `LegacyLayout`, metadata generation, and `all_pkgs.json` generation all
-  consume the same selected `stdlib_path` / `LegacyLayout`. `metadata.rs` and
-  `all_pkgs.rs` should render paths from the supplied layout; they should not
-  call `moonutil::toolchain::core()` or otherwise decide whether prebuilt
-  stdlib artifacts are in use.
+- **RR consumes the selected resolver.** `CompileConfig`, lowering options,
+  `BuildMeta`, metadata generation, and `all_pkgs.json` generation all consume
+  the same selected `ArtifactPathResolver`. `metadata.rs` and `all_pkgs.rs`
+  should render paths from the supplied resolver; they should not call
+  `moonutil::toolchain::core()` or otherwise decide whether prebuilt stdlib
+  artifacts are in use.
 - **`abort_pkg` is discovery-only, not build-mode.** We always record the abort
   package ID if it exists, even when building the stdlib. Build-mode decisions
   (use prebuilt paths vs local artifacts) are gated by whether stdlib is

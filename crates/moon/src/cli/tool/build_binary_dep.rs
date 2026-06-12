@@ -184,7 +184,7 @@ pub(crate) fn run_build_binary_dep(
 
         let _lock = FileLock::lock(&target_dir)?;
         // Generate all_pkgs.json for indirect dependency resolution
-        rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Build)?;
+        rr_build::generate_all_pkgs_json(&build_meta)?;
 
         let result = rr_build::execute_build(
             &BuildConfig::from_flags(

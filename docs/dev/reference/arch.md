@@ -153,9 +153,10 @@ the shipped standard-library artifact layout. Command orchestration decides
 whether those facts apply to the current build, then passes the selected facts
 forward. In particular, `rr_build` chooses `stdlib_path` from `use_std &&
 !is_core`; RR lowering, metadata generation, and `all_pkgs.json` generation
-consume the resulting `LegacyLayout` instead of rediscovering the installed
-stdlib. Such facts do not need to be eager: non-native builds should not resolve
-native-only OS/toolchain details unless a lowering path actually asks for them.
+consume an `ArtifactPathResolver` that composes the selected stdlib path with
+the target layout instead of rediscovering the installed stdlib. Such facts do
+not need to be eager: non-native builds should not resolve native-only
+OS/toolchain details unless a lowering path actually asks for them.
 
 Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment

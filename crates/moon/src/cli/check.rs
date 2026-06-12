@@ -371,7 +371,7 @@ fn run_check_for_single_file_rr(
     })?;
 
     // Generate all_pkgs.json for indirect dependency resolution
-    rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check)?;
+    rr_build::generate_all_pkgs_json(&build_meta)?;
     let filename = single_file_path
         .file_name()
         .and_then(|n| n.to_str())
@@ -381,7 +381,6 @@ fn run_check_for_single_file_rr(
         target_dir,
         &build_meta,
         &build_graph,
-        RunMode::Check,
         filename.as_deref(),
     )?;
 
@@ -534,16 +533,9 @@ fn run_check_normal_internal_rr(
         let mut ok = true;
         for (build_meta, build_graph) in planned_runs {
             // Generate all_pkgs.json for indirect dependency resolution
-            rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Check)?;
+            rr_build::generate_all_pkgs_json(&build_meta)?;
             // Generate metadata for IDE. The last executed backend wins.
-            rr_build::generate_metadata(
-                source_dir,
-                target_dir,
-                &build_meta,
-                &build_graph,
-                RunMode::Check,
-                None,
-            )?;
+            rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
             let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
             result.print_info(cli.quiet, "checking")?;

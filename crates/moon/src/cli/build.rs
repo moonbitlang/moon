@@ -221,7 +221,7 @@ fn run_build_rr(
         );
         let mut ok = true;
         for (build_meta, build_graph) in planned_runs {
-            rr_build::generate_all_pkgs_json(target_dir, &build_meta, RunMode::Build)?;
+            rr_build::generate_all_pkgs_json(&build_meta)?;
             let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
             result.print_info(cli.quiet, "building")?;
             ok &= result.successful();

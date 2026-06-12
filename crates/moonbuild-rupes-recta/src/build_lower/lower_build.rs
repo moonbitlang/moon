@@ -42,7 +42,6 @@ use crate::{
     build_action_plan::PlannedArtifact,
     build_lower::{
         CExecutableRealization, CStubLibraryRealization, SelectedBackend, WarningCondition,
-        artifact,
         compiler::{
             BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, ErrorFormat, JsConfig,
             MiDependency, PackageSource, WasmConfig,
@@ -53,6 +52,7 @@ use crate::{
     model::{BuildTarget, NativeTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
     special_cases::{is_self_coverage_lib, should_skip_coverage},
+    target_layout::proof_artifact_stem,
 };
 
 use super::{
@@ -174,7 +174,7 @@ impl<'a> LoweringContext<'a> {
 
         if let Some(v_target) = info.check_mi_against {
             // The target to check against is always the Source target of the virtual package
-            let mi_path = self.layout.mi_of_build_target(
+            let mi_path = self.artifact_paths.mi_of_build_target(
                 self.packages,
                 &v_target,
                 self.opt.target_backend.into(),
@@ -246,13 +246,15 @@ impl<'a> LoweringContext<'a> {
                 let in_file = if self.opt.stdlib_path.is_some()
                     && self.packages.is_stdlib_package(dep.package)
                 {
-                    self.layout.mi_of_build_target(
+                    self.artifact_paths.mi_of_build_target(
                         self.packages,
                         &dep,
                         self.opt.target_backend.into(),
                     )
                 } else {
-                    self.layout.emit_proof_mi_path(self.packages, &dep)
+                    self.artifact_paths
+                        .target_layout()
+                        .emit_proof_mi_path(self.packages, &dep)
                 };
                 MiDependency::new(in_file, &w.short_alias)
             })
@@ -277,10 +279,7 @@ impl<'a> LoweringContext<'a> {
             })
             .map(|(_, dep, _)| {
                 let pkg = self.packages.get_package(dep.package);
-                compiler::DepProof::new(
-                    pkg.fqn.to_string(),
-                    artifact::proof_artifact_stem(&pkg.fqn),
-                )
+                compiler::DepProof::new(pkg.fqn.to_string(), proof_artifact_stem(&pkg.fqn))
             })
             .collect::<Vec<_>>();
         deps.sort_by(|x, y| x.package.cmp(&y.package));
@@ -310,7 +309,11 @@ impl<'a> LoweringContext<'a> {
                     continue;
                 }
 
-                loadpaths.insert(self.layout.verif_package_dir(self.packages, &dep));
+                loadpaths.insert(
+                    self.artifact_paths
+                        .target_layout()
+                        .verif_package_dir(self.packages, &dep),
+                );
                 pending.push(dep);
             }
         }
@@ -351,7 +354,7 @@ impl<'a> LoweringContext<'a> {
             })
             .unwrap_or_else(|| {
                 if info.check_mi_against.is_some() {
-                    self.layout
+                    self.artifact_paths
                         .mi_of_build_target_impl_virtual(
                             self.packages,
                             &target,
@@ -390,7 +393,9 @@ impl<'a> LoweringContext<'a> {
                 &mi_inputs,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
-                self.layout.all_pkgs_of_build_target(backend),
+                self.artifact_paths
+                    .target_layout()
+                    .all_pkgs_of_build_target(backend),
                 backend,
                 target.kind,
             ),
@@ -447,7 +452,9 @@ impl<'a> LoweringContext<'a> {
                 &mi_inputs,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
-                self.layout.all_pkgs_of_build_target(backend),
+                self.artifact_paths
+                    .target_layout()
+                    .all_pkgs_of_build_target(backend),
                 backend,
                 target.kind,
             ),
@@ -492,7 +499,7 @@ impl<'a> LoweringContext<'a> {
         let why3_config = info
             .why3_config
             .clone()
-            .unwrap_or_else(|| self.layout.why3_config_path());
+            .unwrap_or_else(|| self.artifact_paths.target_layout().why3_config_path());
         let whyml_output = products.single_output_path_matching(|artifact| {
             matches!(
                 artifact,
@@ -523,7 +530,9 @@ impl<'a> LoweringContext<'a> {
                 &mi_inputs,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
-                self.layout.all_pkgs_of_build_target(backend),
+                self.artifact_paths
+                    .target_layout()
+                    .all_pkgs_of_build_target(backend),
                 backend,
                 target.kind,
             ),
@@ -583,7 +592,7 @@ impl<'a> LoweringContext<'a> {
                 )
             })
             .unwrap_or_else(|| {
-                self.layout.mi_of_build_target(
+                self.artifact_paths.mi_of_build_target(
                     self.packages,
                     &target,
                     self.opt.target_backend.into(),
@@ -625,7 +634,9 @@ impl<'a> LoweringContext<'a> {
                 &mi_inputs,
                 compiler::CompiledPackageName::new(&package.fqn, target.kind),
                 &package.root_path,
-                self.layout.all_pkgs_of_build_target(backend),
+                self.artifact_paths
+                    .target_layout()
+                    .all_pkgs_of_build_target(backend),
                 backend,
                 target.kind,
             ),
@@ -907,7 +918,8 @@ impl<'a> LoweringContext<'a> {
             .expect("Failed to build CC configuration for C stub");
 
         let intermediate_dir = self
-            .layout
+            .artifact_paths
+            .target_layout()
             .package_dir(&package.fqn, self.opt.target_backend.into())
             .display()
             .to_string();
@@ -960,7 +972,7 @@ impl<'a> LoweringContext<'a> {
 
         match self.opt.selected_backend.c_stub_library_realization() {
             CStubLibraryRealization::SharedLibraryForTccRun => {
-                self.lower_link_c_stubs(info, &object_files, output)
+                self.lower_link_c_stubs(products, info, &object_files, output)
             }
             CStubLibraryRealization::StaticArchive => {
                 self.lower_archive_c_stubs(info, &object_files, output)
@@ -999,6 +1011,7 @@ impl<'a> LoweringContext<'a> {
 
     fn lower_link_c_stubs(
         &mut self,
+        products: &ActionProducts,
         info: &BuildCStubsInfo,
         object_files: &[PathBuf],
         dylib_out: PathBuf,
@@ -1011,7 +1024,9 @@ impl<'a> LoweringContext<'a> {
 
         // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
         // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
-        let runtime_dylib = self.opt.selected_backend.runtime_path(&self.layout);
+        let runtime_dylib = products.single_dependency_path_matching(|artifact| {
+            matches!(artifact, PlannedArtifact::RuntimeLib { .. })
+        });
         let runtime_parent = runtime_dylib
             .parent()
             .expect("runtime dylib should have a parent directory");
@@ -1101,7 +1116,7 @@ impl<'a> LoweringContext<'a> {
                     self.lower_build_exe_regular(products, target, info)
                 }
             },
-            SelectedBackend::Llvm { .. } => self.lower_build_exe_regular(products, target, info),
+            SelectedBackend::Llvm => self.lower_build_exe_regular(products, target, info),
         }
     }
 
@@ -1179,7 +1194,8 @@ impl<'a> LoweringContext<'a> {
         // This directory is used for MSVC to place intermediate files.
         // Each package should use their own to minimize conflicts.
         let pkg_dir = self
-            .layout
+            .artifact_paths
+            .target_layout()
             .package_dir(
                 &self.get_package(target).fqn,
                 self.opt.target_backend.into(),
@@ -1238,7 +1254,8 @@ impl<'a> LoweringContext<'a> {
         let dest = products.single_output_path().display().to_string();
 
         let pkg_dir = self
-            .layout
+            .artifact_paths
+            .target_layout()
             .package_dir(
                 &self.get_package(target).fqn,
                 self.opt.target_backend.into(),
@@ -1361,9 +1378,11 @@ impl<'a> LoweringContext<'a> {
 
         // The virtual package interface is emitted as the `.mi` of the source target
         let target = pid.build_target(TargetKind::Source);
-        let mi_out =
-            self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
+        let mi_out = self.artifact_paths.mi_of_build_target(
+            self.packages,
+            &target,
+            self.opt.target_backend.into(),
+        );
 
         // Resolve interface dependencies from the dep graph (path:alias pairs)
         let mi_inputs = self.mi_inputs_of(target);
@@ -1399,7 +1418,7 @@ impl<'a> LoweringContext<'a> {
             .dep_graph
             .edges_directed(target, Direction::Outgoing)
             .map(|(_, it, w)| {
-                let in_file = self.layout.mi_of_build_target(
+                let in_file = self.artifact_paths.mi_of_build_target(
                     self.packages,
                     &it,
                     self.opt.target_backend.into(),

@@ -27,7 +27,7 @@ use clap::error::ErrorKind;
 use clap::{Subcommand, ValueEnum};
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonutil::{
-    common::{FileLock, RunMode, SurfaceTarget, TargetBackend},
+    common::{FileLock, SurfaceTarget, TargetBackend},
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
 };
@@ -172,7 +172,7 @@ fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Resul
         UserDiagnostics::from_flags(cli),
     );
     for (build_meta, build_graph) in planned_runs {
-        rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Build)?;
+        rr_build::generate_all_pkgs_json(&build_meta)?;
         let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
         result.print_info(cli.quiet, "building")?;
         if !result.successful() {

@@ -28,10 +28,10 @@ use tracing::{Level, instrument};
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, PlannedArtifact},
-    build_lower::artifact::LegacyLayout,
     discover::{DiscoverResult, DiscoveredPackage},
     model::BuildTarget,
     pkg_solve::DepRelationship,
+    target_layout::ArtifactPathResolver,
 };
 use moonutil::toolchain::BINARIES;
 
@@ -47,8 +47,8 @@ pub(crate) struct LoweringContext<'a> {
 
     pub(crate) command_args_by_output: CommandArgMap,
 
-    // folder layout
-    pub(crate) layout: LegacyLayout,
+    // Physical paths for logical build artifacts.
+    pub(crate) artifact_paths: ArtifactPathResolver,
 
     // External state
     pub(crate) packages: &'a DiscoverResult,
@@ -186,16 +186,16 @@ impl ActionProducts {
 
 impl<'a> LoweringContext<'a> {
     pub(super) fn new(
-        layout: LegacyLayout,
+        artifact_paths: ArtifactPathResolver,
         resolve_output: &'a ResolveOutput,
         plan: &'a BuildActionPlan<'a>,
         opt: &'a BuildOptions,
     ) -> Self {
-        let products = ProductTable::new(&layout, resolve_output, plan, opt);
+        let products = ProductTable::new(&artifact_paths, resolve_output, plan, opt);
         Self {
             graph: N2Graph::default(),
             command_args_by_output: CommandArgMap::new(),
-            layout,
+            artifact_paths,
             rel: &resolve_output.pkg_rel,
             modules: &resolve_output.module_rel,
             packages: &resolve_output.pkg_dirs,
@@ -331,17 +331,6 @@ impl<'a> LoweringContext<'a> {
                 action: id,
                 source: e,
             })
-    }
-
-    pub(super) fn planned_artifact_paths(
-        &self,
-        artifacts: impl IntoIterator<Item = PlannedArtifact>,
-    ) -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-        for artifact in artifacts {
-            paths.extend(self.products.paths(&artifact).iter().cloned());
-        }
-        paths
     }
 
     /// **For debug use only.** Prints debug information about a lowered action,

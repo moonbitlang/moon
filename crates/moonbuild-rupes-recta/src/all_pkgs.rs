@@ -30,7 +30,9 @@
 use moonutil::common::TargetBackend;
 use serde::Serialize;
 
-use crate::{ResolveOutput, metadata::metadata_source_mi_path};
+use crate::{
+    ResolveOutput, metadata::metadata_source_mi_path, target_layout::ArtifactPathResolver,
+};
 
 pub const ALL_PKGS_JSON: &str = "all_pkgs.json";
 
@@ -53,7 +55,7 @@ pub struct AllPkgsJSON {
 /// dependencies.
 pub fn gen_all_pkgs_json(
     resolve_output: &ResolveOutput,
-    layout: &crate::build_lower::artifact::LegacyLayout,
+    artifact_paths: &ArtifactPathResolver,
     backend: TargetBackend,
 ) -> AllPkgsJSON {
     let mut packages: Vec<PackageArtifactJSON> = resolve_output
@@ -63,7 +65,7 @@ pub fn gen_all_pkgs_json(
             let pkg = resolve_output.pkg_dirs.get_package(id);
             let root = pkg.fqn.module().name().to_string();
             let rel = pkg.fqn.package().to_string();
-            let artifact = metadata_source_mi_path(resolve_output, layout, id, backend)
+            let artifact = metadata_source_mi_path(resolve_output, artifact_paths, id, backend)
                 .to_string_lossy()
                 .into_owned();
             PackageArtifactJSON {

@@ -199,7 +199,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
     }
 
     let _lock = FileLock::lock(&target_dir)?;
-    rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Prove)?;
+    rr_build::generate_all_pkgs_json(&build_meta)?;
     let cfg = BuildConfig::from_flags(
         &build_flags,
         &cli.unstable_feature,

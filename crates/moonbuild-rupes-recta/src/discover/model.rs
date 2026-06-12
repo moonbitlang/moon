@@ -277,6 +277,17 @@ impl DiscoverResult {
     pub fn is_stdlib_package(&self, id: PackageId) -> bool {
         self.packages[id].is_stdlib
     }
+
+    #[cfg(test)]
+    pub(crate) fn test_add_package(
+        &mut self,
+        module: ModuleId,
+        path: PackagePath,
+        data: DiscoveredPackage,
+    ) -> PackageId {
+        self.add_package(module, path, data)
+            .expect("test package should be inserted")
+    }
 }
 
 impl PackageSrcResolver for DiscoverResult {

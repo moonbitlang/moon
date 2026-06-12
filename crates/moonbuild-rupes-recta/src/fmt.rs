@@ -43,14 +43,12 @@ use moonutil::workspace::workspace_manifest_path;
 use n2::graph::Build;
 
 use crate::{
-    build_lower::{
-        artifact::{LegacyLayout, LegacyLayoutBuilder},
-        build_ins, build_n2_fileloc, build_outs,
-    },
+    build_lower::{build_ins, build_n2_fileloc, build_outs},
     discover::{DiscoveredLocalProject, DiscoveredPackage, discover_local_project},
     model::PackageId,
     pkg_name::{PackageFQN, PackagePath},
     resolve::ResolveError,
+    target_layout::TargetLayout,
     user_warning::UserWarning,
 };
 
@@ -108,17 +106,7 @@ pub fn build_graph_for_fmt(
         resolved.root_module_ids.len()
     );
 
-    let layout = LegacyLayoutBuilder::default()
-        .target_base_dir(target_dir.into())
-        .main_module(match resolved.root_module_ids.as_slice() {
-            &[module_id] => Some(resolved.root_modules[module_id].source().clone()),
-            _ => None,
-        })
-        .stdlib_dir(None)
-        .opt_level(moonutil::cond_expr::OptLevel::Release) // we don't care
-        .run_mode(moonutil::common::RunMode::Format) // this too
-        .build()
-        .expect("Should be valid layout");
+    let layout = TargetLayout::from_fmt_resolve_output(target_dir.into(), resolved);
 
     debug!("Layout built for formatting");
 
@@ -182,7 +170,7 @@ pub fn build_graph_for_fmt(
 fn format_moon_mod_node(
     graph: &mut n2::graph::Graph,
     cfg: &FmtConfig,
-    layout: &LegacyLayout,
+    layout: &TargetLayout,
     module: &ResolvedModule,
     module_dir: &Path,
     user_warnings: &mut Vec<UserWarning>,
@@ -402,7 +390,7 @@ fn format_moon_mod_json_migrate(
 fn format_workspace_node(
     graph: &mut n2::graph::Graph,
     cfg: &FmtConfig,
-    layout: &LegacyLayout,
+    layout: &TargetLayout,
     source_dir: &Path,
     project_manifest_path: Option<&Path>,
 ) -> anyhow::Result<bool> {
@@ -435,7 +423,7 @@ fn format_workspace_node(
 fn build_for_package(
     graph: &mut n2::graph::Graph,
     cfg: &FmtConfig,
-    layout: &LegacyLayout,
+    layout: &TargetLayout,
     pkg: &DiscoveredPackage,
     user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<()> {
@@ -489,7 +477,7 @@ fn build_for_package(
 fn format_node(
     graph: &mut n2::graph::Graph,
     cfg: &FmtConfig,
-    layout: &LegacyLayout,
+    layout: &TargetLayout,
     pkg: &DiscoveredPackage,
     file: &Path,
 ) -> anyhow::Result<()> {
@@ -611,7 +599,7 @@ fn format_moon_work_dsl(
 fn format_moon_pkg_node(
     graph: &mut n2::graph::Graph,
     cfg: &FmtConfig,
-    layout: &LegacyLayout,
+    layout: &TargetLayout,
     pkg: &DiscoveredPackage,
     user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<()> {

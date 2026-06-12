@@ -22,9 +22,7 @@ use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
 
 use indexmap::IndexMap;
 use log::{debug, info};
-use moonutil::{
-    common::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel, mooncakes::ModuleSource,
-};
+use moonutil::{common::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel};
 use n2::graph::Graph as N2Graph;
 use tracing::instrument;
 
@@ -33,9 +31,11 @@ use crate::{
     build_action_plan::{BuildActionId, BuildActionPlan},
     model::{NativeTarget, OperatingSystem, RunBackend, TccRunConfig},
     pkg_name::OptionalPackageFQNWithSource,
+    target_layout::{
+        ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
+    },
 };
 
-pub mod artifact;
 mod backend;
 mod compiler;
 mod context;
@@ -48,7 +48,6 @@ pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
 pub(crate) use backend::{CExecutableRealization, CStubLibraryRealization, SelectedBackend};
 
-use crate::build_lower::artifact::LegacyLayoutBuilder;
 use context::LoweringContext;
 
 /// Lazily resolved host/toolchain facts used during lowering.
@@ -94,8 +93,7 @@ impl LoweringEnvironment {
 
 /// Knobs to tweak during build. Affects behaviors during lowering.
 pub struct BuildOptions {
-    pub main_module: Option<ModuleSource>,
-    pub target_dir_root: PathBuf,
+    pub artifact_paths: ArtifactPathResolver,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
     pub target_backend: RunBackend,
     pub native_target: Option<NativeTarget>,
@@ -131,6 +129,55 @@ impl BuildOptions {
 
     pub fn runtime_dot_c_path(&self) -> PathBuf {
         self.lowering_environment.runtime_dot_c_path()
+    }
+
+    pub fn use_tcc_run(&self) -> bool {
+        let use_tcc_run = self.tcc_run.is_some();
+        debug_assert!(!use_tcc_run || self.target_backend == RunBackend::Native);
+        debug_assert!(!use_tcc_run || self.native_target.is_none());
+        use_tcc_run
+    }
+
+    pub fn executable_artifact(&self) -> ExecutableArtifact {
+        match self.target_backend {
+            RunBackend::Wasm => ExecutableArtifact::Wasm {
+                use_wat: self.output_wat,
+            },
+            RunBackend::WasmGC => ExecutableArtifact::WasmGC {
+                use_wat: self.output_wat,
+            },
+            RunBackend::Js => ExecutableArtifact::Js,
+            RunBackend::Native if self.use_tcc_run() => ExecutableArtifact::TccRunResponseFile,
+            RunBackend::Native => ExecutableArtifact::NativeExecutable,
+            RunBackend::Llvm => ExecutableArtifact::LlvmExecutable,
+        }
+    }
+
+    pub fn linked_core_artifact(&self) -> LinkedCoreArtifact {
+        match self.target_backend {
+            RunBackend::Wasm => LinkedCoreArtifact::Wasm {
+                use_wat: self.output_wat,
+            },
+            RunBackend::WasmGC => LinkedCoreArtifact::WasmGC {
+                use_wat: self.output_wat,
+            },
+            RunBackend::Js => LinkedCoreArtifact::Js,
+            RunBackend::Native if self.native_target.is_some() => {
+                LinkedCoreArtifact::NativeObject { os: self.os() }
+            }
+            RunBackend::Native => LinkedCoreArtifact::NativeC,
+            RunBackend::Llvm => LinkedCoreArtifact::LlvmObject { os: self.os() },
+        }
+    }
+
+    pub fn artifact_path_options(&self) -> ArtifactPathOptions {
+        ArtifactPathOptions {
+            target_backend: self.target_backend,
+            use_tcc_run: self.use_tcc_run(),
+            os: self.os(),
+            executable: self.executable_artifact(),
+            linked_core: self.linked_core_artifact(),
+        }
     }
 }
 
@@ -269,16 +316,7 @@ pub fn lower_build_plan(
         opt.target_backend, opt.opt_level, opt.debug_symbols
     );
 
-    let layout = LegacyLayoutBuilder::default()
-        .target_base_dir(opt.target_dir_root.to_owned())
-        .main_module(opt.main_module.clone())
-        .stdlib_dir(opt.stdlib_path.clone())
-        .opt_level(opt.opt_level)
-        .run_mode(opt.action)
-        .build()
-        .expect("Failed to build legacy layout");
-
-    let mut ctx = LoweringContext::new(layout, resolve_output, plan, opt);
+    let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
 
     for id in plan.action_ids() {
         debug!("Lowering action: {:?}", id);
@@ -287,7 +325,10 @@ pub fn lower_build_plan(
 
     let mut out_artifacts = IndexMap::with_capacity(plan.input_action_ids().len());
     for &action in plan.input_action_ids() {
-        let artifacts = ctx.planned_artifact_paths(plan.output_artifacts(action));
+        let mut artifacts = Vec::new();
+        for artifact in plan.output_artifacts(action) {
+            artifacts.extend(ctx.products.paths(&artifact).iter().cloned());
+        }
         out_artifacts.insert(action, LoweredArtifacts { action, artifacts });
     }
 

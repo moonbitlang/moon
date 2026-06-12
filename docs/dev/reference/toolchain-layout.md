@@ -42,7 +42,7 @@ not toolchain facts.
 RR should not decide whether a build uses the installed stdlib by calling
 `moonutil::toolchain::core()` in lowering or metadata code. The command
 orchestration layer selects `stdlib_path` first, then passes that value through
-`CompileConfig`, `BuildMeta`, and `LegacyLayout`.
+`CompileConfig`, `BuildMeta`, and the artifact path resolver.
 
 ## Packaging layouts by system
 

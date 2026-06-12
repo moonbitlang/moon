@@ -31,10 +31,10 @@ use moonutil::{
 
 use crate::{
     ResolveOutput,
-    build_lower::artifact::LegacyLayout,
     cond_comp::file_metadatas,
     model::{BuildTarget, PackageId, TargetKind},
     pkg_solve::DepEdge,
+    target_layout::ArtifactPathResolver,
 };
 
 /// `moonc check` command arguments keyed by their generated `.mi` output path.
@@ -48,7 +48,7 @@ pub type CheckCommandMap = BTreeMap<PathBuf, Vec<String>>;
 pub fn gen_metadata_json(
     ctx: &ResolveOutput,
     source_dir: &Path,
-    layout: &LegacyLayout,
+    artifact_paths: &ArtifactPathResolver,
     opt_level: OptLevel,
     backend: TargetBackend,
     check_commands: &CheckCommandMap,
@@ -81,7 +81,7 @@ pub fn gen_metadata_json(
     let mut packages: Vec<PackageJSON> = ctx
         .pkg_dirs
         .all_packages(true)
-        .map(|(id, _)| gen_package_json(ctx, layout, id, backend, check_commands))
+        .map(|(id, _)| gen_package_json(ctx, artifact_paths, id, backend, check_commands))
         .collect();
     packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));
 
@@ -98,7 +98,7 @@ pub fn gen_metadata_json(
 
 fn gen_package_json(
     ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
     backend: TargetBackend,
     check_commands: &CheckCommandMap,
@@ -174,20 +174,20 @@ fn gen_package_json(
 
     let source_artifact = metadata_mi_path(
         ctx,
-        layout,
+        artifact_paths,
         pkg_id.build_target(TargetKind::Source),
         backend,
     );
     let wbtest_check_command = metadata_check_command(
         ctx,
-        layout,
+        artifact_paths,
         pkg_id.build_target(TargetKind::WhiteboxTest),
         backend,
         check_commands,
     );
     let test_check_command = metadata_check_command(
         ctx,
-        layout,
+        artifact_paths,
         pkg_id.build_target(TargetKind::BlackboxTest),
         backend,
         check_commands,
@@ -221,13 +221,13 @@ fn gen_package_json(
 /// file instead of the regular `*.mi` path.
 pub(crate) fn metadata_source_mi_path(
     ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    artifact_paths: &ArtifactPathResolver,
     pkg_id: PackageId,
     backend: TargetBackend,
 ) -> std::path::PathBuf {
     metadata_mi_path(
         ctx,
-        layout,
+        artifact_paths,
         pkg_id.build_target(TargetKind::Source),
         backend,
     )
@@ -235,33 +235,33 @@ pub(crate) fn metadata_source_mi_path(
 
 fn metadata_mi_path(
     ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
 ) -> PathBuf {
     if target.kind == TargetKind::Source && ctx.pkg_rel.virt_impl.contains_key(target.package) {
-        layout
+        artifact_paths
             .mi_of_build_target_impl_virtual(&ctx.pkg_dirs, &target, backend)
             .into_path()
     } else {
-        layout.mi_of_build_target(&ctx.pkg_dirs, &target, backend)
+        artifact_paths.mi_of_build_target(&ctx.pkg_dirs, &target, backend)
     }
 }
 
 fn metadata_check_command(
     ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
     check_commands: &CheckCommandMap,
 ) -> Option<Vec<String>> {
-    let artifact = metadata_check_mi_path(ctx, layout, target, backend)?;
+    let artifact = metadata_check_mi_path(ctx, artifact_paths, target, backend)?;
     check_commands.get(&artifact).cloned()
 }
 
 fn metadata_check_mi_path(
     ctx: &ResolveOutput,
-    layout: &LegacyLayout,
+    artifact_paths: &ArtifactPathResolver,
     target: BuildTarget,
     backend: TargetBackend,
 ) -> Option<PathBuf> {
@@ -270,7 +270,7 @@ fn metadata_check_mi_path(
     if target.kind != TargetKind::Source && ctx.pkg_dirs.abort_pkg() == Some(target.package) {
         return None;
     }
-    Some(metadata_mi_path(ctx, layout, target, backend))
+    Some(metadata_mi_path(ctx, artifact_paths, target, backend))
 }
 
 fn edge_to_alias_json(
