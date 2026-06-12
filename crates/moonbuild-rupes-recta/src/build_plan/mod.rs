@@ -396,6 +396,7 @@ pub struct MakeExecutableInfo {
 pub struct PrebuildInfo {
     pub(crate) resolved_inputs: Vec<PathBuf>,
     pub(crate) resolved_outputs: Vec<PathBuf>,
+    pub(crate) cwd: PathBuf,
     pub(crate) command: String,
 }
 
