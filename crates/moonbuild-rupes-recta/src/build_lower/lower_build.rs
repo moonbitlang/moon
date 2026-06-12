@@ -1216,9 +1216,9 @@ impl<'a> LoweringContext<'a> {
 
         // On macOS with LLVM backend and debug symbols, run dsymutil after linking
         // to generate the dSYM bundle for better debugging experience
-        let commandline = if self.opt.os() == OperatingSystem::MacOS
-            && self.opt.target_backend == RunBackend::Llvm
+        let commandline = if self.opt.target_backend == RunBackend::Llvm
             && self.opt.debug_symbols
+            && self.opt.os() == OperatingSystem::MacOS
         {
             commandline_with_dsymutil(&cc_cmd, &dest)
         } else {

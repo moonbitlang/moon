@@ -139,8 +139,11 @@ impl BuildOptions {
     }
 
     pub fn artifact_path_options(&self) -> ArtifactPathOptions {
-        let os = self.os();
         let use_tcc_run = self.use_tcc_run();
+        let os = match self.target_backend {
+            RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => OperatingSystem::None,
+            RunBackend::Native | RunBackend::Llvm => self.os(),
+        };
         let executable = match self.target_backend {
             RunBackend::Wasm => ExecutableArtifact::Wasm {
                 use_wat: self.output_wat,
@@ -335,4 +338,51 @@ pub fn lower_build_plan(
         command_args_by_output: ctx.command_args_by_output,
         artifacts: out_artifacts,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::target_layout::{TargetLayout, TargetLayoutMode};
+
+    use super::*;
+
+    #[test]
+    fn non_native_artifact_options_do_not_resolve_operating_system() {
+        for target_backend in [RunBackend::Wasm, RunBackend::WasmGC, RunBackend::Js] {
+            let artifact_paths = ArtifactPathResolver::new(
+                TargetLayout::new(
+                    PathBuf::from("_build"),
+                    TargetLayoutMode::Workspace,
+                    OptLevel::Debug,
+                    RunMode::Build,
+                ),
+                None,
+            );
+            let options = BuildOptions {
+                artifact_paths,
+                target_backend,
+                native_target: None,
+                tcc_run: None,
+                selected_backend: SelectedBackend::new(target_backend, None, false, false),
+                opt_level: OptLevel::Debug,
+                action: RunMode::Build,
+                debug_symbols: false,
+                enable_coverage: false,
+                output_wat: false,
+                moonc_output_json: false,
+                docs_serve: false,
+                warning_condition: WarningCondition::Default,
+                info_no_alias: false,
+                wasi_link: false,
+                stdlib_path: None,
+                lowering_environment: LoweringEnvironment::default(),
+            };
+
+            assert!(options.lowering_environment.os.get().is_none());
+            assert_eq!(options.artifact_path_options().os, OperatingSystem::None);
+            assert!(options.lowering_environment.os.get().is_none());
+        }
+    }
 }
