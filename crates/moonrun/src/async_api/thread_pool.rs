@@ -814,16 +814,10 @@ fn decode_guest_path(bytes: &[u8]) -> AsyncHostResult<OsString> {
 
 #[cfg(windows)]
 fn decode_guest_path(bytes: &[u8]) -> AsyncHostResult<OsString> {
-    use std::os::windows::ffi::OsStringExt;
-
-    let chunks = bytes.chunks_exact(2);
-    if !chunks.remainder().is_empty() {
-        return Err(AsyncHostError::Inval);
-    }
-    let code_units = chunks
-        .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect::<Vec<_>>();
-    Ok(OsString::from_wide(&code_units))
+    // `thread_pool.wasm.mbt` builds job paths with `@utf8.encode(path.to_string())`.
+    // Host result paths, such as `get_tmp_path`, use a separate OS-string encoding path.
+    let path = std::str::from_utf8(bytes).map_err(|_| AsyncHostError::Inval)?;
+    Ok(OsString::from(path))
 }
 
 fn open_job_i32(
@@ -862,23 +856,32 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn guest_path_decodes_as_utf16le_on_windows() {
+    fn guest_path_decodes_as_utf8_on_windows() {
         use std::os::windows::ffi::OsStrExt;
 
-        let path =
-            decode_guest_path(b"a\0s\0y\0n\0c\0-\0f\0s\0-\0s\0m\0o\0k\0e\0.\0t\0x\0t\0").unwrap();
+        let path = decode_guest_path("async-fs-smoke-\u{6587}.txt".as_bytes()).unwrap();
 
         assert_eq!(
             path.as_os_str().encode_wide().collect::<Vec<_>>(),
-            "async-fs-smoke.txt".encode_utf16().collect::<Vec<_>>()
+            "async-fs-smoke-\u{6587}.txt"
+                .encode_utf16()
+                .collect::<Vec<_>>()
         );
     }
 
     #[cfg(windows)]
     #[test]
-    fn guest_path_rejects_odd_utf16le_byte_len_on_windows() {
+    fn guest_path_accepts_odd_length_utf8_on_windows() {
+        let path = decode_guest_path(b"a.txt").unwrap();
+
+        assert_eq!(path, OsString::from("a.txt"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn guest_path_rejects_invalid_utf8_on_windows() {
         assert!(matches!(
-            decode_guest_path(b"a\0s"),
+            decode_guest_path(b"async-\xff.txt"),
             Err(AsyncHostError::Inval)
         ));
     }
