@@ -151,6 +151,13 @@ fn spawn_native_process(
         .collect::<Vec<_>>();
     argv.push(std::ptr::null_mut());
 
+    let env_c = current_environment();
+    let mut envp = env_c
+        .iter()
+        .map(|env| env.as_ptr() as *mut libc::c_char)
+        .collect::<Vec<_>>();
+    envp.push(std::ptr::null_mut());
+
     let stdio = [
         raw_fd_for_stdio(files, stdin)?,
         raw_fd_for_stdio(files, stdout)?,
@@ -192,7 +199,7 @@ fn spawn_native_process(
                     &file_actions,
                     std::ptr::null(),
                     argv.as_mut_ptr(),
-                    current_environ(),
+                    envp.as_mut_ptr(),
                 )
             }
         } else {
@@ -203,7 +210,7 @@ fn spawn_native_process(
                     &file_actions,
                     std::ptr::null(),
                     argv.as_mut_ptr(),
-                    current_environ(),
+                    envp.as_mut_ptr(),
                 )
             }
         };
@@ -244,6 +251,20 @@ unsafe fn current_environ() -> *mut *mut libc::c_char {
 #[cfg(all(unix, target_os = "macos"))]
 unsafe fn current_environ() -> *mut *mut libc::c_char {
     unsafe { *libc::_NSGetEnviron() }
+}
+
+#[cfg(unix)]
+fn current_environment() -> Vec<std::ffi::CString> {
+    let mut env = Vec::new();
+    let mut cursor = unsafe { current_environ() };
+    if cursor.is_null() {
+        return env;
+    }
+    while unsafe { !(*cursor).is_null() } {
+        env.push(unsafe { std::ffi::CStr::from_ptr(*cursor).to_owned() });
+        cursor = unsafe { cursor.add(1) };
+    }
+    env
 }
 
 #[cfg(windows)]
