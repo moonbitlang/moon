@@ -799,25 +799,39 @@ fn read_guest_path(
     ptr: i32,
     len: i32,
 ) -> AsyncHostResult<OsString> {
+    let byte_len = len.checked_mul(2).ok_or(AsyncHostError::Fault)?;
     with_memory_mut(scope, context, |memory| {
-        let bytes = checked_range(memory, ptr, len)?;
+        let bytes = checked_range(memory, ptr, byte_len)?;
         decode_guest_path(bytes)
     })
 }
 
-#[cfg(unix)]
 fn decode_guest_path(bytes: &[u8]) -> AsyncHostResult<OsString> {
+    let units = utf16_units_from_guest_bytes(bytes);
+    os_string_from_utf16_path(&units)
+}
+
+fn utf16_units_from_guest_bytes(bytes: &[u8]) -> Vec<u16> {
+    debug_assert_eq!(bytes.len() % 2, 0);
+    bytes
+        .chunks_exact(2)
+        .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
+        .collect()
+}
+
+#[cfg(unix)]
+fn os_string_from_utf16_path(units: &[u16]) -> AsyncHostResult<OsString> {
     use std::os::unix::ffi::OsStringExt;
 
-    Ok(OsString::from_vec(bytes.to_vec()))
+    let path = String::from_utf16(units).map_err(|_| AsyncHostError::Inval)?;
+    Ok(OsString::from_vec(path.into_bytes()))
 }
 
 #[cfg(windows)]
-fn decode_guest_path(bytes: &[u8]) -> AsyncHostResult<OsString> {
-    // `thread_pool.wasm.mbt` builds job paths with `@utf8.encode(path.to_string())`.
-    // Host result paths, such as `get_tmp_path`, use a separate OS-string encoding path.
-    let path = std::str::from_utf8(bytes).map_err(|_| AsyncHostError::Inval)?;
-    Ok(OsString::from(path))
+fn os_string_from_utf16_path(units: &[u16]) -> AsyncHostResult<OsString> {
+    use std::os::windows::ffi::OsStringExt;
+
+    Ok(OsString::from_wide(units))
 }
 
 fn open_job_i32(
@@ -846,20 +860,25 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn guest_path_decodes_as_raw_unix_bytes() {
+    fn guest_path_decodes_utf16_to_unix_bytes() {
         use std::os::unix::ffi::OsStrExt;
 
-        let path = decode_guest_path(b"async-\xff.txt").unwrap();
+        let bytes = guest_string_bytes("async-fs-smoke-\u{6587}.txt");
+        let path = decode_guest_path(&bytes).unwrap();
 
-        assert_eq!(path.as_os_str().as_bytes(), b"async-\xff.txt");
+        assert_eq!(
+            path.as_os_str().as_bytes(),
+            "async-fs-smoke-\u{6587}.txt".as_bytes()
+        );
     }
 
     #[cfg(windows)]
     #[test]
-    fn guest_path_decodes_as_utf8_on_windows() {
+    fn guest_path_decodes_utf16_on_windows() {
         use std::os::windows::ffi::OsStrExt;
 
-        let path = decode_guest_path("async-fs-smoke-\u{6587}.txt".as_bytes()).unwrap();
+        let bytes = guest_string_bytes("async-fs-smoke-\u{6587}.txt");
+        let path = decode_guest_path(&bytes).unwrap();
 
         assert_eq!(
             path.as_os_str().encode_wide().collect::<Vec<_>>(),
@@ -871,18 +890,25 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn guest_path_accepts_odd_length_utf8_on_windows() {
-        let path = decode_guest_path(b"a.txt").unwrap();
+    fn guest_path_length_is_utf16_code_units_on_windows() {
+        let bytes = guest_string_bytes("a.txt");
+        let path = decode_guest_path(&bytes).unwrap();
 
         assert_eq!(path, OsString::from("a.txt"));
     }
 
-    #[cfg(windows)]
+    #[cfg(unix)]
     #[test]
-    fn guest_path_rejects_invalid_utf8_on_windows() {
+    fn guest_path_rejects_invalid_utf16_on_unix() {
         assert!(matches!(
-            decode_guest_path(b"async-\xff.txt"),
+            decode_guest_path(&[0x00, 0xd8]),
             Err(AsyncHostError::Inval)
         ));
+    }
+
+    fn guest_string_bytes(path: &str) -> Vec<u8> {
+        path.encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>()
     }
 }
