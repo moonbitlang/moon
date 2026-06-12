@@ -346,8 +346,37 @@ pub(crate) fn pipe_host_files(files: &mut impl HostFileTable) -> AsyncHostResult
 
     #[cfg(windows)]
     {
-        let _ = files;
-        Err(AsyncHostError::NotSupported)
+        use std::ffi::OsString;
+        use std::os::windows::io::FromRawHandle;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+
+        static PIPE_ID: AtomicU64 = AtomicU64::new(0);
+
+        let pipe_id = PIPE_ID.fetch_add(1, Ordering::Relaxed) + 1;
+        let name = OsString::from(format!(
+            r"\\.\pipe\moonbitlang_async.{}.{}",
+            unsafe { GetCurrentProcessId() },
+            pipe_id
+        ));
+        let write = create_named_pipe_server(&name, false);
+        if write == INVALID_HANDLE_VALUE {
+            return Err(last_native_error());
+        }
+        let read = create_named_pipe_client(&name, false);
+        if read == INVALID_HANDLE_VALUE {
+            unsafe {
+                CloseHandle(write);
+            }
+            return Err(last_native_error());
+        }
+
+        let read = unsafe { std::fs::File::from_raw_handle(read as _) };
+        let write = unsafe { std::fs::File::from_raw_handle(write as _) };
+        let read = files.insert_file(read)?;
+        let write = files.insert_file(write)?;
+        Ok([read, write])
     }
 }
 

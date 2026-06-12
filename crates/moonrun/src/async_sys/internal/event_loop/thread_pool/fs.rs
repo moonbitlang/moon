@@ -959,20 +959,38 @@ fn read_from_native_file(file: &File, buf: &mut [u8], position: i64) -> AsyncHos
     } else {
         &mut overlapped
     };
+    let handle = file.as_raw_handle() as HANDLE;
+    // Synchronous Windows file handles can advance the current file pointer
+    // even when ReadFile receives an OVERLAPPED offset. Keep read_at/pread
+    // semantics by restoring the original pointer before returning.
+    let saved_position = if position < 0 {
+        None
+    } else {
+        Some(current_file_pointer(handle)?)
+    };
     let result = unsafe {
         ReadFile(
-            file.as_raw_handle() as HANDLE,
+            handle,
             buf.as_mut_ptr().cast(),
             u32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault)?,
             &mut bytes_transferred,
             overlapped_ptr,
         )
     };
-    if result != 0 {
+    let result = if result != 0 {
         usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
     } else {
         Err(last_native_error())
+    };
+    if let Some(saved_position) = saved_position
+        && let Err(restore_error) = restore_file_pointer(handle, saved_position)
+    {
+        return match result {
+            Ok(_) => Err(restore_error),
+            Err(error) => Err(error),
+        };
     }
+    result
 }
 
 #[cfg(windows)]
@@ -998,19 +1016,62 @@ fn write_to_native_file(file: &File, data: &[u8], position: i64) -> AsyncHostRes
     } else {
         &mut overlapped
     };
+    let handle = file.as_raw_handle() as HANDLE;
+    // See read_from_native_file: positioned writes must not alter the stream
+    // offset seen by following non-positioned writes.
+    let saved_position = if position < 0 {
+        None
+    } else {
+        Some(current_file_pointer(handle)?)
+    };
     let result = unsafe {
         WriteFile(
-            file.as_raw_handle() as HANDLE,
+            handle,
             data.as_ptr().cast(),
             u32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?,
             &mut bytes_transferred,
             overlapped_ptr,
         )
     };
-    if result != 0 {
+    let result = if result != 0 {
         usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
     } else {
         Err(last_native_error())
+    };
+    if let Some(saved_position) = saved_position
+        && let Err(restore_error) = restore_file_pointer(handle, saved_position)
+    {
+        return match result {
+            Ok(_) => Err(restore_error),
+            Err(error) => Err(error),
+        };
+    }
+    result
+}
+
+#[cfg(windows)]
+fn current_file_pointer(handle: windows_sys::Win32::Foundation::HANDLE) -> AsyncHostResult<i64> {
+    use windows_sys::Win32::Storage::FileSystem::{FILE_CURRENT, SetFilePointerEx};
+
+    let mut current = 0;
+    if unsafe { SetFilePointerEx(handle, 0, &mut current, FILE_CURRENT) } == 0 {
+        Err(last_native_error())
+    } else {
+        Ok(current)
+    }
+}
+
+#[cfg(windows)]
+fn restore_file_pointer(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    position: i64,
+) -> AsyncHostResult<()> {
+    use windows_sys::Win32::Storage::FileSystem::{FILE_BEGIN, SetFilePointerEx};
+
+    if unsafe { SetFilePointerEx(handle, position, std::ptr::null_mut(), FILE_BEGIN) } == 0 {
+        Err(last_native_error())
+    } else {
+        Ok(())
     }
 }
 

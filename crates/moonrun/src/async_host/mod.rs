@@ -325,8 +325,8 @@ impl HostProcessTable for HandleTable<HostProcess> {
         self.insert(process)
     }
 
-    fn get_process(&self, handle: i32) -> AsyncHostResult<HostProcess> {
-        Ok(self.get(handle)?.clone())
+    fn take_process(&mut self, handle: i32) -> AsyncHostResult<HostProcess> {
+        self.remove(handle)
     }
 }
 
@@ -586,7 +586,8 @@ impl AsyncHost {
 
     pub(crate) fn make_wait_for_process_job(&self, process: i32) -> AsyncHostResult<i32> {
         let mut state = self.state.lock().unwrap();
-        let job = thread_pool::make_wait_for_process_job_from_handle(&state.processes, process)?;
+        let job =
+            thread_pool::make_wait_for_process_job_from_handle(&mut state.processes, process)?;
         state.jobs.insert(job)
     }
 
