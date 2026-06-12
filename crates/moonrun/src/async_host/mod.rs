@@ -275,6 +275,24 @@ impl<T> HandleTable<T> {
         Ok(value)
     }
 
+    fn discard(&mut self, handle: i32) -> AsyncHostResult<()> {
+        let (index, generation) = decode_handle(handle)?;
+        let slot = self.slots.get_mut(index).ok_or(AsyncHostError::Badf)?;
+        if slot.generation != generation {
+            return Err(AsyncHostError::Badf);
+        }
+        // Worker jobs are removed from the table while the worker owns them.
+        // Cancellation may still free the guest handle immediately; in that
+        // case the worker drops the job when it later finishes.
+        if slot.value.is_none() && !slot.reserved {
+            return Err(AsyncHostError::Badf);
+        }
+        slot.value = None;
+        slot.reserved = false;
+        slot.generation = next_generation(slot.generation);
+        Ok(())
+    }
+
     fn take(&mut self, handle: i32) -> AsyncHostResult<T> {
         let (index, generation) = decode_handle(handle)?;
         let slot = self.slots.get_mut(index).ok_or(AsyncHostError::Badf)?;
@@ -498,7 +516,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn free_job(&self, handle: i32) -> AsyncHostResult<()> {
-        self.state.lock().unwrap().jobs.remove(handle)?;
+        self.state.lock().unwrap().jobs.discard(handle)?;
         Ok(())
     }
 
@@ -709,9 +727,10 @@ impl AsyncHost {
             thread_pool::run_host_job(&mut job, &mut files);
 
             let mut state = state.lock().unwrap();
-            if state.jobs.put(worker_job.job_handle, job).is_ok() {
-                state.completions.push_back(worker_job.job_id);
-            }
+            let _ = state.jobs.put(worker_job.job_handle, job);
+            // Even if cancellation discarded the job handle, the event loop
+            // still needs the completion to move the worker out of running.
+            state.completions.push_back(worker_job.job_id);
         })
     }
 }

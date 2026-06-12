@@ -84,7 +84,11 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
             new_path,
             replace,
         } => run_rename_job(old_path.clone(), new_path.clone(), *replace),
-        JobPayload::Symlink { target, path } => run_symlink_job(target.clone(), path.clone()),
+        JobPayload::Symlink {
+            target,
+            path,
+            force_symlink,
+        } => run_symlink_job(target.clone(), path.clone(), *force_symlink),
         JobPayload::Mkdir { path, mode } => run_mkdir_job(path.clone(), *mode),
         JobPayload::Rmdir { path } => run_rmdir_job(path.clone()),
         JobPayload::Readdir {

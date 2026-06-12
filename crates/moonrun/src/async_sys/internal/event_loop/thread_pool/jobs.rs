@@ -298,8 +298,12 @@ ported_fns! {
         original = "moonbitlang_async_make_symlink_job"
     )]
     #[allow(dead_code)]
-    pub(crate) fn make_symlink_job(target: OsString, path: OsString) -> Job {
-        Job::new(JobPayload::Symlink { target, path })
+    pub(crate) fn make_symlink_job(target: OsString, path: OsString, force_symlink: bool) -> Job {
+        Job::new(JobPayload::Symlink {
+            target,
+            path,
+            force_symlink,
+        })
     }
 
     #[ported(

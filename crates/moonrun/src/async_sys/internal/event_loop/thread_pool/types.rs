@@ -218,6 +218,7 @@ pub(crate) enum JobPayload {
     Symlink {
         target: OsString,
         path: OsString,
+        force_symlink: bool,
     },
     Mkdir {
         path: OsString,

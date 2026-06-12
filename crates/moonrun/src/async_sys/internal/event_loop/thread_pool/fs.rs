@@ -180,8 +180,12 @@ pub(super) fn run_rename_job(
     Ok(0)
 }
 
-pub(super) fn run_symlink_job(target: OsString, path: OsString) -> AsyncHostResult<i64> {
-    symlink_native_path(target, path)?;
+pub(super) fn run_symlink_job(
+    target: OsString,
+    path: OsString,
+    force_symlink: bool,
+) -> AsyncHostResult<i64> {
+    symlink_native_path(target, path, force_symlink)?;
     Ok(0)
 }
 
@@ -609,7 +613,11 @@ fn remove_native_path(path: OsString) -> AsyncHostResult<()> {
 }
 
 #[cfg(unix)]
-fn symlink_native_path(target: OsString, path: OsString) -> AsyncHostResult<()> {
+fn symlink_native_path(
+    target: OsString,
+    path: OsString,
+    _force_symlink: bool,
+) -> AsyncHostResult<()> {
     let target = path_to_cstring(target)?;
     let path = path_to_cstring(path)?;
     if unsafe { libc::symlink(target.as_ptr(), path.as_ptr()) } < 0 {
@@ -1368,7 +1376,12 @@ fn remove_native_path(path: OsString) -> AsyncHostResult<()> {
 }
 
 #[cfg(windows)]
-fn symlink_native_path(target: OsString, path: OsString) -> AsyncHostResult<()> {
+fn symlink_native_path(
+    target: OsString,
+    path: OsString,
+    force_symlink: bool,
+) -> AsyncHostResult<()> {
+    use windows_sys::Win32::Foundation::ERROR_INVALID_PARAMETER;
     use windows_sys::Win32::Storage::FileSystem::{
         CreateSymbolicLinkW, FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesW, INVALID_FILE_ATTRIBUTES,
         SYMBOLIC_LINK_FLAG_DIRECTORY,
@@ -1377,24 +1390,25 @@ fn symlink_native_path(target: OsString, path: OsString) -> AsyncHostResult<()> 
     let target_wide = path_to_wide(target.clone());
     let path_wide = path_to_wide(path.clone());
     let attrs = unsafe { GetFileAttributesW(target_wide.as_ptr()) };
-    if attrs == INVALID_FILE_ATTRIBUTES {
-        return Err(last_native_error());
+    let is_directory = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
+    if !force_symlink && is_directory && std::path::Path::new(target.as_os_str()).is_absolute() {
+        match create_junction_native_path(target.clone(), path.clone()) {
+            Ok(()) => return Ok(()),
+            Err(AsyncHostError::Native(error)) if error == ERROR_INVALID_PARAMETER as i32 => {}
+            Err(error) => return Err(error),
+        }
     }
-    let is_directory = (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+
     let flags = if is_directory {
         SYMBOLIC_LINK_FLAG_DIRECTORY
     } else {
         0
     };
     if unsafe { CreateSymbolicLinkW(path_wide.as_ptr(), target_wide.as_ptr(), flags) } != 0 {
-        return Ok(());
-    }
-
-    let symlink_error = last_native_error();
-    if is_directory && std::path::Path::new(target.as_os_str()).is_absolute() {
-        create_junction_native_path(target, path)
+        Ok(())
     } else {
-        Err(symlink_error)
+        Err(last_native_error())
     }
 }
 

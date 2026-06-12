@@ -756,12 +756,13 @@ fn make_symlink_job_impl(
     let target_len = args.i32(1)?;
     let path_ptr = args.i32(2)?;
     let path_len = args.i32(3)?;
+    let force_symlink = args.i32(4)? != 0;
     let target = read_guest_path(scope, context, target_ptr, target_len)?;
     let path = read_guest_path(scope, context, path_ptr, path_len)?;
 
     context
         .host
-        .insert_job(thread_pool::make_symlink_job(target, path))
+        .insert_job(thread_pool::make_symlink_job(target, path, force_symlink))
 }
 
 fn make_mkdir_job_impl(
