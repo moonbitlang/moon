@@ -27,15 +27,15 @@ Define tasks in the `pre-build` array of `moon.pkg.json`:
 
 Notes:
 
-- `input`/`output` paths are package-relative in config and expand to absolute paths inside the command.
+- `input`/`output` paths are package-relative in config and expand to prebuild-cwd-relative paths inside the command.
 - When arrays are used, placeholders expand to space-separated lists in declaration order.
 - All declared outputs are tracked as build outputs.
 - Only `.mbt` and `.mbt.md` outputs are added back to the package's MoonBit source set.
 
 ## Path Resolution
 
-- `input`/`output` are resolved relative to the package directory before substitution.
-- `$input`/`$output` expand to absolute file paths.
+- `input`/`output` are resolved relative to the package directory for build dependency tracking.
+- `$input`/`$output` expand to paths relative to the prebuild command working directory. These substituted paths are lexically normalized and start with `./`, for example `./src/lib/input.txt`.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
 - `$mooncake_bin` expands to `<project .mooncakes dir>/__moonbin__`.
   The command adapter computes this `mooncake_bin_dir` from project discovery
@@ -47,10 +47,10 @@ Notes:
 Only the `command` field is substituted. The following placeholders are recognized:
 
 - `$input`  
-  Expands to a space-separated list of absolute paths for all declared inputs (in order). If `input` is a single string, this is one absolute path.
+  Expands to a space-separated list of normalized prebuild-cwd-relative paths for all declared inputs (in order). If `input` is a single string, this is one path.
 
 - `$output`  
-  Expands to a space-separated list of absolute paths for all declared outputs (in order). If `output` is a single string, this is one absolute path.
+  Expands to a space-separated list of normalized prebuild-cwd-relative paths for all declared outputs (in order). If `output` is a single string, this is one path.
 
 - `$mod_dir`  
   Expands to the absolute path of the module root directory (the directory containing `moon.mod.json`).
@@ -66,7 +66,8 @@ Only the `command` field is substituted. The following placeholders are recogniz
 Substitution semantics:
 
 - Pure textual replacement over the `command` string; unknown tokens are left as-is.
-- Paths expand to absolute, platform-native strings; no quotes are added by substitution.
+- `$input` and `$output` expand to `./...` paths relative to the prebuild command working directory; no quotes are added by substitution.
+- Directory placeholders expand to absolute, platform-native strings.
   - If paths may contain spaces or shell-special characters, quote or escape them in the command template.
 - For array `input`/`output`, items are joined by a single space in insertion order.
 
