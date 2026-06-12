@@ -188,11 +188,12 @@ impl TargetLayout {
     pub fn from_fmt_resolve_output(
         target_base_dir: PathBuf,
         resolved: &DiscoveredLocalProject,
+        opt_level: OptLevel,
     ) -> Self {
         Self::new(
             target_base_dir,
             TargetLayoutMode::from_fmt_resolve_output(resolved),
-            OptLevel::Release,
+            opt_level,
             RunMode::Format,
         )
     }
@@ -1347,6 +1348,21 @@ mod tests {
     fn native_executable_artifacts_keep_stable_suffix() {
         assert_eq!(ExecutableArtifact::NativeExecutable.extension(), ".exe");
         assert_eq!(ExecutableArtifact::LlvmExecutable.extension(), ".exe");
+    }
+
+    #[test]
+    fn fmt_n2_db_path_uses_selected_profile() {
+        let layout = TargetLayout::new(
+            PathBuf::from("_build"),
+            TargetLayoutMode::Workspace,
+            OptLevel::Debug,
+            RunMode::Format,
+        );
+
+        assert_eq!(
+            layout.n2_db_path(TargetBackend::WasmGC),
+            PathBuf::from("_build/wasm-gc/debug/format/format.moon_db"),
+        );
     }
 
     #[test]

@@ -689,7 +689,11 @@ pub fn plan_fmt(
         selected_packages,
         project_manifest_path,
     )?;
-    let layout = TargetLayout::from_fmt_resolve_output(target_dir.to_path_buf(), resolved);
+    let layout = TargetLayout::from_fmt_resolve_output(
+        target_dir.to_path_buf(),
+        resolved,
+        BuildProfile::Debug,
+    );
     let db_path = layout.n2_db_path(TargetBackend::default());
     let input = BuildInput {
         graph,

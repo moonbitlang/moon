@@ -34,12 +34,15 @@ use log::*;
 use std::{collections::HashSet, ffi::OsStr, path::Path};
 
 use anyhow::Context;
-use moonutil::common::{
-    MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK, validate_module_dsl_deps,
-};
 use moonutil::mooncakes::{ModuleSourceKind, result::ResolvedModule};
 use moonutil::toolchain::BINARIES;
 use moonutil::workspace::workspace_manifest_path;
+use moonutil::{
+    common::{
+        MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK, validate_module_dsl_deps,
+    },
+    cond_expr::OptLevel,
+};
 use n2::graph::Build;
 
 use crate::{
@@ -106,7 +109,8 @@ pub fn build_graph_for_fmt(
         resolved.root_module_ids.len()
     );
 
-    let layout = TargetLayout::from_fmt_resolve_output(target_dir.into(), resolved);
+    let layout =
+        TargetLayout::from_fmt_resolve_output(target_dir.into(), resolved, OptLevel::Release);
 
     debug!("Layout built for formatting");
 
