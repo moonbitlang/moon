@@ -20,6 +20,11 @@ _Avoid_: Raw fd, raw HANDLE, externref
 A wasm-side value that keeps MoonBit-owned data reachable while the host has a pending operation referring to its guest-memory range.
 _Avoid_: Pinned guest pointer
 
+**Guest String Path**:
+An async path argument passed from wasm to `moonrun` as a borrowed MoonBit `String` pointer plus a length measured in UTF-16 code units.
+The guest must not pre-encode these paths as UTF-8 `Bytes`; `moonrun` converts the UTF-16 units into `OsString`, using the host's native path representation.
+_Avoid_: UTF-8 path bytes, C string path
+
 **Source Provenance Import**:
 A `moonbit_v0` import declared together with the async C-stub source file and native symbol it tracks.
 _Avoid_: Untraceable host helper
@@ -50,5 +55,6 @@ _Avoid_: Wall-clock epoch
 - Wasm async time uses a monotonic host clock from an unspecified origin. Native C stubs currently use platform wall-clock APIs, but async timer semantics only require elapsed millisecond differences.
 - The async wasm host currently supports only Unix-family and Windows hosts. Other host families are compile-time unsupported.
 - Variable-length data crosses the boundary through guest offsets and explicit lengths. Async jobs store host-owned buffers plus guest offsets, then copy into freshly reacquired guest memory during a later host call.
+- Async path arguments are the exception to byte-buffer transport: they cross as Guest String Paths so Windows reaches `OsString`/wide OS calls without a guest UTF-8 encode followed by host UTF-16 re-encode.
 - V8 memory growth can replace the observable memory backing store. The runtime must not lend guest pointers to OS APIs that need pinned buffers across `memory.grow`; use host-owned pinned buffers and copy to/from wasm memory instead.
 - Windows APIs that require stable buffers should receive host-owned memory, not raw wasm memory. This includes overlapped IO and other APIs where the OS may retain a pointer until asynchronous completion.

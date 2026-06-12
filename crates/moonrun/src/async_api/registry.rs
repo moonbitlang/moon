@@ -623,7 +623,8 @@ declare_async_imports! {
     native = Some("moonbitlang_async_init_thread_pool"),
     sources = [moonbit_async:"src/internal/event_loop/thread_pool.c"];
 
-    // thread_pool.c FS jobs.
+    // thread_pool.c FS jobs. Path-taking jobs use the Guest String Path ABI:
+    // MoonBit String pointer plus UTF-16 code-unit length.
     native thread_pool::make_open_job => "thread_pool/make_open_job",
     native = Some("moonbitlang_async_make_open_job"),
     sources = [moonbit_async:"src/internal/event_loop/thread_pool.c"];

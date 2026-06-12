@@ -799,6 +799,8 @@ fn read_guest_path(
     ptr: i32,
     len: i32,
 ) -> AsyncHostResult<OsString> {
+    // Async path imports pass MoonBit String data, so `len` is UTF-16 code
+    // units. Do not treat this as UTF-8 bytes or a native C string.
     let byte_len = len.checked_mul(2).ok_or(AsyncHostError::Fault)?;
     with_memory_mut(scope, context, |memory| {
         let bytes = checked_range(memory, ptr, byte_len)?;
@@ -807,12 +809,14 @@ fn read_guest_path(
 }
 
 fn decode_guest_path(bytes: &[u8]) -> AsyncHostResult<OsString> {
+    if !bytes.len().is_multiple_of(2) {
+        return Err(AsyncHostError::Inval);
+    }
     let units = utf16_units_from_guest_bytes(bytes);
     os_string_from_utf16_path(&units)
 }
 
 fn utf16_units_from_guest_bytes(bytes: &[u8]) -> Vec<u16> {
-    debug_assert_eq!(bytes.len() % 2, 0);
     bytes
         .chunks_exact(2)
         .map(|unit| u16::from_le_bytes([unit[0], unit[1]]))
@@ -856,7 +860,16 @@ fn open_job_u64(
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, path::Path};
+
     use super::*;
+
+    fn repo_root() -> &'static Path {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("moonrun crate must live under crates/moonrun")
+    }
 
     #[cfg(unix)]
     #[test]
@@ -888,6 +901,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn guest_path_decodes_utf16_code_units_not_utf8_bytes() {
+        let bytes = guest_string_bytes("a\u{1f600}.txt");
+
+        assert_eq!(
+            utf16_units_from_guest_bytes(&bytes),
+            vec![0x0061, 0xd83d, 0xde00, 0x002e, 0x0074, 0x0078, 0x0074]
+        );
+    }
+
+    #[test]
+    fn guest_path_rejects_odd_utf16_byte_count() {
+        assert!(matches!(
+            decode_guest_path(&[0x61]),
+            Err(AsyncHostError::Inval)
+        ));
+    }
+
     #[cfg(windows)]
     #[test]
     fn guest_path_length_is_utf16_code_units_on_windows() {
@@ -904,6 +935,57 @@ mod tests {
             decode_guest_path(&[0x00, 0xd8]),
             Err(AsyncHostError::Inval)
         ));
+    }
+
+    #[test]
+    fn moonbit_path_jobs_pass_strings_not_encoded_bytes() {
+        let source_path = repo_root()
+            .join("third_party/moonbitlang_async")
+            .join("src/internal/event_loop/thread_pool.wasm.mbt");
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));
+        let path_jobs = [
+            ("fn Job::open(", 1),
+            ("fn Job::file_kind_by_path(", 1),
+            ("fn Job::file_time_by_path(", 1),
+            ("fn Job::access(", 1),
+            ("fn Job::chmod(", 1),
+            ("fn Job::remove(", 1),
+            ("fn Job::rename(", 2),
+            ("fn Job::symlink(", 2),
+            ("fn Job::mkdir(", 1),
+            ("fn Job::rmdir(", 1),
+        ];
+
+        for (marker, expected_string_ptrs) in path_jobs {
+            let block = moonbit_function_block(&source, marker);
+            assert!(
+                !block.contains("@utf8.encode("),
+                "{marker} must not encode path OsString values as UTF-8 bytes"
+            );
+            assert!(
+                !block.contains("@wasm_ffi.bytes_to_ptr("),
+                "{marker} must not pass path OsString values through Bytes"
+            );
+            let actual_string_ptrs = block.matches("@wasm_ffi.string_to_ptr(").count();
+            assert_eq!(
+                actual_string_ptrs, expected_string_ptrs,
+                "{marker} must pass borrowed MoonBit String pointers"
+            );
+            assert!(
+                block.contains(".length()"),
+                "{marker} must pass the MoonBit String length in UTF-16 code units"
+            );
+        }
+    }
+
+    fn moonbit_function_block<'a>(source: &'a str, marker: &str) -> &'a str {
+        let start = source
+            .find(marker)
+            .unwrap_or_else(|| panic!("missing MoonBit function marker {marker}"));
+        let rest = &source[start..];
+        let end = rest.find("\n///|").unwrap_or(rest.len());
+        &rest[..end]
     }
 
     fn guest_string_bytes(path: &str) -> Vec<u8> {

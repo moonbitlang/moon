@@ -24,6 +24,11 @@ _Avoid_: Notify pipe, callback queue
 The wasm linear memory owned by the guest program.
 _Avoid_: Wasm buffer, V8 memory
 
+**Guest String Path**:
+A MoonBit `String` pointer plus UTF-16 code-unit length used for async path arguments crossing `moonbit_v0`.
+Moonrun converts this directly into `OsString`; guest code must not send UTF-8 `Bytes` for paths.
+_Avoid_: Guest UTF-8 path buffer
+
 **Host Buffer**:
 Memory owned by moonrun while servicing guest jobs.
 _Avoid_: Native buffer, temporary buffer

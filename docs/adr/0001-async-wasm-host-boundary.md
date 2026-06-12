@@ -11,6 +11,7 @@ We will support `moonbitlang/async` on the wasm backend through `#cfg(target="wa
 - Support Unix-family and Windows hosts first. Other host families are deliberately compile-time unsupported until the async C-stub parity target is defined for them.
 - Store wasm memory as `moonbit_v0.memory` in the JS glue. The Rust adapter reads that property on each memory-using import instead of registering a separate async `set_memory` callback.
 - Never retain raw wasm-memory pointers after an import returns. Host state may store handles, guest offsets, lengths, and host-owned buffers.
+- Pass async path arguments as borrowed MoonBit `String` pointers plus UTF-16 code-unit lengths. The guest must not encode `OsString` paths to UTF-8 `Bytes` before calling `moonbit_v0`; `moonrun` owns conversion from MoonBit string data into Rust `OsString` and then into the native OS call form.
 - Treat V8 memory growth as a reason to reacquire memory every call. OS APIs that need stable pointers must use host-owned memory and copy to or from wasm memory.
 - Keep unsupported MVP symbols registered when they are part of the mapped boundary, but make them return native-style unsupported errors instead of causing missing-import instantiation failures.
 
