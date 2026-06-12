@@ -1643,15 +1643,15 @@ fn handle_build_command_new(
     // Check if argv[0] looks like a relative path.
     let looks_like_path = argv0.contains(std::path::is_separator);
     let is_relative = looks_like_path && !Path::new(&argv0).is_absolute();
-    // For relative paths, we need to resolve it against the package source
-    // directory. Since we cannot easily splice the resolved path back into the
-    // command string, we just prepend the source directory to the front of the
-    // command.
+    // For relative paths, resolve argv[0] against the command execution root.
+    // `n2` inherits the process cwd, and command adapters such as `moon install`
+    // may choose that root explicitly with `moon -C`.
     #[cfg(not(windows))]
     if is_relative {
+        let execution_root = std::env::current_dir().unwrap_or_else(|_| mod_source.to_path_buf());
         reconstructed = format!(
             "{}{}{}",
-            mod_source.display(),
+            execution_root.display(),
             std::path::MAIN_SEPARATOR,
             reconstructed
         );
@@ -1659,7 +1659,8 @@ fn handle_build_command_new(
     // For windows, we also need to check if the resolved path with `.ps1` exists.
     #[cfg(windows)]
     if is_relative {
-        let resolved_path_ps1 = dunce::canonicalize(mod_source.join(format!("{}.ps1", argv0)));
+        let execution_root = std::env::current_dir().unwrap_or_else(|_| mod_source.to_path_buf());
+        let resolved_path_ps1 = dunce::canonicalize(execution_root.join(format!("{}.ps1", argv0)));
         if let Ok(new_argv0) = resolved_path_ps1
             && new_argv0.is_file()
         {

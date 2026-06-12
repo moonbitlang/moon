@@ -90,6 +90,10 @@ Input form:
 Rules:
 
 - Input selector is a filesystem path.
+- If the selected source belongs to a `moon.work` workspace, install preserves
+  that workspace for dependency resolution and build layout. Otherwise install
+  disables workspace mode while building the source, so the caller's workspace
+  environment cannot leak into the installed source.
 - No wildcard: exact package at that filesystem path.
 - If the exact filesystem path is module root, install that module's root package only
   (root package path is empty string relative to `source` root).
@@ -106,7 +110,11 @@ Rules:
 
 - Clone repo, optionally checkout ref.
 - `PATH_IN_REPO` is interpreted as a filesystem path inside the cloned repository.
-- Resolve selected filesystem path and find nearest ancestor containing `moon.mod.json` as module root.
+- Resolve selected filesystem path and find the selected module. If an
+  applicable `moon.work` exists inside the cloned source, install preserves that
+  workspace for dependency resolution and build layout. Otherwise install
+  disables workspace mode while building the source, so the caller's workspace
+  environment cannot leak into the installed source.
 - No wildcard:
   - no `PATH_IN_REPO`: install root package of detected module.
   - with `PATH_IN_REPO`: install exact package at the selected filesystem path.

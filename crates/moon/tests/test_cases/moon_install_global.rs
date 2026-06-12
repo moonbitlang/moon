@@ -18,6 +18,30 @@
 
 use super::*;
 
+fn run_git(repo: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .current_dir(repo)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {} failed\nstdout:\n{}\nstderr:\n{}",
+        args.join(" "),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn file_git_url(path: &std::path::Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        format!("file:///{path}")
+    } else {
+        format!("file://{path}")
+    }
+}
+
 #[test]
 fn test_moon_install_global_deprecated_warning() {
     // Test that running `moon install` without arguments shows deprecation warning
@@ -58,6 +82,144 @@ fn test_moon_install_global_local_path() {
     let binary_path = install_dir.join("main");
     #[cfg(target_os = "windows")]
     let binary_path = install_dir.join("main.exe");
+
+    assert!(
+        binary_path.exists(),
+        "Expected binary at {:?} to exist",
+        binary_path
+    );
+}
+
+#[test]
+fn test_moon_install_global_local_source_uses_source_workspace() {
+    let source_dir = TestDir::new("moon_install_workspace_source.in");
+    let work_dir = tempfile::tempdir().unwrap();
+    let install_dir = tempfile::tempdir().unwrap();
+
+    let source_package = source_dir.join("app/src/main");
+    let _output = get_stdout_with_envs(
+        &work_dir,
+        [
+            "install",
+            "--path",
+            source_package.to_str().unwrap(),
+            "--bin",
+            install_dir.path().to_str().unwrap(),
+        ],
+        [(moonutil::common::MOON_WORK_ENV, "off")],
+    );
+
+    #[cfg(unix)]
+    let binary_path = install_dir.path().join("main");
+    #[cfg(target_os = "windows")]
+    let binary_path = install_dir.path().join("main.exe");
+
+    assert!(
+        binary_path.exists(),
+        "Expected binary at {:?} to exist",
+        binary_path
+    );
+}
+
+#[test]
+fn test_moon_install_global_local_source_ignores_caller_workspace_when_source_has_none() {
+    let source_dir = TestDir::new("moon_install_prebuild_cwd.in");
+    let caller_workspace = TestDir::new("moon_install_workspace_source.in");
+    let work_dir = tempfile::tempdir().unwrap();
+    let install_dir = tempfile::tempdir().unwrap();
+
+    let source_package = source_dir.join("src/main");
+    let caller_workspace_manifest = caller_workspace.join("moon.work");
+    let _output = get_stdout_with_envs(
+        &work_dir,
+        [
+            "--manifest-path",
+            caller_workspace_manifest.to_str().unwrap(),
+            "install",
+            "--path",
+            source_package.to_str().unwrap(),
+            "--bin",
+            install_dir.path().to_str().unwrap(),
+        ],
+        [(
+            moonutil::common::MOON_WORK_ENV,
+            caller_workspace_manifest.to_string_lossy().into_owned(),
+        )],
+    );
+
+    #[cfg(unix)]
+    let binary_path = install_dir.path().join("main");
+    #[cfg(target_os = "windows")]
+    let binary_path = install_dir.path().join("main.exe");
+
+    assert!(
+        binary_path.exists(),
+        "Expected binary at {:?} to exist",
+        binary_path
+    );
+}
+
+#[test]
+fn test_moon_install_global_git_prebuild_runs_from_checkout_root() {
+    let repo = TestDir::new("moon_install_git_prebuild_cwd.in");
+    let install_dir = tempfile::tempdir().unwrap();
+    let work_dir = tempfile::tempdir().unwrap();
+
+    run_git(repo.as_ref(), &["init"]);
+    run_git(
+        repo.as_ref(),
+        &["config", "user.email", "moon@example.invalid"],
+    );
+    run_git(repo.as_ref(), &["config", "user.name", "Moon Test"]);
+    run_git(repo.as_ref(), &["add", "."]);
+    run_git(repo.as_ref(), &["commit", "-m", "initial"]);
+
+    let git_url = file_git_url(repo.as_ref());
+    let _output = get_stdout(
+        &work_dir,
+        [
+            "install",
+            git_url.as_str(),
+            "module/src/main",
+            "--bin",
+            install_dir.path().to_str().unwrap(),
+        ],
+    );
+
+    #[cfg(unix)]
+    let binary_path = install_dir.path().join("main");
+    #[cfg(target_os = "windows")]
+    let binary_path = install_dir.path().join("main.exe");
+
+    assert!(
+        binary_path.exists(),
+        "Expected binary at {:?} to exist",
+        binary_path
+    );
+}
+
+#[test]
+fn test_moon_install_global_prebuild_runs_from_source_root() {
+    let source_dir = TestDir::new("moon_install_prebuild_cwd.in");
+    let work_dir = tempfile::tempdir().unwrap();
+    let install_dir = tempfile::tempdir().unwrap();
+
+    let source_package = source_dir.join("src/main");
+    let _output = get_stdout(
+        &work_dir,
+        [
+            "install",
+            "--path",
+            source_package.to_str().unwrap(),
+            "--bin",
+            install_dir.path().to_str().unwrap(),
+        ],
+    );
+
+    #[cfg(unix)]
+    let binary_path = install_dir.path().join("main");
+    #[cfg(target_os = "windows")]
+    let binary_path = install_dir.path().join("main.exe");
 
     assert!(
         binary_path.exists(),

@@ -1,0 +1,11 @@
+{
+  "is-main": true,
+  "supported-targets": "native",
+  "pre-build": [
+    {
+      "input": "main.mbt",
+      "output": "generated.mbt",
+      "command": "node scripts/gen.js $output"
+    }
+  ]
+}

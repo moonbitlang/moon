@@ -18,26 +18,21 @@
 
 use anyhow::{Context, bail};
 use colored::Colorize;
-use moonbuild_rupes_recta::{
-    ResolveConfig,
-    intent::UserIntent,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
-};
+use moonbuild_rupes_recta::{ResolveConfig, model::PackageId};
 use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
     cli::UniversalFlags,
-    common::{FileLock, MOON_MOD, MOON_MOD_JSON, RunMode, TargetBackend},
-    dirs::PackageDirs,
-    mooncakes::{ModuleName, RegistryConfig},
+    common::{MOON_MOD, MOON_MOD_JSON, MOON_WORK_ENV},
+    dirs::{PackageDirs, WorkspaceEnv},
+    mooncakes::{ModuleId, ModuleName, ModuleSourceKind, RegistryConfig},
 };
 use semver::Version;
-use std::path::{Path, PathBuf};
-
-use crate::{
-    cli::BuildFlags,
-    rr_build::{self, BuildConfig, preconfig_compile},
-    user_diagnostics::UserDiagnostics,
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
 };
+
+use crate::{rr_build, user_diagnostics::UserDiagnostics};
 
 /// Represents a parsed package specification from the command line.
 #[derive(Debug, Clone)]
@@ -161,7 +156,7 @@ impl PackageFilter {
     }
 }
 
-const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@"];
+const GIT_URL_PREFIXES: &[&str] = &["https://", "http://", "git://", "ssh://", "git@", "file://"];
 
 /// Returns the non-wildcard prefix for inputs ending with `/...` or `...`.
 pub(super) fn strip_wildcard_suffix(s: &str) -> Option<&str> {
@@ -277,13 +272,17 @@ pub(super) fn install_binary(
 
     let filter =
         PackageFilter::package_path(spec.package_path.clone().unwrap_or_default(), install_all);
-
     let package_dirs = cli.source_tgt_dir.source_root_package_dirs(module_dir)?;
+
     build_and_install_packages(
         cli,
-        &spec.module_name,
-        module_dir,
-        package_dirs,
+        InstallSourceProject {
+            module_name: spec.module_name.clone(),
+            module_root: module_dir.to_path_buf(),
+            build_cwd: module_dir.to_path_buf(),
+            package_dirs,
+            workspace_env: WorkspaceEnv::Off,
+        },
         install_dir,
         filter,
     )
@@ -303,30 +302,17 @@ pub(super) fn install_from_local(
         )
     })?;
 
-    let module_dirs = cli
-        .source_tgt_dir
-        .source_module_package_dirs(&input_path)?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Path `{}` is not in a MoonBit module (no {} or {} found in ancestors)",
-                input_path.display(),
-                MOON_MOD,
-                MOON_MOD_JSON
-            )
-        })?;
-
-    let module = moonutil::common::read_module_desc_file_in_dir(&module_dirs.module_root)?;
-    let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let project = source_install_project(cli, &input_path).with_context(|| {
+        format!(
+            "Path `{}` is not in a MoonBit module (no {} or {} found in ancestors)",
+            input_path.display(),
+            MOON_MOD,
+            MOON_MOD_JSON
+        )
+    })?;
     let filter = PackageFilter::filesystem(input_path, install_all);
 
-    build_and_install_packages(
-        cli,
-        &module_name,
-        &module_dirs.module_root,
-        module_dirs.package_dirs,
-        install_dir,
-        filter,
-    )
+    build_and_install_packages(cli, project, install_dir, filter)
 }
 
 /// Git reference type for checkout.
@@ -339,6 +325,56 @@ pub(super) enum GitRef<'a> {
     Tag(&'a str),
     /// Use default branch
     Default,
+}
+
+struct SelectedPackage {
+    pkg_id: PackageId,
+    root_path: PathBuf,
+    full_pkg_name: String,
+    binary_name: String,
+}
+
+struct InstallSourceProject {
+    module_name: ModuleName,
+    module_root: PathBuf,
+    build_cwd: PathBuf,
+    package_dirs: PackageDirs,
+    workspace_env: WorkspaceEnv,
+}
+
+fn source_install_project(
+    cli: &UniversalFlags,
+    source_path: &Path,
+) -> anyhow::Result<InstallSourceProject> {
+    let source_dirs = moonutil::dirs::SourceTargetDirs {
+        cwd: None,
+        manifest_path: None,
+        target_dir: cli.source_tgt_dir.target_dir.clone(),
+    };
+    let mut query = source_dirs.query_from(source_path, WorkspaceEnv::Auto)?;
+    let project = query.project()?;
+    let selected_module = project.selected_module().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Path `{}` is in a workspace but does not select a MoonBit module",
+            source_path.display()
+        )
+    })?;
+    let workspace_env = project
+        .workspace_ref()
+        .map(|workspace| WorkspaceEnv::Pinned(workspace.manifest_path))
+        .unwrap_or(WorkspaceEnv::Off);
+    let module = moonutil::common::read_module_desc_file_in_dir(&selected_module.root)?;
+    let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let package_dirs = query.package_dirs()?;
+    let build_cwd = package_dirs.source_dir.clone();
+
+    Ok(InstallSourceProject {
+        module_name,
+        module_root: selected_module.root,
+        build_cwd,
+        package_dirs,
+        workspace_env,
+    })
 }
 
 /// Install from a git repository.
@@ -433,46 +469,120 @@ pub(super) fn install_from_git(
         );
     }
 
-    let module_dirs = cli
-        .source_tgt_dir
-        .source_module_package_dirs(&target_path)?
-        .ok_or_else(|| {
-            anyhow::anyhow!("No {} or {} found in repository", MOON_MOD, MOON_MOD_JSON)
-        })?;
-
-    let module = moonutil::common::read_module_desc_file_in_dir(&module_dirs.module_root)?;
-    let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let mut project = source_install_project(cli, &target_path)
+        .with_context(|| format!("No {} or {} found in repository", MOON_MOD, MOON_MOD_JSON))?;
     let filter = PackageFilter::filesystem(target_path, install_all);
+    project.build_cwd = clone_dir;
 
-    build_and_install_packages(
-        cli,
-        &module_name,
-        &module_dirs.module_root,
-        module_dirs.package_dirs,
-        install_dir,
-        filter,
+    build_and_install_packages(cli, project, install_dir, filter)
+}
+
+fn module_manifest_path(module_dir: &Path) -> anyhow::Result<PathBuf> {
+    let moon_mod = module_dir.join(MOON_MOD);
+    if moon_mod.exists() {
+        return Ok(moon_mod);
+    }
+    let moon_mod_json = module_dir.join(MOON_MOD_JSON);
+    if moon_mod_json.exists() {
+        return Ok(moon_mod_json);
+    }
+    bail!(
+        "No {} or {} found in module root `{}`",
+        MOON_MOD,
+        MOON_MOD_JSON,
+        module_dir.display()
     )
 }
 
-/// Build matching packages and install binaries using RR build engine.
+fn run_build_for_install(
+    cli: &UniversalFlags,
+    build_cwd: &Path,
+    module_dir: &Path,
+    project_manifest_path: Option<&Path>,
+    target_dir: &Path,
+    workspace_env: &WorkspaceEnv,
+    packages: &[SelectedPackage],
+) -> anyhow::Result<i32> {
+    let current_moon = std::env::current_exe().context("Failed to resolve current moon binary")?;
+    let mut cmd = Command::new(&current_moon);
+    cmd.env("MOON_OVERRIDE", current_moon);
+    match workspace_env {
+        WorkspaceEnv::Auto => {}
+        WorkspaceEnv::Off => {
+            cmd.env(MOON_WORK_ENV, "off");
+        }
+        WorkspaceEnv::Pinned(workspace_path) => {
+            cmd.env(MOON_WORK_ENV, workspace_path);
+        }
+    }
+    cmd.arg("-C").arg(build_cwd);
+    if let Some(project_manifest_path) = project_manifest_path {
+        cmd.arg("--manifest-path").arg(project_manifest_path);
+    } else if build_cwd != module_dir {
+        cmd.arg("--manifest-path")
+            .arg(module_manifest_path(module_dir)?);
+    }
+    cmd.arg("--target-dir").arg(target_dir);
+
+    if cli.quiet {
+        cmd.arg("--quiet");
+    }
+    if cli.verbose {
+        cmd.arg("--verbose");
+    }
+    if cli.trace {
+        cmd.arg("--trace");
+    }
+    if cli.build_graph {
+        cmd.arg("--build-graph");
+    }
+    let unstable_features = cli.unstable_feature.to_string();
+    if !unstable_features.is_empty() {
+        cmd.arg("-Z").arg(unstable_features);
+    }
+
+    cmd.args(["build", "--release", "--target", "native", "--warn-list=-a"]);
+    cmd.args(packages.iter().map(|pkg| &pkg.root_path));
+
+    let status = cmd
+        .status()
+        .context("Failed to spawn binary install build")?;
+    Ok(status.code().unwrap_or(1))
+}
+
+fn selected_module_id(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    module_dir: &Path,
+) -> Option<ModuleId> {
+    resolve_output
+        .local_modules()
+        .iter()
+        .copied()
+        .find(|&module_id| {
+            matches!(
+                resolve_output.module_rel.module_source(module_id).source(),
+                ModuleSourceKind::Local(path) if path == module_dir
+            )
+        })
+}
+
+/// Resolve matching packages, build them with `moon build`, and install binaries.
 fn build_and_install_packages(
     cli: &UniversalFlags,
-    module_name: &ModuleName,
-    module_dir: &Path,
-    package_dirs: PackageDirs,
+    source: InstallSourceProject,
     install_dir: &Path,
     filter: PackageFilter,
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
     let output = UserDiagnostics::from_flags(cli);
-    let source_dir = package_dirs.source_dir;
-    let target_dir = package_dirs.target_dir;
-    let mooncakes_dir = package_dirs.mooncakes_dir;
-    let project_manifest_path = package_dirs.project_manifest_path;
+    let source_dir = source.package_dirs.source_dir;
+    let target_dir = source.package_dirs.target_dir;
+    let mooncakes_dir = source.package_dirs.mooncakes_dir;
+    let project_manifest_path = source.package_dirs.project_manifest_path;
 
+    let build_workspace_env = source.workspace_env.clone();
     let resolve_cfg =
-        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+        ResolveConfig::new_with_load_defaults(false, false, false, source.workspace_env);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         &source_dir,
@@ -481,19 +591,18 @@ fn build_and_install_packages(
     )?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
 
-    let main_module_id = resolve_output.local_modules()[0];
+    let Some(main_module_id) = selected_module_id(&resolve_output, &source.module_root) else {
+        bail!(
+            "Selected module `{}` was not found in resolved project",
+            source.module_root.display()
+        );
+    };
     let Some(all_pkgs) = resolve_output.pkg_dirs.packages_for_module(main_module_id) else {
         bail!(
             "No packages found in module at path `{}`",
-            module_dir.display()
+            source.module_root.display()
         );
     };
-
-    struct SelectedPackage {
-        pkg_id: PackageId,
-        full_pkg_name: String,
-        binary_name: String,
-    }
 
     let mut selected_packages: Vec<SelectedPackage> = Vec::new();
 
@@ -512,15 +621,16 @@ fn build_and_install_packages(
                 .rsplit('/')
                 .next()
                 .filter(|s| !s.is_empty())
-                .unwrap_or(&module_name.unqual)
+                .unwrap_or(&source.module_name.unqual)
                 .to_string();
             let full_pkg_name = if pkg_path_str.is_empty() {
-                module_name.to_string()
+                source.module_name.to_string()
             } else {
-                format!("{}/{}", module_name, pkg_path_str)
+                format!("{}/{}", source.module_name, pkg_path_str)
             };
             selected_packages.push(SelectedPackage {
                 pkg_id,
+                root_path: pkg.root_path.clone(),
                 full_pkg_name,
                 binary_name,
             });
@@ -528,7 +638,7 @@ fn build_and_install_packages(
     }
 
     if selected_packages.is_empty() {
-        return Err(filter.no_match_error(module_name, module_dir));
+        return Err(filter.no_match_error(&source.module_name, &source.module_root));
     }
 
     if cli.dry_run {
@@ -570,7 +680,7 @@ fn build_and_install_packages(
     })?;
 
     std::fs::create_dir_all(&target_dir).context("Failed to create build directory")?;
-    let mut installed_count = 0;
+    let mut installable_packages: Vec<SelectedPackage> = Vec::new();
 
     for pkg in selected_packages {
         // Check if binary name would overwrite a reserved toolchain binary
@@ -581,68 +691,33 @@ fn build_and_install_packages(
             ));
             continue;
         }
+        installable_packages.push(pkg);
+    }
 
+    if installable_packages.is_empty() {
+        bail!("No packages were successfully installed");
+    }
+
+    for pkg in &installable_packages {
         output.info(format!("Building `{}`...", pkg.full_pkg_name));
+    }
 
-        let build_flags = BuildFlags {
-            release: true,
-            warn_list: Some("-a".to_string()),
-            ..BuildFlags::default()
-        };
-        let preconfig = preconfig_compile(
-            &moonutil::mooncakes::sync::AutoSyncFlags { frozen: false },
-            cli,
-            &build_flags,
-            Some(TargetBackend::Native),
-            &target_dir,
-            RunMode::Build,
-        );
+    let build_status = run_build_for_install(
+        cli,
+        &source.build_cwd,
+        &source.module_root,
+        project_manifest_path.as_deref(),
+        &target_dir,
+        &build_workspace_env,
+        &installable_packages,
+    )?;
+    if build_status != 0 {
+        return Ok(build_status);
+    }
 
-        let output = UserDiagnostics::from_flags(cli);
-        let planning_context = rr_build::prepare_resolved_build(
-            &preconfig,
-            &cli.unstable_feature,
-            &target_dir,
-            output,
-            &resolve_output,
-        )?;
-        let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
-        let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-            preconfig,
-            &cli.unstable_feature,
-            output,
-            planning_context,
-            intent,
-            &mooncake_bin_dir,
-            resolve_output.clone(),
-        )?;
-
-        let _lock = FileLock::lock(&target_dir)?;
-        rr_build::generate_all_pkgs_json(&build_meta)?;
-
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(
-                &build_flags,
-                &cli.unstable_feature,
-                cli.verbose,
-                UserDiagnostics::from_flags(cli),
-            ),
-            build_graph,
-            &target_dir,
-        )?;
-        if !result.successful() {
-            result.print_info(quiet, "building").ok();
-            output.error(format!("Failed to build `{}`", pkg.full_pkg_name));
-            continue;
-        }
-        result.print_info(quiet, "building").ok();
-
-        let target = BuildTarget {
-            package: pkg.pkg_id,
-            kind: TargetKind::Source,
-        };
+    for pkg in installable_packages {
         let binary_src =
-            build_meta.artifacts[&BuildPlanNode::MakeExecutable(target)].artifacts[0].clone();
+            rr_build::native_source_executable_path(&target_dir, &resolve_output, pkg.pkg_id);
         let dst_name = if cfg!(windows) {
             format!("{}.exe", pkg.binary_name)
         } else {
@@ -674,12 +749,6 @@ fn build_and_install_packages(
                 binary_dst.display()
             );
         }
-
-        installed_count += 1;
-    }
-
-    if installed_count == 0 {
-        bail!("No packages were successfully installed");
     }
 
     Ok(0)
@@ -707,6 +776,7 @@ mod tests {
         assert!(is_git_url("ssh://git@github.com/user/repo"));
         assert!(is_git_url("git@github.com:user/repo.git"));
         assert!(is_git_url("git@gitlab.com:group/subgroup/repo.git"));
+        assert!(is_git_url("file:///tmp/repo.git"));
 
         // Not git URLs (registry paths)
         assert!(!is_git_url("user/repo"));

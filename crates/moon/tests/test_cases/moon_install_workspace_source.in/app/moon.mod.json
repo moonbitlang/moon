@@ -1,0 +1,8 @@
+{
+  "name": "test/install_ws_app",
+  "version": "0.1.0",
+  "source": "src",
+  "deps": {
+    "test/install_ws_lib": "0.1.0"
+  }
+}

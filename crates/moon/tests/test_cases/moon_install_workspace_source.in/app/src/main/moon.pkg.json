@@ -1,0 +1,13 @@
+{
+  "is-main": true,
+  "import": [
+    "test/install_ws_lib/lib"
+  ],
+  "pre-build": [
+    {
+      "input": "main.mbt",
+      "output": "generated.mbt",
+      "command": "node scripts/gen.js $output"
+    }
+  ]
+}

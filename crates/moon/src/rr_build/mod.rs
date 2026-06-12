@@ -44,10 +44,11 @@ use moonbuild_rupes_recta::{
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
-        Artifacts, BuildPlanNode, NativeTarget, PackageId, RunBackend, TargetKind, TccRunConfig,
+        Artifacts, BuildPlanNode, BuildTarget, NativeTarget, PackageId, RunBackend, TargetKind,
+        TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
-    target_layout::{ArtifactPathResolver, TargetLayout},
+    target_layout::{ArtifactPathResolver, ExecutableArtifact, TargetLayout},
     user_warning::UserWarning,
 };
 use moonutil::{
@@ -804,6 +805,26 @@ pub fn generate_metadata(
     Ok(())
 }
 
+pub(crate) fn native_source_executable_path(
+    target_dir: &Path,
+    resolve_output: &ResolveOutput,
+    package: PackageId,
+) -> PathBuf {
+    let layout = TargetLayout::from_resolve_output(
+        target_dir.to_owned(),
+        resolve_output,
+        BuildProfile::Release,
+        RunMode::Build,
+    );
+    layout.executable_of_build_target(
+        &resolve_output.pkg_dirs,
+        &BuildTarget {
+            package,
+            kind: TargetKind::Source,
+        },
+        ExecutableArtifact::NativeExecutable,
+    )
+}
 fn collect_check_commands_by_output(
     build_input: &BuildInput,
 ) -> moonbuild_rupes_recta::metadata::CheckCommandMap {

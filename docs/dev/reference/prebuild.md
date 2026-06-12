@@ -35,6 +35,12 @@ Notes:
 ## Path Resolution
 
 - `input`/`output` are resolved relative to the package directory before substitution.
+- Commands execute from the `moon` process working directory after global `-C`
+  handling. Source installs invoke `moon build` with `-C` set to the selected
+  source execution root: the git checkout root for git installs, the downloaded
+  module root for registry installs, and the local source project root for
+  local installs. For local source workspaces, that project root is the
+  workspace root.
 - `$input`/`$output` expand to absolute file paths.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
 - `$mooncake_bin` expands to `<project .mooncakes dir>/__moonbin__`.
@@ -124,9 +130,9 @@ A task is considered failed (for the build) if any of the following holds after 
 - On Unix-like platforms, the final prebuild command string is executed through `sh -c`.
 - On Windows, the final prebuild command string is passed directly to `CreateProcessA`.
 - On Unix-like platforms, if the first word of the command looks like a relative path,
-  it is currently resolved against the module root directory.
+  it is currently resolved against the command execution root.
 - Windows (PowerShell):  
-  On Windows only, if the first word of the `command` (before any spaces) corresponds to a `.ps1` file that exists in the module root directory, the command is rewritten to execute that script via PowerShell using its absolute path. Example: if the command is `generate-assets $input $output` and `generate-assets.ps1` exists in the module root, the effective command becomes `powershell <absolute-path-to-module-root>/generate-assets.ps1 $input $output`. Detection examines the first word before placeholder substitution.
+  On Windows only, if the first word of the `command` (before any spaces) corresponds to a `.ps1` file that exists in the command execution root, the command is rewritten to execute that script via PowerShell using its absolute path. Example: if the command is `generate-assets $input $output` and `generate-assets.ps1` exists in the execution root, the effective command becomes `powershell <absolute-path-to-execution-root>/generate-assets.ps1 $input $output`. Detection examines the first word before placeholder substitution.
 
 ## Examples
 
