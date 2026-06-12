@@ -171,6 +171,16 @@ fn spawn_native_process(
     }
     let mut file_actions = unsafe { file_actions.assume_init() };
 
+    let mut attr = std::mem::MaybeUninit::<libc::posix_spawnattr_t>::uninit();
+    let ret = unsafe { libc::posix_spawnattr_init(attr.as_mut_ptr()) };
+    if ret != 0 {
+        unsafe {
+            libc::posix_spawn_file_actions_destroy(&mut file_actions);
+        }
+        return Err(AsyncHostError::Native(ret));
+    }
+    let mut attr = unsafe { attr.assume_init() };
+
     let result = (|| {
         for (target, fd) in stdio.into_iter().enumerate() {
             if let Some(fd) = fd {
@@ -187,17 +197,16 @@ fn spawn_native_process(
             }
         }
 
+        configure_spawn_attributes(&mut attr)?;
+
         let mut pid = 0;
-        // The native C stub also restores the thread-pool signal mask here.
-        // The wasm host does not install that signal mask yet, so this port
-        // keeps the same spawn function and stdio file actions.
         let ret = if command_c.as_bytes().contains(&b'/') {
             unsafe {
                 libc::posix_spawn(
                     &mut pid,
                     command_c.as_ptr(),
                     &file_actions,
-                    std::ptr::null(),
+                    &attr,
                     argv.as_mut_ptr(),
                     envp.as_mut_ptr(),
                 )
@@ -208,7 +217,7 @@ fn spawn_native_process(
                     &mut pid,
                     command_c.as_ptr(),
                     &file_actions,
-                    std::ptr::null(),
+                    &attr,
                     argv.as_mut_ptr(),
                     envp.as_mut_ptr(),
                 )
@@ -221,6 +230,7 @@ fn spawn_native_process(
     })();
 
     unsafe {
+        libc::posix_spawnattr_destroy(&mut attr);
         libc::posix_spawn_file_actions_destroy(&mut file_actions);
     }
     result
@@ -265,6 +275,43 @@ fn current_environment() -> Vec<std::ffi::CString> {
         cursor = unsafe { cursor.add(1) };
     }
     env
+}
+
+#[cfg(unix)]
+fn configure_spawn_attributes(attr: &mut libc::posix_spawnattr_t) -> AsyncHostResult<()> {
+    let flags = (libc::POSIX_SPAWN_SETSIGMASK | libc::POSIX_SPAWN_SETSIGDEF) as _;
+    let ret = unsafe { libc::posix_spawnattr_setflags(attr, flags) };
+    if ret != 0 {
+        return Err(AsyncHostError::Native(ret));
+    }
+
+    let mut current_mask = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+    let ret = unsafe {
+        libc::pthread_sigmask(
+            libc::SIG_SETMASK,
+            std::ptr::null(),
+            current_mask.as_mut_ptr(),
+        )
+    };
+    if ret != 0 {
+        return Err(AsyncHostError::Native(ret));
+    }
+    let current_mask = unsafe { current_mask.assume_init() };
+    let ret = unsafe { libc::posix_spawnattr_setsigmask(attr, &current_mask) };
+    if ret != 0 {
+        return Err(AsyncHostError::Native(ret));
+    }
+
+    let mut all_signals = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+    if unsafe { libc::sigfillset(all_signals.as_mut_ptr()) } != 0 {
+        return Err(last_native_error());
+    }
+    let all_signals = unsafe { all_signals.assume_init() };
+    let ret = unsafe { libc::posix_spawnattr_setsigdefault(attr, &all_signals) };
+    if ret != 0 {
+        return Err(AsyncHostError::Native(ret));
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
