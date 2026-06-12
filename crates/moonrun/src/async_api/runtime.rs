@@ -16,37 +16,19 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod c_buffer;
-mod context;
-mod env_util;
-mod event_loop;
-mod fd_util;
-mod fs;
-mod memory;
-mod os_error;
-mod process;
-mod registry;
-mod runtime;
-mod socket;
-mod thread_pool;
-mod time;
-mod tls;
-mod unsupported;
+use super::context::{ImportArgs, throw_import_error};
 
-use std::any::Any;
-
-use crate::async_host::AsyncHost;
-
-pub(crate) use registry::MOONBIT_V0_MODULE;
-
-pub(crate) fn init_env<'s>(
-    obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
-    dtors: &mut Vec<Box<dyn Any>>,
+pub(super) fn exit(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    _ret: v8::ReturnValue,
 ) {
-    let context = Box::new(context::AsyncContext::new(scope, obj, AsyncHost::default()));
-    let context_ptr = &*context as *const context::AsyncContext;
-    dtors.push(context);
-
-    registry::register_imports(obj, scope, context_ptr);
+    let code = {
+        let mut args = ImportArgs::new(scope, &args);
+        args.i32(0)
+    };
+    match code {
+        Ok(code) => std::process::exit(code),
+        Err(error) => throw_import_error(scope, "runtime/exit", error),
+    }
 }

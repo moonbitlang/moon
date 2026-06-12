@@ -20,7 +20,7 @@ use crate::v8_builder::ObjectExt;
 
 use super::{
     c_buffer, context::AsyncContext, env_util, event_loop, fd_util, fs, memory, os_error, process,
-    thread_pool, time, unsupported,
+    runtime, thread_pool, time, unsupported,
 };
 
 pub(crate) const MOONBIT_V0_MODULE: &str = "moonbit_v0";
@@ -149,6 +149,10 @@ fn register_func_impl<'s>(
 //   uniform unsupported stub.
 declare_async_imports! {
     // Runtime platform and worker control.
+    support runtime::exit => "runtime/exit",
+    native = None,
+    sources = [moonrun:"crates/moonrun/src/async_api/runtime.rs"];
+
     native event_loop::get_platform => "runtime/get_platform",
     native = Some("moonbitlang_async_get_platform"),
     sources = [moonbit_async:"src/internal/event_loop/thread_pool.c"];
@@ -764,6 +768,18 @@ mod tests {
                 import.wasm_symbol
             );
         }
+    }
+
+    #[test]
+    fn runtime_exit_is_part_of_moonbit_v0() {
+        assert!(
+            ASYNC_IMPORTS.iter().any(|import| {
+                import.kind == AsyncImportKind::WasmSupport
+                    && import.wasm_symbol == "runtime/exit"
+                    && import.native_symbol.is_none()
+            }),
+            "async wasm integration must not depend on older runtime namespaces for exit"
+        );
     }
 
     #[test]

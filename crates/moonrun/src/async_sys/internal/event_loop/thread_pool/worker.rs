@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::thread::JoinHandle;
+use std::{sync::mpsc, thread::JoinHandle};
 
 use crate::async_sys::ported_fns;
 
@@ -75,42 +75,62 @@ impl Worker {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HostWorkerJob {
+    pub(crate) job_id: i32,
+    pub(crate) job_handle: i32,
+}
+
+enum HostWorkerCommand {
+    Run(HostWorkerJob),
+    Shutdown,
+}
+
 pub(crate) struct HostWorkerHandle {
+    sender: mpsc::Sender<HostWorkerCommand>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl std::fmt::Debug for HostWorkerHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HostWorkerHandle")
-            .field("running", &self.thread.is_some())
+            .field(
+                "alive",
+                &self
+                    .thread
+                    .as_ref()
+                    .is_some_and(|thread| !thread.is_finished()),
+            )
             .finish()
     }
 }
 
 impl HostWorkerHandle {
-    pub(crate) fn running(thread: JoinHandle<()>) -> Self {
+    pub(crate) fn spawn(mut f: impl FnMut(HostWorkerJob) + Send + 'static) -> Self {
+        let (command_sender, command_receiver) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            while let Ok(command) = command_receiver.recv() {
+                match command {
+                    HostWorkerCommand::Run(job) => f(job),
+                    HostWorkerCommand::Shutdown => break,
+                }
+            }
+        });
         Self {
+            sender: command_sender,
             thread: Some(thread),
         }
     }
 
-    pub(crate) fn replace(&mut self, thread: JoinHandle<()>) {
-        self.join_finished();
-        self.thread = Some(thread);
-    }
-
-    pub(crate) fn join_finished(&mut self) {
-        if self
-            .thread
-            .as_ref()
-            .is_some_and(|thread| thread.is_finished())
-        {
-            self.join();
-        }
+    pub(crate) fn run(&self, job_id: i32, job_handle: i32) -> Result<(), ()> {
+        self.sender
+            .send(HostWorkerCommand::Run(HostWorkerJob { job_id, job_handle }))
+            .map_err(|_| ())
     }
 
     pub(crate) fn join(&mut self) {
         if let Some(thread) = self.thread.take() {
+            let _ = self.sender.send(HostWorkerCommand::Shutdown);
             let _ = thread.join();
         }
     }

@@ -19,7 +19,6 @@
 use std::collections::VecDeque;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 
 use crate::async_sys::internal::event_loop::thread_pool::{
     self, HostFile, HostFileTable, HostProcess, HostProcessTable, HostWorkerHandle, Job,
@@ -617,12 +616,11 @@ impl AsyncHost {
     }
 
     pub(crate) fn spawn_worker(&self, job_id: i32, job_handle: i32) -> AsyncHostResult<i32> {
-        let handle = self.spawn_job_thread(job_id, job_handle);
-        self.state
-            .lock()
-            .unwrap()
-            .workers
-            .insert(HostWorkerHandle::running(handle))
+        let worker = self.spawn_worker_thread();
+        worker
+            .run(job_id, job_handle)
+            .map_err(|_| AsyncHostError::Badf)?;
+        self.state.lock().unwrap().workers.insert(worker)
     }
 
     pub(crate) fn wake_worker(
@@ -631,17 +629,17 @@ impl AsyncHost {
         job_id: i32,
         job_handle: i32,
     ) -> AsyncHostResult<()> {
-        let thread = self.spawn_job_thread(job_id, job_handle);
-        let mut state = self.state.lock().unwrap();
-        let worker = state.workers.get_mut(worker_handle)?;
-        worker.replace(thread);
-        Ok(())
+        self.state
+            .lock()
+            .unwrap()
+            .workers
+            .get(worker_handle)?
+            .run(job_id, job_handle)
+            .map_err(|_| AsyncHostError::Badf)
     }
 
     pub(crate) fn worker_enter_idle(&self, worker_handle: i32) -> AsyncHostResult<()> {
-        let mut state = self.state.lock().unwrap();
-        let worker = state.workers.get_mut(worker_handle)?;
-        worker.join_finished();
+        self.state.lock().unwrap().workers.get(worker_handle)?;
         Ok(())
     }
 
@@ -697,10 +695,10 @@ impl AsyncHost {
         Ok(bytes)
     }
 
-    fn spawn_job_thread(&self, job_id: i32, job_handle: i32) -> JoinHandle<()> {
+    fn spawn_worker_thread(&self) -> HostWorkerHandle {
         let state = Arc::clone(&self.state);
-        std::thread::spawn(move || {
-            let Ok(mut job) = state.lock().unwrap().jobs.take(job_handle) else {
+        HostWorkerHandle::spawn(move |worker_job| {
+            let Ok(mut job) = state.lock().unwrap().jobs.take(worker_job.job_handle) else {
                 return;
             };
 
@@ -710,8 +708,8 @@ impl AsyncHost {
             thread_pool::run_host_job(&mut job, &mut files);
 
             let mut state = state.lock().unwrap();
-            if state.jobs.put(job_handle, job).is_ok() {
-                state.completions.push_back(job_id);
+            if state.jobs.put(worker_job.job_handle, job).is_ok() {
+                state.completions.push_back(worker_job.job_id);
             }
         })
     }
