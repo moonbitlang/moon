@@ -703,10 +703,11 @@ fn read_native_dir(file: &mut HostFile, len: usize, restart: bool) -> AsyncHostR
             .position(|byte| *byte == 0)
             .map(|pos| name_start + pos)
             .ok_or(AsyncHostError::Fault)?;
-        let name = native[name_start..name_end].to_vec();
+        let native_name = &native[name_start..name_end];
+        let name = encode_dir_name_for_wasm_os_string(native_name)?;
         file.pending_dir_entries_mut()
             .push_back(encode_dir_entry(EntryRecord {
-                is_hidden: name.first() == Some(&b'.'),
+                is_hidden: native_name.first() == Some(&b'.'),
                 is_dir: match d_type {
                     libc::DT_UNKNOWN => -1,
                     libc::DT_DIR => 1,
@@ -828,7 +829,8 @@ fn read_native_dir(file: &mut HostFile, len: usize, restart: bool) -> AsyncHostR
             return Err(AsyncHostError::Fault);
         }
 
-        let name = native[name_start..name_end].to_vec();
+        let native_name = &native[name_start..name_end];
+        let name = encode_dir_name_for_wasm_os_string(native_name)?;
         // vnode.h defines VNON = 0 and VDIR = 2. libc does not currently expose
         // these macOS constants, so keep the native stub's meaning explicit here.
         let is_dir = if (commonattr & libc::ATTR_CMN_OBJTYPE) == 0 || d_type == 0 {
@@ -840,7 +842,7 @@ fn read_native_dir(file: &mut HostFile, len: usize, restart: bool) -> AsyncHostR
         };
         file.pending_dir_entries_mut()
             .push_back(encode_dir_entry(EntryRecord {
-                is_hidden: name.first() == Some(&b'.'),
+                is_hidden: native_name.first() == Some(&b'.'),
                 is_dir,
                 name,
                 file_id,
@@ -875,6 +877,20 @@ fn encode_dir_entry(entry: EntryRecord) -> AsyncHostResult<Vec<u8>> {
     let mut encoded = Vec::new();
     entry.encode_into(&mut encoded)?;
     Ok(encoded)
+}
+
+#[cfg(unix)]
+fn encode_dir_name_for_wasm_os_string(native_name: &[u8]) -> AsyncHostResult<Vec<u8>> {
+    let name = std::str::from_utf8(native_name).map_err(|_| AsyncHostError::Inval)?;
+    Ok(name.encode_utf16().flat_map(u16::to_le_bytes).collect())
+}
+
+#[cfg(windows)]
+fn encode_dir_name_for_wasm_os_string(native_name: &[u8]) -> AsyncHostResult<Vec<u8>> {
+    if !native_name.len().is_multiple_of(2) {
+        return Err(AsyncHostError::Fault);
+    }
+    Ok(native_name.to_vec())
 }
 
 #[cfg(all(unix, target_os = "linux"))]
@@ -1603,7 +1619,7 @@ fn read_native_dir(file: &mut HostFile, len: usize, restart: bool) -> AsyncHostR
             return Err(AsyncHostError::Fault);
         }
 
-        let name = native[name_start..name_end].to_vec();
+        let name = encode_dir_name_for_wasm_os_string(&native[name_start..name_end])?;
         let is_dir = if (entry.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0
             && (entry.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0
         {
@@ -1741,4 +1757,49 @@ fn native_io_error(error: std::io::Error) -> AsyncHostError {
             .raw_os_error()
             .unwrap_or_else(|| AsyncHostError::Inval.errno()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn dir_name_for_wasm_os_string_encodes_utf16le_on_unix() {
+        assert_eq!(
+            encode_dir_name_for_wasm_os_string("file".as_bytes()).unwrap(),
+            [b'f', 0, b'i', 0, b'l', 0, b'e', 0]
+        );
+        assert_eq!(
+            encode_dir_name_for_wasm_os_string("\u{6587}".as_bytes()).unwrap(),
+            [0x87, 0x65]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dir_name_for_wasm_os_string_rejects_non_utf8_unix_name() {
+        assert_eq!(
+            encode_dir_name_for_wasm_os_string(b"\xff"),
+            Err(AsyncHostError::Inval)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dir_name_for_wasm_os_string_preserves_windows_utf16_bytes() {
+        assert_eq!(
+            encode_dir_name_for_wasm_os_string(&[b'f', 0, b'i', 0]).unwrap(),
+            [b'f', 0, b'i', 0]
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn dir_name_for_wasm_os_string_rejects_odd_windows_name_bytes() {
+        assert_eq!(
+            encode_dir_name_for_wasm_os_string(&[b'f']),
+            Err(AsyncHostError::Fault)
+        );
+    }
 }

@@ -39,6 +39,11 @@ extern "wasm" fn bytes_to_ptr(bytes : Bytes) -> Int =
   #|(func (param i32) (result i32) local.get 0)
 
 ///|
+#borrow(str)
+extern "wasm" fn string_to_ptr(str : String) -> Int =
+  #|(func (param i32) (result i32) local.get 0)
+
+///|
 fn blit_to_c(dst : Int, src : Int, offset : Int, len : Int) -> Unit = "moonbit_v0" "c_buffer/blit_to_c"
 
 ///|
@@ -80,10 +85,10 @@ fn main {
   let tmp_path_len = get_tmp_path_len()
   assert_true(tmp_path_len > 0, "tmp path size query failed")
   assert_true(get_tmp_path(0, 0) == -1, "tmp path fill accepted a missing buffer")
-  let tmp_path = Bytes::make(tmp_path_len, b'\x00')
-  let tmp_path_ptr = bytes_to_ptr(tmp_path)
+  let tmp_path = String::make(tmp_path_len, '\u{0}')
+  let tmp_path_ptr = string_to_ptr(tmp_path)
   assert_true(get_tmp_path(tmp_path_ptr, tmp_path_len) == 0, "tmp path fill failed")
-  assert_true(tmp_path[0] != b'\x00', "tmp path fill wrote an empty path")
+  assert_true(tmp_path != String::make(tmp_path_len, '\u{0}'), "tmp path fill wrote an empty path")
   let src = b"abcdef\x00"
   let dst = Bytes::make(6, b'_')
   blit_to_c(bytes_to_ptr(dst), bytes_to_ptr(src), 2, 3)

@@ -389,6 +389,8 @@ declare_async_imports! {
     native = Some("moonbitlang_async_unlock_file"),
     sources = [moonbit_async:"src/fs/stub.c"];
 
+    // Returns the UTF-16 code-unit length that the guest must allocate for
+    // `fs/get_tmp_path`.
     support fs::get_tmp_path_len => "fs/get_tmp_path_len",
     native = None,
     sources = [
@@ -396,9 +398,14 @@ declare_async_imports! {
         moonrun:"crates/moonrun/src/async_api/fs.rs"
     ];
 
+    // Writes the native temporary directory as UTF-16 code units into a
+    // guest-allocated MoonBit String.
     native fs::get_tmp_path => "fs/get_tmp_path",
     native = Some("moonbitlang_async_get_tmp_path"),
-    sources = [moonbit_async:"src/fs/stub.c"];
+    sources = [
+        moonbit_async:"src/fs/stub.c",
+        moonrun:"crates/moonrun/src/async_sys/fs/stub.rs"
+    ];
 
     native fs::dir_buffer_min_size => "fs/dir_buffer_min_size",
     native = Some("moonbitlang_async_dir_buffer_min_size"),

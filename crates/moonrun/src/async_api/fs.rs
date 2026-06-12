@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsStr;
-
 use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, GuestRange};
 use crate::async_sys::fs::dir;
 use crate::async_sys::fs::stub;
@@ -166,8 +164,8 @@ pub(super) fn dir_entry_file_id(
 }
 
 fn get_tmp_path_len_impl() -> AsyncHostResult<i32> {
-    let bytes = encoded_tmp_path()?;
-    i32::try_from(bytes.len()).map_err(|_| AsyncHostError::Fault)
+    let len = tmp_path_utf16_units()?.len();
+    i32::try_from(len).map_err(|_| AsyncHostError::Fault)
 }
 
 fn get_tmp_path_impl(
@@ -176,28 +174,21 @@ fn get_tmp_path_impl(
     context: &AsyncContext,
 ) -> AsyncHostResult<()> {
     let mut args = ImportArgs::new(scope, args);
-    let dst = args.i32(0)?;
+    let ptr = args.i32(0)?;
     let len = args.i32(1)?;
-    let bytes = encoded_tmp_path()?;
-    let required_len = i32::try_from(bytes.len()).map_err(|_| AsyncHostError::Fault)?;
-
+    let units = tmp_path_utf16_units()?;
     let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-    if len < bytes.len() {
+    if len != units.len() {
         return Err(AsyncHostError::Inval);
     }
-
+    let mut bytes = Vec::with_capacity(units.len() * 2);
+    for unit in units {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
     with_memory_mut(scope, context, |memory| {
-        memory.write(GuestRange::new(dst, required_len)?, &bytes)
+        let len = i32::try_from(bytes.len()).map_err(|_| AsyncHostError::Fault)?;
+        memory.write(GuestRange::new(ptr, len)?, &bytes)
     })
-}
-
-fn encoded_tmp_path() -> AsyncHostResult<Vec<u8>> {
-    // Native async returns a process-owned C buffer here. Wasm cannot receive
-    // host pointers, so the V8 adapter exposes the same OS string value by
-    // length-first copy-out. Wasm async OS strings are always UTF-16LE because
-    // they are backed by MoonBit String data, independent of the host OS.
-    let path = stub::get_tmp_path()?;
-    encode_os_string_for_wasm(path.as_os_str())
 }
 
 fn with_dir_header<T>(
@@ -224,22 +215,23 @@ fn dir_entry_header(
     memory.read(GuestRange::new(header_ptr, dir::HEADER_LEN as i32)?)
 }
 
-#[cfg(unix)]
-fn encode_os_string_for_wasm(path: &OsStr) -> AsyncHostResult<Vec<u8>> {
-    use std::os::unix::ffi::OsStrExt;
+fn tmp_path_utf16_units() -> AsyncHostResult<Vec<u16>> {
+    os_string_to_utf16_units(stub::get_tmp_path()?)
+}
 
-    let path = std::str::from_utf8(path.as_bytes()).map_err(|_| AsyncHostError::Inval)?;
-    Ok(path.encode_utf16().flat_map(u16::to_le_bytes).collect())
+#[cfg(unix)]
+fn os_string_to_utf16_units(path: std::ffi::OsString) -> AsyncHostResult<Vec<u16>> {
+    use std::os::unix::ffi::OsStringExt;
+
+    let path = String::from_utf8(path.into_vec()).map_err(|_| AsyncHostError::Inval)?;
+    Ok(path.encode_utf16().collect())
 }
 
 #[cfg(windows)]
-fn encode_os_string_for_wasm(path: &OsStr) -> AsyncHostResult<Vec<u8>> {
+fn os_string_to_utf16_units(path: std::ffi::OsString) -> AsyncHostResult<Vec<u16>> {
     use std::os::windows::ffi::OsStrExt;
 
-    Ok(path
-        .encode_wide()
-        .flat_map(|code_unit| code_unit.to_le_bytes())
-        .collect())
+    Ok(path.as_os_str().encode_wide().collect())
 }
 
 pub(super) fn errno_is_lock_violation(
@@ -304,38 +296,31 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn os_string_wasm_encoding_uses_utf16_code_units_on_unix() {
-        use std::os::unix::ffi::OsStrExt;
+    fn tmp_path_encodes_unix_path_as_utf16_units() {
+        let path = std::ffi::OsString::from("/tmp/\u{6587}");
 
-        let path = OsStr::from_bytes("/tmp/\u{6587}".as_bytes());
+        let units = os_string_to_utf16_units(path).unwrap();
 
-        assert_eq!(
-            encode_os_string_for_wasm(path).unwrap(),
-            "/tmp/\u{6587}"
-                .encode_utf16()
-                .flat_map(u16::to_le_bytes)
-                .collect::<Vec<_>>()
-        );
+        assert_eq!(units, "/tmp/\u{6587}".encode_utf16().collect::<Vec<_>>());
     }
 
     #[cfg(unix)]
     #[test]
-    fn os_string_wasm_encoding_rejects_non_utf8_unix_paths() {
-        use std::os::unix::ffi::OsStrExt;
+    fn tmp_path_rejects_non_utf8_unix_os_string() {
+        use std::os::unix::ffi::OsStringExt;
 
-        let path = OsStr::from_bytes(b"/tmp/\xff");
+        let path = std::ffi::OsString::from_vec(b"/tmp/\xff".to_vec());
 
-        assert_eq!(encode_os_string_for_wasm(path), Err(AsyncHostError::Inval));
+        assert_eq!(os_string_to_utf16_units(path), Err(AsyncHostError::Inval));
     }
 
     #[cfg(windows)]
     #[test]
-    fn os_string_wasm_encoding_uses_utf16_code_units() {
-        let path = OsStr::new("A\u{10000}");
+    fn tmp_path_preserves_windows_wide_units() {
+        let path = std::ffi::OsString::from("A\u{10000}");
 
-        assert_eq!(
-            encode_os_string_for_wasm(path).unwrap(),
-            [0x41, 0x00, 0x00, 0xd8, 0x00, 0xdc]
-        );
+        let units = os_string_to_utf16_units(path).unwrap();
+
+        assert_eq!(units, vec![0x0041, 0xd800, 0xdc00]);
     }
 }
