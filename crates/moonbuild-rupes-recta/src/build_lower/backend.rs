@@ -16,21 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Backend-specific product realization.
+//! Backend-specific lowering realization.
 //!
 //! Build planning deals in logical actions and artifacts. Lowering selects one
-//! backend branch, lets that branch decide concrete product paths, then hands
-//! those paths to command lowering and n2 graph construction.
+//! backend branch for command shape and runtime/linking behavior. Concrete
+//! product paths are resolved by `target_layout`.
 
-use std::path::PathBuf;
-
-use moonutil::common::TargetBackend;
-
-use crate::{
-    build_lower::artifact::{ExecutableArtifact, LegacyLayout, LinkedCoreArtifact},
-    discover::DiscoverResult,
-    model::{BuildTarget, NativeTarget, OperatingSystem, PackageId, RunBackend},
-};
+use crate::model::{NativeTarget, RunBackend};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum SelectedBackend {
@@ -38,22 +30,14 @@ pub(crate) enum SelectedBackend {
     WasmGc { use_wat: bool },
     Js,
     C(CBackend),
-    Llvm { os: OperatingSystem },
+    Llvm,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct CBackend {
-    os: OperatingSystem,
-    linked_core: CLinkedCoreRealization,
     executable: CExecutableRealization,
     runtime: CRuntimeRealization,
     c_stubs: CStubLibraryRealization,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum CLinkedCoreRealization {
-    GeneratedC,
-    DirectObject,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -81,7 +65,6 @@ impl SelectedBackend {
         native_target: Option<NativeTarget>,
         use_tcc_run: bool,
         output_wat: bool,
-        os: impl FnOnce() -> OperatingSystem,
     ) -> Self {
         debug_assert!(
             !use_tcc_run || target_backend == RunBackend::Native,
@@ -100,99 +83,15 @@ impl SelectedBackend {
                 use_wat: output_wat,
             },
             RunBackend::Js => Self::Js,
-            RunBackend::Native => Self::C(CBackend::new(os(), native_target, use_tcc_run)),
-            RunBackend::Llvm => Self::Llvm { os: os() },
-        }
-    }
-
-    pub(crate) fn linked_core_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        match self {
-            Self::Wasm { use_wat } => layout.linked_core_of_build_target(
-                packages,
-                target,
-                LinkedCoreArtifact::Wasm { use_wat },
-            ),
-            Self::WasmGc { use_wat } => layout.linked_core_of_build_target(
-                packages,
-                target,
-                LinkedCoreArtifact::WasmGC { use_wat },
-            ),
-            Self::Js => {
-                layout.linked_core_of_build_target(packages, target, LinkedCoreArtifact::Js)
-            }
-            Self::C(backend) => backend.linked_core_path(layout, packages, target),
-            Self::Llvm { os } => layout.linked_core_of_build_target(
-                packages,
-                target,
-                LinkedCoreArtifact::LlvmObject { os },
-            ),
-        }
-    }
-
-    pub(crate) fn executable_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        match self {
-            Self::Wasm { use_wat } => layout.executable_of_build_target(
-                packages,
-                target,
-                ExecutableArtifact::Wasm { use_wat },
-            ),
-            Self::WasmGc { use_wat } => layout.executable_of_build_target(
-                packages,
-                target,
-                ExecutableArtifact::WasmGC { use_wat },
-            ),
-            Self::Js => layout.executable_of_build_target(packages, target, ExecutableArtifact::Js),
-            Self::C(backend) => backend.executable_path(layout, packages, target),
-            Self::Llvm { .. } => layout.executable_of_build_target(
-                packages,
-                target,
-                ExecutableArtifact::LlvmExecutable,
-            ),
-        }
-    }
-
-    pub(crate) fn runtime_path(self, layout: &LegacyLayout) -> PathBuf {
-        match self {
-            Self::C(backend) => backend.runtime_path(layout),
-            Self::Llvm { os } => layout.runtime_output_path(RunBackend::Llvm, false, os),
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
-                unreachable!("runtime products are only realized for C or LLVM backends")
-            }
-        }
-    }
-
-    pub(crate) fn c_stub_library_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        package: PackageId,
-        target_backend: TargetBackend,
-    ) -> PathBuf {
-        match self {
-            Self::C(backend) => {
-                backend.c_stub_library_path(layout, packages, package, target_backend)
-            }
-            Self::Llvm { os } => layout.c_stub_archive_path(packages, package, target_backend, os),
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
-                unreachable!("C stubs are only realized for C or LLVM backends")
-            }
+            RunBackend::Native => Self::C(CBackend::new(native_target, use_tcc_run)),
+            RunBackend::Llvm => Self::Llvm,
         }
     }
 
     pub(crate) fn c_stub_library_realization(self) -> CStubLibraryRealization {
         match self {
             Self::C(backend) => backend.c_stubs,
-            Self::Llvm { .. } => CStubLibraryRealization::StaticArchive,
+            Self::Llvm => CStubLibraryRealization::StaticArchive,
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("C stubs are only realized for C or LLVM backends")
             }
@@ -202,7 +101,7 @@ impl SelectedBackend {
     pub(crate) fn uses_shared_runtime(self) -> bool {
         match self {
             Self::C(backend) => backend.runtime == CRuntimeRealization::SharedLibraryForTccRun,
-            Self::Llvm { .. } => false,
+            Self::Llvm => false,
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("runtime products are only realized for C or LLVM backends")
             }
@@ -211,19 +110,13 @@ impl SelectedBackend {
 }
 
 impl CBackend {
-    fn new(os: OperatingSystem, native_target: Option<NativeTarget>, use_tcc_run: bool) -> Self {
+    fn new(native_target: Option<NativeTarget>, use_tcc_run: bool) -> Self {
         if native_target.is_some() && use_tcc_run {
             unreachable!("direct native object lowering and tcc-run are mutually exclusive")
         }
 
         let direct_object = native_target.is_some();
         Self {
-            os,
-            linked_core: if direct_object {
-                CLinkedCoreRealization::DirectObject
-            } else {
-                CLinkedCoreRealization::GeneratedC
-            },
             executable: if use_tcc_run {
                 CExecutableRealization::WriteTccRunResponseFile
             } else if direct_object {
@@ -244,64 +137,8 @@ impl CBackend {
         }
     }
 
-    fn linked_core_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        let linked_core = match self.linked_core {
-            CLinkedCoreRealization::GeneratedC => LinkedCoreArtifact::NativeC,
-            CLinkedCoreRealization::DirectObject => {
-                LinkedCoreArtifact::NativeObject { os: self.os }
-            }
-        };
-        layout.linked_core_of_build_target(packages, target, linked_core)
-    }
-
-    fn executable_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        target: &BuildTarget,
-    ) -> PathBuf {
-        let executable = match self.executable {
-            CExecutableRealization::CompileAndLinkGeneratedC
-            | CExecutableRealization::LinkDirectObject => ExecutableArtifact::NativeExecutable,
-            CExecutableRealization::WriteTccRunResponseFile => {
-                ExecutableArtifact::TccRunResponseFile
-            }
-        };
-        layout.executable_of_build_target(packages, target, executable)
-    }
-
     pub(crate) fn executable_realization(self) -> CExecutableRealization {
         self.executable
-    }
-
-    fn runtime_path(self, layout: &LegacyLayout) -> PathBuf {
-        layout.runtime_output_path(
-            RunBackend::Native,
-            self.runtime == CRuntimeRealization::SharedLibraryForTccRun,
-            self.os,
-        )
-    }
-
-    fn c_stub_library_path(
-        self,
-        layout: &LegacyLayout,
-        packages: &DiscoverResult,
-        package: PackageId,
-        target_backend: TargetBackend,
-    ) -> PathBuf {
-        match self.c_stubs {
-            CStubLibraryRealization::StaticArchive => {
-                layout.c_stub_archive_path(packages, package, target_backend, self.os)
-            }
-            CStubLibraryRealization::SharedLibraryForTccRun => {
-                layout.c_stub_link_dylib_path(packages, package, target_backend, self.os)
-            }
-        }
     }
 }
 
@@ -310,19 +147,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn non_native_backends_do_not_resolve_operating_system() {
-        let backend = SelectedBackend::new(RunBackend::Wasm, None, false, true, || {
-            panic!("non-native backend should not resolve the host OS")
-        });
+    fn wasm_backend_carries_wat_setting() {
+        let backend = SelectedBackend::new(RunBackend::Wasm, None, false, true);
 
         assert!(matches!(backend, SelectedBackend::Wasm { use_wat: true }));
     }
 
     #[test]
     fn c_tcc_run_realizes_shared_runtime_and_response_file() {
-        let backend = SelectedBackend::new(RunBackend::Native, None, true, false, || {
-            OperatingSystem::Linux
-        });
+        let backend = SelectedBackend::new(RunBackend::Native, None, true, false);
 
         let SelectedBackend::C(c_backend) = backend else {
             panic!("native backend should select C lowering")
@@ -345,7 +178,6 @@ mod tests {
             Some(NativeTarget::Aarch64AppleDarwin),
             false,
             false,
-            || OperatingSystem::MacOS,
         );
 
         let SelectedBackend::C(c_backend) = backend else {
@@ -364,11 +196,9 @@ mod tests {
 
     #[test]
     fn llvm_backend_is_not_c_realization() {
-        let backend = SelectedBackend::new(RunBackend::Llvm, None, false, false, || {
-            OperatingSystem::Windows
-        });
+        let backend = SelectedBackend::new(RunBackend::Llvm, None, false, false);
 
-        assert!(matches!(backend, SelectedBackend::Llvm { .. }));
+        assert!(matches!(backend, SelectedBackend::Llvm));
         assert_eq!(
             backend.c_stub_library_realization(),
             CStubLibraryRealization::StaticArchive

@@ -29,6 +29,7 @@ use crate::{
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
+    target_layout::ArtifactPathResolver,
     user_warning::UserWarning,
 };
 
@@ -52,6 +53,8 @@ pub struct CompileConfig {
     /// The path to the standard library's project root, or `None` if to not
     /// import the standard library during compilation.
     pub stdlib_path: Option<PathBuf>,
+    /// Physical artifact path resolver selected for this compile run.
+    pub artifact_paths: ArtifactPathResolver,
     /// Host/toolchain facts resolved lazily during lowering.
     pub lowering_environment: LoweringEnvironment,
 
@@ -148,14 +151,9 @@ pub fn compile(
         cx.native_target,
         cx.tcc_run.is_some(),
         cx.output_wat,
-        || cx.lowering_environment.os(),
     );
     let lower_env = build_lower::BuildOptions {
-        main_module: match resolve_output.local_modules() {
-            &[module] => Some(resolve_output.module_rel.module_source(module).clone()),
-            _ => None,
-        },
-        target_dir_root: cx.target_dir.clone(),
+        artifact_paths: cx.artifact_paths.clone(),
         target_backend: cx.target_backend,
         native_target: cx.native_target,
         tcc_run: cx.tcc_run.clone(),

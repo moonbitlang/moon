@@ -618,7 +618,7 @@ fn build_and_install_packages(
         )?;
 
         let _lock = FileLock::lock(&target_dir)?;
-        rr_build::generate_all_pkgs_json(&target_dir, &build_meta, RunMode::Build)?;
+        rr_build::generate_all_pkgs_json(&build_meta)?;
 
         let result = rr_build::execute_build(
             &BuildConfig::from_flags(

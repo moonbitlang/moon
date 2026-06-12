@@ -761,7 +761,7 @@ fn build_executable_from_plan(
 
     let lock = FileLock::lock_with_verbosity(target_dir, options.output.verbose)?;
     // Generate all_pkgs.json for indirect dependency resolution
-    rr_build::generate_all_pkgs_json(target_dir, build_meta, RunMode::Run)?;
+    rr_build::generate_all_pkgs_json(build_meta)?;
 
     let build_config = BuildConfig::from_flags(
         &cmd.build_flags,

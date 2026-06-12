@@ -112,6 +112,7 @@ pub mod pkg_solve;
 // High-level actions
 pub mod compile;
 pub mod resolve;
+pub mod target_layout;
 pub mod user_warning;
 
 // Formatter

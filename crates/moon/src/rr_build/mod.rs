@@ -39,10 +39,7 @@ use indexmap::IndexMap;
 use moonbuild::entry::{N2RunStats, ResultCatcher, create_progress_console};
 use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
-    build_lower::{
-        LoweringEnvironment, WarningCondition,
-        artifact::{LegacyLayout, LegacyLayoutBuilder, n2_db_path},
-    },
+    build_lower::{LoweringEnvironment, WarningCondition},
     build_plan::InputDirective,
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
@@ -50,6 +47,7 @@ use moonbuild_rupes_recta::{
         Artifacts, BuildPlanNode, NativeTarget, PackageId, RunBackend, TargetKind, TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
+    target_layout::{ArtifactPathResolver, TargetLayout},
     user_warning::UserWarning,
 };
 use moonutil::{
@@ -244,8 +242,8 @@ pub struct BuildMeta {
     /// The main optimization level used in this compile process
     pub opt_level: BuildProfile,
 
-    /// The standard library path selected for this build, if stdlib is imported.
-    pub stdlib_path: Option<PathBuf>,
+    /// Physical artifact path resolver selected for this build.
+    pub artifact_paths: ArtifactPathResolver,
 }
 
 /// Represents the result of the build process
@@ -378,6 +376,13 @@ impl CompilePreConfig {
         } else {
             None
         };
+        let target_layout = TargetLayout::from_resolve_output(
+            self.target_dir.clone(),
+            resolve_output,
+            self.opt_level,
+            self.action,
+        );
+        let artifact_paths = ArtifactPathResolver::new(target_layout, stdlib_path.clone());
 
         Ok(CompileConfig {
             target_dir: self.target_dir,
@@ -388,6 +393,7 @@ impl CompilePreConfig {
             action: self.action,
             debug_symbols: self.debug_symbols,
             stdlib_path,
+            artifact_paths,
             lowering_environment: LoweringEnvironment::default(),
             enable_coverage: self.enable_coverage,
             output_wat: self.output_wat,
@@ -649,15 +655,13 @@ pub(crate) fn plan_resolved_build_from_intent(
         native_target: cx.native_target,
         tcc_run: cx.tcc_run.clone(),
         opt_level: cx.opt_level,
-        stdlib_path: cx.stdlib_path.clone(),
+        artifact_paths: cx.artifact_paths.clone(),
     };
 
-    let db_path = n2_db_path(
-        &target_dir,
-        cx.target_backend.into(),
-        cx.opt_level,
-        cx.action,
-    );
+    let db_path = cx
+        .artifact_paths
+        .target_layout()
+        .n2_db_path(cx.target_backend.into());
     let input = BuildInput {
         graph: compile_output.build_graph,
         command_args_by_output: compile_output.command_args_by_output,
@@ -685,12 +689,12 @@ pub fn plan_fmt(
         selected_packages,
         project_manifest_path,
     )?;
-    let db_path = n2_db_path(
-        target_dir,
-        TargetBackend::default(),
+    let layout = TargetLayout::from_fmt_resolve_output(
+        target_dir.to_path_buf(),
+        resolved,
         BuildProfile::Debug,
-        RunMode::Format,
     );
+    let db_path = layout.n2_db_path(TargetBackend::default());
     let input = BuildInput {
         graph,
         command_args_by_output: Default::default(),
@@ -757,8 +761,8 @@ fn check_tcc_run_availability(
 
 /// Generate metadata file `packages.json` in the target directory.
 ///
-/// To ensure the correct paths are generated, `mode` should match your
-/// corresponding `preconfig` used in [`plan_build`].
+/// To ensure the correct paths are generated, `build_meta` should come from the
+/// same configuration used in [`plan_build`].
 ///
 /// If the caller is from a single-file build, `single_file_filename` should
 /// be set to the filename (with extension) of the single file being built.
@@ -768,7 +772,6 @@ pub fn generate_metadata(
     target_dir: &Path,
     build_meta: &BuildMeta,
     build_input: &BuildInput,
-    mode: RunMode,
     single_file_filename: Option<&str>,
 ) -> anyhow::Result<()> {
     let metadata_file = if let Some(filename) = single_file_filename {
@@ -778,11 +781,10 @@ pub fn generate_metadata(
     };
 
     let check_commands = collect_check_commands_by_output(build_input);
-    let layout = legacy_layout_for_build_meta(target_dir, build_meta, mode);
     let metadata = moonbuild_rupes_recta::metadata::gen_metadata_json(
         &build_meta.resolve_output,
         source_dir,
-        &layout,
+        &build_meta.artifact_paths,
         build_meta.opt_level,
         build_meta.target_backend.into(),
         &check_commands,
@@ -800,27 +802,6 @@ pub fn generate_metadata(
         })?;
     }
     Ok(())
-}
-
-fn legacy_layout_for_build_meta(
-    target_dir: &Path,
-    build_meta: &BuildMeta,
-    mode: RunMode,
-) -> LegacyLayout {
-    let resolve_output = &build_meta.resolve_output;
-    let main_module = match resolve_output.local_modules() {
-        &[module_id] => Some(resolve_output.module_rel.module_source(module_id).clone()),
-        _ => None,
-    };
-
-    LegacyLayoutBuilder::default()
-        .opt_level(build_meta.opt_level)
-        .run_mode(mode)
-        .stdlib_dir(build_meta.stdlib_path.clone())
-        .target_base_dir(target_dir.to_owned())
-        .main_module(main_module)
-        .build()
-        .expect("Failed to build legacy layout")
 }
 
 fn collect_check_commands_by_output(
@@ -844,17 +825,14 @@ fn check_command_args_without_executable(args: &[String]) -> Option<Vec<String>>
         .then(|| command_args.to_vec())
 }
 
-pub fn generate_all_pkgs_json(
-    target_dir: &Path,
-    build_meta: &BuildMeta,
-    mode: RunMode,
-) -> anyhow::Result<()> {
-    let layout = legacy_layout_for_build_meta(target_dir, build_meta, mode);
-
-    let all_pkgs_path = layout.all_pkgs_of_build_target(build_meta.target_backend.into());
+pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
+    let all_pkgs_path = build_meta
+        .artifact_paths
+        .target_layout()
+        .all_pkgs_of_build_target(build_meta.target_backend.into());
     let all_pkgs_json = moonbuild_rupes_recta::all_pkgs::gen_all_pkgs_json(
         &build_meta.resolve_output,
-        &layout,
+        &build_meta.artifact_paths,
         build_meta.target_backend.into(),
     );
     let orig_all_pkgs = std::fs::read_to_string(&all_pkgs_path);

@@ -125,8 +125,8 @@ edges in `build_lower`. Its object inputs are exposed by `BuildActionPlan` as
 
 ## Backend Lowering
 
-`build_lower` now matches on `BuildAction` and maps `PlannedArtifact` to
-legacy layout paths:
+`build_lower` now matches on `BuildAction` and resolves `PlannedArtifact`
+paths through `ArtifactPathResolver`:
 
 ```rust
 let cmd = match self.plan.action(id) {

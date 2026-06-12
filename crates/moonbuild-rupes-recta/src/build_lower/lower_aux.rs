@@ -201,7 +201,12 @@ impl<'a> super::LoweringContext<'a> {
                 .expect("Failed to build CC configuration for runtime"),
             &[] as &[&str],
             [runtime_c_path.display().to_string()],
-            &self.opt.target_dir_root.display().to_string(),
+            &self
+                .artifact_paths
+                .target_layout()
+                .runtime_output_dir(self.opt.target_backend)
+                .display()
+                .to_string(),
             Some(&artifact_path.display().to_string()),
             self.opt.compiler_paths(),
         );
@@ -218,9 +223,15 @@ impl<'a> super::LoweringContext<'a> {
         products: &ActionProducts,
         target: BuildTarget,
     ) -> BuildCommand {
-        let input =
-            self.layout
-                .mi_of_build_target(self.packages, &target, self.opt.target_backend.into());
+        let input = products.single_dependency_path_matching(|artifact| {
+            matches!(
+                artifact,
+                PlannedArtifact::PackageInterface {
+                    target: artifact_target,
+                    ..
+                } if *artifact_target == target
+            )
+        });
         let output = products.single_output_path_matching(|artifact| {
             matches!(
                 artifact,
@@ -266,10 +277,10 @@ impl<'a> super::LoweringContext<'a> {
             }
         };
 
-        let packages_json = self.layout.packages_json_path();
+        let packages_json = self.artifact_paths.target_layout().packages_json_path();
         let cmd = MoondocCommand::new(
             path,
-            self.layout.doc_dir(),
+            self.artifact_paths.target_layout().doc_dir(),
             self.opt.stdlib_path.as_ref(),
             &packages_json,
             self.opt.docs_serve,
