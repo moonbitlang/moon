@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_sys::internal::event_loop::thread_pool::HostFileTable;
 use crate::async_sys::ported_fns;
 
 #[cfg(unix)]
@@ -326,6 +327,27 @@ ported_fns! {
         {
             file_time.st_ctime_nsec as i32
         }
+    }
+}
+
+pub(crate) fn pipe_host_files(files: &mut impl HostFileTable) -> AsyncHostResult<[i32; 2]> {
+    #[cfg(unix)]
+    {
+        use std::fs::File;
+        use std::os::fd::FromRawFd;
+
+        let fds = pipe()?;
+        let read = unsafe { File::from_raw_fd(fds[0]) };
+        let write = unsafe { File::from_raw_fd(fds[1]) };
+        let read = files.insert_file(read)?;
+        let write = files.insert_file(write)?;
+        Ok([read, write])
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = files;
+        Err(AsyncHostError::NotSupported)
     }
 }
 

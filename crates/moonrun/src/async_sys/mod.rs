@@ -67,7 +67,7 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     #[cfg(windows)]
     symbols.extend_from_slice(internal::event_loop::io_windows::PORTED_SYMBOLS);
     symbols.extend_from_slice(internal::event_loop::poll::PORTED_SYMBOLS);
-    symbols.extend_from_slice(internal::event_loop::thread_pool::PORTED_SYMBOLS);
+    symbols.extend(internal::event_loop::thread_pool::ported_symbols());
     symbols.extend_from_slice(internal::os_string::stub::PORTED_SYMBOLS);
     symbols.extend_from_slice(internal::time::clock::PORTED_SYMBOLS);
     symbols.extend_from_slice(fs::dir::PORTED_SYMBOLS);

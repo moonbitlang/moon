@@ -16,10 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::process::Child;
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+
+use super::jobs;
+use super::types::{HostFileTable, HostHandle, Job};
 
 #[derive(Debug, Clone)]
 pub(crate) struct HostProcess {
@@ -49,6 +52,50 @@ impl HostProcess {
         let status = child.wait().map_err(native_io_error)?;
         Ok(status.code().unwrap_or(1))
     }
+}
+
+pub(crate) trait HostProcessTable {
+    fn insert_process(&mut self, process: HostProcess) -> AsyncHostResult<HostHandle>;
+
+    fn get_process(&self, handle: HostHandle) -> AsyncHostResult<HostProcess>;
+}
+
+pub(crate) fn spawn_process(
+    files: &mut impl HostFileTable,
+    processes: &mut impl HostProcessTable,
+    command: String,
+    args: Vec<String>,
+    stdin: HostHandle,
+    stdout: HostHandle,
+    stderr: HostHandle,
+) -> AsyncHostResult<HostHandle> {
+    let mut process = Command::new(command);
+    process.args(args);
+
+    if stdin >= 0 {
+        let file = files.with_file_mut(stdin, |file| file.try_clone().map_err(native_io_error))?;
+        process.stdin(Stdio::from(file));
+    }
+    if stdout >= 0 {
+        let file = files.with_file_mut(stdout, |file| file.try_clone().map_err(native_io_error))?;
+        process.stdout(Stdio::from(file));
+    }
+    if stderr >= 0 {
+        let file = files.with_file_mut(stderr, |file| file.try_clone().map_err(native_io_error))?;
+        process.stderr(Stdio::from(file));
+    }
+
+    let child = process.spawn().map_err(native_io_error)?;
+    processes.insert_process(HostProcess::new(child))
+}
+
+pub(crate) fn make_wait_for_process_job_from_handle(
+    processes: &impl HostProcessTable,
+    process: HostHandle,
+) -> AsyncHostResult<Job> {
+    Ok(jobs::make_wait_for_process_job(
+        processes.get_process(process)?,
+    ))
 }
 
 #[allow(dead_code)]

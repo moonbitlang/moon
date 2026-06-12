@@ -20,6 +20,7 @@ use std::ffi::OsString;
 use std::fs::File;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_sys::internal::event_loop::thread_pool::HostFile;
 use crate::async_sys::ported_fns;
 
 #[cfg(unix)]
@@ -176,6 +177,21 @@ pub(crate) fn unlock_std_file(file: &File) -> AsyncHostResult<()> {
     use std::os::windows::io::AsRawHandle;
 
     unlock_file(file.as_raw_handle())
+}
+
+pub(crate) fn try_lock_host_file(file: &mut HostFile, exclusive: bool) -> AsyncHostResult<()> {
+    try_lock_std_file(file.file_mut(), exclusive)
+}
+
+pub(crate) fn unlock_host_file(file: &mut HostFile) -> AsyncHostResult<()> {
+    #[cfg(windows)]
+    {
+        if let Some(lock_file) = file.take_lock_file() {
+            return unlock_std_file(&lock_file);
+        }
+    }
+
+    unlock_std_file(file.file_mut())
 }
 
 #[allow(dead_code)]

@@ -1,0 +1,150 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2024 International Digital Economy Academy
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, GuestRange};
+
+use super::fs::{
+    run_access_job, run_chmod_job, run_file_kind_by_path_job, run_file_size_job,
+    run_file_time_by_path_job, run_file_time_job, run_flock_job, run_fsync_job, run_mkdir_job,
+    run_open_job, run_read_job, run_readdir_job, run_remove_job, run_rename_job, run_rmdir_job,
+    run_symlink_job, run_write_job,
+};
+use super::process::run_wait_for_process_job;
+use super::sleep::run_sleep_job;
+use super::types::{HostFileTable, Job, JobPayload};
+
+pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
+    job.set_ret(0);
+
+    let result = match job.payload_mut() {
+        JobPayload::Sleep { duration_ms } => {
+            run_sleep_job(*duration_ms);
+            Ok(0)
+        }
+        JobPayload::Open {
+            filename,
+            access,
+            create_mode,
+            append,
+            sync,
+            mode,
+            result,
+        } => run_open_job(
+            files,
+            result,
+            filename.clone(),
+            *access,
+            *create_mode,
+            *append,
+            *sync,
+            *mode,
+        ),
+        JobPayload::Read {
+            fd,
+            dst,
+            position,
+            result,
+        } => run_read_job(files, *fd, *dst, *position, result),
+        JobPayload::Write { fd, data, position } => run_write_job(files, *fd, data, *position),
+        JobPayload::FileKindByPath {
+            parent,
+            path,
+            follow_symlink,
+        } => run_file_kind_by_path_job(files, *parent, path.clone(), *follow_symlink),
+        JobPayload::FileSize { fd, result } => run_file_size_job(files, *fd, result),
+        JobPayload::FileTime { fd, result, .. } => run_file_time_job(files, *fd, result),
+        JobPayload::FileTimeByPath {
+            path,
+            follow_symlink,
+            result,
+            ..
+        } => run_file_time_by_path_job(path.clone(), *follow_symlink, result),
+        JobPayload::Access { path, access } => run_access_job(path.clone(), *access),
+        JobPayload::Chmod { path, mode } => run_chmod_job(path.clone(), *mode),
+        JobPayload::Fsync { fd, only_data } => run_fsync_job(files, *fd, *only_data),
+        JobPayload::Flock { fd, exclusive } => run_flock_job(files, *fd, *exclusive),
+        JobPayload::Remove { path } => run_remove_job(path.clone()),
+        JobPayload::Rename {
+            old_path,
+            new_path,
+            replace,
+        } => run_rename_job(old_path.clone(), new_path.clone(), *replace),
+        JobPayload::Symlink { target, path } => run_symlink_job(target.clone(), path.clone()),
+        JobPayload::Mkdir { path, mode } => run_mkdir_job(path.clone(), *mode),
+        JobPayload::Rmdir { path } => run_rmdir_job(path.clone()),
+        JobPayload::Readdir {
+            dir,
+            dst,
+            restart,
+            result,
+        } => run_readdir_job(files, *dir, *dst, *restart, result),
+        JobPayload::WaitForProcess { process } => run_wait_for_process_job(process),
+        _ => Err(AsyncHostError::NotSupported),
+    };
+
+    match result {
+        Ok(ret) => job.set_ret(ret),
+        Err(error) => job.set_err(error.errno()),
+    }
+}
+
+pub(crate) fn complete_guest_job(
+    job: &mut Job,
+    memory: &mut (impl GuestMemory + ?Sized),
+) -> AsyncHostResult<()> {
+    if let JobPayload::Read {
+        dst,
+        result: Some(result),
+        ..
+    }
+    | JobPayload::FileTime {
+        out: dst,
+        result: Some(result),
+        ..
+    }
+    | JobPayload::FileTimeByPath {
+        out: dst,
+        result: Some(result),
+        ..
+    }
+    | JobPayload::Readdir {
+        dst,
+        result: Some(result),
+        ..
+    } = job.payload_mut()
+    {
+        let len = i32::try_from(result.len()).map_err(|_| AsyncHostError::Fault)?;
+        let dst_offset = dst
+            .ptr
+            .checked_add(dst.offset)
+            .ok_or(AsyncHostError::Fault)?;
+        memory.write(GuestRange::new(dst_offset, len)?, result)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn unsupported_job_errno() -> i32 {
+    #[cfg(unix)]
+    {
+        libc::ENOSYS
+    }
+    #[cfg(windows)]
+    {
+        windows_sys::Win32::Foundation::ERROR_CALL_NOT_IMPLEMENTED as i32
+    }
+}

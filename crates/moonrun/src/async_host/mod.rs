@@ -18,12 +18,11 @@
 
 use std::collections::VecDeque;
 use std::fs::File;
-use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use crate::async_sys::internal::event_loop::thread_pool::{
-    self, HostFile, HostFileTable, HostProcess, Job, JobPayload, OpenJobResult,
+    self, HostFile, HostFileTable, HostProcess, HostProcessTable, HostWorkerHandle, Job,
 };
 
 pub(crate) mod types;
@@ -322,6 +321,16 @@ impl HostFileTable for HandleTable<HostFile> {
     }
 }
 
+impl HostProcessTable for HandleTable<HostProcess> {
+    fn insert_process(&mut self, process: HostProcess) -> AsyncHostResult<i32> {
+        self.insert(process)
+    }
+
+    fn get_process(&self, handle: i32) -> AsyncHostResult<HostProcess> {
+        Ok(self.get(handle)?.clone())
+    }
+}
+
 #[allow(dead_code)]
 impl ResourceTable {
     fn insert(&mut self, resource: HostResource) -> AsyncHostResult<i32> {
@@ -422,7 +431,7 @@ struct AsyncHostState {
     jobs: HandleTable<Job>,
     files: HandleTable<HostFile>,
     processes: HandleTable<HostProcess>,
-    workers: HandleTable<WorkerHandle>,
+    workers: HandleTable<HostWorkerHandle>,
     completions: VecDeque<i32>,
 }
 
@@ -512,26 +521,26 @@ impl AsyncHost {
 
     pub(crate) fn open_job_get_fd(&self, handle: i32) -> AsyncHostResult<i32> {
         let state = self.state.lock().unwrap();
-        let result = open_job_result(state.jobs.get(handle)?)?;
-        Ok(result.fd)
+        let result = thread_pool::open_job_result(state.jobs.get(handle)?)?;
+        Ok(thread_pool::open_job_get_fd(result))
     }
 
     pub(crate) fn open_job_get_kind(&self, handle: i32) -> AsyncHostResult<i32> {
         let state = self.state.lock().unwrap();
-        let result = open_job_result(state.jobs.get(handle)?)?;
-        Ok(result.kind)
+        let result = thread_pool::open_job_result(state.jobs.get(handle)?)?;
+        Ok(thread_pool::open_job_get_kind(result))
     }
 
     pub(crate) fn open_job_get_dev_id(&self, handle: i32) -> AsyncHostResult<u64> {
         let state = self.state.lock().unwrap();
-        let result = open_job_result(state.jobs.get(handle)?)?;
-        Ok(result.dev_id)
+        let result = thread_pool::open_job_result(state.jobs.get(handle)?)?;
+        Ok(thread_pool::open_job_get_dev_id(result))
     }
 
     pub(crate) fn open_job_get_file_id(&self, handle: i32) -> AsyncHostResult<u64> {
         let state = self.state.lock().unwrap();
-        let result = open_job_result(state.jobs.get(handle)?)?;
-        Ok(result.file_id)
+        let result = thread_pool::open_job_result(state.jobs.get(handle)?)?;
+        Ok(thread_pool::open_job_get_file_id(result))
     }
 
     pub(crate) fn get_file_size_result(&self, handle: i32) -> AsyncHostResult<i64> {
@@ -546,43 +555,19 @@ impl AsyncHost {
     }
 
     pub(crate) fn pipe(&self) -> AsyncHostResult<[i32; 2]> {
-        #[cfg(unix)]
-        {
-            use std::os::fd::FromRawFd;
-
-            let fds = crate::async_sys::internal::fd_util::stub::pipe()?;
-            let read = unsafe { File::from_raw_fd(fds[0]) };
-            let write = unsafe { File::from_raw_fd(fds[1]) };
-            let mut state = self.state.lock().unwrap();
-            let read = state.files.insert_file(read)?;
-            let write = state.files.insert_file(write)?;
-            Ok([read, write])
-        }
-
-        #[cfg(windows)]
-        {
-            Err(AsyncHostError::NotSupported)
-        }
+        crate::async_sys::internal::fd_util::stub::pipe_host_files(
+            &mut self.state.lock().unwrap().files,
+        )
     }
 
     pub(crate) fn try_lock_file(&self, handle: i32, exclusive: bool) -> AsyncHostResult<()> {
         let mut state = self.state.lock().unwrap();
-        let file = state.files.get_mut(handle)?.file_mut();
-        crate::async_sys::fs::stub::try_lock_std_file(file, exclusive)
+        crate::async_sys::fs::stub::try_lock_host_file(state.files.get_mut(handle)?, exclusive)
     }
 
     pub(crate) fn unlock_file(&self, handle: i32) -> AsyncHostResult<()> {
         let mut state = self.state.lock().unwrap();
-        let file = state.files.get_mut(handle)?;
-
-        #[cfg(windows)]
-        {
-            if let Some(lock_file) = file.take_lock_file() {
-                return crate::async_sys::fs::stub::unlock_std_file(&lock_file);
-            }
-        }
-
-        crate::async_sys::fs::stub::unlock_std_file(file.file_mut())
+        crate::async_sys::fs::stub::unlock_host_file(state.files.get_mut(handle)?)
     }
 
     pub(crate) fn spawn_process(
@@ -593,48 +578,17 @@ impl AsyncHost {
         stdout: i32,
         stderr: i32,
     ) -> AsyncHostResult<i32> {
-        let mut process = Command::new(command);
-        process.args(args);
-
         let mut state = self.state.lock().unwrap();
-        if stdin >= 0 {
-            let file = state
-                .files
-                .get_mut(stdin)?
-                .file_mut()
-                .try_clone()
-                .map_err(native_io_error)?;
-            process.stdin(Stdio::from(file));
-        }
-        if stdout >= 0 {
-            let file = state
-                .files
-                .get_mut(stdout)?
-                .file_mut()
-                .try_clone()
-                .map_err(native_io_error)?;
-            process.stdout(Stdio::from(file));
-        }
-        if stderr >= 0 {
-            let file = state
-                .files
-                .get_mut(stderr)?
-                .file_mut()
-                .try_clone()
-                .map_err(native_io_error)?;
-            process.stderr(Stdio::from(file));
-        }
-
-        let child = process.spawn().map_err(native_io_error)?;
-        state.processes.insert(HostProcess::new(child))
+        let AsyncHostState {
+            files, processes, ..
+        } = &mut *state;
+        thread_pool::spawn_process(files, processes, command, args, stdin, stdout, stderr)
     }
 
     pub(crate) fn make_wait_for_process_job(&self, process: i32) -> AsyncHostResult<i32> {
-        let process = {
-            let state = self.state.lock().unwrap();
-            state.processes.get(process)?.clone()
-        };
-        self.insert_job(thread_pool::make_wait_for_process_job(process))
+        let mut state = self.state.lock().unwrap();
+        let job = thread_pool::make_wait_for_process_job_from_handle(&state.processes, process)?;
+        state.jobs.insert(job)
     }
 
     pub(crate) fn run_job(
@@ -664,9 +618,11 @@ impl AsyncHost {
 
     pub(crate) fn spawn_worker(&self, job_id: i32, job_handle: i32) -> AsyncHostResult<i32> {
         let handle = self.spawn_job_thread(job_id, job_handle);
-        self.state.lock().unwrap().workers.insert(WorkerHandle {
-            thread: Some(handle),
-        })
+        self.state
+            .lock()
+            .unwrap()
+            .workers
+            .insert(HostWorkerHandle::running(handle))
     }
 
     pub(crate) fn wake_worker(
@@ -678,8 +634,7 @@ impl AsyncHost {
         let thread = self.spawn_job_thread(job_id, job_handle);
         let mut state = self.state.lock().unwrap();
         let worker = state.workers.get_mut(worker_handle)?;
-        worker.join_finished();
-        worker.thread = Some(thread);
+        worker.replace(thread);
         Ok(())
     }
 
@@ -798,53 +753,12 @@ impl HostFileTable for SharedFileTable {
     }
 }
 
-struct WorkerHandle {
-    thread: Option<JoinHandle<()>>,
-}
-
-impl std::fmt::Debug for WorkerHandle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WorkerHandle")
-            .field("running", &self.thread.is_some())
-            .finish()
-    }
-}
-
-impl WorkerHandle {
-    fn join_finished(&mut self) {
-        if self
-            .thread
-            .as_ref()
-            .is_some_and(|thread| thread.is_finished())
-        {
-            self.join();
-        }
-    }
-
-    fn join(&mut self) {
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
 fn native_io_error(error: std::io::Error) -> AsyncHostError {
     AsyncHostError::Native(
         error
             .raw_os_error()
             .unwrap_or_else(|| AsyncHostError::Inval.errno()),
     )
-}
-
-fn open_job_result(job: &Job) -> AsyncHostResult<&OpenJobResult> {
-    match job.payload() {
-        JobPayload::Open {
-            result: Some(result),
-            ..
-        } => Ok(result),
-        JobPayload::Open { .. } => Err(AsyncHostError::Inval),
-        _ => Err(AsyncHostError::Badf),
-    }
 }
 
 #[allow(dead_code)]
