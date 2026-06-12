@@ -963,7 +963,7 @@ fn native_io_result(ret: libc::ssize_t) -> AsyncHostResult<usize> {
 #[cfg(windows)]
 fn read_from_native_file(file: &File, buf: &mut [u8], position: i64) -> AsyncHostResult<usize> {
     use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_HANDLE_EOF, HANDLE};
     use windows_sys::Win32::Storage::FileSystem::ReadFile;
     use windows_sys::Win32::System::IO::OVERLAPPED;
 
@@ -1004,7 +1004,16 @@ fn read_from_native_file(file: &File, buf: &mut [u8], position: i64) -> AsyncHos
     let result = if result != 0 {
         usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
     } else {
-        Err(last_native_error())
+        let error = std::io::Error::last_os_error();
+        let is_eof = matches!(
+            error.raw_os_error(),
+            Some(errno) if errno == ERROR_HANDLE_EOF as i32 || errno == ERROR_BROKEN_PIPE as i32
+        );
+        if is_eof {
+            Ok(0)
+        } else {
+            Err(native_io_error(error))
+        }
     };
     if let Some(saved_position) = saved_position
         && let Err(restore_error) = restore_file_pointer(handle, saved_position)
@@ -1501,18 +1510,37 @@ fn junction_reparse_buffer(target: OsString) -> AsyncHostResult<Vec<u8>> {
     const NON_INTERPRETED_PATH_PREFIX: [u16; 4] =
         ['\\' as u16, '?' as u16, '?' as u16, '\\' as u16];
 
+    let mut print_name = os_string_to_wide(target);
+    if print_name.starts_with(&NON_INTERPRETED_PATH_PREFIX)
+        || print_name.starts_with(&['\\' as u16, '\\' as u16, '?' as u16, '\\' as u16])
+    {
+        print_name.drain(0..NON_INTERPRETED_PATH_PREFIX.len());
+    }
+    for code_unit in &mut print_name {
+        if *code_unit == '/' as u16 {
+            *code_unit = '\\' as u16;
+        }
+    }
+
     let mut substitute = Vec::from(NON_INTERPRETED_PATH_PREFIX);
-    substitute.extend(os_string_to_wide(target));
+    substitute.extend(print_name.iter().copied());
     let substitute_len = substitute
         .len()
         .checked_mul(WCHAR_SIZE)
         .ok_or(AsyncHostError::Inval)?;
     let substitute_len = u16::try_from(substitute_len).map_err(|_| AsyncHostError::Inval)?;
+    let print_name_len = print_name
+        .len()
+        .checked_mul(WCHAR_SIZE)
+        .ok_or(AsyncHostError::Inval)?;
+    let print_name_len = u16::try_from(print_name_len).map_err(|_| AsyncHostError::Inval)?;
     let print_name_offset = substitute_len
         .checked_add(UNICODE_NULL_SIZE as u16)
         .ok_or(AsyncHostError::Inval)?;
-    let reparse_data_len = print_name_offset
-        .checked_add(MOUNT_POINT_HEADER_LEN as u16)
+    let reparse_data_len = (MOUNT_POINT_HEADER_LEN as u16)
+        .checked_add(print_name_offset)
+        .and_then(|len| len.checked_add(print_name_len))
+        .and_then(|len| len.checked_add(UNICODE_NULL_SIZE as u16))
         .ok_or(AsyncHostError::Inval)?;
 
     let mut data = Vec::with_capacity(8 + usize::from(reparse_data_len));
@@ -1522,11 +1550,14 @@ fn junction_reparse_buffer(target: OsString) -> AsyncHostResult<Vec<u8>> {
     data.extend_from_slice(&0u16.to_le_bytes());
     data.extend_from_slice(&substitute_len.to_le_bytes());
     data.extend_from_slice(&print_name_offset.to_le_bytes());
-    data.extend_from_slice(&0u16.to_le_bytes());
+    data.extend_from_slice(&print_name_len.to_le_bytes());
     for code_unit in substitute {
         data.extend_from_slice(&code_unit.to_le_bytes());
     }
     data.extend_from_slice(&0u16.to_le_bytes());
+    for code_unit in print_name {
+        data.extend_from_slice(&code_unit.to_le_bytes());
+    }
     data.extend_from_slice(&0u16.to_le_bytes());
     Ok(data)
 }
@@ -1801,5 +1832,31 @@ mod tests {
             encode_dir_name_for_wasm_os_string(b"f"),
             Err(AsyncHostError::Fault)
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn junction_reparse_buffer_encodes_substitute_and_print_names() {
+        let data = junction_reparse_buffer(OsString::from("C:/target")).unwrap();
+        let reparse_data_len = u16::from_le_bytes([data[4], data[5]]) as usize;
+        let substitute_len = u16::from_le_bytes([data[10], data[11]]) as usize;
+        let print_name_offset = u16::from_le_bytes([data[12], data[13]]) as usize;
+        let print_name_len = u16::from_le_bytes([data[14], data[15]]) as usize;
+
+        assert_eq!(data.len(), 8 + reparse_data_len);
+        assert_eq!(print_name_offset, substitute_len + 2);
+
+        let path_buffer = &data[16..];
+        let substitute = path_buffer[..substitute_len]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+        let print_name = path_buffer[print_name_offset..print_name_offset + print_name_len]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+
+        assert_eq!(String::from_utf16(&substitute).unwrap(), r"\??\C:\target");
+        assert_eq!(String::from_utf16(&print_name).unwrap(), r"C:\target");
     }
 }
