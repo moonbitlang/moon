@@ -39,6 +39,7 @@ use moonutil::{
     toolchain::BINARIES,
 };
 use regex::Regex;
+use relative_path::PathExt;
 use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
@@ -1439,6 +1440,9 @@ impl<'a> BuildPlanConstructor<'a> {
             .iter()
             .map(|x| pkg.root_path.join(x))
             .collect::<Vec<_>>();
+        let command_cwd = module.as_path();
+        let command_input_paths = prebuild_command_paths(command_cwd, &input_paths);
+        let command_output_paths = prebuild_command_paths(command_cwd, &output_paths);
 
         let command = match prebuild_cmd {
             MoonPkgGenerate::Direct { command, .. } => Cow::Borrowed(command.as_str()),
@@ -1459,14 +1463,14 @@ impl<'a> BuildPlanConstructor<'a> {
             module,
             self.mooncake_bin_dir,
             &pkg.root_path,
-            &input_paths,
-            &output_paths,
+            &command_input_paths,
+            &command_output_paths,
         );
 
         let info = PrebuildInfo {
             resolved_inputs: input_paths,
             resolved_outputs: output_paths,
-            cwd: module.to_path_buf(),
+            cwd: command_cwd.to_path_buf(),
             command,
         };
 
@@ -1574,8 +1578,8 @@ fn handle_build_command_new(
     mod_source: &Path,
     mooncake_bin_dir: &Path,
     pkg_source: &Path,
-    input_files: &[PathBuf],
-    output_files: &[PathBuf],
+    input_files: &[String],
+    output_files: &[String],
 ) -> String {
     use std::fmt::Write;
 
@@ -1619,7 +1623,7 @@ fn handle_build_command_new(
                     if i != 0 {
                         write!(reconstructed, " ").expect("write can't fail");
                     }
-                    write!(reconstructed, "{}", f.display()).expect("write can't fail");
+                    write!(reconstructed, "{f}").expect("write can't fail");
                 }
             }
             4 => {
@@ -1627,7 +1631,7 @@ fn handle_build_command_new(
                     if i != 0 {
                         write!(reconstructed, " ").expect("write can't fail");
                     }
-                    write!(reconstructed, "{}", f.display()).expect("write can't fail");
+                    write!(reconstructed, "{f}").expect("write can't fail");
                 }
             }
             _ => unreachable!("Unexpected pattern id from CHECK_AUTOMATA"),
@@ -1676,6 +1680,27 @@ fn handle_build_command_new(
     reconstructed
 }
 
+fn prebuild_command_path(cwd: &Path, path: &Path) -> String {
+    match path.relative_to(cwd) {
+        Ok(relative_path) => {
+            let normalized = relative_path.normalize();
+            if normalized.as_str().is_empty() {
+                ".".to_string()
+            } else {
+                format!("./{normalized}")
+            }
+        }
+        Err(_) => path.display().to_string(),
+    }
+}
+
+fn prebuild_command_paths(cwd: &Path, paths: &[PathBuf]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| prebuild_command_path(cwd, path))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1693,6 +1718,76 @@ mod tests {
             moonutil::mooncakes::ModuleSource::from_local_module(module, std::path::Path::new(".")),
             crate::pkg_name::PackagePath::new("").expect("empty package path should parse"),
         )
+    }
+
+    #[test]
+    fn prebuild_command_path_is_relative_to_command_cwd() {
+        assert_eq!(
+            prebuild_command_path(Path::new("module"), Path::new("module/src/lib/input.txt")),
+            "./src/lib/input.txt"
+        );
+    }
+
+    #[test]
+    fn prebuild_command_path_can_include_module_from_workspace_cwd() {
+        assert_eq!(
+            prebuild_command_path(
+                Path::new("workspace"),
+                Path::new("workspace/member/src/lib/input.txt")
+            ),
+            "./member/src/lib/input.txt"
+        );
+    }
+
+    #[test]
+    fn prebuild_command_path_normalizes_dot_segments() {
+        assert_eq!(
+            prebuild_command_path(
+                Path::new("module"),
+                Path::new("module/src/lib/../assets/./input.txt")
+            ),
+            "./src/assets/input.txt"
+        );
+    }
+
+    #[test]
+    fn prebuild_command_path_handles_absolute_paths() {
+        assert_eq!(
+            prebuild_command_path(
+                Path::new("/module"),
+                Path::new("/module/src/lib/../assets/input.txt")
+            ),
+            "./src/assets/input.txt"
+        );
+    }
+
+    #[test]
+    fn handle_build_command_uses_relative_input_and_output_placeholders() {
+        let command = handle_build_command_new(
+            "generate --inputs $input --outputs $output",
+            Path::new("module"),
+            Path::new("module/.mooncakes/__moonbin__"),
+            Path::new("module/src/lib"),
+            &prebuild_command_paths(
+                Path::new("module"),
+                &[
+                    PathBuf::from("module/src/lib/input.txt"),
+                    PathBuf::from("module/src/lib/../assets/second.txt"),
+                ],
+            ),
+            &prebuild_command_paths(
+                Path::new("module"),
+                &[
+                    PathBuf::from("module/src/lib/generated.mbt"),
+                    PathBuf::from("module/src/lib/./generated_2.mbt"),
+                ],
+            ),
+        );
+
+        assert_eq!(
+            command,
+            "generate --inputs ./src/lib/input.txt ./src/assets/second.txt --outputs ./src/lib/generated.mbt ./src/lib/generated_2.mbt"
+        );
     }
 
     #[test]

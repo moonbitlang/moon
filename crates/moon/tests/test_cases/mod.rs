@@ -1289,6 +1289,55 @@ fn test_pre_build_runs_from_module_root() {
 }
 
 #[test]
+fn test_pre_build_dry_run_uses_cwd_relative_placeholders() {
+    let dir = TestDir::new("pre_build.in");
+    let assert = moon_cmd(&dir)
+        .args(["check", "--dry-run", "--sort-input"])
+        .assert()
+        .success();
+    let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
+    let prebuild_lines = stdout
+        .lines()
+        .filter(|line| line.contains(" tool embed "))
+        .collect::<Vec<_>>();
+
+    assert!(
+        prebuild_lines
+            .iter()
+            .any(|line| line.contains(" -i ./src/lib/a.txt -o ./src/lib/a.mbt")),
+        "dry-run should show cwd-relative placeholders, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_pre_build_dry_run_uses_prebuild_cwd_with_manifest_path() {
+    let dir = TestDir::new("pre_build.in");
+    let src_dir = dir.join("src");
+    let assert = moon_cmd(&src_dir)
+        .args([
+            "--manifest-path",
+            "../moon.mod.json",
+            "check",
+            "--dry-run",
+            "--sort-input",
+        ])
+        .assert()
+        .success();
+    let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
+    let prebuild_lines = stdout
+        .lines()
+        .filter(|line| line.contains(" tool embed "))
+        .collect::<Vec<_>>();
+
+    assert!(
+        prebuild_lines
+            .iter()
+            .any(|line| line.contains(" -i ./src/lib/a.txt -o ./src/lib/a.mbt")),
+        "dry-run should show placeholders relative to prebuild cwd, got:\n{stdout}"
+    );
+}
+
+#[test]
 #[cfg(unix)]
 fn test_rule_dev_build() {
     let dir = TestDir::new("define_rule_dev_build.in");
