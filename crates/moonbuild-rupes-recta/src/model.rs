@@ -53,6 +53,7 @@ pub const ENV_MOONBIT_NEW_NATIVE: &str = "MOONBIT_NEW_NATIVE";
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum NativeTarget {
     Aarch64AppleDarwin,
+    X86_64UnknownLinuxGnu,
 }
 
 impl NativeTarget {
@@ -66,6 +67,7 @@ impl NativeTarget {
     pub fn from_host(arch: &str, os: &str) -> Option<Self> {
         match (arch, os) {
             ("aarch64", "macos") => Some(Self::Aarch64AppleDarwin),
+            ("x86_64", "linux") => Some(Self::X86_64UnknownLinuxGnu),
             _ => None,
         }
     }
@@ -73,6 +75,7 @@ impl NativeTarget {
     pub fn moonc_target_flag(self) -> &'static str {
         match self {
             Self::Aarch64AppleDarwin => "aarch64-apple-darwin",
+            Self::X86_64UnknownLinuxGnu => "x86_64-unknown-linux-gnu",
         }
     }
 }
@@ -574,6 +577,10 @@ mod tests {
             Some(NativeTarget::Aarch64AppleDarwin)
         );
         assert_eq!(NativeTarget::from_host("x86_64", "macos"), None);
+        assert_eq!(
+            NativeTarget::from_host("x86_64", "linux"),
+            Some(NativeTarget::X86_64UnknownLinuxGnu)
+        );
         assert_eq!(NativeTarget::from_host("aarch64", "linux"), None);
     }
 }
