@@ -16,8 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(unix)]
+use crate::async_host::AsyncHostError;
 use crate::async_host::AsyncHostResult;
-use crate::async_sys::internal::{event_loop::wasm_support, time::clock};
+use crate::async_sys::internal::time::clock;
 
 use super::context::{ImportArgs, callback_context, finish_errno};
 
@@ -36,15 +38,44 @@ pub(super) fn sleep_ms(
     mut ret: v8::ReturnValue,
 ) {
     let context = callback_context(&args);
-    finish_errno(context, &mut ret, sleep_ms_impl(scope, &args));
+    let result = (|| {
+        let mut args = ImportArgs::new(scope, &args);
+        sleep_ms_impl(args.i32(0)?)
+    })();
+    finish_errno(context, &mut ret, result);
 }
 
-fn sleep_ms_impl(
-    scope: &mut v8::HandleScope,
-    args: &v8::FunctionCallbackArguments,
-) -> AsyncHostResult<()> {
-    let mut args = ImportArgs::new(scope, args);
-    let duration_ms = args.i32(0)?;
-    wasm_support::sleep_ms(duration_ms);
+fn sleep_ms_impl(duration_ms: i32) -> AsyncHostResult<()> {
+    if duration_ms <= 0 {
+        return Ok(());
+    }
+    sleep_ms_sys(duration_ms)
+}
+
+#[cfg(unix)]
+fn sleep_ms_sys(duration_ms: i32) -> AsyncHostResult<()> {
+    if unsafe { libc::poll(std::ptr::null_mut(), 0, duration_ms) } < 0 {
+        return Err(AsyncHostError::Native(errno()));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn errno() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        unsafe { *libc::__errno_location() }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        unsafe { *libc::__error() }
+    }
+}
+
+#[cfg(windows)]
+fn sleep_ms_sys(duration_ms: i32) -> AsyncHostResult<()> {
+    unsafe {
+        windows_sys::Win32::System::Threading::Sleep(duration_ms as u32);
+    }
     Ok(())
 }

@@ -22,4 +22,3 @@ pub(crate) mod io_unix;
 pub(crate) mod io_windows;
 pub(crate) mod poll;
 pub(crate) mod thread_pool;
-pub(crate) mod wasm_support;

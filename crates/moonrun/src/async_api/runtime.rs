@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use super::context::{ImportArgs, throw_import_error};
+use super::context::{ImportArgs, callback_context, finish_errno, throw_import_error};
 
 pub(super) fn exit(
     scope: &mut v8::HandleScope,
@@ -31,4 +31,17 @@ pub(super) fn exit(
         Ok(code) => std::process::exit(code),
         Err(error) => throw_import_error(scope, "runtime/exit", error),
     }
+}
+
+pub(super) fn wait_for_event(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let context = callback_context(&args);
+    let result = (|| {
+        let mut args = ImportArgs::new(scope, &args);
+        context.host.wait_for_event(args.i32(0)?)
+    })();
+    finish_errno(context, &mut ret, result);
 }

@@ -20,6 +20,8 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::sync::{Arc, Mutex};
 
+mod event;
+
 use crate::async_sys::internal::event_loop::thread_pool::{
     self, HostFile, HostFileTable, HostProcess, HostProcessTable, HostWorkerHandle, HostWorkerJob,
     Job,
@@ -340,9 +342,18 @@ struct HostCompletion {
     job_handle: i32,
 }
 
-#[derive(Default)]
 pub(crate) struct AsyncHost {
     state: Arc<Mutex<AsyncHostState>>,
+    event: Arc<event::HostEvent>,
+}
+
+impl Default for AsyncHost {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(AsyncHostState::default())),
+            event: Arc::new(event::HostEvent::new().expect("failed to create async host event")),
+        }
+    }
 }
 
 impl AsyncHost {
@@ -573,9 +584,25 @@ impl AsyncHost {
         Ok(bytes_i32)
     }
 
+    pub(crate) fn wait_for_event(&self, timeout_ms: i32) -> AsyncHostResult<()> {
+        if timeout_ms == 0 {
+            return Ok(());
+        }
+        if !self.state.lock().unwrap().completions.is_empty() {
+            return Ok(());
+        }
+        self.event.clear()?;
+        if !self.state.lock().unwrap().completions.is_empty() {
+            return Ok(());
+        }
+        self.event.wait(timeout_ms)?;
+        self.event.clear()
+    }
+
     fn spawn_worker_thread(&self, init_job: HostWorkerJob) -> HostWorkerHandle {
         let state = Arc::clone(&self.state);
         let run_state = Arc::clone(&state);
+        let event = Arc::clone(&self.event);
         thread_pool::spawn_worker(
             init_job,
             move |worker_job| {
@@ -598,6 +625,7 @@ impl AsyncHost {
                     job_id: worker_job.job_id,
                     job_handle: worker_job.job_handle,
                 });
+                event.notify().expect("failed to notify async host event");
             },
         )
     }

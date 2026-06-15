@@ -155,6 +155,10 @@ declare_async_imports! {
     native = None,
     sources = [moonrun:"crates/moonrun/src/async_api/runtime.rs"];
 
+    support runtime::wait_for_event => "runtime/wait_for_event",
+    native = None,
+    sources = [moonrun:"crates/moonrun/src/async_host/event.rs"];
+
     native event_loop::get_platform => "runtime/get_platform",
     native = Some("moonbitlang_async_get_platform"),
     sources = [moonbit_async:"src/internal/event_loop/thread_pool.c"];
@@ -224,7 +228,7 @@ declare_async_imports! {
 
     support time::sleep_ms => "time/sleep_ms",
     native = None,
-    sources = [moonbit_async:"src/internal/event_loop/event_loop.wasm.mbt"];
+    sources = [moonrun:"crates/moonrun/src/async_api/time.rs"];
 
     support memory::copy_from_guest => "memory/copy_from_guest",
     native = None,
