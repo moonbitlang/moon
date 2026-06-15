@@ -25,7 +25,7 @@ pub(super) fn get_platform(
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
-    ret.set_int32(thread_pool::get_platform().as_i32());
+    ret.set_int32(thread_pool::get_platform());
 }
 
 pub(super) fn errno_is_cancelled(

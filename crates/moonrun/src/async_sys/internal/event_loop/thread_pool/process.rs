@@ -466,7 +466,6 @@ pub(crate) fn make_wait_for_process_job_from_handle(
     ))
 }
 
-#[allow(dead_code)]
 pub(super) fn run_wait_for_process_job(process: &HostProcess) -> AsyncHostResult<i64> {
     process.wait().map(i64::from)
 }

@@ -16,7 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[allow(dead_code)]
 pub(super) fn run_sleep_job(duration_ms: i32) {
     #[cfg(windows)]
     {

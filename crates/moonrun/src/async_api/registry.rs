@@ -144,7 +144,9 @@ fn register_func_impl<'s>(
 // - native: maps a native async C-stub symbol to the same leaf name under a
 //   namespaced `moonbit_v0` field; tests require a `#[ported(...)]`
 //   implementation provenance.
-// - support: wasm-only support import with no native C symbol.
+// - support: wasm-only support import or host-control glue. It may list a
+//   native C symbol for provenance, but tests do not require a direct
+//   `#[ported(...)]` implementation.
 // - unsupported: declared so wasm modules link, but currently returns the
 //   uniform unsupported stub.
 declare_async_imports! {
@@ -197,7 +199,7 @@ declare_async_imports! {
     native = Some("moonbitlang_async_cancel_worker"),
     sources = [moonbit_async:"src/internal/event_loop/thread_pool.c"];
 
-    native thread_pool::fetch_completion => "thread_pool/fetch_completion",
+    support thread_pool::fetch_completion => "thread_pool/fetch_completion",
     native = Some("moonbitlang_async_fetch_completion"),
     sources = [moonbit_async:"src/internal/event_loop/thread_pool.c"];
 

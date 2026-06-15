@@ -16,14 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-mod completion;
 mod fs;
 mod jobs;
 mod process;
 mod runner;
 mod sleep;
 mod types;
-mod wakeup;
 mod worker;
 
 pub(crate) use jobs::{
@@ -43,12 +41,14 @@ pub(crate) use types::JobPayload;
 pub(crate) use types::{
     FileTimeResult, GuestBuffer, HostFile, HostFileTable, HostHandle, Job, OpenJobResult,
 };
-pub(crate) use worker::HostWorkerHandle;
+pub(crate) use worker::{
+    HostWorkerHandle, HostWorkerJob, cancel_worker, free_worker, spawn_worker, wake_worker,
+    worker_enter_idle,
+};
 
 #[cfg(test)]
 pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     let mut symbols = Vec::new();
-    symbols.extend_from_slice(completion::PORTED_SYMBOLS);
     symbols.extend_from_slice(jobs::PORTED_SYMBOLS);
     symbols.extend_from_slice(worker::PORTED_SYMBOLS);
     symbols

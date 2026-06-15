@@ -21,7 +21,7 @@ use std::ffi::OsString;
 use std::fs::File;
 
 use super::process::HostProcess;
-use crate::async_host::{AsyncHostResult, types::Platform};
+use crate::async_host::AsyncHostResult;
 use crate::async_sys::internal::fd_util;
 
 pub(crate) type HostHandle = i32;
@@ -64,7 +64,6 @@ impl HostFile {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) struct GuestBuffer {
     pub(crate) ptr: i32,
     pub(crate) offset: i32,
@@ -72,14 +71,12 @@ pub(crate) struct GuestBuffer {
 }
 
 impl GuestBuffer {
-    #[allow(dead_code)]
     pub(crate) fn new(ptr: i32, offset: i32, len: i32) -> Self {
         Self { ptr, offset, len }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) struct OpenJobResult {
     pub(crate) fd: HostHandle,
     pub(crate) kind: i32,
@@ -87,8 +84,7 @@ pub(crate) struct OpenJobResult {
     pub(crate) file_id: u64,
 }
 
-#[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
+#[derive(Clone, Copy)]
 pub(crate) struct FileTimeResult(fd_util::stub::FileTime);
 
 impl FileTimeResult {
@@ -101,8 +97,13 @@ impl FileTimeResult {
     }
 }
 
+impl std::fmt::Debug for FileTimeResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("FileTimeResult").finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub(crate) struct Job {
     ret: i64,
     err: i32,
@@ -110,23 +111,11 @@ pub(crate) struct Job {
 }
 
 impl Job {
-    #[allow(dead_code)]
     pub(super) fn new(payload: JobPayload) -> Self {
         Self {
             ret: 0,
             err: 0,
             payload,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn run(&mut self) {
-        self.ret = 0;
-        self.err = 0;
-
-        match &mut self.payload {
-            JobPayload::Sleep { duration_ms } => super::sleep::run_sleep_job(*duration_ms),
-            _ => self.err = super::runner::unsupported_job_errno(),
         }
     }
 
@@ -158,7 +147,6 @@ impl Job {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub(crate) enum JobPayload {
     Sleep {
         duration_ms: i32,
@@ -182,9 +170,6 @@ pub(crate) enum JobPayload {
         sync: i32,
         mode: i32,
         result: Option<OpenJobResult>,
-    },
-    KindOfFd {
-        fd: HostHandle,
     },
     FileKindByPath {
         parent: HostHandle,
@@ -248,27 +233,8 @@ pub(crate) enum JobPayload {
         restart: bool,
         result: Option<Vec<u8>>,
     },
-    Realpath {
-        path: OsString,
-        result: Option<OsString>,
-    },
     WaitForProcess {
         process: HostProcess,
-    },
-    Bind {
-        socket: HostHandle,
-        addr: Vec<u8>,
-    },
-    GetAddrInfo {
-        hostname: OsString,
-    },
-    Sigwait {
-        signals: Vec<i32>,
-    },
-    InotifyAddWatch {
-        inotify: HostHandle,
-        path: OsString,
-        is_dir: bool,
     },
 }
 
@@ -288,17 +254,17 @@ pub(crate) trait HostFileTable {
     ) -> AsyncHostResult<T>;
 }
 
-pub(crate) fn platform() -> Platform {
+pub(crate) fn platform() -> i32 {
     #[cfg(windows)]
     {
-        Platform::Windows
+        2
     }
     #[cfg(target_os = "macos")]
     {
-        Platform::MacOS
+        1
     }
     #[cfg(target_os = "linux")]
     {
-        Platform::Linux
+        0
     }
 }

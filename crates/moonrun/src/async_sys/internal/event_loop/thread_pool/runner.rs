@@ -99,7 +99,6 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
             result,
         } => run_readdir_job(files, *dir, *dst, *restart, result),
         JobPayload::WaitForProcess { process } => run_wait_for_process_job(process),
-        _ => Err(AsyncHostError::NotSupported),
     };
 
     match result {
@@ -155,15 +154,4 @@ pub(crate) fn complete_guest_job(
         memory.write_with_capacity(dst_offset, out.len, &record)?;
     }
     Ok(())
-}
-
-pub(crate) fn unsupported_job_errno() -> i32 {
-    #[cfg(unix)]
-    {
-        libc::ENOSYS
-    }
-    #[cfg(windows)]
-    {
-        windows_sys::Win32::Foundation::ERROR_CALL_NOT_IMPLEMENTED as i32
-    }
 }

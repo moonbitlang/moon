@@ -18,7 +18,7 @@
 
 use std::ffi::OsString;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, types::Platform};
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 
 use super::process::HostProcess;
@@ -29,7 +29,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_get_platform"
     )]
-    pub(crate) fn get_platform() -> Platform {
+    pub(crate) fn get_platform() -> i32 {
         platform()
     }
 
@@ -37,7 +37,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_job_get_ret"
     )]
-    #[allow(dead_code)]
     pub(crate) fn job_get_ret(job: &Job) -> i64 {
         job.ret()
     }
@@ -46,7 +45,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_job_get_err"
     )]
-    #[allow(dead_code)]
     pub(crate) fn job_get_err(job: &Job) -> i32 {
         job.err()
     }
@@ -71,7 +69,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_sleep_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_sleep_job(ms: i32) -> Job {
         Job::new(JobPayload::Sleep { duration_ms: ms })
     }
@@ -80,7 +77,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_read_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_read_job(
         fd: HostHandle,
         ptr: i32,
@@ -100,7 +96,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_write_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_write_job(fd: HostHandle, data: Vec<u8>, position: i64) -> Job {
         Job::new(JobPayload::Write { fd, data, position })
     }
@@ -109,7 +104,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_open_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_open_job(
         filename: OsString,
         access: i32,
@@ -133,7 +127,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_file_kind_by_path_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_file_kind_by_path_job(
         parent: HostHandle,
         path: OsString,
@@ -150,7 +143,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_open_job_get_fd"
     )]
-    #[allow(dead_code)]
     pub(crate) fn open_job_get_fd(result: &OpenJobResult) -> HostHandle {
         result.fd
     }
@@ -159,7 +151,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_open_job_get_kind"
     )]
-    #[allow(dead_code)]
     pub(crate) fn open_job_get_kind(result: &OpenJobResult) -> i32 {
         result.kind
     }
@@ -168,7 +159,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_open_job_get_dev_id"
     )]
-    #[allow(dead_code)]
     pub(crate) fn open_job_get_dev_id(result: &OpenJobResult) -> u64 {
         result.dev_id
     }
@@ -177,7 +167,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_open_job_get_file_id"
     )]
-    #[allow(dead_code)]
     pub(crate) fn open_job_get_file_id(result: &OpenJobResult) -> u64 {
         result.file_id
     }
@@ -186,7 +175,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_file_size_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_file_size_job(fd: HostHandle) -> Job {
         Job::new(JobPayload::FileSize { fd, result: 0 })
     }
@@ -195,7 +183,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_file_time_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_file_time_job(fd: HostHandle, out: i32, out_len: i32) -> Job {
         Job::new(JobPayload::FileTime {
             fd,
@@ -208,7 +195,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_file_time_by_path_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_file_time_by_path_job(
         path: OsString,
         out: i32,
@@ -227,7 +213,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_access_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_access_job(path: OsString, access: i32) -> Job {
         Job::new(JobPayload::Access { path, access })
     }
@@ -236,7 +221,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_chmod_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_chmod_job(path: OsString, mode: i32) -> Job {
         Job::new(JobPayload::Chmod { path, mode })
     }
@@ -245,7 +229,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_get_file_size_result"
     )]
-    #[allow(dead_code)]
     pub(crate) fn get_file_size_result(job: &Job) -> AsyncHostResult<i64> {
         match job.payload() {
             JobPayload::FileSize { result, .. } => Ok(*result),
@@ -257,7 +240,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_fsync_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_fsync_job(fd: HostHandle, only_data: bool) -> Job {
         Job::new(JobPayload::Fsync { fd, only_data })
     }
@@ -266,7 +248,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_flock_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_flock_job(fd: HostHandle, exclusive: bool) -> Job {
         Job::new(JobPayload::Flock { fd, exclusive })
     }
@@ -275,7 +256,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_remove_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_remove_job(path: OsString) -> Job {
         Job::new(JobPayload::Remove { path })
     }
@@ -284,7 +264,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_rename_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_rename_job(old_path: OsString, new_path: OsString, replace: bool) -> Job {
         Job::new(JobPayload::Rename {
             old_path,
@@ -297,7 +276,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_symlink_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_symlink_job(target: OsString, path: OsString, force_symlink: bool) -> Job {
         Job::new(JobPayload::Symlink {
             target,
@@ -310,7 +288,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_mkdir_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_mkdir_job(path: OsString, mode: i32) -> Job {
         Job::new(JobPayload::Mkdir { path, mode })
     }
@@ -319,7 +296,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_rmdir_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_rmdir_job(path: OsString) -> Job {
         Job::new(JobPayload::Rmdir { path })
     }
@@ -328,7 +304,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_readdir_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_readdir_job(dir: HostHandle, ptr: i32, len: i32, restart: bool) -> Job {
         Job::new(JobPayload::Readdir {
             dir,
@@ -342,7 +317,6 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_wait_for_process_job"
     )]
-    #[allow(dead_code)]
     pub(crate) fn make_wait_for_process_job(process: HostProcess) -> Job {
         Job::new(JobPayload::WaitForProcess { process })
     }
@@ -361,7 +335,36 @@ pub(crate) fn open_job_result(job: &Job) -> AsyncHostResult<&OpenJobResult> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+
     use super::*;
+    use crate::async_sys::internal::event_loop::thread_pool::{
+        HostFile, HostFileTable, run_host_job,
+    };
+
+    struct NoFiles;
+
+    impl HostFileTable for NoFiles {
+        fn insert_file(&mut self, _file: File) -> AsyncHostResult<HostHandle> {
+            unreachable!("sleep jobs do not access files")
+        }
+
+        fn with_file_mut<T>(
+            &mut self,
+            _handle: HostHandle,
+            _f: impl FnOnce(&mut File) -> AsyncHostResult<T>,
+        ) -> AsyncHostResult<T> {
+            unreachable!("sleep jobs do not access files")
+        }
+
+        fn with_host_file_mut<T>(
+            &mut self,
+            _handle: HostHandle,
+            _f: impl FnOnce(&mut HostFile) -> AsyncHostResult<T>,
+        ) -> AsyncHostResult<T> {
+            unreachable!("sleep jobs do not access files")
+        }
+    }
 
     #[test]
     fn sleep_job_initial_result_matches_native_job_header() {
@@ -418,8 +421,9 @@ mod tests {
     #[test]
     fn sleep_job_runs_without_error() {
         let mut job = make_sleep_job(0);
+        let mut files = NoFiles;
 
-        job.run();
+        run_host_job(&mut job, &mut files);
 
         assert_eq!(job_get_ret(&job), 0);
         assert_eq!(job_get_err(&job), 0);

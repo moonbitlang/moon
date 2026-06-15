@@ -21,10 +21,9 @@ use std::fs::File;
 use std::sync::{Arc, Mutex};
 
 use crate::async_sys::internal::event_loop::thread_pool::{
-    self, HostFile, HostFileTable, HostProcess, HostProcessTable, HostWorkerHandle, Job,
+    self, HostFile, HostFileTable, HostProcess, HostProcessTable, HostWorkerHandle, HostWorkerJob,
+    Job,
 };
-
-pub(crate) mod types;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -33,10 +32,8 @@ compile_error!("moonrun async wasm host currently supports only Linux, macOS, an
 pub(crate) enum AsyncHostError {
     Fault,
     Inval,
-    #[allow(dead_code)]
     Badf,
     NotSupported,
-    #[allow(dead_code)]
     Native(i32),
 }
 
@@ -75,7 +72,6 @@ impl AsyncHostError {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) trait GuestMemory {
     fn bytes(&self) -> &[u8];
 
@@ -121,21 +117,7 @@ pub(crate) trait GuestMemory {
         Ok(())
     }
 
-    fn read_i32_le(&self, offset: i32) -> AsyncHostResult<i32> {
-        let bytes = self.read_exact(offset, 4)?;
-        Ok(i32::from_le_bytes(bytes.try_into().unwrap()))
-    }
-
-    fn read_i64_le(&self, offset: i32) -> AsyncHostResult<i64> {
-        let bytes = self.read_exact(offset, 8)?;
-        Ok(i64::from_le_bytes(bytes.try_into().unwrap()))
-    }
-
     fn write_i32_le(&mut self, offset: i32, value: i32) -> AsyncHostResult<()> {
-        self.write_exact(offset, &value.to_le_bytes())
-    }
-
-    fn write_i64_le(&mut self, offset: i32, value: i64) -> AsyncHostResult<()> {
         self.write_exact(offset, &value.to_le_bytes())
     }
 }
@@ -165,47 +147,6 @@ impl<const N: usize> GuestMemory for [u8; N] {
     fn bytes_mut(&mut self) -> &mut [u8] {
         self.as_mut_slice()
     }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HostResourceKind {
-    File,
-    Poll,
-    Job,
-    Worker,
-    IoResult,
-    RawFd,
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub(crate) struct HostResource {
-    kind: HostResourceKind,
-}
-
-#[allow(dead_code)]
-impl HostResource {
-    pub(crate) fn new(kind: HostResourceKind) -> Self {
-        Self { kind }
-    }
-
-    pub(crate) fn kind(&self) -> HostResourceKind {
-        self.kind
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-struct ResourceSlot {
-    generation: u16,
-    resource: Option<HostResource>,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Default)]
-struct ResourceTable {
-    slots: Vec<ResourceSlot>,
 }
 
 #[derive(Debug)]
@@ -354,49 +295,6 @@ impl HostProcessTable for HandleTable<HostProcess> {
     }
 }
 
-#[allow(dead_code)]
-impl ResourceTable {
-    fn insert(&mut self, resource: HostResource) -> AsyncHostResult<i32> {
-        if let Some((index, slot)) = self
-            .slots
-            .iter_mut()
-            .enumerate()
-            .find(|(_, slot)| slot.resource.is_none())
-        {
-            slot.resource = Some(resource);
-            return encode_handle(index, slot.generation);
-        }
-
-        let index = self.slots.len();
-        self.slots.push(ResourceSlot {
-            generation: 1,
-            resource: Some(resource),
-        });
-        encode_handle(index, 1)
-    }
-
-    fn get(&self, handle: i32) -> AsyncHostResult<&HostResource> {
-        let (index, generation) = decode_handle(handle)?;
-        let slot = self.slots.get(index).ok_or(AsyncHostError::Badf)?;
-        if slot.generation != generation {
-            return Err(AsyncHostError::Badf);
-        }
-        slot.resource.as_ref().ok_or(AsyncHostError::Badf)
-    }
-
-    fn remove(&mut self, handle: i32) -> AsyncHostResult<HostResource> {
-        let (index, generation) = decode_handle(handle)?;
-        let slot = self.slots.get_mut(index).ok_or(AsyncHostError::Badf)?;
-        if slot.generation != generation {
-            return Err(AsyncHostError::Badf);
-        }
-        let resource = slot.resource.take().ok_or(AsyncHostError::Badf)?;
-        slot.generation = next_generation(slot.generation);
-        Ok(resource)
-    }
-}
-
-#[allow(dead_code)]
 fn encode_handle(index: usize, generation: u16) -> AsyncHostResult<i32> {
     if index >= 0x1_0000 {
         return Err(AsyncHostError::Fault);
@@ -407,7 +305,6 @@ fn encode_handle(index: usize, generation: u16) -> AsyncHostResult<i32> {
     Ok(((i32::from(generation)) << 16) | i32::try_from(index).unwrap())
 }
 
-#[allow(dead_code)]
 fn decode_handle(handle: i32) -> AsyncHostResult<(usize, u16)> {
     if handle <= 0 {
         return Err(AsyncHostError::Badf);
@@ -420,7 +317,6 @@ fn decode_handle(handle: i32) -> AsyncHostResult<(usize, u16)> {
     Ok((index, generation))
 }
 
-#[allow(dead_code)]
 fn next_generation(generation: u16) -> u16 {
     match generation.checked_add(1) {
         Some(next) if next <= MAX_HANDLE_GENERATION => next,
@@ -428,29 +324,9 @@ fn next_generation(generation: u16) -> u16 {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PendingGuestWrite {
-    dst: i32,
-    data: Vec<u8>,
-}
-
-#[allow(dead_code)]
-impl PendingGuestWrite {
-    pub(crate) fn new(dst: i32, data: Vec<u8>) -> Self {
-        Self { dst, data }
-    }
-
-    pub(crate) fn complete(self, memory: &mut (impl GuestMemory + ?Sized)) -> AsyncHostResult<()> {
-        memory.write_exact(self.dst, &self.data)
-    }
-}
-
 #[derive(Default)]
 struct AsyncHostState {
     errno: i32,
-    #[allow(dead_code)]
-    resources: ResourceTable,
     jobs: HandleTable<Job>,
     files: HandleTable<HostFile>,
     processes: HandleTable<HostProcess>,
@@ -506,21 +382,6 @@ impl AsyncHost {
         len: i32,
     ) -> AsyncHostResult<()> {
         memory.fill_exact(offset, len, 0)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn insert_resource(&self, resource: HostResource) -> AsyncHostResult<i32> {
-        self.state.lock().unwrap().resources.insert(resource)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn resource_kind(&self, handle: i32) -> AsyncHostResult<HostResourceKind> {
-        Ok(self.state.lock().unwrap().resources.get(handle)?.kind())
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn remove_resource(&self, handle: i32) -> AsyncHostResult<HostResource> {
-        self.state.lock().unwrap().resources.remove(handle)
     }
 
     pub(crate) fn insert_job(&self, job: Job) -> AsyncHostResult<i32> {
@@ -637,10 +498,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn spawn_worker(&self, job_id: i32, job_handle: i32) -> AsyncHostResult<i32> {
-        let worker = self.spawn_worker_thread();
-        worker
-            .run(job_id, job_handle)
-            .map_err(|_| AsyncHostError::Badf)?;
+        let worker = self.spawn_worker_thread(HostWorkerJob { job_id, job_handle });
         self.state.lock().unwrap().workers.insert(worker)
     }
 
@@ -650,49 +508,29 @@ impl AsyncHost {
         job_id: i32,
         job_handle: i32,
     ) -> AsyncHostResult<()> {
-        self.state
-            .lock()
-            .unwrap()
-            .workers
-            .get(worker_handle)?
-            .run(job_id, job_handle)
-            .map_err(|_| AsyncHostError::Badf)
+        let state = self.state.lock().unwrap();
+        let worker = state.workers.get(worker_handle)?;
+        thread_pool::wake_worker(worker, HostWorkerJob { job_id, job_handle });
+        Ok(())
     }
 
     pub(crate) fn worker_enter_idle(&self, worker_handle: i32) -> AsyncHostResult<()> {
-        self.state.lock().unwrap().workers.get(worker_handle)?;
+        let state = self.state.lock().unwrap();
+        let worker = state.workers.get(worker_handle)?;
+        thread_pool::worker_enter_idle(worker);
         Ok(())
     }
 
     pub(crate) fn free_worker(&self, worker_handle: i32) -> AsyncHostResult<()> {
-        let mut worker = self.state.lock().unwrap().workers.remove(worker_handle)?;
-        worker.join();
+        let worker = self.state.lock().unwrap().workers.remove(worker_handle)?;
+        thread_pool::free_worker(worker);
         Ok(())
     }
 
     pub(crate) fn cancel_worker(&self, worker_handle: i32) -> AsyncHostResult<i32> {
-        self.state.lock().unwrap().workers.get(worker_handle)?;
-
-        #[cfg(unix)]
-        {
-            // The wasm wrapper interprets 0 as coroutine-level NoWait. The
-            // host worker may still complete later; the event loop drains that
-            // completion independently.
-            Ok(0)
-        }
-
-        #[cfg(windows)]
-        {
-            // Native Windows uses CancelSynchronousIo and then waits for the
-            // completion. Keep the same surface until the Windows worker
-            // cancellation path is ported fully.
-            Ok(1)
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        {
-            Err(AsyncHostError::NotSupported)
-        }
+        let state = self.state.lock().unwrap();
+        let worker = state.workers.get(worker_handle)?;
+        Ok(thread_pool::cancel_worker(worker))
     }
 
     pub(crate) fn fetch_completion(
@@ -735,27 +573,33 @@ impl AsyncHost {
         Ok(bytes_i32)
     }
 
-    fn spawn_worker_thread(&self) -> HostWorkerHandle {
+    fn spawn_worker_thread(&self, init_job: HostWorkerJob) -> HostWorkerHandle {
         let state = Arc::clone(&self.state);
-        HostWorkerHandle::spawn(move |worker_job| {
-            let Ok(mut job) = state.lock().unwrap().jobs.take(worker_job.job_handle) else {
-                return;
-            };
+        let run_state = Arc::clone(&state);
+        thread_pool::spawn_worker(
+            init_job,
+            move |worker_job| {
+                let Ok(mut job) = run_state.lock().unwrap().jobs.take(worker_job.job_handle) else {
+                    return;
+                };
 
-            let mut files = SharedFileTable {
-                state: Arc::clone(&state),
-            };
-            thread_pool::run_host_job(&mut job, &mut files);
+                let mut files = SharedFileTable {
+                    state: Arc::clone(&run_state),
+                };
+                thread_pool::run_host_job(&mut job, &mut files);
 
-            let mut state = state.lock().unwrap();
-            let _ = state.jobs.put(worker_job.job_handle, job);
-            // Even if cancellation discarded the job handle, the event loop
-            // still needs the completion to move the worker out of running.
-            state.completions.push_back(HostCompletion {
-                job_id: worker_job.job_id,
-                job_handle: worker_job.job_handle,
-            });
-        })
+                let mut state = run_state.lock().unwrap();
+                let _ = state.jobs.put(worker_job.job_handle, job);
+            },
+            move |worker_job| {
+                // Even if cancellation discarded the job handle, the event loop
+                // still needs the completion to move the worker out of running.
+                state.lock().unwrap().completions.push_back(HostCompletion {
+                    job_id: worker_job.job_id,
+                    job_handle: worker_job.job_handle,
+                });
+            },
+        )
     }
 }
 
@@ -803,12 +647,10 @@ fn native_io_error(error: std::io::Error) -> AsyncHostError {
     )
 }
 
-#[allow(dead_code)]
 pub(crate) fn checked_range(memory: &[u8], offset: i32, len: i32) -> AsyncHostResult<&[u8]> {
     memory.read_exact(offset, len)
 }
 
-#[allow(dead_code)]
 pub(crate) fn checked_mut_range(
     memory: &mut [u8],
     offset: i32,
@@ -863,26 +705,13 @@ mod tests {
     }
 
     #[test]
-    fn guest_memory_reads_and_writes_fixed_little_endian_records() {
+    fn guest_memory_writes_fixed_little_endian_words() {
         let mut memory = [0; 16];
 
         memory.write_i32_le(2, 0x1020_3040).unwrap();
-        memory.write_i64_le(8, 0x1020_3040_5060_7080).unwrap();
 
-        assert_eq!(memory.read_i32_le(2).unwrap(), 0x1020_3040);
         assert_eq!(&memory[2..6], &[0x40, 0x30, 0x20, 0x10]);
-        assert_eq!(memory.read_i64_le(8).unwrap(), 0x1020_3040_5060_7080);
         assert_eq!(memory.write_i32_le(14, 1), Err(AsyncHostError::Fault));
-    }
-
-    #[test]
-    fn pending_guest_write_reacquires_current_memory() {
-        let pending = PendingGuestWrite::new(4, b"abc".to_vec());
-        let mut grown_memory = vec![0; 16];
-
-        pending.complete(grown_memory.as_mut_slice()).unwrap();
-
-        assert_eq!(&grown_memory[4..7], b"abc");
     }
 
     #[test]
@@ -907,7 +736,7 @@ mod tests {
         let bytes = host.fetch_completion(memory.as_mut_slice(), 0, 1).unwrap();
 
         assert_eq!(bytes, 4);
-        assert_eq!(memory.read_i32_le(0), Ok(42));
+        assert_eq!(i32::from_le_bytes(memory[0..4].try_into().unwrap()), 42);
         assert_eq!(&memory[8..11], b"abc");
         assert!(host.state.lock().unwrap().completions.is_empty());
     }
@@ -924,22 +753,6 @@ mod tests {
         host.run_job(&mut memory, job).unwrap();
 
         assert_eq!(host.job_get_ret(job).unwrap(), 0);
-    }
-
-    #[test]
-    fn resource_handles_reject_invalid_and_stale_values() {
-        let host = AsyncHost::default();
-        let handle = host
-            .insert_resource(HostResource::new(HostResourceKind::File))
-            .unwrap();
-
-        assert_eq!(host.resource_kind(handle), Ok(HostResourceKind::File));
-        assert_eq!(
-            host.remove_resource(handle).unwrap().kind(),
-            HostResourceKind::File
-        );
-        assert_eq!(host.resource_kind(handle), Err(AsyncHostError::Badf));
-        assert!(matches!(host.remove_resource(0), Err(AsyncHostError::Badf)));
     }
 
     #[test]

@@ -16,64 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{sync::mpsc, thread::JoinHandle};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::JoinHandle;
 
 use crate::async_sys::ported_fns;
-
-use super::types::Job;
-use super::wakeup::{WorkerThreadId, WorkerWakeup, cancel_running_worker};
-
-#[allow(dead_code)]
-pub(crate) struct Worker {
-    id: Option<WorkerThreadId>,
-    job_id: i32,
-    job: Option<Job>,
-    waiting: bool,
-    wakeup: WorkerWakeup,
-}
-
-impl Worker {
-    #[allow(dead_code)]
-    pub(crate) fn new(init_job_id: i32, init_job: Job) -> Self {
-        Self {
-            id: None,
-            job_id: init_job_id,
-            job: Some(init_job),
-            waiting: false,
-            wakeup: WorkerWakeup::new(),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn wake(&mut self, job_id: i32, job: Option<Job>) {
-        self.job_id = job_id;
-        self.job = job;
-        self.wakeup.wake(self.id, &mut self.waiting);
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn enter_idle(&mut self) {
-        self.job = None;
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn mark_waiting(&mut self) {
-        self.waiting = true;
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn wait_for_wake(&mut self) {
-        self.wakeup.wait(&mut self.waiting);
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn cancel(&self) -> i32 {
-        if self.waiting {
-            return 1;
-        }
-        cancel_running_worker(self.id)
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct HostWorkerJob {
@@ -81,14 +27,26 @@ pub(crate) struct HostWorkerJob {
     pub(crate) job_handle: i32,
 }
 
-enum HostWorkerCommand {
-    Run(HostWorkerJob),
-    Shutdown,
+#[derive(Debug)]
+struct HostWorkerState {
+    job: Option<HostWorkerJob>,
+    waiting: bool,
 }
 
+#[derive(Debug)]
+struct HostWorkerShared {
+    state: Mutex<HostWorkerState>,
+    wakeup: Condvar,
+}
+
+// MoonBit owns the pool scheduler. Each host worker handle owns one long-lived
+// OS thread and follows thread_pool.c's worker state machine: run current job,
+// publish completion, wait until MoonBit either assigns another job or parks it.
 pub(crate) struct HostWorkerHandle {
-    sender: mpsc::Sender<HostWorkerCommand>,
+    shared: Arc<HostWorkerShared>,
     thread: Option<JoinHandle<()>>,
+    #[cfg(unix)]
+    thread_id: Arc<Mutex<Option<libc::pthread_t>>>,
 }
 
 impl std::fmt::Debug for HostWorkerHandle {
@@ -101,36 +59,133 @@ impl std::fmt::Debug for HostWorkerHandle {
                     .as_ref()
                     .is_some_and(|thread| !thread.is_finished()),
             )
+            .field("state", &self.shared.state.lock().ok())
             .finish()
     }
 }
 
+#[cfg(unix)]
+fn init_worker_signal_handler() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+
+    extern "C" fn nop_signal_handler(_: i32) {}
+
+    INIT.call_once(|| unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+        let mut action = std::mem::zeroed::<libc::sigaction>();
+        action.sa_sigaction = nop_signal_handler as usize;
+        libc::sigemptyset(&mut action.sa_mask);
+        action.sa_flags = 0;
+        libc::sigaction(libc::SIGUSR2, &action, std::ptr::null_mut());
+    });
+}
+
 impl HostWorkerHandle {
-    pub(crate) fn spawn(mut f: impl FnMut(HostWorkerJob) + Send + 'static) -> Self {
-        let (command_sender, command_receiver) = mpsc::channel();
+    pub(crate) fn spawn(
+        init_job: HostWorkerJob,
+        mut run_job: impl FnMut(HostWorkerJob) + Send + 'static,
+        mut complete_job: impl FnMut(HostWorkerJob) + Send + 'static,
+    ) -> Self {
+        #[cfg(unix)]
+        init_worker_signal_handler();
+
+        let shared = Arc::new(HostWorkerShared {
+            state: Mutex::new(HostWorkerState {
+                job: Some(init_job),
+                waiting: false,
+            }),
+            wakeup: Condvar::new(),
+        });
+        let worker_shared = Arc::clone(&shared);
+        #[cfg(unix)]
+        let thread_id = Arc::new(Mutex::new(None));
+        #[cfg(unix)]
+        let worker_thread_id = Arc::clone(&thread_id);
         let thread = std::thread::spawn(move || {
-            while let Ok(command) = command_receiver.recv() {
-                match command {
-                    HostWorkerCommand::Run(job) => f(job),
-                    HostWorkerCommand::Shutdown => break,
+            #[cfg(unix)]
+            {
+                *worker_thread_id.lock().unwrap() = Some(unsafe { libc::pthread_self() });
+            }
+
+            loop {
+                let Some(job) = worker_shared.state.lock().unwrap().job else {
+                    break;
+                };
+                run_job(job);
+
+                {
+                    let mut state = worker_shared.state.lock().unwrap();
+                    state.waiting = true;
                 }
+                complete_job(job);
+
+                let mut state = worker_shared.state.lock().unwrap();
+                while state.waiting {
+                    state = worker_shared.wakeup.wait(state).unwrap();
+                }
+            }
+
+            #[cfg(unix)]
+            {
+                *worker_thread_id.lock().unwrap() = None;
             }
         });
         Self {
-            sender: command_sender,
+            shared,
             thread: Some(thread),
+            #[cfg(unix)]
+            thread_id,
         }
     }
 
-    pub(crate) fn run(&self, job_id: i32, job_handle: i32) -> Result<(), ()> {
-        self.sender
-            .send(HostWorkerCommand::Run(HostWorkerJob { job_id, job_handle }))
-            .map_err(|_| ())
+    pub(crate) fn wake(&self, job: Option<HostWorkerJob>) {
+        let mut state = self.shared.state.lock().unwrap();
+        state.job = job;
+        state.waiting = false;
+        self.shared.wakeup.notify_one();
+    }
+
+    pub(crate) fn enter_idle(&self) {
+        self.shared.state.lock().unwrap().job = None;
+    }
+
+    pub(crate) fn cancel(&self) -> i32 {
+        if self.shared.state.lock().unwrap().waiting {
+            return 1;
+        }
+
+        #[cfg(unix)]
+        {
+            if let Some(thread_id) = *self.thread_id.lock().unwrap() {
+                unsafe {
+                    libc::pthread_kill(thread_id, libc::SIGUSR2);
+                }
+            }
+            0
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            use windows_sys::Win32::Foundation::{ERROR_NOT_FOUND, GetLastError};
+            use windows_sys::Win32::System::IO::CancelSynchronousIo;
+
+            let Some(thread) = &self.thread else {
+                return -1;
+            };
+            if unsafe { CancelSynchronousIo(thread.as_raw_handle()) } != 0 {
+                1
+            } else if unsafe { GetLastError() } == ERROR_NOT_FOUND {
+                0
+            } else {
+                -1
+            }
+        }
     }
 
     pub(crate) fn join(&mut self) {
         if let Some(thread) = self.thread.take() {
-            let _ = self.sender.send(HostWorkerCommand::Shutdown);
+            self.wake(None);
             let _ = thread.join();
         }
     }
@@ -141,26 +196,27 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_spawn_worker"
     )]
-    #[allow(dead_code)]
-    pub(crate) fn spawn_worker(init_job_id: i32, init_job: Job) -> Worker {
-        Worker::new(init_job_id, init_job)
+    pub(crate) fn spawn_worker(
+        init_job: HostWorkerJob,
+        run_job: impl FnMut(HostWorkerJob) + Send + 'static,
+        complete_job: impl FnMut(HostWorkerJob) + Send + 'static,
+    ) -> HostWorkerHandle {
+        HostWorkerHandle::spawn(init_job, run_job, complete_job)
     }
 
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_wake_worker"
     )]
-    #[allow(dead_code)]
-    pub(crate) fn wake_worker(worker: &mut Worker, job_id: i32, job: Job) {
-        worker.wake(job_id, Some(job));
+    pub(crate) fn wake_worker(worker: &HostWorkerHandle, job: HostWorkerJob) {
+        worker.wake(Some(job));
     }
 
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_worker_enter_idle"
     )]
-    #[allow(dead_code)]
-    pub(crate) fn worker_enter_idle(worker: &mut Worker) {
+    pub(crate) fn worker_enter_idle(worker: &HostWorkerHandle) {
         worker.enter_idle();
     }
 
@@ -168,8 +224,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_cancel_worker"
     )]
-    #[allow(dead_code)]
-    pub(crate) fn cancel_worker(worker: &Worker) -> i32 {
+    pub(crate) fn cancel_worker(worker: &HostWorkerHandle) -> i32 {
         worker.cancel()
     }
 
@@ -177,33 +232,88 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_free_worker"
     )]
-    #[allow(dead_code)]
-    pub(crate) fn free_worker(_worker: Worker) {}
+    pub(crate) fn free_worker(mut worker: HostWorkerHandle) {
+        worker.join();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::make_sleep_job;
+    use std::sync::mpsc;
 
     #[test]
-    fn worker_wake_replaces_job_and_leaves_waiting_state() {
-        let mut worker = Worker::new(1, make_sleep_job(0));
-        worker.mark_waiting();
+    fn host_worker_runs_initial_job_then_waits_for_wake() {
+        let (sender, receiver) = mpsc::channel();
+        let (completion_sender, completion_receiver) = mpsc::channel();
+        let worker = spawn_worker(
+            HostWorkerJob {
+                job_id: 7,
+                job_handle: 11,
+            },
+            move |job| sender.send(job).unwrap(),
+            move |job| completion_sender.send(job).unwrap(),
+        );
 
-        worker.wake(2, Some(make_sleep_job(0)));
+        assert_eq!(
+            receiver.recv().unwrap(),
+            HostWorkerJob {
+                job_id: 7,
+                job_handle: 11
+            }
+        );
+        assert_eq!(
+            completion_receiver.recv().unwrap(),
+            HostWorkerJob {
+                job_id: 7,
+                job_handle: 11
+            }
+        );
+        assert_eq!(cancel_worker(&worker), 1);
 
-        assert_eq!(worker.job_id, 2);
-        assert!(worker.job.is_some());
-        assert!(!worker.waiting);
+        wake_worker(
+            &worker,
+            HostWorkerJob {
+                job_id: 13,
+                job_handle: 17,
+            },
+        );
+        assert_eq!(
+            receiver.recv().unwrap(),
+            HostWorkerJob {
+                job_id: 13,
+                job_handle: 17
+            }
+        );
+        free_worker(worker);
     }
 
     #[test]
-    fn worker_enter_idle_clears_current_job() {
-        let mut worker = Worker::new(1, make_sleep_job(0));
+    fn worker_enter_idle_parks_until_next_wake() {
+        let (sender, receiver) = mpsc::channel();
+        let (completion_sender, completion_receiver) = mpsc::channel();
+        let worker = spawn_worker(
+            HostWorkerJob {
+                job_id: 1,
+                job_handle: 2,
+            },
+            move |job| sender.send(job).unwrap(),
+            move |job| completion_sender.send(job).unwrap(),
+        );
 
-        worker.enter_idle();
+        assert_eq!(receiver.recv().unwrap().job_id, 1);
+        assert_eq!(completion_receiver.recv().unwrap().job_id, 1);
 
-        assert!(worker.job.is_none());
+        worker_enter_idle(&worker);
+        wake_worker(
+            &worker,
+            HostWorkerJob {
+                job_id: 3,
+                job_handle: 4,
+            },
+        );
+
+        assert_eq!(receiver.recv().unwrap().job_id, 3);
+        free_worker(worker);
     }
 }
