@@ -285,6 +285,13 @@ mod tests {
                 job_handle: 17
             }
         );
+        assert_eq!(
+            completion_receiver.recv().unwrap(),
+            HostWorkerJob {
+                job_id: 13,
+                job_handle: 17
+            }
+        );
         free_worker(worker);
     }
 
@@ -314,6 +321,7 @@ mod tests {
         );
 
         assert_eq!(receiver.recv().unwrap().job_id, 3);
+        assert_eq!(completion_receiver.recv().unwrap().job_id, 3);
         free_worker(worker);
     }
 }
