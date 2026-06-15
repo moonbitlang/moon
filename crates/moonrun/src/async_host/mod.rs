@@ -75,70 +75,76 @@ impl AsyncHostError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct GuestRange {
-    offset: usize,
-    len: usize,
-}
-
-impl GuestRange {
-    pub(crate) fn new(offset: i32, len: i32) -> AsyncHostResult<Self> {
-        let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
-        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        Ok(Self { offset, len })
-    }
-
-    fn end(self) -> AsyncHostResult<usize> {
-        self.offset
-            .checked_add(self.len)
-            .ok_or(AsyncHostError::Fault)
-    }
-}
-
 #[allow(dead_code)]
 pub(crate) trait GuestMemory {
     fn bytes(&self) -> &[u8];
 
     fn bytes_mut(&mut self) -> &mut [u8];
 
-    fn read(&self, range: GuestRange) -> AsyncHostResult<&[u8]> {
-        let end = range.end()?;
-        self.bytes()
-            .get(range.offset..end)
+    fn read_exact(&self, offset: i32, len: i32) -> AsyncHostResult<&[u8]> {
+        let (offset, end) = guest_bounds(offset, len)?;
+        self.bytes().get(offset..end).ok_or(AsyncHostError::Fault)
+    }
+
+    fn read_exact_mut(&mut self, offset: i32, len: i32) -> AsyncHostResult<&mut [u8]> {
+        let (offset, end) = guest_bounds(offset, len)?;
+        self.bytes_mut()
+            .get_mut(offset..end)
             .ok_or(AsyncHostError::Fault)
     }
 
-    fn write(&mut self, range: GuestRange, data: &[u8]) -> AsyncHostResult<()> {
-        if range.len != data.len() {
-            return Err(AsyncHostError::Inval);
-        }
-        let end = range.end()?;
-        let dst = self
-            .bytes_mut()
-            .get_mut(range.offset..end)
-            .ok_or(AsyncHostError::Fault)?;
+    fn write_exact(&mut self, offset: i32, data: &[u8]) -> AsyncHostResult<()> {
+        let len = i32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?;
+        let dst = self.read_exact_mut(offset, len)?;
         dst.copy_from_slice(data);
         Ok(())
     }
 
-    fn fill(&mut self, range: GuestRange, value: u8) -> AsyncHostResult<()> {
-        let end = range.end()?;
-        let dst = self
-            .bytes_mut()
-            .get_mut(range.offset..end)
-            .ok_or(AsyncHostError::Fault)?;
+    fn write_with_capacity(
+        &mut self,
+        offset: i32,
+        capacity: i32,
+        data: &[u8],
+    ) -> AsyncHostResult<()> {
+        let data_len = i32::try_from(data.len()).map_err(|_| AsyncHostError::Fault)?;
+        if data_len > capacity {
+            return Err(AsyncHostError::Fault);
+        }
+        let dst = self.read_exact_mut(offset, capacity)?;
+        dst[..data.len()].copy_from_slice(data);
+        Ok(())
+    }
+
+    fn fill_exact(&mut self, offset: i32, len: i32, value: u8) -> AsyncHostResult<()> {
+        let dst = self.read_exact_mut(offset, len)?;
         dst.fill(value);
         Ok(())
     }
 
     fn read_i32_le(&self, offset: i32) -> AsyncHostResult<i32> {
-        let bytes = self.read(GuestRange::new(offset, 4)?)?;
+        let bytes = self.read_exact(offset, 4)?;
         Ok(i32::from_le_bytes(bytes.try_into().unwrap()))
     }
 
-    fn write_i32_le(&mut self, offset: i32, value: i32) -> AsyncHostResult<()> {
-        self.write(GuestRange::new(offset, 4)?, &value.to_le_bytes())
+    fn read_i64_le(&self, offset: i32) -> AsyncHostResult<i64> {
+        let bytes = self.read_exact(offset, 8)?;
+        Ok(i64::from_le_bytes(bytes.try_into().unwrap()))
     }
+
+    fn write_i32_le(&mut self, offset: i32, value: i32) -> AsyncHostResult<()> {
+        self.write_exact(offset, &value.to_le_bytes())
+    }
+
+    fn write_i64_le(&mut self, offset: i32, value: i64) -> AsyncHostResult<()> {
+        self.write_exact(offset, &value.to_le_bytes())
+    }
+}
+
+fn guest_bounds(offset: i32, len: i32) -> AsyncHostResult<(usize, usize)> {
+    let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
+    let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+    let end = offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
+    Ok((offset, end))
 }
 
 impl GuestMemory for [u8] {
@@ -425,18 +431,18 @@ fn next_generation(generation: u16) -> u16 {
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingGuestWrite {
-    dst: GuestRange,
+    dst: i32,
     data: Vec<u8>,
 }
 
 #[allow(dead_code)]
 impl PendingGuestWrite {
-    pub(crate) fn new(dst: GuestRange, data: Vec<u8>) -> Self {
+    pub(crate) fn new(dst: i32, data: Vec<u8>) -> Self {
         Self { dst, data }
     }
 
     pub(crate) fn complete(self, memory: &mut (impl GuestMemory + ?Sized)) -> AsyncHostResult<()> {
-        memory.write(self.dst, &self.data)
+        memory.write_exact(self.dst, &self.data)
     }
 }
 
@@ -449,7 +455,13 @@ struct AsyncHostState {
     files: HandleTable<HostFile>,
     processes: HandleTable<HostProcess>,
     workers: HandleTable<HostWorkerHandle>,
-    completions: VecDeque<i32>,
+    completions: VecDeque<HostCompletion>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HostCompletion {
+    job_id: i32,
+    job_handle: i32,
 }
 
 #[derive(Default)]
@@ -483,7 +495,7 @@ impl AsyncHost {
         offset: i32,
         len: i32,
     ) -> AsyncHostResult<i32> {
-        let len = memory.read(GuestRange::new(offset, len)?)?.len();
+        let len = memory.read_exact(offset, len)?.len();
         i32::try_from(len).map_err(|_| AsyncHostError::Fault)
     }
 
@@ -493,7 +505,7 @@ impl AsyncHost {
         offset: i32,
         len: i32,
     ) -> AsyncHostResult<()> {
-        memory.fill(GuestRange::new(offset, len)?, 0)
+        memory.fill_exact(offset, len, 0)
     }
 
     #[allow(dead_code)]
@@ -624,16 +636,6 @@ impl AsyncHost {
         Ok(())
     }
 
-    pub(crate) fn complete_job(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        handle: i32,
-    ) -> AsyncHostResult<()> {
-        let mut state = self.state.lock().unwrap();
-        let job = state.jobs.get_mut(handle)?;
-        thread_pool::complete_guest_job(job, memory)
-    }
-
     pub(crate) fn spawn_worker(&self, job_id: i32, job_handle: i32) -> AsyncHostResult<i32> {
         let worker = self.spawn_worker_thread();
         worker
@@ -701,17 +703,36 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         let max_jobs = usize::try_from(max_jobs).map_err(|_| AsyncHostError::Fault)?;
         let mut state = self.state.lock().unwrap();
-        let mut output = vec![0; max_jobs];
-        let bytes = thread_pool::fetch_completion(&mut state.completions, &mut output)?;
-        let n =
-            usize::try_from(bytes).map_err(|_| AsyncHostError::Fault)? / std::mem::size_of::<i32>();
-        for (index, job_id) in output.into_iter().take(n).enumerate() {
+        let n = max_jobs.min(state.completions.len());
+        if n == 0 {
+            return Ok(0);
+        }
+        let bytes = n
+            .checked_mul(std::mem::size_of::<i32>())
+            .ok_or(AsyncHostError::Fault)?;
+        let bytes_i32 = i32::try_from(bytes).map_err(|_| AsyncHostError::Fault)?;
+        memory.read_exact(dst, bytes_i32)?;
+
+        let completions = state
+            .completions
+            .iter()
+            .take(n)
+            .copied()
+            .collect::<Vec<_>>();
+        for completion in &completions {
+            if let Ok(job) = state.jobs.get_mut(completion.job_handle) {
+                thread_pool::complete_guest_job(job, memory)?;
+            }
+        }
+        for (index, completion) in completions.into_iter().enumerate() {
+            let removed = state.completions.pop_front().ok_or(AsyncHostError::Inval)?;
+            debug_assert_eq!(removed, completion);
             let offset = dst
                 .checked_add(i32::try_from(index * 4).map_err(|_| AsyncHostError::Fault)?)
                 .ok_or(AsyncHostError::Fault)?;
-            memory.write_i32_le(offset, job_id)?;
+            memory.write_i32_le(offset, completion.job_id)?;
         }
-        Ok(bytes)
+        Ok(bytes_i32)
     }
 
     fn spawn_worker_thread(&self) -> HostWorkerHandle {
@@ -730,7 +751,10 @@ impl AsyncHost {
             let _ = state.jobs.put(worker_job.job_handle, job);
             // Even if cancellation discarded the job handle, the event loop
             // still needs the completion to move the worker out of running.
-            state.completions.push_back(worker_job.job_id);
+            state.completions.push_back(HostCompletion {
+                job_id: worker_job.job_id,
+                job_handle: worker_job.job_handle,
+            });
         })
     }
 }
@@ -781,7 +805,7 @@ fn native_io_error(error: std::io::Error) -> AsyncHostError {
 
 #[allow(dead_code)]
 pub(crate) fn checked_range(memory: &[u8], offset: i32, len: i32) -> AsyncHostResult<&[u8]> {
-    memory.read(GuestRange::new(offset, len)?)
+    memory.read_exact(offset, len)
 }
 
 #[allow(dead_code)]
@@ -790,11 +814,7 @@ pub(crate) fn checked_mut_range(
     offset: i32,
     len: i32,
 ) -> AsyncHostResult<&mut [u8]> {
-    let range = GuestRange::new(offset, len)?;
-    let end = range.end()?;
-    memory
-        .get_mut(range.offset..end)
-        .ok_or(AsyncHostError::Fault)
+    memory.read_exact_mut(offset, len)
 }
 
 #[cfg(test)]
@@ -844,23 +864,52 @@ mod tests {
 
     #[test]
     fn guest_memory_reads_and_writes_fixed_little_endian_records() {
-        let mut memory = [0; 8];
+        let mut memory = [0; 16];
 
         memory.write_i32_le(2, 0x1020_3040).unwrap();
+        memory.write_i64_le(8, 0x1020_3040_5060_7080).unwrap();
 
         assert_eq!(memory.read_i32_le(2).unwrap(), 0x1020_3040);
         assert_eq!(&memory[2..6], &[0x40, 0x30, 0x20, 0x10]);
-        assert_eq!(memory.write_i32_le(6, 1), Err(AsyncHostError::Fault));
+        assert_eq!(memory.read_i64_le(8).unwrap(), 0x1020_3040_5060_7080);
+        assert_eq!(memory.write_i32_le(14, 1), Err(AsyncHostError::Fault));
     }
 
     #[test]
     fn pending_guest_write_reacquires_current_memory() {
-        let pending = PendingGuestWrite::new(GuestRange::new(4, 3).unwrap(), b"abc".to_vec());
+        let pending = PendingGuestWrite::new(4, b"abc".to_vec());
         let mut grown_memory = vec![0; 16];
 
         pending.complete(grown_memory.as_mut_slice()).unwrap();
 
         assert_eq!(&grown_memory[4..7], b"abc");
+    }
+
+    #[test]
+    fn fetch_completion_copies_job_output_before_publishing_job_id() {
+        let host = AsyncHost::default();
+        let job = thread_pool::make_read_job(0, 8, 0, 3, -1);
+        let job_handle = host.insert_job(job).unwrap();
+        {
+            let mut state = host.state.lock().unwrap();
+            let job = state.jobs.get_mut(job_handle).unwrap();
+            let thread_pool::JobPayload::Read { result, .. } = job.payload_mut() else {
+                panic!("expected read job");
+            };
+            *result = Some(b"abc".to_vec());
+            state.completions.push_back(HostCompletion {
+                job_id: 42,
+                job_handle,
+            });
+        }
+
+        let mut memory = vec![0; 16];
+        let bytes = host.fetch_completion(memory.as_mut_slice(), 0, 1).unwrap();
+
+        assert_eq!(bytes, 4);
+        assert_eq!(memory.read_i32_le(0), Ok(42));
+        assert_eq!(&memory[8..11], b"abc");
+        assert!(host.state.lock().unwrap().completions.is_empty());
     }
 
     #[test]

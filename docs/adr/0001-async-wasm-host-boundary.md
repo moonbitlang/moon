@@ -13,6 +13,8 @@ We will support `moonbitlang/async` on the wasm backend through `#cfg(target="wa
 - Never retain raw wasm-memory pointers after an import returns. Host state may store handles, guest offsets, lengths, and host-owned buffers.
 - Pass async path arguments as borrowed MoonBit `String` pointers plus UTF-16 code-unit lengths. The guest must not encode `OsString` paths to UTF-8 `Bytes` before calling `moonbit_v0`; `moonrun` owns conversion from MoonBit string data into Rust `OsString` and then into the native OS call form.
 - Treat V8 memory growth as a reason to reacquire memory every call. OS APIs that need stable pointers must use host-owned memory and copy to or from wasm memory.
+- Keep worker threads out of wasm guest memory. Worker jobs may compute host-owned results, but guest-memory writes happen only during guest-thread imports such as `fetch_completion`, where the V8 adapter can reacquire the current memory view while notifying MoonBit that jobs are ready.
+- Treat wasm `FileTime` as a portable 48-byte record, not as a native `stat` or `FILE_BASIC_INFO` buffer. The wasm layout is little-endian `{ atime_sec: i64, atime_nsec: i32, mtime_sec: i64, mtime_nsec: i32, ctime_sec: i64, ctime_nsec: i32 }` with 4 bytes of padding after each nanosecond field, matching the WIT canonical record layout for those fields on wasm32.
 - Keep unsupported MVP symbols registered when they are part of the mapped boundary, but make them return native-style unsupported errors instead of causing missing-import instantiation failures.
 
 ## Deferred

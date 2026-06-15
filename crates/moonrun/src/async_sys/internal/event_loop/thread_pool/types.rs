@@ -22,6 +22,7 @@ use std::fs::File;
 
 use super::process::HostProcess;
 use crate::async_host::{AsyncHostResult, types::Platform};
+use crate::async_sys::internal::fd_util;
 
 pub(crate) type HostHandle = i32;
 
@@ -86,7 +87,21 @@ pub(crate) struct OpenJobResult {
     pub(crate) file_id: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub(crate) struct FileTimeResult(fd_util::stub::FileTime);
+
+impl FileTimeResult {
+    pub(crate) fn new(file_time: fd_util::stub::FileTime) -> Self {
+        Self(file_time)
+    }
+
+    pub(crate) fn as_native(&self) -> &fd_util::stub::FileTime {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(crate) struct Job {
     ret: i64,
@@ -142,7 +157,7 @@ impl Job {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(crate) enum JobPayload {
     Sleep {
@@ -183,13 +198,13 @@ pub(crate) enum JobPayload {
     FileTime {
         fd: HostHandle,
         out: GuestBuffer,
-        result: Option<Vec<u8>>,
+        result: Option<FileTimeResult>,
     },
     FileTimeByPath {
         path: OsString,
         out: GuestBuffer,
         follow_symlink: bool,
-        result: Option<Vec<u8>>,
+        result: Option<FileTimeResult>,
     },
     Access {
         path: OsString,

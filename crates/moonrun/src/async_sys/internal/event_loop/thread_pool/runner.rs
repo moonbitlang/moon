@@ -16,7 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, GuestRange};
+use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory};
+use crate::async_sys::internal::fd_util;
 
 use super::fs::{
     run_access_job, run_chmod_job, run_file_kind_by_path_job, run_file_size_job,
@@ -116,28 +117,42 @@ pub(crate) fn complete_guest_job(
         result: Some(result),
         ..
     }
-    | JobPayload::FileTime {
-        out: dst,
-        result: Some(result),
-        ..
-    }
-    | JobPayload::FileTimeByPath {
-        out: dst,
-        result: Some(result),
-        ..
-    }
     | JobPayload::Readdir {
         dst,
         result: Some(result),
         ..
     } = job.payload_mut()
     {
-        let len = i32::try_from(result.len()).map_err(|_| AsyncHostError::Fault)?;
         let dst_offset = dst
             .ptr
             .checked_add(dst.offset)
             .ok_or(AsyncHostError::Fault)?;
-        memory.write(GuestRange::new(dst_offset, len)?, result)?;
+        memory.write_with_capacity(dst_offset, dst.len, result)?;
+    }
+    if let JobPayload::FileTime {
+        out,
+        result: Some(result),
+        ..
+    }
+    | JobPayload::FileTimeByPath {
+        out,
+        result: Some(result),
+        ..
+    } = job.payload_mut()
+    {
+        let file_time = result.as_native();
+        let mut record = [0; 48];
+        record[0..8].copy_from_slice(&fd_util::stub::get_atime_sec(file_time).to_le_bytes());
+        record[8..12].copy_from_slice(&fd_util::stub::get_atime_nsec(file_time).to_le_bytes());
+        record[16..24].copy_from_slice(&fd_util::stub::get_mtime_sec(file_time).to_le_bytes());
+        record[24..28].copy_from_slice(&fd_util::stub::get_mtime_nsec(file_time).to_le_bytes());
+        record[32..40].copy_from_slice(&fd_util::stub::get_ctime_sec(file_time).to_le_bytes());
+        record[40..44].copy_from_slice(&fd_util::stub::get_ctime_nsec(file_time).to_le_bytes());
+        let dst_offset = out
+            .ptr
+            .checked_add(out.offset)
+            .ok_or(AsyncHostError::Fault)?;
+        memory.write_with_capacity(dst_offset, out.len, &record)?;
     }
     Ok(())
 }

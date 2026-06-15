@@ -26,7 +26,6 @@ mod types;
 mod wakeup;
 mod worker;
 
-pub(crate) use completion::fetch_completion;
 pub(crate) use jobs::{
     errno_is_cancelled, get_file_size_result, get_platform, job_get_err, job_get_ret,
     make_access_job, make_chmod_job, make_file_kind_by_path_job, make_file_size_job,
@@ -39,7 +38,11 @@ pub(crate) use process::{
     HostProcess, HostProcessTable, make_wait_for_process_job_from_handle, spawn_process,
 };
 pub(crate) use runner::{complete_guest_job, run_host_job};
-pub(crate) use types::{GuestBuffer, HostFile, HostFileTable, HostHandle, Job, OpenJobResult};
+#[cfg(test)]
+pub(crate) use types::JobPayload;
+pub(crate) use types::{
+    FileTimeResult, GuestBuffer, HostFile, HostFileTable, HostHandle, Job, OpenJobResult,
+};
 pub(crate) use worker::HostWorkerHandle;
 
 #[cfg(test)]

@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, GuestRange};
+use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory};
 
 use super::context::{
     AsyncContext, ImportArgs, callback_context, throw_import_error, with_memory_mut,
@@ -86,7 +86,7 @@ fn read_packed_argv(
     len: i32,
     argc: i32,
 ) -> AsyncHostResult<Vec<String>> {
-    let bytes = memory.read(GuestRange::new(ptr, len)?)?;
+    let bytes = memory.read_exact(ptr, len)?;
     let argc = usize::try_from(argc).map_err(|_| AsyncHostError::Fault)?;
     let mut argv = Vec::with_capacity(argc);
     let mut offset = 0usize;

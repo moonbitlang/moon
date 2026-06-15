@@ -88,20 +88,6 @@ pub(super) fn run_job(
     ret.set_undefined();
 }
 
-pub(super) fn complete_job(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let context = callback_context(&args);
-    let result = complete_job_impl(scope, &args, context);
-    if let Err(error) = result {
-        throw_import_error(scope, "thread_pool/complete_job", error);
-        return;
-    }
-    ret.set_undefined();
-}
-
 pub(super) fn spawn_worker(
     scope: &mut v8::HandleScope,
     args: v8::FunctionCallbackArguments,
@@ -322,11 +308,12 @@ pub(super) fn make_file_time_job(
     let context = callback_context(&args);
     let result = (|| {
         let mut args = ImportArgs::new(scope, &args);
-        context.host.insert_job(thread_pool::make_file_time_job(
-            args.i32(0)?,
-            args.i32(1)?,
-            args.i32(2)?,
-        ))
+        let fd = args.i32(0)?;
+        let out = args.i32(1)?;
+        let out_len = args.i32(2)?;
+        context
+            .host
+            .insert_job(thread_pool::make_file_time_job(fd, out, out_len))
     })();
     match result {
         Ok(handle) => ret.set_int32(handle),
@@ -564,18 +551,6 @@ fn run_job_impl(
     let mut args = ImportArgs::new(scope, args);
     let job = args.i32(0)?;
     with_memory_mut(scope, context, |memory| context.host.run_job(memory, job))
-}
-
-fn complete_job_impl(
-    scope: &mut v8::HandleScope,
-    args: &v8::FunctionCallbackArguments,
-    context: &AsyncContext,
-) -> AsyncHostResult<()> {
-    let mut args = ImportArgs::new(scope, args);
-    let job = args.i32(0)?;
-    with_memory_mut(scope, context, |memory| {
-        context.host.complete_job(memory, job)
-    })
 }
 
 fn fetch_completion_impl(

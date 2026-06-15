@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, GuestRange};
+use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory};
 
 use super::context::{
     AsyncContext, ImportArgs, callback_context, throw_import_error, with_memory_mut,
@@ -193,6 +193,6 @@ fn read_field(
     let ptr = args.i32(0)?;
     let offset = ptr.checked_add(field_offset).ok_or(AsyncHostError::Fault)?;
     with_memory_mut(scope, context, |memory| {
-        Ok(memory.read(GuestRange::new(offset, len)?)?.to_vec())
+        Ok(memory.read_exact(offset, len)?.to_vec())
     })
 }

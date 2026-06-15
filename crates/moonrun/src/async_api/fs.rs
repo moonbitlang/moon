@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, GuestRange};
+use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory};
 use crate::async_sys::fs::dir;
 use crate::async_sys::fs::stub;
 
@@ -185,10 +185,7 @@ fn get_tmp_path_impl(
     for unit in units {
         bytes.extend_from_slice(&unit.to_le_bytes());
     }
-    with_memory_mut(scope, context, |memory| {
-        let len = i32::try_from(bytes.len()).map_err(|_| AsyncHostError::Fault)?;
-        memory.write(GuestRange::new(ptr, len)?, &bytes)
-    })
+    with_memory_mut(scope, context, |memory| memory.write_exact(ptr, &bytes))
 }
 
 fn with_dir_header<T>(
@@ -212,7 +209,7 @@ fn dir_entry_header(
     offset: i32,
 ) -> AsyncHostResult<&[u8]> {
     let header_ptr = buf.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-    memory.read(GuestRange::new(header_ptr, dir::HEADER_LEN as i32)?)
+    memory.read_exact(header_ptr, dir::HEADER_LEN as i32)
 }
 
 fn tmp_path_utf16_units() -> AsyncHostResult<Vec<u16>> {

@@ -23,7 +23,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::fs::dir::EntryRecord;
 use crate::async_sys::internal::fd_util;
 
-use super::{GuestBuffer, HostFile, HostFileTable, HostHandle, OpenJobResult};
+use super::{FileTimeResult, GuestBuffer, HostFile, HostFileTable, HostHandle, OpenJobResult};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_open_job(
@@ -103,10 +103,10 @@ pub(super) fn run_file_size_job(
 pub(super) fn run_file_time_job(
     files: &mut impl HostFileTable,
     fd: HostHandle,
-    result: &mut Option<Vec<u8>>,
+    result: &mut Option<FileTimeResult>,
 ) -> AsyncHostResult<i64> {
     files.with_file_mut(fd, |file| {
-        *result = Some(file_time(file)?);
+        *result = Some(FileTimeResult::new(file_time(file)?));
         Ok(0)
     })
 }
@@ -114,9 +114,12 @@ pub(super) fn run_file_time_job(
 pub(super) fn run_file_time_by_path_job(
     path: OsString,
     follow_symlink: bool,
-    result: &mut Option<Vec<u8>>,
+    result: &mut Option<FileTimeResult>,
 ) -> AsyncHostResult<i64> {
-    *result = Some(file_time_by_path(path, follow_symlink)?);
+    *result = Some(FileTimeResult::new(file_time_by_path(
+        path,
+        follow_symlink,
+    )?));
     Ok(0)
 }
 
@@ -494,18 +497,21 @@ fn file_size(file: &File) -> AsyncHostResult<i64> {
 }
 
 #[cfg(unix)]
-fn file_time(file: &File) -> AsyncHostResult<Vec<u8>> {
+fn file_time(file: &File) -> AsyncHostResult<fd_util::stub::FileTime> {
     use std::os::fd::AsRawFd;
 
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
     if unsafe { libc::fstat(file.as_raw_fd(), stat.as_mut_ptr()) } < 0 {
         return Err(last_native_error());
     }
-    Ok(encode_file_time(&unsafe { stat.assume_init() }))
+    Ok(unsafe { stat.assume_init() })
 }
 
 #[cfg(unix)]
-fn file_time_by_path(path: OsString, follow_symlink: bool) -> AsyncHostResult<Vec<u8>> {
+fn file_time_by_path(
+    path: OsString,
+    follow_symlink: bool,
+) -> AsyncHostResult<fd_util::stub::FileTime> {
     let path = path_to_cstring(path)?;
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
     let ret = if follow_symlink {
@@ -516,21 +522,7 @@ fn file_time_by_path(path: OsString, follow_symlink: bool) -> AsyncHostResult<Ve
     if ret < 0 {
         return Err(last_native_error());
     }
-    Ok(encode_file_time(&unsafe { stat.assume_init() }))
-}
-
-fn encode_file_time(file_time: &fd_util::stub::FileTime) -> Vec<u8> {
-    let mut record = Vec::with_capacity(48);
-    record.extend_from_slice(&fd_util::stub::get_atime_sec(file_time).to_le_bytes());
-    record.extend_from_slice(&fd_util::stub::get_atime_nsec(file_time).to_le_bytes());
-    record.resize(16, 0);
-    record.extend_from_slice(&fd_util::stub::get_mtime_sec(file_time).to_le_bytes());
-    record.extend_from_slice(&fd_util::stub::get_mtime_nsec(file_time).to_le_bytes());
-    record.resize(32, 0);
-    record.extend_from_slice(&fd_util::stub::get_ctime_sec(file_time).to_le_bytes());
-    record.extend_from_slice(&fd_util::stub::get_ctime_nsec(file_time).to_le_bytes());
-    record.resize(48, 0);
-    record
+    Ok(unsafe { stat.assume_init() })
 }
 
 #[cfg(unix)]
@@ -1221,7 +1213,7 @@ fn file_size(file: &File) -> AsyncHostResult<i64> {
 }
 
 #[cfg(windows)]
-fn file_time(file: &File) -> AsyncHostResult<Vec<u8>> {
+fn file_time(file: &File) -> AsyncHostResult<fd_util::stub::FileTime> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Storage::FileSystem::{
@@ -1240,11 +1232,14 @@ fn file_time(file: &File) -> AsyncHostResult<Vec<u8>> {
     if ok == 0 {
         return Err(last_native_error());
     }
-    Ok(encode_file_time(&unsafe { info.assume_init() }))
+    Ok(unsafe { info.assume_init() })
 }
 
 #[cfg(windows)]
-fn file_time_by_path(path: OsString, follow_symlink: bool) -> AsyncHostResult<Vec<u8>> {
+fn file_time_by_path(
+    path: OsString,
+    follow_symlink: bool,
+) -> AsyncHostResult<fd_util::stub::FileTime> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
         CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS,
@@ -1287,7 +1282,7 @@ fn file_time_by_path(path: OsString, follow_symlink: bool) -> AsyncHostResult<Ve
     if ok == 0 {
         return Err(last_native_error());
     }
-    Ok(encode_file_time(&unsafe { info.assume_init() }))
+    Ok(unsafe { info.assume_init() })
 }
 
 #[cfg(windows)]

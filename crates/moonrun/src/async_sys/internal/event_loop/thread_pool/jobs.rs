@@ -196,10 +196,10 @@ ported_fns! {
         original = "moonbitlang_async_make_file_time_job"
     )]
     #[allow(dead_code)]
-    pub(crate) fn make_file_time_job(fd: HostHandle, ptr: i32, len: i32) -> Job {
+    pub(crate) fn make_file_time_job(fd: HostHandle, out: i32, out_len: i32) -> Job {
         Job::new(JobPayload::FileTime {
             fd,
-            out: GuestBuffer::new(ptr, 0, len),
+            out: GuestBuffer::new(out, 0, out_len),
             result: None,
         })
     }
@@ -211,13 +211,13 @@ ported_fns! {
     #[allow(dead_code)]
     pub(crate) fn make_file_time_by_path_job(
         path: OsString,
-        ptr: i32,
-        len: i32,
+        out: i32,
+        out_len: i32,
         follow_symlink: bool,
     ) -> Job {
         Job::new(JobPayload::FileTimeByPath {
             path,
-            out: GuestBuffer::new(ptr, 0, len),
+            out: GuestBuffer::new(out, 0, out_len),
             follow_symlink,
             result: None,
         })
@@ -375,33 +375,44 @@ mod tests {
     fn read_job_carries_host_handle_and_guest_buffer_payload() {
         let job = make_read_job(7, 100, 2, 8, -1);
 
-        assert_eq!(
-            job.payload(),
-            &JobPayload::Read {
-                fd: 7,
-                dst: GuestBuffer::new(100, 2, 8),
-                position: -1,
-                result: None
+        match job.payload() {
+            JobPayload::Read {
+                fd,
+                dst,
+                position,
+                result: None,
+            } => {
+                assert_eq!(*fd, 7);
+                assert_eq!(*dst, GuestBuffer::new(100, 2, 8));
+                assert_eq!(*position, -1);
             }
-        );
+            other => panic!("unexpected payload: {other:?}"),
+        }
     }
 
     #[test]
     fn open_job_carries_owned_path_and_open_flags() {
         let job = make_open_job(OsString::from("/tmp/example"), 2, 3, true, 1, 0o644);
 
-        assert_eq!(
-            job.payload(),
-            &JobPayload::Open {
-                filename: OsString::from("/tmp/example"),
-                access: 2,
-                create_mode: 3,
-                append: true,
-                sync: 1,
-                mode: 0o644,
-                result: None
+        match job.payload() {
+            JobPayload::Open {
+                filename,
+                access,
+                create_mode,
+                append,
+                sync,
+                mode,
+                result: None,
+            } => {
+                assert_eq!(filename, &OsString::from("/tmp/example"));
+                assert_eq!(*access, 2);
+                assert_eq!(*create_mode, 3);
+                assert!(*append);
+                assert_eq!(*sync, 1);
+                assert_eq!(*mode, 0o644);
             }
-        );
+            other => panic!("unexpected payload: {other:?}"),
+        }
     }
 
     #[test]

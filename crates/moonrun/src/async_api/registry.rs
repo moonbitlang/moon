@@ -177,10 +177,6 @@ declare_async_imports! {
     native = None,
     sources = [moonrun:"crates/moonrun/src/async_api/thread_pool.rs"];
 
-    support thread_pool::complete_job => "thread_pool/complete_job",
-    native = None,
-    sources = [moonrun:"crates/moonrun/src/async_api/thread_pool.rs"];
-
     native thread_pool::spawn_worker => "thread_pool/spawn_worker",
     native = Some("moonbitlang_async_spawn_worker"),
     sources = [moonbit_async:"src/internal/event_loop/thread_pool.c"];
