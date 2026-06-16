@@ -169,6 +169,30 @@ fn test_moon_test_hello_lib() {
 }
 
 #[test]
+fn test_moon_test_runs_from_module_root() {
+    let dir = TestDir::new("moon_test/test_cwd");
+    let lib_dir = dir.join("lib");
+
+    check(
+        get_stdout(
+            &lib_dir,
+            [
+                "--manifest-path",
+                "../moon.mod.json",
+                "test",
+                "--target",
+                "js",
+                "--no-parallelize",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_zombie_child_process() {
     use super::process::{
         read_pid_file, terminate_child, terminate_pid, wait_for_child_exit, wait_for_pid_exit,
