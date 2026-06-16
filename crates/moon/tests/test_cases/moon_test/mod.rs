@@ -9,6 +9,49 @@ use crate::dry_run_utils::assert_lines_in_order;
 
 use super::*;
 
+fn repo_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .unwrap()
+        .to_path_buf()
+}
+
+fn moonrun_bin() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_moonrun") {
+        return path.into();
+    }
+
+    let mut path = std::env::current_exe().unwrap();
+    path.pop();
+    if path.ends_with("deps") {
+        path.pop();
+    }
+    path.join(format!("moonrun{}", std::env::consts::EXE_SUFFIX))
+}
+
+fn run_upstream_async_wasm_package(package: &str) -> String {
+    let async_dir = repo_root().join("third_party/moonbitlang_async");
+    let output = moon_cmd(&async_dir)
+        .env("MOON_OVERRIDE", moon_bin())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "test",
+            "--target",
+            "wasm",
+            "--package",
+            package,
+            "--sort-input",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    std::str::from_utf8(&output).unwrap().to_owned()
+}
+
 #[test]
 fn test_moon_test_succ() {
     // TODO: Audit that the environment access only happens in single-threaded code.
@@ -530,6 +573,36 @@ fn test_async_test() {
     );
     let last_line = out2.lines().last().unwrap_or("");
     check(last_line, expect!["Total tests: 1, passed: 0, failed: 1."])
+}
+
+#[test]
+fn test_async_wasm_upstream_src_package() {
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async"),
+        expect![[r#"
+            Total tests: 91, passed: 91, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_async_wasm_upstream_aqueue_package() {
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async/aqueue"),
+        expect![[r#"
+            Total tests: 52, passed: 52, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_async_wasm_upstream_semaphore_package() {
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async/semaphore"),
+        expect![[r#"
+            Total tests: 12, passed: 12, failed: 0.
+        "#]],
+    );
 }
 
 #[test]

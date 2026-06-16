@@ -143,6 +143,7 @@ const __moonbit_backtrace_runtime = globalThis.__moonbit_backtrace_runtime || {
 })(__moonbit_fs_unstable, __moonbit_run_env);
 
 const __moonbit_wasi_unstable = globalThis.__moonbit_wasi_unstable || {};
+const moonbit_v0 = globalThis.moonbit_v0 || {};
 
 delete globalThis.__moonbit_run_env;
 delete globalThis.__moonbit_backtrace_runtime;
@@ -436,6 +437,7 @@ const spectest = {
     __moonbit_io_unstable: __moonbit_io_unstable,
     __moonbit_sys_unstable: __moonbit_sys_unstable,
     __moonbit_time_unstable: __moonbit_time_unstable,
+    moonbit_v0: moonbit_v0,
     wasi_snapshot_preview1: wasi_snapshot_preview1,
     moonbit: {
         string_to_js_string() {
