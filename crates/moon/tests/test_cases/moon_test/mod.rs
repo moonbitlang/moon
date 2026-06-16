@@ -193,6 +193,31 @@ fn test_moon_test_runs_from_module_root() {
 }
 
 #[test]
+fn test_moon_test_workspace_members_run_from_module_root() {
+    let dir = TestDir::new("moon_test/workspace_cwd");
+    let spawn_dir = dir.join("spawn");
+    std::fs::create_dir(&spawn_dir).expect("failed to create spawn directory");
+
+    check(
+        get_stdout(
+            &spawn_dir,
+            [
+                "--manifest-path",
+                "../moon.work",
+                "test",
+                "--target",
+                "js",
+                "--no-parallelize",
+                "--sort-input",
+            ],
+        ),
+        expect![[r#"
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_zombie_child_process() {
     use super::process::{
         read_pid_file, terminate_child, terminate_pid, wait_for_child_exit, wait_for_pid_exit,
