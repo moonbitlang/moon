@@ -404,7 +404,6 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --help 'Print help'
         }
         &'moon;fmt'= {
-            cand --block-style 'Add separator between each segments'
             cand --manifest-path 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --check 'Check only and don''t change the source code'
@@ -909,7 +908,6 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --new 'The target path of the formatted code'
             cand --manifest-path 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
-            cand --block-style 'Add separator between each segments'
             cand --warn 'Warn instead of showing differences'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'

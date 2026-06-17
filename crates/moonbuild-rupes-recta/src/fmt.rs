@@ -73,9 +73,6 @@ pub fn resolve_for_fmt(
 }
 
 pub struct FmtConfig {
-    /// Enable `///|` block-lines in formatting
-    pub block_style: bool,
-
     /// Checks the formatting without writing to files
     pub check_only: bool,
 
@@ -502,9 +499,6 @@ fn format_node(
         if cfg.warn_only {
             cmd.push("--warn".into());
         }
-        if cfg.block_style {
-            cmd.push("--block-style".into());
-        }
         cmd.extend_from_slice(&cfg.extra_args);
         cmd
     } else {
@@ -516,9 +510,6 @@ fn format_node(
             out_file.clone(),
         ];
         cmd.extend_from_slice(&cfg.extra_args);
-        if cfg.block_style {
-            cmd.push("-block-style".into());
-        }
         cmd
     };
 

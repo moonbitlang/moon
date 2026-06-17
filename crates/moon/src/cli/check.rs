@@ -148,7 +148,6 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             crate::cli::FmtSubcommand {
                 check: false,
                 sort_input: false,
-                block_style: None,
                 warn: true,
                 path: cmd.path.clone(),
                 args: vec![],
