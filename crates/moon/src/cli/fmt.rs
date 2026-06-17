@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::fmt::FmtConfig;
-use moonutil::{common::BlockStyle, dirs::PackageDirs};
+use moonutil::dirs::PackageDirs;
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
@@ -38,10 +38,6 @@ pub(crate) struct FmtSubcommand {
     /// Sort input files
     #[clap(long)]
     pub sort_input: bool,
-
-    /// Add separator between each segments
-    #[clap(long, value_enum, num_args=0..=1, default_missing_value = "true")]
-    pub block_style: Option<BlockStyle>,
 
     /// Warn if code is not properly formatted
     #[clap(long, conflicts_with = "check")]
@@ -89,7 +85,6 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
     }
 
     let fmt_config = FmtConfig {
-        block_style: cmd.block_style.unwrap_or_default().is_line(),
         check_only: cmd.check,
         warn_only: cmd.warn,
         extra_args: cmd.args.clone(),

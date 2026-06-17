@@ -1067,23 +1067,9 @@ pub struct TestArtifacts {
     pub test_filter_args: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, ValueEnum)]
-pub enum BlockStyle {
-    #[default]
-    False,
-    True,
-}
-
-impl BlockStyle {
-    pub fn is_line(&self) -> bool {
-        matches!(self, Self::True)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct FmtOpt {
     pub check: bool,
-    pub block_style: BlockStyle,
     pub extra_args: Vec<String>,
 }
 

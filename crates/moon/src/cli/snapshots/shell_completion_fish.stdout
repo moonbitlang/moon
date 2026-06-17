@@ -319,7 +319,6 @@ complete -c moon -n "__fish_moon_using_subcommand clean" -l trace -d 'Trace the 
 complete -c moon -n "__fish_moon_using_subcommand clean" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand clean" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand clean" -s h -l help -d 'Print help'
-complete -c moon -n "__fish_moon_using_subcommand fmt" -l block-style -d 'Add separator between each segments' -r -f -a "{false\t'',true\t''}"
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l check -d 'Check only and don\'t change the source code'
@@ -645,7 +644,6 @@ complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcomma
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l new -d 'The target path of the formatted code' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
-complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l block-style -d 'Add separator between each segments'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -l warn -d 'Warn instead of showing differences'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -s q -l quiet -d 'Suppress output'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from format-and-diff" -s v -l verbose -d 'Increase verbosity'

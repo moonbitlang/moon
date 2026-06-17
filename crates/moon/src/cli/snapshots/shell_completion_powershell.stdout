@@ -420,7 +420,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             break
         }
         'moon;fmt' {
-            [CompletionResult]::new('--block-style', 'block-style', [CompletionResultType]::ParameterName, 'Add separator between each segments')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--check', 'check', [CompletionResultType]::ParameterName, 'Check only and don''t change the source code')
@@ -964,7 +963,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--new', 'new', [CompletionResultType]::ParameterName, 'The target path of the formatted code')
             [CompletionResult]::new('--manifest-path', 'manifest-path', [CompletionResultType]::ParameterName, 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
-            [CompletionResult]::new('--block-style', 'block-style', [CompletionResultType]::ParameterName, 'Add separator between each segments')
             [CompletionResult]::new('--warn', 'warn', [CompletionResultType]::ParameterName, 'Warn instead of showing differences')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')
             [CompletionResult]::new('--quiet', 'quiet', [CompletionResultType]::ParameterName, 'Suppress output')

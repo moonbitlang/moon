@@ -31,10 +31,6 @@ pub(crate) struct FormatAndDiffSubcommand {
     #[clap(long)]
     new: PathBuf,
 
-    /// Add separator between each segments
-    #[clap(long)]
-    block_style: bool,
-
     /// Warn instead of showing differences
     #[clap(long)]
     warn: bool,
@@ -49,9 +45,6 @@ pub(crate) fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Resul
         .arg(&cmd.old)
         .arg("-o")
         .arg(&cmd.new);
-    if cmd.block_style {
-        moonfmt.arg("-block-style");
-    }
     let mut execution = moonfmt
         .args(&cmd.args)
         .stdin(Stdio::inherit())

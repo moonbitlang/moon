@@ -1019,16 +1019,12 @@ _moon() {
             return 0
             ;;
         moon__fmt)
-            opts="-q -v -h --check --sort-input --block-style --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]... [ARGS]..."
+            opts="-q -v -h --check --sort-input --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]... [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
-                --block-style)
-                    COMPREPLY=($(compgen -W "false true" -- "${cur}"))
-                    return 0
-                    ;;
                 --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
@@ -2641,7 +2637,7 @@ _moon() {
             return 0
             ;;
         moon__tool__format__and__diff)
-            opts="-q -v -h --old --new --block-style --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [ARGS]..."
+            opts="-q -v -h --old --new --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

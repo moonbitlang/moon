@@ -420,7 +420,6 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (fmt)
 _arguments "${_arguments_options[@]}" : \
-'--block-style=[Add separator between each segments]' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '--check[Check only and don'\''t change the source code]' \
@@ -1048,7 +1047,6 @@ _arguments "${_arguments_options[@]}" : \
 '--new=[The target path of the formatted code]:NEW:_files' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
-'--block-style[Add separator between each segments]' \
 '--warn[Warn instead of showing differences]' \
 '-q[Suppress output]' \
 '--quiet[Suppress output]' \

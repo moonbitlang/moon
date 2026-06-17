@@ -41,7 +41,7 @@ Moon Commands and Tools
   - test_moon_fmt
   - test_moon_fmt_002 (unix only)
   - test_moon_fmt_extra_args
-  - test_moon_fmt_block_style
+  - test_moon_fmt_rejects_block_style
   - test_moon_doc_dry_run
   - test_moon_doc
   - test_tracing_value
