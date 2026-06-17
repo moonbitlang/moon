@@ -142,8 +142,8 @@ forward instead of letting later phases infer it again. In particular:
 Source directory, `.mooncakes` directory, target directory, and optional project
 manifest path are user/config facts from project discovery. The synced
 dependency result is derived data: it contains the resolved module
-relationships, module source directories, and workspace preferred target
-produced by dependency sync. `ResolveOutput` should contain resolved
+relationships and module source directories produced by dependency sync.
+`ResolveOutput` should contain resolved
 build-model data derived from those inputs, not repeat the captured discovery
 paths.
 
@@ -202,7 +202,10 @@ explicit workspace root via `moon.work`, following the same discovery precedence
 The workspace manifest is intentionally small. `moon.work` currently supports:
 
 - `members = ["./app", "./lib"]` to list workspace roots.
-- `preferred_target = "wasm-gc"` to set the preferred default target for the workspace.
+
+`preferred_target` in `moon.work` is deprecated. Commands warn when they read
+it, but they do not use it for backend selection. `moon fmt` removes it. Set
+`preferred_target` in each module manifest instead.
 
 When Moon writes `use` entries, relative paths are normalized with `/` separators. Absolute paths
 are kept as absolute OS-specific paths and are not made portable.
@@ -361,7 +364,7 @@ If the package is virtual, then a list of virtual package checking nodes will be
 
 For `moon check` and `moon build` without an explicit `--target`, CLI planning
 may first split selected packages into multiple backend groups using
-`module preferred_target -> workspace preferred_target -> default backend`,
+`module preferred_target -> default backend`,
 then emit intents separately for each backend group.
 
 This mapping is also on a migration path for main packages: release N keeps the

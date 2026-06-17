@@ -159,14 +159,10 @@ pub(crate) fn local_packages(
         })
 }
 
-fn workspace_preferred_target(
+fn local_modules_preferred_target(
     resolve_output: &ResolveOutput,
     output: UserDiagnostics,
 ) -> Option<TargetBackend> {
-    if let Some(preferred_target) = resolve_output.workspace_preferred_target {
-        return Some(preferred_target);
-    }
-
     let preferred = resolve_output
         .local_modules()
         .iter()
@@ -542,7 +538,7 @@ pub(crate) fn prepare_resolved_build(
     let preferred_target = if preconfig.target_backend.is_some() {
         None
     } else {
-        workspace_preferred_target(resolve_output, output)
+        local_modules_preferred_target(resolve_output, output)
     };
     info!("Preferred backend: {:?}", preferred_target);
 

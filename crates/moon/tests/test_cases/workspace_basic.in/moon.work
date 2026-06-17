@@ -2,4 +2,3 @@ members = [
   "./app",
   "./liba",
 ]
-preferred_target = "wasm-gc"

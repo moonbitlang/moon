@@ -46,7 +46,6 @@ fn same_root_workspace_dir() -> TestDir {
   ".",
   "./dep",
 ]
-preferred_target = "wasm-gc"
 "#,
     );
     write_file(
@@ -125,7 +124,6 @@ fn nested_workspace_under_unrelated_module_dir() -> TestDir {
         r#"members = [
   "./app",
 ]
-preferred_target = "wasm-gc"
 "#,
     );
     write_file(
@@ -382,6 +380,56 @@ fn test_empty_workspace_fmt_formats_workspace_manifest() {
 }
 
 #[test]
+fn test_workspace_preferred_target_warns() {
+    let dir = TestDir::new("workspace_basic.in");
+    std::fs::write(
+        dir.join("moon.work"),
+        r#"members = [
+  "./app",
+  "./liba",
+]
+preferred_target = "wasm-gc"
+"#,
+    )
+    .unwrap();
+
+    check(
+        get_stderr(&dir, ["build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+        "#]],
+    );
+}
+
+#[test]
+fn test_workspace_fmt_removes_deprecated_preferred_target() {
+    let dir = TestDir::new("fmt_moon_work_existing.in");
+
+    check(
+        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+            Warning: Migrating to moon.mod at module root '$ROOT/app', deprecated moon.mod.json is removed.
+        "#]],
+    );
+
+    snapbox::cmd::Command::new(moon_bin())
+        .current_dir(&dir)
+        .args(["fmt"])
+        .assert()
+        .success();
+
+    check(
+        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
+        expect![[r#"
+            members = [
+              "./app",
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn test_workspace_fmt_places_moon_mod_under_module_name() {
     let dir = TestDir::new("workspace_basic.in");
     std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
@@ -604,7 +652,7 @@ fn test_work_init_creates_empty_workspace() {
 }
 
 #[test]
-fn test_work_use_updates_workspace_and_preserves_preferred_target() {
+fn test_work_use_updates_workspace_and_preserves_deprecated_preferred_target() {
     let dir = TestDir::new("workspace_basic.in");
 
     std::fs::write(
@@ -624,8 +672,17 @@ preferred_target = "wasm-gc"
         "#]],
     );
 
+    let moon_work = std::fs::read_to_string(dir.join("moon.work")).unwrap();
+    let preferred_target = moon_work
+        .lines()
+        .find(|line| line.starts_with("preferred_target"))
+        .unwrap_or("");
     check(
-        std::fs::read_to_string(dir.join("moon.work")).unwrap(),
+        preferred_target,
+        expect![[r#"preferred_target = "wasm-gc""#]],
+    );
+    check(
+        moon_work,
         expect![[r#"
             members = [
               "./liba",
@@ -690,7 +747,6 @@ fn test_work_use_ignores_unrelated_ancestor_workspace() {
               "./app",
               "./liba",
             ]
-            preferred_target = "wasm-gc"
         "#]],
     );
 }
@@ -1279,7 +1335,6 @@ fn test_pinned_workspace_path_selects_outer_module_when_listed() {
         r#"members = [
   "../",
 ]
-preferred_target = "wasm-gc"
 "#,
     );
 

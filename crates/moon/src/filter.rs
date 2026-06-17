@@ -329,7 +329,6 @@ pub(crate) fn preferred_target_backend_for_package(
         .module_rel
         .module_info(module_id)
         .preferred_target
-        .or(resolve_output.workspace_preferred_target)
         .unwrap_or_default()
 }
 

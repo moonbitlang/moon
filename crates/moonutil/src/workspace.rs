@@ -31,6 +31,8 @@ use crate::{
     moon_pkg,
 };
 
+const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MoonWork {
@@ -83,20 +85,33 @@ pub fn read_workspace(dir: &Path) -> anyhow::Result<Option<MoonWork>> {
 pub fn read_workspace_file(path: &Path) -> anyhow::Result<MoonWork> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
-    let workspace = match path.file_name().and_then(|name| name.to_str()) {
-        Some(MOON_WORK) => parse_workspace_dsl(&content),
+    let workspace = parse_workspace_file_content(path, &content)?;
+    if workspace.preferred_target.is_some() {
+        eprintln!("{PREFERRED_TARGET_DEPRECATION_WARNING}");
+    }
+    Ok(workspace)
+}
+
+pub fn format_workspace_file(path: &Path) -> anyhow::Result<String> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read workspace file `{}`", path.display()))?;
+    let workspace = parse_workspace_file_content(path, &content)?;
+    if workspace.preferred_target.is_some() {
+        eprintln!("{PREFERRED_TARGET_DEPRECATION_WARNING}");
+    }
+    format_workspace_dsl_for_moon_fmt(&workspace)
+}
+
+fn parse_workspace_file_content(path: &Path, content: &str) -> anyhow::Result<MoonWork> {
+    match path.file_name().and_then(|name| name.to_str()) {
+        Some(MOON_WORK) => parse_workspace_dsl(content),
         _ => anyhow::bail!(
             "expected workspace file to be `{}`, got `{}`",
             MOON_WORK,
             path.display()
         ),
-    };
-    workspace.with_context(|| format!("failed to parse workspace file `{}`", path.display()))
-}
-
-pub fn format_workspace_file(path: &Path) -> anyhow::Result<String> {
-    let workspace = read_workspace_file(path)?;
-    format_workspace_dsl(&workspace)
+    }
+    .with_context(|| format!("failed to parse workspace file `{}`", path.display()))
 }
 
 pub fn write_workspace(dir: &Path, work: &MoonWork) -> anyhow::Result<()> {
@@ -144,7 +159,7 @@ fn parse_workspace_dsl(content: &str) -> anyhow::Result<MoonWork> {
     Ok(workspace)
 }
 
-fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
+fn format_workspace_members(work: &MoonWork) -> anyhow::Result<String> {
     let mut out = String::new();
 
     if work.use_paths.is_empty() {
@@ -161,6 +176,12 @@ fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
         out.push_str("]\n");
     }
 
+    Ok(out)
+}
+
+fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
+    let mut out = format_workspace_members(work)?;
+
     if let Some(preferred_target) = work.preferred_target {
         out.push_str("preferred_target = ");
         out.push_str(&serde_json_lenient::to_string(preferred_target.to_flag())?);
@@ -168,6 +189,10 @@ fn format_workspace_dsl(work: &MoonWork) -> anyhow::Result<String> {
     }
 
     Ok(out)
+}
+
+fn format_workspace_dsl_for_moon_fmt(work: &MoonWork) -> anyhow::Result<String> {
+    format_workspace_members(work)
 }
 
 fn write_text_with_trailing_newline(writer: &mut impl Write, content: &str) -> anyhow::Result<()> {
@@ -219,6 +244,17 @@ mod tests {
             json,
             "members = [\n  \"./app/main\",\n]\npreferred_target = \"wasm-gc\"\n"
         );
+    }
+
+    #[test]
+    fn format_for_moon_fmt_removes_deprecated_preferred_target() {
+        let workspace = MoonWork {
+            use_paths: vec![PathBuf::from(".").join("app").join("main")],
+            preferred_target: Some(TargetBackend::WasmGC),
+        };
+
+        let json = format_workspace_dsl_for_moon_fmt(&workspace).unwrap();
+        assert_eq!(json, "members = [\n  \"./app/main\",\n]\n");
     }
 
     #[cfg(windows)]

@@ -88,10 +88,9 @@ pub fn init_workspace(
 
 pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> anyhow::Result<i32> {
     let existing = read_workspace(workspace_root)?;
-    let preferred_target = match existing.as_ref() {
-        Some(workspace) => workspace.preferred_target,
-        None => None,
-    };
+    let preferred_target = existing
+        .as_ref()
+        .and_then(|workspace| workspace.preferred_target);
 
     let mut use_paths = Vec::new();
     let mut member_dirs = BTreeSet::new();
