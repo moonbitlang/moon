@@ -616,18 +616,26 @@ fn run_one_test_executable(
     ctx: &TestRunCtx<'_>,
     test: &TestInvocation,
 ) -> Result<TargetTestResult, anyhow::Error> {
-    let fqn = ctx
+    let package = ctx
         .build_meta
         .resolve_output
         .pkg_dirs
-        .fqn(test.target.package);
+        .get_package(test.target.package);
+    let fqn = &package.fqn;
+    let module_root = &ctx.build_meta.resolve_output.module_dirs[package.module];
+    let executable = if test.executable.is_absolute() {
+        test.executable.clone()
+    } else {
+        ctx.source_dir.join(&test.executable)
+    };
 
-    let cmd = crate::run::command_for(
+    let mut cmd = crate::run::command_for(
         ctx.build_meta.target_backend,
         ctx.build_meta.tcc_run.as_ref(),
-        &test.executable,
+        &executable,
         Some(&test.args),
     );
+    cmd.current_dir(module_root);
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if ctx.verbose {

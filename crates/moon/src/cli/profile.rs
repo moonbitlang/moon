@@ -246,8 +246,12 @@ struct CapturedProfile {
 pub(crate) struct ProfileRequest {
     /// Native executable that xctrace should launch.
     pub(crate) executable: PathBuf,
+    /// Executable path to report to users, when it differs from the launched path.
+    pub(crate) display_executable: Option<PathBuf>,
     /// Arguments passed after the executable in the profiled invocation.
     pub(crate) args: Vec<String>,
+    /// Working directory used for the profiled process.
+    pub(crate) current_dir: Option<PathBuf>,
     /// Directory where the trace, exported data, stdout/stderr, and JSON report are written.
     pub(crate) output_dir: PathBuf,
     /// Moon command mode that requested the profile.
@@ -296,7 +300,9 @@ fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow:
         target_backend: built.target_backend,
         opt_level: built.opt_level,
         executable: built.executable,
+        display_executable: None,
         args: cmd.args,
+        current_dir: None,
         output_dir,
     };
 
@@ -334,7 +340,9 @@ fn capture_profile_executable(
 ) -> anyhow::Result<Option<CapturedProfile>> {
     let ProfileRequest {
         executable,
+        display_executable,
         args,
+        current_dir,
         output_dir,
         run_mode,
         target_backend,
@@ -354,11 +362,18 @@ fn capture_profile_executable(
     let perf_script_path = output_dir.join("perf-script.txt");
     let stdout_path = output_dir.join("stdout.txt");
     let stderr_path = output_dir.join("stderr.txt");
+    let display_executable = display_executable.unwrap_or_else(|| executable.clone());
 
     if cli.dry_run {
         match profiler_backend {
             ProfileBackend::Xctrace => {
-                print_xctrace_record_command(&trace_path, &stdout_path, &executable, &args);
+                print_xctrace_record_command(
+                    &trace_path,
+                    &stdout_path,
+                    &executable,
+                    &args,
+                    current_dir.as_deref(),
+                );
                 print_xctrace_export_command(&trace_path, &xml_path);
             }
             ProfileBackend::Perf => {
@@ -368,6 +383,7 @@ fn capture_profile_executable(
                     &stderr_path,
                     &executable,
                     &args,
+                    current_dir.as_deref(),
                 );
                 print_perf_script_command(&trace_path, &perf_script_path);
             }
@@ -391,7 +407,13 @@ fn capture_profile_executable(
 
     let (parsed, artifacts) = match profiler_backend {
         ProfileBackend::Xctrace => {
-            run_xctrace_record(&trace_path, &stdout_path, &executable, &args)?;
+            run_xctrace_record(
+                &trace_path,
+                &stdout_path,
+                &executable,
+                &args,
+                current_dir.as_deref(),
+            )?;
             run_xctrace_export(&trace_path, &xml_path)?;
             (
                 parse_xctrace_time_profile(&xml_path)?,
@@ -406,7 +428,14 @@ fn capture_profile_executable(
             )
         }
         ProfileBackend::Perf => {
-            run_perf_record(&trace_path, &stdout_path, &stderr_path, &executable, &args)?;
+            run_perf_record(
+                &trace_path,
+                &stdout_path,
+                &stderr_path,
+                &executable,
+                &args,
+                current_dir.as_deref(),
+            )?;
             run_perf_script(&trace_path, &perf_script_path)?;
             (
                 parse_perf_script(&perf_script_path)?,
@@ -422,10 +451,16 @@ fn capture_profile_executable(
         }
     };
     Ok(Some(CapturedProfile {
-        name: executable_profile_name(&executable),
+        name: executable_profile_name(&display_executable),
         profiler_backend,
         output_dir,
-        target: profile_target(run_mode, target_backend, opt_level, Some(executable), args),
+        target: profile_target(
+            run_mode,
+            target_backend,
+            opt_level,
+            Some(display_executable),
+            args,
+        ),
         artifacts,
         parsed,
     }))
@@ -461,6 +496,7 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
 
 pub(crate) fn profile_test_invocations(
     cli: &UniversalFlags,
+    source_dir: &Path,
     target_dir: &Path,
     build_meta: &crate::rr_build::BuildMeta,
     filter: &crate::run::TestFilter,
@@ -491,11 +527,23 @@ pub(crate) fn profile_test_invocations(
         // merge the parsed profile statistics into one aggregate report.
         let output_dir =
             test_profile_output_dir_for_executable(&session_dir, index, &invocation.executable);
+        let package = build_meta
+            .resolve_output
+            .pkg_dirs
+            .get_package(invocation.target.package);
+        let module_root = build_meta.resolve_output.module_dirs[package.module].clone();
+        let executable = if invocation.executable.is_absolute() {
+            invocation.executable.clone()
+        } else {
+            source_dir.join(&invocation.executable)
+        };
         if let Some(captured) = capture_profile_executable(
             cli,
             ProfileRequest {
-                executable: invocation.executable,
+                executable,
+                display_executable: Some(invocation.executable),
                 args: vec![invocation.args.to_cli_args_for_native()],
+                current_dir: Some(module_root),
                 output_dir,
                 run_mode: RunMode::Test,
                 target_backend: build_meta.target_backend,
@@ -695,8 +743,9 @@ fn run_xctrace_record(
     stdout_path: &Path,
     executable: &Path,
     args: &[String],
+    current_dir: Option<&Path>,
 ) -> anyhow::Result<()> {
-    let mut cmd = xctrace_record_command(trace_path, stdout_path, executable, args);
+    let mut cmd = xctrace_record_command(trace_path, stdout_path, executable, args, current_dir);
     let output = cmd
         .output()
         .context("failed to execute `xcrun xctrace record`")?;
@@ -732,6 +781,7 @@ fn xctrace_record_command(
     stdout_path: &Path,
     executable: &Path,
     args: &[String],
+    current_dir: Option<&Path>,
 ) -> Command {
     let mut cmd = Command::new("xcrun");
     cmd.args([
@@ -750,10 +800,18 @@ fn xctrace_record_command(
     cmd.arg("--");
     cmd.arg(executable);
     cmd.args(args);
+    if let Some(current_dir) = current_dir {
+        cmd.current_dir(current_dir);
+    }
     cmd
 }
 
-fn perf_record_command(data_path: &Path, executable: &Path, args: &[String]) -> Command {
+fn perf_record_command(
+    data_path: &Path,
+    executable: &Path,
+    args: &[String],
+    current_dir: Option<&Path>,
+) -> Command {
     let mut cmd = Command::new(PERF_COMMAND);
     cmd.args(["record", "--quiet", "-F"]);
     cmd.arg(PERF_SAMPLE_FREQUENCY_HZ.to_string());
@@ -762,6 +820,9 @@ fn perf_record_command(data_path: &Path, executable: &Path, args: &[String]) -> 
     cmd.arg("--");
     cmd.arg(executable);
     cmd.args(args);
+    if let Some(current_dir) = current_dir {
+        cmd.current_dir(current_dir);
+    }
     cmd
 }
 
@@ -778,12 +839,13 @@ fn run_perf_record(
     stderr_path: &Path,
     executable: &Path,
     args: &[String],
+    current_dir: Option<&Path>,
 ) -> anyhow::Result<()> {
     let stdout = File::create(stdout_path)
         .with_context(|| format!("failed to create stdout file `{}`", stdout_path.display()))?;
     let stderr = File::create(stderr_path)
         .with_context(|| format!("failed to create stderr file `{}`", stderr_path.display()))?;
-    let mut cmd = perf_record_command(data_path, executable, args);
+    let mut cmd = perf_record_command(data_path, executable, args, current_dir);
     let status = cmd
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
@@ -841,8 +903,9 @@ fn print_xctrace_record_command(
     stdout_path: &Path,
     executable: &Path,
     args: &[String],
+    current_dir: Option<&Path>,
 ) {
-    let cmd = xctrace_record_command(trace_path, stdout_path, executable, args);
+    let cmd = xctrace_record_command(trace_path, stdout_path, executable, args, current_dir);
     print_command(&cmd);
 }
 
@@ -857,8 +920,9 @@ fn print_perf_record_command(
     stderr_path: &Path,
     executable: &Path,
     args: &[String],
+    current_dir: Option<&Path>,
 ) {
-    let cmd = perf_record_command(data_path, executable, args);
+    let cmd = perf_record_command(data_path, executable, args, current_dir);
     print_command_with_output_redirects(&cmd, stdout_path, Some(stderr_path));
 }
 

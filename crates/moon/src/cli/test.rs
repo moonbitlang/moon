@@ -1574,6 +1574,7 @@ fn rr_test_from_plan(
     if cmd.profile {
         return profile::profile_test_invocations(
             cli,
+            source_dir,
             target_dir,
             build_meta,
             &filter,
