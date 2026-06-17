@@ -67,7 +67,10 @@ pub(crate) fn watching(
 
     // Setup watcher
     let (tx, rx) = std::sync::mpsc::channel();
-    debug!("Creating file watcher with default config");
+    debug!(
+        backend = ?RecommendedWatcher::kind(),
+        "Creating file watcher with default config"
+    );
     let mut watcher = RecommendedWatcher::new(tx, Config::default())
         .context("Failed to create a directory watcher")?;
 
@@ -96,23 +99,40 @@ pub(crate) fn watching(
         watcher
             .watch(watch_dir, RecursiveMode::Recursive)
             .with_context(|| format!("Failed to watch directory: '{}'", watch_dir.display()))?;
+        info!(
+            backend = ?RecommendedWatcher::kind(),
+            "Using file watcher backend"
+        );
 
         // in watch mode, moon is a long-running process that should handle errors as much as possible rather than throwing them up and then exiting.
         const DEBOUNCE_TIME: Duration = Duration::from_millis(300);
         debug!("Watcher loop started (debounce = {:?})", DEBOUNCE_TIME);
         while let Ok(res) = rx.recv() {
-            let Ok(evt) = res else {
-                warn!(?res, "Watcher event channel returned an error");
-                continue;
+            let evt = match res {
+                Ok(evt) => {
+                    log_watch_event(&evt);
+                    evt
+                }
+                Err(err) => {
+                    warn!(error = ?err, "Watcher event channel returned an error");
+                    continue;
+                }
             };
 
             // Debounce events
             let mut evt_list = vec![evt];
             let start = std::time::Instant::now();
             while start.elapsed() < DEBOUNCE_TIME {
-                if let Ok(Ok(evt)) = rx.recv_timeout(DEBOUNCE_TIME.saturating_sub(start.elapsed()))
-                {
-                    evt_list.push(evt);
+                match rx.recv_timeout(DEBOUNCE_TIME.saturating_sub(start.elapsed())) {
+                    Ok(Ok(evt)) => {
+                        log_watch_event(&evt);
+                        evt_list.push(evt);
+                    }
+                    Ok(Err(err)) => {
+                        warn!(error = ?err, "Watcher event channel returned an error");
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 }
             }
 
@@ -139,6 +159,10 @@ pub(crate) fn watching(
         }
     }
     Ok(0)
+}
+
+fn log_watch_event(event: &notify::Event) {
+    debug!(event = ?event, "Received filesystem event");
 }
 
 /// Check if the event kind is relevant for a rebuild/rerun.
