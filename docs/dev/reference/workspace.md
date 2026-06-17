@@ -37,10 +37,11 @@ A workspace manifest defines:
 
 - `members`
   - the module directories contained by the workspace
-- `preferred_target`
-  - an optional default backend for the workspace
 
 Workspace members are canonicalized relative to the workspace root and deduped.
+`preferred_target` in `moon.work` is deprecated: commands warn when they read
+it, but they do not use it for backend selection. `moon fmt` removes it. Use
+module-level `preferred_target` instead.
 
 The workspace root may or may not also contain a `moon.mod.json`.
 
@@ -112,8 +113,8 @@ All of them operate on the selected project rather than a single member, but
 - they accept package/path selectors across the selected project,
 - they may split one invocation into multiple backend-specific runs when
   `--target` is omitted,
-- and they use `module preferred_target -> workspace preferred_target ->
-  default backend` to decide those runs.
+- and they use `module preferred_target -> default backend` to decide those
+  runs.
 
 That makes them more than just "project-scoped"; they are the current
 workspace-wide target-planning commands.

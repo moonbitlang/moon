@@ -66,8 +66,6 @@ pub struct ResolveOutput {
     pub pkg_dirs: DiscoverResult,
     /// Package dependency relationship
     pub pkg_rel: DepRelationship,
-    /// Explicit preferred target from `moon.work`, if any.
-    pub workspace_preferred_target: Option<TargetBackend>,
     /// User-facing warnings discovered during resolve.
     pub user_warnings: Vec<UserWarning>,
 }
@@ -331,14 +329,14 @@ pub fn sync_dependencies(
     source_dir: &Path,
     mooncakes_dir: &Path,
     project_manifest_path: Option<&Path>,
-) -> Result<(ResolvedEnv, DirSyncResult, Option<TargetBackend>), ResolveError> {
+) -> Result<(ResolvedEnv, DirSyncResult), ResolveError> {
     info!(
         "Starting dependency sync for source directory: {}",
         source_dir.display()
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
-    let (resolved_env, dir_sync_result, workspace) = auto_sync(
+    let (resolved_env, dir_sync_result, _) = auto_sync(
         source_dir,
         mooncakes_dir,
         &cfg.sync_flags,
@@ -351,20 +349,16 @@ pub fn sync_dependencies(
     info!("Module dependency resolution completed successfully");
     debug!("Resolved {} modules", resolved_env.module_count());
 
-    Ok((
-        resolved_env,
-        dir_sync_result,
-        workspace.and_then(|workspace| workspace.preferred_target),
-    ))
+    Ok((resolved_env, dir_sync_result))
 }
 
 /// Resolves packages and package relationships from already synced dependencies.
 #[instrument(skip_all)]
 pub fn resolve_synced_project(
     cfg: &ResolveConfig,
-    synced_dependencies: (ResolvedEnv, DirSyncResult, Option<TargetBackend>),
+    synced_dependencies: (ResolvedEnv, DirSyncResult),
 ) -> Result<ResolveOutput, ResolveError> {
-    let (resolved_env, dir_sync_result, workspace_preferred_target) = synced_dependencies;
+    let (resolved_env, dir_sync_result) = synced_dependencies;
 
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
     let main_is_core = {
@@ -408,7 +402,6 @@ pub fn resolve_synced_project(
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
-        workspace_preferred_target,
         user_warnings,
     })
 }
@@ -517,7 +510,6 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
-        workspace_preferred_target: None,
         user_warnings,
     };
     Ok((res, backend))
