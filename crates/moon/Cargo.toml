@@ -48,6 +48,7 @@ which.workspace = true
 chrono.workspace = true
 log.workspace = true
 walkdir.workspace = true
+notify = "6.1.1"
 tokio = { workspace = true, features = ["rt", "signal"] }
 tokio-util.workspace = true
 clap_complete.workspace = true
@@ -76,12 +77,6 @@ features = [
     "Win32_System_Threading",
 ]
 version = "0.59.0"
-
-[target."cfg(not(target_os = \"macos\"))".dependencies]
-notify = "6.1.1"
-
-[target."cfg(target_os = \"macos\")".dependencies]
-notify = { version = "6.1.1", default-features = false, features = ["crossbeam-channel", "macos_kqueue"] }
 
 [target."cfg(windows)".dependencies]
 junction = "1"
