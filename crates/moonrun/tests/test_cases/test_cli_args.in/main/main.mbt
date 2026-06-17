@@ -17,9 +17,12 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 fn main {
-  @debug.to_string(get_args()) |> println
+  let args = get_args()
+  if args.length() > 1 && args[1] == "exit-7" {
+    exit_with_code(7)
+  }
+  @debug.to_string(args) |> println
 }
-
 
 fn env_get_var(s : ExternString) -> ExternString = "__moonbit_fs_unstable" "env_get_var"
 

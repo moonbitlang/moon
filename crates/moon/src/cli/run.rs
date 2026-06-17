@@ -196,12 +196,10 @@ pub(crate) struct RunExecutable {
     pub(crate) target_dir: PathBuf,
     source_dir: PathBuf,
     build_exit_code: Option<i32>,
-    force_success_exit: bool,
     lock: Option<FileLock>,
 }
 
 struct BuildExecutableFromPlanOptions {
-    force_success_exit: bool,
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
 }
@@ -357,7 +355,6 @@ fn build_wasm_file_executable_from_arg(
         target_dir: print_dir.clone(),
         source_dir: print_dir,
         build_exit_code: (!cli.dry_run).then_some(0),
-        force_success_exit: false,
         lock: None,
     })
 }
@@ -504,7 +501,6 @@ fn build_package_executable(
         &build_meta,
         build_graph,
         BuildExecutableFromPlanOptions {
-            force_success_exit: selected_target_backend.is_some(),
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
         },
@@ -715,7 +711,6 @@ fn build_single_file_executable(
         &build_meta,
         build_graph,
         BuildExecutableFromPlanOptions {
-            force_success_exit: false,
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
         },
@@ -754,7 +749,6 @@ fn build_executable_from_plan(
             target_dir: target_dir.to_path_buf(),
             source_dir: source_dir.to_path_buf(),
             build_exit_code: None,
-            force_success_exit: options.force_success_exit,
             lock: None,
         });
     }
@@ -780,7 +774,6 @@ fn build_executable_from_plan(
         target_dir: target_dir.to_path_buf(),
         source_dir: source_dir.to_path_buf(),
         build_exit_code: Some(build_result.return_code_for_success()),
-        force_success_exit: options.force_success_exit,
         lock: Some(lock),
     })
 }
@@ -803,9 +796,6 @@ fn run_executable(
         .build_exit_code
         .expect("non-dry run build should produce a build exit code");
     if build_exit_code != 0 {
-        if executable.force_success_exit {
-            return Ok(0);
-        }
         return Ok(build_exit_code);
     }
 
@@ -838,11 +828,7 @@ fn run_executable(
         .context("failed to run command")?;
 
     if let Some(code) = res.code() {
-        if executable.force_success_exit {
-            Ok(0)
-        } else {
-            Ok(code)
-        }
+        Ok(code)
     } else {
         bail!("Command exited without a return code")
     }

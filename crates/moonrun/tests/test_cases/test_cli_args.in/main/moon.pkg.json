@@ -1,4 +1,7 @@
 {
   "is-main": true,
-  "import": ["moonbitlang/core/debug"]
+  "import": ["moonbitlang/core/debug"],
+  "targets": {
+    "exit_wasm_gc.mbt": ["wasm-gc"]
+  }
 }

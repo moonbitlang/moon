@@ -3,6 +3,9 @@
   "import": ["moonbitlang/core/debug"],
   "targets": {
     "main_wasm.mbt": ["wasm", "wasm-gc"],
+    "exit_wasm.mbt": ["wasm"],
+    "exit_wasm_gc.mbt": ["wasm-gc"],
+    "exit_wasm_test.mbt": ["wasm"],
     "main_js.mbt": ["js"]
   }
 }

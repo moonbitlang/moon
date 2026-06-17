@@ -1,5 +1,8 @@
 fn main {
   let args = get_args()
+  if args.length() > 1 && args[1] == "exit-7" {
+    exit_with_code(7)
+  }
   for i = 0; i < args.length(); i = i + 1 {
     println(args[i])
   }

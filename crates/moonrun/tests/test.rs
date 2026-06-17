@@ -269,6 +269,22 @@ fn test_moon_run_with_cli_args() {
 }
 
 #[test]
+fn test_moonrun_exits_with_guest_exit_code() {
+    let dir = TestDir::new("test_cli_args.in");
+
+    moon_cmd().current_dir(&dir).arg("build").assert().success();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(dir.join("_build/wasm-gc/debug/build/main/main.wasm"))
+        .arg("--")
+        .arg("exit-7")
+        .assert()
+        .code(7)
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
 fn test_moon_run_with_read_bytes_from_stdin() {
     let dir = TestDir::new("test_read_bytes.in");
 
