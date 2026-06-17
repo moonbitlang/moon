@@ -9,7 +9,7 @@ fn test_native_abort_trace() {
         .current_dir(&dir)
         .args(["run", "--target", "native", "cmd/main"])
         .assert()
-        .success()
+        .code(255)
         .stdout_eq("Hello\n")
         .stderr_eq(snapbox::str![[r#"
 RUNTIME ERROR: abort() called

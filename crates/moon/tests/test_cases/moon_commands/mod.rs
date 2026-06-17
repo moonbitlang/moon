@@ -146,6 +146,85 @@ arg2
 }
 
 #[test]
+fn test_run_with_explicit_target_exits_with_guest_exit_code() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["run", "main", "--target", "wasm", "exit-7"])
+        .assert()
+        .code(7)
+        .stdout_eq("");
+}
+
+#[test]
+fn test_test_with_explicit_target_fails_on_test_executable_exit_code() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        ["test", "main", "--target", "wasm", "--filter", "exit-7"],
+        [("MOONRUN_OVERRIDE", moonrun_bin())],
+    );
+    assert!(
+        stderr.contains("The test executable exited with exit status: 7")
+            || stderr.contains("The test executable exited with exit code: 7"),
+        "expected moon test to report the test executable exit status/code, got:\n{stderr}"
+    );
+}
+
+fn moonrun_bin() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_moonrun") {
+        return path.into();
+    }
+
+    let mut path = std::env::current_exe().unwrap();
+    path.pop();
+    if path.ends_with("deps") {
+        path.pop();
+    }
+    path.join(format!("moonrun{}", std::env::consts::EXE_SUFFIX))
+}
+
+#[test]
+fn test_runwasm_exits_with_guest_exit_code() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["runwasm", "main", "exit-7"])
+        .assert()
+        .code(7)
+        .stdout_eq("");
+}
+
+#[test]
+fn test_runwasm_cached_asset_exits_with_guest_exit_code() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::copy(
+        dir.join("_build/wasm-gc/debug/build/main/main.wasm"),
+        &cache_path,
+    )
+    .unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["runwasm", "moonbitlang/parser/cmd/moonfmt@0.3.3", "exit-7"])
+        .assert()
+        .code(7)
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
 fn test_runwasm_uses_cached_asset_and_forwards_args() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)
