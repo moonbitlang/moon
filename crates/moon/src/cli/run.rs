@@ -516,6 +516,22 @@ pub(crate) fn plan_run_rr_from_resolved(
     resolve_output: ResolveOutput,
     try_tcc_run: bool,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
+    let input_path = cmd
+        .package_or_mbt_file
+        .clone()
+        .expect("package run planning requires a positional input");
+    let selection = resolve_run_selection(&input_path, &resolve_output)?;
+    let package = resolve_output.pkg_dirs.get_package(selection.package);
+    let selected_target_backend = Some(
+        selected_target_backend
+            .or_else(|| {
+                resolve_output
+                    .module_rel
+                    .module_info(package.module)
+                    .preferred_target
+            })
+            .unwrap_or_default(),
+    );
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
@@ -526,13 +542,8 @@ pub(crate) fn plan_run_rr_from_resolved(
     );
     preconfig.try_tcc_run = try_tcc_run;
 
-    let input_path = cmd
-        .package_or_mbt_file
-        .clone()
-        .expect("package run planning requires a positional input");
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
-    let selection = resolve_run_selection(&input_path, &resolve_output)?;
     let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,

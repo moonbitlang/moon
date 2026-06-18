@@ -546,6 +546,49 @@ fn mixed_backend_run_planning_is_target_aware() {
 }
 
 #[test]
+fn conflicting_workspace_preferred_targets_run_selection_uses_selected_module_backend() {
+    let fixture = PlanningFixture::new("workspace_conflicting_run_preferred_targets.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) =
+        parse_run_command(&["run", "js_preferred/src/main", "--dry-run", "--sort-input"]);
+    let run_js = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .expect("js preferred run graph should plan");
+    assert_target_backend_runs(vec![run_js], &[TargetBackend::Js]);
+
+    let (cli, cmd) = parse_run_command(&[
+        "run",
+        "native_preferred/src/main",
+        "--dry-run",
+        "--sort-input",
+    ]);
+    let run_native = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .expect("native preferred run graph should plan");
+    assert_target_backend_runs(vec![run_native], &[TargetBackend::Native]);
+}
+
+#[test]
+fn run_selection_without_module_preference_uses_default_backend() {
+    let fixture = PlanningFixture::new("workspace_run_default_target_with_unrelated_preference.in")
+        .expect("fixture should resolve");
+
+    let (cli, cmd) = parse_run_command(&["run", "app/src/main", "--dry-run", "--sort-input"]);
+    let run_app = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .expect("default backend run graph should plan");
+    assert_target_backend_runs(vec![run_app], &[TargetBackend::WasmGC]);
+
+    let (cli, cmd) =
+        parse_run_command(&["run", "js_preferred/src/main", "--dry-run", "--sort-input"]);
+    let run_js = fixture
+        .plan_run_graph_with_cli(&cli, &cmd)
+        .expect("js preferred run graph should plan");
+    assert_target_backend_runs(vec![run_js], &[TargetBackend::Js]);
+}
+
+#[test]
 fn supported_targets_empty_packages_are_skipped_in_check_planning() {
     let fixture =
         PlanningFixture::new("supported_targets_empty.in").expect("fixture should resolve");

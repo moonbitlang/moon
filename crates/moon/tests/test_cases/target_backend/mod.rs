@@ -424,6 +424,93 @@ fn test_supported_targets_transitive_mismatch_fails_fast() {
 }
 
 #[test]
+fn test_run_conflicting_workspace_preferred_targets_uses_selected_module_backend() {
+    let dir = TestDir::new("workspace_conflicting_run_preferred_targets.in");
+
+    let js_stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "js_preferred/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+    let js_stderr = get_stderr(
+        &dir,
+        [
+            "run",
+            "js_preferred/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+    assert!(
+        !js_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {js_stderr}"
+    );
+    assert_contains_and_absent(
+        &js_stdout,
+        &["./_build/js/", "-target js"],
+        &["./_build/wasm-gc/", "./_build/native/", "-target wasm-gc"],
+    );
+
+    let native_stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "native_preferred/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+    let native_stderr = get_stderr(
+        &dir,
+        [
+            "run",
+            "native_preferred/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+    assert!(
+        !native_stderr.contains(PREFERRED_TARGET_CONFLICT_WARNING),
+        "stderr: {native_stderr}"
+    );
+    assert_contains_and_absent(
+        &native_stdout,
+        &["./_build/native/", "-target native"],
+        &["./_build/wasm-gc/", "./_build/js/", "-target wasm-gc"],
+    );
+}
+
+#[test]
+fn test_run_without_module_preference_ignores_unrelated_module_preference() {
+    let dir = TestDir::new("workspace_run_default_target_with_unrelated_preference.in");
+
+    let stdout = get_stdout(
+        &dir,
+        [
+            "run",
+            "app/src/main",
+            "--dry-run",
+            "--sort-input",
+            "--nostd",
+        ],
+    );
+
+    assert_contains_and_absent(
+        &stdout,
+        &["./_build/wasm-gc/", "-target wasm-gc"],
+        &["./_build/js/", "-target js"],
+    );
+}
+
+#[test]
 fn test_supported_targets_virtual_root_dep_mismatch_fails_fast() {
     let dir = TestDir::new("supported_targets_virtual_root_mismatch.in");
 
