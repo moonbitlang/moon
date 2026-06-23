@@ -28,6 +28,7 @@ anyhow.workspace = true
 clap.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true
+slotmap.workspace = true
 rand = "0.8.5"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
@@ -40,8 +41,17 @@ libc.workspace = true
 version = "0.59.0"
 features = [
     "Win32_Foundation",
+    "Win32_Networking_WinSock",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
     "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Pipes",
+    "Win32_System_SystemServices",
     "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
 ]
 
 [build-dependencies]

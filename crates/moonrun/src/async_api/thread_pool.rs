@@ -16,10 +16,470 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::ffi::OsString;
+
+use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, read_u16};
+use crate::async_sys::internal::event_loop::thread_pool;
+
+use super::context::ImportContext;
+use super::provenance::ported_imports;
+
+ported_imports! {
+pub(super) fn free_job(context: &mut ImportContext, job: u64) -> AsyncHostResult<()> {
+    context.host.free_job(job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn job_get_ret(context: &mut ImportContext, job: u64) -> AsyncHostResult<i32> {
+    context.host.job_get_ret(job).map(|value| value as i32)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn job_get_err(context: &mut ImportContext, job: u64) -> AsyncHostResult<i32> {
+    context.host.job_get_err(job)
+}
+
+pub(super) fn run_job(context: &mut ImportContext, job: u64) -> AsyncHostResult<()> {
+    context.host.run_job(job)
+}
+
+pub(super) fn init_thread_pool(context: &mut ImportContext, poll: u64) -> AsyncHostResult<u64> {
+    context.host.init_thread_pool(poll)
+}
+
+pub(super) fn destroy_thread_pool(context: &mut ImportContext) {
+    context.host.destroy_thread_pool();
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn spawn_worker(
+    context: &mut ImportContext,
+    worker_id: i32,
+    waiting_worker_id: u64,
+) -> AsyncHostResult<u64> {
+    context.host.spawn_worker(worker_id, waiting_worker_id)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn free_worker(context: &mut ImportContext, worker: u64) -> AsyncHostResult<()> {
+    context.host.free_worker(worker)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn wake_worker(
+    context: &mut ImportContext,
+    worker: u64,
+    job_id: i32,
+    job: u64,
+) -> AsyncHostResult<()> {
+    context.host.wake_worker(worker, job_id, job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn worker_enter_idle(context: &mut ImportContext, worker: u64) -> AsyncHostResult<()> {
+    context.host.worker_enter_idle(worker)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn cancel_worker(context: &mut ImportContext, worker: u64) -> AsyncHostResult<i32> {
+    context.host.cancel_worker(worker)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[cfg(unix)]
 pub(super) fn fetch_completion(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    ret.set_int32(0);
+    context: &mut ImportContext,
+    source_fd: u64,
+    dst: i32,
+    max_jobs: i32,
+) -> i32 {
+    let host = context.host;
+    match context.with_memory_mut(|memory| host.fetch_completion(memory, source_fd, dst, max_jobs))
+    {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_sleep_job(
+    context: &mut ImportContext,
+    duration_ms: i32,
+) -> AsyncHostResult<u64> {
+    context
+        .host
+        .insert_job(thread_pool::make_sleep_job(duration_ms))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn make_open_job(
+    context: &mut ImportContext,
+    path_ptr: i32,
+    path_len: i32,
+    access: i32,
+    create_mode: i32,
+    append: i32,
+    sync: i32,
+    mode: i32,
+) -> AsyncHostResult<u64> {
+    let filename = read_guest_path(context, path_ptr, path_len)?;
+
+    context.host.insert_job(thread_pool::make_open_job(
+        filename,
+        access,
+        create_mode,
+        append != 0,
+        sync,
+        mode,
+    ))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_read_job(
+    context: &mut ImportContext,
+    fd: u64,
+    len: i32,
+    position: i64,
+) -> AsyncHostResult<u64> {
+    context
+        .host
+        .insert_job(thread_pool::make_read_job(fd, len, position))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_write_job(
+    context: &mut ImportContext,
+    fd: u64,
+    ptr: i32,
+    offset: i32,
+    len: i32,
+    position: i64,
+) -> AsyncHostResult<u64> {
+    let offset_ptr = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+    let data =
+        context.with_memory_mut(|memory| Ok(memory.read_exact(offset_ptr, len)?.to_vec()))?;
+
+    context
+        .host
+        .insert_job(thread_pool::make_write_job(fd, data, position))
+}
+
+pub(super) fn get_read_result(
+    context: &mut ImportContext,
+    job: u64,
+    dst: i32,
+    offset: i32,
+    len: i32,
+) -> AsyncHostResult<()> {
+    let host = context.host;
+    context.with_memory_mut(|memory| host.get_read_result(memory, job, dst, offset, len))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_file_kind_by_path_job(
+    context: &mut ImportContext,
+    parent: u64,
+    path_ptr: i32,
+    path_len: i32,
+    follow_symlink: i32,
+) -> AsyncHostResult<u64> {
+    let path = read_guest_path(context, path_ptr, path_len)?;
+
+    context
+        .host
+        .insert_job(thread_pool::make_file_kind_by_path_job(
+            parent,
+            path,
+            follow_symlink != 0,
+        ))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_file_size_job(context: &mut ImportContext, fd: u64) -> AsyncHostResult<u64> {
+    context.host.insert_job(thread_pool::make_file_size_job(fd))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn get_file_size_result(context: &mut ImportContext, job: u64) -> AsyncHostResult<i64> {
+    context.host.get_file_size_result(job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_file_time_job(
+    context: &mut ImportContext,
+    fd: u64,
+) -> AsyncHostResult<u64> {
+    context
+        .host
+        .insert_job(thread_pool::make_file_time_job(fd))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_file_time_by_path_job(
+    context: &mut ImportContext,
+    path_ptr: i32,
+    path_len: i32,
+    follow_symlink: i32,
+) -> AsyncHostResult<u64> {
+    let path = read_guest_path(context, path_ptr, path_len)?;
+
+    context
+        .host
+        .insert_job(thread_pool::make_file_time_by_path_job(
+            path,
+            follow_symlink != 0,
+        ))
+}
+
+pub(super) fn get_file_time_result(
+    context: &mut ImportContext,
+    job: u64,
+    out: i32,
+) -> AsyncHostResult<()> {
+    let host = context.host;
+    context.with_memory_mut(|memory| host.get_file_time_result(memory, job, out))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_access_job(
+    context: &mut ImportContext,
+    path_ptr: i32,
+    path_len: i32,
+    access: i32,
+) -> AsyncHostResult<u64> {
+    let path = read_guest_path(context, path_ptr, path_len)?;
+
+    context
+        .host
+        .insert_job(thread_pool::make_access_job(path, access))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_chmod_job(
+    context: &mut ImportContext,
+    path_ptr: i32,
+    path_len: i32,
+    mode: i32,
+) -> AsyncHostResult<u64> {
+    let path = read_guest_path(context, path_ptr, path_len)?;
+
+    context
+        .host
+        .insert_job(thread_pool::make_chmod_job(path, mode))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_fsync_job(
+    context: &mut ImportContext,
+    fd: u64,
+    only_data: i32,
+) -> AsyncHostResult<u64> {
+    context
+        .host
+        .insert_job(thread_pool::make_fsync_job(fd, only_data != 0))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_flock_job(
+    context: &mut ImportContext,
+    fd: u64,
+    exclusive: i32,
+) -> AsyncHostResult<u64> {
+    context
+        .host
+        .insert_job(thread_pool::make_flock_job(fd, exclusive != 0))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_remove_job(
+    context: &mut ImportContext,
+    path_ptr: i32,
+    path_len: i32,
+) -> AsyncHostResult<u64> {
+    let path = read_guest_path(context, path_ptr, path_len)?;
+    context.host.insert_job(thread_pool::make_remove_job(path))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_rename_job(
+    context: &mut ImportContext,
+    old_path_ptr: i32,
+    old_path_len: i32,
+    new_path_ptr: i32,
+    new_path_len: i32,
+    replace: i32,
+) -> AsyncHostResult<u64> {
+    let old_path = read_guest_path(context, old_path_ptr, old_path_len)?;
+    let new_path = read_guest_path(context, new_path_ptr, new_path_len)?;
+
+    context.host.insert_job(thread_pool::make_rename_job(
+        old_path,
+        new_path,
+        replace != 0,
+    ))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_symlink_job(
+    context: &mut ImportContext,
+    target_ptr: i32,
+    target_len: i32,
+    path_ptr: i32,
+    path_len: i32,
+    force_symlink: i32,
+) -> AsyncHostResult<u64> {
+    let target = read_guest_path(context, target_ptr, target_len)?;
+    let path = read_guest_path(context, path_ptr, path_len)?;
+
+    context.host.insert_job(thread_pool::make_symlink_job(
+        target,
+        path,
+        force_symlink != 0,
+    ))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_mkdir_job(
+    context: &mut ImportContext,
+    path_ptr: i32,
+    path_len: i32,
+    mode: i32,
+) -> AsyncHostResult<u64> {
+    let path = read_guest_path(context, path_ptr, path_len)?;
+
+    context
+        .host
+        .insert_job(thread_pool::make_mkdir_job(path, mode))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_rmdir_job(
+    context: &mut ImportContext,
+    path_ptr: i32,
+    path_len: i32,
+) -> AsyncHostResult<u64> {
+    let path = read_guest_path(context, path_ptr, path_len)?;
+    context.host.insert_job(thread_pool::make_rmdir_job(path))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_readdir_job(
+    context: &mut ImportContext,
+    dir: u64,
+    len: i32,
+    restart: i32,
+) -> AsyncHostResult<u64> {
+    context
+        .host
+        .insert_job(thread_pool::make_readdir_job(dir, len, restart != 0))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn open_job_get_fd(context: &mut ImportContext, job: u64) -> AsyncHostResult<u64> {
+    context.host.open_job_get_fd(job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn open_job_get_kind(context: &mut ImportContext, job: u64) -> AsyncHostResult<i32> {
+    context.host.open_job_get_kind(job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn open_job_get_dev_id(context: &mut ImportContext, job: u64) -> AsyncHostResult<u64> {
+    context.host.open_job_get_dev_id(job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn open_job_get_file_id(context: &mut ImportContext, job: u64) -> AsyncHostResult<u64> {
+    context.host.open_job_get_file_id(job)
+}
+
+pub(super) fn get_readdir_result(
+    context: &mut ImportContext,
+    job: u64,
+    dst: i32,
+    len: i32,
+) -> AsyncHostResult<()> {
+    let host = context.host;
+    context.with_memory_mut(|memory| host.get_readdir_result(memory, job, dst, len))
+}
+
+fn read_guest_path(context: &mut ImportContext, ptr: i32, len: i32) -> AsyncHostResult<OsString> {
+    // Async path imports pass MoonBit String data, so `len` is UTF-16 code
+    // units. Do not treat this as UTF-8 bytes or a native C string.
+    context.with_memory_mut(|memory| {
+        let units = read_u16(memory, ptr, len)?;
+        Ok(decode_guest_path(units))
+    })
+}
+
+#[cfg(unix)]
+fn decode_guest_path(units: &[u16]) -> OsString {
+    use std::os::unix::ffi::OsStringExt;
+
+    let path = char::decode_utf16(units.iter().copied())
+        .map(Result::unwrap)
+        .collect::<String>();
+    OsString::from_vec(path.into_bytes())
+}
+
+#[cfg(windows)]
+fn decode_guest_path(units: &[u16]) -> OsString {
+    use std::os::windows::ffi::OsStringExt;
+
+    OsString::from_wide(units)
+}
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn guest_path_decodes_utf16_to_unix_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let units = guest_string_units("async-fs-smoke-\u{1f600}.txt");
+        let path = decode_guest_path(&units);
+
+        assert_eq!(
+            path.as_os_str().as_bytes(),
+            "async-fs-smoke-\u{1f600}.txt".as_bytes()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn guest_path_decodes_utf16_on_windows() {
+        use std::os::windows::ffi::OsStrExt;
+
+        let units = guest_string_units("async-fs-smoke-\u{1f600}.txt");
+        let path = decode_guest_path(&units);
+
+        assert_eq!(
+            path.as_os_str().encode_wide().collect::<Vec<_>>(),
+            "async-fs-smoke-\u{1f600}.txt"
+                .encode_utf16()
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn guest_path_length_is_utf16_code_units_on_windows() {
+        let units = guest_string_units("a.txt");
+        let path = decode_guest_path(&units);
+
+        assert_eq!(path, OsString::from("a.txt"));
+    }
+
+    fn guest_string_units(path: &str) -> Vec<u16> {
+        path.encode_utf16().collect()
+    }
 }

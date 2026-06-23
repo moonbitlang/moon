@@ -16,30 +16,43 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::cell::Cell;
+//! V8-facing `moonbitlang/async` import adapter.
+//!
+//! This layer registers wasm imports, decodes wasm ABI values from V8 callback
+//! arguments, acquires guest memory, sets return values, and reports traps.
+//! Ported native-stub behavior belongs in `async_sys`; shared runtime state
+//! belongs in `async_host`.
 
+mod c_buffer;
+mod context;
+mod env_util;
+mod event_bus;
 mod event_loop;
+mod fd_util;
+mod fs;
+mod io;
 mod os_error;
+mod os_string;
+mod provenance;
 mod registry;
 mod runtime;
 mod thread_pool;
 mod time;
-mod unsupported;
 
-pub(crate) use registry::MOONBIT_V0_MODULE;
+use std::any::Any;
 
-thread_local! {
-    static LAST_ERRNO: Cell<i32> = const { Cell::new(0) };
-}
+use crate::async_host::AsyncHost;
 
-pub(crate) fn init_env<'s>(obj: v8::Local<'s, v8::Object>, scope: &mut v8::HandleScope<'s>) {
-    registry::register_imports(obj, scope);
-}
+pub(crate) use registry::MOONBIT_ASYNC_MODULE;
 
-fn set_last_errno(errno: i32) {
-    LAST_ERRNO.with(|last_errno| last_errno.set(errno));
-}
+pub(crate) fn init_env<'s>(
+    obj: v8::Local<'s, v8::Object>,
+    scope: &mut v8::HandleScope<'s>,
+    dtors: &mut Vec<Box<dyn Any>>,
+) {
+    let context = Box::new(context::AsyncContext::new(scope, obj, AsyncHost::default()));
+    let context_ptr = &*context as *const context::AsyncContext;
+    dtors.push(context);
 
-fn last_errno() -> i32 {
-    LAST_ERRNO.with(Cell::get)
+    registry::register_imports(obj, scope, context_ptr);
 }

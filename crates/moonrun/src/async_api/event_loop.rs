@@ -16,27 +16,23 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub(super) fn get_platform(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    #[cfg(target_os = "linux")]
-    let platform = 0;
-    #[cfg(target_os = "macos")]
-    let platform = 1;
-    #[cfg(target_os = "windows")]
-    let platform = 2;
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    let platform = 0;
+use crate::async_sys::internal::event_loop::thread_pool;
 
-    ret.set_int32(platform);
+use super::context::ImportContext;
+use super::provenance::ported_imports;
+
+ported_imports! {
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn get_platform(_context: &mut ImportContext) -> i32 {
+    thread_pool::get_platform()
 }
 
-pub(super) fn errno_is_cancelled(
-    _scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    ret.set_bool(false);
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn errno_is_cancelled(_context: &mut ImportContext, errno: i32) -> i32 {
+    if thread_pool::errno_is_cancelled(errno) {
+        1
+    } else {
+        0
+    }
+}
 }

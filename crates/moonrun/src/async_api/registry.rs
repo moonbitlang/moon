@@ -18,87 +18,145 @@
 
 use crate::v8_builder::ObjectExt;
 
-use super::{event_loop, os_error, runtime, thread_pool, time, unsupported};
+#[cfg(test)]
+use super::provenance::{PortedImport, SourceLocation, SourceRoot};
+use super::{
+    c_buffer,
+    context::{
+        AsyncContext, FinishI32, FinishI64, FinishVoid, ImportArgs, ImportContext,
+        callback_context, throw_import_error,
+    },
+    env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, runtime, thread_pool,
+    time,
+};
 
-pub(crate) const MOONBIT_V0_MODULE: &str = "moonbit_v0";
+pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
 #[cfg(test)]
 const NATIVE_ASYNC_PREFIX: &str = "moonbitlang_async_";
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AsyncImportKind {
-    NativeMapped,
-    UnsupportedMvp,
-    WasmSupport,
+    Ported,
+    Helper,
+    Fake,
 }
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SourceRoot {
-    MoonbitAsync,
-    Moonrun,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SourceLocation {
-    root: SourceRoot,
-    path: &'static str,
+enum WasmType {
+    I32,
+    I64,
 }
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AsyncImport {
     kind: AsyncImportKind,
+    callback_module: &'static str,
+    callback_symbol: &'static str,
     wasm_symbol: &'static str,
-    native_symbol: Option<&'static str>,
-    sources: &'static [SourceLocation],
+    params: &'static [WasmType],
+    result: Option<WasmType>,
 }
 
 #[cfg(test)]
 macro_rules! import_kind {
-    (native) => {
-        AsyncImportKind::NativeMapped
+    (ported) => {
+        AsyncImportKind::Ported
     };
-    (unsupported) => {
-        AsyncImportKind::UnsupportedMvp
+    (helper) => {
+        AsyncImportKind::Helper
     };
-    (support) => {
-        AsyncImportKind::WasmSupport
+    (fake) => {
+        AsyncImportKind::Fake
     };
 }
 
 #[cfg(test)]
-macro_rules! source_root {
-    (moonbit_async) => {
-        SourceRoot::MoonbitAsync
+macro_rules! wasm_type {
+    (i32) => {
+        WasmType::I32
     };
-    (moonrun) => {
-        SourceRoot::Moonrun
+    (i64) => {
+        WasmType::I64
+    };
+    (u64) => {
+        WasmType::I64
+    };
+}
+
+#[cfg(test)]
+macro_rules! wasm_result {
+    (void) => {
+        None
+    };
+    ($ty:ident) => {
+        Some(wasm_type!($ty))
+    };
+}
+
+macro_rules! decode_wasm_arg {
+    ($args:ident, i32) => {
+        $args.next_i32()
+    };
+    ($args:ident, i64) => {
+        $args.next_i64()
+    };
+    ($args:ident, u64) => {
+        $args.next_u64()
+    };
+}
+
+macro_rules! decode_wasm_args {
+    ($scope:ident, $args:ident,) => {
+        Ok(())
+    };
+    ($scope:ident, $args:ident, $($arg:ident : $arg_ty:ident),+ $(,)?) => {{
+        let mut import_args = ImportArgs::new($scope, &$args);
+        let decoded_args: crate::async_host::AsyncHostResult<_> = (|| {
+            $(
+                let $arg = decode_wasm_arg!(import_args, $arg_ty)?;
+            )*
+            Ok(($($arg,)*))
+        })();
+        decoded_args
+    }};
+}
+
+macro_rules! finish_wasm_import {
+    ($scope:ident, $ret:ident, $name:expr, void, $result:expr) => {
+        $result.finish_void($scope, &mut $ret, $name)
+    };
+    ($scope:ident, $ret:ident, $name:expr, i32, $result:expr) => {
+        $result.finish_i32($scope, &mut $ret, $name)
+    };
+    ($scope:ident, $ret:ident, $name:expr, i64, $result:expr) => {
+        $result.finish_i64($scope, &mut $ret, $name)
+    };
+    ($scope:ident, $ret:ident, $name:expr, u64, $result:expr) => {
+        $result.finish_i64($scope, &mut $ret, $name)
     };
 }
 
 macro_rules! declare_async_imports {
     ($(
-        $kind:ident $callback:path => $wasm_symbol:literal,
-        native = $native_symbol:expr,
-        sources = [$($source_root:ident:$source_path:literal),+ $(,)?];
+        $(#[$meta:meta])*
+        $kind:ident $module:ident::$callback:ident (
+            $($arg:ident : $arg_ty:ident),* $(,)?
+        ) -> $ret_ty:ident => $wasm_symbol:literal;
     )*) => {
         #[cfg(test)]
         const ASYNC_IMPORTS: &[AsyncImport] = &[
             $(
+                $(#[$meta])*
                 AsyncImport {
                     kind: import_kind!($kind),
+                    callback_module: stringify!($module),
+                    callback_symbol: stringify!($callback),
                     wasm_symbol: $wasm_symbol,
-                    native_symbol: $native_symbol,
-                    sources: &[
-                        $(
-                            SourceLocation {
-                                root: source_root!($source_root),
-                                path: $source_path,
-                            },
-                        )+
-                    ],
+                    params: &[$(wasm_type!($arg_ty)),*],
+                    result: wasm_result!($ret_ty),
                 },
             )*
         ];
@@ -106,12 +164,83 @@ macro_rules! declare_async_imports {
         pub(super) fn register_imports<'s>(
             obj: v8::Local<'s, v8::Object>,
             scope: &mut v8::HandleScope<'s>,
+            context_ptr: *const AsyncContext,
         ) {
             $(
-                register_func_impl(obj, scope, $wasm_symbol, $callback);
+                $(#[$meta])*
+                register_async_import!(
+                    $kind,
+                    obj,
+                    scope,
+                    context_ptr,
+                    $wasm_symbol,
+                    $ret_ty,
+                    $module::$callback,
+                    ($($arg : $arg_ty),*)
+                );
             )*
         }
     };
+}
+
+macro_rules! register_async_import {
+    (
+        fake,
+        $obj:ident,
+        $scope:ident,
+        $context_ptr:ident,
+        $wasm_symbol:literal,
+        $ret_ty:ident,
+        $module:ident::$callback:ident,
+        ($($arg:ident : $arg_ty:ident),* $(,)?)
+    ) => {{
+        fn callback(
+            _scope: &mut v8::HandleScope,
+            _args: v8::FunctionCallbackArguments,
+            _ret: v8::ReturnValue,
+        ) {
+            unreachable!("fake async import should not be called")
+        }
+        register_func_impl($obj, $scope, $wasm_symbol, callback, $context_ptr);
+    }};
+    (
+        $kind:ident,
+        $obj:ident,
+        $scope:ident,
+        $context_ptr:ident,
+        $wasm_symbol:literal,
+        $ret_ty:ident,
+        $module:ident::$callback:ident,
+        ($($arg:ident : $arg_ty:ident),* $(,)?)
+    ) => {{
+        fn callback(
+            scope: &mut v8::HandleScope,
+            args: v8::FunctionCallbackArguments,
+            mut ret: v8::ReturnValue,
+        ) {
+            let _ = &args;
+            let host_context = callback_context(&args);
+            let decoded_args: crate::async_host::AsyncHostResult<_> =
+                decode_wasm_args!(scope, args, $($arg : $arg_ty),*);
+            match decoded_args {
+                Ok(($($arg,)*)) => {
+                    let result = {
+                        let mut context = ImportContext::new(scope, host_context);
+                        $module::$callback(&mut context, $($arg),*)
+                    };
+                    finish_wasm_import!(
+                        scope,
+                        ret,
+                        $wasm_symbol,
+                        $ret_ty,
+                        result
+                    );
+                }
+                Err(error) => throw_import_error(scope, $wasm_symbol, error),
+            }
+        }
+        register_func_impl($obj, $scope, $wasm_symbol, callback, $context_ptr);
+    }};
 }
 
 fn register_func_impl<'s>(
@@ -119,314 +248,438 @@ fn register_func_impl<'s>(
     scope: &mut v8::HandleScope<'s>,
     name: &str,
     callback: impl v8::MapFnTo<v8::FunctionCallback>,
+    context_ptr: *const AsyncContext,
 ) {
-    obj.set_func(scope, name, callback);
+    let data = v8::External::new(scope, context_ptr as *mut std::ffi::c_void);
+    let function = v8::Function::builder(callback)
+        .data(data.into())
+        .build(scope)
+        .unwrap();
+    obj.set_value(scope, name, function.into());
 }
 
-// Complete `moonbit_v0` async ABI surface registered by this split PR.
+// This block is the complete `moonbitlang/async` ABI surface registered by moonrun.
 //
 // Entry shape:
-//   kind callback maps to "namespace/wasm_symbol",
-//   native = Some("moonbitlang_async_native_symbol") | None,
-//   sources = [moonbit_async:"path/in/async", moonrun:"path/in/moonrun"];
+//   kind callback maps to "namespace/wasm_symbol".
 //
 // Kind legend:
-// - native: a supported import whose semantics are expected to follow the
-//   corresponding native C stub.
-// - support: wasm-only host glue or a supported import with wasm-specific
-//   behavior. A native symbol may still be listed for provenance.
-// - unsupported: registered for link compatibility and one-to-one C-stub
-//   inventory only; it fails loudly if PR1 accidentally reaches that surface.
+// - ported: imports that have Rust ports corresponding to native async C stubs.
+//   Tests require separate native provenance entries for these imports.
+// - helper: wasm-only support import or host-control glue.
+// - fake: link-only import for runtime-dispatched wasm; the generated callback is unreachable.
 declare_async_imports! {
-    support runtime::exit => "runtime/exit",
-    native = None,
-    sources = [
-        moonbit_async:"src/integration.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/runtime.rs",
-    ];
 
-    // Wasm-only timer wait glue. This is not a native C-stub mapping; native
-    // `moonbitlang_async_poll_wait` is listed below as unsupported `poll/poll_wait`.
-    support runtime::wait_for_event => "runtime/wait_for_event",
-    native = None,
-    sources = [
-        moonbit_async:"src/internal/event_loop/event_loop.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/runtime.rs",
-    ];
+    // Runtime platform and worker control.
+    helper runtime::exit(code: i32) -> void => "runtime/exit";
 
-    native event_loop::get_platform => "runtime/get_platform",
-    native = Some("moonbitlang_async_get_platform"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/event_loop.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/event_loop.rs",
-    ];
+    ported event_loop::get_platform() -> i32 => "runtime/get_platform";
 
-    support time::get_ms_since_epoch => "time/get_ms_since_epoch",
-    native = None,
-    sources = [
-        moonbit_async:"src/internal/event_loop/event_loop.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/time.rs",
-    ];
+    ported event_bus::create() -> u64 => "event_bus/create";
 
-    native os_error::get_errno => "os_error/get_errno",
-    native = Some("moonbitlang_async_get_errno"),
-    sources = [
-        moonbit_async:"src/os_error/stub.c",
-        moonbit_async:"src/os_error/error.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/os_error.rs",
-    ];
+    ported event_bus::destroy(bus: u64) -> void => "event_bus/destroy";
 
-    support event_loop::errno_is_cancelled => "thread_pool/errno_is_cancelled",
-    native = Some("moonbitlang_async_errno_is_cancelled"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/event_loop.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/event_loop.rs",
-    ];
+    ported event_bus::register(
+        bus: u64,
+        fd: u64,
+        read_only: i32,
+    ) -> i32 => "event_bus/register";
 
-    support thread_pool::fetch_completion => "thread_pool/fetch_completion",
-    native = Some("moonbitlang_async_fetch_completion"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/thread_pool.rs",
-    ];
+    ported event_bus::wait(bus: u64, timeout_ms: i32) -> i32 => "event_bus/wait";
 
-    // Native poller C ABI. PR1 does not expose the native fd/event-list poller,
-    // but the exact C stubs are still registered as unsupported ABI inventory.
-    unsupported unsupported::fail => "poll/poll_create",
-    native = Some("moonbitlang_async_poll_create"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-        moonbit_async:"src/internal/event_loop/iocp.c",
-    ];
+    ported event_bus::get_event(bus: u64, index: i32) -> u64 => "event_bus/get_event";
 
-    unsupported unsupported::fail => "poll/poll_destroy",
-    native = Some("moonbitlang_async_poll_destroy"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-        moonbit_async:"src/internal/event_loop/iocp.c",
-    ];
+    ported event_bus::event_fd(event: u64) -> u64 => "event_bus/event_fd";
 
-    unsupported unsupported::fail => "poll/poll_register",
-    native = Some("moonbitlang_async_poll_register"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-        moonbit_async:"src/internal/event_loop/iocp.c",
-    ];
+    #[cfg(unix)]
+    ported event_bus::event_events(event: u64) -> i32 => "event_bus/event_events/unix";
 
-    unsupported unsupported::fail => "poll/support_wait_pid_via_poll",
-    native = Some("moonbitlang_async_support_wait_pid_via_poll"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-    ];
+    #[cfg(windows)]
+    fake event_bus::event_events(event: u64) -> i32 => "event_bus/event_events/unix";
 
-    unsupported unsupported::fail => "poll/poll_register_pid",
-    native = Some("moonbitlang_async_poll_register_pid"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-    ];
+    #[cfg(windows)]
+    ported event_bus::event_io_result(event: u64) -> u64 => "event_bus/event_io_result/windows";
 
-    unsupported unsupported::fail => "poll/poll_remove",
-    native = Some("moonbitlang_async_poll_remove"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-    ];
+    #[cfg(not(windows))]
+    fake event_bus::event_io_result(event: u64) -> u64 => "event_bus/event_io_result/windows";
 
-    unsupported unsupported::fail => "poll/poll_remove_pid",
-    native = Some("moonbitlang_async_poll_remove_pid"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-    ];
+    #[cfg(windows)]
+    ported event_bus::event_bytes_transferred(event: u64) -> i32 => "event_bus/event_bytes_transferred/windows";
 
-    unsupported unsupported::fail => "poll/poll_wait",
-    native = Some("moonbitlang_async_poll_wait"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-        moonbit_async:"src/internal/event_loop/iocp.c",
-    ];
+    #[cfg(not(windows))]
+    fake event_bus::event_bytes_transferred(event: u64) -> i32 => "event_bus/event_bytes_transferred/windows";
 
-    unsupported unsupported::fail => "poll/event_list_get",
-    native = Some("moonbitlang_async_event_list_get"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-        moonbit_async:"src/internal/event_loop/iocp.c",
-    ];
+    ported event_loop::errno_is_cancelled(errno: i32) -> i32 => "thread_pool/errno_is_cancelled";
 
-    unsupported unsupported::fail => "poll/event_get_fd",
-    native = Some("moonbitlang_async_event_get_fd"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-        moonbit_async:"src/internal/event_loop/iocp.c",
-    ];
+    ported thread_pool::job_get_ret(job: u64) -> i32 => "thread_pool/job_get_ret";
 
-    unsupported unsupported::fail => "poll/event_get_events",
-    native = Some("moonbitlang_async_event_get_events"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/epoll.c",
-        moonbit_async:"src/internal/event_loop/kqueue.c",
-    ];
+    ported thread_pool::job_get_err(job: u64) -> i32 => "thread_pool/job_get_err";
 
-    unsupported unsupported::fail => "poll/event_get_io_result",
-    native = Some("moonbitlang_async_event_get_io_result"),
-    sources = [moonbit_async:"src/internal/event_loop/iocp.c"];
+    helper thread_pool::free_job(job: u64) -> void => "thread_pool/free_job";
 
-    unsupported unsupported::fail => "poll/event_get_bytes_transferred",
-    native = Some("moonbitlang_async_event_get_bytes_transferred"),
-    sources = [moonbit_async:"src/internal/event_loop/iocp.c"];
+    helper thread_pool::run_job(job: u64) -> void => "thread_pool/run_job";
 
-    unsupported unsupported::fail => "thread_pool/spawn_worker",
-    native = Some("moonbitlang_async_spawn_worker"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/unsupported.rs",
-    ];
+    ported thread_pool::spawn_worker(worker_id: i32, waiting_worker_id: u64) -> u64 => "thread_pool/spawn_worker";
 
-    unsupported unsupported::fail => "thread_pool/free_worker",
-    native = Some("moonbitlang_async_free_worker"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/unsupported.rs",
-    ];
+    ported thread_pool::free_worker(worker: u64) -> void => "thread_pool/free_worker";
 
-    unsupported unsupported::fail => "thread_pool/wake_worker",
-    native = Some("moonbitlang_async_wake_worker"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/unsupported.rs",
-    ];
+    ported thread_pool::wake_worker(worker: u64, job_id: i32, job: u64) -> void => "thread_pool/wake_worker";
 
-    unsupported unsupported::fail => "thread_pool/worker_enter_idle",
-    native = Some("moonbitlang_async_worker_enter_idle"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/unsupported.rs",
-    ];
+    ported thread_pool::worker_enter_idle(worker: u64) -> void => "thread_pool/worker_enter_idle";
 
-    unsupported unsupported::fail => "thread_pool/cancel_worker",
-    native = Some("moonbitlang_async_cancel_worker"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/unsupported.rs",
-    ];
+    ported thread_pool::cancel_worker(worker: u64) -> i32 => "thread_pool/cancel_worker";
 
-    unsupported unsupported::fail => "thread_pool/free_job",
-    native = Some("moonbitlang_async_free_job"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/unsupported.rs",
-    ];
+    helper thread_pool::init_thread_pool(poll: u64) -> u64 => "thread_pool/init_thread_pool";
 
-    unsupported unsupported::fail => "thread_pool/run_job",
-    native = None,
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/unsupported.rs",
-    ];
+    helper thread_pool::destroy_thread_pool() -> void => "thread_pool/destroy_thread_pool";
 
-    unsupported unsupported::fail => "thread_pool/job_get_ret",
-    native = Some("moonbitlang_async_job_get_ret"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/unsupported.rs",
-    ];
+    #[cfg(unix)]
+    helper thread_pool::fetch_completion(source_fd: u64, dst: i32, max_jobs: i32) -> i32 => "thread_pool/fetch_completion/unix";
 
-    unsupported unsupported::fail => "thread_pool/job_get_err",
-    native = Some("moonbitlang_async_job_get_err"),
-    sources = [
-        moonbit_async:"src/internal/event_loop/thread_pool.c",
-        moonbit_async:"src/internal/event_loop/thread_pool.wasm.mbt",
-        moonrun:"crates/moonrun/src/async_api/unsupported.rs",
-    ];
+    #[cfg(windows)]
+    fake thread_pool::fetch_completion(source_fd: u64, dst: i32, max_jobs: i32) -> i32 => "thread_pool/fetch_completion/unix";
+
+    ported thread_pool::make_sleep_job(duration_ms: i32) -> u64 => "thread_pool/make_sleep_job";
+
+    // Time helpers.
+    helper time::get_ms_since_epoch() -> i64 => "time/get_ms_since_epoch";
+
+    // os_error/stub.c predicates, errno accessors, and string formatting.
+    ported os_error::get_errno() -> i32 => "os_error/get_errno";
+
+    ported os_error::is_nonblocking_io_error(errno: i32) -> i32 => "os_error/is_nonblocking_io_error";
+
+    ported os_error::is_eintr(errno: i32) -> i32 => "os_error/is_EINTR";
+
+    ported os_error::is_enoent(errno: i32) -> i32 => "os_error/is_ENOENT";
+
+    ported os_error::is_eexist(errno: i32) -> i32 => "os_error/is_EEXIST";
+
+    ported os_error::is_eacces(errno: i32) -> i32 => "os_error/is_EACCES";
+
+    ported os_error::is_econnrefused(errno: i32) -> i32 => "os_error/is_ECONNREFUSED";
+
+    ported os_error::is_error_notify_enum_dir(errno: i32) -> i32 => "os_error/is_ERROR_NOTIFY_ENUM_DIR";
+
+    ported os_error::get_enotdir() -> i32 => "os_error/get_ENOTDIR";
+
+    helper os_error::errno_to_string_len(errno: i32) -> i32 => "os_error/errno_to_string_len";
+
+    ported os_error::errno_to_string(errno: i32, ptr: i32, len: i32) -> i32 => "os_error/errno_to_string";
+
+    // Decode host-native strings into guest-owned MoonBit String storage.
+    helper os_string::decode_len(ptr: u64, len: i32) -> i32 => "os_string/decode_len";
+
+    helper os_string::decode(ptr: u64, len: i32, out: i32, out_len: i32) -> void => "os_string/decode";
+
+    helper fs::close_fd(fd: u64) -> i32 => "fd_util/close_fd";
+
+    helper fd_util::invalid_fd() -> u64 => "fd_util/invalid_fd";
+
+    #[cfg(unix)]
+    ported fd_util::pipe(
+        dst: i32,
+        len: i32,
+        read_end_is_async: i32,
+        write_end_is_async: i32,
+    ) -> i32 => "fd_util/pipe";
+
+    #[cfg(windows)]
+    helper fd_util::pipe(
+        dst: i32,
+        len: i32,
+        read_end_is_async: i32,
+        write_end_is_async: i32,
+    ) -> i32 => "fd_util/pipe";
+
+    #[cfg(unix)]
+    ported fd_util::set_nonblocking(fd: u64) -> i32 => "fd_util/set_nonblocking/unix";
+
+    #[cfg(windows)]
+    fake fd_util::set_nonblocking(fd: u64) -> i32 => "fd_util/set_nonblocking/unix";
+
+    helper fd_util::sizeof_file_time() -> i32 => "fd_util/sizeof_file_time";
+
+    ported fd_util::get_atime_sec(ptr: i32) -> i64 => "fd_util/get_atime_sec";
+
+    ported fd_util::get_atime_nsec(ptr: i32) -> i32 => "fd_util/get_atime_nsec";
+
+    ported fd_util::get_mtime_sec(ptr: i32) -> i64 => "fd_util/get_mtime_sec";
+
+    ported fd_util::get_mtime_nsec(ptr: i32) -> i32 => "fd_util/get_mtime_nsec";
+
+    ported fd_util::get_ctime_sec(ptr: i32) -> i64 => "fd_util/get_ctime_sec";
+
+    ported fd_util::get_ctime_nsec(ptr: i32) -> i32 => "fd_util/get_ctime_nsec";
+
+    // Small internal utility stubs.
+    ported env_util::getpid() -> i32 => "env_util/getpid";
+
+    #[cfg(unix)]
+    ported io::read(fd: u64, dst: i32, offset: i32, len: i32) -> i32 => "io/read/unix";
+
+    #[cfg(windows)]
+    fake io::read(fd: u64, dst: i32, offset: i32, len: i32) -> i32 => "io/read/unix";
+
+    #[cfg(unix)]
+    ported io::write(fd: u64, src: i32, offset: i32, len: i32) -> i32 => "io/write/unix";
+
+    #[cfg(windows)]
+    fake io::write(fd: u64, src: i32, offset: i32, len: i32) -> i32 => "io/write/unix";
+
+    #[cfg(windows)]
+    ported io::make_file_io_result(
+        events: i32,
+        buf: i32,
+        offset: i32,
+        len: i32,
+        position: i64,
+    ) -> u64 => "io/make_file_io_result/windows";
+
+    #[cfg(not(windows))]
+    fake io::make_file_io_result(
+        events: i32,
+        buf: i32,
+        offset: i32,
+        len: i32,
+        position: i64,
+    ) -> u64 => "io/make_file_io_result/windows";
+
+    #[cfg(windows)]
+    ported io::free_io_result(result: u64) -> void => "io/free_io_result/windows";
+
+    #[cfg(not(windows))]
+    fake io::free_io_result(result: u64) -> void => "io/free_io_result/windows";
+
+    #[cfg(windows)]
+    ported io::io_result_get_event(result: u64) -> i32 => "io/io_result_get_event/windows";
+
+    #[cfg(not(windows))]
+    fake io::io_result_get_event(result: u64) -> i32 => "io/io_result_get_event/windows";
+
+    #[cfg(windows)]
+    ported io::cancel_io_result(result: u64, fd: u64) -> i32 => "io/cancel_io_result/windows";
+
+    #[cfg(not(windows))]
+    fake io::cancel_io_result(result: u64, fd: u64) -> i32 => "io/cancel_io_result/windows";
+
+    #[cfg(windows)]
+    ported io::io_result_get_status(result: u64, fd: u64) -> i32 => "io/io_result_get_status/windows";
+
+    #[cfg(not(windows))]
+    fake io::io_result_get_status(result: u64, fd: u64) -> i32 => "io/io_result_get_status/windows";
+
+    #[cfg(windows)]
+    ported io::read_io_result(fd: u64, result: u64) -> i32 => "io/read/windows";
+
+    #[cfg(not(windows))]
+    fake io::read_io_result(fd: u64, result: u64) -> i32 => "io/read/windows";
+
+    #[cfg(windows)]
+    ported io::write_io_result(fd: u64, result: u64) -> i32 => "io/write/windows";
+
+    #[cfg(not(windows))]
+    fake io::write_io_result(fd: u64, result: u64) -> i32 => "io/write/windows";
+
+    #[cfg(windows)]
+    ported io::errno_is_read_eof(errno: i32) -> i32 => "io/errno_is_read_EOF/windows";
+
+    #[cfg(not(windows))]
+    fake io::errno_is_read_eof(errno: i32) -> i32 => "io/errno_is_read_EOF/windows";
+
+    helper c_buffer::is_null(ptr: u64) -> i32 => "c_buffer/is_null";
+
+    ported c_buffer::blit_to_c(dst: u64, src: i32, offset: i32, len: i32) -> void => "c_buffer/blit_to_c";
+
+    ported c_buffer::blit_from_c(src: u64, dst: i32, offset: i32, len: i32) -> void => "c_buffer/blit_from_c";
+
+    ported c_buffer::c_buffer_get(buf: u64, index: i32) -> i32 => "c_buffer/c_buffer_get";
+
+    ported c_buffer::strlen(buf: u64) -> i32 => "c_buffer/strlen";
+
+    helper c_buffer::free(ptr: u64) -> void => "c_buffer/free";
+
+    // fs/stub.c and fs/dir.c.
+    ported fs::errno_is_lock_violation(errno: i32) -> i32 => "fs/errno_is_lock_violation";
+
+    ported fs::try_lock_file(fd: u64, exclusive: i32) -> i32 => "fs/try_lock_file";
+
+    ported fs::unlock_file(fd: u64) -> i32 => "fs/unlock_file";
+
+    // Returns the UTF-16 code-unit length that the guest must allocate for
+    // `fs/get_tmp_path`.
+    helper fs::get_tmp_path_len() -> i32 => "fs/get_tmp_path_len";
+
+    // Writes the native temporary directory as UTF-16 code units into a
+    // guest-allocated MoonBit String.
+    ported fs::get_tmp_path(ptr: i32, len: i32) -> i32 => "fs/get_tmp_path";
+
+    ported fs::dir_buffer_min_size() -> i32 => "fs/dir_buffer_min_size";
+
+    ported fs::dir_entry_length(buf: i32, offset: i32) -> i32 => "fs/dir_entry_length";
+
+    ported fs::dir_entry_name_len(buf: i32, offset: i32) -> i32 => "fs/dir_entry_get_name_len";
+
+    ported fs::dir_entry_name(buf: i32, offset: i32) -> u64 => "fs/dir_entry_get_name";
+
+    ported fs::dir_entry_is_dir(buf: i32, offset: i32) -> i32 => "fs/dir_entry_is_dir";
+
+    ported fs::dir_entry_is_hidden(buf: i32, offset: i32) -> i32 => "fs/dir_entry_is_hidden";
+
+    ported fs::dir_entry_file_id(buf: i32, offset: i32) -> i64 => "fs/dir_entry_get_file_id";
+
+    // thread_pool.c FS jobs. Path-taking jobs use the Guest String Path ABI:
+    // MoonBit String pointer plus UTF-16 code-unit length.
+    ported thread_pool::make_open_job(
+        path_ptr: i32,
+        path_len: i32,
+        access: i32,
+        create_mode: i32,
+        append: i32,
+        sync: i32,
+        mode: i32,
+    ) -> u64 => "thread_pool/make_open_job";
+
+    ported thread_pool::open_job_get_fd(job: u64) -> u64 => "thread_pool/open_job_get_fd";
+
+    ported thread_pool::open_job_get_kind(job: u64) -> i32 => "thread_pool/open_job_get_kind";
+
+    ported thread_pool::open_job_get_dev_id(job: u64) -> u64 => "thread_pool/open_job_get_dev_id";
+
+    ported thread_pool::open_job_get_file_id(job: u64) -> u64 => "thread_pool/open_job_get_file_id";
+
+    ported thread_pool::make_read_job(fd: u64, len: i32, position: i64) -> u64 => "thread_pool/make_read_job";
+
+    ported thread_pool::make_write_job(fd: u64, ptr: i32, offset: i32, len: i32, position: i64) -> u64 => "thread_pool/make_write_job";
+
+    helper thread_pool::get_read_result(job: u64, dst: i32, offset: i32, len: i32) -> void => "thread_pool/get_read_result";
+
+    ported thread_pool::make_file_kind_by_path_job(
+        parent: u64,
+        path_ptr: i32,
+        path_len: i32,
+        follow_symlink: i32,
+    ) -> u64 => "thread_pool/make_file_kind_by_path_job";
+
+    ported thread_pool::make_file_size_job(fd: u64) -> u64 => "thread_pool/make_file_size_job";
+
+    ported thread_pool::get_file_size_result(job: u64) -> i64 => "thread_pool/get_file_size_result";
+
+    ported thread_pool::make_file_time_job(fd: u64) -> u64 => "thread_pool/make_file_time_job";
+
+    ported thread_pool::make_file_time_by_path_job(
+        path_ptr: i32,
+        path_len: i32,
+        follow_symlink: i32,
+    ) -> u64 => "thread_pool/make_file_time_by_path_job";
+
+    helper thread_pool::get_file_time_result(job: u64, out: i32) -> void => "thread_pool/get_file_time_result";
+
+    ported thread_pool::make_access_job(path_ptr: i32, path_len: i32, access: i32) -> u64 => "thread_pool/make_access_job";
+
+    ported thread_pool::make_chmod_job(path_ptr: i32, path_len: i32, mode: i32) -> u64 => "thread_pool/make_chmod_job";
+
+    ported thread_pool::make_fsync_job(fd: u64, only_data: i32) -> u64 => "thread_pool/make_fsync_job";
+
+    ported thread_pool::make_flock_job(fd: u64, exclusive: i32) -> u64 => "thread_pool/make_flock_job";
+
+    ported thread_pool::make_remove_job(path_ptr: i32, path_len: i32) -> u64 => "thread_pool/make_remove_job";
+
+    ported thread_pool::make_rename_job(
+        old_path_ptr: i32,
+        old_path_len: i32,
+        new_path_ptr: i32,
+        new_path_len: i32,
+        replace: i32,
+    ) -> u64 => "thread_pool/make_rename_job";
+
+    ported thread_pool::make_symlink_job(
+        target_ptr: i32,
+        target_len: i32,
+        path_ptr: i32,
+        path_len: i32,
+        force_symlink: i32,
+    ) -> u64 => "thread_pool/make_symlink_job";
+
+    ported thread_pool::make_mkdir_job(path_ptr: i32, path_len: i32, mode: i32) -> u64 => "thread_pool/make_mkdir_job";
+
+    ported thread_pool::make_rmdir_job(path_ptr: i32, path_len: i32) -> u64 => "thread_pool/make_rmdir_job";
+
+    ported thread_pool::make_readdir_job(dir: u64, len: i32, restart: i32) -> u64 => "thread_pool/make_readdir_job";
+
+    helper thread_pool::get_readdir_result(job: u64, dst: i32, len: i32) -> void => "thread_pool/get_readdir_result";
+}
+
+#[cfg(test)]
+fn async_api_ported_imports() -> Vec<PortedImport> {
+    let mut imports = Vec::new();
+    imports.extend_from_slice(event_loop::PORTED_IMPORTS);
+    imports.extend_from_slice(event_bus::PORTED_IMPORTS);
+    imports.extend_from_slice(thread_pool::PORTED_IMPORTS);
+    imports.extend_from_slice(os_error::PORTED_IMPORTS);
+    imports.extend_from_slice(fs::PORTED_IMPORTS);
+    imports.extend_from_slice(fd_util::PORTED_IMPORTS);
+    imports.extend_from_slice(io::PORTED_IMPORTS);
+    imports.extend_from_slice(env_util::PORTED_IMPORTS);
+    imports.extend_from_slice(c_buffer::PORTED_IMPORTS);
+    imports
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::path::{Path, PathBuf};
+    use std::{collections::BTreeSet, fs, path::Path};
 
     use super::*;
 
-    fn repo_root() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    fn repo_root() -> &'static Path {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
-            .and_then(|path| path.parent())
-            .unwrap()
-            .to_path_buf()
+            .and_then(Path::parent)
+            .expect("moonrun crate must live under crates/moonrun")
     }
 
-    fn source_path(source: SourceLocation) -> PathBuf {
+    fn source_path(source: SourceLocation) -> std::path::PathBuf {
         match source.root {
             SourceRoot::MoonbitAsync => repo_root()
                 .join("third_party/moonbitlang_async")
                 .join(source.path),
-            SourceRoot::Moonrun => repo_root().join(source.path),
         }
     }
 
-    fn collect_moonbit_files(dir: &Path, files: &mut Vec<PathBuf>) {
-        for entry in std::fs::read_dir(dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                collect_moonbit_files(&path, files);
-            } else if path.extension().is_some_and(|extension| extension == "mbt") {
-                files.push(path);
-            }
-        }
+    fn native_symbol(import: &AsyncImport) -> String {
+        let segments = import.wasm_symbol.split('/').collect::<Vec<_>>();
+        let leaf = match segments.as_slice() {
+            [.., symbol, "linux" | "macos" | "unix" | "windows"] => symbol,
+            [.., symbol] => symbol,
+            [] => import.callback_symbol,
+        };
+        format!("{NATIVE_ASYNC_PREFIX}{leaf}")
     }
 
-    fn moonbit_v0_imports() -> HashSet<String> {
-        let marker = "\"moonbit_v0\" \"";
-        let mut files = Vec::new();
-        collect_moonbit_files(
-            &repo_root().join("third_party/moonbitlang_async/src"),
-            &mut files,
-        );
+    fn native_symbol_for(import: &AsyncImport, ported_import: &PortedImport) -> String {
+        ported_import
+            .native_symbol
+            .map(str::to_string)
+            .unwrap_or_else(|| native_symbol(import))
+    }
 
-        let mut imports = HashSet::new();
-        for file in files {
-            let contents = std::fs::read_to_string(file).unwrap();
-            for line in contents.lines() {
-                let mut rest = line;
-                while let Some(start) = rest.find(marker) {
-                    let symbol_start = start + marker.len();
-                    rest = &rest[symbol_start..];
-                    if let Some(end) = rest.find('"') {
-                        imports.insert(rest[..end].to_owned());
-                        rest = &rest[end..];
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-        imports
+    fn module_leaf(module_path: &str) -> Option<&str> {
+        module_path.rsplit("::").next()
+    }
+
+    fn registered_import_for_ported(ported_import: &PortedImport) -> Option<&'static AsyncImport> {
+        ASYNC_IMPORTS.iter().find(|import| {
+            module_leaf(ported_import.rust_module) == Some(import.callback_module)
+                && ported_import.rust_symbol == import.callback_symbol
+        })
     }
 
     #[test]
-    fn import_names_are_unique() {
-        let mut names = HashSet::new();
+    fn wasm_import_names_are_unique() {
+        let mut seen = BTreeSet::new();
         for import in ASYNC_IMPORTS {
             assert!(
-                names.insert(import.wasm_symbol),
+                seen.insert(import.wasm_symbol),
                 "duplicate async import {}",
                 import.wasm_symbol
             );
@@ -434,146 +687,177 @@ mod tests {
     }
 
     #[test]
-    fn registry_covers_async_wasm_imports() {
-        let declared = ASYNC_IMPORTS
+    fn runtime_exit_is_part_of_moonbit_async() {
+        assert!(
+            ASYNC_IMPORTS.iter().any(|import| {
+                import.kind == AsyncImportKind::Helper && import.wasm_symbol == "runtime/exit"
+            }),
+            "async wasm integration must not depend on older runtime namespaces for exit"
+        );
+    }
+
+    #[test]
+    fn event_bus_imports_are_the_event_loop_boundary() {
+        let imports = ASYNC_IMPORTS
             .iter()
             .map(|import| import.wasm_symbol)
-            .collect::<HashSet<_>>();
-        let actual = moonbit_v0_imports();
-        for import in actual {
+            .collect::<BTreeSet<_>>();
+        assert!(
+            !imports.contains("runtime/wait_for_event"),
+            "async wasm event loop must not use runtime/wait_for_event"
+        );
+        for wasm_symbol in [
+            "event_bus/create",
+            "event_bus/destroy",
+            "event_bus/register",
+            "event_bus/wait",
+            "event_bus/get_event",
+            "event_bus/event_fd",
+            "event_bus/event_events/unix",
+            "event_bus/event_io_result/windows",
+            "event_bus/event_bytes_transferred/windows",
+        ] {
             assert!(
-                declared.contains(import.as_str()),
-                "missing moonbit_v0 async import registration for {import}"
+                imports.contains(wasm_symbol),
+                "missing async wasm event bus import {wasm_symbol}"
             );
         }
     }
 
     #[test]
-    fn source_locations_exist() {
+    fn wasm_import_names_are_namespaced() {
         for import in ASYNC_IMPORTS {
-            for source in import.sources {
-                let path = source_path(*source);
+            let Some((_namespace, _)) = import.wasm_symbol.split_once('/') else {
+                panic!("async import {} must be namespaced", import.wasm_symbol);
+            };
+            for segment in import.wasm_symbol.split('/') {
                 assert!(
-                    path.exists(),
-                    "source for {} does not exist: {}",
-                    import.wasm_symbol,
-                    path.display()
+                    !segment.is_empty(),
+                    "empty path segment for {}",
+                    import.wasm_symbol
+                );
+            }
+            let leaf = import
+                .wasm_symbol
+                .rsplit('/')
+                .next()
+                .expect("split must produce at least one segment");
+            assert!(!leaf.starts_with("async_"));
+        }
+    }
+
+    #[test]
+    fn declared_sources_exist_and_contain_native_symbols() {
+        for ported_import in async_api_ported_imports() {
+            let registered_import = registered_import_for_ported(&ported_import)
+                .expect("ported import must have a registered wasm import");
+            let native_symbol = native_symbol_for(registered_import, &ported_import);
+            for source in ported_import.sources {
+                let source_path = source_path(*source);
+                let contents = fs::read_to_string(&source_path)
+                    .unwrap_or_else(|error| panic!("failed to read {:?}: {error}", source_path));
+                assert!(
+                    contents.contains(&native_symbol),
+                    "{:?} does not contain native symbol {} for wasm import {}",
+                    source_path,
+                    native_symbol,
+                    registered_import.wasm_symbol
                 );
             }
         }
     }
 
     #[test]
-    fn native_symbols_are_traceable_to_async_sources() {
+    fn ported_provenance_entries_are_registered_imports() {
+        for ported_import in async_api_ported_imports() {
+            assert!(
+                registered_import_for_ported(&ported_import).is_some(),
+                "ported provenance for {:?}::{:?} has no registered import",
+                ported_import.rust_module,
+                ported_import.rust_symbol
+            );
+        }
+    }
+
+    #[test]
+    fn fake_imports_do_not_have_active_provenance() {
+        let api_ported_imports = async_api_ported_imports();
         for import in ASYNC_IMPORTS {
-            let Some(native_symbol) = import.native_symbol else {
+            if import.kind != AsyncImportKind::Fake {
                 continue;
-            };
+            }
             assert!(
-                native_symbol.starts_with(NATIVE_ASYNC_PREFIX),
-                "native symbol for {} should use {NATIVE_ASYNC_PREFIX}: {native_symbol}",
-                import.wasm_symbol
-            );
-
-            let found = import
-                .sources
-                .iter()
-                .filter(|source| source.root == SourceRoot::MoonbitAsync)
-                .map(|source| std::fs::read_to_string(source_path(*source)).unwrap())
-                .any(|contents| contents.contains(native_symbol));
-            assert!(
-                found,
-                "native symbol {native_symbol} for {} is not present in its async sources",
+                api_ported_imports.iter().all(|ported_import| {
+                    module_leaf(ported_import.rust_module) != Some(import.callback_module)
+                        || ported_import.rust_symbol != import.callback_symbol
+                }),
+                "fake import {} has active ported provenance",
                 import.wasm_symbol
             );
         }
     }
 
     #[test]
-    fn pr1_surface_stays_event_loop_timer_only() {
+    fn ported_imports_have_ported_implementations() {
+        let api_ported_imports = async_api_ported_imports();
+        let ported_symbols = crate::async_sys::ported_symbols();
+
         for import in ASYNC_IMPORTS {
+            if import.kind != AsyncImportKind::Ported {
+                continue;
+            }
+
+            let ported_import = api_ported_imports
+                .iter()
+                .find(|ported_import| {
+                    module_leaf(ported_import.rust_module) == Some(import.callback_module)
+                        && ported_import.rust_symbol == import.callback_symbol
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "async import {} has no ported provenance",
+                        import.wasm_symbol
+                    )
+                });
+            let native_symbol = native_symbol_for(import, ported_import);
             assert!(
-                !import.wasm_symbol.starts_with("fs/")
-                    && !import.wasm_symbol.starts_with("process/")
-                    && !import.wasm_symbol.starts_with("socket/")
-                    && !import.wasm_symbol.starts_with("tls/")
-                    && !import.wasm_symbol.starts_with("fd_util/")
-                    && !import.wasm_symbol.starts_with("c_buffer/"),
-                "PR1 should not register broader async host import {}",
+                ported_import.sources.iter().any(|source| {
+                    source.root == SourceRoot::MoonbitAsync
+                        && ported_symbols.iter().any(|ported| {
+                            ported.native_symbol == native_symbol && ported.source == source.path
+                        })
+                }),
+                "async import {} has no Rust port origin",
                 import.wasm_symbol
             );
         }
     }
 
     #[test]
-    fn native_poll_imports_are_explicit_unsupported_entries() {
-        let wait_for_event = ASYNC_IMPORTS
-            .iter()
-            .find(|import| import.wasm_symbol == "runtime/wait_for_event")
-            .expect("runtime/wait_for_event should be registered");
-        assert_eq!(wait_for_event.kind, AsyncImportKind::WasmSupport);
-        assert_eq!(wait_for_event.native_symbol, None);
-
-        for (wasm_symbol, native_symbol) in [
-            ("poll/poll_create", "moonbitlang_async_poll_create"),
-            ("poll/poll_destroy", "moonbitlang_async_poll_destroy"),
-            ("poll/poll_register", "moonbitlang_async_poll_register"),
-            (
-                "poll/support_wait_pid_via_poll",
-                "moonbitlang_async_support_wait_pid_via_poll",
-            ),
-            (
-                "poll/poll_register_pid",
-                "moonbitlang_async_poll_register_pid",
-            ),
-            ("poll/poll_remove", "moonbitlang_async_poll_remove"),
-            ("poll/poll_remove_pid", "moonbitlang_async_poll_remove_pid"),
-            ("poll/poll_wait", "moonbitlang_async_poll_wait"),
-            ("poll/event_list_get", "moonbitlang_async_event_list_get"),
-            ("poll/event_get_fd", "moonbitlang_async_event_get_fd"),
-            (
-                "poll/event_get_events",
-                "moonbitlang_async_event_get_events",
-            ),
-            (
-                "poll/event_get_io_result",
-                "moonbitlang_async_event_get_io_result",
-            ),
-            (
-                "poll/event_get_bytes_transferred",
-                "moonbitlang_async_event_get_bytes_transferred",
-            ),
-        ] {
-            let import = ASYNC_IMPORTS
-                .iter()
-                .find(|import| import.wasm_symbol == wasm_symbol)
-                .unwrap_or_else(|| panic!("{wasm_symbol} should be registered"));
-            assert_eq!(import.kind, AsyncImportKind::UnsupportedMvp);
-            assert_eq!(import.native_symbol, Some(native_symbol));
-        }
-    }
-
-    #[test]
-    fn worker_job_imports_are_link_stubs() {
-        let unsupported = ASYNC_IMPORTS
-            .iter()
-            .filter(|import| import.kind == AsyncImportKind::UnsupportedMvp)
-            .map(|import| import.wasm_symbol)
-            .collect::<HashSet<_>>();
-        for symbol in [
-            "thread_pool/spawn_worker",
-            "thread_pool/free_worker",
-            "thread_pool/wake_worker",
-            "thread_pool/worker_enter_idle",
-            "thread_pool/cancel_worker",
-            "thread_pool/free_job",
-            "thread_pool/run_job",
-            "thread_pool/job_get_ret",
-            "thread_pool/job_get_err",
-        ] {
+    fn ported_implementations_are_registered_imports() {
+        let api_ported_imports = async_api_ported_imports();
+        for ported in crate::async_sys::ported_symbols() {
             assert!(
-                unsupported.contains(symbol),
-                "{symbol} should be unsupported in PR1"
+                api_ported_imports.iter().any(|ported_import| {
+                    let Some(registered_import) = registered_import_for_ported(ported_import)
+                    else {
+                        return false;
+                    };
+                    let native_symbol = native_symbol_for(registered_import, ported_import);
+                    ASYNC_IMPORTS
+                        .iter()
+                        .any(|import| import.wasm_symbol == registered_import.wasm_symbol)
+                        && ported_import.sources.iter().any(|source| {
+                            native_symbol == ported.native_symbol
+                                && source.root == SourceRoot::MoonbitAsync
+                                && source.path == ported.source
+                        })
+                }),
+                "ported symbol {}::{} from {} / {} is not registered",
+                ported.rust_module,
+                ported.rust_symbol,
+                ported.source,
+                ported.native_symbol
             );
         }
     }
