@@ -44,6 +44,7 @@ excludes = [
     "crates/moon/tests/test_cases/**",
     "!crates/moon/tests/test_cases/mod.rs",
     "crates/moonbuild/template/**",
+    "third_party/**",
     ".justfile",
     "moon.test",
     "*.js",

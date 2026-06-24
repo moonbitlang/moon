@@ -16,67 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub(super) fn exit(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    _ret: v8::ReturnValue,
-) {
-    let code = args.get(0).int32_value(scope).unwrap_or(1);
-    std::process::exit(code);
-}
+use super::context::ImportContext;
 
-pub(super) fn wait_for_event(
-    scope: &mut v8::HandleScope,
-    args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let timeout_ms = args.get(0).int32_value(scope).unwrap_or(-1);
-    match wait_for_event_impl(timeout_ms) {
-        Ok(()) => {
-            super::set_last_errno(0);
-            ret.set_int32(0);
-        }
-        Err(errno) => {
-            super::set_last_errno(errno);
-            ret.set_int32(-1);
-        }
-    }
-}
-
-#[cfg(unix)]
-fn wait_for_event_impl(timeout_ms: i32) -> Result<(), i32> {
-    let timeout = if timeout_ms < 0 { -1 } else { timeout_ms };
-    if unsafe { libc::poll(std::ptr::null_mut(), 0, timeout) } < 0 {
-        return Err(last_errno());
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn last_errno() -> i32 {
-    #[cfg(target_os = "linux")]
-    {
-        unsafe { *libc::__errno_location() }
-    }
-    #[cfg(target_os = "macos")]
-    {
-        unsafe { *libc::__error() }
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        std::io::Error::last_os_error().raw_os_error().unwrap_or(1)
-    }
-}
-
-#[cfg(windows)]
-fn wait_for_event_impl(timeout_ms: i32) -> Result<(), i32> {
-    let timeout = if timeout_ms < 0 {
-        windows_sys::Win32::System::Threading::INFINITE
-    } else {
-        timeout_ms as u32
-    };
-    unsafe {
-        windows_sys::Win32::System::Threading::Sleep(timeout);
-    }
-    Ok(())
+pub(super) fn exit(_context: &mut ImportContext, code: i32) {
+    std::process::exit(code)
 }

@@ -16,13 +16,5 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::v8_builder::ScopeExt;
-
-pub(super) fn fail(
-    scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    _ret: v8::ReturnValue,
-) {
-    let message = scope.string("moonbit_v0 async worker jobs are not supported in this PR");
-    scope.throw_exception(message.into());
-}
+pub(crate) mod dir;
+pub(crate) mod stub;

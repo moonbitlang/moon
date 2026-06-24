@@ -16,17 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::sync::OnceLock;
-use std::time::Instant;
+use crate::async_sys::internal::time::clock;
 
-static MONOTONIC_CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
+use super::context::ImportContext;
 
-pub(super) fn get_ms_since_epoch(
-    scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
-    mut ret: v8::ReturnValue,
-) {
-    let origin = MONOTONIC_CLOCK_ORIGIN.get_or_init(Instant::now);
-    let millis = i64::try_from(origin.elapsed().as_millis()).unwrap_or(i64::MAX);
-    ret.set(v8::BigInt::new_from_i64(scope, millis).into());
+pub(super) fn get_ms_since_epoch(_context: &mut ImportContext) -> u64 {
+    clock::get_ms_since_epoch()
 }

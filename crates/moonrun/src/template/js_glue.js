@@ -143,7 +143,7 @@ const __moonbit_backtrace_runtime = globalThis.__moonbit_backtrace_runtime || {
 })(__moonbit_fs_unstable, __moonbit_run_env);
 
 const __moonbit_wasi_unstable = globalThis.__moonbit_wasi_unstable || {};
-const moonbit_v0 = globalThis.moonbit_v0 || {};
+const moonbitlang_async = globalThis["moonbitlang/async"] || {};
 
 delete globalThis.__moonbit_run_env;
 delete globalThis.__moonbit_backtrace_runtime;
@@ -437,7 +437,7 @@ const spectest = {
     __moonbit_io_unstable: __moonbit_io_unstable,
     __moonbit_sys_unstable: __moonbit_sys_unstable,
     __moonbit_time_unstable: __moonbit_time_unstable,
-    moonbit_v0: moonbit_v0,
+    "moonbitlang/async": moonbitlang_async,
     wasi_snapshot_preview1: wasi_snapshot_preview1,
     moonbit: {
         string_to_js_string() {
@@ -504,6 +504,13 @@ function setWasiMemory(memory) {
     wasiMemoryInitialized = true;
 }
 
+function setAsyncMemory(memory) {
+    if (!(memory instanceof WebAssembly.Memory)) {
+        throw new Error("moonbitlang/async requires an exported `memory`");
+    }
+    moonbitlang_async.memory = memory;
+}
+
 try {
     if (typeof bytes === 'undefined') {
         bytes = read_file_to_bytes(module_name);
@@ -516,10 +523,18 @@ try {
     const moduleExports = WebAssembly.Module.exports(module);
     const usesWasiSnapshotPreview1 = moduleImports
         .some(importItem => importItem.module === "wasi_snapshot_preview1");
+    const usesMoonBitAsync = moduleImports
+        .some(importItem => importItem.module === "moonbitlang/async");
     if (usesWasiSnapshotPreview1) {
         const importedMemory = findImportedMemory(moduleImports, moduleExports, spectest);
         if (importedMemory instanceof WebAssembly.Memory) {
             setWasiMemory(importedMemory);
+        }
+    }
+    if (usesMoonBitAsync) {
+        const importedMemory = findImportedMemory(moduleImports, moduleExports, spectest);
+        if (importedMemory instanceof WebAssembly.Memory) {
+            setAsyncMemory(importedMemory);
         }
     }
     let instance = new WebAssembly.Instance(module, spectest);
@@ -530,6 +545,16 @@ try {
         } else if (!wasiMemoryInitialized) {
             throw new Error(
                 "wasi_snapshot_preview1 requires an exported or imported WebAssembly.Memory"
+            );
+        }
+    }
+    if (usesMoonBitAsync) {
+        const memory = instance.exports.memory;
+        if (memory instanceof WebAssembly.Memory) {
+            setAsyncMemory(memory);
+        } else if (!(moonbitlang_async.memory instanceof WebAssembly.Memory)) {
+            throw new Error(
+                "moonbitlang/async requires an exported or imported WebAssembly.Memory"
             );
         }
     }
