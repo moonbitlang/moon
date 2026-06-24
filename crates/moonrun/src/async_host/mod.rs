@@ -1519,11 +1519,11 @@ impl HostFileTable for SharedFileTable {
         handle: HostHandle,
         f: impl FnOnce(RawFd) -> AsyncHostResult<U>,
     ) -> AsyncHostResult<U> {
-        let raw_fd = {
-            let state = self.state.lock().unwrap();
-            state.file(handle)?.raw_fd()
+        let file = {
+            let mut state = self.state.lock().unwrap();
+            state.file_mut(handle)?.duplicate()?
         };
-        f(raw_fd)
+        f(file.raw_fd())
     }
 
     fn with_host_file_mut<U>(
@@ -1531,9 +1531,8 @@ impl HostFileTable for SharedFileTable {
         handle: HostHandle,
         f: impl FnOnce(&mut HostFile) -> AsyncHostResult<U>,
     ) -> AsyncHostResult<U> {
-        // Keep this path for host-owned file state operations such as readdir.
-        // Ordinary worker jobs should use with_raw_file and mirror native async
-        // by operating on the raw fd value without duplicating the OS handle.
+        // Keep this path for host-owned file state operations such as readdir
+        // where duplicating the fd would change the directory cursor.
         let mut state = self.state.lock().unwrap();
         let file = state.file_mut(handle)?;
         f(file)
@@ -1818,6 +1817,40 @@ mod tests {
         host.free_worker(worker).unwrap();
 
         assert_eq!(host.free_worker(worker), Err(AsyncHostError::Badf));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shared_worker_file_survives_guest_close() {
+        let host = AsyncHost::default();
+        let [read, write] = host.pipe(false, false).unwrap();
+        let mut files = SharedFileTable {
+            state: Arc::clone(&host.state),
+        };
+
+        let byte = files
+            .with_raw_file(read, |raw_read| {
+                host.close_fd(read)?;
+                let mut input = *b"x";
+                host.write_fd(&mut input, write, 0, 0, 1)?;
+
+                let mut output = [0];
+                let ret = unsafe { libc::read(raw_read, output.as_mut_ptr().cast(), output.len()) };
+                if ret < 0 {
+                    Err(AsyncHostError::Native(
+                        std::io::Error::last_os_error()
+                            .raw_os_error()
+                            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
+                    ))
+                } else {
+                    assert_eq!(ret, 1);
+                    Ok(output[0])
+                }
+            })
+            .unwrap();
+
+        assert_eq!(byte, b'x');
+        assert_eq!(host.close_fd(read), Err(AsyncHostError::Badf));
     }
 
     #[cfg(unix)]
