@@ -460,6 +460,25 @@ impl HostIoResult {
         self.pending_raw_fd = None;
     }
 
+    fn validate_status_handle(&self, raw_fd: RawFd) -> AsyncHostResult<()> {
+        // The import boundary may receive malformed/stale fd handles. Validate
+        // before asserting the internal "pending status uses submitter fd"
+        // invariant so debug builds do not panic on bad guest input.
+        if let Some(pending_raw_fd) = self.pending_raw_fd
+            && pending_raw_fd != raw_fd
+        {
+            return Err(AsyncHostError::Badf);
+        }
+        debug_assert!(
+            match self.pending_raw_fd {
+                Some(pending_raw_fd) => pending_raw_fd == raw_fd,
+                None => true,
+            },
+            "pending IO status must be queried with the submitting handle"
+        );
+        Ok(())
+    }
+
     fn cancel_pending(&mut self) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Foundation::{ERROR_IO_INCOMPLETE, ERROR_NOT_FOUND};
         use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
@@ -491,7 +510,7 @@ impl HostIoResult {
     }
 
     fn cancel_and_drain_pending(&mut self) -> AsyncHostResult<()> {
-        use windows_sys::Win32::Foundation::{ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED};
+        use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
         use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
 
         let Some(raw_fd) = self.pending_raw_fd else {
@@ -506,12 +525,10 @@ impl HostIoResult {
         }
 
         let mut bytes_transferred = 0;
-        if unsafe { GetOverlappedResult(raw_fd, overlapped, &mut bytes_transferred, 1) } == 0 {
-            let errno = last_errno();
-            if errno != ERROR_OPERATION_ABORTED as i32 && errno != ERROR_NOT_FOUND as i32 {
-                return Err(AsyncHostError::Native(errno));
-            }
-        }
+        // With bWait=TRUE the operation has reached a final status when this
+        // returns, even if the final status is an error such as EOF or broken
+        // pipe. At that point the OVERLAPPED storage can be released.
+        let _ = unsafe { GetOverlappedResult(raw_fd, overlapped, &mut bytes_transferred, 1) };
         self.clear_pending();
         Ok(())
     }
@@ -1142,6 +1159,7 @@ impl AsyncHost {
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
+        result.validate_status_handle(raw_fd)?;
         let mut bytes_transferred = 0;
         if unsafe {
             GetOverlappedResult(raw_fd, result.overlapped_ptr(), &mut bytes_transferred, 0)
@@ -1851,6 +1869,22 @@ mod tests {
 
         assert_eq!(byte, b'x');
         assert_eq!(host.close_fd(read), Err(AsyncHostError::Badf));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn io_result_status_rejects_wrong_fd_without_clearing_pending() {
+        let mut result = HostIoResult::for_file(0, Vec::new(), 0, 0);
+        let pending_fd = 1usize as RawFd;
+        let other_fd = 2usize as RawFd;
+
+        result.mark_pending(pending_fd).unwrap();
+
+        assert_eq!(
+            result.validate_status_handle(other_fd),
+            Err(AsyncHostError::Badf)
+        );
+        assert_eq!(result.pending_raw_fd(), Some(pending_fd));
     }
 
     #[cfg(unix)]
