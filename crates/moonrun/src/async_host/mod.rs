@@ -57,6 +57,7 @@ pub(crate) enum AsyncHostError {
 
 pub(crate) type AsyncHostResult<T> = Result<T, AsyncHostError>;
 pub(crate) const INVALID_HOST_HANDLE: u64 = 0;
+pub(crate) type HostCBuffer = Arc<Mutex<Box<[u8]>>>;
 
 #[cfg(unix)]
 mod native_errno {
@@ -264,7 +265,7 @@ fn key_from_handle<K: Key>(handle: u64) -> K {
 
 struct AsyncHostState {
     errno: i32,
-    c_buffers: SlotMap<HostCBufferKey, Box<[u8]>>,
+    c_buffers: SlotMap<HostCBufferKey, HostCBuffer>,
     #[cfg(windows)]
     io_results: SlotMap<HostIoResultKey, Box<HostIoResult>>,
     #[cfg(windows)]
@@ -688,7 +689,12 @@ impl AsyncHost {
     }
 
     pub(crate) fn insert_c_buffer(&self, buffer: Box<[u8]>) -> u64 {
-        let key = self.state.lock().unwrap().c_buffers.insert(buffer);
+        let key = self
+            .state
+            .lock()
+            .unwrap()
+            .c_buffers
+            .insert(Arc::new(Mutex::new(buffer)));
         handle_from_key(key)
     }
 
@@ -710,15 +716,10 @@ impl AsyncHost {
         handle: u64,
         f: impl FnOnce(&[u8]) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        if handle == INVALID_HOST_HANDLE {
-            return Err(AsyncHostError::Badf);
-        }
-        let state = self.state.lock().unwrap();
-        let buffer = state
-            .c_buffers
-            .get(key_from_handle::<HostCBufferKey>(handle))
-            .ok_or(AsyncHostError::Badf)?;
-        f(buffer.as_ref())
+        let (buffer, offset) = self.c_buffer_slice(handle)?;
+        let buffer = buffer.lock().unwrap();
+        let buffer = buffer.get(offset..).ok_or(AsyncHostError::Badf)?;
+        f(buffer)
     }
 
     pub(crate) fn with_c_buffer_mut<T>(
@@ -726,15 +727,43 @@ impl AsyncHost {
         handle: u64,
         f: impl FnOnce(&mut [u8]) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
+        let (buffer, offset) = self.c_buffer_slice(handle)?;
+        let mut buffer = buffer.lock().unwrap();
+        let buffer = buffer.get_mut(offset..).ok_or(AsyncHostError::Badf)?;
+        f(buffer)
+    }
+
+    pub(crate) fn c_buffer(&self, handle: u64) -> AsyncHostResult<HostCBuffer> {
         if handle == INVALID_HOST_HANDLE {
             return Err(AsyncHostError::Badf);
         }
-        let mut state = self.state.lock().unwrap();
-        let buffer = state
+        self.state
+            .lock()
+            .unwrap()
             .c_buffers
-            .get_mut(key_from_handle::<HostCBufferKey>(handle))
-            .ok_or(AsyncHostError::Badf)?;
-        f(buffer.as_mut())
+            .get(key_from_handle::<HostCBufferKey>(handle))
+            .cloned()
+            .ok_or(AsyncHostError::Badf)
+    }
+
+    fn c_buffer_slice(&self, handle: u64) -> AsyncHostResult<(HostCBuffer, usize)> {
+        if let Ok(buffer) = self.c_buffer(handle) {
+            return Ok((buffer, 0));
+        }
+
+        let ptr = usize::try_from(handle).map_err(|_| AsyncHostError::Badf)?;
+        let state = self.state.lock().unwrap();
+        for buffer in state.c_buffers.values() {
+            let guard = buffer.lock().unwrap();
+            let start = guard.as_ptr() as usize;
+            let Some(end) = start.checked_add(guard.len()) else {
+                continue;
+            };
+            if (start..end).contains(&ptr) {
+                return Ok((Arc::clone(buffer), ptr - start));
+            }
+        }
+        Err(AsyncHostError::Badf)
     }
 
     pub(crate) fn insert_job(&self, job: Job) -> AsyncHostResult<u64> {
@@ -1225,22 +1254,6 @@ impl AsyncHost {
             .and_then(Option::as_ref)
             .ok_or(AsyncHostError::Badf)?;
         thread_pool::get_read_result(job, memory, dst, offset, len)
-    }
-
-    pub(crate) fn get_readdir_result(
-        &self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        handle: u64,
-        dst: i32,
-        len: i32,
-    ) -> AsyncHostResult<()> {
-        let state = self.state.lock().unwrap();
-        let job = state
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
-        thread_pool::get_readdir_result(job, memory, dst, len)
     }
 
     pub(crate) fn get_file_time_result(

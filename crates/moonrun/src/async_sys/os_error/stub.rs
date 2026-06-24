@@ -161,28 +161,28 @@ ported_fns! {
         source = "src/os_error/stub.c",
         original = "moonbitlang_async_errno_to_string"
     )]
-    pub(crate) fn errno_to_string(errno: i32) -> String {
+    pub(crate) fn errno_to_string(errno: i32) -> Box<[u8]> {
         errno_to_string_sys(errno)
     }
 }
 
 #[cfg(unix)]
-fn errno_to_string_sys(errno: i32) -> String {
+fn errno_to_string_sys(errno: i32) -> Box<[u8]> {
     use std::ffi::CStr;
 
     let message = unsafe { libc::strerror(errno) };
     if message.is_null() {
-        return format!("errno {errno}");
+        return format!("errno {errno}").into_bytes().into_boxed_slice();
     }
 
     unsafe { CStr::from_ptr(message) }
-        .to_string_lossy()
-        .trim_end_matches(['\r', '\n'])
-        .to_owned()
+        .to_bytes()
+        .to_vec()
+        .into_boxed_slice()
 }
 
 #[cfg(windows)]
-fn errno_to_string_sys(errno: i32) -> String {
+fn errno_to_string_sys(errno: i32) -> Box<[u8]> {
     use windows_sys::Win32::System::Diagnostics::Debug::{
         FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
     };
@@ -200,10 +200,40 @@ fn errno_to_string_sys(errno: i32) -> String {
         )
     };
     if len == 0 {
-        return format!("errno {errno}");
+        return wide_bytes(format!("errno {errno}").encode_utf16());
     }
 
-    String::from_utf16_lossy(&buffer[..len as usize])
-        .trim_end_matches(['\r', '\n'])
-        .to_owned()
+    wide_bytes(buffer[..len as usize].iter().copied())
+}
+
+#[cfg(windows)]
+fn wide_bytes(units: impl IntoIterator<Item = u16>) -> Box<[u8]> {
+    units
+        .into_iter()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn errno_to_string_returns_exact_owned_message_bytes() {
+        let buffer = errno_to_string(get_enotdir());
+        assert!(!buffer.is_empty());
+
+        #[cfg(unix)]
+        assert_ne!(buffer.last(), Some(&0));
+
+        #[cfg(windows)]
+        {
+            assert!(buffer.len().is_multiple_of(std::mem::size_of::<u16>()));
+            assert_ne!(
+                buffer.get(buffer.len().saturating_sub(2)..),
+                Some(&[0, 0][..])
+            );
+        }
+    }
 }

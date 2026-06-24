@@ -31,7 +31,7 @@ pub(crate) use jobs::{
     make_rmdir_job, make_sleep_job, make_symlink_job, make_write_job, open_job_get_dev_id,
     open_job_get_fd, open_job_get_file_id, open_job_get_kind, open_job_result,
 };
-pub(crate) use runner::{get_file_time_result, get_read_result, get_readdir_result, run_host_job};
+pub(crate) use runner::{get_file_time_result, get_read_result, run_host_job};
 #[cfg(all(test, unix))]
 pub(crate) use types::JobPayload;
 pub(crate) use types::{FileTimeResult, HostFile, HostFileTable, HostHandle, Job, OpenJobResult};

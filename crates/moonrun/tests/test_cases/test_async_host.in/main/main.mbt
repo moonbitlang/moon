@@ -73,10 +73,16 @@ fn fetch_completion(
 ) -> Int = "moonbitlang/async" "thread_pool/fetch_completion/unix"
 
 ///|
-fn errno_to_string_len(errno : Int) -> Int = "moonbitlang/async" "os_error/errno_to_string_len"
+fn errno_to_string(errno : Int) -> UInt64 = "moonbitlang/async" "os_error/errno_to_string"
 
 ///|
-fn errno_to_string(errno : Int, dst : Int, len : Int) -> Int = "moonbitlang/async" "os_error/errno_to_string"
+fn os_string_decode_len(ptr : UInt64, len : Int) -> Int = "moonbitlang/async" "os_string/decode_len"
+
+///|
+fn os_string_decode(ptr : UInt64, len : Int, out : Int, out_len : Int) -> Unit = "moonbitlang/async" "os_string/decode"
+
+///|
+fn free_errno_str(ptr : UInt64) -> Unit = "moonbitlang/async" "os_error/free_errno_str"
 
 ///|
 fn get_tmp_path_len() -> Int = "moonbitlang/async" "fs/get_tmp_path_len"
@@ -107,13 +113,12 @@ fn main {
   assert_true(before > 1_600_000_000_000, "time is not Unix epoch milliseconds")
   let after = ms_since_epoch()
   assert_true(after >= before, "time moved backwards")
-  let message_len = errno_to_string_len(2)
+  let message_buf = errno_to_string(2)
+  let message_len = os_string_decode_len(message_buf, -1)
   assert_true(message_len > 0, "errno string size query failed")
   let message = String::make(message_len, '\u{0}')
-  assert_true(
-    errno_to_string(2, string_to_ptr(message), message_len) == 0,
-    "errno string fill failed",
-  )
+  os_string_decode(message_buf, -1, string_to_ptr(message), message_len)
+  free_errno_str(message_buf)
   assert_true(
     message != String::make(message_len, '\u{0}'),
     "errno string fill wrote an empty message",

@@ -79,6 +79,14 @@ pub(super) fn free(context: &mut ImportContext, ptr: u64) -> AsyncHostResult<()>
     context.host.free_c_buffer(ptr)
 }
 
+#[ported(
+    source = "src/internal/c_buffer/stub.c",
+    original = "moonbitlang_async_make_c_buffer"
+)]
+pub(super) fn new(context: &mut ImportContext, size: i32) -> AsyncHostResult<u64> {
+    Ok(context.host.insert_c_buffer(stub::make_c_buffer(size)?))
+}
+
 fn checked_add_i32(lhs: i32, rhs: i32) -> AsyncHostResult<i32> {
     lhs.checked_add(rhs).ok_or(AsyncHostError::Fault)
 }

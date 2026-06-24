@@ -18,7 +18,7 @@
 
 use std::ffi::OsString;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_host::{AsyncHostError, AsyncHostResult, HostCBuffer};
 use crate::async_sys::internal::fd_util;
 
 pub(crate) type HostHandle = u64;
@@ -287,9 +287,9 @@ pub(crate) enum JobPayload {
     },
     Readdir {
         dir: HostHandle,
+        buffer: HostCBuffer,
         len: i32,
         restart: bool,
-        result: Option<Vec<u8>>,
     },
 }
 
