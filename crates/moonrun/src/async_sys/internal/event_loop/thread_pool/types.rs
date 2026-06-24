@@ -47,13 +47,6 @@ impl HostFile {
     pub(crate) fn raw_fd(&self) -> fd_util::stub::RawFd {
         self.raw
     }
-
-    pub(crate) fn duplicate(&self) -> AsyncHostResult<Self> {
-        if self.is_invalid() {
-            return Err(AsyncHostError::Badf);
-        }
-        duplicate_raw_file(self.raw).map(Self::new)
-    }
 }
 
 impl Drop for HostFile {
@@ -91,49 +84,6 @@ fn close_raw_file(raw: fd_util::stub::RawFd) {
     unsafe {
         windows_sys::Win32::Foundation::CloseHandle(raw);
     }
-}
-
-#[cfg(unix)]
-fn duplicate_raw_file(raw: fd_util::stub::RawFd) -> AsyncHostResult<fd_util::stub::RawFd> {
-    let fd = unsafe { libc::fcntl(raw, libc::F_DUPFD_CLOEXEC, 0) };
-    if fd < 0 {
-        Err(last_native_error())
-    } else {
-        Ok(fd)
-    }
-}
-
-#[cfg(windows)]
-fn duplicate_raw_file(raw: fd_util::stub::RawFd) -> AsyncHostResult<fd_util::stub::RawFd> {
-    use windows_sys::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE};
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-
-    let process = unsafe { GetCurrentProcess() };
-    let mut duplicate: HANDLE = std::ptr::null_mut();
-    if unsafe {
-        DuplicateHandle(
-            process,
-            raw,
-            process,
-            &mut duplicate,
-            0,
-            0,
-            DUPLICATE_SAME_ACCESS,
-        )
-    } == 0
-    {
-        Err(last_native_error())
-    } else {
-        Ok(duplicate)
-    }
-}
-
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(
-        std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

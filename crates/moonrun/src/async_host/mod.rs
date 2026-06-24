@@ -345,6 +345,28 @@ impl AsyncHostState {
         }
         self.files.remove(key).ok_or(AsyncHostError::Badf)
     }
+
+    fn take_workers(&mut self) -> Vec<HostWorkerHandle> {
+        std::mem::take(&mut self.workers)
+            .into_iter()
+            .map(|(_, worker)| worker)
+            .collect()
+    }
+
+    #[cfg(windows)]
+    fn drain_pending_io_for_raw_fd(&mut self, raw_fd: RawFd) -> AsyncHostResult<()> {
+        let pending: Vec<_> = self
+            .io_results
+            .iter()
+            .filter_map(|(key, result)| (result.pending_raw_fd() == Some(raw_fd)).then_some(key))
+            .collect();
+        for key in pending {
+            if let Some(result) = self.io_results.get_mut(key) {
+                result.cancel_and_drain_pending()?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -362,6 +384,7 @@ struct HostEvent {
     poll: HostPollKey,
     generation: u64,
     index: i32,
+    fd_handle: Option<HostHandle>,
 }
 
 #[cfg(windows)]
@@ -380,6 +403,7 @@ struct HostIoResult {
     buffer: Vec<u8>,
     guest_offset: i32,
     direction: Option<HostIoDirection>,
+    pending_raw_fd: Option<RawFd>,
 }
 
 #[cfg(windows)]
@@ -399,6 +423,7 @@ impl HostIoResult {
             buffer,
             guest_offset,
             direction: None,
+            pending_raw_fd: None,
         }
     }
 
@@ -417,6 +442,85 @@ impl HostIoResult {
         let len = usize::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)?;
         let data = self.buffer.get(..len).ok_or(AsyncHostError::Fault)?;
         memory.write_exact(self.guest_offset, data)
+    }
+
+    fn pending_raw_fd(&self) -> Option<RawFd> {
+        self.pending_raw_fd
+    }
+
+    fn mark_pending(&mut self, raw_fd: RawFd) -> AsyncHostResult<()> {
+        if self.pending_raw_fd.is_some() {
+            return Err(AsyncHostError::Inval);
+        }
+        self.pending_raw_fd = Some(raw_fd);
+        Ok(())
+    }
+
+    fn clear_pending(&mut self) {
+        self.pending_raw_fd = None;
+    }
+
+    fn cancel_pending(&mut self) -> AsyncHostResult<i32> {
+        use windows_sys::Win32::Foundation::{ERROR_IO_INCOMPLETE, ERROR_NOT_FOUND};
+        use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
+
+        let Some(raw_fd) = self.pending_raw_fd else {
+            return Ok(0);
+        };
+        let overlapped = self.overlapped_ptr();
+        if unsafe { CancelIoEx(raw_fd, overlapped) } == 0 {
+            let errno = last_errno();
+            if errno != ERROR_NOT_FOUND as i32 {
+                return Err(AsyncHostError::Native(errno));
+            }
+            self.clear_pending();
+            return Ok(0);
+        }
+
+        let mut bytes_transferred = 0;
+        if unsafe { GetOverlappedResult(raw_fd, overlapped, &mut bytes_transferred, 0) } != 0 {
+            self.clear_pending();
+            return Ok(0);
+        }
+        if last_errno() == ERROR_IO_INCOMPLETE as i32 {
+            Ok(1)
+        } else {
+            self.clear_pending();
+            Ok(0)
+        }
+    }
+
+    fn cancel_and_drain_pending(&mut self) -> AsyncHostResult<()> {
+        use windows_sys::Win32::Foundation::{ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED};
+        use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
+
+        let Some(raw_fd) = self.pending_raw_fd else {
+            return Ok(());
+        };
+        let overlapped = self.overlapped_ptr();
+        if unsafe { CancelIoEx(raw_fd, overlapped) } == 0 {
+            let errno = last_errno();
+            if errno != ERROR_NOT_FOUND as i32 {
+                return Err(AsyncHostError::Native(errno));
+            }
+        }
+
+        let mut bytes_transferred = 0;
+        if unsafe { GetOverlappedResult(raw_fd, overlapped, &mut bytes_transferred, 1) } == 0 {
+            let errno = last_errno();
+            if errno != ERROR_OPERATION_ABORTED as i32 && errno != ERROR_NOT_FOUND as i32 {
+                return Err(AsyncHostError::Native(errno));
+            }
+        }
+        self.clear_pending();
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+impl Drop for HostIoResult {
+    fn drop(&mut self) {
+        let _ = self.cancel_and_drain_pending();
     }
 }
 
@@ -554,11 +658,18 @@ impl AsyncHost {
         let mut state = self.state.lock().unwrap();
         let poll = Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?);
         let mut poll = poll.lock().unwrap();
-        poll::event_list_get(&poll.instance, index)?;
+        let event = poll::event_list_get(&poll.instance, index)?;
+        let raw_fd = poll::event_get_fd(event);
+        let fd_handle = poll
+            .registered_fds
+            .get(&raw_fd_key(raw_fd))
+            .copied()
+            .or_else(|| completion_event_fd(raw_fd));
         let key = state.events.insert(HostEvent {
             poll: poll_key,
             generation: poll.event_generation,
             index,
+            fd_handle,
         });
         poll.event_handles.push(key);
         Ok(handle_from_key(key))
@@ -585,14 +696,18 @@ impl AsyncHost {
     }
 
     pub(crate) fn poll_event_fd(&self, event_handle: u64) -> AsyncHostResult<HostHandle> {
-        self.with_event(event_handle, |poll, event| {
-            let raw_fd = poll::event_get_fd(event);
-            poll.registered_fds
-                .get(&raw_fd_key(raw_fd))
-                .copied()
-                .map(Ok)
-                .unwrap_or_else(|| raw_fd_to_guest(raw_fd))
-        })
+        let event = key_from_handle::<HostEventKey>(event_handle);
+        let (event, poll) = {
+            let state = self.state.lock().unwrap();
+            let event = *state.events.get(event).ok_or(AsyncHostError::Badf)?;
+            let poll = Arc::clone(state.polls.get(event.poll).ok_or(AsyncHostError::Badf)?);
+            (event, poll)
+        };
+        let poll = poll.lock().unwrap();
+        if poll.event_generation != event.generation {
+            return Err(AsyncHostError::Badf);
+        }
+        event.fd_handle.ok_or(AsyncHostError::Badf)
     }
 
     #[cfg(unix)]
@@ -626,6 +741,10 @@ impl AsyncHost {
             let state = self.state.lock().unwrap();
             #[cfg(unix)]
             if state.completion_source.is_some() {
+                return Err(AsyncHostError::Inval);
+            }
+            #[cfg(windows)]
+            if state.completion_port.is_some() {
                 return Err(AsyncHostError::Inval);
             }
             Arc::clone(
@@ -663,6 +782,14 @@ impl AsyncHost {
     }
 
     pub(crate) fn destroy_thread_pool(&self) {
+        let workers = {
+            let mut state = self.state.lock().unwrap();
+            state.take_workers()
+        };
+        for worker in workers {
+            thread_pool::free_worker(worker);
+        }
+
         let mut state = self.state.lock().unwrap();
         #[cfg(unix)]
         {
@@ -858,6 +985,8 @@ impl AsyncHost {
     pub(crate) fn close_fd(&self, handle: HostHandle) -> AsyncHostResult<()> {
         let mut state = self.state.lock().unwrap();
         let raw_fd = state.file(handle)?.raw_fd();
+        #[cfg(windows)]
+        state.drain_pending_io_for_raw_fd(raw_fd)?;
         #[cfg(unix)]
         if state.completion_source == Some(handle) {
             state.completion_source = None;
@@ -866,13 +995,13 @@ impl AsyncHost {
                 poll.lock().unwrap().completion_notifier = None;
             }
         }
-        state.remove_file(handle)?;
         for poll in state.polls.values() {
             poll.lock()
                 .unwrap()
                 .registered_fds
                 .remove(&raw_fd_key(raw_fd));
         }
+        state.remove_file(handle)?;
         Ok(())
     }
 
@@ -964,6 +1093,8 @@ impl AsyncHost {
     pub(crate) fn free_io_result(&self, handle: u64) -> AsyncHostResult<()> {
         let key = key_from_handle::<HostIoResultKey>(handle);
         let mut state = self.state.lock().unwrap();
+        let result = state.io_results.get_mut(key).ok_or(AsyncHostError::Badf)?;
+        result.cancel_and_drain_pending()?;
         let mut result = state.io_results.remove(key).ok_or(AsyncHostError::Badf)?;
         state
             .io_results_by_overlapped
@@ -987,35 +1118,13 @@ impl AsyncHost {
         result_handle: u64,
         fd_handle: HostHandle,
     ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Foundation::{ERROR_IO_INCOMPLETE, ERROR_NOT_FOUND};
-        use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
-
         let mut state = self.state.lock().unwrap();
-        let raw_fd = state.file(fd_handle)?.raw_fd();
+        state.file(fd_handle)?;
         let result = state
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
-        let overlapped = result.overlapped_ptr();
-        let cancelled = unsafe { CancelIoEx(raw_fd, overlapped) };
-        if cancelled == 0 {
-            let errno = last_errno();
-            return if errno == ERROR_NOT_FOUND as i32 {
-                Ok(0)
-            } else {
-                Err(AsyncHostError::Native(errno))
-            };
-        }
-
-        let mut bytes_transferred = 0;
-        if unsafe { GetOverlappedResult(raw_fd, overlapped, &mut bytes_transferred, 0) } != 0 {
-            return Ok(0);
-        }
-        if last_errno() == ERROR_IO_INCOMPLETE as i32 {
-            Ok(1)
-        } else {
-            Ok(0)
-        }
+        result.cancel_pending()
     }
 
     #[cfg(windows)]
@@ -1038,8 +1147,17 @@ impl AsyncHost {
             GetOverlappedResult(raw_fd, result.overlapped_ptr(), &mut bytes_transferred, 0)
         } == 0
         {
-            return Err(last_native_error());
+            let error = last_native_error();
+            if !matches!(
+                error,
+                AsyncHostError::Native(errno)
+                    if errno == windows_sys::Win32::Foundation::ERROR_IO_INCOMPLETE as i32
+            ) {
+                result.clear_pending();
+            }
+            return Err(error);
         }
+        result.clear_pending();
         let bytes_transferred =
             i32::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)?;
         result.copy_read_result(memory, bytes_transferred)?;
@@ -1053,7 +1171,7 @@ impl AsyncHost {
         fd_handle: HostHandle,
         result_handle: u64,
     ) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Foundation::ERROR_HANDLE_EOF;
+        use windows_sys::Win32::Foundation::{ERROR_HANDLE_EOF, ERROR_IO_PENDING};
         use windows_sys::Win32::Storage::FileSystem::ReadFile;
 
         let mut state = self.state.lock().unwrap();
@@ -1062,6 +1180,9 @@ impl AsyncHost {
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
+        if result.pending_raw_fd().is_some() {
+            return Err(AsyncHostError::Inval);
+        }
         result.direction = Some(HostIoDirection::Read);
         let len = u32::try_from(result.buffer.len()).map_err(|_| AsyncHostError::Fault)?;
         let mut bytes_transferred = 0;
@@ -1083,6 +1204,9 @@ impl AsyncHost {
         let errno = last_errno();
         if errno == ERROR_HANDLE_EOF as i32 {
             Ok(0)
+        } else if errno == ERROR_IO_PENDING as i32 {
+            result.mark_pending(raw_fd)?;
+            Err(AsyncHostError::Native(errno))
         } else {
             Err(AsyncHostError::Native(errno))
         }
@@ -1095,6 +1219,7 @@ impl AsyncHost {
         fd_handle: HostHandle,
         result_handle: u64,
     ) -> AsyncHostResult<i32> {
+        use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
         use windows_sys::Win32::Storage::FileSystem::WriteFile;
 
         let mut state = self.state.lock().unwrap();
@@ -1103,6 +1228,9 @@ impl AsyncHost {
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
+        if result.pending_raw_fd().is_some() {
+            return Err(AsyncHostError::Inval);
+        }
         result.direction = Some(HostIoDirection::Write);
         let len_i32 = i32::try_from(result.buffer.len()).map_err(|_| AsyncHostError::Fault)?;
         let data = memory.read_exact(result.guest_offset, len_i32)?;
@@ -1121,7 +1249,11 @@ impl AsyncHost {
         if success != 0 {
             i32::try_from(bytes_transferred).map_err(|_| AsyncHostError::Fault)
         } else {
-            Err(last_native_error())
+            let error = last_native_error();
+            if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32) {
+                result.mark_pending(raw_fd)?;
+            }
+            Err(error)
         }
     }
 
@@ -1171,9 +1303,7 @@ impl AsyncHost {
                 .clone()
                 .ok_or(AsyncHostError::Badf)?;
             self.spawn_worker_thread(HostWorkerJob { job_id, job_handle }, move |worker_job| {
-                completion_notifier
-                    .notify(worker_job.job_id)
-                    .expect("failed to notify async host completion pipe");
+                let _ = completion_notifier.notify(worker_job.job_id);
             })
         };
         #[cfg(windows)]
@@ -1185,8 +1315,7 @@ impl AsyncHost {
                 .completion_port
                 .ok_or(AsyncHostError::Badf)?;
             self.spawn_worker_thread(HostWorkerJob { job_id, job_handle }, move |worker_job| {
-                poll::post_thread_pool_completion(completion_port, worker_job.job_id)
-                    .expect("failed to post async host completion packet");
+                let _ = poll::post_thread_pool_completion(completion_port, worker_job.job_id);
             })
         };
         let key = self.state.lock().unwrap().workers.insert(worker);
@@ -1236,7 +1365,7 @@ impl AsyncHost {
             .workers
             .get(key_from_handle::<HostWorkerKey>(worker_handle))
             .ok_or(AsyncHostError::Badf)?;
-        Ok(thread_pool::cancel_worker(worker))
+        thread_pool::cancel_worker(worker)
     }
 
     pub(crate) fn get_read_result(
@@ -1353,6 +1482,12 @@ impl AsyncHost {
     }
 }
 
+impl Drop for AsyncHost {
+    fn drop(&mut self) {
+        self.destroy_thread_pool();
+    }
+}
+
 struct SharedFileTable {
     state: Arc<Mutex<AsyncHostState>>,
 }
@@ -1384,11 +1519,11 @@ impl HostFileTable for SharedFileTable {
         handle: HostHandle,
         f: impl FnOnce(RawFd) -> AsyncHostResult<U>,
     ) -> AsyncHostResult<U> {
-        let file = {
-            let mut state = self.state.lock().unwrap();
-            state.file_mut(handle)?.duplicate()?
+        let raw_fd = {
+            let state = self.state.lock().unwrap();
+            state.file(handle)?.raw_fd()
         };
-        f(file.raw_fd())
+        f(raw_fd)
     }
 
     fn with_host_file_mut<U>(
@@ -1396,9 +1531,9 @@ impl HostFileTable for SharedFileTable {
         handle: HostHandle,
         f: impl FnOnce(&mut HostFile) -> AsyncHostResult<U>,
     ) -> AsyncHostResult<U> {
-        // TODO(async-wasm): keep this path for handle-state mutations only.
-        // Blocking job bodies should clone/take the OS handle before running so
-        // worker threads do not serialize on the host table lock.
+        // Keep this path for host-owned file state operations such as readdir.
+        // Ordinary worker jobs should use with_raw_file and mirror native async
+        // by operating on the raw fd value without duplicating the OS handle.
         let mut state = self.state.lock().unwrap();
         let file = state.file_mut(handle)?;
         f(file)
@@ -1417,14 +1552,23 @@ fn last_native_error() -> AsyncHostError {
     AsyncHostError::Native(last_errno())
 }
 
-#[cfg(unix)]
-fn raw_fd_to_guest(fd: RawFd) -> AsyncHostResult<HostHandle> {
-    u64::try_from(fd).map_err(|_| AsyncHostError::Fault)
-}
-
 #[cfg(windows)]
 fn raw_fd_to_guest(fd: RawFd) -> AsyncHostResult<HostHandle> {
     Ok(fd as usize as u64)
+}
+
+#[cfg(unix)]
+fn completion_event_fd(_fd: RawFd) -> Option<HostHandle> {
+    None
+}
+
+#[cfg(windows)]
+fn completion_event_fd(fd: RawFd) -> Option<HostHandle> {
+    if fd == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+        raw_fd_to_guest(fd).ok()
+    } else {
+        None
+    }
 }
 
 #[cfg(unix)]

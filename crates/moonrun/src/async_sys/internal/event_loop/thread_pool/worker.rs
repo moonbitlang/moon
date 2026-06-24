@@ -19,6 +19,9 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 
+#[cfg(windows)]
+use crate::async_host::AsyncHostError;
+use crate::async_host::AsyncHostResult;
 use crate::async_sys::ported_fns;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,9 +174,9 @@ impl HostWorkerHandle {
         self.shared.state.lock().unwrap().job = None;
     }
 
-    pub(crate) fn cancel(&self) -> i32 {
+    pub(crate) fn cancel(&self) -> AsyncHostResult<i32> {
         if self.shared.state.lock().unwrap().waiting {
-            return 1;
+            return Ok(1);
         }
 
         #[cfg(unix)]
@@ -183,7 +186,7 @@ impl HostWorkerHandle {
                     libc::pthread_kill(thread_id, libc::SIGUSR2);
                 }
             }
-            0
+            Ok(0)
         }
 
         #[cfg(windows)]
@@ -193,14 +196,17 @@ impl HostWorkerHandle {
             use windows_sys::Win32::System::IO::CancelSynchronousIo;
 
             let Some(thread) = &self.thread else {
-                return -1;
+                return Err(AsyncHostError::Badf);
             };
             if unsafe { CancelSynchronousIo(thread.as_raw_handle()) } != 0 {
-                1
-            } else if unsafe { GetLastError() } == ERROR_NOT_FOUND {
-                0
+                Ok(1)
             } else {
-                -1
+                let error = unsafe { GetLastError() };
+                if error == ERROR_NOT_FOUND {
+                    Ok(0)
+                } else {
+                    Err(AsyncHostError::Native(error as i32))
+                }
             }
         }
     }
@@ -246,7 +252,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_cancel_worker"
     )]
-    pub(crate) fn cancel_worker(worker: &HostWorkerHandle) -> i32 {
+    pub(crate) fn cancel_worker(worker: &HostWorkerHandle) -> AsyncHostResult<i32> {
         worker.cancel()
     }
 
@@ -291,7 +297,7 @@ mod tests {
                 job_handle: 11
             }
         );
-        assert_eq!(cancel_worker(&worker), 1);
+        assert_eq!(cancel_worker(&worker), Ok(1));
 
         wake_worker(
             &worker,
