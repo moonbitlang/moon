@@ -342,6 +342,7 @@ pub fn read_module_from_dsl(path: &Path) -> anyhow::Result<MoonMod> {
         ("license", false),
         ("keywords", false),
         ("description", false),
+        ("source", false),
         ("supported_targets", false),
         ("preferred_target", false),
     ]);

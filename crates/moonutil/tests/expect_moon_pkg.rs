@@ -156,9 +156,7 @@ fn expect_is_main() {
 #[test]
 fn expect_formatter() {
     let actual = run(r#"
-    options(
-      formatter: { "ignore": ["file1.mbt", "file2.mbt", "file3.mbt"] }
-    )
+    formatter(ignore: ["file1.mbt", "file2.mbt", "file3.mbt"])
     "#);
     expect_test::expect![[r#"
         MoonPkg {
@@ -199,6 +197,13 @@ fn expect_formatter() {
             local_rules: None,
         }"#]]
     .assert_eq(&actual);
+
+    let legacy_actual = run(r#"
+    options(
+      formatter: { "ignore": ["file1.mbt", "file2.mbt", "file3.mbt"] }
+    )
+    "#);
+    assert_eq!(legacy_actual, actual);
 }
 
 #[test]
