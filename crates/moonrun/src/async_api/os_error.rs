@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, write_u16};
+use crate::async_host::AsyncHostResult;
 use crate::async_sys::os_error::stub;
 
 use super::context::ImportContext;
@@ -71,35 +71,13 @@ pub(super) fn is_error_notify_enum_dir(_context: &mut ImportContext, errno: i32)
     }
 }
 
-pub(super) fn errno_to_string_len(context: &mut ImportContext, errno: i32) -> i32 {
-    match i32::try_from(errno_to_string_utf16(errno).len()).map_err(|_| AsyncHostError::Fault) {
-        Ok(len) => len,
-        Err(error) => {
-            context.host.record_error(error);
-            -1
-        }
-    }
+#[ported(source = "src/os_error/stub.c")]
+pub(super) fn errno_to_string(context: &mut ImportContext, errno: i32) -> u64 {
+    context.host.insert_c_buffer(stub::errno_to_string(errno))
 }
 
-#[ported(source = "src/os_error/stub.c")]
-pub(super) fn errno_to_string(context: &mut ImportContext, errno: i32, ptr: i32, len: i32) -> i32 {
-    let result = (|| {
-        let units = errno_to_string_utf16(errno);
-        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        if len != units.len() {
-            return Err(AsyncHostError::Inval);
-        }
-
-        context.with_memory_mut(|memory| write_u16(memory, ptr, &units))
-    })();
-
-    match result {
-        Ok(()) => 0,
-        Err(error) => {
-            context.host.record_error(error);
-            -1
-        }
-    }
+pub(super) fn free_errno_str(context: &mut ImportContext, ptr: u64) -> AsyncHostResult<()> {
+    context.host.free_c_buffer(ptr)
 }
 
 #[ported(source = "src/os_error/stub.c")]
@@ -107,17 +85,4 @@ pub(super) fn get_enotdir(_context: &mut ImportContext) -> i32 {
     stub::get_enotdir()
 }
 
-fn errno_to_string_utf16(errno: i32) -> Vec<u16> {
-    stub::errno_to_string(errno).encode_utf16().collect()
-}
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn errno_to_string_utf16_returns_message_units() {
-        assert!(!errno_to_string_utf16(stub::get_enotdir()).is_empty());
-    }
 }

@@ -297,12 +297,17 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_readdir_job"
     )]
-    pub(crate) fn make_readdir_job(dir: HostHandle, len: i32, restart: bool) -> Job {
+    pub(crate) fn make_readdir_job(
+        dir: HostHandle,
+        buffer: crate::async_host::HostCBuffer,
+        len: i32,
+        restart: bool,
+    ) -> Job {
         Job::new(JobPayload::Readdir {
             dir,
+            buffer,
             len,
             restart,
-            result: None,
         })
     }
 

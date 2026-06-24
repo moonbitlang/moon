@@ -363,9 +363,9 @@ declare_async_imports! {
 
     ported os_error::get_enotdir() -> i32 => "os_error/get_ENOTDIR";
 
-    helper os_error::errno_to_string_len(errno: i32) -> i32 => "os_error/errno_to_string_len";
+    ported os_error::errno_to_string(errno: i32) -> u64 => "os_error/errno_to_string";
 
-    ported os_error::errno_to_string(errno: i32, ptr: i32, len: i32) -> i32 => "os_error/errno_to_string";
+    helper os_error::free_errno_str(ptr: u64) -> void => "os_error/free_errno_str";
 
     // Decode host-native strings into guest-owned MoonBit String storage.
     helper os_string::decode_len(ptr: u64, len: i32) -> i32 => "os_string/decode_len";
@@ -497,6 +497,8 @@ declare_async_imports! {
 
     ported c_buffer::strlen(buf: u64) -> i32 => "c_buffer/strlen";
 
+    ported c_buffer::new(size: i32) -> u64 => "c_buffer/new";
+
     helper c_buffer::free(ptr: u64) -> void => "c_buffer/free";
 
     // fs/stub.c and fs/dir.c.
@@ -516,17 +518,17 @@ declare_async_imports! {
 
     ported fs::dir_buffer_min_size() -> i32 => "fs/dir_buffer_min_size";
 
-    ported fs::dir_entry_length(buf: i32, offset: i32) -> i32 => "fs/dir_entry_length";
+    ported fs::dir_entry_length(buf: u64, offset: i32) -> i32 => "fs/dir_entry_length";
 
-    ported fs::dir_entry_name_len(buf: i32, offset: i32) -> i32 => "fs/dir_entry_get_name_len";
+    ported fs::dir_entry_name_len(buf: u64, offset: i32) -> i32 => "fs/dir_entry_get_name_len";
 
-    ported fs::dir_entry_name(buf: i32, offset: i32) -> u64 => "fs/dir_entry_get_name";
+    ported fs::dir_entry_name(buf: u64, offset: i32) -> u64 => "fs/dir_entry_get_name";
 
-    ported fs::dir_entry_is_dir(buf: i32, offset: i32) -> i32 => "fs/dir_entry_is_dir";
+    ported fs::dir_entry_is_dir(buf: u64, offset: i32) -> i32 => "fs/dir_entry_is_dir";
 
-    ported fs::dir_entry_is_hidden(buf: i32, offset: i32) -> i32 => "fs/dir_entry_is_hidden";
+    ported fs::dir_entry_is_hidden(buf: u64, offset: i32) -> i32 => "fs/dir_entry_is_hidden";
 
-    ported fs::dir_entry_file_id(buf: i32, offset: i32) -> u64 => "fs/dir_entry_get_file_id";
+    ported fs::dir_entry_file_id(buf: u64, offset: i32) -> u64 => "fs/dir_entry_get_file_id";
 
     // thread_pool.c FS jobs. Path-taking jobs use the Guest String Path ABI:
     // MoonBit String pointer plus UTF-16 code-unit length.
@@ -605,9 +607,7 @@ declare_async_imports! {
 
     ported thread_pool::make_rmdir_job(path_ptr: i32, path_len: i32) -> u64 => "thread_pool/make_rmdir_job";
 
-    ported thread_pool::make_readdir_job(dir: u64, len: i32, restart: i32) -> u64 => "thread_pool/make_readdir_job";
-
-    helper thread_pool::get_readdir_result(job: u64, dst: i32, len: i32) -> void => "thread_pool/get_readdir_result";
+    ported thread_pool::make_readdir_job(dir: u64, buf: u64, len: i32, restart: i32) -> u64 => "thread_pool/make_readdir_job";
 }
 
 #[cfg(test)]

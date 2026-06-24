@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, write_u16};
+use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
 use crate::async_sys::fs::dir;
 use crate::async_sys::fs::stub;
 
@@ -62,64 +62,68 @@ pub(super) fn dir_buffer_min_size(_context: &mut ImportContext) -> i32 {
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_length(
     context: &mut ImportContext,
-    buf: i32,
+    buf: u64,
     offset: i32,
 ) -> AsyncHostResult<i32> {
-    context.with_memory_mut(|memory| dir::entry_length(memory.bytes(), buf, offset))
+    context
+        .host
+        .with_c_buffer(buf, |buf| dir::entry_length(buf, 0, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_name_len(
     context: &mut ImportContext,
-    buf: i32,
+    buf: u64,
     offset: i32,
 ) -> AsyncHostResult<i32> {
-    context.with_memory_mut(|memory| dir::entry_name_len(memory.bytes(), buf, offset))
+    context
+        .host
+        .with_c_buffer(buf, |buf| dir::entry_name_len(buf, 0, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_name(
     context: &mut ImportContext,
-    buf: i32,
+    buf: u64,
     offset: i32,
 ) -> AsyncHostResult<u64> {
-    let name = context.with_memory_mut(|memory| {
-        Ok(Box::<[u8]>::from(dir::entry_name(
-            memory.bytes(),
-            buf,
-            offset,
-        )?))
-    })?;
-    Ok(context.host.insert_c_buffer(name))
+    context
+        .host
+        .with_c_buffer(buf, |buf| Ok(dir::entry_name(buf, 0, offset)?.as_ptr() as u64))
 }
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_is_dir(
     context: &mut ImportContext,
-    buf: i32,
+    buf: u64,
     offset: i32,
 ) -> AsyncHostResult<i32> {
-    context.with_memory_mut(|memory| dir::entry_is_dir(memory.bytes(), buf, offset))
+    context
+        .host
+        .with_c_buffer(buf, |buf| dir::entry_is_dir(buf, 0, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_is_hidden(
     context: &mut ImportContext,
-    buf: i32,
+    buf: u64,
     offset: i32,
 ) -> AsyncHostResult<i32> {
     context
-        .with_memory_mut(|memory| dir::entry_is_hidden(memory.bytes(), buf, offset))
+        .host
+        .with_c_buffer(buf, |buf| dir::entry_is_hidden(buf, 0, offset))
         .map(|value| if value { 1 } else { 0 })
 }
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_file_id(
     context: &mut ImportContext,
-    buf: i32,
+    buf: u64,
     offset: i32,
 ) -> AsyncHostResult<u64> {
-    context.with_memory_mut(|memory| dir::entry_file_id(memory.bytes(), buf, offset))
+    context
+        .host
+        .with_c_buffer(buf, |buf| dir::entry_file_id(buf, 0, offset))
 }
 
 fn tmp_path_utf16_units() -> AsyncHostResult<Vec<u16>> {

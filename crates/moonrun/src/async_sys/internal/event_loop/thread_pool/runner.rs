@@ -93,10 +93,10 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
         JobPayload::Rmdir { path } => run_rmdir_job(path.clone()),
         JobPayload::Readdir {
             dir,
+            buffer,
             len,
             restart,
-            result,
-        } => run_readdir_job(files, *dir, *len, *restart, result),
+        } => run_readdir_job(files, *dir, buffer, *len, *restart),
     };
 
     match result {
@@ -124,25 +124,6 @@ pub(crate) fn get_read_result(
     };
     let dst_offset = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
     memory.write_with_capacity(dst_offset, len, result)
-}
-
-pub(crate) fn get_readdir_result(
-    job: &Job,
-    memory: &mut (impl GuestMemory + ?Sized),
-    dst: i32,
-    len: i32,
-) -> AsyncHostResult<()> {
-    if job.err() != 0 {
-        return Ok(());
-    }
-    let JobPayload::Readdir {
-        result: Some(result),
-        ..
-    } = job.payload()
-    else {
-        return Err(AsyncHostError::Badf);
-    };
-    memory.write_with_capacity(dst, len, result)
 }
 
 pub(crate) fn get_file_time_result(

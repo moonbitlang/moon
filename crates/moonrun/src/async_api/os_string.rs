@@ -51,32 +51,12 @@ fn utf16_len(string: &str) -> AsyncHostResult<i32> {
 
 fn decode_native_string(bytes: &[u8], len: i32) -> AsyncHostResult<String> {
     let bytes = if len == -1 {
-        native_string_bytes(bytes)?
+        bytes
     } else {
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
         bytes.get(..len).ok_or(AsyncHostError::Fault)?
     };
     decode_native_string_bytes(bytes)
-}
-
-#[cfg(unix)]
-fn native_string_bytes(bytes: &[u8]) -> AsyncHostResult<&[u8]> {
-    let len = crate::async_sys::internal::c_buffer::stub::strlen(bytes)?;
-    let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-    Ok(&bytes[..len])
-}
-
-#[cfg(windows)]
-fn native_string_bytes(bytes: &[u8]) -> AsyncHostResult<&[u8]> {
-    for (index, chunk) in bytes.chunks_exact(2).enumerate() {
-        if chunk == [0, 0] {
-            let len = index
-                .checked_mul(std::mem::size_of::<u16>())
-                .ok_or(AsyncHostError::Fault)?;
-            return Ok(&bytes[..len]);
-        }
-    }
-    Err(AsyncHostError::Fault)
 }
 
 #[cfg(unix)]
@@ -103,16 +83,19 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn unix_decode_native_string_stops_at_nul_byte() {
-        assert_eq!(decode_native_string(b"abc\0def", -1), Ok("abc".to_string()));
+    fn unix_decode_native_string_uses_the_whole_owned_buffer() {
+        assert_eq!(
+            decode_native_string(b"abc\0def", -1),
+            Ok("abc\0def".to_string())
+        );
     }
 
     #[cfg(windows)]
     #[test]
-    fn windows_decode_native_string_stops_at_nul_wchar() {
+    fn windows_decode_native_string_uses_the_whole_owned_buffer() {
         assert_eq!(
             decode_native_string(&[b'a', 0, b'b', 0, 0, 0], -1),
-            Ok("ab".to_string())
+            Ok("ab\0".to_string())
         );
     }
 

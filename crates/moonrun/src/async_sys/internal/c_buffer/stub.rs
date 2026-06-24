@@ -66,6 +66,15 @@ ported_fns! {
         i32::try_from(len).map_err(|_| AsyncHostError::Fault)
     }
 
+    #[ported(
+        source = "src/internal/c_buffer/stub.c",
+        original = "moonbitlang_async_make_c_buffer"
+    )]
+    pub(crate) fn make_c_buffer(size: i32) -> AsyncHostResult<Box<[u8]>> {
+        let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
+        Ok(vec![0; size].into_boxed_slice())
+    }
+
 }
 
 fn checked_range(src: &[u8], offset: i32, len: i32) -> AsyncHostResult<&[u8]> {

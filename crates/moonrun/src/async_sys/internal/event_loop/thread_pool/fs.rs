@@ -21,7 +21,7 @@
 
 use std::ffi::OsString;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_host::{AsyncHostError, AsyncHostResult, HostCBuffer};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 
@@ -276,15 +276,15 @@ ported_fns! {
     pub(super) fn run_readdir_job(
         files: &mut impl HostFileTable,
         dir: HostHandle,
+        buffer: &HostCBuffer,
         len: i32,
         restart: bool,
-        result: &mut Option<Vec<u8>>,
     ) -> AsyncHostResult<i64> {
+        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+        let mut buffer = buffer.lock().unwrap();
+        let buffer = buffer.get_mut(..len).ok_or(AsyncHostError::Fault)?;
         files.with_host_file_mut(dir, |file| {
-            let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-            let (ret, native) = read_native_dir(file, len, restart)?;
-            *result = Some(native);
-            Ok(ret)
+            read_native_dir(file, buffer, restart)
         })
     }
 }
@@ -780,33 +780,23 @@ fn rmdir_native_path(path: OsString) -> AsyncHostResult<()> {
 }
 
 #[cfg(all(unix, target_os = "linux"))]
-fn read_native_dir(
-    file: &mut HostFile,
-    len: usize,
-    restart: bool,
-) -> AsyncHostResult<(i64, Vec<u8>)> {
+fn read_native_dir(file: &mut HostFile, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
     let fd = file.raw_fd();
     if restart && unsafe { libc::lseek(fd, 0, libc::SEEK_SET) } < 0 {
         return Err(last_native_error());
     }
 
-    let mut native = vec![0; len];
-    let ret = unsafe { libc::syscall(libc::SYS_getdents64, fd, native.as_mut_ptr(), native.len()) };
+    let ret = unsafe { libc::syscall(libc::SYS_getdents64, fd, out.as_mut_ptr(), out.len()) };
     if ret < 0 {
         return Err(last_native_error());
     }
     #[cfg(not(target_pointer_width = "64"))]
     let ret = i64::from(ret);
-    native.truncate(usize::try_from(ret).map_err(|_| AsyncHostError::Fault)?);
-    Ok((ret, native))
+    Ok(ret)
 }
 
 #[cfg(all(unix, target_os = "macos"))]
-fn read_native_dir(
-    file: &mut HostFile,
-    len: usize,
-    restart: bool,
-) -> AsyncHostResult<(i64, Vec<u8>)> {
+fn read_native_dir(file: &mut HostFile, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
     let fd = file.raw_fd();
     if restart && unsafe { libc::lseek(fd, 0, libc::SEEK_SET) } < 0 {
         return Err(last_native_error());
@@ -824,23 +814,19 @@ fn read_native_dir(
         fileattr: 0,
         forkattr: 0,
     };
-    let mut native = vec![0; len];
     let ret = unsafe {
         libc::getattrlistbulk(
             fd,
             (&mut attr_spec as *mut libc::attrlist).cast(),
-            native.as_mut_ptr().cast(),
-            native.len(),
+            out.as_mut_ptr().cast(),
+            out.len(),
             0,
         )
     };
     if ret < 0 {
         return Err(last_native_error());
     }
-    if ret == 0 {
-        native.clear();
-    }
-    Ok((i64::from(ret), native))
+    Ok(i64::from(ret))
 }
 
 #[cfg(all(unix, target_os = "linux"))]
@@ -1547,17 +1533,12 @@ fn rmdir_native_path(path: OsString) -> AsyncHostResult<()> {
 }
 
 #[cfg(windows)]
-fn read_native_dir(
-    file: &mut HostFile,
-    len: usize,
-    restart: bool,
-) -> AsyncHostResult<(i64, Vec<u8>)> {
+fn read_native_dir(file: &mut HostFile, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
     use windows_sys::Win32::Foundation::{ERROR_NO_MORE_FILES, HANDLE};
     use windows_sys::Win32::Storage::FileSystem::{
         FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo, GetFileInformationByHandleEx,
     };
 
-    let mut native = vec![0; len];
     let info_class = if restart {
         FileIdBothDirectoryRestartInfo
     } else {
@@ -1567,8 +1548,8 @@ fn read_native_dir(
         GetFileInformationByHandleEx(
             file.raw_fd() as HANDLE,
             info_class,
-            native.as_mut_ptr().cast(),
-            u32::try_from(native.len()).map_err(|_| AsyncHostError::Fault)?,
+            out.as_mut_ptr().cast(),
+            u32::try_from(out.len()).map_err(|_| AsyncHostError::Fault)?,
         )
     };
     if ok == 0 {
@@ -1576,15 +1557,12 @@ fn read_native_dir(
             .raw_os_error()
             .unwrap_or_else(|| AsyncHostError::Inval.errno());
         if error == ERROR_NO_MORE_FILES as i32 {
-            return Ok((0, Vec::new()));
+            return Ok(0);
         }
         return Err(AsyncHostError::Native(error));
     }
 
-    Ok((
-        i64::try_from(len).map_err(|_| AsyncHostError::Fault)?,
-        native,
-    ))
+    i64::try_from(out.len()).map_err(|_| AsyncHostError::Fault)
 }
 
 #[cfg(windows)]

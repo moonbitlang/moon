@@ -370,12 +370,19 @@ pub(super) fn make_rmdir_job(
 pub(super) fn make_readdir_job(
     context: &mut ImportContext,
     dir: u64,
+    buf: u64,
     len: i32,
     restart: i32,
 ) -> AsyncHostResult<u64> {
+    let buffer = context.host.c_buffer(buf)?;
     context
         .host
-        .insert_job(thread_pool::make_readdir_job(dir, len, restart != 0))
+        .insert_job(thread_pool::make_readdir_job(
+            dir,
+            buffer,
+            len,
+            restart != 0,
+        ))
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
@@ -396,16 +403,6 @@ pub(super) fn open_job_get_dev_id(context: &mut ImportContext, job: u64) -> Asyn
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn open_job_get_file_id(context: &mut ImportContext, job: u64) -> AsyncHostResult<u64> {
     context.host.open_job_get_file_id(job)
-}
-
-pub(super) fn get_readdir_result(
-    context: &mut ImportContext,
-    job: u64,
-    dst: i32,
-    len: i32,
-) -> AsyncHostResult<()> {
-    let host = context.host;
-    context.with_memory_mut(|memory| host.get_readdir_result(memory, job, dst, len))
 }
 
 fn read_guest_path(context: &mut ImportContext, ptr: i32, len: i32) -> AsyncHostResult<OsString> {
