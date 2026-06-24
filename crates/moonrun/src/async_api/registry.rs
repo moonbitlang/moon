@@ -342,7 +342,7 @@ declare_async_imports! {
     ported thread_pool::make_sleep_job(duration_ms: i32) -> u64 => "thread_pool/make_sleep_job";
 
     // Time helpers.
-    helper time::get_ms_since_epoch() -> i64 => "time/get_ms_since_epoch";
+    helper time::get_ms_since_epoch() -> u64 => "time/get_ms_since_epoch";
 
     // os_error/stub.c predicates, errno accessors, and string formatting.
     ported os_error::get_errno() -> i32 => "os_error/get_errno";
@@ -526,7 +526,7 @@ declare_async_imports! {
 
     ported fs::dir_entry_is_hidden(buf: i32, offset: i32) -> i32 => "fs/dir_entry_is_hidden";
 
-    ported fs::dir_entry_file_id(buf: i32, offset: i32) -> i64 => "fs/dir_entry_get_file_id";
+    ported fs::dir_entry_file_id(buf: i32, offset: i32) -> u64 => "fs/dir_entry_get_file_id";
 
     // thread_pool.c FS jobs. Path-taking jobs use the Guest String Path ABI:
     // MoonBit String pointer plus UTF-16 code-unit length.

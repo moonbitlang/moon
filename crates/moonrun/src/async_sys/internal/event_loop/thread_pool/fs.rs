@@ -468,11 +468,98 @@ fn file_kind_from_attr(attrs: u32) -> i32 {
     };
 
     if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
-        3
+        FILE_KIND_SYMLINK
     } else if (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0 {
-        2
+        FILE_KIND_DIRECTORY
     } else {
-        1
+        FILE_KIND_REGULAR
+    }
+}
+
+#[cfg(windows)]
+const FILE_KIND_UNKNOWN: i32 = 0;
+#[cfg(windows)]
+const FILE_KIND_REGULAR: i32 = 1;
+#[cfg(windows)]
+const FILE_KIND_DIRECTORY: i32 = 2;
+#[cfg(windows)]
+const FILE_KIND_SYMLINK: i32 = 3;
+#[cfg(windows)]
+const FILE_KIND_SOCKET: i32 = 4;
+#[cfg(windows)]
+const FILE_KIND_PIPE: i32 = 5;
+#[cfg(windows)]
+const FILE_KIND_CHAR_DEVICE: i32 = 7;
+
+#[cfg(windows)]
+fn kind_of_raw_file(handle: RawFile) -> AsyncHostResult<i32> {
+    use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_BASIC_INFO, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN,
+        FileBasicInfo, GetFileInformationByHandleEx, GetFileType,
+    };
+
+    unsafe {
+        SetLastError(0);
+    }
+    match unsafe { GetFileType(handle) } {
+        FILE_TYPE_DISK => {
+            let mut info = std::mem::MaybeUninit::<FILE_BASIC_INFO>::uninit();
+            if unsafe {
+                GetFileInformationByHandleEx(
+                    handle,
+                    FileBasicInfo,
+                    info.as_mut_ptr().cast(),
+                    std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+                )
+            } == 0
+            {
+                Err(last_native_error())
+            } else {
+                Ok(file_kind_from_attr(unsafe {
+                    info.assume_init().FileAttributes
+                }))
+            }
+        }
+        FILE_TYPE_CHAR => Ok(FILE_KIND_CHAR_DEVICE),
+        FILE_TYPE_PIPE => {
+            if handle_is_socket(handle) {
+                Ok(FILE_KIND_SOCKET)
+            } else {
+                Ok(FILE_KIND_PIPE)
+            }
+        }
+        FILE_TYPE_UNKNOWN => {
+            let get_file_type_error = unsafe { GetLastError() };
+            if handle_is_socket(handle) {
+                Ok(FILE_KIND_SOCKET)
+            } else if get_file_type_error == 0 {
+                Ok(FILE_KIND_UNKNOWN)
+            } else {
+                unsafe {
+                    SetLastError(get_file_type_error);
+                }
+                Err(last_native_error())
+            }
+        }
+        _ => Ok(FILE_KIND_UNKNOWN),
+    }
+}
+
+#[cfg(windows)]
+fn handle_is_socket(handle: RawFile) -> bool {
+    use windows_sys::Win32::Networking::WinSock::{SO_TYPE, SOCKET, SOL_SOCKET, getsockopt};
+
+    let mut opt = 0i32;
+    let mut opt_len = std::mem::size_of::<i32>() as i32;
+    unsafe {
+        getsockopt(
+            handle as SOCKET,
+            SOL_SOCKET,
+            SO_TYPE,
+            (&mut opt as *mut i32).cast(),
+            &mut opt_len,
+        ) == 0
     }
 }
 
@@ -978,9 +1065,9 @@ fn file_kind_by_path(
 ) -> AsyncHostResult<i32> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS,
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS,
         FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, GetFileInformationByHandle, OPEN_EXISTING,
+        FILE_SHARE_WRITE, OPEN_EXISTING,
     };
 
     let mut flags = FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS;
@@ -1003,20 +1090,11 @@ fn file_kind_by_path(
     if handle == INVALID_HANDLE_VALUE {
         return Err(last_native_error());
     }
-    let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
-    if unsafe { GetFileInformationByHandle(handle, info.as_mut_ptr()) } == 0 {
-        let error = last_native_error();
-        unsafe {
-            CloseHandle(handle);
-        }
-        return Err(error);
-    }
+    let kind = kind_of_raw_file(handle);
     unsafe {
         CloseHandle(handle);
     }
-    Ok(file_kind_from_attr(
-        unsafe { info.assume_init() }.dwFileAttributes,
-    ))
+    kind
 }
 
 #[cfg(windows)]
@@ -1193,7 +1271,7 @@ fn access_native_path(path: OsString, access: i32) -> AsyncHostResult<()> {
 #[cfg(windows)]
 fn chmod_native_path(_path: OsString, _mode: i32) -> AsyncHostResult<()> {
     Err(AsyncHostError::Native(
-        windows_sys::Win32::Foundation::ERROR_CALL_NOT_IMPLEMENTED as i32,
+        windows_sys::Win32::Foundation::ERROR_NOT_SUPPORTED as i32,
     ))
 }
 
@@ -1278,8 +1356,11 @@ fn symlink_native_path(
     let attrs = unsafe { GetFileAttributesW(target_wide.as_ptr()) };
     let is_directory = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
 
-    if !force_symlink && is_directory && std::path::Path::new(target.as_os_str()).is_absolute() {
-        match create_junction_native_path(target.clone(), path.clone()) {
+    if !force_symlink
+        && is_directory
+        && let Some(junction_target) = junction_target_path(target.clone())
+    {
+        match create_junction_native_path(junction_target, path.clone()) {
             Ok(()) => return Ok(()),
             Err(AsyncHostError::Native(error)) if error == ERROR_INVALID_PARAMETER as i32 => {}
             Err(error) => return Err(error),
@@ -1300,11 +1381,10 @@ fn symlink_native_path(
 
 #[cfg(windows)]
 fn create_junction_native_path(target: OsString, path: OsString) -> AsyncHostResult<()> {
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_WRITE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::Storage::FileSystem::{
         CreateDirectoryW, CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, OPEN_EXISTING,
-        RemoveDirectoryW,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, RemoveDirectoryW,
     };
     use windows_sys::Win32::System::IO::DeviceIoControl;
     use windows_sys::Win32::System::Ioctl::FSCTL_SET_REPARSE_POINT;
@@ -1318,7 +1398,7 @@ fn create_junction_native_path(target: OsString, path: OsString) -> AsyncHostRes
     let handle = unsafe {
         CreateFileW(
             path_wide.as_ptr(),
-            FILE_WRITE_ATTRIBUTES,
+            GENERIC_WRITE,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             std::ptr::null(),
             OPEN_EXISTING,
@@ -1359,6 +1439,25 @@ fn create_junction_native_path(target: OsString, path: OsString) -> AsyncHostRes
     } else {
         Ok(())
     }
+}
+
+#[cfg(windows)]
+fn junction_target_path(target: OsString) -> Option<OsString> {
+    use std::os::windows::ffi::OsStringExt;
+
+    let mut target = os_string_to_wide(target);
+    const NT_PREFIX: [u16; 4] = ['\\' as u16, '?' as u16, '?' as u16, '\\' as u16];
+    const WIN32_PREFIX: [u16; 4] = ['\\' as u16, '\\' as u16, '?' as u16, '\\' as u16];
+    if target.starts_with(&NT_PREFIX) || target.starts_with(&WIN32_PREFIX) {
+        target.drain(0..NT_PREFIX.len());
+    }
+    let drive = target.first().copied().unwrap_or_default();
+    let is_drive_absolute = target.len() >= 3
+        && (('a' as u16..='z' as u16).contains(&drive)
+            || ('A' as u16..='Z' as u16).contains(&drive))
+        && target[1] == ':' as u16
+        && (target[2] == '\\' as u16 || target[2] == '/' as u16);
+    is_drive_absolute.then(|| OsString::from_wide(&target))
 }
 
 #[cfg(windows)]
