@@ -281,7 +281,17 @@ struct AsyncHostState {
     #[cfg(unix)]
     completion_source: Option<HostHandle>,
     #[cfg(windows)]
-    completion_port: Option<poll::CompletionPort>,
+    completion_port: Option<ThreadPoolCompletionTarget>,
+    #[cfg(windows)]
+    thread_pool_generation: usize,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ThreadPoolCompletionTarget {
+    poll: HostPollKey,
+    port: poll::CompletionPort,
+    generation: usize,
 }
 
 #[cfg(windows)]
@@ -318,11 +328,22 @@ impl Default for AsyncHostState {
             completion_source: None,
             #[cfg(windows)]
             completion_port: None,
+            #[cfg(windows)]
+            thread_pool_generation: 0,
         }
     }
 }
 
 impl AsyncHostState {
+    #[cfg(windows)]
+    fn next_thread_pool_generation(&mut self) -> usize {
+        self.thread_pool_generation = self.thread_pool_generation.wrapping_add(1);
+        if self.thread_pool_generation == 0 {
+            self.thread_pool_generation = 1;
+        }
+        self.thread_pool_generation
+    }
+
     fn invalid_fd(&self) -> HostHandle {
         handle_from_key(self.invalid_file)
     }
@@ -358,9 +379,9 @@ impl AsyncHostState {
     }
 
     fn take_workers(&mut self) -> Vec<HostWorkerHandle> {
-        std::mem::take(&mut self.workers)
-            .into_iter()
-            .map(|(_, worker)| worker)
+        let keys: Vec<_> = self.workers.keys().collect();
+        keys.into_iter()
+            .filter_map(|key| self.workers.remove(key))
             .collect()
     }
 
@@ -620,7 +641,10 @@ impl AsyncHost {
         }
         #[cfg(windows)]
         {
-            if state.completion_port == Some(poll::CompletionPort::from_poll(&poll.instance)) {
+            if state
+                .completion_port
+                .is_some_and(|target| target.poll == key_from_handle::<HostPollKey>(handle))
+            {
                 state.completion_port = None;
             }
         }
@@ -652,18 +676,53 @@ impl AsyncHost {
     }
 
     pub(crate) fn poll_wait(&self, poll_handle: u64, timeout_ms: i32) -> AsyncHostResult<i32> {
+        let poll_key = key_from_handle::<HostPollKey>(poll_handle);
+        #[cfg(windows)]
+        let (poll, thread_pool_generation) = {
+            let state = self.state.lock().unwrap();
+            let poll = Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?);
+            let thread_pool_generation = state
+                .completion_port
+                .filter(|target| target.poll == poll_key)
+                .map(|target| target.generation);
+            (poll, thread_pool_generation)
+        };
+        #[cfg(not(windows))]
         let poll = {
             let state = self.state.lock().unwrap();
-            Arc::clone(
-                state
-                    .polls
-                    .get(key_from_handle::<HostPollKey>(poll_handle))
-                    .ok_or(AsyncHostError::Badf)?,
-            )
+            Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?)
         };
         let (result, old_events) = {
             let mut poll_guard = poll.lock().unwrap();
+            #[cfg(not(windows))]
             let result = poll::poll_wait(&mut poll_guard.instance, timeout_ms)?;
+            #[cfg(windows)]
+            let result = {
+                let deadline = (timeout_ms >= 0).then(|| {
+                    std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms as u64)
+                });
+                let mut next_timeout = timeout_ms;
+                loop {
+                    poll::poll_wait(&mut poll_guard.instance, next_timeout)?;
+                    let result = poll::retain_current_thread_pool_completions(
+                        &mut poll_guard.instance,
+                        thread_pool_generation,
+                    )?;
+                    if result != 0 || timeout_ms == 0 {
+                        break result;
+                    }
+                    let Some(deadline) = deadline else {
+                        continue;
+                    };
+                    let now = std::time::Instant::now();
+                    if now >= deadline {
+                        break 0;
+                    }
+                    next_timeout = i32::try_from(deadline.duration_since(now).as_millis())
+                        .unwrap_or(i32::MAX)
+                        .max(1);
+                }
+            };
             poll_guard.event_generation = poll_guard.event_generation.wrapping_add(1);
             let old_events = std::mem::take(&mut poll_guard.event_handles);
             (result, old_events)
@@ -771,6 +830,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn init_thread_pool(&self, poll_handle: u64) -> AsyncHostResult<HostHandle> {
+        let poll_key = key_from_handle::<HostPollKey>(poll_handle);
         let poll = {
             let state = self.state.lock().unwrap();
             #[cfg(unix)]
@@ -781,12 +841,7 @@ impl AsyncHost {
             if state.completion_port.is_some() {
                 return Err(AsyncHostError::Inval);
             }
-            Arc::clone(
-                state
-                    .polls
-                    .get(key_from_handle::<HostPollKey>(poll_handle))
-                    .ok_or(AsyncHostError::Badf)?,
-            )
+            Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?)
         };
         #[cfg(unix)]
         {
@@ -810,7 +865,16 @@ impl AsyncHost {
         #[cfg(windows)]
         {
             let completion_port = poll::CompletionPort::from_poll(&poll.lock().unwrap().instance);
-            self.state.lock().unwrap().completion_port = Some(completion_port);
+            let mut state = self.state.lock().unwrap();
+            if state.completion_port.is_some() {
+                return Err(AsyncHostError::Inval);
+            }
+            let generation = state.next_thread_pool_generation();
+            state.completion_port = Some(ThreadPoolCompletionTarget {
+                poll: poll_key,
+                port: completion_port,
+                generation,
+            });
             raw_fd_to_guest(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE)
         }
     }
@@ -1347,14 +1411,18 @@ impl AsyncHost {
         };
         #[cfg(windows)]
         let worker = {
-            let completion_port = self
+            let completion_target = self
                 .state
                 .lock()
                 .unwrap()
                 .completion_port
                 .ok_or(AsyncHostError::Badf)?;
             self.spawn_worker_thread(HostWorkerJob { job_id, job_handle }, move |worker_job| {
-                let _ = poll::post_thread_pool_completion(completion_port, worker_job.job_id);
+                let _ = poll::post_thread_pool_completion(
+                    completion_target.port,
+                    worker_job.job_id,
+                    completion_target.generation,
+                );
             })
         };
         let key = self.state.lock().unwrap().workers.insert(worker);
@@ -1828,6 +1896,85 @@ mod tests {
 
         assert_eq!(host.job_get_ret(job), Err(AsyncHostError::Badf));
         assert_eq!(host.free_job(job), Err(AsyncHostError::Badf));
+    }
+
+    #[test]
+    fn worker_handles_stay_stale_after_thread_pool_reinit() {
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let completion_notifier = host.init_thread_pool(poll).unwrap();
+        let first_job = host
+            .insert_job(thread_pool::make_read_job(0, 1, -1))
+            .unwrap();
+        let old_worker = host.spawn_worker(42, first_job).unwrap();
+        host.poll_wait(poll, 1000).unwrap();
+        #[cfg(unix)]
+        {
+            let mut memory = [0; 4];
+            host.fetch_completion(memory.as_mut_slice(), completion_notifier, 0, 1)
+                .unwrap();
+        }
+        #[cfg(windows)]
+        {
+            let event = host.poll_get_event(poll, 0).unwrap();
+            assert_eq!(host.poll_event_fd(event).unwrap(), completion_notifier);
+            assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
+        }
+
+        host.destroy_thread_pool();
+
+        host.init_thread_pool(poll).unwrap();
+        let second_job = host
+            .insert_job(thread_pool::make_read_job(0, 1, -1))
+            .unwrap();
+        let new_worker = host.spawn_worker(43, second_job).unwrap();
+        let wake_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+
+        assert_ne!(old_worker, new_worker);
+        assert_eq!(host.cancel_worker(old_worker), Err(AsyncHostError::Badf));
+        assert_eq!(
+            host.wake_worker(old_worker, 44, wake_job),
+            Err(AsyncHostError::Badf)
+        );
+        assert_eq!(host.free_worker(old_worker), Err(AsyncHostError::Badf));
+
+        host.destroy_thread_pool();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn stale_thread_pool_completions_are_ignored_after_reinit() {
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+
+        host.init_thread_pool(poll).unwrap();
+        let stale_completion = host.state.lock().unwrap().completion_port.unwrap();
+        // Fill the current IOCP batch so a valid completion can sit behind
+        // stale completions from the destroyed pool generation.
+        for job_id in 0..1024 {
+            poll::post_thread_pool_completion(
+                stale_completion.port,
+                job_id,
+                stale_completion.generation,
+            )
+            .unwrap();
+        }
+        host.destroy_thread_pool();
+
+        let completion_notifier = host.init_thread_pool(poll).unwrap();
+        let current_completion = host.state.lock().unwrap().completion_port.unwrap();
+        assert_ne!(stale_completion.generation, current_completion.generation);
+
+        poll::post_thread_pool_completion(
+            current_completion.port,
+            43,
+            current_completion.generation,
+        )
+        .unwrap();
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+        assert_eq!(host.poll_event_fd(event).unwrap(), completion_notifier);
+        assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 43);
     }
 
     #[test]
