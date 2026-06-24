@@ -206,14 +206,15 @@ jobs:
       - name: Test core (Unix)
         if: ${{ matrix.os != 'windows-latest' }}
         run: |
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --target native
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm-gc
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target js
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm
-          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target native
+          test_jobs=$(sysctl -n hw.logicalcpu 2>/dev/null || nproc 2>/dev/null || echo 1)
+          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm-gc -j "$test_jobs"
+          cargo run --bin moon -- -C ~/.moon/lib/core test --target js -j "$test_jobs"
+          cargo run --bin moon -- -C ~/.moon/lib/core test --target wasm -j "$test_jobs"
+          cargo run --bin moon -- -C ~/.moon/lib/core test --target native -j "$test_jobs"
+          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm-gc -j "$test_jobs"
+          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target js -j "$test_jobs"
+          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target wasm -j "$test_jobs"
+          cargo run --bin moon -- -C ~/.moon/lib/core test --release --target native -j "$test_jobs"
 
       # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
       # TODO: Add this back when we add LLVM to nightly
@@ -265,14 +266,15 @@ jobs:
 
       - name: Test core (Windows)
         run: |
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target native
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target native
+          $testJobs = [Environment]::ProcessorCount
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm-gc -j $testJobs
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target js -j $testJobs
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm -j $testJobs
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target native -j $testJobs
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm-gc -j $testJobs
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target js -j $testJobs
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm -j $testJobs
+          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target native -j $testJobs
 
       # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
       # TODO: Add this back when we add LLVM to nightly
