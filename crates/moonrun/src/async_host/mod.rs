@@ -269,7 +269,7 @@ struct AsyncHostState {
     #[cfg(windows)]
     io_results: SlotMap<HostIoResultKey, Box<HostIoResult>>,
     #[cfg(windows)]
-    io_results_by_overlapped: HashMap<usize, HostIoResultKey>,
+    io_results_by_overlapped: HashMap<OverlappedAddr, HostIoResultKey>,
     events: SlotMap<HostEventKey, HostEvent>,
     jobs: SlotMap<HostJobKey, Option<Job>>,
     polls: SlotMap<HostPollKey, Arc<Mutex<HostPoll>>>,
@@ -282,6 +282,17 @@ struct AsyncHostState {
     completion_source: Option<HostHandle>,
     #[cfg(windows)]
     completion_port: Option<poll::CompletionPort>,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct OverlappedAddr(usize);
+
+#[cfg(windows)]
+impl OverlappedAddr {
+    fn from_ptr(ptr: *mut windows_sys::Win32::System::IO::OVERLAPPED) -> Self {
+        Self(ptr as usize)
+    }
 }
 
 impl Default for AsyncHostState {
@@ -354,18 +365,10 @@ impl AsyncHostState {
     }
 
     #[cfg(windows)]
-    fn drain_pending_io_for_raw_fd(&mut self, raw_fd: RawFd) -> AsyncHostResult<()> {
-        let pending: Vec<_> = self
-            .io_results
-            .iter()
-            .filter_map(|(key, result)| (result.pending_raw_fd() == Some(raw_fd)).then_some(key))
-            .collect();
-        for key in pending {
-            if let Some(result) = self.io_results.get_mut(key) {
-                result.cancel_and_drain_pending()?;
-            }
-        }
-        Ok(())
+    fn has_pending_io_for_raw_fd(&self, raw_fd: RawFd) -> bool {
+        self.io_results
+            .values()
+            .any(|result| result.pending_raw_fd() == Some(raw_fd))
     }
 }
 
@@ -431,6 +434,10 @@ impl HostIoResult {
         &mut self.overlapped
     }
 
+    fn overlapped_addr(&mut self) -> OverlappedAddr {
+        OverlappedAddr::from_ptr(self.overlapped_ptr())
+    }
+
     fn copy_read_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
@@ -460,9 +467,9 @@ impl HostIoResult {
         self.pending_raw_fd = None;
     }
 
-    fn validate_status_handle(&self, raw_fd: RawFd) -> AsyncHostResult<()> {
+    fn validate_pending_handle(&self, raw_fd: RawFd) -> AsyncHostResult<()> {
         // The import boundary may receive malformed/stale fd handles. Validate
-        // before asserting the internal "pending status uses submitter fd"
+        // before asserting the internal "pending operation uses submitter fd"
         // invariant so debug builds do not panic on bad guest input.
         if let Some(pending_raw_fd) = self.pending_raw_fd
             && pending_raw_fd != raw_fd
@@ -474,7 +481,7 @@ impl HostIoResult {
                 Some(pending_raw_fd) => pending_raw_fd == raw_fd,
                 None => true,
             },
-            "pending IO status must be queried with the submitting handle"
+            "pending IO operation must use the submitting handle"
         );
         Ok(())
     }
@@ -527,7 +534,7 @@ impl HostIoResult {
         let mut bytes_transferred = 0;
         // With bWait=TRUE the operation has reached a final status when this
         // returns, even if the final status is an error such as EOF or broken
-        // pipe. At that point the OVERLAPPED storage can be released.
+        // pipe. At that point the host no longer treats the result as pending.
         let _ = unsafe { GetOverlappedResult(raw_fd, overlapped, &mut bytes_transferred, 1) };
         self.clear_pending();
         Ok(())
@@ -654,20 +661,20 @@ impl AsyncHost {
                     .ok_or(AsyncHostError::Badf)?,
             )
         };
-        let mut poll = poll.lock().unwrap();
-        let result = poll::poll_wait(&mut poll.instance, timeout_ms);
-        if result.is_ok() {
-            poll.event_generation = poll.event_generation.wrapping_add(1);
-            let old_events = std::mem::take(&mut poll.event_handles);
-            drop(poll);
-            if !old_events.is_empty() {
-                let mut state = self.state.lock().unwrap();
-                for event in old_events {
-                    state.events.remove(event);
-                }
+        let (result, old_events) = {
+            let mut poll_guard = poll.lock().unwrap();
+            let result = poll::poll_wait(&mut poll_guard.instance, timeout_ms)?;
+            poll_guard.event_generation = poll_guard.event_generation.wrapping_add(1);
+            let old_events = std::mem::take(&mut poll_guard.event_handles);
+            (result, old_events)
+        };
+        if !old_events.is_empty() {
+            let mut state = self.state.lock().unwrap();
+            for event in old_events {
+                state.events.remove(event);
             }
         }
-        result
+        Ok(result)
     }
 
     pub(crate) fn poll_get_event(&self, poll_handle: u64, index: i32) -> AsyncHostResult<u64> {
@@ -677,6 +684,14 @@ impl AsyncHost {
         let mut poll = poll.lock().unwrap();
         let event = poll::event_list_get(&poll.instance, index)?;
         let raw_fd = poll::event_get_fd(event);
+        #[cfg(windows)]
+        let fd_handle = poll
+            .registered_fds
+            .get(&raw_fd_key(raw_fd))
+            .copied()
+            .or_else(|| completion_event_fd(raw_fd))
+            .or_else(|| Some(state.invalid_fd()));
+        #[cfg(unix)]
         let fd_handle = poll
             .registered_fds
             .get(&raw_fd_key(raw_fd))
@@ -735,15 +750,17 @@ impl AsyncHost {
     #[cfg(windows)]
     pub(crate) fn poll_event_io_result(&self, event_handle: u64) -> AsyncHostResult<u64> {
         let overlapped = self.with_event(event_handle, |_, event| {
-            Ok(poll::event_get_io_result(event) as usize)
+            Ok(OverlappedAddr::from_ptr(poll::event_get_io_result(event)))
         })?;
-        let state = self.state.lock().unwrap();
-        state
+        let mut state = self.state.lock().unwrap();
+        let key = state
             .io_results_by_overlapped
             .get(&overlapped)
             .copied()
-            .map(handle_from_key)
-            .ok_or(AsyncHostError::Badf)
+            .ok_or(AsyncHostError::Badf)?;
+        let result = state.io_results.get_mut(key).ok_or(AsyncHostError::Badf)?;
+        result.clear_pending();
+        Ok(handle_from_key(key))
     }
 
     #[cfg(windows)]
@@ -1003,7 +1020,9 @@ impl AsyncHost {
         let mut state = self.state.lock().unwrap();
         let raw_fd = state.file(handle)?.raw_fd();
         #[cfg(windows)]
-        state.drain_pending_io_for_raw_fd(raw_fd)?;
+        if state.has_pending_io_for_raw_fd(raw_fd) {
+            return Err(AsyncHostError::Inval);
+        }
         #[cfg(unix)]
         if state.completion_source == Some(handle) {
             state.completion_source = None;
@@ -1101,7 +1120,7 @@ impl AsyncHost {
             .io_results
             .get_mut(key)
             .ok_or(AsyncHostError::Badf)?
-            .overlapped_ptr() as usize;
+            .overlapped_addr();
         state.io_results_by_overlapped.insert(overlapped, key);
         Ok(handle_from_key(key))
     }
@@ -1111,11 +1130,12 @@ impl AsyncHost {
         let key = key_from_handle::<HostIoResultKey>(handle);
         let mut state = self.state.lock().unwrap();
         let result = state.io_results.get_mut(key).ok_or(AsyncHostError::Badf)?;
-        result.cancel_and_drain_pending()?;
+        if result.pending_raw_fd().is_some() {
+            return Err(AsyncHostError::Inval);
+        }
         let mut result = state.io_results.remove(key).ok_or(AsyncHostError::Badf)?;
-        state
-            .io_results_by_overlapped
-            .remove(&(result.overlapped_ptr() as usize));
+        let overlapped = result.overlapped_addr();
+        state.io_results_by_overlapped.remove(&overlapped);
         Ok(())
     }
 
@@ -1136,11 +1156,12 @@ impl AsyncHost {
         fd_handle: HostHandle,
     ) -> AsyncHostResult<i32> {
         let mut state = self.state.lock().unwrap();
-        state.file(fd_handle)?;
+        let raw_fd = state.file(fd_handle)?.raw_fd();
         let result = state
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
+        result.validate_pending_handle(raw_fd)?;
         result.cancel_pending()
     }
 
@@ -1159,7 +1180,7 @@ impl AsyncHost {
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
-        result.validate_status_handle(raw_fd)?;
+        result.validate_pending_handle(raw_fd)?;
         let mut bytes_transferred = 0;
         if unsafe {
             GetOverlappedResult(raw_fd, result.overlapped_ptr(), &mut bytes_transferred, 0)
@@ -1881,10 +1902,185 @@ mod tests {
         result.mark_pending(pending_fd).unwrap();
 
         assert_eq!(
-            result.validate_status_handle(other_fd),
+            result.validate_pending_handle(other_fd),
             Err(AsyncHostError::Badf)
         );
         assert_eq!(result.pending_raw_fd(), Some(pending_fd));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cancel_io_result_rejects_wrong_fd_without_clearing_pending() {
+        let host = AsyncHost::default();
+        let [read, write] = host.pipe(true, true).unwrap();
+        let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
+        let raw_read = {
+            let mut state = host.state.lock().unwrap();
+            let raw_read = state.file(read).unwrap().raw_fd();
+            state
+                .io_results
+                .get_mut(key_from_handle::<HostIoResultKey>(result))
+                .unwrap()
+                .mark_pending(raw_read)
+                .unwrap();
+            raw_read
+        };
+
+        assert_eq!(
+            host.cancel_io_result(result, write),
+            Err(AsyncHostError::Badf)
+        );
+        {
+            let mut state = host.state.lock().unwrap();
+            let result = state
+                .io_results
+                .get_mut(key_from_handle::<HostIoResultKey>(result))
+                .unwrap();
+            assert_eq!(result.pending_raw_fd(), Some(raw_read));
+            result.clear_pending();
+        }
+
+        host.free_io_result(result).unwrap();
+        host.close_fd(read).unwrap();
+        host.close_fd(write).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn close_fd_rejects_pending_io_result() {
+        let host = AsyncHost::default();
+        let [read, write] = host.pipe(true, true).unwrap();
+        let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
+        let raw_read = {
+            let mut state = host.state.lock().unwrap();
+            let raw_read = state.file(read).unwrap().raw_fd();
+            state
+                .io_results
+                .get_mut(key_from_handle::<HostIoResultKey>(result))
+                .unwrap()
+                .mark_pending(raw_read)
+                .unwrap();
+            raw_read
+        };
+
+        assert_eq!(host.close_fd(read), Err(AsyncHostError::Inval));
+        {
+            let mut state = host.state.lock().unwrap();
+            assert!(state.file(read).is_ok());
+            let result = state
+                .io_results
+                .get_mut(key_from_handle::<HostIoResultKey>(result))
+                .unwrap();
+            assert_eq!(result.pending_raw_fd(), Some(raw_read));
+            result.clear_pending();
+        }
+
+        host.free_io_result(result).unwrap();
+        host.close_fd(read).unwrap();
+        host.close_fd(write).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn free_io_result_rejects_pending_result() {
+        let host = AsyncHost::default();
+        let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
+        {
+            let mut state = host.state.lock().unwrap();
+            state
+                .io_results
+                .get_mut(key_from_handle::<HostIoResultKey>(result))
+                .unwrap()
+                .mark_pending(1usize as RawFd)
+                .unwrap();
+        }
+
+        assert_eq!(host.free_io_result(result), Err(AsyncHostError::Inval));
+        assert!(
+            host.state
+                .lock()
+                .unwrap()
+                .io_results
+                .contains_key(key_from_handle::<HostIoResultKey>(result))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn poll_event_io_result_marks_pending_result_delivered() {
+        use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
+
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let completion_port = {
+            let state = host.state.lock().unwrap();
+            let poll = state
+                .polls
+                .get(key_from_handle::<HostPollKey>(poll))
+                .unwrap()
+                .lock()
+                .unwrap();
+            poll.instance.raw_fd()
+        };
+        let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
+        let raw_fd = 0x1234usize as RawFd;
+        let overlapped = {
+            let mut state = host.state.lock().unwrap();
+            let result = state
+                .io_results
+                .get_mut(key_from_handle::<HostIoResultKey>(result))
+                .unwrap();
+            result.mark_pending(raw_fd).unwrap();
+            result.overlapped_ptr()
+        };
+        let posted =
+            unsafe { PostQueuedCompletionStatus(completion_port, 0, raw_fd as usize, overlapped) };
+        assert_ne!(posted, 0);
+
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+
+        assert_eq!(host.poll_event_io_result(event).unwrap(), result);
+        assert_eq!(
+            host.state
+                .lock()
+                .unwrap()
+                .io_results
+                .get(key_from_handle::<HostIoResultKey>(result))
+                .unwrap()
+                .pending_raw_fd(),
+            None
+        );
+        host.free_io_result(result).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unregistered_iocp_completion_reports_invalid_fd() {
+        use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
+
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let completion_port = {
+            let state = host.state.lock().unwrap();
+            let poll = state
+                .polls
+                .get(key_from_handle::<HostPollKey>(poll))
+                .unwrap()
+                .lock()
+                .unwrap();
+            poll.instance.raw_fd()
+        };
+        let raw_fd = 0x1234usize as RawFd;
+        let posted = unsafe {
+            PostQueuedCompletionStatus(completion_port, 0, raw_fd as usize, std::ptr::null_mut())
+        };
+        assert_ne!(posted, 0);
+
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+
+        assert_eq!(host.poll_event_fd(event).unwrap(), host.invalid_fd());
     }
 
     #[cfg(unix)]
