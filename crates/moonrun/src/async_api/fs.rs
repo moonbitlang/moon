@@ -84,7 +84,11 @@ pub(super) fn dir_entry_name(
     offset: i32,
 ) -> AsyncHostResult<u64> {
     let name = context.with_memory_mut(|memory| {
-        Ok(dir::entry_name(memory.bytes(), buf, offset)?.to_vec())
+        Ok(Box::<[u8]>::from(dir::entry_name(
+            memory.bytes(),
+            buf,
+            offset,
+        )?))
     })?;
     Ok(context.host.insert_c_buffer(name))
 }

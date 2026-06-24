@@ -264,7 +264,7 @@ fn key_from_handle<K: Key>(handle: u64) -> K {
 
 struct AsyncHostState {
     errno: i32,
-    c_buffers: SlotMap<HostCBufferKey, Vec<u8>>,
+    c_buffers: SlotMap<HostCBufferKey, Box<[u8]>>,
     #[cfg(windows)]
     io_results: SlotMap<HostIoResultKey, Box<HostIoResult>>,
     #[cfg(windows)]
@@ -687,7 +687,7 @@ impl AsyncHost {
         }
     }
 
-    pub(crate) fn insert_c_buffer(&self, buffer: Vec<u8>) -> u64 {
+    pub(crate) fn insert_c_buffer(&self, buffer: Box<[u8]>) -> u64 {
         let key = self.state.lock().unwrap().c_buffers.insert(buffer);
         handle_from_key(key)
     }
@@ -718,7 +718,7 @@ impl AsyncHost {
             .c_buffers
             .get(key_from_handle::<HostCBufferKey>(handle))
             .ok_or(AsyncHostError::Badf)?;
-        f(buffer)
+        f(buffer.as_ref())
     }
 
     pub(crate) fn with_c_buffer_mut<T>(
@@ -734,7 +734,7 @@ impl AsyncHost {
             .c_buffers
             .get_mut(key_from_handle::<HostCBufferKey>(handle))
             .ok_or(AsyncHostError::Badf)?;
-        f(buffer)
+        f(buffer.as_mut())
     }
 
     pub(crate) fn insert_job(&self, job: Job) -> AsyncHostResult<u64> {
