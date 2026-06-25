@@ -18,9 +18,10 @@
 
 //! Core build plan construction logic.
 
-#[cfg(debug_assertions)]
-use std::collections::HashMap;
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+};
 
 use crate::{
     ResolveOutput,
@@ -52,12 +53,22 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
+    pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
     /// Only compiled in debug builds (cfg(debug_assertions)).
     #[cfg(debug_assertions)]
     pub(super) need_node_sources: HashMap<BuildPlanNode, Vec<(&'static str, u32, u32)>>,
+}
+
+#[derive(Debug, Default)]
+pub(super) struct PackageFileSet {
+    pub(super) no_test_files: Vec<PathBuf>,
+    pub(super) whitebox_files: Vec<PathBuf>,
+    pub(super) blackbox_files: Vec<PathBuf>,
+    pub(super) mbt_md_files: Vec<PathBuf>,
+    pub(super) mbtp_files: Vec<PathBuf>,
 }
 
 fn merge_edge_kind(dst: &mut FileDependencyKind, src: FileDependencyKind) {
@@ -138,6 +149,7 @@ impl<'a> BuildPlanConstructor<'a> {
             pending: Vec::new(),
             resolved: HashSet::new(),
             warned_missing_supported_targets: HashSet::new(),
+            package_file_sets: HashMap::new(),
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),
         }
@@ -525,8 +537,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let info = self.resolve_mbt_files_for_node(target);
         if target.kind == crate::model::TargetKind::BlackboxTest {
             let pkg = self.input.pkg_dirs.get_package(target.package);
-            let regular_files = info.regular_files.iter().cloned().collect();
-            self.warn_if_main_package_uses_blackbox_inputs(pkg, &regular_files);
+            self.warn_if_main_package_uses_blackbox_inputs(pkg, &info.regular_files);
         }
         self.res.build_target_infos.insert(target, info);
     }
