@@ -267,10 +267,32 @@ impl FileFilter {
     }
 }
 
+enum NameMatcher<'a> {
+    Glob(GlobPatternMatcher<'a>),
+    Substring(&'a str),
+}
+
+impl<'a> NameMatcher<'a> {
+    fn new(pattern: &'a str) -> Self {
+        if pattern.contains('*') || pattern.contains('?') {
+            Self::Glob(GlobPatternMatcher::new(pattern))
+        } else {
+            Self::Substring(pattern)
+        }
+    }
+
+    fn is_match(&self, text: &str) -> bool {
+        match self {
+            Self::Glob(m) => m.is_match(text),
+            Self::Substring(s) => text.contains(s),
+        }
+    }
+}
+
 fn all_ranges(
     infos: &[MbtTestInfo],
     include_skipped: bool,
-    name_matcher: Option<&GlobPatternMatcher<'_>>,
+    name_matcher: Option<&NameMatcher<'_>>,
 ) -> Vec<Range<u32>> {
     // Use actual indices from test metadata instead of assuming contiguous 0..max_index
     let actual_indices: Vec<u32> = infos
@@ -294,7 +316,7 @@ pub(crate) fn apply_filter(
     bench: bool,
     name_filter: Option<&str>,
 ) {
-    let name_matcher = name_filter.map(GlobPatternMatcher::new);
+    let name_matcher = name_filter.map(NameMatcher::new);
     let lists = if bench {
         vec![&meta.with_bench_args_tests]
     } else {
