@@ -600,12 +600,12 @@ impl AsyncHost {
             let state = self.state.lock().unwrap();
             let mut leaks = Vec::new();
 
-            if state.c_buffers.len() != 0 {
+            if !state.c_buffers.is_empty() {
                 leaks.push(format!("c_buffers={}", state.c_buffers.len()));
             }
             #[cfg(windows)]
             {
-                if state.io_results.len() != 0 {
+                if !state.io_results.is_empty() {
                     leaks.push(format!("io_results={}", state.io_results.len()));
                 }
                 if !state.io_results_by_overlapped.is_empty() {
@@ -615,13 +615,13 @@ impl AsyncHost {
                     ));
                 }
             }
-            if state.events.len() != 0 {
+            if !state.events.is_empty() {
                 leaks.push(format!("events={}", state.events.len()));
             }
-            if state.jobs.len() != 0 {
+            if !state.jobs.is_empty() {
                 leaks.push(format!("jobs={}", state.jobs.len()));
             }
-            if state.polls.len() != 0 {
+            if !state.polls.is_empty() {
                 leaks.push(format!("polls={}", state.polls.len()));
             }
             let leaked_files = match state.files.get(state.invalid_file) {
@@ -638,7 +638,7 @@ impl AsyncHost {
             if leaked_files != 0 {
                 leaks.push(format!("files={leaked_files}"));
             }
-            if state.workers.len() != 0 {
+            if !state.workers.is_empty() {
                 leaks.push(format!("workers={}", state.workers.len()));
             }
             #[cfg(unix)]
