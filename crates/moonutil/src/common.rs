@@ -555,8 +555,7 @@ pub fn preferred_manifest_in_dir(
     let new_path = dir.join(new_manifest);
     let legacy_path = dir.join(legacy_manifest);
     match (new_path.exists(), legacy_path.exists()) {
-        (true, true) => Some((new_path, ManifestFormat::New)),
-        (true, false) => Some((new_path, ManifestFormat::New)),
+        (true, _) => Some((new_path, ManifestFormat::New)),
         (false, true) => Some((legacy_path, ManifestFormat::Legacy)),
         (false, false) => None,
     }
@@ -568,10 +567,18 @@ pub fn warn_if_shadowed_manifest(
     new_manifest: &'static str,
     location: &str,
 ) {
-    if !should_warn_manifest(dir)
-        || !dir.join(new_manifest).exists()
-        || !dir.join(legacy_manifest).exists()
-    {
+    if dir.join(new_manifest).exists() && dir.join(legacy_manifest).exists() {
+        warn_known_shadowed_manifest(dir, legacy_manifest, new_manifest, location);
+    }
+}
+
+pub fn warn_known_shadowed_manifest(
+    dir: &Path,
+    legacy_manifest: &'static str,
+    new_manifest: &'static str,
+    location: &str,
+) {
+    if !should_warn_manifest(dir) {
         return;
     }
 
@@ -662,18 +669,32 @@ pub fn read_package_desc_file_in_dir_with_supported_targets_decl(
     dir: &Path,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     match preferred_manifest_in_dir(dir, MOON_PKG, MOON_PKG_JSON) {
-        Some((path, ManifestFormat::New)) => {
-            read_package_from_dsl_with_supported_targets_decl(&path)
-        }
-        Some((path, ManifestFormat::Legacy)) => {
-            read_package_from_json_with_supported_targets_decl(&path)
-                .context(format!("Failed to load {:?}", path))
-        }
+        Some((path, _)) => read_package_desc_file_from_path_with_supported_targets_decl(&path),
         None => bail!(
             "Failed to find `{}` or `{}` for package at path `{}`",
             MOON_PKG,
             MOON_PKG_JSON,
             dir.display()
+        ),
+    }
+}
+
+pub fn read_package_desc_file_from_path_with_supported_targets_decl(
+    path: &Path,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
+    match path.file_name() {
+        Some(filename) if filename == OsStr::new(MOON_PKG) => {
+            read_package_from_dsl_with_supported_targets_decl(path)
+        }
+        Some(filename) if filename == OsStr::new(MOON_PKG_JSON) => {
+            read_package_from_json_with_supported_targets_decl(path)
+                .context(format!("Failed to load {:?}", path))
+        }
+        _ => bail!(
+            "Unsupported package manifest path `{}`; expected `{}` or `{}`",
+            path.display(),
+            MOON_PKG,
+            MOON_PKG_JSON
         ),
     }
 }

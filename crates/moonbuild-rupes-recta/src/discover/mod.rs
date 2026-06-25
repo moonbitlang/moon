@@ -31,9 +31,7 @@ pub mod special_case;
 pub mod synth;
 
 pub use model::{DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage};
-use moonutil::common::{
-    PackageSourceFileKind, is_moon_mod, is_moon_pkg_exist, package_source_file_kind,
-};
+use moonutil::common::{PackageSourceFileKind, is_moon_mod, package_source_file_kind};
 
 use std::{
     path::{Path, PathBuf},
@@ -52,7 +50,8 @@ use moonutil::{
     common::{
         IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON,
         MOONBITLANG_ABORT, read_module_desc_file_in_dir,
-        read_package_desc_file_in_dir_with_supported_targets_decl, warn_if_shadowed_manifest,
+        read_package_desc_file_from_path_with_supported_targets_decl, warn_if_shadowed_manifest,
+        warn_known_shadowed_manifest,
     },
     mooncakes::ModuleSourceKind,
     package::resolve_supported_targets,
@@ -289,14 +288,28 @@ pub(crate) fn discover_packages_for_mod(
             continue;
         }
 
-        // Check if this directory is a package
-        if !is_moon_pkg_exist(abs_path) {
+        // Check if this directory is a package.
+        let moon_pkg_path = abs_path.join(MOON_PKG);
+        let moon_pkg_json_path = abs_path.join(MOON_PKG_JSON);
+        let pkg_manifest_path = if moon_pkg_path.exists() {
+            if moon_pkg_json_path.exists() {
+                warn_known_shadowed_manifest(
+                    abs_path,
+                    MOON_PKG_JSON,
+                    MOON_PKG,
+                    &format!("at package root '{}'", abs_path.display()),
+                );
+            }
+            moon_pkg_path
+        } else if moon_pkg_json_path.exists() {
+            moon_pkg_json_path
+        } else {
             debug!(
                 "Skipping {} because it does not contain a package configuration file",
                 abs_path.display()
             );
             continue;
-        }
+        };
 
         // Begin discovering the package
         debug!("Discovering package at {}", abs_path.display());
@@ -304,11 +317,11 @@ pub(crate) fn discover_packages_for_mod(
         let pkg = discover_one_package(
             id,
             module_source,
-            abs_path,
             &rel_path,
             is_core,
             is_stdlib_pkg,
             &module_supported_targets,
+            &pkg_manifest_path,
         )?;
         debug!(
             "Found package: {} with {} source files",
@@ -323,36 +336,33 @@ pub(crate) fn discover_packages_for_mod(
 
 /// Discover one package and get its basic information. This does *not* create
 /// e.g. subpackages.
-#[instrument(level = Level::DEBUG, skip(m, abs, rel))]
+#[instrument(level = Level::DEBUG, skip(m, rel, pkg_manifest_path))]
 fn discover_one_package(
     mid: ModuleId,
     m: &ModuleSource,
-    abs: &Path,
     rel: &RelativePath,
     is_core: bool, // We have a couple of special cases for core packages. is_core is true when building the core module.
     pkg_is_stdlib: bool, // Whether the package being discovered is inside the stdlib (core) module.
     module_supported_targets: &IndexSet<TargetBackend>,
+    pkg_manifest_path: &Path,
 ) -> Result<DiscoveredPackage, DiscoverError> {
+    let abs = pkg_manifest_path
+        .parent()
+        .expect("package manifest path should be inside package root");
     let pkg_path = PackagePath::new_from_rel_path(rel)
         .expect("Generation of package path from relative path should not error");
     let fqn = PackageFQN::new(m.clone(), pkg_path);
 
     // Discover the package config
-    warn_if_shadowed_manifest(
-        abs,
-        MOON_PKG_JSON,
-        MOON_PKG,
-        &format!("at package root '{}'", abs.display()),
-    );
     let (pkg_json, supported_targets_decl) =
-        read_package_desc_file_in_dir_with_supported_targets_decl(abs).map_err(|e| {
-            DiscoverError::CantReadPackageFile {
+        read_package_desc_file_from_path_with_supported_targets_decl(pkg_manifest_path).map_err(
+            |e| DiscoverError::CantReadPackageFile {
                 module: m.clone(),
                 package: fqn.package().clone(),
                 path: abs.to_path_buf(),
                 inner: e,
-            }
-        })?;
+            },
+        )?;
     let pkg_json = if is_core {
         add_prelude_as_import_for_core(pkg_json)
     } else {
@@ -450,6 +460,7 @@ fn discover_one_package(
         module: mid,
         fqn,
         is_single_file: false,
+        manifest_path: Some(pkg_manifest_path.to_owned()),
         raw: Box::new(pkg_json),
         supported_targets_decl,
         effective_supported_targets,
