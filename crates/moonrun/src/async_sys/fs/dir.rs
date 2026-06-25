@@ -124,35 +124,37 @@ ported_fns! {
 
     #[ported(
         source = "src/fs/dir.c",
-        original = "moonbitlang_async_dir_entry_get_name"
+        original = "moonbitlang_async_dir_entry_get_name_offset"
     )]
-    pub(crate) fn entry_name(
+    pub(crate) fn entry_name_offset(
         buf: &[u8],
         buf_ptr: i32,
         offset: i32,
-    ) -> AsyncHostResult<&[u8]> {
+    ) -> AsyncHostResult<i32> {
         #[cfg(windows)]
         {
-            let (start, len) = windows_name_range(buf, buf_ptr, offset)?;
-            buf
-                .get(start..start.checked_add(len).ok_or(AsyncHostError::Fault)?)
-                .ok_or(AsyncHostError::Fault)
+            use windows_sys::Win32::Storage::FileSystem::FILE_ID_BOTH_DIR_INFO;
+
+            windows_name_range(buf, buf_ptr, offset)?;
+            i32::try_from(std::mem::offset_of!(FILE_ID_BOTH_DIR_INFO, FileName))
+                .map_err(|_| AsyncHostError::Fault)
         }
 
         #[cfg(target_os = "macos")]
         {
-            let (start, len) = mac_name_range(buf, buf_ptr, offset)?;
-            buf
-                .get(start..start.checked_add(len).ok_or(AsyncHostError::Fault)?)
-                .ok_or(AsyncHostError::Fault)
+            let name_offset = mac_name_offset(buf, buf_ptr, offset)?;
+            i32::try_from(
+                MAC_D_NAME_OFFSET
+                    .checked_add(name_offset)
+                    .ok_or(AsyncHostError::Fault)?,
+            )
+            .map_err(|_| AsyncHostError::Fault)
         }
 
         #[cfg(target_os = "linux")]
         {
-            let (start, len) = linux_name_range(buf, buf_ptr, offset)?;
-            buf
-                .get(start..start.checked_add(len).ok_or(AsyncHostError::Fault)?)
-                .ok_or(AsyncHostError::Fault)
+            linux_name_range(buf, buf_ptr, offset)?;
+            i32::try_from(LINUX_D_NAME_OFFSET).map_err(|_| AsyncHostError::Fault)
         }
     }
 
@@ -313,8 +315,7 @@ fn mac_name_range(buf: &[u8], buf_ptr: i32, offset: i32) -> AsyncHostResult<(usi
     let entry = entry_offset(buf_ptr, offset)?;
     let reclen = usize::try_from(read_u32_ne(buf, entry + MAC_D_RECLEN_OFFSET)?)
         .map_err(|_| AsyncHostError::Fault)?;
-    let name_offset = usize::try_from(read_i32_ne(buf, entry + MAC_D_NAME_OFFSET)?)
-        .map_err(|_| AsyncHostError::Fault)?;
+    let name_offset = mac_name_offset(buf, buf_ptr, offset)?;
     let name_len = usize::try_from(read_u32_ne(buf, entry + MAC_D_NAME_LENGTH_OFFSET)?)
         .map_err(|_| AsyncHostError::Fault)?;
     let name_len = name_len.checked_sub(1).ok_or(AsyncHostError::Fault)?;
@@ -330,6 +331,12 @@ fn mac_name_range(buf: &[u8], buf_ptr: i32, offset: i32) -> AsyncHostResult<(usi
         return Err(AsyncHostError::Fault);
     }
     Ok((name_start, name_len))
+}
+
+#[cfg(target_os = "macos")]
+fn mac_name_offset(buf: &[u8], buf_ptr: i32, offset: i32) -> AsyncHostResult<usize> {
+    let entry = entry_offset(buf_ptr, offset)?;
+    usize::try_from(read_i32_ne(buf, entry + MAC_D_NAME_OFFSET)?).map_err(|_| AsyncHostError::Fault)
 }
 
 #[cfg(windows)]
@@ -387,7 +394,7 @@ mod tests {
 
         assert_eq!(entry_length(&buf, 100, 0), Ok(24));
         assert_eq!(entry_name_len(&buf, 100, 0), Ok(3));
-        assert_eq!(entry_name(&buf, 100, 0), Ok(b"abc".as_slice()));
+        assert_eq!(entry_name_offset(&buf, 100, 0), Ok(19));
         assert_eq!(entry_is_dir(&buf, 100, 0), Ok(1));
         assert_eq!(entry_is_hidden(&buf, 100, 0), Ok(false));
         assert_eq!(entry_file_id(&buf, 100, 0), Ok(0x0102_0304_0506_0708));
@@ -414,7 +421,7 @@ mod tests {
 
         assert_eq!(entry_length(&buf, 100, 0), Ok(52));
         assert_eq!(entry_name_len(&buf, 100, 0), Ok(3));
-        assert_eq!(entry_name(&buf, 100, 0), Ok(b"abc".as_slice()));
+        assert_eq!(entry_name_offset(&buf, 100, 0), Ok(44));
         assert_eq!(entry_is_dir(&buf, 100, 0), Ok(1));
         assert_eq!(entry_is_hidden(&buf, 100, 0), Ok(false));
         assert_eq!(entry_file_id(&buf, 100, 0), Ok(0x0102_0304_0506_0708));

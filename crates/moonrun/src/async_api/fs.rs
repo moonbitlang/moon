@@ -82,14 +82,14 @@ pub(super) fn dir_entry_name_len(
 }
 
 #[ported(source = "src/fs/dir.c")]
-pub(super) fn dir_entry_name(
+pub(super) fn dir_entry_name_offset(
     context: &mut ImportContext,
     buf: u64,
     offset: i32,
-) -> AsyncHostResult<u64> {
+) -> AsyncHostResult<i32> {
     context
         .host
-        .with_c_buffer(buf, |buf| Ok(dir::entry_name(buf, 0, offset)?.as_ptr() as u64))
+        .with_c_buffer(buf, |buf| dir::entry_name_offset(buf, 0, offset))
 }
 
 #[ported(source = "src/fs/dir.c")]
