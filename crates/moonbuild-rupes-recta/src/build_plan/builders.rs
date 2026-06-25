@@ -44,7 +44,7 @@ use tracing::{Level, debug, instrument, trace, warn};
 
 use crate::{
     build_plan::{BuildBundleInfo, FileDependencyKind, PlanArtifactNeed, PrebuildInfo},
-    cond_comp::{self, CompileCondition},
+    cond_comp,
     discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
     pkg_name::PackageFQNWithSource,
@@ -53,7 +53,7 @@ use crate::{
 
 use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
-    constructor::BuildPlanConstructor,
+    constructor::{BuildPlanConstructor, PackageFileSet},
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -470,23 +470,21 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
+    fn package_file_set(&mut self, package: PackageId) -> &PackageFileSet {
+        if !self.package_file_sets.contains_key(&package) {
+            let file_set = self.collect_package_file_set(package);
+            self.package_file_sets.insert(package, file_set);
+        }
+        self.package_file_sets
+            .get(&package)
+            .expect("package file set should be cached after collection")
+    }
+
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn resolve_mbt_files_for_node(&self, target: BuildTarget) -> BuildTargetInfo {
+    fn collect_package_file_set(&self, package: PackageId) -> PackageFileSet {
         use crate::cond_comp::FileTestKind::*;
-        use TargetKind::*;
 
-        let pkg = self.input.pkg_dirs.get_package(target.package);
-        let module = self.input.module_rel.module_info(pkg.module);
-
-        // FIXME: Should we resolve test drivers' paths, or should we leave it
-        // in the lowering phase? The path to the test driver depends on the
-        // artifact layout, so we might not be able to do that here, unless we
-        // add some kind of `SpecialFile::TestDriver` or something.
-        let compile_condition = CompileCondition {
-            optlevel: self.build_env.opt_level,
-            test_kind: target.kind.into(),
-            backend: self.build_env.target_backend.into(),
-        };
+        let pkg = self.input.pkg_dirs.get_package(package);
 
         // Iterator of all existing source files in the package
         let source_iter = pkg.source_files.iter().map(|x| Cow::Borrowed(x.as_path()));
@@ -526,75 +524,91 @@ impl<'a> BuildPlanConstructor<'a> {
             .iter()
             .map(|x| Cow::Owned(x.with_extension("mbt")));
 
-        // Filter source files
-        let source_files = cond_comp::filter_files(
+        let mut no_test_files = IndexSet::new();
+        let mut whitebox_files = IndexSet::new();
+        let mut blackbox_files = IndexSet::new();
+
+        let _classify_span = tracing::debug_span!("classifying_package_files").entered();
+        for (file, file_kind) in cond_comp::classify_files(
             &pkg.raw,
             source_iter
                 .chain(prebuild_output_iter)
                 .chain(mbtlex_iter)
                 .chain(mbtyacc_iter),
-            &compile_condition,
-        );
-
-        // Include files
-        //
-        // Source and prebuild might emit duplicated files if the prebuilt file
-        // already exist in the source directory. We dedup it here.
-        let mut regular_files = IndexSet::new();
-        let mut whitebox_files = IndexSet::new();
-        let mut doctest_files = IndexSet::new();
-        let _filter_span = tracing::debug_span!("filtering_files").entered();
-        for (file, file_kind) in source_files {
-            match (target.kind, file_kind) {
-                (Source | SubPackage | InlineTest, NoTest) => {
-                    regular_files.insert(file.into_owned())
-                }
-
-                (WhiteboxTest, NoTest) => regular_files.insert(file.into_owned()),
-                (WhiteboxTest, Whitebox) => whitebox_files.insert(file.into_owned()),
-
-                (BlackboxTest, Blackbox) => regular_files.insert(file.into_owned()),
-                (BlackboxTest, NoTest) => doctest_files.insert(file.into_owned()),
-
-                _ => panic!(
-                    "Unexpected file kind {:?} for target {:?} in package {}, \
-                    this is a bug in the build system!",
-                    file_kind, target, pkg.fqn
-                ),
+            self.build_env.opt_level,
+            self.build_env.target_backend.into(),
+        ) {
+            match file_kind {
+                NoTest => no_test_files.insert(file.into_owned()),
+                Whitebox => whitebox_files.insert(file.into_owned()),
+                Blackbox => blackbox_files.insert(file.into_owned()),
             };
         }
-        if target.kind == BlackboxTest {
-            // mbt.md files are also part of regular files
-            for md_file in &pkg.mbt_md_files {
-                regular_files.insert(md_file.clone());
-            }
-        }
-        let mbtp_files = match target.kind {
-            Source | SubPackage | InlineTest | WhiteboxTest => {
-                // `.mbtp` files are threaded into all moonc-based compilation
-                // and checking commands for this package.
-                //
-                // Blackbox targets import the checked package interface, so
-                // threading `.mbtp` through as regular sources there would
-                // redeclare proof-side APIs against the imported package.
-                //
-                // We intentionally ignore prebuild-generated `.mbtp` files for
-                // now until their semantics are designed explicitly.
-                pkg.mbtp_files.clone()
-            }
-            BlackboxTest => Vec::new(),
-        };
-        drop(_filter_span);
+        drop(_classify_span);
 
         // Sort the input, or the different order may cause n2 to view the input
         // file set as different than original.
         //
         // FIXME: we have already sorted them on discover, should we omit that?
-        let _sort_span = tracing::debug_span!("sorting_files").entered();
-        regular_files.sort();
+        let _sort_span = tracing::debug_span!("sorting_package_files").entered();
+        no_test_files.sort();
         whitebox_files.sort();
-        doctest_files.sort();
+        blackbox_files.sort();
         drop(_sort_span);
+
+        PackageFileSet {
+            no_test_files: no_test_files.into_iter().collect(),
+            whitebox_files: whitebox_files.into_iter().collect(),
+            blackbox_files: blackbox_files.into_iter().collect(),
+            mbt_md_files: pkg.mbt_md_files.clone(),
+            mbtp_files: pkg.mbtp_files.clone(),
+        }
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn resolve_mbt_files_for_node(&mut self, target: BuildTarget) -> BuildTargetInfo {
+        use TargetKind::*;
+
+        // FIXME: Should we resolve test drivers' paths, or should we leave it
+        // in the lowering phase? The path to the test driver depends on the
+        // artifact layout, so we might not be able to do that here, unless we
+        // add some kind of `SpecialFile::TestDriver` or something.
+        let (regular_files, mbtp_files, whitebox_files, doctest_files) = {
+            let file_set = self.package_file_set(target.package);
+            match target.kind {
+                Source | SubPackage | InlineTest => (
+                    file_set.no_test_files.clone(),
+                    file_set.mbtp_files.clone(),
+                    Vec::new(),
+                    Vec::new(),
+                ),
+                WhiteboxTest => (
+                    file_set.no_test_files.clone(),
+                    file_set.mbtp_files.clone(),
+                    file_set.whitebox_files.clone(),
+                    Vec::new(),
+                ),
+                BlackboxTest => {
+                    // `.mbt.md` files are also part of blackbox regular files.
+                    let mut regular_files = file_set
+                        .blackbox_files
+                        .iter()
+                        .cloned()
+                        .collect::<IndexSet<_>>();
+                    regular_files.extend(file_set.mbt_md_files.iter().cloned());
+                    regular_files.sort();
+                    (
+                        regular_files.into_iter().collect(),
+                        Vec::new(),
+                        Vec::new(),
+                        file_set.no_test_files.clone(),
+                    )
+                }
+            }
+        };
+
+        let pkg = self.input.pkg_dirs.get_package(target.package);
+        let module = self.input.module_rel.module_info(pkg.module);
 
         // Populate `warn_list` by concatenating module-level, package-level,
         // and command-line settings.
@@ -622,10 +636,10 @@ impl<'a> BuildPlanConstructor<'a> {
         let mi_check_target = self.mi_check_target(target, pkg);
 
         BuildTargetInfo {
-            regular_files: regular_files.into_iter().collect(),
+            regular_files,
             mbtp_files,
-            whitebox_files: whitebox_files.into_iter().collect(),
-            doctest_files: doctest_files.into_iter().collect(),
+            whitebox_files,
+            doctest_files,
             warn_list,
             specified_no_mi,
             patch_file,
@@ -641,7 +655,7 @@ impl<'a> BuildPlanConstructor<'a> {
     pub(super) fn warn_if_main_package_uses_blackbox_inputs(
         &mut self,
         pkg: &DiscoveredPackage,
-        regular_files: &IndexSet<PathBuf>,
+        regular_files: &[PathBuf],
     ) {
         if !pkg.raw.is_main {
             return;
