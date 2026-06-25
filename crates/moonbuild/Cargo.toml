@@ -67,6 +67,7 @@ regex.workspace = true
 ariadne.workspace = true
 handlebars = { version = "6.3.2", default-features = false }
 toml = { workspace = true, features = ["parse", "serde", "std"] }
+tracing.workspace = true
 
 [dev-dependencies]
 expect-test.workspace = true

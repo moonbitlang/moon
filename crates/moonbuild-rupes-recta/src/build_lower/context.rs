@@ -216,7 +216,14 @@ impl<'a> LoweringContext<'a> {
         self.packages.get_package(target.package)
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(
+        level = Level::DEBUG,
+        skip(self),
+        fields(
+            action = %self.plan.human_desc(id, self.modules, self.packages),
+            package = %self.plan.package_for_error(id).map(|target| self.packages.fqn(target.package).to_string()).unwrap_or_else(|| "none".to_string())
+        )
+    )]
     pub(super) fn lower_action(&mut self, id: BuildActionId) -> Result<(), LoweringError> {
         let action = self.plan.action(id);
         if self.is_action_noop(action) {

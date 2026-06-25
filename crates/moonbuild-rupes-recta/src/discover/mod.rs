@@ -336,7 +336,11 @@ pub(crate) fn discover_packages_for_mod(
 
 /// Discover one package and get its basic information. This does *not* create
 /// e.g. subpackages.
-#[instrument(level = Level::DEBUG, skip(m, rel, pkg_manifest_path))]
+#[instrument(
+    level = Level::DEBUG,
+    skip(m, rel, pkg_manifest_path),
+    fields(module = %m.name(), package_path = %PackagePath::new_from_rel_path(rel).expect("valid package path"))
+)]
 fn discover_one_package(
     mid: ModuleId,
     m: &ModuleSource,

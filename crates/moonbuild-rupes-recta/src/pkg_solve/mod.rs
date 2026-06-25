@@ -45,10 +45,17 @@ pub fn solve(
 ) -> Result<DepRelationship, SolveError> {
     info!("Starting dependency resolution");
 
+    let solve_only_span = tracing::debug_span!("solve_package_dependencies").entered();
     let (mut res, mut solve_warnings) = solve_only(modules, packages, enable_coverage)?;
+    drop(solve_only_span);
     user_warnings.append(&mut solve_warnings);
+    let verify_span = tracing::debug_span!("verify_package_dependencies").entered();
     verify(&res, packages, user_warnings)?;
+    drop(verify_span);
+    let supported_targets_span =
+        tracing::debug_span!("compute_realizable_supported_targets").entered();
     res.realizable_supported_targets = compute_realizable_supported_targets(&res, packages);
+    drop(supported_targets_span);
 
     info!("Dependency resolution completed successfully");
     Ok(res)

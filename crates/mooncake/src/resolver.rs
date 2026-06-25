@@ -237,6 +237,11 @@ pub(crate) struct ResolveConfig {
     pub(crate) inject_std: bool,
 }
 
+#[tracing::instrument(
+    level = "debug",
+    skip_all,
+    fields(root_count = root.len(), inject_std = config.inject_std)
+)]
 pub(crate) fn resolve_with_default_env(
     config: &ResolveConfig,
     resolver: &mut dyn Resolver,
