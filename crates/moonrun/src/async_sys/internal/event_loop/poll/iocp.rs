@@ -120,11 +120,27 @@ ported_fns! {
         instance.events = entries
             .into_iter()
             .take(count as usize)
-            .map(|entry| PollEvent {
-                fd: entry.lpCompletionKey as RawFd,
-                events: 0,
-                io_result: entry.lpOverlapped,
-                bytes_transferred: entry.dwNumberOfBytesTransferred as i32,
+            .map(|entry| {
+                let fd = entry.lpCompletionKey as RawFd;
+                let worker_generation = if is_thread_pool_completion(fd) {
+                    worker_generation_from_overlapped(entry.lpOverlapped)
+                } else {
+                    None
+                };
+                PollEvent {
+                    fd,
+                    events: 0,
+                    // Worker completion packets use lpOverlapped only as a
+                    // host generation token; guest-visible worker events match
+                    // native and expose no IO result.
+                    io_result: if worker_generation.is_some() {
+                        std::ptr::null_mut()
+                    } else {
+                        entry.lpOverlapped
+                    },
+                    bytes_transferred: entry.dwNumberOfBytesTransferred as i32,
+                    worker_generation,
+                }
             })
             .collect();
         i32::try_from(count).map_err(|_| AsyncHostError::Fault)
@@ -169,10 +185,12 @@ ported_fns! {
 pub(crate) fn post_thread_pool_completion(
     completion_port: CompletionPort,
     job_id: i32,
+    generation: usize,
 ) -> AsyncHostResult<()> {
     use windows_sys::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
+    debug_assert_ne!(generation, 0);
     // Native thread_pool.c posts worker completions to the event bus IOCP with
     // INVALID_HANDLE_VALUE as the completion key and the job id as transferred bytes.
     if unsafe {
@@ -180,13 +198,42 @@ pub(crate) fn post_thread_pool_completion(
             completion_port.0,
             job_id as u32,
             INVALID_HANDLE_VALUE as usize,
-            std::ptr::null_mut(),
+            worker_generation_to_overlapped(generation),
         )
     } == 0
     {
         return Err(AsyncHostError::Native(unsafe { GetLastError() } as i32));
     }
     Ok(())
+}
+
+pub(crate) fn retain_current_thread_pool_completions(
+    instance: &mut PollInstance,
+    generation: Option<usize>,
+) -> AsyncHostResult<i32> {
+    instance.events.retain(|event| {
+        event
+            .worker_generation
+            .is_none_or(|event_generation| Some(event_generation) == generation)
+    });
+    i32::try_from(instance.events.len()).map_err(|_| AsyncHostError::Fault)
+}
+
+fn is_thread_pool_completion(fd: RawFd) -> bool {
+    fd == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE
+}
+
+fn worker_generation_to_overlapped(
+    generation: usize,
+) -> *mut windows_sys::Win32::System::IO::OVERLAPPED {
+    generation as *mut windows_sys::Win32::System::IO::OVERLAPPED
+}
+
+fn worker_generation_from_overlapped(
+    overlapped: *mut windows_sys::Win32::System::IO::OVERLAPPED,
+) -> Option<usize> {
+    let generation = overlapped as usize;
+    (generation != 0).then_some(generation)
 }
 
 fn empty_overlapped_entry() -> windows_sys::Win32::System::IO::OVERLAPPED_ENTRY {

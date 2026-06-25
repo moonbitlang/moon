@@ -71,6 +71,8 @@ pub(crate) struct PollEvent {
     io_result: *mut windows_sys::Win32::System::IO::OVERLAPPED,
     #[cfg(windows)]
     bytes_transferred: i32,
+    #[cfg(windows)]
+    worker_generation: Option<usize>,
 }
 
 impl Drop for PollInstance {
