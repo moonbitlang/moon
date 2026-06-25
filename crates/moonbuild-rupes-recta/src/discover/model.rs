@@ -24,7 +24,7 @@ use std::{
 };
 
 use moonbuild::expect::PackageSrcResolver;
-use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend};
+use moonutil::common::{MOON_PKG_JSON, TargetBackend};
 use moonutil::module::MoonModRule;
 use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedRootModules};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
@@ -51,6 +51,11 @@ pub struct DiscoveredPackage {
     /// Single-file packages behave differently in certain aspects, such as
     /// file determination and import resolution.
     pub is_single_file: bool,
+
+    /// The selected package manifest path for normal package layouts.
+    ///
+    /// Synthetic single-file packages do not have a real package manifest.
+    pub manifest_path: Option<PathBuf>,
 
     /// The raw `moon.pkg.json` of this package.
     pub raw: Box<MoonPkg>,
@@ -98,17 +103,11 @@ pub struct DiscoveredPackage {
 }
 
 impl DiscoveredPackage {
-    /// Get the configuration file `moon.pkg.json` or `moon.pkg` of this package
-    ///
-    /// This function assumes regular project layout.
-    /// Prefers `moon.pkg` (DSL format) if it exists, otherwise falls back to `moon.pkg.json`.
+    /// Get the configuration file `moon.pkg.json` or `moon.pkg` of this package.
     pub fn config_path(&self) -> PathBuf {
-        if self.root_path.join(MOON_PKG).exists() {
-            self.root_path.join(MOON_PKG)
-        } else {
-            // Default to JSON format (for backward compatibility and single-file scenarios)
-            self.root_path.join(MOON_PKG_JSON)
-        }
+        self.manifest_path
+            .clone()
+            .unwrap_or_else(|| self.root_path.join(MOON_PKG_JSON))
     }
 
     /// Get whether if the package is a virtual package

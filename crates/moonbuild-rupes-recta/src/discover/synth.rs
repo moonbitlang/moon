@@ -155,6 +155,7 @@ pub fn build_synth_single_file_package(
         module: mid,
         fqn: PackageFQN::new(module_src, pkg_path.clone()),
         is_single_file: true,
+        manifest_path: None,
         raw: Box::new(moon_pkg),
         supported_targets_decl: SupportedTargetsDeclKind::Omitted,
         effective_supported_targets: supported,
