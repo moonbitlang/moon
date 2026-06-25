@@ -31,15 +31,18 @@ pub(super) fn is_null(_context: &mut ImportContext, ptr: u64) -> i32 {
 pub(super) fn blit_to_c(
     context: &mut ImportContext,
     dst: u64,
+    dst_offset: i32,
     src: i32,
-    offset: i32,
+    src_offset: i32,
     len: i32,
 ) -> AsyncHostResult<()> {
-    let src_len = checked_add_i32(offset, len)?;
+    let src_len = checked_add_i32(src_offset, len)?;
     let host = context.host;
     context.with_memory_mut(|memory| {
         let src = memory.read_exact(src, src_len)?;
-        host.with_c_buffer_mut(dst, |dst| stub::blit_to_c(dst, src, offset, len))
+        host.with_c_buffer_mut(dst, |dst| {
+            stub::blit_to_c(dst, dst_offset, src, src_offset, len)
+        })
     })
 }
 
@@ -47,15 +50,18 @@ pub(super) fn blit_to_c(
 pub(super) fn blit_from_c(
     context: &mut ImportContext,
     src: u64,
+    src_offset: i32,
     dst: i32,
-    offset: i32,
+    dst_offset: i32,
     len: i32,
 ) -> AsyncHostResult<()> {
-    let dst_len = checked_add_i32(offset, len)?;
+    let dst_len = checked_add_i32(dst_offset, len)?;
     let host = context.host;
     context.with_memory_mut(|memory| {
         let dst = memory.read_exact_mut(dst, dst_len)?;
-        host.with_c_buffer(src, |src| stub::blit_from_c(src, dst, offset, len))
+        host.with_c_buffer(src, |src| {
+            stub::blit_from_c(src, src_offset, dst, dst_offset, len)
+        })
     })
 }
 

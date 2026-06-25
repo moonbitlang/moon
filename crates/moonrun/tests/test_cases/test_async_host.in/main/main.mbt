@@ -76,10 +76,20 @@ fn fetch_completion(
 fn errno_to_string(errno : Int) -> UInt64 = "moonbitlang/async" "os_error/errno_to_string"
 
 ///|
-fn os_string_decode_len(ptr : UInt64, len : Int) -> Int = "moonbitlang/async" "os_string/decode_len"
+fn os_string_decode_len(
+  ptr : UInt64,
+  offset : Int,
+  len : Int,
+) -> Int = "moonbitlang/async" "os_string/decode_len"
 
 ///|
-fn os_string_decode(ptr : UInt64, len : Int, out : Int, out_len : Int) -> Unit = "moonbitlang/async" "os_string/decode"
+fn os_string_decode(
+  ptr : UInt64,
+  offset : Int,
+  len : Int,
+  out : Int,
+  out_len : Int,
+) -> Unit = "moonbitlang/async" "os_string/decode"
 
 ///|
 fn free_errno_str(ptr : UInt64) -> Unit = "moonbitlang/async" "os_error/free_errno_str"
@@ -114,10 +124,10 @@ fn main {
   let after = ms_since_epoch()
   assert_true(after >= before, "time moved backwards")
   let message_buf = errno_to_string(2)
-  let message_len = os_string_decode_len(message_buf, -1)
+  let message_len = os_string_decode_len(message_buf, 0, -1)
   assert_true(message_len > 0, "errno string size query failed")
   let message = String::make(message_len, '\u{0}')
-  os_string_decode(message_buf, -1, string_to_ptr(message), message_len)
+  os_string_decode(message_buf, 0, -1, string_to_ptr(message), message_len)
   free_errno_str(message_buf)
   assert_true(
     message != String::make(message_len, '\u{0}'),

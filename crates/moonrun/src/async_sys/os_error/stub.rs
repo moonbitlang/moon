@@ -172,13 +172,10 @@ fn errno_to_string_sys(errno: i32) -> Box<[u8]> {
 
     let message = unsafe { libc::strerror(errno) };
     if message.is_null() {
-        return format!("errno {errno}").into_bytes().into_boxed_slice();
+        return nul_terminated_bytes(format!("errno {errno}").into_bytes());
     }
 
-    unsafe { CStr::from_ptr(message) }
-        .to_bytes()
-        .to_vec()
-        .into_boxed_slice()
+    nul_terminated_bytes(unsafe { CStr::from_ptr(message) }.to_bytes().to_vec())
 }
 
 #[cfg(windows)]
@@ -200,10 +197,10 @@ fn errno_to_string_sys(errno: i32) -> Box<[u8]> {
         )
     };
     if len == 0 {
-        return wide_bytes(format!("errno {errno}").encode_utf16());
+        return nul_terminated_wide_bytes(format!("errno {errno}").encode_utf16());
     }
 
-    wide_bytes(buffer[..len as usize].iter().copied())
+    nul_terminated_wide_bytes(buffer[..len as usize].iter().copied())
 }
 
 #[cfg(windows)]
@@ -215,22 +212,36 @@ fn wide_bytes(units: impl IntoIterator<Item = u16>) -> Box<[u8]> {
         .into_boxed_slice()
 }
 
+#[cfg(unix)]
+fn nul_terminated_bytes(mut bytes: Vec<u8>) -> Box<[u8]> {
+    bytes.push(0);
+    bytes.into_boxed_slice()
+}
+
+#[cfg(windows)]
+fn nul_terminated_wide_bytes(units: impl IntoIterator<Item = u16>) -> Box<[u8]> {
+    wide_bytes(units.into_iter().chain(std::iter::once(0)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn errno_to_string_returns_exact_owned_message_bytes() {
+    fn errno_to_string_returns_native_string_buffer() {
         let buffer = errno_to_string(get_enotdir());
         assert!(!buffer.is_empty());
 
         #[cfg(unix)]
-        assert_ne!(buffer.last(), Some(&0));
+        {
+            assert_eq!(buffer.last(), Some(&0));
+            assert!(buffer.len() > 1);
+        }
 
         #[cfg(windows)]
         {
             assert!(buffer.len().is_multiple_of(std::mem::size_of::<u16>()));
-            assert_ne!(
+            assert_eq!(
                 buffer.get(buffer.len().saturating_sub(2)..),
                 Some(&[0, 0][..])
             );

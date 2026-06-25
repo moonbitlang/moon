@@ -368,9 +368,9 @@ declare_async_imports! {
     helper os_error::free_errno_str(ptr: u64) -> void => "os_error/free_errno_str";
 
     // Decode host-native strings into guest-owned MoonBit String storage.
-    helper os_string::decode_len(ptr: u64, len: i32) -> i32 => "os_string/decode_len";
+    helper os_string::decode_len(ptr: u64, offset: i32, len: i32) -> i32 => "os_string/decode_len";
 
-    helper os_string::decode(ptr: u64, len: i32, out: i32, out_len: i32) -> void => "os_string/decode";
+    helper os_string::decode(ptr: u64, offset: i32, len: i32, out: i32, out_len: i32) -> void => "os_string/decode";
 
     helper fs::close_fd(fd: u64) -> i32 => "fd_util/close_fd";
 
@@ -489,9 +489,9 @@ declare_async_imports! {
 
     helper c_buffer::is_null(ptr: u64) -> i32 => "c_buffer/is_null";
 
-    ported c_buffer::blit_to_c(dst: u64, src: i32, offset: i32, len: i32) -> void => "c_buffer/blit_to_c";
+    ported c_buffer::blit_to_c(dst: u64, dst_offset: i32, src: i32, src_offset: i32, len: i32) -> void => "c_buffer/blit_to_c";
 
-    ported c_buffer::blit_from_c(src: u64, dst: i32, offset: i32, len: i32) -> void => "c_buffer/blit_from_c";
+    ported c_buffer::blit_from_c(src: u64, src_offset: i32, dst: i32, dst_offset: i32, len: i32) -> void => "c_buffer/blit_from_c";
 
     ported c_buffer::c_buffer_get(buf: u64, index: i32) -> i32 => "c_buffer/c_buffer_get";
 
@@ -522,7 +522,7 @@ declare_async_imports! {
 
     ported fs::dir_entry_name_len(buf: u64, offset: i32) -> i32 => "fs/dir_entry_get_name_len";
 
-    ported fs::dir_entry_name(buf: u64, offset: i32) -> u64 => "fs/dir_entry_get_name";
+    ported fs::dir_entry_name_offset(buf: u64, offset: i32) -> i32 => "fs/dir_entry_get_name_offset";
 
     ported fs::dir_entry_is_dir(buf: u64, offset: i32) -> i32 => "fs/dir_entry_is_dir";
 

@@ -24,9 +24,15 @@ ported_fns! {
         source = "src/internal/c_buffer/stub.c",
         original = "moonbitlang_async_blit_to_c"
     )]
-    pub(crate) fn blit_to_c(dst: &mut [u8], src: &[u8], offset: i32, len: i32) -> AsyncHostResult<()> {
-        let src = checked_range(src, offset, len)?;
-        let dst = dst.get_mut(..src.len()).ok_or(AsyncHostError::Fault)?;
+    pub(crate) fn blit_to_c(
+        dst: &mut [u8],
+        dst_offset: i32,
+        src: &[u8],
+        src_offset: i32,
+        len: i32,
+    ) -> AsyncHostResult<()> {
+        let src = checked_range(src, src_offset, len)?;
+        let dst = checked_range_mut(dst, dst_offset, len)?;
         dst.copy_from_slice(src);
         Ok(())
     }
@@ -35,12 +41,15 @@ ported_fns! {
         source = "src/internal/c_buffer/stub.c",
         original = "moonbitlang_async_blit_from_c"
     )]
-    pub(crate) fn blit_from_c(src: &[u8], dst: &mut [u8], offset: i32, len: i32) -> AsyncHostResult<()> {
-        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        let src = src.get(..len).ok_or(AsyncHostError::Fault)?;
-        let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
-        let end = offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
-        let dst = dst.get_mut(offset..end).ok_or(AsyncHostError::Fault)?;
+    pub(crate) fn blit_from_c(
+        src: &[u8],
+        src_offset: i32,
+        dst: &mut [u8],
+        dst_offset: i32,
+        len: i32,
+    ) -> AsyncHostResult<()> {
+        let src = checked_range(src, src_offset, len)?;
+        let dst = checked_range_mut(dst, dst_offset, len)?;
         dst.copy_from_slice(src);
         Ok(())
     }
@@ -84,26 +93,33 @@ fn checked_range(src: &[u8], offset: i32, len: i32) -> AsyncHostResult<&[u8]> {
     src.get(offset..end).ok_or(AsyncHostError::Fault)
 }
 
+fn checked_range_mut(src: &mut [u8], offset: i32, len: i32) -> AsyncHostResult<&mut [u8]> {
+    let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
+    let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+    let end = offset.checked_add(len).ok_or(AsyncHostError::Fault)?;
+    src.get_mut(offset..end).ok_or(AsyncHostError::Fault)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn blit_to_c_copies_from_source_offset() {
-        let mut dst = [0; 3];
+    fn blit_to_c_copies_between_offsets() {
+        let mut dst = *b"abcdef";
 
-        blit_to_c(&mut dst, b"abcdef", 2, 3).unwrap();
+        blit_to_c(&mut dst, 2, b"XYZ123", 1, 3).unwrap();
 
-        assert_eq!(&dst, b"cde");
+        assert_eq!(&dst, b"abYZ1f");
     }
 
     #[test]
-    fn blit_from_c_copies_to_destination_offset() {
+    fn blit_from_c_copies_between_offsets() {
         let mut dst = *b"abcdef";
 
-        blit_from_c(b"XY", &mut dst, 2, 2).unwrap();
+        blit_from_c(b"XYZ123", 1, &mut dst, 2, 3).unwrap();
 
-        assert_eq!(&dst, b"abXYef");
+        assert_eq!(&dst, b"abYZ1f");
     }
 
     #[test]

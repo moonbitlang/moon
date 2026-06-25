@@ -20,23 +20,29 @@ use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
 
 use super::context::ImportContext;
 
-pub(super) fn decode_len(context: &mut ImportContext, ptr: u64, len: i32) -> AsyncHostResult<i32> {
+pub(super) fn decode_len(
+    context: &mut ImportContext,
+    ptr: u64,
+    offset: i32,
+    len: i32,
+) -> AsyncHostResult<i32> {
     let string = context
         .host
-        .with_c_buffer(ptr, |buffer| decode_native_string(buffer, len))?;
+        .with_c_buffer(ptr, |buffer| decode_native_string(buffer, offset, len))?;
     utf16_len(&string)
 }
 
 pub(super) fn decode(
     context: &mut ImportContext,
     ptr: u64,
+    offset: i32,
     len: i32,
     out: i32,
     out_len: i32,
 ) -> AsyncHostResult<()> {
     let string = context
         .host
-        .with_c_buffer(ptr, |buffer| decode_native_string(buffer, len))?;
+        .with_c_buffer(ptr, |buffer| decode_native_string(buffer, offset, len))?;
     let units = string.encode_utf16().collect::<Vec<_>>();
     let actual_len = i32::try_from(units.len()).map_err(|_| AsyncHostError::Fault)?;
     if actual_len != out_len {
@@ -49,14 +55,39 @@ fn utf16_len(string: &str) -> AsyncHostResult<i32> {
     i32::try_from(string.encode_utf16().count()).map_err(|_| AsyncHostError::Fault)
 }
 
-fn decode_native_string(bytes: &[u8], len: i32) -> AsyncHostResult<String> {
-    let bytes = if len == -1 {
-        bytes
-    } else {
-        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        bytes.get(..len).ok_or(AsyncHostError::Fault)?
-    };
+fn decode_native_string(bytes: &[u8], offset: i32, len: i32) -> AsyncHostResult<String> {
+    let offset = usize::try_from(offset).map_err(|_| AsyncHostError::Fault)?;
+    let bytes = bytes.get(offset..).ok_or(AsyncHostError::Fault)?;
+    let bytes = native_string_bytes(bytes, len)?;
     decode_native_string_bytes(bytes)
+}
+
+fn native_string_bytes(bytes: &[u8], len: i32) -> AsyncHostResult<&[u8]> {
+    if len == -1 {
+        return native_string_bytes_until_terminator(bytes);
+    }
+
+    let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+    bytes.get(..len).ok_or(AsyncHostError::Fault)
+}
+
+#[cfg(unix)]
+fn native_string_bytes_until_terminator(bytes: &[u8]) -> AsyncHostResult<&[u8]> {
+    let len = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .ok_or(AsyncHostError::Fault)?;
+    Ok(&bytes[..len])
+}
+
+#[cfg(windows)]
+fn native_string_bytes_until_terminator(bytes: &[u8]) -> AsyncHostResult<&[u8]> {
+    let len = bytes
+        .chunks_exact(std::mem::size_of::<u16>())
+        .position(|chunk| chunk == [0, 0])
+        .ok_or(AsyncHostError::Fault)?
+        * std::mem::size_of::<u16>();
+    Ok(&bytes[..len])
 }
 
 #[cfg(unix)]
@@ -83,19 +114,37 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn unix_decode_native_string_uses_the_whole_owned_buffer() {
+    fn unix_decode_native_string_uses_offset_and_explicit_length() {
         assert_eq!(
-            decode_native_string(b"abc\0def", -1),
-            Ok("abc\0def".to_string())
+            decode_native_string(b"zzabc\0def", 2, 3),
+            Ok("abc".to_string())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_decode_native_string_stops_at_nul_after_offset() {
+        assert_eq!(
+            decode_native_string(b"zzabc\0def", 2, -1),
+            Ok("abc".to_string())
         );
     }
 
     #[cfg(windows)]
     #[test]
-    fn windows_decode_native_string_uses_the_whole_owned_buffer() {
+    fn windows_decode_native_string_uses_offset_and_explicit_byte_length() {
         assert_eq!(
-            decode_native_string(&[b'a', 0, b'b', 0, 0, 0], -1),
-            Ok("ab\0".to_string())
+            decode_native_string(&[0xff, 0xff, b'a', 0, b'b', 0, 0, 0], 2, 4),
+            Ok("ab".to_string())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_decode_native_string_stops_at_wide_nul_after_offset() {
+        assert_eq!(
+            decode_native_string(&[0xff, 0xff, b'a', 0, b'b', 0, 0, 0], 2, -1),
+            Ok("ab".to_string())
         );
     }
 
