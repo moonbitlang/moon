@@ -38,6 +38,7 @@ fn repo_root() -> std::path::PathBuf {
 // Upstream async has tick-sensitive tests; keep wasm package runs isolated
 // from the Rust test harness's package-level concurrency.
 static ASYNC_WASM_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+const MOONBIT_ASYNC_CHECK_FD_LEAK: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
 
 fn prepare_async_wasm_workspace(dir: &TestDir) -> std::path::PathBuf {
     let repo_root = repo_root();
@@ -89,6 +90,7 @@ fn run_async_wasm_package(dir: &TestDir, package: &str) -> String {
     let output = moon_cmd(dir)
         .env("MOON_OVERRIDE", moon_bin())
         .env("MOONRUN_OVERRIDE", &moonrun)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
         .args([
             "-C",
             "app/main",
@@ -117,6 +119,7 @@ fn run_upstream_async_wasm_package(package: &str) -> String {
     let output = moon_cmd(&async_dir)
         .env("MOON_OVERRIDE", moon_bin())
         .env("MOONRUN_OVERRIDE", &moonrun)
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
         .args([
             "test",
             "--target",
