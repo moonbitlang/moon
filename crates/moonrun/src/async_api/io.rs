@@ -23,19 +23,20 @@ ported_imports! {
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
 pub(super) fn read(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     fd: u64,
     dst: i32,
     offset: i32,
     len: i32,
 ) -> i32 {
-    let host = context.host;
     // Unix io/read is the pollable nonblocking path. Regular files are routed
     // through worker jobs, so this borrowed guest slice must not outlive the syscall.
-    match context.with_memory_mut(|memory| host.read_fd(memory, fd, dst, offset, len)) {
+    match context
+        .with_host_and_memory_mut(|host, memory| host.read_fd(memory, fd, dst, offset, len))
+    {
         Ok(bytes) => bytes,
         Err(error) => {
-            host.record_error(error);
+            context.host.record_error(error);
             -1
         }
     }
@@ -44,19 +45,20 @@ pub(super) fn read(
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
 pub(super) fn write(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     fd: u64,
     src: i32,
     offset: i32,
     len: i32,
 ) -> i32 {
-    let host = context.host;
     // See io/read: this import is for pollable nonblocking handles, not
     // regular files, and the borrowed guest slice is used only for the syscall.
-    match context.with_memory_mut(|memory| host.write_fd(memory, fd, src, offset, len)) {
+    match context
+        .with_host_and_memory_mut(|host, memory| host.write_fd(memory, fd, src, offset, len))
+    {
         Ok(bytes) => bytes,
         Err(error) => {
-            host.record_error(error);
+            context.host.record_error(error);
             -1
         }
     }
@@ -68,15 +70,14 @@ pub(super) fn write(
 )]
 #[cfg(windows)]
 pub(super) fn make_file_io_result(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     events: i32,
     buf: i32,
     offset: i32,
     len: i32,
     position: i64,
 ) -> crate::async_host::AsyncHostResult<u64> {
-    let host = context.host;
-    context.with_memory_mut(|memory| {
+    context.with_host_and_memory_mut(|host, memory| {
         host.make_file_io_result(memory, events, buf, offset, len, position)
     })
 }
@@ -87,7 +88,7 @@ pub(super) fn make_file_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn free_io_result(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     result: u64,
 ) -> crate::async_host::AsyncHostResult<()> {
     context.host.free_io_result(result)
@@ -99,7 +100,7 @@ pub(super) fn free_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn io_result_get_event(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     result: u64,
 ) -> crate::async_host::AsyncHostResult<i32> {
     context.host.io_result_get_event(result)
@@ -110,7 +111,7 @@ pub(super) fn io_result_get_event(
     original = "moonbitlang_async_cancel_io_result"
 )]
 #[cfg(windows)]
-pub(super) fn cancel_io_result(context: &mut ImportContext, result: u64, fd: u64) -> i32 {
+pub(super) fn cancel_io_result(context: &mut ImportContext<'_, '_>, result: u64, fd: u64) -> i32 {
     match context.host.cancel_io_result(result, fd) {
         Ok(status) => status,
         Err(error) => {
@@ -125,12 +126,13 @@ pub(super) fn cancel_io_result(context: &mut ImportContext, result: u64, fd: u64
     original = "moonbitlang_async_io_result_get_status"
 )]
 #[cfg(windows)]
-pub(super) fn io_result_get_status(context: &mut ImportContext, result: u64, fd: u64) -> i32 {
-    let host = context.host;
-    match context.with_memory_mut(|memory| host.io_result_get_status(memory, result, fd)) {
+pub(super) fn io_result_get_status(context: &mut ImportContext<'_, '_>, result: u64, fd: u64) -> i32 {
+    match context
+        .with_host_and_memory_mut(|host, memory| host.io_result_get_status(memory, result, fd))
+    {
         Ok(bytes) => bytes,
         Err(error) => {
-            host.record_error(error);
+            context.host.record_error(error);
             -1
         }
     }
@@ -141,12 +143,11 @@ pub(super) fn io_result_get_status(context: &mut ImportContext, result: u64, fd:
     original = "moonbitlang_async_read"
 )]
 #[cfg(windows)]
-pub(super) fn read_io_result(context: &mut ImportContext, fd: u64, result: u64) -> i32 {
-    let host = context.host;
-    match context.with_memory_mut(|memory| host.read_io_result(memory, fd, result)) {
+pub(super) fn read_io_result(context: &mut ImportContext<'_, '_>, fd: u64, result: u64) -> i32 {
+    match context.with_host_and_memory_mut(|host, memory| host.read_io_result(memory, fd, result)) {
         Ok(bytes) => bytes,
         Err(error) => {
-            host.record_error(error);
+            context.host.record_error(error);
             -1
         }
     }
@@ -157,12 +158,12 @@ pub(super) fn read_io_result(context: &mut ImportContext, fd: u64, result: u64) 
     original = "moonbitlang_async_write"
 )]
 #[cfg(windows)]
-pub(super) fn write_io_result(context: &mut ImportContext, fd: u64, result: u64) -> i32 {
-    let host = context.host;
-    match context.with_memory_mut(|memory| host.write_io_result(memory, fd, result)) {
+pub(super) fn write_io_result(context: &mut ImportContext<'_, '_>, fd: u64, result: u64) -> i32 {
+    match context.with_host_and_memory_mut(|host, memory| host.write_io_result(memory, fd, result))
+    {
         Ok(bytes) => bytes,
         Err(error) => {
-            host.record_error(error);
+            context.host.record_error(error);
             -1
         }
     }
@@ -173,7 +174,7 @@ pub(super) fn write_io_result(context: &mut ImportContext, fd: u64, result: u64)
     original = "moonbitlang_async_errno_is_read_EOF"
 )]
 #[cfg(windows)]
-pub(super) fn errno_is_read_eof(_context: &mut ImportContext, errno: i32) -> i32 {
+pub(super) fn errno_is_read_eof(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if crate::async_sys::internal::event_loop::io::errno_is_read_eof(errno) {
         1
     } else {

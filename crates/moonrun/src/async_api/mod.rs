@@ -16,10 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! V8-facing `moonbitlang/async` import adapter.
+//! Runtime-facing `moonbitlang/async` import adapter.
 //!
-//! This layer registers wasm imports, decodes wasm ABI values from V8 callback
-//! arguments, acquires guest memory, sets return values, and reports traps.
+//! This layer owns the canonical wasm import list, decodes wasm ABI values from
+//! callback arguments, acquires guest memory, sets return values, and reports
+//! traps. Callback implementations are written against `ImportContext` so the
+//! host behavior stays separate from runtime-specific memory access.
 //! Ported native-stub behavior belongs in `async_sys`; shared runtime state
 //! belongs in `async_host`.
 

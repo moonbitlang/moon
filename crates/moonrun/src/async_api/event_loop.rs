@@ -23,12 +23,12 @@ use super::provenance::ported_imports;
 
 ported_imports! {
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn get_platform(_context: &mut ImportContext) -> i32 {
+pub(super) fn get_platform(_context: &mut ImportContext<'_, '_>) -> i32 {
     thread_pool::get_platform()
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn errno_is_cancelled(_context: &mut ImportContext, errno: i32) -> i32 {
+pub(super) fn errno_is_cancelled(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if thread_pool::errno_is_cancelled(errno) {
         1
     } else {

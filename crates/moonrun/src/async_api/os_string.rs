@@ -21,7 +21,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
 use super::context::ImportContext;
 
 pub(super) fn decode_len(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     ptr: u64,
     offset: i32,
     len: i32,
@@ -33,7 +33,7 @@ pub(super) fn decode_len(
 }
 
 pub(super) fn decode(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     ptr: u64,
     offset: i32,
     len: i32,
