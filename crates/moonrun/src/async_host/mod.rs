@@ -1883,6 +1883,34 @@ mod tests {
     }
 
     #[test]
+    fn drop_destroys_pool_even_when_worker_holds_state() {
+        let host = AsyncHost::default();
+        let state = Arc::downgrade(&host.state);
+        let poll = host.poll_create().unwrap();
+        let completion_notifier = host.init_thread_pool(poll).unwrap();
+        let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        host.spawn_worker(42, job).unwrap();
+
+        host.poll_wait(poll, 1000).unwrap();
+        #[cfg(unix)]
+        {
+            let mut memory = [0; 4];
+            host.fetch_completion(memory.as_mut_slice(), completion_notifier, 0, 1)
+                .unwrap();
+        }
+        #[cfg(windows)]
+        {
+            let event = host.poll_get_event(poll, 0).unwrap();
+            assert_eq!(host.poll_event_fd(event).unwrap(), completion_notifier);
+            assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
+        }
+
+        drop(host);
+
+        assert!(state.upgrade().is_none());
+    }
+
+    #[test]
     fn worker_handles_stay_stale_after_thread_pool_reinit() {
         let host = AsyncHost::default();
         let poll = host.poll_create().unwrap();

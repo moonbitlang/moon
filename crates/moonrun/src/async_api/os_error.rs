@@ -24,12 +24,12 @@ use super::provenance::ported_imports;
 
 ported_imports! {
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn get_errno(context: &mut ImportContext) -> i32 {
+pub(super) fn get_errno(context: &mut ImportContext<'_, '_>) -> i32 {
     stub::get_errno(context.host)
 }
 
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn is_nonblocking_io_error(_context: &mut ImportContext, errno: i32) -> i32 {
+pub(super) fn is_nonblocking_io_error(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_nonblocking_io_error(errno) {
         1
     } else {
@@ -38,32 +38,32 @@ pub(super) fn is_nonblocking_io_error(_context: &mut ImportContext, errno: i32) 
 }
 
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn is_eintr(_context: &mut ImportContext, errno: i32) -> i32 {
+pub(super) fn is_eintr(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_eintr(errno) { 1 } else { 0 }
 }
 
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn is_enoent(_context: &mut ImportContext, errno: i32) -> i32 {
+pub(super) fn is_enoent(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_enoent(errno) { 1 } else { 0 }
 }
 
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn is_eexist(_context: &mut ImportContext, errno: i32) -> i32 {
+pub(super) fn is_eexist(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_eexist(errno) { 1 } else { 0 }
 }
 
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn is_eacces(_context: &mut ImportContext, errno: i32) -> i32 {
+pub(super) fn is_eacces(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_eacces(errno) { 1 } else { 0 }
 }
 
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn is_econnrefused(_context: &mut ImportContext, errno: i32) -> i32 {
+pub(super) fn is_econnrefused(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_econnrefused(errno) { 1 } else { 0 }
 }
 
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn is_error_notify_enum_dir(_context: &mut ImportContext, errno: i32) -> i32 {
+pub(super) fn is_error_notify_enum_dir(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
     if stub::is_error_notify_enum_dir(errno) {
         1
     } else {
@@ -72,16 +72,16 @@ pub(super) fn is_error_notify_enum_dir(_context: &mut ImportContext, errno: i32)
 }
 
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn errno_to_string(context: &mut ImportContext, errno: i32) -> u64 {
+pub(super) fn errno_to_string(context: &mut ImportContext<'_, '_>, errno: i32) -> u64 {
     context.host.insert_c_buffer(stub::errno_to_string(errno))
 }
 
-pub(super) fn free_errno_str(context: &mut ImportContext, ptr: u64) -> AsyncHostResult<()> {
+pub(super) fn free_errno_str(context: &mut ImportContext<'_, '_>, ptr: u64) -> AsyncHostResult<()> {
     context.host.free_c_buffer(ptr)
 }
 
 #[ported(source = "src/os_error/stub.c")]
-pub(super) fn get_enotdir(_context: &mut ImportContext) -> i32 {
+pub(super) fn get_enotdir(_context: &mut ImportContext<'_, '_>) -> i32 {
     stub::get_enotdir()
 }
 

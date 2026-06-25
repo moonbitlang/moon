@@ -107,19 +107,24 @@ const fn ported_from(
     }
 }
 
-pub(super) fn create(context: &mut ImportContext) -> AsyncHostResult<u64> {
+pub(super) fn create(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
     context.host.poll_create()
 }
 
-pub(super) fn destroy(context: &mut ImportContext, bus: u64) -> AsyncHostResult<()> {
+pub(super) fn destroy(context: &mut ImportContext<'_, '_>, bus: u64) -> AsyncHostResult<()> {
     context.host.poll_destroy(bus)
 }
 
-pub(super) fn register(context: &mut ImportContext, bus: u64, fd: u64, read_only: i32) -> i32 {
+pub(super) fn register(
+    context: &mut ImportContext<'_, '_>,
+    bus: u64,
+    fd: u64,
+    read_only: i32,
+) -> i32 {
     poll_errno_result(context, context.host.poll_register(bus, fd, read_only != 0))
 }
 
-pub(super) fn wait(context: &mut ImportContext, bus: u64, timeout_ms: i32) -> i32 {
+pub(super) fn wait(context: &mut ImportContext<'_, '_>, bus: u64, timeout_ms: i32) -> i32 {
     match context.host.poll_wait(bus, timeout_ms) {
         Ok(n) => n,
         Err(error) => {
@@ -129,33 +134,43 @@ pub(super) fn wait(context: &mut ImportContext, bus: u64, timeout_ms: i32) -> i3
     }
 }
 
-pub(super) fn get_event(context: &mut ImportContext, bus: u64, index: i32) -> AsyncHostResult<u64> {
+pub(super) fn get_event(
+    context: &mut ImportContext<'_, '_>,
+    bus: u64,
+    index: i32,
+) -> AsyncHostResult<u64> {
     context.host.poll_get_event(bus, index)
 }
 
-pub(super) fn event_fd(context: &mut ImportContext, event: u64) -> AsyncHostResult<u64> {
+pub(super) fn event_fd(context: &mut ImportContext<'_, '_>, event: u64) -> AsyncHostResult<u64> {
     context.host.poll_event_fd(event)
 }
 
 #[cfg(unix)]
-pub(super) fn event_events(context: &mut ImportContext, event: u64) -> AsyncHostResult<i32> {
+pub(super) fn event_events(
+    context: &mut ImportContext<'_, '_>,
+    event: u64,
+) -> AsyncHostResult<i32> {
     context.host.poll_event_events(event)
 }
 
 #[cfg(windows)]
-pub(super) fn event_io_result(context: &mut ImportContext, event: u64) -> AsyncHostResult<u64> {
+pub(super) fn event_io_result(
+    context: &mut ImportContext<'_, '_>,
+    event: u64,
+) -> AsyncHostResult<u64> {
     context.host.poll_event_io_result(event)
 }
 
 #[cfg(windows)]
 pub(super) fn event_bytes_transferred(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     event: u64,
 ) -> AsyncHostResult<i32> {
     context.host.poll_event_bytes_transferred(event)
 }
 
-fn poll_errno_result(context: &ImportContext, result: AsyncHostResult<()>) -> i32 {
+fn poll_errno_result(context: &ImportContext<'_, '_>, result: AsyncHostResult<()>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {

@@ -23,7 +23,7 @@ use super::provenance::ported_imports;
 
 ported_imports! {
 #[ported(source = "src/internal/env_util/stub.c")]
-pub(super) fn getpid(_context: &mut ImportContext) -> i32 {
+pub(super) fn getpid(_context: &mut ImportContext<'_, '_>) -> i32 {
     stub::get_pid() as i32
 }
 }

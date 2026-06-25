@@ -18,6 +18,6 @@
 
 use super::context::ImportContext;
 
-pub(super) fn exit(_context: &mut ImportContext, code: i32) {
+pub(super) fn exit(_context: &mut ImportContext<'_, '_>, code: i32) {
     std::process::exit(code)
 }

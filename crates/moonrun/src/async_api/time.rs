@@ -20,6 +20,6 @@ use crate::async_sys::internal::time::clock;
 
 use super::context::ImportContext;
 
-pub(super) fn get_ms_since_epoch(_context: &mut ImportContext) -> u64 {
+pub(super) fn get_ms_since_epoch(_context: &mut ImportContext<'_, '_>) -> u64 {
     clock::get_ms_since_epoch()
 }

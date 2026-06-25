@@ -61,10 +61,11 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
         }
     }
 
-    pub(super) fn with_memory_mut<T>(
+    pub(super) fn with_host_and_memory_mut<T>(
         &mut self,
-        f: impl FnOnce(&mut [u8]) -> AsyncHostResult<T>,
+        f: impl FnOnce(&AsyncHost, &mut [u8]) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
+        let host = self.host;
         let memory_object = memory_object(self.scope, self.imports)?;
         let buffer = memory_object.buffer();
         let len = buffer.byte_length();
@@ -76,7 +77,14 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
         };
 
         let memory = unsafe { std::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
-        f(memory)
+        f(host, memory)
+    }
+
+    pub(super) fn with_memory_mut<T>(
+        &mut self,
+        f: impl FnOnce(&mut [u8]) -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        self.with_host_and_memory_mut(|_, memory| f(memory))
     }
 }
 

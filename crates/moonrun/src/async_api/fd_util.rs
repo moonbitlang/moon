@@ -30,47 +30,47 @@ const MTIME_NSEC_OFFSET: i32 = 24;
 const CTIME_SEC_OFFSET: i32 = 32;
 const CTIME_NSEC_OFFSET: i32 = 40;
 
-pub(super) fn invalid_fd(context: &mut ImportContext) -> u64 {
+pub(super) fn invalid_fd(context: &mut ImportContext<'_, '_>) -> u64 {
     context.host.invalid_fd()
 }
 
-pub(super) fn sizeof_file_time(_context: &mut ImportContext) -> i32 {
+pub(super) fn sizeof_file_time(_context: &mut ImportContext<'_, '_>) -> i32 {
     FILE_TIME_RECORD_LEN
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
-pub(super) fn get_atime_sec(context: &mut ImportContext, ptr: i32) -> AsyncHostResult<i64> {
+pub(super) fn get_atime_sec(context: &mut ImportContext<'_, '_>, ptr: i32) -> AsyncHostResult<i64> {
     file_time_i64(context, ptr, ATIME_SEC_OFFSET)
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
-pub(super) fn get_atime_nsec(context: &mut ImportContext, ptr: i32) -> AsyncHostResult<i32> {
+pub(super) fn get_atime_nsec(context: &mut ImportContext<'_, '_>, ptr: i32) -> AsyncHostResult<i32> {
     file_time_i32(context, ptr, ATIME_NSEC_OFFSET)
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
-pub(super) fn get_mtime_sec(context: &mut ImportContext, ptr: i32) -> AsyncHostResult<i64> {
+pub(super) fn get_mtime_sec(context: &mut ImportContext<'_, '_>, ptr: i32) -> AsyncHostResult<i64> {
     file_time_i64(context, ptr, MTIME_SEC_OFFSET)
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
-pub(super) fn get_mtime_nsec(context: &mut ImportContext, ptr: i32) -> AsyncHostResult<i32> {
+pub(super) fn get_mtime_nsec(context: &mut ImportContext<'_, '_>, ptr: i32) -> AsyncHostResult<i32> {
     file_time_i32(context, ptr, MTIME_NSEC_OFFSET)
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
-pub(super) fn get_ctime_sec(context: &mut ImportContext, ptr: i32) -> AsyncHostResult<i64> {
+pub(super) fn get_ctime_sec(context: &mut ImportContext<'_, '_>, ptr: i32) -> AsyncHostResult<i64> {
     file_time_i64(context, ptr, CTIME_SEC_OFFSET)
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
-pub(super) fn get_ctime_nsec(context: &mut ImportContext, ptr: i32) -> AsyncHostResult<i32> {
+pub(super) fn get_ctime_nsec(context: &mut ImportContext<'_, '_>, ptr: i32) -> AsyncHostResult<i32> {
     file_time_i32(context, ptr, CTIME_NSEC_OFFSET)
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
 pub(super) fn pipe(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     dst: i32,
     len: i32,
     read_end_is_async: i32,
@@ -81,8 +81,7 @@ pub(super) fn pipe(
             return Err(AsyncHostError::Fault);
         }
         context.with_memory_mut(|memory| memory.read_exact_mut(dst, 16).map(|_| ()))?;
-        let fds = context
-            .host
+        let fds = context.host
             .pipe(read_end_is_async != 0, write_end_is_async != 0)?;
         context.with_memory_mut(|memory| {
             memory.write_u64_le(dst, fds[0])?;
@@ -100,7 +99,7 @@ pub(super) fn pipe(
 
 #[ported(source = "src/internal/fd_util/stub.c")]
 #[cfg(unix)]
-pub(super) fn set_nonblocking(context: &mut ImportContext, fd: u64) -> i32 {
+pub(super) fn set_nonblocking(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
     match context.host.set_nonblocking(fd) {
         Ok(()) => 0,
         Err(error) => {
@@ -110,18 +109,18 @@ pub(super) fn set_nonblocking(context: &mut ImportContext, fd: u64) -> i32 {
     }
 }
 
-fn file_time_i64(context: &mut ImportContext, ptr: i32, field_offset: i32) -> AsyncHostResult<i64> {
+fn file_time_i64(context: &mut ImportContext<'_, '_>, ptr: i32, field_offset: i32) -> AsyncHostResult<i64> {
     read_field(context, ptr, field_offset, 8)
         .map(|bytes| i64::from_le_bytes(bytes.as_slice().try_into().unwrap()))
 }
 
-fn file_time_i32(context: &mut ImportContext, ptr: i32, field_offset: i32) -> AsyncHostResult<i32> {
+fn file_time_i32(context: &mut ImportContext<'_, '_>, ptr: i32, field_offset: i32) -> AsyncHostResult<i32> {
     read_field(context, ptr, field_offset, 4)
         .map(|bytes| i32::from_le_bytes(bytes.as_slice().try_into().unwrap()))
 }
 
 fn read_field(
-    context: &mut ImportContext,
+    context: &mut ImportContext<'_, '_>,
     ptr: i32,
     field_offset: i32,
     len: i32,
