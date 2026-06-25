@@ -247,7 +247,6 @@ impl HostFileTable for SlotMap<HostFileKey, HostFile> {
 
 new_key_type! {
     pub(crate) struct HostCBufferKey;
-    pub(crate) struct HostEventKey;
     pub(crate) struct HostFileKey;
     pub(crate) struct HostIoResultKey;
     pub(crate) struct HostJobKey;
@@ -270,9 +269,9 @@ struct AsyncHostState {
     io_results: SlotMap<HostIoResultKey, Box<HostIoResult>>,
     #[cfg(windows)]
     io_results_by_overlapped: HashMap<OverlappedAddr, HostIoResultKey>,
-    events: SlotMap<HostEventKey, HostEvent>,
     jobs: SlotMap<HostJobKey, Option<Job>>,
     polls: SlotMap<HostPollKey, Arc<Mutex<HostPoll>>>,
+    current_event_poll: Option<HostPollKey>,
     files: SlotMap<HostFileKey, HostFile>,
     invalid_file: HostFileKey,
     workers: SlotMap<HostWorkerKey, HostWorkerHandle>,
@@ -316,9 +315,9 @@ impl Default for AsyncHostState {
             io_results: SlotMap::with_key(),
             #[cfg(windows)]
             io_results_by_overlapped: HashMap::new(),
-            events: SlotMap::with_key(),
             jobs: SlotMap::with_key(),
             polls: SlotMap::with_key(),
+            current_event_poll: None,
             files,
             invalid_file,
             workers: SlotMap::with_key(),
@@ -399,16 +398,7 @@ struct HostPoll {
     registered_fds: HashMap<isize, HostHandle>,
     #[cfg(unix)]
     completion_notifier: Option<Arc<ThreadPoolCompletionNotifier>>,
-    event_generation: u64,
-    event_handles: Vec<HostEventKey>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct HostEvent {
-    poll: HostPollKey,
-    generation: u64,
-    index: i32,
-    fd_handle: Option<HostHandle>,
+    event_fd_handles: Vec<Option<HostHandle>>,
 }
 
 #[cfg(windows)]
@@ -608,8 +598,7 @@ impl AsyncHost {
             registered_fds: HashMap::new(),
             #[cfg(unix)]
             completion_notifier: None,
-            event_generation: 0,
-            event_handles: Vec::new(),
+            event_fd_handles: Vec::new(),
         })));
         Ok(handle_from_key(key))
     }
@@ -621,9 +610,9 @@ impl AsyncHost {
             .remove(key_from_handle::<HostPollKey>(handle))
             .ok_or(AsyncHostError::Badf)?;
         let poll = Arc::try_unwrap(poll).map_err(|_| AsyncHostError::Inval)?;
-        let mut poll = poll.into_inner().unwrap();
-        for event in poll.event_handles.drain(..) {
-            state.events.remove(event);
+        let poll = poll.into_inner().unwrap();
+        if state.current_event_poll == Some(key_from_handle::<HostPollKey>(handle)) {
+            state.current_event_poll = None;
         }
         #[cfg(unix)]
         {
@@ -678,21 +667,21 @@ impl AsyncHost {
     pub(crate) fn poll_wait(&self, poll_handle: u64, timeout_ms: i32) -> AsyncHostResult<i32> {
         let poll_key = key_from_handle::<HostPollKey>(poll_handle);
         #[cfg(windows)]
-        let (poll, thread_pool_generation) = {
+        let (poll, thread_pool_generation, invalid_fd) = {
             let state = self.state.lock().unwrap();
             let poll = Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?);
             let thread_pool_generation = state
                 .completion_port
                 .filter(|target| target.poll == poll_key)
                 .map(|target| target.generation);
-            (poll, thread_pool_generation)
+            (poll, thread_pool_generation, state.invalid_fd())
         };
         #[cfg(not(windows))]
         let poll = {
             let state = self.state.lock().unwrap();
             Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?)
         };
-        let (result, old_events) = {
+        let result = {
             let mut poll_guard = poll.lock().unwrap();
             #[cfg(not(windows))]
             let result = poll::poll_wait(&mut poll_guard.instance, timeout_ms)?;
@@ -723,47 +712,40 @@ impl AsyncHost {
                         .max(1);
                 }
             };
-            poll_guard.event_generation = poll_guard.event_generation.wrapping_add(1);
-            let old_events = std::mem::take(&mut poll_guard.event_handles);
-            (result, old_events)
-        };
-        if !old_events.is_empty() {
-            let mut state = self.state.lock().unwrap();
-            for event in old_events {
-                state.events.remove(event);
+            poll_guard.event_fd_handles.clear();
+            for index in 0..result {
+                let event = poll::event_list_get(&poll_guard.instance, index)?;
+                let raw_fd = poll::event_get_fd(event);
+                let fd_handle = poll_guard
+                    .registered_fds
+                    .get(&raw_fd_key(raw_fd))
+                    .copied()
+                    .or_else(|| completion_event_fd(raw_fd));
+                #[cfg(windows)]
+                let fd_handle = fd_handle.or(Some(invalid_fd));
+                poll_guard.event_fd_handles.push(fd_handle);
             }
+            result
+        };
+        {
+            let mut state = self.state.lock().unwrap();
+            state.current_event_poll = Some(poll_key);
         }
         Ok(result)
     }
 
     pub(crate) fn poll_get_event(&self, poll_handle: u64, index: i32) -> AsyncHostResult<u64> {
         let poll_key = key_from_handle::<HostPollKey>(poll_handle);
-        let mut state = self.state.lock().unwrap();
-        let poll = Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?);
-        let mut poll = poll.lock().unwrap();
-        let event = poll::event_list_get(&poll.instance, index)?;
-        let raw_fd = poll::event_get_fd(event);
-        #[cfg(windows)]
-        let fd_handle = poll
-            .registered_fds
-            .get(&raw_fd_key(raw_fd))
-            .copied()
-            .or_else(|| completion_event_fd(raw_fd))
-            .or_else(|| Some(state.invalid_fd()));
-        #[cfg(unix)]
-        let fd_handle = poll
-            .registered_fds
-            .get(&raw_fd_key(raw_fd))
-            .copied()
-            .or_else(|| completion_event_fd(raw_fd));
-        let key = state.events.insert(HostEvent {
-            poll: poll_key,
-            generation: poll.event_generation,
-            index,
-            fd_handle,
-        });
-        poll.event_handles.push(key);
-        Ok(handle_from_key(key))
+        let poll = {
+            let state = self.state.lock().unwrap();
+            if state.current_event_poll != Some(poll_key) {
+                return Err(AsyncHostError::Badf);
+            }
+            Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?)
+        };
+        let poll = poll.lock().unwrap();
+        poll::event_list_get(&poll.instance, index)?;
+        u64::try_from(index).map_err(|_| AsyncHostError::Fault)
     }
 
     fn with_event<T>(
@@ -771,34 +753,32 @@ impl AsyncHost {
         event_handle: u64,
         f: impl FnOnce(&HostPoll, &poll::PollEvent) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let event = key_from_handle::<HostEventKey>(event_handle);
-        let (event, poll) = {
+        let index = event_index(event_handle)?;
+        let poll = {
             let state = self.state.lock().unwrap();
-            let event = *state.events.get(event).ok_or(AsyncHostError::Badf)?;
-            let poll = Arc::clone(state.polls.get(event.poll).ok_or(AsyncHostError::Badf)?);
-            (event, poll)
+            let poll_key = state.current_event_poll.ok_or(AsyncHostError::Badf)?;
+            Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?)
         };
         let poll = poll.lock().unwrap();
-        if poll.event_generation != event.generation {
-            return Err(AsyncHostError::Badf);
-        }
-        let poll_event = poll::event_list_get(&poll.instance, event.index)?;
+        let poll_event = poll::event_list_get(&poll.instance, index)?;
         f(&poll, poll_event)
     }
 
     pub(crate) fn poll_event_fd(&self, event_handle: u64) -> AsyncHostResult<HostHandle> {
-        let event = key_from_handle::<HostEventKey>(event_handle);
-        let (event, poll) = {
+        let index = event_index(event_handle)?;
+        let poll = {
             let state = self.state.lock().unwrap();
-            let event = *state.events.get(event).ok_or(AsyncHostError::Badf)?;
-            let poll = Arc::clone(state.polls.get(event.poll).ok_or(AsyncHostError::Badf)?);
-            (event, poll)
+            let poll_key = state.current_event_poll.ok_or(AsyncHostError::Badf)?;
+            Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?)
         };
         let poll = poll.lock().unwrap();
-        if poll.event_generation != event.generation {
-            return Err(AsyncHostError::Badf);
-        }
-        event.fd_handle.ok_or(AsyncHostError::Badf)
+        poll::event_list_get(&poll.instance, index)?;
+        let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
+        poll.event_fd_handles
+            .get(index)
+            .copied()
+            .flatten()
+            .ok_or(AsyncHostError::Badf)
     }
 
     #[cfg(unix)]
@@ -1677,6 +1657,10 @@ fn completion_event_fd(fd: RawFd) -> Option<HostHandle> {
     }
 }
 
+fn event_index(event: u64) -> AsyncHostResult<i32> {
+    i32::try_from(event).map_err(|_| AsyncHostError::Fault)
+}
+
 #[cfg(unix)]
 fn raw_fd_key(fd: RawFd) -> isize {
     fd as isize
@@ -2260,6 +2244,8 @@ mod tests {
 
         assert_eq!(host.poll_wait(poll, 100).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
+        assert_eq!(event, 0);
+        assert_eq!(host.poll_get_event(poll, 0).unwrap(), event);
         assert_eq!(host.poll_event_fd(event).unwrap(), read);
         assert_eq!(
             host.poll_event_events(event).unwrap() & poll::READ_EVENT,
