@@ -725,6 +725,7 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         ("options", false),
         ("warnings", false),
         ("dev_build", true),
+        ("formatter", false),
         ("rule", true),
         ("supported_targets", false),
     ]);

@@ -171,6 +171,7 @@ fn read_module_desc_supports_new_toplevel_fields_from_fixture() {
         Some(["moonbit".to_string(), "dsl".to_string()].as_slice())
     );
     assert_eq!(module.description.as_deref(), Some("Module metadata"));
+    assert_eq!(module.source.as_deref(), Some("src"));
     assert_eq!(module.preferred_target, Some(TargetBackend::Js));
     match module.supported_targets {
         Some(SupportedTargetsConfig::Expr(expr)) => assert_eq!(expr, "js"),
