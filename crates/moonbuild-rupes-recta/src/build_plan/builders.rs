@@ -371,7 +371,11 @@ impl<'a> BuildPlanConstructor<'a> {
         Ok(())
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(
+        level = Level::DEBUG,
+        skip(self),
+        fields(package = %self.input.pkg_dirs.fqn(target.package), kind = ?target.kind)
+    )]
     pub(super) fn build_check(
         &mut self,
         node: BuildPlanNode,

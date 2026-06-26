@@ -57,6 +57,7 @@ impl OnlineRegistry {
 }
 
 impl super::Registry for OnlineRegistry {
+    #[tracing::instrument(level = "debug", skip_all, fields(module = %name))]
     fn all_versions_of(
         &self,
         name: &ModuleName,
@@ -163,6 +164,11 @@ impl OnlineRegistry {
         );
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(module = %name, version = %version)
+    )]
     fn download_or_using_cache(
         &self,
         name: &ModuleName,
@@ -211,6 +217,11 @@ impl OnlineRegistry {
         Ok(data)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(module = %name, version = %version)
+    )]
     pub fn install_to_impl(
         &self,
         name: &ModuleName,

@@ -66,6 +66,7 @@ fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> 
     }
 }
 
+#[tracing::instrument(level = "debug", skip_all, fields(module = %module.name()))]
 pub fn run_build_script_for_module(
     module: &moonutil::mooncakes::ModuleSource,
     dir: &Path,
@@ -79,6 +80,7 @@ pub fn run_build_script_for_module(
         "Running external prebuild config at `{}`. The script can execute arbitrary code.",
         prebuild
     );
+    let spawn_span = tracing::debug_span!("spawn_prebuild_script").entered();
     let mut cmd = run_script_cmd(prebuild, module.name())?
         .current_dir(dir)
         .stdin(Stdio::piped())
@@ -88,15 +90,18 @@ pub fn run_build_script_for_module(
         .with_context(|| {
             format!("failed to spawn prebuild script `{prebuild}` for module `{module}`")
         })?;
+    drop(spawn_span);
     let stdin = cmd.stdin.take().expect("Didn't get stdin");
     let join = std::thread::spawn(move || {
         let mut stdin = stdin;
         let input = serde_json::to_string(&input).expect("failed to serialize input");
         let _ = stdin.write_all(input.as_bytes());
     });
+    let wait_span = tracing::debug_span!("wait_prebuild_script").entered();
     let output = cmd.wait_with_output().with_context(|| {
         format!("failed to run prebuild script `{prebuild}` for module `{module}`")
     })?;
+    drop(wait_span);
     join.join().map_err(|_| {
         anyhow::anyhow!(
             "failed to join prebuild script `{}` for module `{}`",
@@ -111,10 +116,12 @@ pub fn run_build_script_for_module(
             module
         );
     }
+    let parse_span = tracing::debug_span!("parse_prebuild_script_output").entered();
     let output =
         serde_json::from_slice::<BuildScriptOutput>(&output.stdout).with_context(|| {
             format!("failed to deserialize prebuild script `{prebuild}` for module `{module}`")
         })?;
+    drop(parse_span);
 
     Ok(output)
 }

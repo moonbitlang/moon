@@ -42,6 +42,11 @@ use tracing::warn;
 /// `captures` uses a list of [`SectionCapture`] to capture part of the `stdout`
 /// output since the running process might not have any other method to interact
 /// with the host `moon` process.
+#[tracing::instrument(
+    level = "debug",
+    skip_all,
+    fields(capture, capture_count = captures.len())
+)]
 pub(crate) async fn run<'a>(
     captures: &mut [&mut SectionCapture<'a>],
     capture: bool,

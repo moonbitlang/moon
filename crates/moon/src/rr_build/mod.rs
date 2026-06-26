@@ -821,6 +821,7 @@ fn check_command_args_without_executable(args: &[String]) -> Option<Vec<String>>
         .then(|| command_args.to_vec())
 }
 
+#[instrument(level = Level::DEBUG, skip_all)]
 pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
     let all_pkgs_path = build_meta
         .artifact_paths
@@ -986,7 +987,11 @@ type WantFileFn<'b> = dyn for<'a> FnOnce(&'a mut n2::work::Work) -> anyhow::Resu
 ///
 /// This function is primarily used for rebuilding tests after snapshot test
 /// promotion.
-#[instrument(skip_all)]
+#[instrument(
+    level = Level::DEBUG,
+    skip_all,
+    fields(parallelism = ?cfg.parallelism, n2_explain = cfg.n2_explain)
+)]
 pub fn execute_build_partial(
     cfg: &BuildConfig,
     input: BuildInput,
@@ -1015,8 +1020,10 @@ pub fn execute_build_partial(
     // Generate n2 state
 
     let mut hashes = n2::graph::Hashes::default();
+    let n2_open_db_span = tracing::debug_span!("n2_open_db").entered();
     let n2_db = n2::db::open(&db_path, &mut build_graph, &mut hashes)
         .with_context(|| format!("Failed to open build cache DB at {}", db_path.display()))?;
+    drop(n2_open_db_span);
 
     let parallelism = cfg
         .parallelism
@@ -1038,6 +1045,7 @@ pub fn execute_build_partial(
             cfg.suppress_progress,
         ),
     };
+    let n2_create_work_span = tracing::debug_span!("n2_create_work", parallelism).entered();
     let mut work = n2::work::Work::new(
         build_graph,
         hashes,
@@ -1052,10 +1060,15 @@ pub fn execute_build_partial(
         &mut *prog_console,
         n2::smallmap::SmallMap::default(),
     );
+    drop(n2_create_work_span);
+    let n2_select_targets_span = tracing::debug_span!("n2_select_targets").entered();
     want_files(&mut work).context("Failed to determine the files to be built")?;
+    drop(n2_select_targets_span);
 
     // The actual execution done by the n2 executor
+    let n2_run_span = tracing::debug_span!("n2_run", parallelism).entered();
     let res = work.run().context("Failed to run n2 graph");
+    drop(n2_run_span);
     drop(work);
     drop(prog_console); // Ensure the progress bar won't mess with diagnostic output
     let res = res?;

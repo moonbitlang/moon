@@ -105,6 +105,11 @@ pub fn install(
     .map(|_| 0)
 }
 
+#[tracing::instrument(
+    level = "debug",
+    skip_all,
+    fields(root_count = roots.len(), verbose, dont_sync, no_std)
+)]
 pub(crate) fn install_impl(
     mooncakes_dir: &Path,
     roots: ResolvedRootModules,
@@ -125,9 +130,12 @@ pub(crate) fn install_impl(
         inject_std: !includes_core && !no_std,
     };
 
+    let resolve_span = tracing::debug_span!("resolve_dependencies").entered();
     let res = resolve_with_default_env_and_resolver(&resolve_config, roots)?;
+    drop(resolve_span);
     let dep_dir = crate::dep_dir::DepDir::new(mooncakes_dir.to_path_buf());
 
+    let sync_span = tracing::debug_span!("sync_dependency_directory").entered();
     crate::dep_dir::sync_deps(
         &dep_dir,
         resolve_config.registry.as_ref(),
@@ -137,14 +145,18 @@ pub(crate) fn install_impl(
         output_options.verbose(),
     )
     .context("When installing packages")?;
+    drop(sync_span);
 
+    let resolve_dirs_span = tracing::debug_span!("resolve_dependency_directories").entered();
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
+    drop(resolve_dirs_span);
 
     install_bin_deps(verbose, &res, &dir_sync_result)?;
 
     Ok((res, dir_sync_result))
 }
 
+#[tracing::instrument(level = "debug", skip_all, fields(verbose))]
 fn install_bin_deps(
     verbose: bool,
     res: &ResolvedEnv,

@@ -77,6 +77,7 @@ pub fn run_prebuild_config(
     Ok(output)
 }
 
+#[instrument(level = "debug", skip_all, fields(module = %ms.name()))]
 fn run_prebuild_for_module(
     m: ModuleId,
     ms: &ModuleSource,

@@ -195,6 +195,7 @@ fn diff_dep_dir_state<'a>(
 /// If `frozen` is true, the function will not change anything in the current
 /// dependency directory. If the desired dependency list cannot be created
 /// from the current directory, this function will return an error.
+#[tracing::instrument(level = "debug", skip_all, fields(quiet, frozen, verbose))]
 pub(crate) fn sync_deps(
     dep_dir: &DepDir,
     registry: &dyn Registry,

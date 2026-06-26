@@ -233,6 +233,11 @@ fn workspace_version_override_warning(
     ))
 }
 
+#[tracing::instrument(
+    level = "debug",
+    skip_all,
+    fields(root_count = res.input_module_ids().len())
+)]
 fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
     let workspace_roots = res
         .input_module_ids()

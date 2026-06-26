@@ -1646,6 +1646,7 @@ dependencies = [
  "thiserror 1.0.63",
  "tokio",
  "toml",
+ "tracing",
  "walkdir",
  "which 6.0.2",
  "zip",
@@ -1713,6 +1714,7 @@ dependencies = [
  "sha2",
  "test-log",
  "thiserror 1.0.63",
+ "tracing",
  "walkdir",
  "zip",
 ]
