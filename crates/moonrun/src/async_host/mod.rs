@@ -615,9 +615,6 @@ impl AsyncHost {
                     ));
                 }
             }
-            if !state.events.is_empty() {
-                leaks.push(format!("events={}", state.events.len()));
-            }
             if !state.jobs.is_empty() {
                 leaks.push(format!("jobs={}", state.jobs.len()));
             }
