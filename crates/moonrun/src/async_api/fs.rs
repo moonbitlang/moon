@@ -49,6 +49,10 @@ pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: i32, len: i
     zero_or_minus_one(context, result)
 }
 
+pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
+    Ok(context.host.insert_c_buffer(stub::get_tmp_path_buffer()?))
+}
+
 #[ported(source = "src/internal/fd_util/stub.c")]
 pub(super) fn close_fd(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
     zero_or_minus_one(context, context.host.close_fd(fd))

@@ -60,6 +60,30 @@ ported_fns! {
         }
     }
 
+    #[cfg(unix)]
+    pub(crate) fn get_tmp_path_buffer() -> AsyncHostResult<Box<[u8]>> {
+        use std::os::unix::ffi::OsStrExt;
+
+        let path = tmp_path_from_native_stub();
+        Ok(copy_c_string_bytes(path.as_os_str().as_bytes()))
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn get_tmp_path_buffer() -> AsyncHostResult<Box<[u8]>> {
+        use windows_sys::Win32::Foundation::{GetLastError, MAX_PATH};
+        use windows_sys::Win32::Storage::FileSystem::GetTempPath2W;
+
+        let mut wide_buffer = [0u16; MAX_PATH as usize + 1];
+        let len = unsafe { GetTempPath2W(wide_buffer.len() as u32, wide_buffer.as_mut_ptr()) };
+        if len == 0 {
+            return Err(AsyncHostError::Native(unsafe { GetLastError() as i32 }));
+        }
+
+        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+        let units = wide_buffer.get(..len).ok_or(AsyncHostError::Fault)?;
+        Ok(copy_wide_c_string_bytes(units))
+    }
+
     #[ported(
         source = "src/fs/stub.c",
         original = "moonbitlang_async_try_lock_file"
@@ -209,6 +233,32 @@ fn tmp_path_from_native_stub() -> AsyncHostResult<OsString> {
     Ok(OsString::from_wide(&buffer[..len]))
 }
 
+#[cfg(unix)]
+fn copy_c_string_bytes(bytes: &[u8]) -> Box<[u8]> {
+    let mut buffer = Box::<[u8]>::new_uninit_slice(bytes.len() + 1);
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer.as_mut_ptr().cast(), bytes.len());
+    }
+    buffer[bytes.len()].write(0);
+    unsafe { buffer.assume_init() }
+}
+
+#[cfg(windows)]
+fn copy_wide_c_string_bytes(units: &[u16]) -> Box<[u8]> {
+    let byte_len = std::mem::size_of_val(units);
+    let mut buffer = Box::<[u8]>::new_uninit_slice(byte_len + std::mem::size_of::<u16>());
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            units.as_ptr().cast::<u8>(),
+            buffer.as_mut_ptr().cast(),
+            byte_len,
+        );
+    }
+    buffer[byte_len].write(0);
+    buffer[byte_len + 1].write(0);
+    unsafe { buffer.assume_init() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +270,20 @@ mod tests {
         assert!(!path.as_os_str().is_empty());
         let path = path.to_string_lossy();
         assert!(path.ends_with('/') || path.ends_with('\\'));
+    }
+
+    #[test]
+    fn tmp_path_buffer_is_non_empty() {
+        let buffer = get_tmp_path_buffer().unwrap();
+
+        assert!(!buffer.is_empty());
+        #[cfg(unix)]
+        assert_eq!(buffer.last(), Some(&0));
+        #[cfg(windows)]
+        assert_eq!(
+            buffer.get(buffer.len().saturating_sub(2)..),
+            Some(&[0, 0][..])
+        );
     }
 
     #[cfg(all(unix, not(target_os = "android")))]
