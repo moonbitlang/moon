@@ -95,10 +95,16 @@ fn os_string_decode(
 fn free_errno_str(ptr : UInt64) -> Unit = "moonbitlang/async" "os_error/free_errno_str"
 
 ///|
+fn c_buffer_free(ptr : UInt64) -> Unit = "moonbitlang/async" "c_buffer/free"
+
+///|
 fn get_tmp_path_len() -> Int = "moonbitlang/async" "fs/get_tmp_path_len"
 
 ///|
 fn get_tmp_path(dst : Int, len : Int) -> Int = "moonbitlang/async" "fs/get_tmp_path"
+
+///|
+fn get_tmp_path_buffer() -> UInt64 = "moonbitlang/async" "fs/get_tmp_path_buffer"
 
 ///|
 #borrow(str)
@@ -132,6 +138,22 @@ fn main {
   assert_true(
     message != String::make(message_len, '\u{0}'),
     "errno string fill wrote an empty message",
+  )
+  let tmp_path_buf = get_tmp_path_buffer()
+  let tmp_path_from_buf_len = os_string_decode_len(tmp_path_buf, 0, -1)
+  assert_true(tmp_path_from_buf_len > 0, "tmp path buffer size query failed")
+  let tmp_path_from_buf = String::make(tmp_path_from_buf_len, '\u{0}')
+  os_string_decode(
+    tmp_path_buf,
+    0,
+    -1,
+    string_to_ptr(tmp_path_from_buf),
+    tmp_path_from_buf_len,
+  )
+  c_buffer_free(tmp_path_buf)
+  assert_true(
+    tmp_path_from_buf != String::make(tmp_path_from_buf_len, '\u{0}'),
+    "tmp path buffer decode wrote an empty path",
   )
   let tmp_path_len = get_tmp_path_len()
   assert_true(tmp_path_len > 0, "tmp path size query failed")

@@ -123,10 +123,25 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn unix_decode_native_string_uses_explicit_length_without_nul() {
+        assert_eq!(decode_native_string(b"abc", 0, 3), Ok("abc".to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn unix_decode_native_string_stops_at_nul_after_offset() {
         assert_eq!(
             decode_native_string(b"zzabc\0def", 2, -1),
             Ok("abc".to_string())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_decode_native_string_rejects_implicit_length_without_nul() {
+        assert_eq!(
+            decode_native_string(b"abc", 0, -1),
+            Err(AsyncHostError::Fault)
         );
     }
 
@@ -141,10 +156,28 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn windows_decode_native_string_uses_explicit_length_without_wide_nul() {
+        assert_eq!(
+            decode_native_string(&[b'a', 0, b'b', 0], 0, 4),
+            Ok("ab".to_string())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn windows_decode_native_string_stops_at_wide_nul_after_offset() {
         assert_eq!(
             decode_native_string(&[0xff, 0xff, b'a', 0, b'b', 0, 0, 0], 2, -1),
             Ok("ab".to_string())
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_decode_native_string_rejects_implicit_length_without_wide_nul() {
+        assert_eq!(
+            decode_native_string(&[b'a', 0, b'b', 0], 0, -1),
+            Err(AsyncHostError::Fault)
         );
     }
 

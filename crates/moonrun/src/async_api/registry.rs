@@ -515,6 +515,8 @@ declare_async_imports! {
     // guest-allocated MoonBit String.
     ported fs::get_tmp_path(ptr: i32, len: i32) -> i32 => "fs/get_tmp_path";
 
+    helper fs::get_tmp_path_buffer() -> u64 => "fs/get_tmp_path_buffer";
+
     ported fs::dir_buffer_min_size() -> i32 => "fs/dir_buffer_min_size";
 
     ported fs::dir_entry_length(buf: u64, offset: i32) -> i32 => "fs/dir_entry_length";

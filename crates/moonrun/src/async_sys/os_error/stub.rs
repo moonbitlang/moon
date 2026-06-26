@@ -172,55 +172,83 @@ fn errno_to_string_sys(errno: i32) -> Box<[u8]> {
 
     let message = unsafe { libc::strerror(errno) };
     if message.is_null() {
-        return nul_terminated_bytes(format!("errno {errno}").into_bytes());
+        return fallback_errno_bytes(errno);
     }
 
-    nul_terminated_bytes(unsafe { CStr::from_ptr(message) }.to_bytes().to_vec())
+    copy_c_string_bytes(unsafe { CStr::from_ptr(message) }.to_bytes())
 }
 
 #[cfg(windows)]
 fn errno_to_string_sys(errno: i32) -> Box<[u8]> {
+    use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::System::Diagnostics::Debug::{
-        FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
+        FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM, FORMAT_MESSAGE_IGNORE_INSERTS,
+        FormatMessageW,
     };
 
-    let mut buffer = [0u16; 2048];
+    let mut message = std::ptr::null_mut::<u16>();
     let len = unsafe {
         FormatMessageW(
-            FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            FORMAT_MESSAGE_ALLOCATE_BUFFER
+                | FORMAT_MESSAGE_FROM_SYSTEM
+                | FORMAT_MESSAGE_IGNORE_INSERTS,
             std::ptr::null(),
             errno as u32,
-            0x409,
-            buffer.as_mut_ptr(),
-            buffer.len() as u32,
+            0,
+            std::ptr::addr_of_mut!(message).cast(),
+            0,
             std::ptr::null(),
         )
     };
     if len == 0 {
-        return nul_terminated_wide_bytes(format!("errno {errno}").encode_utf16());
+        return fallback_errno_wide_bytes(errno);
     }
 
-    nul_terminated_wide_bytes(buffer[..len as usize].iter().copied())
-}
-
-#[cfg(windows)]
-fn wide_bytes(units: impl IntoIterator<Item = u16>) -> Box<[u8]> {
-    units
-        .into_iter()
-        .flat_map(u16::to_le_bytes)
-        .collect::<Vec<_>>()
-        .into_boxed_slice()
+    let buffer = unsafe { std::slice::from_raw_parts(message, len as usize) };
+    let bytes = copy_wide_c_string_bytes(buffer);
+    unsafe {
+        let _ = LocalFree(message.cast());
+    }
+    bytes
 }
 
 #[cfg(unix)]
-fn nul_terminated_bytes(mut bytes: Vec<u8>) -> Box<[u8]> {
-    bytes.push(0);
-    bytes.into_boxed_slice()
+fn fallback_errno_bytes(errno: i32) -> Box<[u8]> {
+    let message = format!("errno {errno}");
+    copy_c_string_bytes(message.as_bytes())
 }
 
 #[cfg(windows)]
-fn nul_terminated_wide_bytes(units: impl IntoIterator<Item = u16>) -> Box<[u8]> {
-    wide_bytes(units.into_iter().chain(std::iter::once(0)))
+fn fallback_errno_wide_bytes(errno: i32) -> Box<[u8]> {
+    let message = format!("errno {errno}");
+    let units = message.encode_utf16().collect::<Box<[_]>>();
+    copy_wide_c_string_bytes(&units)
+}
+
+#[cfg(unix)]
+fn copy_c_string_bytes(bytes: &[u8]) -> Box<[u8]> {
+    let mut buffer = Box::<[u8]>::new_uninit_slice(bytes.len() + 1);
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer.as_mut_ptr().cast(), bytes.len());
+    }
+    buffer[bytes.len()].write(0);
+    unsafe { buffer.assume_init() }
+}
+
+#[cfg(windows)]
+fn copy_wide_c_string_bytes(units: &[u16]) -> Box<[u8]> {
+    let byte_len = std::mem::size_of_val(units);
+    let mut buffer = Box::<[u8]>::new_uninit_slice(byte_len + std::mem::size_of::<u16>());
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            units.as_ptr().cast::<u8>(),
+            buffer.as_mut_ptr().cast(),
+            byte_len,
+        );
+    }
+    buffer[byte_len].write(0);
+    buffer[byte_len + 1].write(0);
+    unsafe { buffer.assume_init() }
 }
 
 #[cfg(test)]

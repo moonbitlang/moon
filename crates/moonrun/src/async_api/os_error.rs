@@ -77,7 +77,7 @@ pub(super) fn errno_to_string(context: &mut ImportContext<'_, '_>, errno: i32) -
 }
 
 pub(super) fn free_errno_str(context: &mut ImportContext<'_, '_>, ptr: u64) -> AsyncHostResult<()> {
-    context.host.free_c_buffer(ptr)
+    super::c_buffer::free(context, ptr)
 }
 
 #[ported(source = "src/os_error/stub.c")]
