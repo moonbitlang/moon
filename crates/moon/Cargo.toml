@@ -85,6 +85,7 @@ junction = "1"
 tempfile = "3.6.0"
 snapbox.workspace = true
 expect-test.workspace = true
+escargot.workspace = true
 clap-markdown = "0.1.4"
 similar.workspace = true
 colored.workspace = true

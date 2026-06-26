@@ -16,10 +16,15 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 
 use expect_test::Expect;
 use moonutil::{common::StringExt, compiler_flags};
+
+static MOONRUN_BIN: OnceLock<PathBuf> = OnceLock::new();
 
 pub(crate) fn check<S: AsRef<str>>(actual: S, expect: Expect) {
     expect.assert_eq(actual.as_ref())
@@ -27,6 +32,24 @@ pub(crate) fn check<S: AsRef<str>>(actual: S, expect: Expect) {
 
 pub(crate) fn moon_bin() -> PathBuf {
     snapbox::cargo_bin!("moon").to_owned()
+}
+
+pub(crate) fn moonrun_bin() -> PathBuf {
+    MOONRUN_BIN
+        .get_or_init(|| {
+            escargot::CargoBuild::new()
+                .manifest_path(
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moonrun/Cargo.toml"),
+                )
+                .bin("moonrun")
+                .current_release()
+                .current_target()
+                .run()
+                .expect("failed to build moonrun")
+                .path()
+                .to_owned()
+        })
+        .clone()
 }
 
 pub(crate) fn toolchain_root_for_tests() -> PathBuf {
@@ -60,6 +83,13 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
             };
             s.replace(path.to_string_lossy().as_ref(), name)
         });
+    let s = if let Some(path) = MOONRUN_BIN.get() {
+        let path = path.to_string_lossy();
+        let s = s.replace(path.as_ref(), "moonrun");
+        s.replace(path.replace('\\', "/").as_str(), "moonrun")
+    } else {
+        s
+    };
     let path_str1 = dunce::canonicalize(dir)
         .unwrap()
         .to_str()

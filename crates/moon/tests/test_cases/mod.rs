@@ -1168,7 +1168,7 @@ fn no_main_just_init() {
     let file = dir.join("_build/wasm-gc/debug/build/lib/lib.wasm");
     assert!(file.exists());
 
-    let out = snapbox::cmd::Command::new("moonrun")
+    let out = snapbox::cmd::Command::new(moonrun_bin())
         .current_dir(&dir)
         .args(["./_build/wasm-gc/debug/build/lib/lib.wasm"])
         .assert()

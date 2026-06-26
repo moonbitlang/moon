@@ -59,34 +59,11 @@ fn prepare_async_wasm_workspace(dir: &TestDir) -> std::path::PathBuf {
     async_dir
 }
 
-fn build_moonrun() -> std::path::PathBuf {
-    let repo_root = repo_root();
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut build_moonrun = std::process::Command::new(cargo);
-    build_moonrun
-        .current_dir(&repo_root)
-        .args(["build", "--quiet", "-p", "moonrun"]);
-    if !cfg!(debug_assertions) {
-        build_moonrun.arg("--release");
-    }
-    let status = build_moonrun
-        .status()
-        .expect("failed to spawn cargo build for moonrun");
-    assert!(status.success(), "failed to build moonrun");
-
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    if path.ends_with("deps") {
-        path.pop();
-    }
-    path.join(format!("moonrun{}", std::env::consts::EXE_SUFFIX))
-}
-
 fn run_async_wasm_package(dir: &TestDir, package: &str) -> String {
     let _guard = ASYNC_WASM_TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let moonrun = build_moonrun();
+    let moonrun = moonrun_bin();
     let output = moon_cmd(dir)
         .env("MOON_OVERRIDE", moon_bin())
         .env("MOONRUN_OVERRIDE", &moonrun)
@@ -114,7 +91,7 @@ fn run_upstream_async_wasm_package(package: &str) -> String {
     let _guard = ASYNC_WASM_TEST_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let moonrun = build_moonrun();
+    let moonrun = moonrun_bin();
     let async_dir = repo_root().join("third_party/moonbitlang_async");
     let output = moon_cmd(&async_dir)
         .env("MOON_OVERRIDE", moon_bin())
