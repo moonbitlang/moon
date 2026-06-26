@@ -61,7 +61,7 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{BuildPlanNode, BuildTarget, NativeTarget, PackageId, RunBackend, TccRunConfig},
+    model::{BuildPlanNode, BuildTarget, NativeBackendMode, PackageId, RunBackend},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
     user_warning::UserWarning,
@@ -104,6 +104,9 @@ pub struct BuildPlan {
 
     /// The map of build target to the information needed to make it executable
     make_executable_info: HashMap<BuildTarget, MakeExecutableInfo>,
+
+    /// The information needed to build the native runtime library.
+    runtime_info: Option<BuildRuntimeInfo>,
 
     /// The map of package to its prebuild information, if any.
     prebuild_info: HashMap<PackageId, Vec<Option<PrebuildInfo>>>,
@@ -229,6 +232,11 @@ impl BuildPlan {
         self.make_executable_info.get(target)
     }
 
+    /// Get runtime library build information.
+    pub fn get_runtime_info(&self) -> Option<&BuildRuntimeInfo> {
+        self.runtime_info.as_ref()
+    }
+
     /// Get prebuild information for the given package.
     pub fn get_prebuild_info(&self, package: PackageId, idx: u32) -> Option<&PrebuildInfo> {
         self.prebuild_info
@@ -284,6 +292,26 @@ impl BuildPlan {
         info: Vec<Option<PrebuildInfo>>,
     ) {
         self.prebuild_info.insert(package, info);
+    }
+
+    pub(crate) fn test_insert_link_core_info(&mut self, target: BuildTarget, info: LinkCoreInfo) {
+        self.link_core_info.insert(target, info);
+    }
+
+    pub(crate) fn test_insert_c_stubs_info(&mut self, package: PackageId, info: BuildCStubsInfo) {
+        self.c_stubs_info.insert(package, info);
+    }
+
+    pub(crate) fn test_insert_make_executable_info(
+        &mut self,
+        target: BuildTarget,
+        info: MakeExecutableInfo,
+    ) {
+        self.make_executable_info.insert(target, info);
+    }
+
+    pub(crate) fn test_insert_runtime_info(&mut self, info: BuildRuntimeInfo) {
+        self.runtime_info = Some(info);
     }
 }
 
@@ -391,6 +419,12 @@ pub struct MakeExecutableInfo {
     pub(crate) link_c_stubs: Vec<PackageId>,
 }
 
+#[derive(Debug)]
+pub struct BuildRuntimeInfo {
+    /// The effective native toolchain for compiling the runtime library.
+    pub(crate) effective_native_toolchain: Toolchain,
+}
+
 /// Resolved information about a prebuild command.
 #[derive(Debug)]
 pub struct PrebuildInfo {
@@ -410,8 +444,7 @@ pub struct BuildBundleInfo {
 pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
     pub target_backend: RunBackend,
-    pub native_target: Option<NativeTarget>,
-    pub tcc_run: Option<TccRunConfig>,
+    pub native_mode: NativeBackendMode,
     pub opt_level: OptLevel,
     pub action: RunMode,
     /// Whether compiling requires the standard library.
@@ -448,6 +481,8 @@ pub struct InputDirective {
 pub enum BuildPlanConstructError {
     #[error("Failed to set C compiler when compiling {1}")]
     FailedToSetCC(#[source] anyhow::Error, PackageFQNWithSource),
+    #[error("Failed to set C compiler when compiling runtime")]
+    FailedToSetRuntimeCC(#[source] anyhow::Error),
     #[error("Failed to set stub C compiler when compiling {1}")]
     FailedToSetStubCC(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Malformed cc flags in package {0}")]

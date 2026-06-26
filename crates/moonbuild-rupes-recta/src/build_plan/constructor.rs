@@ -388,7 +388,13 @@ impl<'a> BuildPlanConstructor<'a> {
                     node
                 );
             }
-            BuildPlanNode::BuildRuntimeLib => (),
+            BuildPlanNode::BuildRuntimeLib => {
+                assert!(
+                    self.res.runtime_info.is_some(),
+                    "Runtime info should be present when resolving node {:?}",
+                    node
+                );
+            }
             BuildPlanNode::BuildDocs(_) => (),
             BuildPlanNode::RunPrebuild(pkg, idx) => {
                 assert!(

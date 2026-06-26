@@ -293,6 +293,12 @@ impl DiscoverResult {
     }
 
     #[cfg(test)]
+    pub(crate) fn test_register_module(&mut self, module: ModuleId, info: MoonMod) {
+        self.set_module_info(module, Arc::new(info));
+        self.module_map.insert(module, BTreeMap::new());
+    }
+
+    #[cfg(test)]
     pub(crate) fn test_add_package(
         &mut self,
         module: ModuleId,

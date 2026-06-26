@@ -27,8 +27,9 @@ use moonutil::{
     common::RunMode,
     compiler_flags::{
         ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
-        OutputType as CCOutputType, make_archiver_command_resolved, make_cc_command_resolved,
-        make_cc_command_resolved_with_link_flags, make_linker_command_resolved,
+        OutputType as CCOutputType, make_archiver_command_resolved,
+        make_cc_command_resolved_for_toolchain, make_cc_command_resolved_with_link_flags,
+        make_linker_command_resolved,
     },
     cond_expr::OptLevel,
     mooncakes::{CORE_MODULE, ModuleId},
@@ -751,7 +752,7 @@ impl<'a> LoweringContext<'a> {
             package_sources: &package_sources,
             stdlib_core_source: None,
             target_backend: self.opt.target_backend.into(),
-            native_target: self.opt.native_target,
+            native_target: self.opt.native_mode.direct_target(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(target, package),
@@ -914,6 +915,7 @@ impl<'a> LoweringContext<'a> {
             .debug_info(self.opt.debug_symbols)
             .link_moonbitrun(!use_shared_runtime)
             .define_use_shared_runtime_macro(use_shared_runtime)
+            .msvc_static_runtime(self.opt.selected_backend.is_windows_msvc_direct())
             .build()
             .expect("Failed to build CC configuration for C stub");
 
@@ -924,11 +926,11 @@ impl<'a> LoweringContext<'a> {
             .display()
             .to_string();
 
-        let cc = info.effective_native_toolchain.cc().clone();
-        let cc_cmd = make_cc_command_resolved(
-            cc,
+        let cc_cmd = make_cc_command_resolved_for_toolchain(
+            &info.effective_native_toolchain,
             config,
             &info.cc_flags,
+            &[] as &[&str],
             [input_file.display().to_string()],
             &intermediate_dir,
             Some(&output_file.display().to_string()),
@@ -1094,16 +1096,14 @@ impl<'a> LoweringContext<'a> {
                 })
         });
 
-        match self.opt.selected_backend {
+        match &self.opt.selected_backend {
             SelectedBackend::Wasm { .. } | SelectedBackend::WasmGc { .. } | SelectedBackend::Js => {
                 unreachable!("non-native make-executable actions are no-ops during lowering")
             }
             SelectedBackend::C(backend) => match backend.executable_realization() {
                 CExecutableRealization::WriteTccRunResponseFile => {
-                    let tcc_run = self
-                        .opt
-                        .tcc_run
-                        .as_ref()
+                    let tcc_run = backend
+                        .tcc_run()
                         .expect("tcc-run realization should carry tcc-run config");
                     let internal_tcc = tcc_run.internal_tcc().clone();
                     self.build_tcc_run_driver_command(products, info, internal_tcc)
@@ -1274,23 +1274,41 @@ impl<'a> LoweringContext<'a> {
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
-        let run_dsymutil =
-            should_run_new_native_dsymutil(self.opt.native_target, self.opt.debug_symbols, &cc);
-
-        let linker_cmd = make_linker_command_resolved(
-            cc,
-            config,
-            &info.link_flags,
-            &source_args,
-            &pkg_dir,
-            &dest,
-            &self.opt.compiler_paths().lib_path,
+        let run_dsymutil = should_run_new_native_dsymutil(
+            self.opt.native_mode.direct_target(),
+            self.opt.debug_symbols,
+            &cc,
         );
 
-        let commandline = if run_dsymutil {
-            commandline_with_dsymutil(&linker_cmd, &dest)
+        let commandline = if self.opt.selected_backend.is_windows_msvc_direct() {
+            assert!(
+                cc.is_msvc(),
+                "Windows MSVC native backend requires an MSVC cl-compatible compiler driver; found {}",
+                cc.cc_path
+            );
+            compiler::msvc::link_executable_command(
+                &info.effective_native_toolchain,
+                &source_args,
+                &info.link_flags,
+                &dest,
+                &self.opt.compiler_paths().lib_path,
+            )
+            .into()
         } else {
-            linker_cmd.into()
+            let linker_cmd = make_linker_command_resolved(
+                cc,
+                config,
+                &info.link_flags,
+                &source_args,
+                &pkg_dir,
+                &dest,
+                &self.opt.compiler_paths().lib_path,
+            );
+            if run_dsymutil {
+                commandline_with_dsymutil(&linker_cmd, &dest)
+            } else {
+                linker_cmd.into()
+            }
         };
 
         BuildCommand {

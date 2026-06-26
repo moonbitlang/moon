@@ -27,6 +27,7 @@ mod gen_test_driver;
 mod link_core;
 mod moondoc;
 mod mooninfo;
+pub(super) mod msvc;
 mod prove;
 
 use std::borrow::Cow;
