@@ -16,20 +16,28 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::OnceLock};
 
 const MOONBIT_ASYNC_CHECK_FD_LEAK: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
 
 fn moon_cmd() -> snapbox::cmd::Command {
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moon/Cargo.toml");
-    snapbox::cmd::Command::new("cargo")
-        .arg("run")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(manifest_path)
-        .arg("--bin")
-        .arg("moon")
-        .arg("--")
+    snapbox::cmd::Command::new(moon_bin())
+}
+
+fn moon_bin() -> &'static PathBuf {
+    static MOON_BIN: OnceLock<PathBuf> = OnceLock::new();
+    MOON_BIN.get_or_init(|| {
+        let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moon/Cargo.toml");
+        escargot::CargoBuild::new()
+            .manifest_path(manifest_path)
+            .bin("moon")
+            .current_release()
+            .current_target()
+            .run()
+            .expect("failed to build moon")
+            .path()
+            .to_owned()
+    })
 }
 
 struct TestDir(moon_test_util::test_dir::TestDir);

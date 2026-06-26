@@ -171,19 +171,6 @@ fn test_test_with_explicit_target_fails_on_test_executable_exit_code() {
     );
 }
 
-fn moonrun_bin() -> std::path::PathBuf {
-    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_moonrun") {
-        return path.into();
-    }
-
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    if path.ends_with("deps") {
-        path.pop();
-    }
-    path.join(format!("moonrun{}", std::env::consts::EXE_SUFFIX))
-}
-
 #[test]
 fn test_runwasm_exits_with_guest_exit_code() {
     let dir = TestDir::new("moon_run_with_cli_args.in");

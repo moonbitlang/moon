@@ -44,6 +44,7 @@ clap = { version = "4.5.4", features = ["derive", "string", "env"] }
 colored = "2.1.0"
 ctrlc = { version = "3.4.4", features = ["termination"] }
 dunce = "1.0.4"
+escargot = "0.5.15"
 expect-test = "1.5.0"
 snapbox = "0.6.23"
 futures = { version = "0.3.29", features = ["std"], default-features = false }

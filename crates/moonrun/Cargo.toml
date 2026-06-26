@@ -59,9 +59,10 @@ vergen = { version = "8.0.0", features = ["build", "git", "gitcl"] }
 chrono.workspace = true
 
 [dev-dependencies]
-snapbox.workspace = true
+escargot.workspace = true
 moon-test-util = { path = "../moon-test-util" }
 moonutil.workspace = true
+snapbox.workspace = true
 tempfile.workspace = true
 
 [[bin]]
