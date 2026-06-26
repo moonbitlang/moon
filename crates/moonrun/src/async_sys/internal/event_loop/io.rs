@@ -33,6 +33,27 @@ fn last_native_error() -> AsyncHostError {
 
 ported_fns! {
     #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_init_WSA"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn init_wsa() -> i32 {
+        use windows_sys::Win32::Networking::WinSock::{WSADATA, WSAStartup};
+
+        let mut data = std::mem::MaybeUninit::<WSADATA>::uninit();
+        unsafe { WSAStartup(0x0202, data.as_mut_ptr()) }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/io_windows.c",
+        original = "moonbitlang_async_cleanup_WSA"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn cleanup_wsa() -> i32 {
+        unsafe { windows_sys::Win32::Networking::WinSock::WSACleanup() }
+    }
+
+    #[ported(
         source = "src/internal/event_loop/io_unix.c",
         original = "moonbitlang_async_read"
     )]
@@ -87,6 +108,22 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
                 "make_file_io_result",
                 "moonbitlang_async_make_file_io_result",
             ),
+            ported_windows_symbol(
+                "make_socket_io_result",
+                "moonbitlang_async_make_socket_io_result",
+            ),
+            ported_windows_symbol(
+                "make_socket_with_addr_io_result",
+                "moonbitlang_async_make_socket_with_addr_io_result",
+            ),
+            ported_windows_symbol(
+                "make_connect_io_result",
+                "moonbitlang_async_make_connect_io_result",
+            ),
+            ported_windows_symbol(
+                "make_accept_io_result",
+                "moonbitlang_async_make_accept_io_result",
+            ),
             ported_windows_symbol("free_io_result", "moonbitlang_async_free_io_result"),
             ported_windows_symbol(
                 "io_result_get_event",
@@ -99,6 +136,16 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
             ),
             ported_windows_symbol("read_io_result", "moonbitlang_async_read"),
             ported_windows_symbol("write_io_result", "moonbitlang_async_write"),
+            ported_windows_symbol("connect_io_result", "moonbitlang_async_connect"),
+            ported_windows_symbol(
+                "setup_connected_socket",
+                "moonbitlang_async_setup_connected_socket",
+            ),
+            ported_windows_symbol("accept_io_result", "moonbitlang_async_accept"),
+            ported_windows_symbol(
+                "setup_accepted_socket",
+                "moonbitlang_async_setup_accepted_socket",
+            ),
         ]);
         symbols
     }

@@ -38,6 +38,7 @@ mod os_string;
 mod provenance;
 mod registry;
 mod runtime;
+mod socket;
 mod thread_pool;
 mod time;
 

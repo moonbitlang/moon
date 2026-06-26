@@ -41,6 +41,8 @@ libc.workspace = true
 version = "0.59.0"
 features = [
     "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
     "Win32_Security",
     "Win32_Storage_FileSystem",

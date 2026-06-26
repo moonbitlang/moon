@@ -184,7 +184,7 @@ ported_fns! {
 }
 
 #[cfg(unix)]
-fn set_cloexec(fd: RawFd) -> AsyncHostResult<()> {
+pub(crate) fn set_cloexec(fd: RawFd) -> AsyncHostResult<()> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
     if flags < 0 {
         return Err(last_native_error());

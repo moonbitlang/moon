@@ -26,6 +26,7 @@ use super::fs::{
     run_symlink_job, run_write_job,
 };
 use super::sleep::run_sleep_job;
+use super::socket::{run_bind_job, run_getaddrinfo_job};
 use super::types::{HostFileTable, Job, JobPayload};
 
 pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
@@ -97,6 +98,8 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
             len,
             restart,
         } => run_readdir_job(files, *dir, buffer, *len, *restart),
+        JobPayload::Bind { socket, addr } => run_bind_job(files, *socket, addr),
+        JobPayload::GetAddrInfo { host, result } => run_getaddrinfo_job(host.clone(), result),
     };
 
     match result {
