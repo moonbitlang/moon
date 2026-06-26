@@ -612,24 +612,6 @@ fn test_workspace_member_path_selector_uses_workspace_context() {
         !fmt_stderr.contains("skipping path `../liba/src/lib`"),
         "stderr: {fmt_stderr}"
     );
-
-    let check_no_mi_stderr = get_err_stderr(
-        &dir,
-        [
-            "-C",
-            "app",
-            "check",
-            "src/main",
-            "../liba/src/lib",
-            "--no-mi",
-            "--dry-run",
-        ],
-    );
-    assert!(
-        check_no_mi_stderr
-            .contains("`--no-mi` requires the selector to resolve to a single package"),
-        "stderr: {check_no_mi_stderr}"
-    );
 }
 
 #[test]

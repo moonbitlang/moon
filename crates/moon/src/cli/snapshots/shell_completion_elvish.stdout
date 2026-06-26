@@ -192,7 +192,6 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand --frozen 'Do not sync dependencies, assuming local dependencies are up-to-date'
             cand -w 'Monitor the file system and automatically check files'
             cand --watch 'Monitor the file system and automatically check files'
-            cand --no-mi 'Whether to skip the mi generation. Only valid when the selector resolves to a single package'
             cand --explain 'Whether to explain the error code with details'
             cand --fmt 'Check whether the code is properly formatted'
             cand -q 'Suppress output'

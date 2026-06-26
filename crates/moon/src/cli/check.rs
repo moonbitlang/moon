@@ -58,7 +58,6 @@ use super::BuildFlags;
 #[derive(Debug, Clone)]
 struct ResolvedCheckSelection {
     packages: Vec<PackageId>,
-    no_mi: bool,
     patch_file: Option<PathBuf>,
 }
 
@@ -66,17 +65,13 @@ impl ResolvedCheckSelection {
     fn from_command(packages: Vec<PackageId>, cmd: &CheckSubcommand) -> Self {
         Self {
             packages,
-            no_mi: cmd.no_mi,
             patch_file: cmd.patch_file.clone(),
         }
     }
 
     fn into_user_intent(self) -> anyhow::Result<CalcUserIntentOutput> {
-        let directive = build_directive_for_selected_packages(
-            &self.packages,
-            self.no_mi,
-            self.patch_file.as_deref(),
-        )?;
+        let directive =
+            build_directive_for_selected_packages(&self.packages, self.patch_file.as_deref())?;
         Ok((
             self.packages.into_iter().map(UserIntent::Check).collect(),
             directive,
@@ -117,10 +112,6 @@ pub(crate) struct CheckSubcommand {
     #[clap(long, requires = "package_selector")]
     pub patch_file: Option<PathBuf>,
 
-    /// Whether to skip the mi generation. Only valid when the selector resolves to a single package.
-    #[clap(long, requires = "package_selector")]
-    pub no_mi: bool,
-
     /// Whether to explain the error code with details.
     #[clap(long)]
     pub explain: bool,
@@ -137,9 +128,6 @@ pub(crate) struct CheckSubcommand {
 #[instrument(skip_all)]
 pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
     let output = UserDiagnostics::from_flags(cli);
-    if cmd.no_mi {
-        output.warn("`moon check --no-mi` is deprecated");
-    }
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;
@@ -289,9 +277,6 @@ fn run_check_for_single_file_rr(
     mooncakes_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    if cmd.no_mi {
-        anyhow::bail!("standalone single-file `moon check` does not support `--no-mi`");
-    }
     if cmd.patch_file.is_some() {
         anyhow::bail!("standalone single-file `moon check` does not support `--patch-file`");
     }
@@ -615,15 +600,12 @@ fn validate_selector_flags_before_split(
     target_backend: Option<TargetBackend>,
     output: UserDiagnostics,
 ) -> anyhow::Result<()> {
-    if !cmd.no_mi && cmd.patch_file.is_none() {
+    if cmd.patch_file.is_none() {
         return Ok(());
     }
 
     let selected =
         resolve_selected_packages(resolve_output, cmd, source_dir, target_backend, output)?;
-    if cmd.no_mi && selected.len() != 1 {
-        anyhow::bail!("`--no-mi` requires the selector to resolve to a single package");
-    }
     if cmd.patch_file.is_some() && selected.len() != 1 {
         anyhow::bail!("`--patch-file` requires the selector to resolve to a single package");
     }
@@ -663,7 +645,6 @@ pub(crate) fn plan_check_rr_from_resolved(
             source_dir,
             filter_path,
             planning_context.target_backend(),
-            cmd.no_mi,
             cmd.patch_file.as_deref(),
         )?
     } else {
@@ -671,7 +652,6 @@ pub(crate) fn plan_check_rr_from_resolved(
             &resolve_output,
             &cmd.path,
             planning_context.target_backend(),
-            cmd.no_mi,
             cmd.patch_file.as_deref(),
             output,
         )?
@@ -852,14 +832,13 @@ fn calc_user_intent_from_package_path(
     source_dir: &Path,
     filter_path: &Path,
     target_backend: TargetBackend,
-    no_mi: bool,
     patch_file: Option<&Path>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let (dir, _) = canonicalize_with_filename(&source_dir.join(filter_path))?;
     let pkg = filter_pkg_by_dir(resolve_output, &dir)?;
     ensure_package_supports_backend(resolve_output, pkg, target_backend)?;
     let directive =
-        rr_build::build_patch_directive_for_package(pkg, no_mi, None, patch_file, false)?;
+        rr_build::build_patch_directive_for_package(pkg, false, None, patch_file, false)?;
     Ok((vec![UserIntent::Check(pkg)], directive).into())
 }
 
@@ -868,13 +847,12 @@ fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     paths: &[PathBuf],
     target_backend: TargetBackend,
-    no_mi: bool,
     patch_file: Option<&Path>,
     output: UserDiagnostics,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !paths.is_empty() {
         let selected = select_supported_packages(resolve_output, paths, target_backend, output)?;
-        let directive = build_directive_for_selected_packages(&selected, no_mi, patch_file)?;
+        let directive = build_directive_for_selected_packages(&selected, patch_file)?;
         Ok((
             selected.into_iter().map(UserIntent::Check).collect(),
             directive,
@@ -891,16 +869,12 @@ fn calc_user_intent(
 
 fn build_directive_for_selected_packages(
     selected: &[moonbuild_rupes_recta::model::PackageId],
-    no_mi: bool,
     patch_file: Option<&Path>,
 ) -> anyhow::Result<moonbuild_rupes_recta::build_plan::InputDirective> {
     if let [pkg] = selected {
-        return rr_build::build_patch_directive_for_package(*pkg, no_mi, None, patch_file, false);
+        return rr_build::build_patch_directive_for_package(*pkg, false, None, patch_file, false);
     }
 
-    if no_mi {
-        anyhow::bail!("`--no-mi` requires the selector to resolve to a single package");
-    }
     if patch_file.is_some() {
         anyhow::bail!("`--patch-file` requires the selector to resolve to a single package");
     }
