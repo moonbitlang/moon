@@ -71,7 +71,23 @@ pub fn moonbit_test_driver_internal_execute(
 }
 
 ///|
-#cfg(any(target="wasm", target="wasm-gc"))
+#cfg(target="wasm")
+let moonbit_test_driver_internal_wasm_async_tests : Array[async () -> Unit] = []
+
+///|
+#cfg(target="wasm")
+pub fn moonbit_test_driver_internal_execute(
+  filename : MoonbitTestDriverInternalExternString,
+  index : Int,
+) -> Unit {
+  let filename = moonbit_test_driver_internal_get_file_name(filename)
+  moonbit_test_driver_internal_do_execute(
+    moonbit_test_driver_internal_wasm_async_tests, filename, index,
+  )
+}
+
+///|
+#cfg(target="wasm-gc")
 pub fn moonbit_test_driver_internal_execute(
   filename : MoonbitTestDriverInternalExternString,
   index : Int,
@@ -83,7 +99,16 @@ pub fn moonbit_test_driver_internal_execute(
 }
 
 ///|
-#cfg(not(any(target="native", target="llvm")))
+#cfg(target="wasm")
+pub fn moonbit_test_driver_finish() -> Unit {
+  MoonBit_Async_Test_Driver_Impl::run_async_tests(
+    moonbit_test_driver_internal_wasm_async_tests,
+  )
+  // {COVERAGE_END}
+}
+
+///|
+#cfg(any(target="js", target="wasm-gc"))
 pub fn moonbit_test_driver_finish() -> Unit {
   // {COVERAGE_END}
 }
