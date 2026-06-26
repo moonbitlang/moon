@@ -30,7 +30,7 @@ ported_fns! {
         original = "moonbitlang_async_event_bus_create"
     )]
     pub(crate) fn poll_create() -> AsyncHostResult<PollInstance> {
-        let fd = unsafe { libc::epoll_create1(0) };
+        let fd = unsafe { libc::epoll_create1(libc::EPOLL_CLOEXEC) };
         if fd < 0 {
             Err(last_native_error())
         } else {

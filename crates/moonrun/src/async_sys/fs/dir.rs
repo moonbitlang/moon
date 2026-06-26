@@ -59,7 +59,8 @@ ported_fns! {
             use windows_sys::Win32::Foundation::MAX_PATH;
             use windows_sys::Win32::Storage::FileSystem::FILE_ID_BOTH_DIR_INFO;
 
-            (std::mem::size_of::<FILE_ID_BOTH_DIR_INFO>() + MAX_PATH as usize) as i32
+            (std::mem::size_of::<FILE_ID_BOTH_DIR_INFO>()
+                + MAX_PATH as usize * std::mem::size_of::<u16>()) as i32
         }
 
         #[cfg(target_os = "macos")]
