@@ -25,13 +25,14 @@ trait MoonBit_Test_Driver {
     @moonbitlang/core/prelude.Array[async () -> Unit],
     String,
     Int,
+    () -> Unit,
     (String, String, Bool) -> Unit,
     (Error) -> String,
   ) -> Bool raise MoonBitTestDriverInternalSkipTest = _
 }
 
 ///|
-impl MoonBit_Test_Driver with fn run_test(_, _, _, _, _) {
+impl MoonBit_Test_Driver with fn run_test(_, _, _, _, _, _) {
   false
 }
 

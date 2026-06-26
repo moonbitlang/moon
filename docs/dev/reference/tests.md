@@ -19,8 +19,8 @@ behavior can change.
      to execute.
    - Builds a backend-specific command (see below) and optionally prints it when
      `--verbose` is enabled.
-   - Captures the test output between the `MOON_TEST_DELIMITER_{BEGIN,END}` markers and
-     turns each JSONL line into `TestStatistics`. Coverage sections delimited by
+   - Captures the test driver event stream between the
+     `MOON_TEST_DELIMITER_{BEGIN,END}` markers. Coverage sections delimited by
      `MOON_COVERAGE_DELIMITER_*` are written to `_build/moonbit_coverage_<timestamp>_<rand>.txt`.
 4. The collected `TestCaseResult`s are merged per build target inside
    `ReplaceableTestResults`. This structure keeps the latest result per
@@ -68,6 +68,40 @@ During promotion the expect/snapshot helpers in `moonbuild::expect` are
 responsible for touching files. The CLI does not stream diffs; failures are still
 rendered via `render_expect_fail` / `render_snapshot_fail` to provide context when
 `--update` is not active or when a promotion pass still fails.
+
+## Test driver event transport
+
+The generated test driver reports per-test facts to `moon` as JSON event records
+inside the existing `MOON_TEST_DELIMITER_{BEGIN,END}` section. Each record is a
+test driver event, not necessarily a completed test result.
+
+The transport payload is intentionally minimal:
+
+```text
+----- BEGIN MOON TEST RESULT -----
+{"type":"start","file":"exit_wasm_test.mbt","index":0}
+----- END MOON TEST RESULT -----
+----- BEGIN MOON TEST RESULT -----
+{"type":"result","file":"exit_wasm_test.mbt","index":0,"message":""}
+----- END MOON TEST RESULT -----
+```
+
+- `type` identifies the event kind within the Moon test event stream. The initial
+  event kinds are `start` and `result`.
+- `file` and `index` identify the selected test case. The runner uses generated
+  metadata to recover package, display name, and source location when those are
+  needed.
+- `message` exists only on `result` events and carries the same result payload
+  used by expect, snapshot, panic, benchmark, and runtime-error handling.
+
+The transport deliberately does not include package name, test display name,
+source location, backend, timestamp, duration, or tracing subscriber details.
+Those are either known by the runner, recoverable from metadata, or belong in
+Rust `tracing` rather than the driver-to-runner protocol.
+
+During stdout draining, `moon` only reads lines, captures delimited protocol
+sections, and forwards all other stdout unchanged. The runner parses and
+interprets the captured event payloads only after the test executable exits.
 
 ## Commands per backend (and how to specify test cases)
 

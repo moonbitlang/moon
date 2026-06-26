@@ -75,7 +75,7 @@ use moonbuild::{
         ERROR, EXPECT_FAILED, PackageSrcResolver, RUNTIME_ERROR, SNAPSHOT_TESTING,
         render_expect_fail, render_snapshot_fail,
     },
-    runtest::TestStatistics,
+    runtest::{TestDriverEvent, TestStatistics},
     section_capture::SectionCapture,
 };
 use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
@@ -124,6 +124,11 @@ impl TestCaseResult {
     pub(crate) fn passed(&self) -> bool {
         matches!(self.kind, TestResultKind::Passed)
     }
+}
+
+enum ParsedTestDriverEvent {
+    Start { file: String, index: u32 },
+    Result(TestStatistics),
 }
 
 /// Run the tests compiled in this session. Does **not** print or update
@@ -401,6 +406,133 @@ fn collect_tests_by_file(
     out
 }
 
+fn parse_test_driver_record(line: &str, package: &str) -> anyhow::Result<ParsedTestDriverEvent> {
+    let event: TestDriverEvent = serde_json_lenient::from_str(line)
+        .with_context(|| format!("Failed to parse test driver event: {line}"))?;
+    Ok(match event {
+        TestDriverEvent::Start { file, index } => ParsedTestDriverEvent::Start { file, index },
+        TestDriverEvent::Result {
+            file,
+            index,
+            message,
+        } => ParsedTestDriverEvent::Result(TestStatistics {
+            package: package.to_string(),
+            filename: file,
+            index: index.to_string(),
+            test_name: String::new(),
+            message,
+        }),
+    })
+}
+
+fn find_test_info<'a>(
+    meta: &'a MooncGenTestInfo,
+    file: &str,
+    index: u32,
+) -> Option<&'a MbtTestInfo> {
+    for tests_by_file in [
+        &meta.no_args_tests,
+        &meta.with_args_tests,
+        &meta.with_bench_args_tests,
+        &meta.async_tests,
+        &meta.async_tests_with_args,
+    ] {
+        let Some(tests) = tests_by_file.get(file) else {
+            continue;
+        };
+        if let Some(test) = tests.iter().find(|test| test.index == index) {
+            return Some(test);
+        }
+    }
+    None
+}
+
+fn format_test_identity(
+    test: &TestInvocation,
+    file: &str,
+    index: u32,
+    pkg_src: &impl PackageSrcResolver,
+) -> String {
+    let package = test
+        .args
+        .package
+        .strip_suffix("_blackbox_test")
+        .unwrap_or(&test.args.package);
+    let path = pkg_src.resolve_pkg_src(package).join(file);
+    let location = path.display().to_string();
+    let Some(info) = find_test_info(&test.meta, file, index) else {
+        return location;
+    };
+    let location = info
+        .line_number
+        .map(|line| format!("{location}:{line}"))
+        .unwrap_or(location);
+    match info.name.as_deref().filter(|name| !name.is_empty()) {
+        Some(name) => format!("{location} {name:?}"),
+        None => location,
+    }
+}
+
+fn active_tests_at_exit(test: &TestInvocation, test_output: Option<&str>) -> Vec<(String, u32)> {
+    let Some(test_output) = test_output else {
+        return Vec::new();
+    };
+
+    let mut active = IndexMap::<(String, u32), ()>::new();
+    for line in test_output.lines().filter(|line| !line.is_empty()) {
+        match parse_test_driver_record(line, &test.args.package) {
+            Ok(ParsedTestDriverEvent::Start { file, index }) => {
+                active.insert((file, index), ());
+            }
+            Ok(ParsedTestDriverEvent::Result(stat)) => {
+                if let Ok(index) = stat.index.parse::<u32>() {
+                    active.shift_remove(&(stat.filename, index));
+                }
+            }
+            Err(err) => {
+                warn!(
+                    ?err,
+                    "failed to parse test driver event while formatting executable failure"
+                );
+            }
+        }
+    }
+    active.into_keys().collect()
+}
+
+fn format_test_executable_failure(
+    test: &TestInvocation,
+    exit_status: std::process::ExitStatus,
+    test_output: Option<&str>,
+    pkg_src: &impl PackageSrcResolver,
+) -> String {
+    const MAX_ACTIVE_TESTS_TO_PRINT: usize = 8;
+
+    let mut message = format!(
+        "Failed to run the test: {}\nThe test executable exited with {}",
+        test.executable.display(),
+        exit_status
+    );
+    let active = active_tests_at_exit(test, test_output);
+    if active.is_empty() {
+        return message;
+    }
+
+    if active.len() == 1 {
+        message.push_str("\nActive test at executable exit:");
+    } else {
+        message.push_str("\nActive tests at executable exit:");
+    }
+    for (file, index) in active.iter().take(MAX_ACTIVE_TESTS_TO_PRINT) {
+        message.push_str("\n  - ");
+        message.push_str(&format_test_identity(test, file, *index, pkg_src));
+    }
+    if active.len() > MAX_ACTIVE_TESTS_TO_PRINT {
+        message.push_str("\n  - ... more");
+    }
+    message
+}
+
 /// Build test invocation args for one target based on metadata and CLI filter.
 ///
 /// Returns `None` when the target is excluded by package-level filtering.
@@ -652,6 +784,7 @@ fn run_one_test_executable(
         ))
         .with_context(|| format!("Failed to run test for {fqn} {:?}", test.target.kind))?;
     debug!(?exit_status, "test process finished");
+    let test_output = test_cap.finish();
 
     if !exit_status.success() {
         #[cfg(windows)]
@@ -664,9 +797,13 @@ fn run_one_test_executable(
         }
 
         anyhow::bail!(
-            "Failed to run the test: {}\nThe test executable exited with {}",
-            test.executable.display(),
-            exit_status
+            "{}",
+            format_test_executable_failure(
+                test,
+                exit_status,
+                test_output.as_deref(),
+                &ctx.build_meta.resolve_output.pkg_dirs,
+            )
         );
     }
 
@@ -674,7 +811,8 @@ fn run_one_test_executable(
 
     parse_test_results(
         test.meta.clone(),
-        test_cap,
+        test_output,
+        &test.args.package,
         &ctx.build_meta.resolve_output.pkg_dirs,
     )
     .with_context(|| {
@@ -725,10 +863,11 @@ fn handle_finished_coverage(target_dir: &Path, cap: SectionCapture) -> anyhow::R
 #[instrument(level = "debug", skip(meta, cap, pkg_src))]
 fn parse_test_results(
     meta: MooncGenTestInfo,
-    cap: SectionCapture,
+    cap: Option<String>,
+    package: &str,
     pkg_src: &impl PackageSrcResolver,
 ) -> anyhow::Result<TargetTestResult> {
-    let Some(s) = cap.finish() else {
+    let Some(s) = cap else {
         debug!("no test output captured");
         return Ok(TargetTestResult::default());
     };
@@ -760,9 +899,11 @@ fn parse_test_results(
             continue;
         }
 
-        let stat: TestStatistics = serde_json_lenient::from_str(line)
-            .with_context(|| format!("Failed to parse test summary: {line}"))?;
-        let stat = Arc::new(stat);
+        let ParsedTestDriverEvent::Result(mut stat) = parse_test_driver_record(line, package)?
+        else {
+            trace!("parsed test start event");
+            continue;
+        };
 
         // Repopulate name.
         // The test name in stat may be different from that in source code,
@@ -785,15 +926,13 @@ fn parse_test_results(
             );
             continue;
         };
-        // .with_context(|| {
-        //     format!(
-        //         "Failed to find test metadata for {} index {}",
-        //         stat.filename, stat.index
-        //     )
-        // })?;
-        let name = meta.name.as_ref().unwrap_or(&stat.test_name);
-        let result_kind = parse_one_test_result(&stat, name, pkg_src)?;
+        if let Some(name) = &meta.name {
+            stat.test_name.clone_from(name);
+        }
+        let test_name = stat.test_name.clone();
+        let result_kind = parse_one_test_result(&stat, &test_name, pkg_src)?;
         trace!(file = %stat.filename, index, kind = ?result_kind, "parsed test case");
+        let stat = Arc::new(stat);
         let case_result = TestCaseResult {
             kind: result_kind,
             raw: Arc::clone(&stat),

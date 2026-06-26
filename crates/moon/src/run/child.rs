@@ -39,7 +39,7 @@ use tracing::warn;
 /// subprocess changing the property of file descriptors (`node` is notorious
 /// for this, see [moon#852](https://github.com/moonbitlang/moon/issues/852)).
 ///
-/// `captures` uses a list of [`SectionCapture`] to capture part of the `stdout`
+/// `captures` uses a list of [`SectionCapture`]s to capture part of the `stdout`
 /// output since the running process might not have any other method to interact
 /// with the host `moon` process.
 pub(crate) async fn run<'a>(
