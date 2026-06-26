@@ -176,7 +176,6 @@ Check the current package, but don't build object files
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `-w`, `--watch` — Monitor the file system and automatically check files
 * `--patch-file <PATCH_FILE>` — The patch file to check. Only valid when the selector resolves to a single package
-* `--no-mi` — Whether to skip the mi generation. Only valid when the selector resolves to a single package
 * `--explain` — Whether to explain the error code with details
 * `--fmt` — Check whether the code is properly formatted
 

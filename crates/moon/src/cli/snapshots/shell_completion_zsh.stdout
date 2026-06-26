@@ -170,7 +170,6 @@ _arguments "${_arguments_options[@]}" : \
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' \
 '-w[Monitor the file system and automatically check files]' \
 '--watch[Monitor the file system and automatically check files]' \
-'--no-mi[Whether to skip the mi generation. Only valid when the selector resolves to a single package]' \
 '--explain[Whether to explain the error code with details]' \
 '--fmt[Check whether the code is properly formatted]' \
 '-q[Suppress output]' \

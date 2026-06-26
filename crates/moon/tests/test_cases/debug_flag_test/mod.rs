@@ -144,7 +144,7 @@ fn cli_reports_selector_conflicts_before_planning() {
 #[test]
 fn check_path_selector_smoke() {
     let dir = TestDir::new("debug_flag_test");
-    let check_with_path_selector = get_stdout(&dir, ["check", "lib", "--no-mi", "--dry-run"]);
+    let check_with_path_selector = get_stdout(&dir, ["check", "lib", "--dry-run"]);
     assert!(
         check_with_path_selector.contains("moonc check"),
         "stdout: {check_with_path_selector}"
@@ -152,18 +152,6 @@ fn check_path_selector_smoke() {
 
     #[cfg(unix)]
     {
-        let stderr = get_err_stderr(&dir, ["check", "lib", "main", "--no-mi", "--dry-run"]);
-        assert!(
-            stderr.contains("`--no-mi` requires the selector to resolve to a single package"),
-            "stderr: {stderr}"
-        );
-
-        let stderr = get_err_stderr(&dir, ["check", "notes", "--no-mi", "--dry-run"]);
-        assert!(
-            stderr.contains("`--no-mi` requires the selector to resolve to a single package"),
-            "stderr: {stderr}"
-        );
-
         let stderr = get_err_stderr(
             &dir,
             ["check", "notes", "--patch-file", "patch.json", "--dry-run"],

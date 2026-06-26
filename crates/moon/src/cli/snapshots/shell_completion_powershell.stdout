@@ -199,7 +199,6 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
             [CompletionResult]::new('--frozen', 'frozen', [CompletionResultType]::ParameterName, 'Do not sync dependencies, assuming local dependencies are up-to-date')
             [CompletionResult]::new('-w', 'w', [CompletionResultType]::ParameterName, 'Monitor the file system and automatically check files')
             [CompletionResult]::new('--watch', 'watch', [CompletionResultType]::ParameterName, 'Monitor the file system and automatically check files')
-            [CompletionResult]::new('--no-mi', 'no-mi', [CompletionResultType]::ParameterName, 'Whether to skip the mi generation. Only valid when the selector resolves to a single package')
             [CompletionResult]::new('--explain', 'explain', [CompletionResultType]::ParameterName, 'Whether to explain the error code with details')
             [CompletionResult]::new('--fmt', 'fmt', [CompletionResultType]::ParameterName, 'Check whether the code is properly formatted')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')

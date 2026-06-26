@@ -165,7 +165,6 @@ complete -c moon -n "__fish_moon_using_subcommand check" -l output-json -d 'Outp
 complete -c moon -n "__fish_moon_using_subcommand check" -l enable-value-tracing -d 'Enable value tracing'
 complete -c moon -n "__fish_moon_using_subcommand check" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
 complete -c moon -n "__fish_moon_using_subcommand check" -s w -l watch -d 'Monitor the file system and automatically check files'
-complete -c moon -n "__fish_moon_using_subcommand check" -l no-mi -d 'Whether to skip the mi generation. Only valid when the selector resolves to a single package'
 complete -c moon -n "__fish_moon_using_subcommand check" -l explain -d 'Whether to explain the error code with details'
 complete -c moon -n "__fish_moon_using_subcommand check" -l fmt -d 'Check whether the code is properly formatted'
 complete -c moon -n "__fish_moon_using_subcommand check" -s q -l quiet -d 'Suppress output'

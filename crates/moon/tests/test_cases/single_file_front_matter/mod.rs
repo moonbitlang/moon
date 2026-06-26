@@ -70,14 +70,8 @@ fn test_single_file_mbtx_run_block_import() {
 }
 
 #[test]
-fn test_single_file_check_rejects_unsupported_selector_flags() {
+fn test_single_file_check_rejects_patch_file() {
     let dir = TestDir::new("moon_test_single_file.in");
-
-    let no_mi_stderr = get_err_stderr(&dir, ["check", "front_matter_import_ok.mbt.md", "--no-mi"]);
-    assert!(
-        no_mi_stderr.contains("does not support `--no-mi`"),
-        "stderr: {no_mi_stderr}"
-    );
 
     let patch_stderr = get_err_stderr(
         &dir,
