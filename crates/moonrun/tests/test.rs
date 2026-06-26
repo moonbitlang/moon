@@ -18,6 +18,8 @@
 
 use std::path::PathBuf;
 
+const MOONBIT_ASYNC_CHECK_FD_LEAK: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
+
 fn moon_cmd() -> snapbox::cmd::Command {
     let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moon/Cargo.toml");
     snapbox::cmd::Command::new("cargo")
@@ -339,10 +341,45 @@ fn test_moon_run_with_async_host_imports() {
     let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
         .arg(&wasm_file)
         .assert()
         .success()
         .stdout_eq("ok\n");
+}
+
+#[test]
+fn test_moon_run_async_host_leak_check_env() {
+    let dir = TestDir::new("test_async_host_leak_check.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env_remove(MOONBIT_ASYNC_CHECK_FD_LEAK)
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("leaked\n")
+        .stderr_eq("");
+
+    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .env("RUST_BACKTRACE", "0")
+        .arg(&wasm_file)
+        .assert()
+        .failure()
+        .stdout_eq("leaked\n");
+    let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
+    assert!(
+        stderr.contains("moonrun async host leaked handles: polls=1"),
+        "expected async host leak assertion in stderr, got:\n{stderr}"
+    );
 }
 
 #[test]

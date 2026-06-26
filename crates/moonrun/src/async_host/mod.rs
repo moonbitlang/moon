@@ -57,6 +57,7 @@ pub(crate) enum AsyncHostError {
 
 pub(crate) type AsyncHostResult<T> = Result<T, AsyncHostError>;
 pub(crate) const INVALID_HOST_HANDLE: u64 = 0;
+pub(crate) const CHECK_FD_LEAK_ENV: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
 pub(crate) type HostCBuffer = Arc<Mutex<Box<[u8]>>>;
 
 #[cfg(unix)]
@@ -588,6 +589,77 @@ impl AsyncHost {
         let errno = error.errno();
         self.set_errno(errno);
         errno
+    }
+
+    pub(crate) fn assert_no_leaked_handles_if_enabled(&self) {
+        if std::thread::panicking() || std::env::var_os(CHECK_FD_LEAK_ENV).is_none() {
+            return;
+        }
+
+        let summary = {
+            let state = self.state.lock().unwrap();
+            let mut leaks = Vec::new();
+
+            if !state.c_buffers.is_empty() {
+                leaks.push(format!("c_buffers={}", state.c_buffers.len()));
+            }
+            #[cfg(windows)]
+            {
+                if !state.io_results.is_empty() {
+                    leaks.push(format!("io_results={}", state.io_results.len()));
+                }
+                if !state.io_results_by_overlapped.is_empty() {
+                    leaks.push(format!(
+                        "io_results_by_overlapped={}",
+                        state.io_results_by_overlapped.len()
+                    ));
+                }
+            }
+            if !state.jobs.is_empty() {
+                leaks.push(format!("jobs={}", state.jobs.len()));
+            }
+            if !state.polls.is_empty() {
+                leaks.push(format!("polls={}", state.polls.len()));
+            }
+            let leaked_files = match state.files.get(state.invalid_file) {
+                Some(file) if file.is_invalid() => state.files.len().saturating_sub(1),
+                Some(_) => {
+                    leaks.push("invalid_file=valid".to_string());
+                    state.files.len()
+                }
+                None => {
+                    leaks.push("invalid_file=missing".to_string());
+                    state.files.len()
+                }
+            };
+            if leaked_files != 0 {
+                leaks.push(format!("files={leaked_files}"));
+            }
+            if !state.workers.is_empty() {
+                leaks.push(format!("workers={}", state.workers.len()));
+            }
+            #[cfg(unix)]
+            {
+                if state.completion_notifier.is_some() {
+                    leaks.push("completion_notifier=1".to_string());
+                }
+                if state.completion_source.is_some() {
+                    leaks.push("completion_source=1".to_string());
+                }
+            }
+            #[cfg(windows)]
+            {
+                if state.completion_port.is_some() {
+                    leaks.push("completion_port=1".to_string());
+                }
+            }
+
+            (!leaks.is_empty()).then(|| leaks.join(", "))
+        };
+
+        if let Some(summary) = summary {
+            panic!("moonrun async host leaked handles: {summary}");
+        }
     }
 
     pub(crate) fn poll_create(&self) -> AsyncHostResult<u64> {

@@ -38,6 +38,12 @@ impl AsyncContext {
     }
 }
 
+impl Drop for AsyncContext {
+    fn drop(&mut self) {
+        self.host.assert_no_leaked_handles_if_enabled();
+    }
+}
+
 pub(super) fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s AsyncContext {
     let data = args.data();
     assert!(data.is_external());
