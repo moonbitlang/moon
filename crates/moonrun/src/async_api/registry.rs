@@ -813,6 +813,10 @@ declare_async_imports! {
     ported thread_pool::make_getaddrinfo_job(host: i32, host_len: i32) -> u64 => "thread_pool/make_getaddrinfo_job";
 
     helper thread_pool::get_getaddrinfo_result(job: u64) -> u64 => "thread_pool/get_getaddrinfo_result";
+
+    ported thread_pool::make_realpath_job(path_ptr: i32, path_len: i32) -> u64 => "thread_pool/make_realpath_job";
+
+    ported thread_pool::get_realpath_result(job: u64) -> u64 => "thread_pool/get_realpath_result";
 }
 
 #[cfg(test)]

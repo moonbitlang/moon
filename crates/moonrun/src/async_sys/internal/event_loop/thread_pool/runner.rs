@@ -22,8 +22,8 @@ use crate::async_sys::internal::fd_util;
 use super::fs::{
     run_access_job, run_chmod_job, run_file_kind_by_path_job, run_file_size_job,
     run_file_time_by_path_job, run_file_time_job, run_flock_job, run_fsync_job, run_mkdir_job,
-    run_open_job, run_read_job, run_readdir_job, run_remove_job, run_rename_job, run_rmdir_job,
-    run_symlink_job, run_write_job,
+    run_open_job, run_read_job, run_readdir_job, run_realpath_job, run_remove_job, run_rename_job,
+    run_rmdir_job, run_symlink_job, run_write_job,
 };
 use super::sleep::run_sleep_job;
 use super::socket::{run_bind_job, run_getaddrinfo_job};
@@ -100,6 +100,7 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
         } => run_readdir_job(files, *dir, buffer, *len, *restart),
         JobPayload::Bind { socket, addr } => run_bind_job(files, *socket, addr),
         JobPayload::GetAddrInfo { host, result } => run_getaddrinfo_job(host.clone(), result),
+        JobPayload::Realpath { path, result, .. } => run_realpath_job(path.clone(), result),
     };
 
     match result {
