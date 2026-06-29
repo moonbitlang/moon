@@ -506,8 +506,6 @@ declare_async_imports! {
 
     ported socket::getsockname(fd: u64, addr: i32, addr_len: i32) -> i32 => "socket/getsockname";
 
-    ported socket::getpeername(fd: u64, addr: i32, addr_len: i32) -> i32 => "socket/getpeername";
-
     ported socket::if_nametoindex(name: i32, name_len: i32) -> i32 => "socket/if_nametoindex";
 
     ported socket::if_indextoname(index: i32) -> u64 => "socket/if_indextoname";
@@ -637,10 +635,16 @@ declare_async_imports! {
     fake io::make_connect_io_result(addr: i32, addr_len: i32) -> u64 => "io/make_connect_io_result/windows";
 
     #[cfg(windows)]
-    ported io::make_accept_io_result() -> u64 => "io/make_accept_io_result/windows";
+    ported io::make_accept_io_result(addr_len: i32) -> u64 => "io/make_accept_io_result/windows";
 
     #[cfg(not(windows))]
-    fake io::make_accept_io_result() -> u64 => "io/make_accept_io_result/windows";
+    fake io::make_accept_io_result(addr_len: i32) -> u64 => "io/make_accept_io_result/windows";
+
+    #[cfg(windows)]
+    ported io::get_accept_peer_addr(result: u64, dst: i32, dst_len: i32) -> void => "io/get_accept_peer_addr/windows";
+
+    #[cfg(not(windows))]
+    fake io::get_accept_peer_addr(result: u64, dst: i32, dst_len: i32) -> void => "io/get_accept_peer_addr/windows";
 
     #[cfg(windows)]
     ported io::free_io_result(result: u64) -> void => "io/free_io_result/windows";

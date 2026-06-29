@@ -143,8 +143,25 @@ pub(super) fn make_connect_io_result(
 #[cfg(windows)]
 pub(super) fn make_accept_io_result(
     context: &mut ImportContext<'_, '_>,
+    addr_len: i32,
 ) -> crate::async_host::AsyncHostResult<u64> {
-    context.host.make_accept_io_result()
+    context.host.make_accept_io_result(addr_len)
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_get_accept_peer_addr"
+)]
+#[cfg(windows)]
+pub(super) fn get_accept_peer_addr(
+    context: &mut ImportContext<'_, '_>,
+    result: u64,
+    dst: i32,
+    dst_len: i32,
+) -> crate::async_host::AsyncHostResult<()> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.get_accept_peer_addr(memory, result, dst, dst_len)
+    })
 }
 
 #[ported(

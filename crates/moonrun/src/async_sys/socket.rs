@@ -556,17 +556,6 @@ mod win {
         })
     }
 
-    pub(super) fn getpeername(fd: RawFd, addr_out: &mut [u8]) -> AsyncHostResult<()> {
-        let mut len = i32::try_from(addr_out.len()).map_err(|_| AsyncHostError::Fault)?;
-        socket_error(unsafe {
-            ws::getpeername(
-                socket(fd),
-                addr_out.as_mut_ptr().cast::<ws::SOCKADDR>(),
-                &mut len,
-            )
-        })
-    }
-
     pub(super) fn if_nametoindex(name: &[u16]) -> AsyncHostResult<i32> {
         let name: Vec<u16> = name.iter().copied().chain(std::iter::once(0)).collect();
         let mut luid = unsafe { std::mem::zeroed::<NET_LUID_LH>() };
@@ -1613,31 +1602,6 @@ ported_fns! {
     #[cfg(windows)]
     pub(crate) fn udp_client_connect(fd: RawFd, addr: &[u8]) -> AsyncHostResult<()> {
         win::udp_client_connect(fd, addr)
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_getpeername"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn getpeername(fd: RawFd, addr_out: &mut [u8]) -> AsyncHostResult<()> {
-        let mut len = libc::socklen_t::try_from(addr_out.len()).map_err(|_| AsyncHostError::Fault)?;
-        if unsafe {
-            libc::getpeername(fd, addr_out.as_mut_ptr().cast::<libc::sockaddr>(), &mut len)
-        } < 0 {
-            Err(last_native_error())
-        } else {
-            Ok(())
-        }
-    }
-
-    #[ported(
-        source = "src/socket/socket.c",
-        original = "moonbitlang_async_getpeername"
-    )]
-    #[cfg(windows)]
-    pub(crate) fn getpeername(fd: RawFd, addr_out: &mut [u8]) -> AsyncHostResult<()> {
-        win::getpeername(fd, addr_out)
     }
 
     #[cfg(unix)]

@@ -387,16 +387,6 @@ pub(super) fn getsockname(context: &mut ImportContext<'_, '_>, fd: u64, addr: i3
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn getpeername(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
-    let host = context.host;
-    let result = context.with_memory_mut(|memory| {
-        let addr = memory.read_exact_mut(addr, addr_len)?;
-        host.with_raw_file(fd, |fd| sys::getpeername(fd, addr))
-    });
-    zero_or_minus_one(context, result)
-}
-
-#[ported(source = "src/socket/socket.c")]
 pub(super) fn if_nametoindex(context: &mut ImportContext<'_, '_>, name: i32, name_len: i32) -> i32 {
     let result = context.with_memory_mut(|memory| {
         let name = read_u16(memory, name, name_len)?;
