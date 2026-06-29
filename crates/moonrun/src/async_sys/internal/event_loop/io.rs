@@ -143,6 +143,10 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
             ),
             ported_windows_symbol("accept_io_result", "moonbitlang_async_accept"),
             ported_windows_symbol(
+                "get_accept_peer_addr",
+                "moonbitlang_async_get_accept_peer_addr",
+            ),
+            ported_windows_symbol(
                 "setup_accepted_socket",
                 "moonbitlang_async_setup_accepted_socket",
             ),

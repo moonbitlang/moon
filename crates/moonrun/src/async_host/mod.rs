@@ -469,10 +469,6 @@ struct HostIoResult {
 unsafe impl Send for HostIoResult {}
 
 #[cfg(windows)]
-const ACCEPTEX_ADDR_LEN: usize =
-    std::mem::size_of::<windows_sys::Win32::Networking::WinSock::SOCKADDR_STORAGE>() + 16;
-
-#[cfg(windows)]
 impl HostIoResult {
     fn for_file(event: i32, buffer: Vec<u8>, guest_offset: i32, position: i64) -> Self {
         let overlapped =
@@ -569,10 +565,17 @@ impl HostIoResult {
         }
     }
 
-    fn for_accept() -> Self {
+    fn for_accept(addr_len: i32) -> AsyncHostResult<Self> {
         let overlapped =
             std::mem::MaybeUninit::<windows_sys::Win32::System::IO::OVERLAPPED>::zeroed();
-        Self {
+        let addr_len_usize = usize::try_from(addr_len).map_err(|_| AsyncHostError::Fault)?;
+        let accept_addr_len = addr_len_usize
+            .checked_add(16)
+            .ok_or(AsyncHostError::Fault)?;
+        let accept_buffer_len = accept_addr_len
+            .checked_mul(2)
+            .ok_or(AsyncHostError::Fault)?;
+        Ok(Self {
             overlapped: unsafe { overlapped.assume_init() },
             kind: HostIoKind::Accept,
             event: 1,
@@ -580,14 +583,14 @@ impl HostIoResult {
             guest_offset: 0,
             socket_flags: 0,
             addr_buffer: Vec::new(),
-            addr_len: 0,
+            addr_len,
             guest_addr_offset: None,
-            accept_buffer: vec![0; ACCEPTEX_ADDR_LEN * 2],
+            accept_buffer: vec![0; accept_buffer_len],
             accept_bytes_received: 0,
             direction: None,
             pending_raw_fd: None,
             extra_pending_close_raw_fd: None,
-        }
+        })
     }
 
     fn overlapped_ptr(&mut self) -> *mut windows_sys::Win32::System::IO::OVERLAPPED {
@@ -1531,8 +1534,8 @@ impl AsyncHost {
     }
 
     #[cfg(windows)]
-    pub(crate) fn make_accept_io_result(&self) -> AsyncHostResult<u64> {
-        self.insert_io_result(HostIoResult::for_accept())
+    pub(crate) fn make_accept_io_result(&self, addr_len: i32) -> AsyncHostResult<u64> {
+        self.insert_io_result(HostIoResult::for_accept(addr_len)?)
     }
 
     #[cfg(windows)]
@@ -1908,15 +1911,16 @@ impl AsyncHost {
 
         let accept_ex = get_wsa_extension::<ws::LPFN_ACCEPTEX>(server_fd, &ws::WSAID_ACCEPTEX)?
             .ok_or(AsyncHostError::Inval)?;
-        let addr_len = u32::try_from(ACCEPTEX_ADDR_LEN).map_err(|_| AsyncHostError::Fault)?;
+        let addr_len = u32::try_from(result.addr_len).map_err(|_| AsyncHostError::Fault)?;
+        let accept_addr_len = addr_len.checked_add(16).ok_or(AsyncHostError::Fault)?;
         let success = unsafe {
             accept_ex(
                 server_fd as usize,
                 conn_fd as usize,
                 result.accept_buffer.as_mut_ptr().cast(),
                 0,
-                addr_len,
-                addr_len,
+                accept_addr_len,
+                accept_addr_len,
                 &mut result.accept_bytes_received,
                 result.overlapped_ptr(),
             )
@@ -1930,6 +1934,32 @@ impl AsyncHost {
             }
             Err(AsyncHostError::Native(errno))
         }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn get_accept_peer_addr(
+        &self,
+        memory: &mut (impl GuestMemory + ?Sized),
+        result_handle: u64,
+        dst: i32,
+        dst_len: i32,
+    ) -> AsyncHostResult<()> {
+        let state = self.state.lock().unwrap();
+        let result = state
+            .io_results
+            .get(key_from_handle::<HostIoResultKey>(result_handle))
+            .ok_or(AsyncHostError::Badf)?;
+        if result.kind != HostIoKind::Accept || result.is_pending() {
+            return Err(AsyncHostError::Inval);
+        }
+        let addr_len = usize::try_from(result.addr_len).map_err(|_| AsyncHostError::Fault)?;
+        let offset = addr_len.checked_add(16).ok_or(AsyncHostError::Fault)?;
+        let end = offset.checked_add(addr_len).ok_or(AsyncHostError::Fault)?;
+        let addr = result
+            .accept_buffer
+            .get(offset..end)
+            .ok_or(AsyncHostError::Fault)?;
+        memory.write_with_capacity(dst, dst_len, addr)
     }
 
     #[cfg(windows)]
