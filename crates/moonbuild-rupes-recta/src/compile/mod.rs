@@ -179,16 +179,9 @@ pub fn compile(
         let artifacts = res
             .artifacts
             .into_iter()
-            .map(|(action, lowered)| {
-                debug_assert_eq!(action, lowered.action);
+            .map(|(action, artifacts)| {
                 let node = action_plan.build_plan_node(action);
-                (
-                    node,
-                    Artifacts {
-                        node,
-                        artifacts: lowered.artifacts,
-                    },
-                )
+                (node, Artifacts { node, artifacts })
             })
             .collect();
         (res.build_graph, res.command_args_by_output, artifacts)

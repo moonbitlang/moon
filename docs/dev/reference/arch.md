@@ -433,21 +433,23 @@ reimplementation of [Ninja][]. Each node in this graph carries:
 
 During lowering:
 
-- Each build-plan node’s command line is chosen based on its own metadata
-  (package, backend, build target kind, action) and its dependencies;
-- Input/output files are computed via an artifact-translation function and
-  attached to the node; and
-- Additional inputs (such as source files) may be attached
-  to represent files that are not produced by other build-graph nodes.
+- The build plan is first viewed as a `BuildActionPlan`, where each surviving
+  build-plan node has a stable action id and hydrated action metadata.
+- Each action’s command line is chosen based on its own metadata
+  (package, backend, build target kind, action) and its dependencies.
+- Logical products are resolved to input/output files and attached to the
+  concrete build node.
+- Additional inputs (such as source files) may be attached to represent files
+  that are not produced by other build-graph nodes.
 
-Each build-plan node is currently mapped to **zero or one** concrete build-graph node.
-Lowering a single build-plan node to multiple concrete nodes is not
-supported (hence the `index` field in the node declaration).
+Each action is currently mapped to **zero or one** concrete build-graph node.
+Lowering a single action to multiple concrete nodes is not supported (hence the
+`index` field in the node declaration).
 
 The concrete rules of lowering is performed in [its module](/crates/moonbuild-rupes-recta/src/build_lower/mod.rs).
 
 The layout of the target directory (the paths of all artifacts)
-is defined in [its module](/crates/moonbuild-rupes-recta/src/build_lower/artifact.rs).
+is defined in [its module](/crates/moonbuild-rupes-recta/src/target_layout.rs).
 
 ## Execution of the build graph
 

@@ -1,11 +1,11 @@
-# Build plan artifact dependencies
+# Build plan product dependencies
 
 Rupes Recta now uses a compiler-style split between planning, the action-level
 plan consumed by lowering, and backend graph construction:
 
 ```text
 BuildPlan       = planning IR: graph nodes, edge semantics, coalescing
-BuildActionPlan = action-level build plan: action ids, hydrated action data, logical artifacts
+BuildActionPlan = action-level build plan: action ids, hydrated action data, logical products
 build_lower/n2  = backend IR: concrete paths, command lines, n2 graph
 ```
 
@@ -36,7 +36,7 @@ pub enum PlanArtifactNeed {
 `CoreIr` names the compiler IR artifact written with the `.core` extension. It
 is not related to the `moonbitlang/core` package.
 
-Builders request logical needs instead of path-shaped artifacts. `Check`
+Builders request logical needs instead of path-shaped outputs. `Check`
 dependencies need only the interface. Normal downstream `BuildCore`
 dependencies also track Core IR as an n2 input, so a dependency implementation
 change that leaves the interface stable still rebuilds the dependent package:
@@ -95,67 +95,100 @@ pub enum BuildAction<'a> {
 backends, `MakeExecutable` remains a final-artifact alias over `LinkCore` and is
 a no-op in backend lowering.
 
-Logical outputs are exposed as `PlannedArtifact` values:
+Logical outputs are exposed as producer-free `BuildProduct` values:
 
 ```rust
-pub enum PlannedArtifact {
-    PackageInterface { producer: BuildActionId, target: BuildTarget },
-    PackageCoreIr { producer: BuildActionId, target: BuildTarget },
-    GeneratedTestDriver { producer: BuildActionId, target: BuildTarget },
-    CStubObject { producer: BuildActionId, package: PackageId, index: u32 },
-    KnownPath { producer: BuildActionId, path: PathBuf },
+pub enum BuildProduct {
+    PackageInterface { target: BuildTarget },
+    PackageCoreIr { target: BuildTarget },
+    GeneratedTestDriver { target: BuildTarget },
+    CStubObject { package: PackageId, index: u32 },
+    PrebuildOutputPath { path: PathBuf },
     // other logical outputs
 }
 ```
 
-This is where graph edge selectors become logical dependency artifacts:
+`PrebuildOutputPath` is the explicit exception: prebuild outputs are resolved
+when the prebuild command is planned, so the product carries the already
+resolved path instead of asking `ArtifactPathResolver` to reconstruct it from
+package metadata.
+
+Outputs for an action are just products:
 
 ```rust
-pub fn dependency_artifacts(&self, id: BuildActionId) -> Vec<PlannedArtifact> {
+pub fn output_products(&self, id: BuildActionId) -> Vec<BuildProduct> {
+    self.output_products_for_node(self.node(id))
+}
+```
+
+Dependency edge selectors become `(dependency action, product)` pairs. The
+dependency action is edge context for path resolution; it is not stored inside
+the product:
+
+```rust
+pub fn dependency_products(&self, id: BuildActionId) -> Vec<(BuildActionId, BuildProduct)> {
     self.plan
         .dependency_edges(self.node(id))
-        .flat_map(|(node, kind)| self.artifacts_for_edge(node, kind))
+        .flat_map(|(node, kind)| {
+            let dependency_action = self.id_for_node(node);
+            self.products_for_edge(node, kind)
+                .into_iter()
+                .map(move |product| (dependency_action, product))
+        })
         .collect()
 }
 ```
 
 For example, an archive/link C-stub action no longer scans raw build-plan
 edges in `build_lower`. Its object inputs are exposed by `BuildActionPlan` as
-`PlannedArtifact::CStubObject` dependencies.
+`(object_action, BuildProduct::CStubObject { ... })` dependencies.
 
 ## Backend Lowering
 
-`build_lower` now matches on `BuildAction` and resolves `PlannedArtifact`
-paths through `ArtifactPathResolver`:
+`build_lower` matches on `BuildAction` and resolves `BuildProduct` paths
+through `ArtifactPathResolver`:
 
 ```rust
 let cmd = match self.plan.action(id) {
-    BuildAction::Check { target, info } => self.lower_check(target, info),
-    BuildAction::BuildCore { target, info } => self.lower_build_mbt(target, info),
+    BuildAction::Check { target, info } => self.lower_check(&products, target, info),
+    BuildAction::BuildCore { target, info } => self.lower_build_mbt(&products, target, info),
     BuildAction::ArchiveOrLinkCStubs { package, info } => {
-        self.lower_archive_or_link_c_stubs(id, package, info)
+        self.lower_archive_or_link_c_stubs(&products, package, info)
     }
     // ...
 };
+```
 
-let mut ins = Vec::new();
-for artifact in self.plan.dependency_artifacts(id) {
-    self.append_planned_artifact(&artifact, &mut ins);
-}
+`ActionProducts` is built per action. Outputs are resolved with the current
+action as context; dependencies are resolved with the dependency action from the
+edge tuple:
+
+```rust
+let outputs = plan
+    .output_products(action)
+    .into_iter()
+    .map(|product| realize(action, product));
+
+let dependencies = plan
+    .dependency_products(action)
+    .into_iter()
+    .map(|(dependency_action, product)| realize(dependency_action, product));
 ```
 
 This keeps responsibilities separate:
 
 - `BuildPlan` owns graph edges, coalescing, and planning-only terminology.
-- `BuildActionPlan` owns the normalized action/artifact interface between phases.
-- `build_lower` owns path mapping, command construction, and n2 graph output.
+- `BuildActionPlan` owns the normalized action/product interface between phases.
+- `ArtifactPathResolver` owns logical product to path resolution.
+- `build_lower` owns command construction and n2 graph output.
 
 ## Compatibility
 
-`LoweringResult` returns artifacts keyed by `BuildActionId`. The compile
-layer re-keys those artifacts back to `BuildPlanNode` for the existing public
-`CompileOutput` shape. That keeps compatibility above lowering while proving
-that backend lowering no longer sees planning internals.
+`LoweringResult` returns root action artifacts as `(BuildActionId, paths)` pairs
+in input action order. The compile layer re-keys those artifacts back to
+`BuildPlanNode` for the existing public `CompileOutput` shape. That keeps
+compatibility above lowering while proving that backend lowering no longer sees
+planning internals.
 
 ## Checks
 

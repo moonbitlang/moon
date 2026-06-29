@@ -168,7 +168,7 @@ impl PlanArtifactNeed {
 /// `Artifacts` is the package-artifact selector shared by `Check` and
 /// `BuildCore`. Proof and test-info edges still keep node-specific selectors
 /// here; `BuildActionPlan` is responsible for translating all edge selectors into
-/// `PlannedArtifact` values before backend lowering sees them.
+/// logical build products before backend lowering sees them.
 ///
 /// A more generic solution might be involving creating associated types for
 /// each node kind, specifying their output file list and order, and then

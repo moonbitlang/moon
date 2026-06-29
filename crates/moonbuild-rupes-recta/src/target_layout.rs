@@ -21,7 +21,7 @@
 //! [`TargetLayout`] owns paths under the selected target directory. It does not
 //! know about installed toolchain artifacts. [`ArtifactPathResolver`] composes a
 //! target layout with optional stdlib/toolchain artifacts for callers that need
-//! to resolve logical build artifacts to physical paths.
+//! to resolve logical build products to physical paths.
 
 use std::{
     ffi::OsStr,
@@ -37,7 +37,7 @@ use moonutil::{
 
 use crate::{
     ResolveOutput,
-    build_action_plan::{BuildAction, BuildActionPlan, PlannedArtifact},
+    build_action_plan::{BuildAction, BuildProduct},
     discover::{DiscoverResult, DiscoveredLocalProject},
     model::{BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
     pkg_name::PackageFQN,
@@ -692,43 +692,45 @@ impl ArtifactPathResolver {
         ))
     }
 
-    pub fn paths_for_planned_artifact(
+    pub(crate) fn paths_for_product(
         &self,
-        artifact: &PlannedArtifact,
-        plan: &BuildActionPlan<'_>,
+        product: &BuildProduct,
+        action_context: BuildAction<'_>,
         packages: &DiscoverResult,
         modules: &ResolvedEnv,
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
-        match artifact {
-            PlannedArtifact::PackageInterface { producer, target } => {
-                self.package_interface_paths(*producer, *target, plan, packages, options)
+        Self::assert_product_matches_action(product, action_context);
+
+        match product {
+            BuildProduct::PackageInterface { target } => {
+                self.package_interface_paths(action_context, *target, packages, options)
             }
-            PlannedArtifact::PackageCoreIr { target, .. } => {
+            BuildProduct::PackageCoreIr { target } => {
                 vec![self.core_of_build_target(packages, target, options.target_backend.into())]
             }
-            PlannedArtifact::ProofInterface { producer, target } => match plan.action(*producer) {
+            BuildProduct::ProofInterface { target } => match action_context {
                 BuildAction::EmitProof { .. } => {
                     vec![self.target_layout.emit_proof_mi_path(packages, target)]
                 }
                 BuildAction::Prove { .. } => {
                     vec![self.target_layout.prove_mi_path(packages, target)]
                 }
-                _ => panic!("proof interface producer should be a proof action"),
+                _ => panic!("proof interface action context should be a proof action"),
             },
-            PlannedArtifact::ProofWhyml { producer, target } => match plan.action(*producer) {
+            BuildProduct::ProofWhyml { target } => match action_context {
                 BuildAction::EmitProof { .. } => {
                     vec![self.target_layout.emit_proof_whyml_path(packages, target)]
                 }
                 BuildAction::Prove { .. } => {
                     vec![self.target_layout.prove_whyml_path(packages, target)]
                 }
-                _ => panic!("proof whyml producer should be a proof action"),
+                _ => panic!("proof whyml action context should be a proof action"),
             },
-            PlannedArtifact::ProofReport { target, .. } => {
+            BuildProduct::ProofReport { target } => {
                 vec![self.target_layout.prove_report_path(packages, target)]
             }
-            PlannedArtifact::CStubObject { package, index, .. } => {
+            BuildProduct::CStubObject { package, index } => {
                 let pkg = packages.get_package(*package);
                 let file_name = &pkg.c_stub_files[*index as usize];
                 vec![
@@ -743,7 +745,7 @@ impl ArtifactPathResolver {
                     ),
                 ]
             }
-            PlannedArtifact::CStubLibrary { package, .. } => {
+            BuildProduct::CStubLibrary { package } => {
                 if options.use_tcc_run {
                     vec![self.target_layout.c_stub_link_dylib_path(
                         packages,
@@ -760,81 +762,199 @@ impl ArtifactPathResolver {
                     )]
                 }
             }
-            PlannedArtifact::LinkedCore { target, .. } => {
+            BuildProduct::LinkedCore { target } => {
                 vec![self.target_layout.linked_core_of_build_target(
                     packages,
                     target,
                     options.linked_core,
                 )]
             }
-            PlannedArtifact::Executable { target, .. } => {
+            BuildProduct::Executable { target } => {
                 vec![self.target_layout.executable_of_build_target(
                     packages,
                     target,
                     options.executable,
                 )]
             }
-            PlannedArtifact::GeneratedTestDriver { target, .. } => {
+            BuildProduct::GeneratedTestDriver { target } => {
                 vec![self.target_layout.generated_test_driver(
                     packages,
                     target,
                     options.target_backend.into(),
                 )]
             }
-            PlannedArtifact::GeneratedTestMetadata { target, .. } => {
+            BuildProduct::GeneratedTestMetadata { target } => {
                 vec![self.target_layout.generated_test_driver_metadata(
                     packages,
                     target,
                     options.target_backend.into(),
                 )]
             }
-            PlannedArtifact::BundleResult { module, .. } => {
+            BuildProduct::BundleResult { module } => {
                 let module_name = modules.module_source(*module);
                 vec![
                     self.target_layout
                         .bundle_result_path(options.target_backend.into(), module_name.name()),
                 ]
             }
-            PlannedArtifact::RuntimeLib { .. } => vec![self.target_layout.runtime_output_path(
+            BuildProduct::RuntimeLib => vec![self.target_layout.runtime_output_path(
                 options.target_backend,
                 options.use_tcc_run,
                 options.os,
             )],
-            PlannedArtifact::GeneratedMbti { target, .. } => {
+            BuildProduct::GeneratedMbti { target } => {
                 vec![self.target_layout.generated_mbti_path(
                     packages,
                     target,
                     options.target_backend.into(),
                 )]
             }
-            PlannedArtifact::DocsDir { .. } => vec![self.target_layout.doc_dir()],
-            PlannedArtifact::VirtualPackageInterface { package, .. } => {
+            BuildProduct::DocsDir => vec![self.target_layout.doc_dir()],
+            BuildProduct::VirtualPackageInterface { package } => {
                 let target = package.build_target(TargetKind::Source);
                 vec![self.mi_of_build_target(packages, &target, options.target_backend.into())]
             }
-            PlannedArtifact::MoonLexGeneratedSource { package, index, .. } => {
+            BuildProduct::MoonLexGeneratedSource { package, index } => {
                 let pkg_info = packages.get_package(*package);
                 let mbtlex_file = &pkg_info.mbt_lex_files[*index as usize];
                 vec![mbtlex_file.with_extension("mbt")]
             }
-            PlannedArtifact::MoonYaccGeneratedSource { package, index, .. } => {
+            BuildProduct::MoonYaccGeneratedSource { package, index } => {
                 let pkg_info = packages.get_package(*package);
                 let mbtyacc_file = &pkg_info.mbt_yacc_files[*index as usize];
                 vec![mbtyacc_file.with_extension("mbt")]
             }
-            PlannedArtifact::KnownPath { path, .. } => vec![path.clone()],
+            BuildProduct::PrebuildOutputPath { path } => vec![path.clone()],
         }
+    }
+
+    fn assert_product_matches_action(product: &BuildProduct, action_context: BuildAction<'_>) {
+        let matches = match (product, action_context) {
+            (
+                BuildProduct::PackageInterface { target },
+                BuildAction::Check {
+                    target: action_target,
+                    ..
+                }
+                | BuildAction::BuildCore {
+                    target: action_target,
+                    ..
+                },
+            ) => *target == action_target,
+            (
+                BuildProduct::PackageCoreIr { target },
+                BuildAction::BuildCore {
+                    target: action_target,
+                    ..
+                },
+            ) => *target == action_target,
+            (
+                BuildProduct::ProofInterface { target } | BuildProduct::ProofWhyml { target },
+                BuildAction::EmitProof {
+                    target: action_target,
+                    ..
+                }
+                | BuildAction::Prove {
+                    target: action_target,
+                    ..
+                },
+            ) => *target == action_target,
+            (
+                BuildProduct::ProofReport { target },
+                BuildAction::Prove {
+                    target: action_target,
+                    ..
+                },
+            ) => *target == action_target,
+            (
+                BuildProduct::CStubObject { package, index },
+                BuildAction::BuildCStub {
+                    package: action_package,
+                    index: action_index,
+                    ..
+                },
+            ) => *package == action_package && *index == action_index,
+            (
+                BuildProduct::CStubLibrary { package },
+                BuildAction::ArchiveOrLinkCStubs {
+                    package: action_package,
+                    ..
+                },
+            ) => *package == action_package,
+            (
+                BuildProduct::LinkedCore { target },
+                BuildAction::LinkCore {
+                    target: action_target,
+                    ..
+                },
+            ) => *target == action_target,
+            (
+                BuildProduct::Executable { target },
+                BuildAction::MakeExecutable {
+                    target: action_target,
+                    ..
+                },
+            ) => *target == action_target,
+            (
+                BuildProduct::GeneratedTestDriver { target }
+                | BuildProduct::GeneratedTestMetadata { target },
+                BuildAction::GenerateTestInfo {
+                    target: action_target,
+                    ..
+                },
+            ) => *target == action_target,
+            (
+                BuildProduct::BundleResult { module },
+                BuildAction::Bundle {
+                    module: action_module,
+                    ..
+                },
+            ) => *module == action_module,
+            (BuildProduct::RuntimeLib, BuildAction::BuildRuntimeLib) => true,
+            (
+                BuildProduct::GeneratedMbti { target },
+                BuildAction::GenerateMbti {
+                    target: action_target,
+                },
+            ) => *target == action_target,
+            (BuildProduct::DocsDir, BuildAction::BuildDocs { .. }) => true,
+            (
+                BuildProduct::VirtualPackageInterface { package },
+                BuildAction::BuildVirtual {
+                    package: action_package,
+                },
+            ) => *package == action_package,
+            (
+                BuildProduct::MoonLexGeneratedSource { package, index },
+                BuildAction::RunMoonLexPrebuild {
+                    package: action_package,
+                    index: action_index,
+                },
+            ) => *package == action_package && *index == action_index,
+            (
+                BuildProduct::MoonYaccGeneratedSource { package, index },
+                BuildAction::RunMoonYaccPrebuild {
+                    package: action_package,
+                    index: action_index,
+                },
+            ) => *package == action_package && *index == action_index,
+            (BuildProduct::PrebuildOutputPath { .. }, BuildAction::RunPrebuild { .. }) => true,
+            _ => false,
+        };
+        assert!(
+            matches,
+            "build product should be resolved with matching action context: {product:?}, {action_context:?}"
+        );
     }
 
     fn package_interface_paths(
         &self,
-        producer: crate::build_action_plan::BuildActionId,
+        action_context: BuildAction<'_>,
         target: BuildTarget,
-        plan: &BuildActionPlan<'_>,
         packages: &DiscoverResult,
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
-        match plan.action(producer) {
+        match action_context {
             BuildAction::Check { info, .. } if info.check_mi_against.is_some() => {
                 // Generate a `.mi` artifact in edge cases such as --no-mi and
                 // virtual implementation checks, but avoid declaring prebuilt
@@ -860,7 +980,7 @@ impl ArtifactPathResolver {
             BuildAction::Check { .. } | BuildAction::BuildCore { .. } => {
                 vec![self.mi_of_build_target(packages, &target, options.target_backend.into())]
             }
-            _ => panic!("package interface producer should be Check or BuildCore"),
+            _ => panic!("package interface action context should be Check or BuildCore"),
         }
     }
 }
@@ -1011,14 +1131,15 @@ mod tests {
     use indexmap::IndexSet;
     use moonutil::mooncakes::{DEFAULT_VERSION, ModuleName, ModuleSource};
     use moonutil::{
+        compiler_flags::{ARKind, CC, CCKind, Toolchain},
         module::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
     };
 
     use super::*;
     use crate::{
-        build_action_plan::{BuildActionId, PlannedArtifact},
-        build_plan::{BuildPlan, BuildTargetInfo},
+        build_action_plan::{BuildAction, BuildProduct},
+        build_plan::{BuildCStubsInfo, BuildPlan, BuildTargetInfo, PrebuildInfo},
         discover::DiscoveredPackage,
         model::BuildPlanNode,
         pkg_name::{PackageFQN, PackagePath},
@@ -1128,6 +1249,30 @@ mod tests {
         }
     }
 
+    fn c_stubs_info() -> BuildCStubsInfo {
+        BuildCStubsInfo {
+            effective_native_toolchain: Toolchain::from_path_probe(CC {
+                cc_kind: CCKind::SystemCC,
+                cc_path: "cc".to_string(),
+                ar_kind: ARKind::GnuAr,
+                ar_path: "ar".to_string(),
+                target_triple: None,
+                is_env_override: false,
+            }),
+            cc_flags: Vec::new(),
+            link_flags: Vec::new(),
+        }
+    }
+
+    fn prebuild_info(path: PathBuf) -> PrebuildInfo {
+        PrebuildInfo {
+            resolved_inputs: Vec::new(),
+            resolved_outputs: vec![path],
+            cwd: PathBuf::from("."),
+            command: "generate".to_string(),
+        }
+    }
+
     fn package_fixture(package_path: &str) -> (DiscoverResult, ResolvedEnv, PackageId) {
         let module_source = module("username/hello");
         let (modules, module_id) =
@@ -1220,7 +1365,7 @@ mod tests {
     }
 
     #[test]
-    fn artifact_resolver_resolves_package_interface_artifact() {
+    fn artifact_resolver_resolves_check_package_interface_product() {
         let (packages, modules, package) = package_fixture("ffi");
         let resolver = ArtifactPathResolver::new(
             layout(TargetLayoutMode::Mono {
@@ -1234,20 +1379,134 @@ mod tests {
         build_plan.test_add_node(node);
         build_plan.test_insert_build_target_info(target, build_target_info());
         let action_plan = build_plan.build_action_plan();
-        let producer = action_plan
+        let action_id = action_plan
             .action_ids()
             .next()
-            .expect("test plan should have a producer action");
+            .expect("test plan should have an action");
 
         assert_eq!(
-            resolver.paths_for_planned_artifact(
-                &PlannedArtifact::PackageInterface { producer, target },
-                &action_plan,
+            resolver.paths_for_product(
+                &BuildProduct::PackageInterface { target },
+                action_plan.action(action_id),
                 &packages,
                 &modules,
                 artifact_options(RunBackend::WasmGC, false),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.mi")],
+        );
+    }
+
+    #[test]
+    fn artifact_resolver_resolves_build_core_package_interface_product() {
+        let (packages, modules, package) = package_fixture("ffi");
+        let resolver = ArtifactPathResolver::new(
+            layout(TargetLayoutMode::Mono {
+                main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+            }),
+            None,
+        );
+        let target = package.build_target(TargetKind::Source);
+        let info = build_target_info();
+
+        assert_eq!(
+            resolver.paths_for_product(
+                &BuildProduct::PackageInterface { target },
+                BuildAction::BuildCore {
+                    target,
+                    info: &info,
+                },
+                &packages,
+                &modules,
+                artifact_options(RunBackend::WasmGC, false),
+            ),
+            vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.mi")],
+        );
+    }
+
+    #[test]
+    fn artifact_resolver_resolves_impl_check_package_interface_product() {
+        let (packages, modules, package) = package_fixture("ffi");
+        let resolver = ArtifactPathResolver::new(
+            layout(TargetLayoutMode::Mono {
+                main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+            }),
+            None,
+        );
+        let target = package.build_target(TargetKind::Source);
+        let mut info = build_target_info();
+        info.check_mi_against = Some(target);
+
+        assert_eq!(
+            resolver.paths_for_product(
+                &BuildProduct::PackageInterface { target },
+                BuildAction::Check {
+                    target,
+                    info: &info,
+                },
+                &packages,
+                &modules,
+                artifact_options(RunBackend::WasmGC, false),
+            ),
+            vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.impl.mi")],
+        );
+    }
+
+    #[test]
+    fn artifact_resolver_resolves_proof_products_with_matching_context() {
+        let (packages, modules, package) = package_fixture("ffi");
+        let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
+        let target = package.build_target(TargetKind::Source);
+        let info = build_target_info();
+
+        assert_eq!(
+            resolver.paths_for_product(
+                &BuildProduct::ProofWhyml { target },
+                BuildAction::EmitProof {
+                    target,
+                    info: &info,
+                },
+                &packages,
+                &modules,
+                artifact_options(RunBackend::WasmGC, false),
+            ),
+            vec![
+                resolver
+                    .target_layout
+                    .emit_proof_whyml_path(&packages, &target)
+            ],
+        );
+        assert_eq!(
+            resolver.paths_for_product(
+                &BuildProduct::ProofReport { target },
+                BuildAction::Prove {
+                    target,
+                    info: &info,
+                },
+                &packages,
+                &modules,
+                artifact_options(RunBackend::WasmGC, false),
+            ),
+            vec![resolver.target_layout.prove_report_path(&packages, &target)],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "build product should be resolved with matching action context")]
+    fn artifact_resolver_rejects_mismatched_product_action_context() {
+        let (packages, modules, package) = package_fixture("ffi");
+        let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
+        let target = package.build_target(TargetKind::Source);
+        let info = build_target_info();
+
+        let _ = resolver.paths_for_product(
+            &BuildProduct::PackageCoreIr { target },
+            BuildAction::Check {
+                target,
+                info: &info,
+            },
+            &packages,
+            &modules,
+            artifact_options(RunBackend::WasmGC, false),
         );
     }
 
@@ -1260,16 +1519,14 @@ mod tests {
             }),
             None,
         );
-        let build_plan = BuildPlan::default();
-        let action_plan = build_plan.build_action_plan();
-
+        let info = c_stubs_info();
         assert_eq!(
-            resolver.paths_for_planned_artifact(
-                &PlannedArtifact::CStubLibrary {
-                    producer: BuildActionId(0),
+            resolver.paths_for_product(
+                &BuildProduct::CStubLibrary { package },
+                BuildAction::ArchiveOrLinkCStubs {
                     package,
+                    info: &info,
                 },
-                &action_plan,
                 &packages,
                 &modules,
                 artifact_options(RunBackend::Native, false),
@@ -1277,12 +1534,12 @@ mod tests {
             vec![PathBuf::from("_build/native/debug/build/ffi/libffi.a")],
         );
         assert_eq!(
-            resolver.paths_for_planned_artifact(
-                &PlannedArtifact::CStubLibrary {
-                    producer: BuildActionId(0),
+            resolver.paths_for_product(
+                &BuildProduct::CStubLibrary { package },
+                BuildAction::ArchiveOrLinkCStubs {
                     package,
+                    info: &info,
                 },
-                &action_plan,
                 &packages,
                 &modules,
                 artifact_options(RunBackend::Native, true),
@@ -1292,12 +1549,12 @@ mod tests {
     }
 
     #[test]
-    fn artifact_resolver_handles_non_package_planned_artifacts() {
+    fn artifact_resolver_handles_non_package_products() {
         let resolver = ArtifactPathResolver::new(layout(TargetLayoutMode::Workspace), None);
-        let build_plan = BuildPlan::default();
-        let action_plan = build_plan.build_action_plan();
-        let packages = DiscoverResult::default();
-        let modules = ResolvedEnv::default();
+        let (packages, modules, package) = package_fixture("ffi");
+        let module = modules.input_module_ids()[0];
+        let prebuild_output = PathBuf::from("source/generated.mbt");
+        let prebuild = prebuild_info(prebuild_output.clone());
         let options = ArtifactPathOptions {
             target_backend: RunBackend::Native,
             use_tcc_run: true,
@@ -1307,11 +1564,9 @@ mod tests {
         };
 
         assert_eq!(
-            resolver.paths_for_planned_artifact(
-                &PlannedArtifact::RuntimeLib {
-                    producer: BuildActionId(0)
-                },
-                &action_plan,
+            resolver.paths_for_product(
+                &BuildProduct::RuntimeLib,
+                BuildAction::BuildRuntimeLib,
                 &packages,
                 &modules,
                 options,
@@ -1319,11 +1574,9 @@ mod tests {
             vec![PathBuf::from("_build/native/debug/build/libruntime.so")],
         );
         assert_eq!(
-            resolver.paths_for_planned_artifact(
-                &PlannedArtifact::DocsDir {
-                    producer: BuildActionId(0)
-                },
-                &action_plan,
+            resolver.paths_for_product(
+                &BuildProduct::DocsDir,
+                BuildAction::BuildDocs { module },
                 &packages,
                 &modules,
                 options,
@@ -1331,12 +1584,15 @@ mod tests {
             vec![PathBuf::from("_build/doc")],
         );
         assert_eq!(
-            resolver.paths_for_planned_artifact(
-                &PlannedArtifact::KnownPath {
-                    producer: BuildActionId(0),
-                    path: PathBuf::from("source/generated.mbt"),
+            resolver.paths_for_product(
+                &BuildProduct::PrebuildOutputPath {
+                    path: prebuild_output.clone(),
                 },
-                &action_plan,
+                BuildAction::RunPrebuild {
+                    package,
+                    index: 0,
+                    info: &prebuild,
+                },
                 &packages,
                 &modules,
                 options,

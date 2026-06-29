@@ -39,7 +39,7 @@ use petgraph::Direction;
 use tracing::{Level, instrument};
 
 use crate::{
-    build_action_plan::PlannedArtifact,
+    build_action_plan::BuildProduct,
     build_lower::{
         CExecutableRealization, CStubLibraryRealization, SelectedBackend, WarningCondition,
         compiler::{
@@ -343,13 +343,13 @@ impl<'a> LoweringContext<'a> {
         let module = self.modules.module_info(package.module);
 
         let mi_output = products
-            .optional_single_output_path_matching(|artifact| {
+            .optional_single_output_path_matching(|product| {
                 matches!(
-                    artifact,
-                    PlannedArtifact::PackageInterface {
-                        target: artifact_target,
+                    product,
+                    BuildProduct::PackageInterface {
+                        target: product_target,
                         ..
-                    } if *artifact_target == target
+                    } if *product_target == target
                 )
             })
             .unwrap_or_else(|| {
@@ -435,13 +435,13 @@ impl<'a> LoweringContext<'a> {
         let files_vec = self.compiler_source_files(info);
 
         let backend = self.opt.target_backend.into();
-        let whyml_output = products.single_output_path_matching(|artifact| {
+        let whyml_output = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::ProofWhyml {
-                    target: artifact_target,
+                product,
+                BuildProduct::ProofWhyml {
+                    target: product_target,
                     ..
-                } if *artifact_target == target
+                } if *product_target == target
             )
         });
         let dep_proofs = self.dep_proofs_of(target);
@@ -500,22 +500,22 @@ impl<'a> LoweringContext<'a> {
             .why3_config
             .clone()
             .unwrap_or_else(|| self.artifact_paths.target_layout().why3_config_path());
-        let whyml_output = products.single_output_path_matching(|artifact| {
+        let whyml_output = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::ProofWhyml {
-                    target: artifact_target,
+                product,
+                BuildProduct::ProofWhyml {
+                    target: product_target,
                     ..
-                } if *artifact_target == target
+                } if *product_target == target
             )
         });
-        let proof_report_output = products.single_output_path_matching(|artifact| {
+        let proof_report_output = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::ProofReport {
-                    target: artifact_target,
+                product,
+                BuildProduct::ProofReport {
+                    target: product_target,
                     ..
-                } if *artifact_target == target
+                } if *product_target == target
             )
         });
         let dep_proofs = self.dep_proofs_of(target);
@@ -572,23 +572,23 @@ impl<'a> LoweringContext<'a> {
         let package = self.get_package(target);
         let module = self.modules.module_info(package.module);
 
-        let core_output = products.single_output_path_matching(|artifact| {
+        let core_output = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::PackageCoreIr {
-                    target: artifact_target,
+                product,
+                BuildProduct::PackageCoreIr {
+                    target: product_target,
                     ..
-                } if *artifact_target == target
+                } if *product_target == target
             )
         });
         let mi_output = products
-            .optional_single_output_path_matching(|artifact| {
+            .optional_single_output_path_matching(|product| {
                 matches!(
-                    artifact,
-                    PlannedArtifact::PackageInterface {
-                        target: artifact_target,
+                    product,
+                    BuildProduct::PackageInterface {
+                        target: product_target,
                         ..
-                    } if *artifact_target == target
+                    } if *product_target == target
                 )
             })
             .unwrap_or_else(|| {
@@ -605,13 +605,13 @@ impl<'a> LoweringContext<'a> {
         match target.kind {
             TargetKind::Source | TargetKind::SubPackage => {}
             TargetKind::WhiteboxTest | TargetKind::BlackboxTest | TargetKind::InlineTest => {
-                let test_driver = products.single_dependency_path_matching(|artifact| {
+                let test_driver = products.single_dependency_path_matching(|product| {
                     matches!(
-                        artifact,
-                        PlannedArtifact::GeneratedTestDriver {
-                            target: artifact_target,
+                        product,
+                        BuildProduct::GeneratedTestDriver {
+                            target: product_target,
                             ..
-                        } if *artifact_target == target
+                        } if *product_target == target
                     )
                 });
                 files.push(test_driver);
@@ -700,25 +700,25 @@ impl<'a> LoweringContext<'a> {
         }
         // Linked core targets
         for target in &info.linked_order {
-            let core_path = products.single_dependency_path_matching(|artifact| {
+            let core_path = products.single_dependency_path_matching(|product| {
                 matches!(
-                    artifact,
-                    PlannedArtifact::PackageCoreIr {
-                        target: artifact_target,
+                    product,
+                    BuildProduct::PackageCoreIr {
+                        target: product_target,
                         ..
-                    } if artifact_target == target
+                    } if product_target == target
                 )
             });
             core_input_files.push(core_path);
         }
 
-        let out_file = products.single_output_path_matching(|artifact| {
+        let out_file = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::LinkedCore {
-                    target: artifact_target,
+                product,
+                BuildProduct::LinkedCore {
+                    target: product_target,
                     ..
-                } if *artifact_target == target
+                } if *product_target == target
             )
         });
 
@@ -883,14 +883,14 @@ impl<'a> LoweringContext<'a> {
         let package = self.packages.get_package(target);
 
         let input_file = &package.c_stub_files[index as usize];
-        let output_file = products.single_output_path_matching(|artifact| {
+        let output_file = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::CStubObject {
-                    package: artifact_package,
-                    index: artifact_index,
+                product,
+                BuildProduct::CStubObject {
+                    package: product_package,
+                    index: product_index,
                     ..
-                } if *artifact_package == target && *artifact_index == index
+                } if *product_package == target && *product_index == index
             )
         });
 
@@ -952,21 +952,21 @@ impl<'a> LoweringContext<'a> {
             unreachable!("C stubs are only lowered for C or LLVM backends")
         }
 
-        let object_files = products.dependency_paths_matching(|artifact| {
-            matches!(artifact, PlannedArtifact::CStubObject { .. })
+        let object_files = products.dependency_paths_matching(|product| {
+            matches!(product, BuildProduct::CStubObject { .. })
         });
 
         // There's two ways to handle this:
         // - When not using `tcc -run`, this creates an archive of the C stubs.
         // - When using `tcc -run`, this links the C stubs to an ELF .so, so tcc
         //   can load it at runtime.
-        let output = products.single_output_path_matching(|artifact| {
+        let output = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::CStubLibrary {
-                    package: artifact_package,
+                product,
+                BuildProduct::CStubLibrary {
+                    package: product_package,
                     ..
-                } if *artifact_package == target
+                } if *product_package == target
             )
         });
 
@@ -1024,9 +1024,8 @@ impl<'a> LoweringContext<'a> {
 
         // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
         // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
-        let runtime_dylib = products.single_dependency_path_matching(|artifact| {
-            matches!(artifact, PlannedArtifact::RuntimeLib { .. })
-        });
+        let runtime_dylib = products
+            .single_dependency_path_matching(|product| matches!(product, BuildProduct::RuntimeLib));
         let runtime_parent = runtime_dylib
             .parent()
             .expect("runtime dylib should have a parent directory");
@@ -1075,17 +1074,17 @@ impl<'a> LoweringContext<'a> {
     ) -> BuildCommand {
         debug_assert!({
             let planned_c_stub_count = products
-                .dependency_paths_matching(|artifact| {
-                    matches!(artifact, PlannedArtifact::CStubLibrary { .. })
+                .dependency_paths_matching(|product| {
+                    matches!(product, BuildProduct::CStubLibrary { .. })
                 })
                 .len();
             planned_c_stub_count == info.link_c_stubs.len()
                 && info.link_c_stubs.iter().all(|package| {
                     !products
-                        .dependency_paths_matching(|artifact| {
+                        .dependency_paths_matching(|product| {
                             matches!(
-                                artifact,
-                                PlannedArtifact::CStubLibrary {
+                                product,
+                                BuildProduct::CStubLibrary {
                                     package: actual,
                                     ..
                                 } if actual == package
@@ -1131,18 +1130,19 @@ impl<'a> LoweringContext<'a> {
         // Preserve the legacy linker order: linked core, runtime, then C stubs.
         // Static library order can affect symbol resolution on Unix linkers.
         if include_linked_core {
-            sources.extend(products.dependency_paths_matching(|artifact| {
-                matches!(artifact, PlannedArtifact::LinkedCore { .. })
+            sources.extend(products.dependency_paths_matching(|product| {
+                matches!(product, BuildProduct::LinkedCore { .. })
             }));
         }
 
-        sources.extend(products.dependency_paths_matching(|artifact| {
-            matches!(artifact, PlannedArtifact::RuntimeLib { .. })
-        }));
+        sources.extend(
+            products
+                .dependency_paths_matching(|product| matches!(product, BuildProduct::RuntimeLib)),
+        );
 
         for package in &info.link_c_stubs {
-            sources.extend(products.dependency_paths_matching(|artifact| {
-                matches!(artifact, PlannedArtifact::CStubLibrary { package: actual, .. } if actual == package)
+            sources.extend(products.dependency_paths_matching(|product| {
+                matches!(product, BuildProduct::CStubLibrary { package: actual, .. } if actual == package)
             }));
         }
 
@@ -1335,8 +1335,8 @@ impl<'a> LoweringContext<'a> {
 
         // The C file from moonc link-core
         cmdline.push("-run".to_string());
-        let c_file = products.single_dependency_path_matching(|artifact| {
-            matches!(artifact, PlannedArtifact::LinkedCore { .. })
+        let c_file = products.single_dependency_path_matching(|product| {
+            matches!(product, BuildProduct::LinkedCore { .. })
         });
         cmdline.push(c_file.display().to_string());
 

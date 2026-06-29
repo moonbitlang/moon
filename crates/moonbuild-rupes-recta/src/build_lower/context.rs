@@ -27,7 +27,7 @@ use tracing::{Level, instrument};
 
 use crate::{
     ResolveOutput,
-    build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, PlannedArtifact},
+    build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, BuildProduct},
     discover::{DiscoverResult, DiscoveredPackage},
     model::BuildTarget,
     pkg_solve::DepRelationship,
@@ -37,7 +37,6 @@ use moonutil::toolchain::BINARIES;
 
 use super::{
     BuildOptions, CommandArgMap, Commandline, LoweringError,
-    products::ProductTable,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
@@ -47,7 +46,7 @@ pub(crate) struct LoweringContext<'a> {
 
     pub(crate) command_args_by_output: CommandArgMap,
 
-    // Physical paths for logical build artifacts.
+    // Physical paths for logical build products.
     pub(crate) artifact_paths: ArtifactPathResolver,
 
     // External state
@@ -57,23 +56,32 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) rel: &'a DepRelationship,
     pub(crate) plan: &'a BuildActionPlan<'a>,
     pub(crate) opt: &'a BuildOptions,
-    pub(crate) products: ProductTable,
 }
 
 pub(super) struct ActionProducts {
-    outputs: Vec<RealizedArtifact>,
-    dependencies: Vec<RealizedArtifact>,
+    outputs: Vec<RealizedProduct>,
+    dependencies: Vec<RealizedProduct>,
 }
 
-struct RealizedArtifact {
-    artifact: PlannedArtifact,
+struct RealizedProduct {
+    product: BuildProduct,
     paths: Vec<PathBuf>,
 }
 
 impl ActionProducts {
-    fn new(plan: &BuildActionPlan<'_>, products: &ProductTable, action: BuildActionId) -> Self {
-        let outputs = Self::realize(plan.output_artifacts(action), products);
-        let dependencies = Self::realize(plan.dependency_artifacts(action), products);
+    fn new(ctx: &LoweringContext<'_>, action: BuildActionId) -> Self {
+        let outputs = ctx
+            .plan
+            .output_products(action)
+            .into_iter()
+            .map(|product| Self::realize(ctx, action, product))
+            .collect();
+        let dependencies = ctx
+            .plan
+            .dependency_products(action)
+            .into_iter()
+            .map(|(dependency_action, product)| Self::realize(ctx, dependency_action, product))
+            .collect();
         Self {
             outputs,
             dependencies,
@@ -81,16 +89,18 @@ impl ActionProducts {
     }
 
     fn realize(
-        artifacts: impl IntoIterator<Item = PlannedArtifact>,
-        products: &ProductTable,
-    ) -> Vec<RealizedArtifact> {
-        artifacts
-            .into_iter()
-            .map(|artifact| RealizedArtifact {
-                paths: products.paths(&artifact).to_vec(),
-                artifact,
-            })
-            .collect()
+        ctx: &LoweringContext<'_>,
+        product_action: BuildActionId,
+        product: BuildProduct,
+    ) -> RealizedProduct {
+        let paths = ctx.artifact_paths.paths_for_product(
+            &product,
+            ctx.plan.action(product_action),
+            ctx.packages,
+            ctx.modules,
+            ctx.opt.artifact_path_options(),
+        );
+        RealizedProduct { product, paths }
     }
 
     pub(super) fn dependency_paths(&self) -> Vec<PathBuf> {
@@ -103,14 +113,14 @@ impl ActionProducts {
 
     pub(super) fn single_output_path(&self) -> PathBuf {
         match self.outputs.as_slice() {
-            [artifact] => Self::optional_single_realized_path(artifact)
-                .unwrap_or_else(|| unreachable!("expected exactly one path for artifact")),
-            [] => unreachable!("expected exactly one output artifact"),
+            [product] => Self::optional_single_realized_path(product)
+                .unwrap_or_else(|| unreachable!("expected exactly one path for product")),
+            [] => unreachable!("expected exactly one output product"),
             _ => unreachable!(
-                "expected one output artifact, got {:?}",
+                "expected one output product, got {:?}",
                 self.outputs
                     .iter()
-                    .map(|realized| &realized.artifact)
+                    .map(|realized| &realized.product)
                     .collect::<Vec<_>>()
             ),
         }
@@ -118,67 +128,67 @@ impl ActionProducts {
 
     pub(super) fn single_output_path_matching(
         &self,
-        matches: impl Fn(&PlannedArtifact) -> bool,
+        matches: impl Fn(&BuildProduct) -> bool,
     ) -> PathBuf {
         self.optional_single_output_path_matching(matches)
-            .unwrap_or_else(|| unreachable!("expected one matching output artifact"))
+            .unwrap_or_else(|| unreachable!("expected one matching output product"))
     }
 
     pub(super) fn optional_single_output_path_matching(
         &self,
-        matches: impl Fn(&PlannedArtifact) -> bool,
+        matches: impl Fn(&BuildProduct) -> bool,
     ) -> Option<PathBuf> {
         Self::single_matching_path(&self.outputs, matches)
     }
 
     pub(super) fn single_dependency_path_matching(
         &self,
-        matches: impl Fn(&PlannedArtifact) -> bool,
+        matches: impl Fn(&BuildProduct) -> bool,
     ) -> PathBuf {
         Self::single_matching_path(&self.dependencies, matches)
-            .unwrap_or_else(|| unreachable!("expected one matching dependency artifact"))
+            .unwrap_or_else(|| unreachable!("expected one matching dependency product"))
     }
 
     pub(super) fn dependency_paths_matching(
         &self,
-        matches: impl Fn(&PlannedArtifact) -> bool,
+        matches: impl Fn(&BuildProduct) -> bool,
     ) -> Vec<PathBuf> {
         self.dependencies
             .iter()
-            .filter(|realized| matches(&realized.artifact))
+            .filter(|realized| matches(&realized.product))
             .flat_map(|realized| realized.paths.iter().cloned())
             .collect()
     }
 
-    fn paths(realized: &[RealizedArtifact]) -> Vec<PathBuf> {
+    fn paths(realized: &[RealizedProduct]) -> Vec<PathBuf> {
         realized
             .iter()
-            .flat_map(|artifact| artifact.paths.iter().cloned())
+            .flat_map(|product| product.paths.iter().cloned())
             .collect()
     }
 
     fn single_matching_path(
-        realized: &[RealizedArtifact],
-        matches: impl Fn(&PlannedArtifact) -> bool,
+        realized: &[RealizedProduct],
+        matches: impl Fn(&BuildProduct) -> bool,
     ) -> Option<PathBuf> {
         let matched = realized
             .iter()
-            .filter(|realized| matches(&realized.artifact))
+            .filter(|realized| matches(&realized.product))
             .collect::<Vec<_>>();
         match matched.as_slice() {
-            [artifact] => Self::optional_single_realized_path(artifact),
+            [product] => Self::optional_single_realized_path(product),
             [] => None,
-            _ => unreachable!("expected at most one matching artifact"),
+            _ => unreachable!("expected at most one matching product"),
         }
     }
 
-    fn optional_single_realized_path(artifact: &RealizedArtifact) -> Option<PathBuf> {
-        match artifact.paths.as_slice() {
+    fn optional_single_realized_path(product: &RealizedProduct) -> Option<PathBuf> {
+        match product.paths.as_slice() {
             [path] => Some(path.clone()),
             [] => None,
             _ => unreachable!(
-                "expected one path for artifact, got {:?}: {:?}",
-                artifact.paths, artifact.artifact
+                "expected one path for product, got {:?}: {:?}",
+                product.paths, product.product
             ),
         }
     }
@@ -191,7 +201,6 @@ impl<'a> LoweringContext<'a> {
         plan: &'a BuildActionPlan<'a>,
         opt: &'a BuildOptions,
     ) -> Self {
-        let products = ProductTable::new(&artifact_paths, resolve_output, plan, opt);
         Self {
             graph: N2Graph::default(),
             command_args_by_output: CommandArgMap::new(),
@@ -202,7 +211,6 @@ impl<'a> LoweringContext<'a> {
             module_dirs: &resolve_output.module_dirs,
             plan,
             opt,
-            products,
         }
     }
 
@@ -216,13 +224,29 @@ impl<'a> LoweringContext<'a> {
         self.packages.get_package(target.package)
     }
 
+    pub(super) fn output_paths_for_action(&self, action: BuildActionId) -> Vec<PathBuf> {
+        self.plan
+            .output_products(action)
+            .into_iter()
+            .flat_map(|product| {
+                self.artifact_paths.paths_for_product(
+                    &product,
+                    self.plan.action(action),
+                    self.packages,
+                    self.modules,
+                    self.opt.artifact_path_options(),
+                )
+            })
+            .collect()
+    }
+
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn lower_action(&mut self, id: BuildActionId) -> Result<(), LoweringError> {
         let action = self.plan.action(id);
         if self.is_action_noop(action) {
             return Ok(());
         }
-        let action_products = ActionProducts::new(self.plan, &self.products, id);
+        let action_products = ActionProducts::new(self, id);
 
         // Lower the action to its commands. This step should be infallible.
         let cmd = match action {
