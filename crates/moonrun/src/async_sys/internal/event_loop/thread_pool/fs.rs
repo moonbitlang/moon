@@ -271,6 +271,18 @@ ported_fns! {
         let buffer = buffer.get_mut(..len).ok_or(AsyncHostError::Fault)?;
         read_native_dir(dir, buffer, restart)
     }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "realpath_job_worker"
+    )]
+    pub(super) fn run_realpath_job(
+        path: OsString,
+        result: &mut Option<Box<[u8]>>,
+    ) -> AsyncHostResult<i64> {
+        *result = Some(realpath_native_path(path)?);
+        Ok(0)
+    }
 }
 
 #[cfg(unix)]
@@ -799,6 +811,24 @@ fn rmdir_native_path(path: OsString) -> AsyncHostResult<()> {
     } else {
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn realpath_native_path(path: OsString) -> AsyncHostResult<Box<[u8]>> {
+    let path = path_to_cstring(path)?;
+    let resolved = unsafe { libc::realpath(path.as_ptr(), std::ptr::null_mut()) };
+    if resolved.is_null() {
+        return Err(last_native_error());
+    }
+
+    let bytes = unsafe { std::ffi::CStr::from_ptr(resolved) }
+        .to_bytes_with_nul()
+        .to_vec()
+        .into_boxed_slice();
+    unsafe {
+        libc::free(resolved.cast());
+    }
+    Ok(bytes)
 }
 
 #[cfg(all(unix, target_os = "linux"))]
@@ -1555,6 +1585,72 @@ fn rmdir_native_path(path: OsString) -> AsyncHostResult<()> {
 }
 
 #[cfg(windows)]
+fn realpath_native_path(path: OsString) -> AsyncHostResult<Box<[u8]>> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_BACKUP_SEMANTICS, FILE_NAME_NORMALIZED,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFinalPathNameByHandleW,
+        OPEN_EXISTING, VOLUME_NAME_DOS,
+    };
+
+    const BUFFER_LEN: usize = 1024;
+
+    let path = path_to_wide(path);
+    let file = unsafe {
+        CreateFileW(
+            path.as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS,
+            std::ptr::null_mut(),
+        )
+    };
+    if file == INVALID_HANDLE_VALUE {
+        return Err(last_native_error());
+    }
+
+    let result = (|| {
+        let flags = FILE_NAME_NORMALIZED | VOLUME_NAME_DOS;
+        let mut stack_buffer = [0u16; BUFFER_LEN];
+        let len = unsafe {
+            GetFinalPathNameByHandleW(file, stack_buffer.as_mut_ptr(), BUFFER_LEN as u32, flags)
+        };
+        if len == 0 {
+            return Err(last_native_error());
+        }
+
+        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+        if len < stack_buffer.len() {
+            return Ok(copy_windows_realpath_c_string_bytes(&stack_buffer[..len]));
+        }
+
+        let buffer_len = len.checked_add(1).ok_or(AsyncHostError::Fault)?;
+        let mut heap_buffer = vec![0u16; buffer_len];
+        let len = unsafe {
+            GetFinalPathNameByHandleW(
+                file,
+                heap_buffer.as_mut_ptr(),
+                u32::try_from(heap_buffer.len()).map_err(|_| AsyncHostError::Fault)?,
+                flags,
+            )
+        };
+        if len == 0 {
+            return Err(last_native_error());
+        }
+        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+        let units = heap_buffer.get(..len).ok_or(AsyncHostError::Fault)?;
+        Ok(copy_windows_realpath_c_string_bytes(units))
+    })();
+
+    unsafe {
+        CloseHandle(file);
+    }
+    result
+}
+
+#[cfg(windows)]
 fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
     use windows_sys::Win32::Foundation::{ERROR_NO_MORE_FILES, HANDLE};
     use windows_sys::Win32::Storage::FileSystem::{
@@ -1681,6 +1777,62 @@ fn os_string_to_wide(path: OsString) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
 
     path.as_os_str().encode_wide().collect()
+}
+
+#[cfg(windows)]
+fn copy_windows_realpath_c_string_bytes(units: &[u16]) -> Box<[u8]> {
+    const VERBATIM_PREFIX_LEN: usize = 4;
+    const VERBATIM_UNC_PREFIX: [u16; 8] = [
+        '\\' as u16,
+        '\\' as u16,
+        '?' as u16,
+        '\\' as u16,
+        'U' as u16,
+        'N' as u16,
+        'C' as u16,
+        '\\' as u16,
+    ];
+
+    if units.starts_with(&VERBATIM_UNC_PREFIX) {
+        let units = &units[6..];
+        let byte_len = std::mem::size_of_val(units);
+        let mut buffer = Box::<[u8]>::new_uninit_slice(byte_len + std::mem::size_of::<u16>());
+        let first_unit = ('\\' as u16).to_ne_bytes();
+        buffer[0].write(first_unit[0]);
+        buffer[1].write(first_unit[1]);
+        if units.len() > 1 {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    units[1..].as_ptr().cast::<u8>(),
+                    buffer.as_mut_ptr().add(std::mem::size_of::<u16>()).cast(),
+                    byte_len - std::mem::size_of::<u16>(),
+                );
+            }
+        }
+        buffer[byte_len].write(0);
+        buffer[byte_len + 1].write(0);
+        unsafe { buffer.assume_init() }
+    } else if units.len() >= VERBATIM_PREFIX_LEN {
+        copy_wide_c_string_bytes(&units[VERBATIM_PREFIX_LEN..])
+    } else {
+        copy_wide_c_string_bytes(units)
+    }
+}
+
+#[cfg(windows)]
+fn copy_wide_c_string_bytes(units: &[u16]) -> Box<[u8]> {
+    let byte_len = std::mem::size_of_val(units);
+    let mut buffer = Box::<[u8]>::new_uninit_slice(byte_len + std::mem::size_of::<u16>());
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            units.as_ptr().cast::<u8>(),
+            buffer.as_mut_ptr().cast(),
+            byte_len,
+        );
+    }
+    buffer[byte_len].write(0);
+    buffer[byte_len + 1].write(0);
+    unsafe { buffer.assume_init() }
 }
 
 fn last_native_error() -> AsyncHostError {

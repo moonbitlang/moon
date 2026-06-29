@@ -359,6 +359,18 @@ ported_fns! {
 
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_make_realpath_job"
+    )]
+    pub(crate) fn make_realpath_job(path: OsString) -> Job {
+        Job::new(JobPayload::Realpath {
+            path,
+            result: None,
+            result_handle: None,
+        })
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_spawn_job"
     )]
     #[allow(clippy::too_many_arguments)]
@@ -382,6 +394,26 @@ ported_fns! {
             cwd,
             result: None,
         })
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_get_realpath_result"
+    )]
+    pub(crate) fn get_realpath_result_handle(job: &Job) -> AsyncHostResult<Option<HostHandle>> {
+        match job.payload() {
+            JobPayload::Realpath {
+                result_handle: Some(handle),
+                ..
+            } => Ok(Some(*handle)),
+            JobPayload::Realpath {
+                result: Some(_),
+                result_handle: None,
+                ..
+            } => Ok(None),
+            JobPayload::Realpath { .. } => Err(AsyncHostError::Inval),
+            _ => Err(AsyncHostError::Badf),
+        }
     }
 
     #[ported(
@@ -557,6 +589,28 @@ pub(crate) fn getaddrinfo_job_result(job: &Job) -> AsyncHostResult<(&OsStr, &[Bo
     }
 }
 
+pub(crate) fn take_realpath_result_buffer(job: &mut Job) -> AsyncHostResult<Box<[u8]>> {
+    match job.payload_mut() {
+        JobPayload::Realpath {
+            result,
+            result_handle: None,
+            ..
+        } => result.take().ok_or(AsyncHostError::Inval),
+        JobPayload::Realpath { .. } => Err(AsyncHostError::Inval),
+        _ => Err(AsyncHostError::Badf),
+    }
+}
+
+pub(crate) fn set_realpath_result_handle(job: &mut Job, handle: HostHandle) -> AsyncHostResult<()> {
+    match job.payload_mut() {
+        JobPayload::Realpath { result_handle, .. } => {
+            *result_handle = Some(handle);
+            Ok(())
+        }
+        _ => Err(AsyncHostError::Badf),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -614,6 +668,52 @@ mod tests {
             }
             other => panic!("unexpected payload: {other:?}"),
         }
+    }
+
+    #[test]
+    fn realpath_job_carries_owned_path() {
+        let job = make_realpath_job(OsString::from("/tmp/example"));
+
+        match job.payload() {
+            JobPayload::Realpath {
+                path,
+                result: None,
+                result_handle: None,
+            } => {
+                assert_eq!(path, &OsString::from("/tmp/example"));
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn realpath_job_resolves_to_nul_terminated_c_buffer() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("target");
+        let link = tmp.path().join("link");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let mut job = make_realpath_job(link.into_os_string());
+
+        run_host_job(&mut job);
+
+        assert_eq!(job_get_ret(&job), 0);
+        assert_eq!(job_get_err(&job), 0);
+        let JobPayload::Realpath {
+            result: Some(buffer),
+            result_handle: None,
+            ..
+        } = job.payload()
+        else {
+            panic!("expected completed realpath job");
+        };
+        let realpath = std::ffi::CStr::from_bytes_with_nul(buffer.as_ref()).unwrap();
+        let expected = std::fs::canonicalize(target).unwrap();
+        assert_eq!(realpath.to_bytes(), expected.as_os_str().as_bytes());
     }
 
     #[test]

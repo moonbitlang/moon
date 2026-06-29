@@ -2271,6 +2271,17 @@ impl AsyncHost {
             | HostJobState::Queued(job)
             | HostJobState::ResultReady(job) => {
                 Self::revoke_unclaimed_spawn(self.process_policy_state.as_deref(), &job);
+
+                // Native realpath frees its resolved path from the job finalizer.
+                // After get_realpath_result exposes that path as a host c_buffer,
+                // freeing the job must also release the c_buffer slot.
+                if let thread_pool::JobPayload::Realpath {
+                    result_handle: Some(buffer_handle),
+                    ..
+                } = job.payload()
+                {
+                    let _ = self.free_c_buffer(*buffer_handle);
+                }
             }
             HostJobState::Running => {}
         }
@@ -3799,6 +3810,28 @@ impl AsyncHost {
         thread_pool::get_file_time_result(job, memory, dst)
     }
 
+    pub(crate) fn get_realpath_result(&self, handle: u64) -> AsyncHostResult<u64> {
+        let key = self.handles.lock().unwrap().job(handle)?;
+        {
+            let jobs = self.jobs.lock().unwrap();
+            let job = jobs.visible_job(key)?;
+            if let Some(handle) = thread_pool::get_realpath_result_handle(job)? {
+                return Ok(handle);
+            }
+        }
+
+        let buffer = {
+            let mut jobs = self.jobs.lock().unwrap();
+            let job = jobs.visible_job_mut(key)?;
+            thread_pool::take_realpath_result_buffer(job)?
+        };
+        let buffer_handle = self.insert_c_buffer(buffer);
+        let mut jobs = self.jobs.lock().unwrap();
+        let job = jobs.visible_job_mut(key)?;
+        thread_pool::set_realpath_result_handle(job, buffer_handle)?;
+        Ok(buffer_handle)
+    }
+
     #[cfg(unix)]
     pub(crate) fn thread_pool_notifier(
         &self,
@@ -4972,6 +5005,46 @@ mod tests {
         assert_eq!(
             host.with_c_buffer_mut(interior_ptr, |_| Ok(()))
                 .unwrap_err(),
+            AsyncHostError::Badf
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn realpath_result_is_registered_c_buffer_cleaned_up_with_job() {
+        let host = AsyncHost::default();
+        let job_handle = host
+            .insert_job(thread_pool::make_realpath_job(std::ffi::OsString::from(
+                "/tmp/example",
+            )))
+            .unwrap();
+        {
+            let mut jobs = host.jobs.lock().unwrap();
+            let job = jobs.visible_job_mut(job_key(&host, job_handle)).unwrap();
+            let thread_pool::JobPayload::Realpath {
+                result,
+                result_handle,
+                ..
+            } = job.payload_mut()
+            else {
+                panic!("expected realpath job");
+            };
+            *result = Some(b"/tmp/example\0".to_vec().into_boxed_slice());
+            assert_eq!(*result_handle, None);
+        }
+
+        let buffer_handle = host.get_realpath_result(job_handle).unwrap();
+        assert_eq!(host.get_realpath_result(job_handle).unwrap(), buffer_handle);
+        host.with_c_buffer(buffer_handle, |buffer| {
+            assert_eq!(buffer, b"/tmp/example\0");
+            Ok(())
+        })
+        .unwrap();
+
+        host.free_job(job_handle).unwrap();
+
+        assert_eq!(
+            host.with_c_buffer(buffer_handle, |_| Ok(())).unwrap_err(),
             AsyncHostError::Badf
         );
     }
