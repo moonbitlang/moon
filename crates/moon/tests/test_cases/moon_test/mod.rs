@@ -434,20 +434,32 @@ fn test_moon_test_with_local_dep() {
             _build/wasm-gc/debug/check/.mooncakes/lijunchen
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/lib
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/lib/lib.ast
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/lib/lib.mi
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/lib/lib.typechecked
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/mooncake.ast
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/mooncake.mi
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake/mooncake.typechecked
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/lib
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/lib/lib.ast
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/lib/lib.mi
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/lib/lib.typechecked
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/mooncake2.ast
             _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/mooncake2.mi
+            _build/wasm-gc/debug/check/.mooncakes/lijunchen/mooncake2/mooncake2.typechecked
             _build/wasm-gc/debug/check/all_pkgs.json
             _build/wasm-gc/debug/check/check.moon_db
             _build/wasm-gc/debug/check/lib
+            _build/wasm-gc/debug/check/lib/lib.ast
             _build/wasm-gc/debug/check/lib/lib.mbti
             _build/wasm-gc/debug/check/lib/lib.mi
+            _build/wasm-gc/debug/check/lib/lib.typechecked
             _build/wasm-gc/debug/check/main
+            _build/wasm-gc/debug/check/main/main.ast
             _build/wasm-gc/debug/check/main/main.mbti
             _build/wasm-gc/debug/check/main/main.mi
+            _build/wasm-gc/debug/check/main/main.typechecked
             _build/wasm-gc/debug/test
             _build/wasm-gc/debug/test/.mooncakes
             _build/wasm-gc/debug/test/.mooncakes/lijunchen

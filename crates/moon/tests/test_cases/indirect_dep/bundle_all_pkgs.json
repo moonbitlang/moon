@@ -376,6 +376,11 @@
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/unit/unit.mi"
     },
     {
+      "root": "moonbitlang/core",
+      "rel": "v128",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/v128/v128.mi"
+    },
+    {
       "root": "username/indirect_dep",
       "rel": "cmd/main",
       "artifact": "$ROOT/_build/wasm-gc/release/bundle/cmd/main/main.mi"
