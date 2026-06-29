@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(windows)]
+use crate::async_sys::internal::event_loop::io;
 use crate::async_sys::internal::event_loop::thread_pool;
 
 use super::context::ImportContext;
@@ -34,5 +36,23 @@ pub(super) fn errno_is_cancelled(_context: &mut ImportContext<'_, '_>, errno: i3
     } else {
         0
     }
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_init_WSA"
+)]
+#[cfg(windows)]
+pub(super) fn init_wsa(_context: &mut ImportContext<'_, '_>) -> i32 {
+    io::init_wsa()
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_cleanup_WSA"
+)]
+#[cfg(windows)]
+pub(super) fn cleanup_wsa(_context: &mut ImportContext<'_, '_>) -> i32 {
+    io::cleanup_wsa()
 }
 }

@@ -311,6 +311,22 @@ ported_fns! {
         })
     }
 
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_make_bind_job"
+    )]
+    pub(crate) fn make_bind_job(socket: HostHandle, addr: Vec<u8>) -> Job {
+        Job::new(JobPayload::Bind { socket, addr })
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_make_getaddrinfo_job"
+    )]
+    pub(crate) fn make_getaddrinfo_job(host: OsString) -> Job {
+        Job::new(JobPayload::GetAddrInfo { host, result: None })
+    }
+
 }
 
 pub(crate) fn open_job_result(job: &Job) -> AsyncHostResult<&OpenJobResult> {
@@ -320,6 +336,17 @@ pub(crate) fn open_job_result(job: &Job) -> AsyncHostResult<&OpenJobResult> {
             ..
         } => Ok(result),
         JobPayload::Open { .. } => Err(AsyncHostError::Inval),
+        _ => Err(AsyncHostError::Badf),
+    }
+}
+
+pub(crate) fn getaddrinfo_job_result(job: &Job) -> AsyncHostResult<&[Box<[u8]>]> {
+    match job.payload() {
+        JobPayload::GetAddrInfo {
+            result: Some(result),
+            ..
+        } => Ok(result),
+        JobPayload::GetAddrInfo { .. } => Err(AsyncHostError::Inval),
         _ => Err(AsyncHostError::Badf),
     }
 }
@@ -344,7 +371,11 @@ mod tests {
         }
 
         #[cfg(windows)]
-        fn borrowed_raw_file(&mut self, _handle: HostHandle) -> AsyncHostResult<RawFd> {
+        fn with_borrowed_raw_file<T>(
+            &mut self,
+            _handle: HostHandle,
+            _f: impl FnOnce(RawFd) -> AsyncHostResult<T>,
+        ) -> AsyncHostResult<T> {
             unreachable!("sleep jobs do not access files")
         }
 

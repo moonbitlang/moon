@@ -26,14 +26,33 @@ pub(crate) type HostHandle = u64;
 #[derive(Debug)]
 pub(crate) struct HostFile {
     raw: fd_util::stub::RawFd,
+    close_kind: HostFileCloseKind,
 }
 
 #[cfg(windows)]
 unsafe impl Send for HostFile {}
 
+#[derive(Debug, Clone, Copy)]
+enum HostFileCloseKind {
+    File,
+    #[cfg(windows)]
+    Socket,
+}
+
 impl HostFile {
     pub(crate) fn new(raw: fd_util::stub::RawFd) -> Self {
-        Self { raw }
+        Self {
+            raw,
+            close_kind: HostFileCloseKind::File,
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn new_socket(raw: fd_util::stub::RawFd) -> Self {
+        Self {
+            raw,
+            close_kind: HostFileCloseKind::Socket,
+        }
     }
 
     pub(crate) fn invalid() -> Self {
@@ -52,14 +71,17 @@ impl HostFile {
         if self.is_invalid() {
             return Err(AsyncHostError::Badf);
         }
-        duplicate_raw_file(self.raw).map(Self::new)
+        duplicate_raw_file(self.raw).map(|raw| Self {
+            raw,
+            close_kind: self.close_kind,
+        })
     }
 }
 
 impl Drop for HostFile {
     fn drop(&mut self) {
         if !self.is_invalid() {
-            close_raw_file(self.raw);
+            close_raw_file(self.raw, self.close_kind);
             self.raw = invalid_raw_file();
         }
     }
@@ -80,16 +102,21 @@ fn is_invalid_raw_file(raw: fd_util::stub::RawFd) -> bool {
 }
 
 #[cfg(unix)]
-fn close_raw_file(raw: fd_util::stub::RawFd) {
+fn close_raw_file(raw: fd_util::stub::RawFd, _close_kind: HostFileCloseKind) {
     unsafe {
         libc::close(raw);
     }
 }
 
 #[cfg(windows)]
-fn close_raw_file(raw: fd_util::stub::RawFd) {
-    unsafe {
-        windows_sys::Win32::Foundation::CloseHandle(raw);
+fn close_raw_file(raw: fd_util::stub::RawFd, close_kind: HostFileCloseKind) {
+    match close_kind {
+        HostFileCloseKind::File => unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(raw);
+        },
+        HostFileCloseKind::Socket => unsafe {
+            windows_sys::Win32::Networking::WinSock::closesocket(raw as usize);
+        },
     }
 }
 
@@ -291,6 +318,14 @@ pub(crate) enum JobPayload {
         len: i32,
         restart: bool,
     },
+    Bind {
+        socket: HostHandle,
+        addr: Vec<u8>,
+    },
+    GetAddrInfo {
+        host: OsString,
+        result: Option<Vec<Box<[u8]>>>,
+    },
 }
 
 pub(crate) trait HostFileTable {
@@ -299,7 +334,11 @@ pub(crate) trait HostFileTable {
     fn is_invalid_file_handle(&self, handle: HostHandle) -> bool;
 
     #[cfg(windows)]
-    fn borrowed_raw_file(&mut self, handle: HostHandle) -> AsyncHostResult<fd_util::stub::RawFd>;
+    fn with_borrowed_raw_file<T>(
+        &mut self,
+        handle: HostHandle,
+        f: impl FnOnce(fd_util::stub::RawFd) -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T>;
 
     fn with_raw_file<T>(
         &mut self,

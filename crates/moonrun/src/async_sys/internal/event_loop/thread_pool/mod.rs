@@ -20,16 +20,18 @@ mod fs;
 mod jobs;
 mod runner;
 mod sleep;
+mod socket;
 mod types;
 mod worker;
 
 pub(crate) use jobs::{
-    errno_is_cancelled, get_file_size_result, get_platform, job_get_err, job_get_ret,
-    make_access_job, make_chmod_job, make_file_kind_by_path_job, make_file_size_job,
-    make_file_time_by_path_job, make_file_time_job, make_flock_job, make_fsync_job, make_mkdir_job,
-    make_open_job, make_read_job, make_readdir_job, make_remove_job, make_rename_job,
-    make_rmdir_job, make_sleep_job, make_symlink_job, make_write_job, open_job_get_dev_id,
-    open_job_get_fd, open_job_get_file_id, open_job_get_kind, open_job_result,
+    errno_is_cancelled, get_file_size_result, get_platform, getaddrinfo_job_result, job_get_err,
+    job_get_ret, make_access_job, make_bind_job, make_chmod_job, make_file_kind_by_path_job,
+    make_file_size_job, make_file_time_by_path_job, make_file_time_job, make_flock_job,
+    make_fsync_job, make_getaddrinfo_job, make_mkdir_job, make_open_job, make_read_job,
+    make_readdir_job, make_remove_job, make_rename_job, make_rmdir_job, make_sleep_job,
+    make_symlink_job, make_write_job, open_job_get_dev_id, open_job_get_fd, open_job_get_file_id,
+    open_job_get_kind, open_job_result,
 };
 pub(crate) use runner::{get_file_time_result, get_read_result, run_host_job};
 #[cfg(all(test, unix))]
@@ -53,6 +55,7 @@ fn job_executor_ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
     let mut symbols = Vec::new();
     symbols.extend_from_slice(fs::PORTED_SYMBOLS);
     symbols.extend_from_slice(sleep::PORTED_SYMBOLS);
+    symbols.extend_from_slice(socket::PORTED_SYMBOLS);
     symbols
 }
 

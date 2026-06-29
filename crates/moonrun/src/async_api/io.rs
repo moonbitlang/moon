@@ -84,6 +84,71 @@ pub(super) fn make_file_io_result(
 
 #[ported(
     source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_socket_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_socket_io_result(
+    context: &mut ImportContext<'_, '_>,
+    events: i32,
+    buf: i32,
+    offset: i32,
+    len: i32,
+    flags: i32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_socket_io_result(memory, events, buf, offset, len, flags)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_socket_with_addr_io_result"
+)]
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn make_socket_with_addr_io_result(
+    context: &mut ImportContext<'_, '_>,
+    events: i32,
+    buf: i32,
+    offset: i32,
+    len: i32,
+    flags: i32,
+    addr: i32,
+    addr_len: i32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_socket_with_addr_io_result(memory, events, buf, offset, len, flags, addr, addr_len)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_connect_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_connect_io_result(
+    context: &mut ImportContext<'_, '_>,
+    addr: i32,
+    addr_len: i32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_connect_io_result(memory, addr, addr_len)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_accept_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_accept_io_result(
+    context: &mut ImportContext<'_, '_>,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.host.make_accept_io_result()
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
     original = "moonbitlang_async_free_io_result"
 )]
 #[cfg(windows)]

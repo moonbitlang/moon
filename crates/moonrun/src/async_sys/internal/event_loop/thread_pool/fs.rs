@@ -204,9 +204,10 @@ ported_fns! {
             // LockFileEx/UnlockFile. Native async passes the same HANDLE to the
             // flock worker and unlock stub, so the wasm host must not duplicate
             // the handle here or it creates a separate lock identity.
-            let file = files.borrowed_raw_file(fd)?;
-            lock_native_file(file, exclusive)?;
-            Ok(0)
+            files.with_borrowed_raw_file(fd, |file| {
+                lock_native_file(file, exclusive)?;
+                Ok(0)
+            })
         }
 
         #[cfg(not(windows))]

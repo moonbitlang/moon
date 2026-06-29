@@ -126,7 +126,7 @@ pub(super) fn make_open_job(
     sync: i32,
     mode: i32,
 ) -> AsyncHostResult<u64> {
-    let filename = read_guest_path(context, path_ptr, path_len)?;
+    let filename = read_guest_os_string(context, path_ptr, path_len)?;
 
     context.host.insert_job(thread_pool::make_open_job(
         filename,
@@ -186,7 +186,7 @@ pub(super) fn make_file_kind_by_path_job(
     path_len: i32,
     follow_symlink: i32,
 ) -> AsyncHostResult<u64> {
-    let path = read_guest_path(context, path_ptr, path_len)?;
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
 
     context.host
         .insert_job(thread_pool::make_file_kind_by_path_job(
@@ -222,7 +222,7 @@ pub(super) fn make_file_time_by_path_job(
     path_len: i32,
     follow_symlink: i32,
 ) -> AsyncHostResult<u64> {
-    let path = read_guest_path(context, path_ptr, path_len)?;
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
 
     context.host
         .insert_job(thread_pool::make_file_time_by_path_job(
@@ -248,7 +248,7 @@ pub(super) fn make_access_job(
     path_len: i32,
     access: i32,
 ) -> AsyncHostResult<u64> {
-    let path = read_guest_path(context, path_ptr, path_len)?;
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
 
     context.host
         .insert_job(thread_pool::make_access_job(path, access))
@@ -261,7 +261,7 @@ pub(super) fn make_chmod_job(
     path_len: i32,
     mode: i32,
 ) -> AsyncHostResult<u64> {
-    let path = read_guest_path(context, path_ptr, path_len)?;
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
 
     context.host
         .insert_job(thread_pool::make_chmod_job(path, mode))
@@ -293,7 +293,7 @@ pub(super) fn make_remove_job(
     path_ptr: i32,
     path_len: i32,
 ) -> AsyncHostResult<u64> {
-    let path = read_guest_path(context, path_ptr, path_len)?;
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
     context.host.insert_job(thread_pool::make_remove_job(path))
 }
 
@@ -306,8 +306,8 @@ pub(super) fn make_rename_job(
     new_path_len: i32,
     replace: i32,
 ) -> AsyncHostResult<u64> {
-    let old_path = read_guest_path(context, old_path_ptr, old_path_len)?;
-    let new_path = read_guest_path(context, new_path_ptr, new_path_len)?;
+    let old_path = read_guest_os_string(context, old_path_ptr, old_path_len)?;
+    let new_path = read_guest_os_string(context, new_path_ptr, new_path_len)?;
 
     context.host.insert_job(thread_pool::make_rename_job(
         old_path,
@@ -325,8 +325,8 @@ pub(super) fn make_symlink_job(
     path_len: i32,
     force_symlink: i32,
 ) -> AsyncHostResult<u64> {
-    let target = read_guest_path(context, target_ptr, target_len)?;
-    let path = read_guest_path(context, path_ptr, path_len)?;
+    let target = read_guest_os_string(context, target_ptr, target_len)?;
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
 
     context.host.insert_job(thread_pool::make_symlink_job(
         target,
@@ -342,7 +342,7 @@ pub(super) fn make_mkdir_job(
     path_len: i32,
     mode: i32,
 ) -> AsyncHostResult<u64> {
-    let path = read_guest_path(context, path_ptr, path_len)?;
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
 
     context.host
         .insert_job(thread_pool::make_mkdir_job(path, mode))
@@ -354,7 +354,7 @@ pub(super) fn make_rmdir_job(
     path_ptr: i32,
     path_len: i32,
 ) -> AsyncHostResult<u64> {
-    let path = read_guest_path(context, path_ptr, path_len)?;
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
     context.host.insert_job(thread_pool::make_rmdir_job(path))
 }
 
@@ -377,6 +377,38 @@ pub(super) fn make_readdir_job(
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_bind_job(
+    context: &mut ImportContext<'_, '_>,
+    socket: u64,
+    addr: i32,
+    addr_len: i32,
+) -> AsyncHostResult<u64> {
+    let addr = context.with_memory_mut(|memory| Ok(memory.read_exact(addr, addr_len)?.to_vec()))?;
+    context
+        .host
+        .insert_job(thread_pool::make_bind_job(socket, addr))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_getaddrinfo_job(
+    context: &mut ImportContext<'_, '_>,
+    host: i32,
+    host_len: i32,
+) -> AsyncHostResult<u64> {
+    let host = read_guest_os_string(context, host, host_len)?;
+    context
+        .host
+        .insert_job(thread_pool::make_getaddrinfo_job(host))
+}
+
+pub(super) fn get_getaddrinfo_result(
+    context: &mut ImportContext<'_, '_>,
+    job: u64,
+) -> AsyncHostResult<u64> {
+    context.host.get_getaddrinfo_result(job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn open_job_get_fd(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<u64> {
     context.host.open_job_get_fd(job)
 }
@@ -396,78 +428,29 @@ pub(super) fn open_job_get_file_id(context: &mut ImportContext<'_, '_>, job: u64
     context.host.open_job_get_file_id(job)
 }
 
-fn read_guest_path(context: &mut ImportContext<'_, '_>, ptr: i32, len: i32) -> AsyncHostResult<OsString> {
-    // Async path imports pass MoonBit String data, so `len` is UTF-16 code
+fn read_guest_os_string(context: &mut ImportContext<'_, '_>, ptr: i32, len: i32) -> AsyncHostResult<OsString> {
+    // Async OsString imports pass MoonBit String data, so `len` is UTF-16 code
     // units. Do not treat this as UTF-8 bytes or a native C string.
     context.with_memory_mut(|memory| {
         let units = read_u16(memory, ptr, len)?;
-        Ok(decode_guest_path(units))
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+
+            let path = char::decode_utf16(units.iter().copied())
+                .map(Result::unwrap)
+                .collect::<String>();
+            Ok(OsString::from_vec(path.into_bytes()))
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStringExt;
+
+            Ok(OsString::from_wide(units))
+        }
     })
 }
 
-#[cfg(unix)]
-fn decode_guest_path(units: &[u16]) -> OsString {
-    use std::os::unix::ffi::OsStringExt;
-
-    let path = char::decode_utf16(units.iter().copied())
-        .map(Result::unwrap)
-        .collect::<String>();
-    OsString::from_vec(path.into_bytes())
-}
-
-#[cfg(windows)]
-fn decode_guest_path(units: &[u16]) -> OsString {
-    use std::os::windows::ffi::OsStringExt;
-
-    OsString::from_wide(units)
-}
-
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(unix)]
-    #[test]
-    fn guest_path_decodes_utf16_to_unix_bytes() {
-        use std::os::unix::ffi::OsStrExt;
-
-        let units = guest_string_units("async-fs-smoke-\u{1f600}.txt");
-        let path = decode_guest_path(&units);
-
-        assert_eq!(
-            path.as_os_str().as_bytes(),
-            "async-fs-smoke-\u{1f600}.txt".as_bytes()
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn guest_path_decodes_utf16_on_windows() {
-        use std::os::windows::ffi::OsStrExt;
-
-        let units = guest_string_units("async-fs-smoke-\u{1f600}.txt");
-        let path = decode_guest_path(&units);
-
-        assert_eq!(
-            path.as_os_str().encode_wide().collect::<Vec<_>>(),
-            "async-fs-smoke-\u{1f600}.txt"
-                .encode_utf16()
-                .collect::<Vec<_>>()
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn guest_path_length_is_utf16_code_units_on_windows() {
-        let units = guest_string_units("a.txt");
-        let path = decode_guest_path(&units);
-
-        assert_eq!(path, OsString::from("a.txt"));
-    }
-
-    fn guest_string_units(path: &str) -> Vec<u16> {
-        path.encode_utf16().collect()
-    }
 }

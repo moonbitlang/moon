@@ -119,8 +119,11 @@ ported_fns! {
         }
         #[cfg(windows)]
         {
-            use windows_sys::Win32::Foundation::ERROR_CONNECTION_REFUSED;
-            errno == ERROR_CONNECTION_REFUSED as i32
+            use windows_sys::Win32::{
+                Foundation::ERROR_CONNECTION_REFUSED,
+                Networking::WinSock::WSAECONNREFUSED,
+            };
+            errno == ERROR_CONNECTION_REFUSED as i32 || errno == WSAECONNREFUSED
         }
     }
 

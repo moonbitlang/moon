@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+///|
 fn get_platform() -> Int = "moonbitlang/async" "runtime/get_platform"
 
 ///|
@@ -157,11 +158,20 @@ fn main {
   )
   let tmp_path_len = get_tmp_path_len()
   assert_true(tmp_path_len > 0, "tmp path size query failed")
-  assert_true(get_tmp_path(0, 0) == -1, "tmp path fill accepted a missing buffer")
+  assert_true(
+    get_tmp_path(0, 0) == -1,
+    "tmp path fill accepted a missing buffer",
+  )
   let tmp_path = String::make(tmp_path_len, '\u{0}')
   let tmp_path_ptr = string_to_ptr(tmp_path)
-  assert_true(get_tmp_path(tmp_path_ptr, tmp_path_len) == 0, "tmp path fill failed")
-  assert_true(tmp_path != String::make(tmp_path_len, '\u{0}'), "tmp path fill wrote an empty path")
+  assert_true(
+    get_tmp_path(tmp_path_ptr, tmp_path_len) == 0,
+    "tmp path fill failed",
+  )
+  assert_true(
+    tmp_path != String::make(tmp_path_len, '\u{0}'),
+    "tmp path fill wrote an empty path",
+  )
   assert_true(!errno_is_lock_violation(0), "zero errno is a lock violation")
   let bus = event_bus_create()
   assert_true(event_bus_wait(bus, 0) == 0, "empty event bus did not time out")
@@ -186,16 +196,26 @@ fn main {
       saw_completion = true
     }
   }
-  assert_true(saw_completion, "event bus did not report worker completion source")
+  assert_true(
+    saw_completion, "event bus did not report worker completion source",
+  )
   // Windows carries the completed job id in the IOCP event; Unix drains ids
   // from the readable completion pipe.
   if platform != 2 {
     let completed_jobs = FixedArray::make(4, 0)
     assert_true(
-      fetch_completion(completion_source, completed_jobs, completed_jobs.length()) == 4,
+      fetch_completion(
+        completion_source,
+        completed_jobs,
+        completed_jobs.length(),
+      ) ==
+      4,
       "completion drain returned wrong byte count",
     )
-    assert_true(completed_jobs[0] == 17, "completion drain returned wrong job id")
+    assert_true(
+      completed_jobs[0] == 17,
+      "completion drain returned wrong job id",
+    )
   }
   free_worker(worker)
   free_job(job)
