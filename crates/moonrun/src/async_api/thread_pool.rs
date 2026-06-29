@@ -409,6 +409,26 @@ pub(super) fn get_getaddrinfo_result(
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_realpath_job(
+    context: &mut ImportContext<'_, '_>,
+    path_ptr: i32,
+    path_len: i32,
+) -> AsyncHostResult<u64> {
+    let path = read_guest_os_string(context, path_ptr, path_len)?;
+    context
+        .host
+        .insert_job(thread_pool::make_realpath_job(path))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn get_realpath_result(
+    context: &mut ImportContext<'_, '_>,
+    job: u64,
+) -> AsyncHostResult<u64> {
+    context.host.get_realpath_result(job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn open_job_get_fd(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<u64> {
     context.host.open_job_get_fd(job)
 }

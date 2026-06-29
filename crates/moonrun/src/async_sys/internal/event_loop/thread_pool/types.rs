@@ -326,6 +326,11 @@ pub(crate) enum JobPayload {
         host: OsString,
         result: Option<Vec<Box<[u8]>>>,
     },
+    Realpath {
+        path: OsString,
+        result: Option<Box<[u8]>>,
+        result_handle: Option<HostHandle>,
+    },
 }
 
 pub(crate) trait HostFileTable {
