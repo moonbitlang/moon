@@ -993,10 +993,12 @@ impl AsyncHost {
         handle: u64,
         f: impl FnOnce(&[u8]) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let (buffer, offset) = self.c_buffer_slice(handle)?;
+        // A c_buffer handle always names a whole host-owned buffer entry.
+        // Callers that need a subrange must pass explicit offset/length
+        // arguments; never reinterpret raw or interior pointers as handles.
+        let buffer = self.c_buffer(handle)?;
         let buffer = buffer.lock().unwrap();
-        let buffer = buffer.get(offset..).ok_or(AsyncHostError::Badf)?;
-        f(buffer)
+        f(buffer.as_ref())
     }
 
     pub(crate) fn with_c_buffer_mut<T>(
@@ -1004,10 +1006,9 @@ impl AsyncHost {
         handle: u64,
         f: impl FnOnce(&mut [u8]) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let (buffer, offset) = self.c_buffer_slice(handle)?;
+        let buffer = self.c_buffer(handle)?;
         let mut buffer = buffer.lock().unwrap();
-        let buffer = buffer.get_mut(offset..).ok_or(AsyncHostError::Badf)?;
-        f(buffer)
+        f(buffer.as_mut())
     }
 
     pub(crate) fn c_buffer(&self, handle: u64) -> AsyncHostResult<HostCBuffer> {
@@ -1021,26 +1022,6 @@ impl AsyncHost {
             .get(key_from_handle::<HostCBufferKey>(handle))
             .cloned()
             .ok_or(AsyncHostError::Badf)
-    }
-
-    fn c_buffer_slice(&self, handle: u64) -> AsyncHostResult<(HostCBuffer, usize)> {
-        if let Ok(buffer) = self.c_buffer(handle) {
-            return Ok((buffer, 0));
-        }
-
-        let ptr = usize::try_from(handle).map_err(|_| AsyncHostError::Badf)?;
-        let state = self.state.lock().unwrap();
-        for buffer in state.c_buffers.values() {
-            let guard = buffer.lock().unwrap();
-            let start = guard.as_ptr() as usize;
-            let Some(end) = start.checked_add(guard.len()) else {
-                continue;
-            };
-            if (start..end).contains(&ptr) {
-                return Ok((Arc::clone(buffer), ptr - start));
-            }
-        }
-        Err(AsyncHostError::Badf)
     }
 
     pub(crate) fn insert_job(&self, job: Job) -> AsyncHostResult<u64> {
@@ -1909,6 +1890,29 @@ mod tests {
             .unwrap();
 
         assert_eq!(&memory[8..11], b"abc");
+    }
+
+    #[test]
+    fn c_buffer_access_rejects_interior_raw_pointer() {
+        let host = AsyncHost::default();
+        let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
+        let interior_ptr = host
+            .with_c_buffer(handle, |buffer| {
+                // `c_buffer` values are slot-map handles, not addresses into
+                // host-owned buffers.
+                Ok((buffer.as_ptr() as u64) + 1)
+            })
+            .unwrap();
+
+        assert_eq!(
+            host.with_c_buffer(interior_ptr, |_| Ok(())).unwrap_err(),
+            AsyncHostError::Badf
+        );
+        assert_eq!(
+            host.with_c_buffer_mut(interior_ptr, |_| Ok(()))
+                .unwrap_err(),
+            AsyncHostError::Badf
+        );
     }
 
     #[cfg(unix)]
