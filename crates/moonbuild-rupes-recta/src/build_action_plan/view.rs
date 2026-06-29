@@ -26,7 +26,7 @@ use crate::{
     model::{BuildPlanNode, BuildTarget},
 };
 
-use super::{BuildAction, BuildActionId, PlannedArtifact};
+use super::{BuildAction, BuildActionId, BuildProduct};
 
 /// Normalized action-level view consumed by backend lowering.
 pub struct BuildActionPlan<'a> {
@@ -166,15 +166,20 @@ impl<'a> BuildActionPlan<'a> {
         }
     }
 
-    pub fn dependency_artifacts(&self, id: BuildActionId) -> Vec<PlannedArtifact> {
+    pub fn dependency_products(&self, id: BuildActionId) -> Vec<(BuildActionId, BuildProduct)> {
         self.plan
             .dependency_edges(self.node(id))
-            .flat_map(|(node, kind)| self.artifacts_for_edge(node, kind))
+            .flat_map(|(node, kind)| {
+                let dependency_action = self.id_for_node(node);
+                self.products_for_edge(node, kind)
+                    .into_iter()
+                    .map(move |product| (dependency_action, product))
+            })
             .collect()
     }
 
-    pub fn output_artifacts(&self, id: BuildActionId) -> Vec<PlannedArtifact> {
-        self.output_artifacts_for_node(self.node(id))
+    pub fn output_products(&self, id: BuildActionId) -> Vec<BuildProduct> {
+        self.output_products_for_node(self.node(id))
     }
 
     pub fn fileloc(
@@ -234,96 +239,91 @@ impl<'a> BuildActionPlan<'a> {
         self.action_nodes[id.0]
     }
 
-    fn artifacts_for_edge(
+    fn products_for_edge(
         &self,
         node: BuildPlanNode,
         kind: FileDependencyKind,
-    ) -> Vec<PlannedArtifact> {
+    ) -> Vec<BuildProduct> {
         match kind {
-            FileDependencyKind::AllFiles => self.output_artifacts_for_node(node),
+            FileDependencyKind::AllFiles => self.output_products_for_node(node),
             FileDependencyKind::Artifacts(need) => {
-                let mut artifacts = Vec::new();
+                let mut products = Vec::new();
                 if need.contains(PlanArtifactKind::Interface) {
-                    self.push_package_interface(node, &mut artifacts);
+                    self.push_package_interface(node, &mut products);
                 }
                 if need.contains(PlanArtifactKind::CoreIr) {
-                    self.push_package_core_ir(node, &mut artifacts);
+                    self.push_package_core_ir(node, &mut products);
                 }
-                artifacts
+                products
             }
             FileDependencyKind::ProofArtifacts { mi, mlw, report } => {
-                let mut artifacts = Vec::new();
+                let mut products = Vec::new();
                 if mi {
-                    self.push_proof_interface(node, &mut artifacts);
+                    self.push_proof_interface(node, &mut products);
                 }
                 if mlw {
-                    self.push_proof_whyml(node, &mut artifacts);
+                    self.push_proof_whyml(node, &mut products);
                 }
                 if report {
-                    self.push_proof_report(node, &mut artifacts);
+                    self.push_proof_report(node, &mut products);
                 }
-                artifacts
+                products
             }
             FileDependencyKind::GenerateTestInfo { meta } => {
-                let mut artifacts = Vec::new();
-                self.push_generated_test_driver(node, &mut artifacts);
+                let mut products = Vec::new();
+                self.push_generated_test_driver(node, &mut products);
                 if meta {
-                    self.push_generated_test_metadata(node, &mut artifacts);
+                    self.push_generated_test_metadata(node, &mut products);
                 }
-                artifacts
+                products
             }
         }
     }
 
-    fn output_artifacts_for_node(&self, node: BuildPlanNode) -> Vec<PlannedArtifact> {
-        let producer = self.id_for_node(node);
+    fn output_products_for_node(&self, node: BuildPlanNode) -> Vec<BuildProduct> {
         match node {
             BuildPlanNode::Check(target) => {
-                vec![PlannedArtifact::PackageInterface { producer, target }]
+                vec![BuildProduct::PackageInterface { target }]
             }
             BuildPlanNode::EmitProof(target) => vec![
-                PlannedArtifact::ProofInterface { producer, target },
-                PlannedArtifact::ProofWhyml { producer, target },
+                BuildProduct::ProofInterface { target },
+                BuildProduct::ProofWhyml { target },
             ],
             BuildPlanNode::Prove(target) => vec![
-                PlannedArtifact::ProofInterface { producer, target },
-                PlannedArtifact::ProofWhyml { producer, target },
-                PlannedArtifact::ProofReport { producer, target },
+                BuildProduct::ProofInterface { target },
+                BuildProduct::ProofWhyml { target },
+                BuildProduct::ProofReport { target },
             ],
             BuildPlanNode::BuildCore(target) => {
-                let mut artifacts = Vec::new();
-                self.push_build_core_interface_if_emitted(target, producer, &mut artifacts);
-                artifacts.push(PlannedArtifact::PackageCoreIr { producer, target });
-                artifacts
+                let mut products = Vec::new();
+                self.push_build_core_interface_if_emitted(target, &mut products);
+                products.push(BuildProduct::PackageCoreIr { target });
+                products
             }
             BuildPlanNode::BuildCStub(package, index) => {
-                vec![PlannedArtifact::CStubObject {
-                    producer,
-                    package,
-                    index,
-                }]
+                vec![BuildProduct::CStubObject { package, index }]
             }
             BuildPlanNode::ArchiveOrLinkCStubs(package) => {
-                vec![PlannedArtifact::CStubLibrary { producer, package }]
+                vec![BuildProduct::CStubLibrary { package }]
             }
             BuildPlanNode::LinkCore(target) => {
-                vec![PlannedArtifact::LinkedCore { producer, target }]
+                vec![BuildProduct::LinkedCore { target }]
             }
             BuildPlanNode::MakeExecutable(target) => {
-                vec![PlannedArtifact::Executable { producer, target }]
+                vec![BuildProduct::Executable { target }]
             }
             BuildPlanNode::GenerateTestInfo(target) => vec![
-                PlannedArtifact::GeneratedTestDriver { producer, target },
-                PlannedArtifact::GeneratedTestMetadata { producer, target },
+                BuildProduct::GeneratedTestDriver { target },
+                BuildProduct::GeneratedTestMetadata { target },
             ],
             BuildPlanNode::Bundle(module) => {
-                vec![PlannedArtifact::BundleResult { producer, module }]
+                vec![BuildProduct::BundleResult { module }]
             }
-            BuildPlanNode::BuildRuntimeLib => vec![PlannedArtifact::RuntimeLib { producer }],
+            BuildPlanNode::BuildRuntimeLib => vec![BuildProduct::RuntimeLib],
             BuildPlanNode::GenerateMbti(target) => {
-                vec![PlannedArtifact::GeneratedMbti { producer, target }]
+                vec![BuildProduct::GeneratedMbti { target }]
             }
-            BuildPlanNode::BuildDocs(_) => vec![PlannedArtifact::DocsDir { producer }],
+            BuildPlanNode::BuildDocs(_) => vec![BuildProduct::DocsDir],
             BuildPlanNode::RunPrebuild(package, index) => self
                 .plan
                 .get_prebuild_info(package, index)
@@ -331,122 +331,98 @@ impl<'a> BuildActionPlan<'a> {
                 .resolved_outputs
                 .iter()
                 .cloned()
-                .map(|path| PlannedArtifact::KnownPath { producer, path })
+                .map(|path| BuildProduct::PrebuildOutputPath { path })
                 .collect(),
             BuildPlanNode::BuildVirtual(package) => {
-                vec![PlannedArtifact::VirtualPackageInterface { producer, package }]
+                vec![BuildProduct::VirtualPackageInterface { package }]
             }
             BuildPlanNode::RunMoonLexPrebuild(package, index) => {
-                vec![PlannedArtifact::MoonLexGeneratedSource {
-                    producer,
-                    package,
-                    index,
-                }]
+                vec![BuildProduct::MoonLexGeneratedSource { package, index }]
             }
             BuildPlanNode::RunMoonYaccPrebuild(package, index) => {
-                vec![PlannedArtifact::MoonYaccGeneratedSource {
-                    producer,
-                    package,
-                    index,
-                }]
+                vec![BuildProduct::MoonYaccGeneratedSource { package, index }]
             }
         }
     }
 
-    fn push_package_interface(&self, node: BuildPlanNode, artifacts: &mut Vec<PlannedArtifact>) {
-        let producer = self.id_for_node(node);
+    fn push_package_interface(&self, node: BuildPlanNode, products: &mut Vec<BuildProduct>) {
         match node {
             BuildPlanNode::Check(target) => {
-                artifacts.push(PlannedArtifact::PackageInterface { producer, target });
+                products.push(BuildProduct::PackageInterface { target });
             }
             BuildPlanNode::BuildCore(target) => {
-                self.push_build_core_interface_if_emitted(target, producer, artifacts);
+                self.push_build_core_interface_if_emitted(target, products);
             }
-            _ => panic!("Package interface artifact requested from non-package producer"),
+            _ => panic!("Package interface product requested from non-package node"),
         }
     }
 
-    fn push_package_core_ir(&self, node: BuildPlanNode, artifacts: &mut Vec<PlannedArtifact>) {
-        let producer = self.id_for_node(node);
+    fn push_package_core_ir(&self, node: BuildPlanNode, products: &mut Vec<BuildProduct>) {
         match node {
             BuildPlanNode::BuildCore(target) => {
-                artifacts.push(PlannedArtifact::PackageCoreIr { producer, target });
+                products.push(BuildProduct::PackageCoreIr { target });
             }
-            _ => panic!("Core IR artifact requested from non-BuildCore producer"),
+            _ => panic!("Core IR product requested from non-BuildCore node"),
         }
     }
 
     fn push_build_core_interface_if_emitted(
         &self,
         target: BuildTarget,
-        producer: BuildActionId,
-        artifacts: &mut Vec<PlannedArtifact>,
+        products: &mut Vec<BuildProduct>,
     ) {
         let info = self
             .plan
             .get_build_target_info(&target)
             .expect("Build target info should be present for BuildCore nodes");
         if info.check_mi_against.is_none() && !info.no_mi() && !target.kind.is_test() {
-            artifacts.push(PlannedArtifact::PackageInterface { producer, target });
+            products.push(BuildProduct::PackageInterface { target });
         }
     }
 
-    fn push_proof_interface(&self, node: BuildPlanNode, artifacts: &mut Vec<PlannedArtifact>) {
-        let producer = self.id_for_node(node);
+    fn push_proof_interface(&self, node: BuildPlanNode, products: &mut Vec<BuildProduct>) {
         match node {
             BuildPlanNode::EmitProof(target) | BuildPlanNode::Prove(target) => {
-                artifacts.push(PlannedArtifact::ProofInterface { producer, target });
+                products.push(BuildProduct::ProofInterface { target });
             }
-            _ => panic!("Proof interface artifact requested from non-proof producer"),
+            _ => panic!("Proof interface product requested from non-proof node"),
         }
     }
 
-    fn push_proof_whyml(&self, node: BuildPlanNode, artifacts: &mut Vec<PlannedArtifact>) {
-        let producer = self.id_for_node(node);
+    fn push_proof_whyml(&self, node: BuildPlanNode, products: &mut Vec<BuildProduct>) {
         match node {
             BuildPlanNode::EmitProof(target) | BuildPlanNode::Prove(target) => {
-                artifacts.push(PlannedArtifact::ProofWhyml { producer, target });
+                products.push(BuildProduct::ProofWhyml { target });
             }
-            _ => panic!("Proof WhyML artifact requested from non-proof producer"),
+            _ => panic!("Proof WhyML product requested from non-proof node"),
         }
     }
 
-    fn push_proof_report(&self, node: BuildPlanNode, artifacts: &mut Vec<PlannedArtifact>) {
-        let producer = self.id_for_node(node);
+    fn push_proof_report(&self, node: BuildPlanNode, products: &mut Vec<BuildProduct>) {
         match node {
             BuildPlanNode::Prove(target) => {
-                artifacts.push(PlannedArtifact::ProofReport { producer, target });
+                products.push(BuildProduct::ProofReport { target });
             }
             BuildPlanNode::EmitProof(_) => {}
-            _ => panic!("Proof report artifact requested from non-proof producer"),
+            _ => panic!("Proof report product requested from non-proof node"),
         }
     }
 
-    fn push_generated_test_driver(
-        &self,
-        node: BuildPlanNode,
-        artifacts: &mut Vec<PlannedArtifact>,
-    ) {
-        let producer = self.id_for_node(node);
+    fn push_generated_test_driver(&self, node: BuildPlanNode, products: &mut Vec<BuildProduct>) {
         match node {
             BuildPlanNode::GenerateTestInfo(target) => {
-                artifacts.push(PlannedArtifact::GeneratedTestDriver { producer, target });
+                products.push(BuildProduct::GeneratedTestDriver { target });
             }
-            _ => panic!("Test driver artifact requested from non-test-info producer"),
+            _ => panic!("Test driver product requested from non-test-info node"),
         }
     }
 
-    fn push_generated_test_metadata(
-        &self,
-        node: BuildPlanNode,
-        artifacts: &mut Vec<PlannedArtifact>,
-    ) {
-        let producer = self.id_for_node(node);
+    fn push_generated_test_metadata(&self, node: BuildPlanNode, products: &mut Vec<BuildProduct>) {
         match node {
             BuildPlanNode::GenerateTestInfo(target) => {
-                artifacts.push(PlannedArtifact::GeneratedTestMetadata { producer, target });
+                products.push(BuildProduct::GeneratedTestMetadata { target });
             }
-            _ => panic!("Test metadata artifact requested from non-test-info producer"),
+            _ => panic!("Test metadata product requested from non-test-info node"),
         }
     }
 }

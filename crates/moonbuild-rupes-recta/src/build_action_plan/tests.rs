@@ -25,7 +25,7 @@ use crate::{
     model::{BuildPlanNode, PackageId, TargetKind},
 };
 
-use super::{BuildAction, PlannedArtifact};
+use super::{BuildAction, BuildProduct};
 
 fn package_id(raw: u64) -> PackageId {
     PackageId::from(KeyData::from_ffi(raw))
@@ -56,11 +56,11 @@ fn check_exposes_package_interface() {
     plan.test_insert_build_target_info(target, target_info());
 
     let action_plan = plan.build_action_plan();
-    let producer = action_plan.id_for_node(node);
+    let action_id = action_plan.id_for_node(node);
 
     assert_eq!(
-        action_plan.output_artifacts(producer),
-        vec![PlannedArtifact::PackageInterface { producer, target }]
+        action_plan.output_products(action_id),
+        vec![BuildProduct::PackageInterface { target }]
     );
 }
 
@@ -74,13 +74,13 @@ fn build_core_exposes_core_and_interface_when_it_emits_mi() {
     plan.test_insert_build_target_info(target, target_info());
 
     let action_plan = plan.build_action_plan();
-    let producer = action_plan.id_for_node(node);
+    let action_id = action_plan.id_for_node(node);
 
     assert_eq!(
-        action_plan.output_artifacts(producer),
+        action_plan.output_products(action_id),
         vec![
-            PlannedArtifact::PackageInterface { producer, target },
-            PlannedArtifact::PackageCoreIr { producer, target },
+            BuildProduct::PackageInterface { target },
+            BuildProduct::PackageCoreIr { target },
         ]
     );
 }
@@ -97,11 +97,11 @@ fn build_core_omits_interface_when_mi_is_disabled() {
     plan.test_insert_build_target_info(target, info);
 
     let action_plan = plan.build_action_plan();
-    let producer = action_plan.id_for_node(node);
+    let action_id = action_plan.id_for_node(node);
 
     assert_eq!(
-        action_plan.output_artifacts(producer),
-        vec![PlannedArtifact::PackageCoreIr { producer, target }]
+        action_plan.output_products(action_id),
+        vec![BuildProduct::PackageCoreIr { target }]
     );
 }
 
@@ -113,20 +113,20 @@ fn make_executable_action_allows_non_native_alias_without_info() {
     plan.test_add_node(node);
 
     let action_plan = plan.build_action_plan();
-    let producer = action_plan.id_for_node(node);
+    let action_id = action_plan.id_for_node(node);
 
     assert!(matches!(
-        action_plan.action(producer),
+        action_plan.action(action_id),
         BuildAction::MakeExecutable { target: actual, info: None } if actual == target
     ));
     assert_eq!(
-        action_plan.output_artifacts(producer),
-        vec![PlannedArtifact::Executable { producer, target }]
+        action_plan.output_products(action_id),
+        vec![BuildProduct::Executable { target }]
     );
 }
 
 #[test]
-fn check_interface_dependency_uses_selected_check_producer() {
+fn check_interface_dependency_uses_selected_check_action() {
     let dependency = package_id(1).build_target(TargetKind::Source);
     let consumer = package_id(2).build_target(TargetKind::Source);
     let dependency_node = BuildPlanNode::Check(dependency);
@@ -143,11 +143,11 @@ fn check_interface_dependency_uses_selected_check_producer() {
     let dependency_id = action_plan.id_for_node(dependency_node);
 
     assert_eq!(
-        action_plan.dependency_artifacts(consumer_id),
-        vec![PlannedArtifact::PackageInterface {
-            producer: dependency_id,
-            target: dependency,
-        }]
+        action_plan.dependency_products(consumer_id),
+        vec![(
+            dependency_id,
+            BuildProduct::PackageInterface { target: dependency },
+        )]
     );
 }
 
@@ -170,16 +170,16 @@ fn build_core_dependency_can_track_interface_and_core_ir() {
     let dependency_id = action_plan.id_for_node(dependency_node);
 
     assert_eq!(
-        action_plan.dependency_artifacts(consumer_id),
+        action_plan.dependency_products(consumer_id),
         vec![
-            PlannedArtifact::PackageInterface {
-                producer: dependency_id,
-                target: dependency,
-            },
-            PlannedArtifact::PackageCoreIr {
-                producer: dependency_id,
-                target: dependency,
-            },
+            (
+                dependency_id,
+                BuildProduct::PackageInterface { target: dependency },
+            ),
+            (
+                dependency_id,
+                BuildProduct::PackageCoreIr { target: dependency }
+            ),
         ]
     );
 }
@@ -199,14 +199,16 @@ fn generate_test_info_dependency_can_select_driver_only() {
 
     let action_plan = plan.build_action_plan();
     let consumer_id = action_plan.id_for_node(consumer_node);
-    let producer = action_plan.id_for_node(test_info_node);
+    let dependency_action = action_plan.id_for_node(test_info_node);
 
     assert_eq!(
-        action_plan.dependency_artifacts(consumer_id),
-        vec![PlannedArtifact::GeneratedTestDriver {
-            producer,
-            target: test_target,
-        }]
+        action_plan.dependency_products(consumer_id),
+        vec![(
+            dependency_action,
+            BuildProduct::GeneratedTestDriver {
+                target: test_target,
+            },
+        )]
     );
 }
 
@@ -225,25 +227,29 @@ fn generate_test_info_dependency_can_select_driver_and_metadata() {
 
     let action_plan = plan.build_action_plan();
     let consumer_id = action_plan.id_for_node(consumer_node);
-    let producer = action_plan.id_for_node(test_info_node);
+    let dependency_action = action_plan.id_for_node(test_info_node);
 
     assert_eq!(
-        action_plan.dependency_artifacts(consumer_id),
+        action_plan.dependency_products(consumer_id),
         vec![
-            PlannedArtifact::GeneratedTestDriver {
-                producer,
-                target: test_target,
-            },
-            PlannedArtifact::GeneratedTestMetadata {
-                producer,
-                target: test_target,
-            },
+            (
+                dependency_action,
+                BuildProduct::GeneratedTestDriver {
+                    target: test_target,
+                },
+            ),
+            (
+                dependency_action,
+                BuildProduct::GeneratedTestMetadata {
+                    target: test_target,
+                },
+            ),
         ]
     );
 }
 
 #[test]
-fn run_prebuild_exposes_resolved_outputs_as_known_paths() {
+fn run_prebuild_exposes_resolved_output_paths() {
     let package = package_id(1);
     let node = BuildPlanNode::RunPrebuild(package, 0);
     let output = PathBuf::from("generated/out.mbt");
@@ -260,14 +266,11 @@ fn run_prebuild_exposes_resolved_outputs_as_known_paths() {
     );
 
     let action_plan = plan.build_action_plan();
-    let producer = action_plan.id_for_node(node);
+    let action_id = action_plan.id_for_node(node);
 
     assert_eq!(
-        action_plan.output_artifacts(producer),
-        vec![PlannedArtifact::KnownPath {
-            producer,
-            path: output,
-        }]
+        action_plan.output_products(action_id),
+        vec![BuildProduct::PrebuildOutputPath { path: output }]
     );
 }
 
@@ -284,11 +287,7 @@ fn c_stub_archive_dependency_exposes_object_inputs() {
     let object_id = action_plan.id_for_node(object_node);
 
     assert_eq!(
-        action_plan.dependency_artifacts(archive_id),
-        vec![PlannedArtifact::CStubObject {
-            producer: object_id,
-            package,
-            index: 0,
-        }]
+        action_plan.dependency_products(archive_id),
+        vec![(object_id, BuildProduct::CStubObject { package, index: 0 })]
     );
 }

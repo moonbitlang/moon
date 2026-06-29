@@ -30,7 +30,7 @@ use moonutil::{
 use tracing::{Level, instrument};
 
 use crate::{
-    build_action_plan::PlannedArtifact,
+    build_action_plan::BuildProduct,
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
     build_plan::{BuildTargetInfo, PrebuildInfo},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
@@ -47,22 +47,22 @@ impl<'a> super::LoweringContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let output_driver = products.single_output_path_matching(|artifact| {
+        let output_driver = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::GeneratedTestDriver {
-                    target: artifact_target,
+                product,
+                BuildProduct::GeneratedTestDriver {
+                    target: product_target,
                     ..
-                } if *artifact_target == target
+                } if *product_target == target
             )
         });
-        let output_metadata = products.single_output_path_matching(|artifact| {
+        let output_metadata = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::GeneratedTestMetadata {
-                    target: artifact_target,
+                product,
+                BuildProduct::GeneratedTestMetadata {
+                    target: product_target,
                     ..
-                } if *artifact_target == target
+                } if *product_target == target
             )
         });
         let driver_kind = match target.kind {
@@ -117,25 +117,25 @@ impl<'a> super::LoweringContext<'a> {
         module_id: ModuleId,
         targets: &[BuildTarget],
     ) -> BuildCommand {
-        let output = products.single_output_path_matching(|artifact| {
+        let output = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::BundleResult {
-                    module: artifact_module,
+                product,
+                BuildProduct::BundleResult {
+                    module: product_module,
                     ..
-                } if *artifact_module == module_id
+                } if *product_module == module_id
             )
         });
 
         let mut inputs = vec![];
         for dep in targets {
-            inputs.push(products.single_dependency_path_matching(|artifact| {
+            inputs.push(products.single_dependency_path_matching(|product| {
                 matches!(
-                    artifact,
-                    PlannedArtifact::PackageCoreIr {
-                        target: artifact_target,
+                    product,
+                    BuildProduct::PackageCoreIr {
+                        target: product_target,
                         ..
-                    } if artifact_target == dep
+                    } if product_target == dep
                 )
             }));
         }
@@ -153,9 +153,8 @@ impl<'a> super::LoweringContext<'a> {
         &mut self,
         products: &ActionProducts,
     ) -> anyhow::Result<BuildCommand> {
-        let artifact_path = products.single_output_path_matching(|artifact| {
-            matches!(artifact, PlannedArtifact::RuntimeLib { .. })
-        });
+        let artifact_path = products
+            .single_output_path_matching(|product| matches!(product, BuildProduct::RuntimeLib));
 
         let runtime_c_path = self.opt.runtime_dot_c_path();
 
@@ -220,22 +219,22 @@ impl<'a> super::LoweringContext<'a> {
         products: &ActionProducts,
         target: BuildTarget,
     ) -> BuildCommand {
-        let input = products.single_dependency_path_matching(|artifact| {
+        let input = products.single_dependency_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::PackageInterface {
-                    target: artifact_target,
+                product,
+                BuildProduct::PackageInterface {
+                    target: product_target,
                     ..
-                } if *artifact_target == target
+                } if *product_target == target
             )
         });
-        let output = products.single_output_path_matching(|artifact| {
+        let output = products.single_output_path_matching(|product| {
             matches!(
-                artifact,
-                PlannedArtifact::GeneratedMbti {
-                    target: artifact_target,
+                product,
+                BuildProduct::GeneratedMbti {
+                    target: product_target,
                     ..
-                } if *artifact_target == target
+                } if *product_target == target
             )
         });
 
