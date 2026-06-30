@@ -72,14 +72,10 @@ pub(super) fn write(
 pub(super) fn make_file_io_result(
     context: &mut ImportContext<'_, '_>,
     events: i32,
-    buf: i32,
-    offset: i32,
     len: i32,
     position: i64,
 ) -> crate::async_host::AsyncHostResult<u64> {
-    context.with_host_and_memory_mut(|host, memory| {
-        host.make_file_io_result(memory, events, buf, offset, len, position)
-    })
+    context.host.make_file_io_result(events, len, position)
 }
 
 #[ported(
@@ -90,14 +86,10 @@ pub(super) fn make_file_io_result(
 pub(super) fn make_socket_io_result(
     context: &mut ImportContext<'_, '_>,
     events: i32,
-    buf: i32,
-    offset: i32,
     len: i32,
     flags: i32,
 ) -> crate::async_host::AsyncHostResult<u64> {
-    context.with_host_and_memory_mut(|host, memory| {
-        host.make_socket_io_result(memory, events, buf, offset, len, flags)
-    })
+    context.host.make_socket_io_result(events, len, flags)
 }
 
 #[ported(
@@ -109,15 +101,13 @@ pub(super) fn make_socket_io_result(
 pub(super) fn make_socket_with_addr_io_result(
     context: &mut ImportContext<'_, '_>,
     events: i32,
-    buf: i32,
-    offset: i32,
     len: i32,
     flags: i32,
     addr: i32,
     addr_len: i32,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.with_host_and_memory_mut(|host, memory| {
-        host.make_socket_with_addr_io_result(memory, events, buf, offset, len, flags, addr, addr_len)
+        host.make_socket_with_addr_io_result(memory, events, len, flags, addr, addr_len)
     })
 }
 
@@ -208,10 +198,12 @@ pub(super) fn cancel_io_result(context: &mut ImportContext<'_, '_>, result: u64,
     original = "moonbitlang_async_io_result_get_status"
 )]
 #[cfg(windows)]
-pub(super) fn io_result_get_status(context: &mut ImportContext<'_, '_>, result: u64, fd: u64) -> i32 {
-    match context
-        .with_host_and_memory_mut(|host, memory| host.io_result_get_status(memory, result, fd))
-    {
+pub(super) fn io_result_get_status(
+    context: &mut ImportContext<'_, '_>,
+    result: u64,
+    fd: u64,
+) -> i32 {
+    match context.host.io_result_get_status(result, fd) {
         Ok(bytes) => bytes,
         Err(error) => {
             context.host.record_error(error);
@@ -220,13 +212,33 @@ pub(super) fn io_result_get_status(context: &mut ImportContext<'_, '_>, result: 
     }
 }
 
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn io_result_copy_read(
+    context: &mut ImportContext<'_, '_>,
+    result: u64,
+    dst: i32,
+    offset: i32,
+    len: i32,
+    addr: i32,
+    addr_len: i32,
+) -> crate::async_host::AsyncHostResult<()> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.io_result_copy_read(memory, result, dst, offset, len, addr, addr_len)
+    })
+}
+
 #[ported(
     source = "src/internal/event_loop/io_windows.c",
     original = "moonbitlang_async_read"
 )]
 #[cfg(windows)]
-pub(super) fn read_io_result(context: &mut ImportContext<'_, '_>, fd: u64, result: u64) -> i32 {
-    match context.with_host_and_memory_mut(|host, memory| host.read_io_result(memory, fd, result)) {
+pub(super) fn read_io_result(
+    context: &mut ImportContext<'_, '_>,
+    fd: u64,
+    result: u64,
+) -> i32 {
+    match context.host.read_io_result(fd, result) {
         Ok(bytes) => bytes,
         Err(error) => {
             context.host.record_error(error);
@@ -240,8 +252,18 @@ pub(super) fn read_io_result(context: &mut ImportContext<'_, '_>, fd: u64, resul
     original = "moonbitlang_async_write"
 )]
 #[cfg(windows)]
-pub(super) fn write_io_result(context: &mut ImportContext<'_, '_>, fd: u64, result: u64) -> i32 {
-    match context.with_host_and_memory_mut(|host, memory| host.write_io_result(memory, fd, result))
+#[allow(clippy::too_many_arguments)]
+pub(super) fn write_io_result(
+    context: &mut ImportContext<'_, '_>,
+    fd: u64,
+    result: u64,
+    src: i32,
+    offset: i32,
+    len: i32,
+) -> i32 {
+    match context.with_host_and_memory_mut(|host, memory| {
+        host.write_io_result(memory, fd, result, src, offset, len)
+    })
     {
         Ok(bytes) => bytes,
         Err(error) => {
