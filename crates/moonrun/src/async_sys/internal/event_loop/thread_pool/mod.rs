@@ -41,8 +41,8 @@ pub(crate) use types::{
     OpenJobResource, OpenJobResult,
 };
 pub(crate) use worker::{
-    HostWorkerHandle, HostWorkerJob, cancel_worker, free_worker, spawn_worker, wake_worker,
-    worker_enter_idle,
+    HostWorkerHandle, HostWorkerJob, WorkerCompletionId, cancel_worker, free_worker, spawn_worker,
+    wake_worker, worker_enter_idle,
 };
 
 #[cfg(test)]
