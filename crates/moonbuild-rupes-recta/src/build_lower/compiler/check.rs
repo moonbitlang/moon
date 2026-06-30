@@ -60,9 +60,6 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
         // Error format
         self.defaults.add_error_format(args);
 
-        // Warning and alert handling (deny all combined)
-        self.defaults.add_deny_all(args);
-
         // MBT source files
         self.required.add_mbt_sources(args);
 
@@ -72,9 +69,8 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
         // Include doctests for blackbox
         self.required.add_include_doctests_if_blackbox(args);
 
-        // Custom warning list
-        self.defaults.add_custom_warn_list(args);
-        self.defaults.add_warn_alert_allow_all(args);
+        // Warning selection and deny handling
+        self.defaults.add_warning_options(args);
 
         // Output
         if !self.defaults.no_mi {
