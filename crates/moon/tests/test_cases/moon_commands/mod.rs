@@ -172,7 +172,7 @@ Error: failed to run test for target Wasm
 
 Caused by:
     Failed to run the test: $ROOT/_build/wasm/debug/test/main/main.blackbox_test.wasm
-    The test executable exited with exit status: 7
+    The test executable exited with exit [..]: 7
     Active test at executable exit:
       - $ROOT/main/exit_wasm_test.mbt:1 "exit-7"
 
