@@ -1,5 +1,0 @@
-# Keep The Resource Table On The Event Loop Side
-
-Moonrun will move toward a single Resource Handle table owned by the event-loop side of the async host, while workers own only the Job they are running and return completed host-owned payloads. Workers may acquire Resources before running and may create new OS Resources such as open-file results, but publishing guest-visible handles belongs to the event-loop side; this mirrors `moonbitlang/async`'s structure more closely than letting worker threads mutate guest handle tables.
-
-The first migration step should not be collapsing every SlotMap at once. We should first remove worker-side table mutation from async job completion paths, especially `Open`, so a worker returns a completed Job containing the created Resource and the event-loop side inserts it into the Resource table when the result is observed. After that, the separate handle tables can be folded into one typed table one resource family at a time without holding a global registry lock across native syscalls.

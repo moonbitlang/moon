@@ -31,67 +31,102 @@ use std::os::windows::io::{
 
 pub(crate) type ResourceHandle = u64;
 pub(crate) type HostHandle = ResourceHandle;
-pub(crate) type FileResourceRef = Arc<FileResource>;
+pub(crate) type ResourceRef = Arc<Resource>;
 
 #[cfg(unix)]
 type OwnedRawFile = OwnedFd;
 #[cfg(windows)]
 type OwnedRawFile = OwnedHandle;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResourceClass {
+    File,
+    TcpSocket,
+    UdpSocket,
+}
+
+impl ResourceClass {
+    pub(crate) fn is_socket(self) -> bool {
+        matches!(self, Self::TcpSocket | Self::UdpSocket)
+    }
+}
+
 #[derive(Debug)]
-pub(crate) struct FileResource {
-    raw: RawFileResource,
+pub(crate) struct Resource {
+    raw: RawResource,
+    class: ResourceClass,
     // Native directory enumeration mutates cursor state on the opened resource.
     directory_cursor: Mutex<()>,
 }
 
 #[derive(Debug)]
-enum RawFileResource {
+enum RawResource {
     Invalid,
     File(OwnedRawFile),
     #[cfg(windows)]
     Socket(OwnedSocket),
 }
 
-impl FileResource {
+impl Resource {
     pub(crate) fn new(raw: fd_util::stub::RawFd) -> Self {
         if raw == invalid_raw_file() {
             return Self::invalid();
         }
         Self {
-            raw: RawFileResource::File(owned_raw_file(raw)),
+            raw: RawResource::File(owned_raw_file(raw)),
+            class: ResourceClass::File,
+            directory_cursor: Mutex::new(()),
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn new_socket(raw: fd_util::stub::RawFd, class: ResourceClass) -> Self {
+        debug_assert!(class.is_socket());
+        if raw == invalid_raw_file() {
+            return Self::invalid();
+        }
+        Self {
+            raw: RawResource::File(owned_raw_file(raw)),
+            class,
             directory_cursor: Mutex::new(()),
         }
     }
 
     #[cfg(windows)]
-    pub(crate) fn new_socket(raw: RawSocket) -> Self {
+    pub(crate) fn new_socket(raw: RawSocket, class: ResourceClass) -> Self {
+        debug_assert!(class.is_socket());
         if raw == invalid_raw_socket() {
             return Self::invalid();
         }
         Self {
-            raw: RawFileResource::Socket(owned_raw_socket(raw)),
+            raw: RawResource::Socket(owned_raw_socket(raw)),
+            class,
             directory_cursor: Mutex::new(()),
         }
     }
 
     pub(crate) fn invalid() -> Self {
         Self {
-            raw: RawFileResource::Invalid,
+            raw: RawResource::Invalid,
+            class: ResourceClass::File,
             directory_cursor: Mutex::new(()),
         }
     }
 
     pub(crate) fn is_invalid(&self) -> bool {
-        matches!(self.raw, RawFileResource::Invalid)
+        matches!(self.raw, RawResource::Invalid)
+    }
+
+    pub(crate) fn resource_class(&self) -> ResourceClass {
+        self.class
     }
 
     pub(crate) fn raw_fd(&self) -> fd_util::stub::RawFd {
         match &self.raw {
-            RawFileResource::Invalid => invalid_raw_file(),
-            RawFileResource::File(raw) => raw_file(raw),
+            RawResource::Invalid => invalid_raw_file(),
+            RawResource::File(raw) => raw_file(raw),
             #[cfg(windows)]
-            RawFileResource::Socket(raw) => raw_socket(raw),
+            RawResource::Socket(raw) => raw_socket(raw),
         }
     }
 
@@ -117,19 +152,19 @@ fn invalid_raw_socket() -> RawSocket {
 
 #[cfg(unix)]
 fn owned_raw_file(raw: fd_util::stub::RawFd) -> OwnedRawFile {
-    // FileResource takes ownership of handles returned by platform APIs.
+    // Resource takes ownership of handles returned by platform APIs.
     unsafe { OwnedFd::from_raw_fd(raw) }
 }
 
 #[cfg(windows)]
 fn owned_raw_file(raw: fd_util::stub::RawFd) -> OwnedRawFile {
-    // FileResource takes ownership of handles returned by platform APIs.
+    // Resource takes ownership of handles returned by platform APIs.
     unsafe { OwnedHandle::from_raw_handle(raw) }
 }
 
 #[cfg(windows)]
 fn owned_raw_socket(raw: RawSocket) -> OwnedSocket {
-    // FileResource takes ownership of sockets returned by platform APIs.
+    // Resource takes ownership of sockets returned by platform APIs.
     unsafe { OwnedSocket::from_raw_socket(raw) }
 }
 
@@ -158,7 +193,7 @@ pub(crate) struct OpenJobResult {
 
 #[derive(Debug)]
 pub(crate) enum OpenJobResource {
-    Unpublished(FileResource),
+    Unpublished(Resource),
     Published(HostHandle),
 }
 
@@ -230,13 +265,13 @@ pub(crate) enum JobPayload {
         duration_ms: i32,
     },
     Read {
-        file: Option<FileResourceRef>,
+        file: Option<ResourceRef>,
         len: i32,
         position: i64,
         result: Option<Vec<u8>>,
     },
     Write {
-        file: Option<FileResourceRef>,
+        file: Option<ResourceRef>,
         data: Vec<u8>,
         position: i64,
     },
@@ -250,16 +285,16 @@ pub(crate) enum JobPayload {
         result: Option<OpenJobResult>,
     },
     FileKindByPath {
-        parent: Option<FileResourceRef>,
+        parent: Option<ResourceRef>,
         path: OsString,
         follow_symlink: bool,
     },
     FileSize {
-        file: Option<FileResourceRef>,
+        file: Option<ResourceRef>,
         result: i64,
     },
     FileTime {
-        file: Option<FileResourceRef>,
+        file: Option<ResourceRef>,
         result: Option<FileTimeResult>,
     },
     FileTimeByPath {
@@ -276,11 +311,11 @@ pub(crate) enum JobPayload {
         mode: i32,
     },
     Fsync {
-        file: Option<FileResourceRef>,
+        file: Option<ResourceRef>,
         only_data: bool,
     },
     Flock {
-        file: Option<FileResourceRef>,
+        file: Option<ResourceRef>,
         exclusive: bool,
     },
     Remove {
@@ -304,13 +339,13 @@ pub(crate) enum JobPayload {
         path: OsString,
     },
     Readdir {
-        dir: Option<FileResourceRef>,
+        dir: Option<ResourceRef>,
         buffer: HostCBuffer,
         len: i32,
         restart: bool,
     },
     Bind {
-        socket: Option<FileResourceRef>,
+        socket: Option<ResourceRef>,
         addr: Vec<u8>,
     },
     GetAddrInfo {
@@ -319,7 +354,7 @@ pub(crate) enum JobPayload {
     },
 }
 
-pub(crate) trait FileResourceTable {
+pub(crate) trait ResourceTable {
     fn insert_file(&mut self, file: fd_util::stub::RawFd) -> AsyncHostResult<HostHandle>;
 }
 

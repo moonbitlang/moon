@@ -22,7 +22,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 
 use super::types::{
-    FileResourceRef, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, platform,
+    HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, ResourceRef, platform,
 };
 
 ported_fns! {
@@ -79,7 +79,7 @@ ported_fns! {
         original = "moonbitlang_async_make_read_job"
     )]
     pub(crate) fn make_read_job(
-        file: FileResourceRef,
+        file: ResourceRef,
         len: i32,
         position: i64,
     ) -> Job {
@@ -95,7 +95,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_write_job"
     )]
-    pub(crate) fn make_write_job(file: FileResourceRef, data: Vec<u8>, position: i64) -> Job {
+    pub(crate) fn make_write_job(file: ResourceRef, data: Vec<u8>, position: i64) -> Job {
         Job::new(JobPayload::Write {
             file: Some(file),
             data,
@@ -131,7 +131,7 @@ ported_fns! {
         original = "moonbitlang_async_make_file_kind_by_path_job"
     )]
     pub(crate) fn make_file_kind_by_path_job(
-        parent: Option<FileResourceRef>,
+        parent: Option<ResourceRef>,
         path: OsString,
         follow_symlink: bool,
     ) -> Job {
@@ -181,7 +181,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_file_size_job"
     )]
-    pub(crate) fn make_file_size_job(file: FileResourceRef) -> Job {
+    pub(crate) fn make_file_size_job(file: ResourceRef) -> Job {
         Job::new(JobPayload::FileSize {
             file: Some(file),
             result: 0,
@@ -192,7 +192,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_file_time_job"
     )]
-    pub(crate) fn make_file_time_job(file: FileResourceRef) -> Job {
+    pub(crate) fn make_file_time_job(file: ResourceRef) -> Job {
         Job::new(JobPayload::FileTime {
             file: Some(file),
             result: None,
@@ -245,7 +245,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_fsync_job"
     )]
-    pub(crate) fn make_fsync_job(file: FileResourceRef, only_data: bool) -> Job {
+    pub(crate) fn make_fsync_job(file: ResourceRef, only_data: bool) -> Job {
         Job::new(JobPayload::Fsync {
             file: Some(file),
             only_data,
@@ -256,7 +256,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_flock_job"
     )]
-    pub(crate) fn make_flock_job(file: FileResourceRef, exclusive: bool) -> Job {
+    pub(crate) fn make_flock_job(file: ResourceRef, exclusive: bool) -> Job {
         Job::new(JobPayload::Flock {
             file: Some(file),
             exclusive,
@@ -316,7 +316,7 @@ ported_fns! {
         original = "moonbitlang_async_make_readdir_job"
     )]
     pub(crate) fn make_readdir_job(
-        dir: FileResourceRef,
+        dir: ResourceRef,
         buffer: crate::async_host::HostCBuffer,
         len: i32,
         restart: bool,
@@ -333,7 +333,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_bind_job"
     )]
-    pub(crate) fn make_bind_job(socket: FileResourceRef, addr: Vec<u8>) -> Job {
+    pub(crate) fn make_bind_job(socket: ResourceRef, addr: Vec<u8>) -> Job {
         Job::new(JobPayload::Bind {
             socket: Some(socket),
             addr,
@@ -393,7 +393,7 @@ pub(crate) fn getaddrinfo_job_result(job: &Job) -> AsyncHostResult<&[Box<[u8]>]>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::{FileResource, run_host_job};
+    use crate::async_sys::internal::event_loop::thread_pool::{Resource, run_host_job};
     use std::sync::Arc;
 
     #[test]
@@ -405,8 +405,8 @@ mod tests {
     }
 
     #[test]
-    fn read_job_carries_file_resource_and_length_payload() {
-        let file = Arc::new(FileResource::invalid());
+    fn read_job_carries_resource_and_length_payload() {
+        let file = Arc::new(Resource::invalid());
         let job = make_read_job(Arc::clone(&file), 8, -1);
 
         match job.payload() {
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn resource_job_releases_file_when_worker_finishes() {
-        let file = Arc::new(FileResource::invalid());
+        let file = Arc::new(Resource::invalid());
         let file_ref = Arc::downgrade(&file);
         let mut job = make_flock_job(Arc::clone(&file), true);
         drop(file);
