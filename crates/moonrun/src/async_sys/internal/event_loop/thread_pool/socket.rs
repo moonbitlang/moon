@@ -21,7 +21,7 @@ use std::ffi::OsString;
 use crate::async_host::AsyncHostResult;
 use crate::async_sys::ported_fns;
 
-use super::{HostFileTable, HostHandle};
+use super::FileResource;
 
 ported_fns! {
     #[ported(
@@ -29,26 +29,11 @@ ported_fns! {
         original = "bind_job_worker"
     )]
         pub(super) fn run_bind_job(
-        files: &mut impl HostFileTable,
-        socket: HostHandle,
+        socket: &FileResource,
         addr: &[u8],
     ) -> AsyncHostResult<i64> {
-        #[cfg(unix)]
-        {
-            files.with_raw_file(socket, |socket| {
-                crate::async_sys::socket::bind(socket, addr)?;
-                Ok(0)
-            })
-        }
-        #[cfg(windows)]
-        {
-            // `with_raw_file` duplicates with DuplicateHandle on Windows, which
-            // does not produce a valid duplicate Winsock SOCKET.
-            files.with_borrowed_raw_file(socket, |socket| {
-                crate::async_sys::socket::bind(socket, addr)?;
-                Ok(0)
-            })
-        }
+        crate::async_sys::socket::bind(socket.raw_fd(), addr)?;
+        Ok(0)
     }
 
     #[ported(
@@ -62,60 +47,5 @@ ported_fns! {
         let (ret, addrs) = crate::async_sys::socket::copy_sockaddrs_from_getaddrinfo(host)?;
         *result = Some(addrs);
         Ok(i64::from(ret))
-    }
-}
-
-#[cfg(all(test, windows))]
-mod tests {
-    use super::*;
-    use crate::async_host::AsyncHostResult;
-    use crate::async_sys::internal::event_loop::thread_pool::HostFile;
-    use crate::async_sys::internal::fd_util::stub::RawFd;
-
-    struct TrackingFiles {
-        borrowed: bool,
-    }
-
-    impl HostFileTable for TrackingFiles {
-        fn insert_file(&mut self, _file: RawFd) -> AsyncHostResult<HostHandle> {
-            unreachable!("bind job test does not insert files")
-        }
-
-        fn is_invalid_file_handle(&self, _handle: HostHandle) -> bool {
-            unreachable!("bind job test does not query file validity")
-        }
-
-        fn with_borrowed_raw_file<T>(
-            &mut self,
-            _handle: HostHandle,
-            f: impl FnOnce(RawFd) -> AsyncHostResult<T>,
-        ) -> AsyncHostResult<T> {
-            self.borrowed = true;
-            f(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE)
-        }
-
-        fn with_raw_file<T>(
-            &mut self,
-            _handle: HostHandle,
-            _f: impl FnOnce(RawFd) -> AsyncHostResult<T>,
-        ) -> AsyncHostResult<T> {
-            panic!("Windows socket bind jobs must not duplicate SOCKET handles")
-        }
-
-        fn with_host_file_mut<T>(
-            &mut self,
-            _handle: HostHandle,
-            _f: impl FnOnce(&mut HostFile) -> AsyncHostResult<T>,
-        ) -> AsyncHostResult<T> {
-            unreachable!("bind job test does not mutate host files")
-        }
-    }
-
-    #[test]
-    fn windows_bind_job_borrows_socket_handle() {
-        let mut files = TrackingFiles { borrowed: false };
-        let result = run_bind_job(&mut files, 1, &[]);
-        assert!(result.is_err());
-        assert!(files.borrowed);
     }
 }

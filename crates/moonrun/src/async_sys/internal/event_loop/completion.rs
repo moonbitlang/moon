@@ -47,7 +47,7 @@ impl ThreadPoolCompletionNotifier {
             return Err(error);
         }
 
-        // The read end is transferred to AsyncHost's HostFile table so poll
+        // The read end is transferred to AsyncHost's file table so poll
         // events report the same handle space as ordinary pipe/file fds.
         Ok((
             Self {

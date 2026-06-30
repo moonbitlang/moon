@@ -17,73 +17,86 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::OsString;
+use std::sync::{Arc, Mutex};
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, HostCBuffer};
+use crate::async_host::{AsyncHostResult, HostCBuffer};
 use crate::async_sys::internal::fd_util;
 
-pub(crate) type HostHandle = u64;
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+#[cfg(windows)]
+use std::os::windows::io::{
+    AsRawHandle, AsRawSocket, FromRawHandle, FromRawSocket, OwnedHandle, OwnedSocket, RawSocket,
+};
+
+pub(crate) type ResourceHandle = u64;
+pub(crate) type HostHandle = ResourceHandle;
+pub(crate) type FileResourceRef = Arc<FileResource>;
+
+#[cfg(unix)]
+type OwnedRawFile = OwnedFd;
+#[cfg(windows)]
+type OwnedRawFile = OwnedHandle;
 
 #[derive(Debug)]
-pub(crate) struct HostFile {
-    raw: fd_util::stub::RawFd,
-    close_kind: HostFileCloseKind,
+pub(crate) struct FileResource {
+    raw: RawFileResource,
+    // Native directory enumeration mutates cursor state on the opened resource.
+    directory_cursor: Mutex<()>,
 }
 
-#[cfg(windows)]
-unsafe impl Send for HostFile {}
-
-#[derive(Debug, Clone, Copy)]
-enum HostFileCloseKind {
-    File,
+#[derive(Debug)]
+enum RawFileResource {
+    Invalid,
+    File(OwnedRawFile),
     #[cfg(windows)]
-    Socket,
+    Socket(OwnedSocket),
 }
 
-impl HostFile {
+impl FileResource {
     pub(crate) fn new(raw: fd_util::stub::RawFd) -> Self {
+        if raw == invalid_raw_file() {
+            return Self::invalid();
+        }
         Self {
-            raw,
-            close_kind: HostFileCloseKind::File,
+            raw: RawFileResource::File(owned_raw_file(raw)),
+            directory_cursor: Mutex::new(()),
         }
     }
 
     #[cfg(windows)]
-    pub(crate) fn new_socket(raw: fd_util::stub::RawFd) -> Self {
+    pub(crate) fn new_socket(raw: RawSocket) -> Self {
+        if raw == invalid_raw_socket() {
+            return Self::invalid();
+        }
         Self {
-            raw,
-            close_kind: HostFileCloseKind::Socket,
+            raw: RawFileResource::Socket(owned_raw_socket(raw)),
+            directory_cursor: Mutex::new(()),
         }
     }
 
     pub(crate) fn invalid() -> Self {
-        Self::new(invalid_raw_file())
+        Self {
+            raw: RawFileResource::Invalid,
+            directory_cursor: Mutex::new(()),
+        }
     }
 
     pub(crate) fn is_invalid(&self) -> bool {
-        is_invalid_raw_file(self.raw)
+        matches!(self.raw, RawFileResource::Invalid)
     }
 
     pub(crate) fn raw_fd(&self) -> fd_util::stub::RawFd {
-        self.raw
+        match &self.raw {
+            RawFileResource::Invalid => invalid_raw_file(),
+            RawFileResource::File(raw) => raw_file(raw),
+            #[cfg(windows)]
+            RawFileResource::Socket(raw) => raw_socket(raw),
+        }
     }
 
-    pub(crate) fn duplicate(&self) -> AsyncHostResult<Self> {
-        if self.is_invalid() {
-            return Err(AsyncHostError::Badf);
-        }
-        duplicate_raw_file(self.raw).map(|raw| Self {
-            raw,
-            close_kind: self.close_kind,
-        })
-    }
-}
-
-impl Drop for HostFile {
-    fn drop(&mut self) {
-        if !self.is_invalid() {
-            close_raw_file(self.raw, self.close_kind);
-            self.raw = invalid_raw_file();
-        }
+    pub(crate) fn lock_directory_cursor(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.directory_cursor.lock().unwrap()
     }
 }
 
@@ -97,70 +110,42 @@ fn invalid_raw_file() -> fd_util::stub::RawFd {
     windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE
 }
 
-fn is_invalid_raw_file(raw: fd_util::stub::RawFd) -> bool {
-    raw == invalid_raw_file()
+#[cfg(windows)]
+fn invalid_raw_socket() -> RawSocket {
+    windows_sys::Win32::Networking::WinSock::INVALID_SOCKET as RawSocket
 }
 
 #[cfg(unix)]
-fn close_raw_file(raw: fd_util::stub::RawFd, _close_kind: HostFileCloseKind) {
-    unsafe {
-        libc::close(raw);
-    }
+fn owned_raw_file(raw: fd_util::stub::RawFd) -> OwnedRawFile {
+    // FileResource takes ownership of handles returned by platform APIs.
+    unsafe { OwnedFd::from_raw_fd(raw) }
 }
 
 #[cfg(windows)]
-fn close_raw_file(raw: fd_util::stub::RawFd, close_kind: HostFileCloseKind) {
-    match close_kind {
-        HostFileCloseKind::File => unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(raw);
-        },
-        HostFileCloseKind::Socket => unsafe {
-            windows_sys::Win32::Networking::WinSock::closesocket(raw as usize);
-        },
-    }
+fn owned_raw_file(raw: fd_util::stub::RawFd) -> OwnedRawFile {
+    // FileResource takes ownership of handles returned by platform APIs.
+    unsafe { OwnedHandle::from_raw_handle(raw) }
+}
+
+#[cfg(windows)]
+fn owned_raw_socket(raw: RawSocket) -> OwnedSocket {
+    // FileResource takes ownership of sockets returned by platform APIs.
+    unsafe { OwnedSocket::from_raw_socket(raw) }
 }
 
 #[cfg(unix)]
-fn duplicate_raw_file(raw: fd_util::stub::RawFd) -> AsyncHostResult<fd_util::stub::RawFd> {
-    let fd = unsafe { libc::fcntl(raw, libc::F_DUPFD_CLOEXEC, 0) };
-    if fd < 0 {
-        Err(last_native_error())
-    } else {
-        Ok(fd)
-    }
+fn raw_file(raw: &OwnedRawFile) -> fd_util::stub::RawFd {
+    raw.as_raw_fd()
 }
 
 #[cfg(windows)]
-fn duplicate_raw_file(raw: fd_util::stub::RawFd) -> AsyncHostResult<fd_util::stub::RawFd> {
-    use windows_sys::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE};
-    use windows_sys::Win32::System::Threading::GetCurrentProcess;
-
-    let process = unsafe { GetCurrentProcess() };
-    let mut duplicate: HANDLE = std::ptr::null_mut();
-    if unsafe {
-        DuplicateHandle(
-            process,
-            raw,
-            process,
-            &mut duplicate,
-            0,
-            0,
-            DUPLICATE_SAME_ACCESS,
-        )
-    } == 0
-    {
-        Err(last_native_error())
-    } else {
-        Ok(duplicate)
-    }
+fn raw_file(raw: &OwnedRawFile) -> fd_util::stub::RawFd {
+    raw.as_raw_handle()
 }
 
-fn last_native_error() -> AsyncHostError {
-    AsyncHostError::Native(
-        std::io::Error::last_os_error()
-            .raw_os_error()
-            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-    )
+#[cfg(windows)]
+fn raw_socket(raw: &OwnedSocket) -> fd_util::stub::RawFd {
+    raw.as_raw_socket() as fd_util::stub::RawFd
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,13 +224,13 @@ pub(crate) enum JobPayload {
         duration_ms: i32,
     },
     Read {
-        fd: HostHandle,
+        file: Option<FileResourceRef>,
         len: i32,
         position: i64,
         result: Option<Vec<u8>>,
     },
     Write {
-        fd: HostHandle,
+        file: Option<FileResourceRef>,
         data: Vec<u8>,
         position: i64,
     },
@@ -259,16 +244,16 @@ pub(crate) enum JobPayload {
         result: Option<OpenJobResult>,
     },
     FileKindByPath {
-        parent: HostHandle,
+        parent: Option<FileResourceRef>,
         path: OsString,
         follow_symlink: bool,
     },
     FileSize {
-        fd: HostHandle,
+        file: Option<FileResourceRef>,
         result: i64,
     },
     FileTime {
-        fd: HostHandle,
+        file: Option<FileResourceRef>,
         result: Option<FileTimeResult>,
     },
     FileTimeByPath {
@@ -285,11 +270,11 @@ pub(crate) enum JobPayload {
         mode: i32,
     },
     Fsync {
-        fd: HostHandle,
+        file: Option<FileResourceRef>,
         only_data: bool,
     },
     Flock {
-        fd: HostHandle,
+        file: Option<FileResourceRef>,
         exclusive: bool,
     },
     Remove {
@@ -313,13 +298,13 @@ pub(crate) enum JobPayload {
         path: OsString,
     },
     Readdir {
-        dir: HostHandle,
+        dir: Option<FileResourceRef>,
         buffer: HostCBuffer,
         len: i32,
         restart: bool,
     },
     Bind {
-        socket: HostHandle,
+        socket: Option<FileResourceRef>,
         addr: Vec<u8>,
     },
     GetAddrInfo {
@@ -328,29 +313,8 @@ pub(crate) enum JobPayload {
     },
 }
 
-pub(crate) trait HostFileTable {
+pub(crate) trait FileResourceTable {
     fn insert_file(&mut self, file: fd_util::stub::RawFd) -> AsyncHostResult<HostHandle>;
-
-    fn is_invalid_file_handle(&self, handle: HostHandle) -> bool;
-
-    #[cfg(windows)]
-    fn with_borrowed_raw_file<T>(
-        &mut self,
-        handle: HostHandle,
-        f: impl FnOnce(fd_util::stub::RawFd) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T>;
-
-    fn with_raw_file<T>(
-        &mut self,
-        handle: HostHandle,
-        f: impl FnOnce(fd_util::stub::RawFd) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T>;
-
-    fn with_host_file_mut<T>(
-        &mut self,
-        handle: HostHandle,
-        f: impl FnOnce(&mut HostFile) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T>;
 }
 
 pub(crate) fn platform() -> i32 {

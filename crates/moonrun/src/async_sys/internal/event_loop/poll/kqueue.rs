@@ -21,7 +21,7 @@ use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
 
 use super::{
-    EVENT_BUFFER_SIZE, PROCESS_EVENT, PollEvent, PollInstance, READ_EVENT, WRITE_EVENT,
+    EVENT_BUFFER_SIZE, PROCESS_EVENT, PollEvent, PollInstance, READ_EVENT, WRITE_EVENT, last_errno,
     last_native_error,
 };
 
@@ -150,6 +150,29 @@ ported_fns! {
     pub(crate) fn event_get_events(event: &PollEvent) -> i32 {
         event.events
     }
+}
+
+pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostResult<()> {
+    for filter in [libc::EVFILT_READ, libc::EVFILT_WRITE] {
+        let event = new_kevent(fd as libc::uintptr_t, filter, libc::EV_DELETE, 0, 0);
+        if unsafe {
+            libc::kevent(
+                instance.fd,
+                &event,
+                1,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null(),
+            )
+        } < 0
+        {
+            let errno = last_errno();
+            if errno != libc::ENOENT {
+                return Err(AsyncHostError::Native(errno));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn kqueue_result_events(event: &libc::kevent) -> i32 {

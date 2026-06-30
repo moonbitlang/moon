@@ -31,12 +31,15 @@ pub(crate) use jobs::{
     make_fsync_job, make_getaddrinfo_job, make_mkdir_job, make_open_job, make_read_job,
     make_readdir_job, make_remove_job, make_rename_job, make_rmdir_job, make_sleep_job,
     make_symlink_job, make_write_job, open_job_get_dev_id, open_job_get_fd, open_job_get_file_id,
-    open_job_get_kind, open_job_result,
+    open_job_get_kind, open_job_result, take_open_job_result,
 };
 pub(crate) use runner::{get_file_time_result, get_read_result, run_host_job};
 #[cfg(all(test, unix))]
 pub(crate) use types::JobPayload;
-pub(crate) use types::{FileTimeResult, HostFile, HostFileTable, HostHandle, Job, OpenJobResult};
+pub(crate) use types::{
+    FileResource, FileResourceRef, FileResourceTable, FileTimeResult, HostHandle, Job,
+    OpenJobResult,
+};
 pub(crate) use worker::{
     HostWorkerHandle, HostWorkerJob, cancel_worker, free_worker, spawn_worker, wake_worker,
     worker_enter_idle,

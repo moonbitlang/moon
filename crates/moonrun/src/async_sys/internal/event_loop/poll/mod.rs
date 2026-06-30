@@ -167,6 +167,30 @@ mod tests {
     }
 
     #[test]
+    fn event_bus_unregister_removes_pipe_readiness() {
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let read_fd = fds[0];
+        let write_fd = fds[1];
+
+        let mut poll = poll_create().unwrap();
+        poll_register(&poll, read_fd, true).unwrap();
+        poll_unregister(&poll, read_fd).unwrap();
+        let byte = b"x";
+        assert_eq!(
+            unsafe { libc::write(write_fd, byte.as_ptr().cast(), byte.len()) },
+            1
+        );
+
+        assert_eq!(poll_wait(&mut poll, 0).unwrap(), 0);
+
+        unsafe {
+            libc::close(read_fd);
+            libc::close(write_fd);
+        }
+    }
+
+    #[test]
     fn ported_symbols_reference_native_sources() {
         let async_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../third_party/moonbitlang_async");

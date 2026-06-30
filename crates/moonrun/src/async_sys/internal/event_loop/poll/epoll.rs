@@ -134,6 +134,19 @@ ported_fns! {
     }
 }
 
+pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostResult<()> {
+    if unsafe { libc::epoll_ctl(instance.fd, libc::EPOLL_CTL_DEL, fd, std::ptr::null_mut()) } < 0 {
+        let errno = super::last_errno();
+        if errno == libc::ENOENT {
+            Ok(())
+        } else {
+            Err(AsyncHostError::Native(errno))
+        }
+    } else {
+        Ok(())
+    }
+}
+
 fn epoll_event_mask(events: i32) -> AsyncHostResult<u32> {
     let mut mask = match events {
         READ_EVENT => libc::EPOLLIN,

@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::thread_pool::{HostFileTable, HostHandle};
+use crate::async_sys::internal::event_loop::thread_pool::{FileResourceTable, HostHandle};
 use crate::async_sys::ported_fns;
 
 #[cfg(unix)]
@@ -250,8 +250,8 @@ fn create_named_pipe_client(name: &std::ffi::OsStr, is_async: bool) -> RawFd {
     }
 }
 
-pub(crate) fn pipe_host_files(
-    files: &mut impl HostFileTable,
+pub(crate) fn pipe_file_resources(
+    files: &mut impl FileResourceTable,
     read_end_is_async: bool,
     write_end_is_async: bool,
 ) -> AsyncHostResult<[HostHandle; 2]> {
