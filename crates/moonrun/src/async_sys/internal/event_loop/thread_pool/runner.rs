@@ -27,9 +27,9 @@ use super::fs::{
 };
 use super::sleep::run_sleep_job;
 use super::socket::{run_bind_job, run_getaddrinfo_job};
-use super::types::{HostFileTable, Job, JobPayload};
+use super::types::{FileResourceTable, Job, JobPayload};
 
-pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
+pub(crate) fn run_host_job(job: &mut Job, files: &mut impl FileResourceTable) {
     job.set_ret(0);
 
     let result = match job.payload_mut() {
@@ -56,19 +56,23 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
             *mode,
         ),
         JobPayload::Read {
-            fd,
+            file,
             len,
             position,
             result,
-        } => run_read_job(files, *fd, *len, *position, result),
-        JobPayload::Write { fd, data, position } => run_write_job(files, *fd, data, *position),
+        } => run_read_job(file, *len, *position, result),
+        JobPayload::Write {
+            file,
+            data,
+            position,
+        } => run_write_job(file, data, *position),
         JobPayload::FileKindByPath {
             parent,
             path,
             follow_symlink,
-        } => run_file_kind_by_path_job(files, *parent, path.clone(), *follow_symlink),
-        JobPayload::FileSize { fd, result } => run_file_size_job(files, *fd, result),
-        JobPayload::FileTime { fd, result, .. } => run_file_time_job(files, *fd, result),
+        } => run_file_kind_by_path_job(parent.as_deref(), path.clone(), *follow_symlink),
+        JobPayload::FileSize { file, result } => run_file_size_job(file, result),
+        JobPayload::FileTime { file, result, .. } => run_file_time_job(file, result),
         JobPayload::FileTimeByPath {
             path,
             follow_symlink,
@@ -77,8 +81,8 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
         } => run_file_time_by_path_job(path.clone(), *follow_symlink, result),
         JobPayload::Access { path, access } => run_access_job(path.clone(), *access),
         JobPayload::Chmod { path, mode } => run_chmod_job(path.clone(), *mode),
-        JobPayload::Fsync { fd, only_data } => run_fsync_job(files, *fd, *only_data),
-        JobPayload::Flock { fd, exclusive } => run_flock_job(files, *fd, *exclusive),
+        JobPayload::Fsync { file, only_data } => run_fsync_job(file, *only_data),
+        JobPayload::Flock { file, exclusive } => run_flock_job(file, *exclusive),
         JobPayload::Remove { path } => run_remove_job(path.clone()),
         JobPayload::Rename {
             old_path,
@@ -97,8 +101,8 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl HostFileTable) {
             buffer,
             len,
             restart,
-        } => run_readdir_job(files, *dir, buffer, *len, *restart),
-        JobPayload::Bind { socket, addr } => run_bind_job(files, *socket, addr),
+        } => run_readdir_job(dir, buffer, *len, *restart),
+        JobPayload::Bind { socket, addr } => run_bind_job(socket, addr),
         JobPayload::GetAddrInfo { host, result } => run_getaddrinfo_job(host.clone(), result),
     };
 

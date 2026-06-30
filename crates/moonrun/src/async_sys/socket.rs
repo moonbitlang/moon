@@ -28,6 +28,11 @@ use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
 
 #[cfg(unix)]
+pub(crate) type RawSocket = RawFd;
+#[cfg(windows)]
+pub(crate) type RawSocket = std::os::windows::io::RawSocket;
+
+#[cfg(unix)]
 fn last_native_error() -> AsyncHostError {
     AsyncHostError::Native(
         std::io::Error::last_os_error()
@@ -144,14 +149,14 @@ mod win {
     use windows_sys::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
     use windows_sys::Win32::Networking::WinSock as ws;
 
-    use super::{AsyncHostError, AsyncHostResult, RawFd};
+    use super::{AsyncHostError, AsyncHostResult, RawFd, RawSocket};
 
     fn socket(fd: RawFd) -> ws::SOCKET {
         fd as usize
     }
 
-    fn raw_socket(socket: ws::SOCKET) -> RawFd {
-        socket as RawFd
+    fn raw_socket(socket: ws::SOCKET) -> RawSocket {
+        socket as RawSocket
     }
 
     fn last_wsa_error() -> AsyncHostError {
@@ -363,7 +368,7 @@ mod win {
         Ok(unsafe { read_sockaddr_in6(addr)?.sin6_addr.u.Byte } == [0; 16])
     }
 
-    pub(super) fn make_tcp_socket(family: i32) -> AsyncHostResult<RawFd> {
+    pub(super) fn make_tcp_socket(family: i32) -> AsyncHostResult<RawSocket> {
         let socket = unsafe {
             ws::WSASocketW(
                 domain(family)?,
@@ -377,17 +382,18 @@ mod win {
         if socket == ws::INVALID_SOCKET {
             return Err(last_wsa_error());
         }
-        let raw = raw_socket(socket);
-        if let Err(error) = set_socket_int(raw, ws::SOL_SOCKET, ws::SO_EXCLUSIVEADDRUSE, 0) {
+        if let Err(error) =
+            set_socket_int(socket as RawFd, ws::SOL_SOCKET, ws::SO_EXCLUSIVEADDRUSE, 0)
+        {
             unsafe {
                 ws::closesocket(socket);
             }
             return Err(error);
         }
-        Ok(raw)
+        Ok(raw_socket(socket))
     }
 
-    pub(super) fn make_udp_socket(family: i32, multicast: bool) -> AsyncHostResult<RawFd> {
+    pub(super) fn make_udp_socket(family: i32, multicast: bool) -> AsyncHostResult<RawSocket> {
         let socket = unsafe {
             ws::WSASocketW(
                 domain(family)?,
@@ -401,11 +407,15 @@ mod win {
         if socket == ws::INVALID_SOCKET {
             return Err(last_wsa_error());
         }
-        let raw = raw_socket(socket);
         let result = if multicast {
-            set_socket_int(raw, ws::SOL_SOCKET, ws::SO_REUSE_MULTICASTPORT, 1)
+            set_socket_int(
+                socket as RawFd,
+                ws::SOL_SOCKET,
+                ws::SO_REUSE_MULTICASTPORT,
+                1,
+            )
         } else {
-            set_socket_int(raw, ws::SOL_SOCKET, ws::SO_EXCLUSIVEADDRUSE, 0)
+            set_socket_int(socket as RawFd, ws::SOL_SOCKET, ws::SO_EXCLUSIVEADDRUSE, 0)
         };
         if let Err(error) = result {
             unsafe {
@@ -413,7 +423,7 @@ mod win {
             }
             return Err(error);
         }
-        Ok(raw)
+        Ok(raw_socket(socket))
     }
 
     pub(super) fn join_multicast_group(
@@ -953,7 +963,7 @@ ported_fns! {
         original = "moonbitlang_async_make_tcp_socket"
     )]
     #[cfg(unix)]
-    pub(crate) fn make_tcp_socket(family: i32) -> AsyncHostResult<RawFd> {
+    pub(crate) fn make_tcp_socket(family: i32) -> AsyncHostResult<RawSocket> {
         let domain = match family {
             4 => libc::AF_INET,
             6 => libc::AF_INET6,
@@ -971,7 +981,7 @@ ported_fns! {
         original = "moonbitlang_async_make_tcp_socket"
     )]
     #[cfg(windows)]
-    pub(crate) fn make_tcp_socket(family: i32) -> AsyncHostResult<RawFd> {
+    pub(crate) fn make_tcp_socket(family: i32) -> AsyncHostResult<RawSocket> {
         win::make_tcp_socket(family)
     }
 
@@ -980,7 +990,7 @@ ported_fns! {
         original = "moonbitlang_async_make_udp_socket"
     )]
     #[cfg(unix)]
-    pub(crate) fn make_udp_socket(family: i32, multicast: bool) -> AsyncHostResult<RawFd> {
+    pub(crate) fn make_udp_socket(family: i32, multicast: bool) -> AsyncHostResult<RawSocket> {
         let domain = match family {
             4 => libc::AF_INET,
             6 => libc::AF_INET6,
@@ -1021,7 +1031,7 @@ ported_fns! {
         original = "moonbitlang_async_make_udp_socket"
     )]
     #[cfg(windows)]
-    pub(crate) fn make_udp_socket(family: i32, multicast: bool) -> AsyncHostResult<RawFd> {
+    pub(crate) fn make_udp_socket(family: i32, multicast: bool) -> AsyncHostResult<RawSocket> {
         win::make_udp_socket(family, multicast)
     }
 
@@ -1661,7 +1671,7 @@ ported_fns! {
         original = "moonbitlang_async_accept"
     )]
     #[cfg(unix)]
-    pub(crate) fn accept(fd: RawFd, addr: &mut [u8]) -> AsyncHostResult<RawFd> {
+    pub(crate) fn accept(fd: RawFd, addr: &mut [u8]) -> AsyncHostResult<RawSocket> {
         let mut len = sockaddr_len(addr)?;
         let conn = unsafe { libc::accept(fd, addr.as_mut_ptr().cast::<libc::sockaddr>(), &mut len) };
         if conn < 0 {

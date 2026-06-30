@@ -21,7 +21,7 @@ use std::ffi::OsString;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 
-use super::types::{HostHandle, Job, JobPayload, OpenJobResult, platform};
+use super::types::{FileResourceRef, HostHandle, Job, JobPayload, OpenJobResult, platform};
 
 ported_fns! {
     #[ported(
@@ -77,12 +77,12 @@ ported_fns! {
         original = "moonbitlang_async_make_read_job"
     )]
     pub(crate) fn make_read_job(
-        fd: HostHandle,
+        file: FileResourceRef,
         len: i32,
         position: i64,
     ) -> Job {
         Job::new(JobPayload::Read {
-            fd,
+            file,
             len,
             position,
             result: None,
@@ -93,8 +93,8 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_write_job"
     )]
-    pub(crate) fn make_write_job(fd: HostHandle, data: Vec<u8>, position: i64) -> Job {
-        Job::new(JobPayload::Write { fd, data, position })
+    pub(crate) fn make_write_job(file: FileResourceRef, data: Vec<u8>, position: i64) -> Job {
+        Job::new(JobPayload::Write { file, data, position })
     }
 
     #[ported(
@@ -125,7 +125,7 @@ ported_fns! {
         original = "moonbitlang_async_make_file_kind_by_path_job"
     )]
     pub(crate) fn make_file_kind_by_path_job(
-        parent: HostHandle,
+        parent: Option<FileResourceRef>,
         path: OsString,
         follow_symlink: bool,
     ) -> Job {
@@ -172,17 +172,17 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_file_size_job"
     )]
-    pub(crate) fn make_file_size_job(fd: HostHandle) -> Job {
-        Job::new(JobPayload::FileSize { fd, result: 0 })
+    pub(crate) fn make_file_size_job(file: FileResourceRef) -> Job {
+        Job::new(JobPayload::FileSize { file, result: 0 })
     }
 
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_file_time_job"
     )]
-    pub(crate) fn make_file_time_job(fd: HostHandle) -> Job {
+    pub(crate) fn make_file_time_job(file: FileResourceRef) -> Job {
         Job::new(JobPayload::FileTime {
-            fd,
+            file,
             result: None,
         })
     }
@@ -233,16 +233,16 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_fsync_job"
     )]
-    pub(crate) fn make_fsync_job(fd: HostHandle, only_data: bool) -> Job {
-        Job::new(JobPayload::Fsync { fd, only_data })
+    pub(crate) fn make_fsync_job(file: FileResourceRef, only_data: bool) -> Job {
+        Job::new(JobPayload::Fsync { file, only_data })
     }
 
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_flock_job"
     )]
-    pub(crate) fn make_flock_job(fd: HostHandle, exclusive: bool) -> Job {
-        Job::new(JobPayload::Flock { fd, exclusive })
+    pub(crate) fn make_flock_job(file: FileResourceRef, exclusive: bool) -> Job {
+        Job::new(JobPayload::Flock { file, exclusive })
     }
 
     #[ported(
@@ -298,7 +298,7 @@ ported_fns! {
         original = "moonbitlang_async_make_readdir_job"
     )]
     pub(crate) fn make_readdir_job(
-        dir: HostHandle,
+        dir: FileResourceRef,
         buffer: crate::async_host::HostCBuffer,
         len: i32,
         restart: bool,
@@ -315,7 +315,7 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_bind_job"
     )]
-    pub(crate) fn make_bind_job(socket: HostHandle, addr: Vec<u8>) -> Job {
+    pub(crate) fn make_bind_job(socket: FileResourceRef, addr: Vec<u8>) -> Job {
         Job::new(JobPayload::Bind { socket, addr })
     }
 
@@ -355,43 +355,15 @@ pub(crate) fn getaddrinfo_job_result(job: &Job) -> AsyncHostResult<&[Box<[u8]>]>
 mod tests {
     use super::*;
     use crate::async_sys::internal::event_loop::thread_pool::{
-        HostFile, HostFileTable, run_host_job,
+        FileResource, FileResourceTable, run_host_job,
     };
     use crate::async_sys::internal::fd_util::stub::RawFd;
+    use std::sync::Arc;
 
     struct NoFiles;
 
-    impl HostFileTable for NoFiles {
+    impl FileResourceTable for NoFiles {
         fn insert_file(&mut self, _file: RawFd) -> AsyncHostResult<HostHandle> {
-            unreachable!("sleep jobs do not access files")
-        }
-
-        fn is_invalid_file_handle(&self, _handle: HostHandle) -> bool {
-            unreachable!("sleep jobs do not access files")
-        }
-
-        #[cfg(windows)]
-        fn with_borrowed_raw_file<T>(
-            &mut self,
-            _handle: HostHandle,
-            _f: impl FnOnce(RawFd) -> AsyncHostResult<T>,
-        ) -> AsyncHostResult<T> {
-            unreachable!("sleep jobs do not access files")
-        }
-
-        fn with_raw_file<T>(
-            &mut self,
-            _handle: HostHandle,
-            _f: impl FnOnce(RawFd) -> AsyncHostResult<T>,
-        ) -> AsyncHostResult<T> {
-            unreachable!("sleep jobs do not access files")
-        }
-
-        fn with_host_file_mut<T>(
-            &mut self,
-            _handle: HostHandle,
-            _f: impl FnOnce(&mut HostFile) -> AsyncHostResult<T>,
-        ) -> AsyncHostResult<T> {
             unreachable!("sleep jobs do not access files")
         }
     }
@@ -405,17 +377,18 @@ mod tests {
     }
 
     #[test]
-    fn read_job_carries_host_handle_and_length_payload() {
-        let job = make_read_job(7, 8, -1);
+    fn read_job_carries_file_resource_and_length_payload() {
+        let file = Arc::new(FileResource::invalid());
+        let job = make_read_job(Arc::clone(&file), 8, -1);
 
         match job.payload() {
             JobPayload::Read {
-                fd,
+                file: actual_file,
                 len,
                 position,
                 result: None,
             } => {
-                assert_eq!(*fd, 7);
+                assert!(Arc::ptr_eq(actual_file, &file));
                 assert_eq!(*len, 8);
                 assert_eq!(*position, -1);
             }

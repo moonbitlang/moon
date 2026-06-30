@@ -19,7 +19,7 @@
 use std::ffi::OsString;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::thread_pool::HostFile;
+use crate::async_sys::internal::event_loop::thread_pool::FileResource;
 use crate::async_sys::ported_fns;
 
 #[cfg(unix)]
@@ -163,11 +163,11 @@ fn unlock_file_from_native_stub(handle: RawFileHandle) -> AsyncHostResult<()> {
     }
 }
 
-pub(crate) fn try_lock_host_file(file: &mut HostFile, exclusive: bool) -> AsyncHostResult<()> {
+pub(crate) fn try_lock_file_resource(file: &FileResource, exclusive: bool) -> AsyncHostResult<()> {
     try_lock_file(file.raw_fd(), exclusive)
 }
 
-pub(crate) fn unlock_host_file(file: &mut HostFile) -> AsyncHostResult<()> {
+pub(crate) fn unlock_file_resource(file: &FileResource) -> AsyncHostResult<()> {
     unlock_file(file.raw_fd())
 }
 

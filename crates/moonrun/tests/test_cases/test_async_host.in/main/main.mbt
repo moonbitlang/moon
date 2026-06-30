@@ -20,9 +20,6 @@
 fn get_platform() -> Int = "moonbitlang/async" "runtime/get_platform"
 
 ///|
-fn invalid_fd() -> UInt64 = "moonbitlang/async" "fd_util/invalid_fd"
-
-///|
 fn ms_since_epoch() -> UInt64 = "moonbitlang/async" "time/get_ms_since_epoch"
 
 ///|
@@ -53,7 +50,7 @@ fn init_thread_pool(bus : UInt64) -> UInt64 = "moonbitlang/async" "thread_pool/i
 fn destroy_thread_pool() -> Unit = "moonbitlang/async" "thread_pool/destroy_thread_pool"
 
 ///|
-fn make_read_job(fd : UInt64, len : Int, position : Int64) -> UInt64 = "moonbitlang/async" "thread_pool/make_read_job"
+fn make_sleep_job(ms : Int) -> UInt64 = "moonbitlang/async" "thread_pool/make_sleep_job"
 
 ///|
 fn free_job(job : UInt64) -> Unit = "moonbitlang/async" "thread_pool/free_job"
@@ -176,7 +173,7 @@ fn main {
   let bus = event_bus_create()
   assert_true(event_bus_wait(bus, 0) == 0, "empty event bus did not time out")
   let completion_source = init_thread_pool(bus)
-  let job = make_read_job(invalid_fd(), 1, -1)
+  let job = make_sleep_job(0)
   let worker = spawn_worker(17, job)
   let event_count = event_bus_wait(bus, 1000)
   assert_true(event_count > 0, "worker completion did not wake event bus")

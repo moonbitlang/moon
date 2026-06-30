@@ -36,7 +36,10 @@ pub(crate) use jobs::{
 pub(crate) use runner::{get_file_time_result, get_read_result, run_host_job};
 #[cfg(all(test, unix))]
 pub(crate) use types::JobPayload;
-pub(crate) use types::{FileTimeResult, HostFile, HostFileTable, HostHandle, Job, OpenJobResult};
+pub(crate) use types::{
+    FileResource, FileResourceRef, FileResourceTable, FileTimeResult, HostHandle, Job,
+    OpenJobResult,
+};
 pub(crate) use worker::{
     HostWorkerHandle, HostWorkerJob, cancel_worker, free_worker, spawn_worker, wake_worker,
     worker_enter_idle,

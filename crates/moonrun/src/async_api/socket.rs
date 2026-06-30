@@ -215,7 +215,7 @@ pub(super) fn addrinfo_free(context: &mut ImportContext<'_, '_>, addrinfo: u64) 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn make_tcp_socket(context: &mut ImportContext<'_, '_>, family: i32) -> u64 {
     match sys::make_tcp_socket(family) {
-        Ok(fd) => context.host.insert_host_file(fd),
+        Ok(fd) => context.host.insert_socket_resource(fd),
         Err(error) => {
             context.host.record_error(error);
             context.host.invalid_fd()
@@ -226,7 +226,7 @@ pub(super) fn make_tcp_socket(context: &mut ImportContext<'_, '_>, family: i32) 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn make_udp_socket(context: &mut ImportContext<'_, '_>, family: i32, multicast: i32) -> u64 {
     match sys::make_udp_socket(family, multicast != 0) {
-        Ok(fd) => context.host.insert_host_file(fd),
+        Ok(fd) => context.host.insert_socket_resource(fd),
         Err(error) => {
             context.host.record_error(error);
             context.host.invalid_fd()
@@ -390,7 +390,7 @@ pub(super) fn getsockname(context: &mut ImportContext<'_, '_>, fd: u64, addr: i3
 pub(super) fn if_nametoindex(context: &mut ImportContext<'_, '_>, name: i32, name_len: i32) -> i32 {
     let result = context.with_memory_mut(|memory| {
         let name = read_u16(memory, name, name_len)?;
-        sys::if_nametoindex(name)
+        sys::if_nametoindex(&name)
     });
     match result {
         Ok(index) => index,
@@ -545,7 +545,7 @@ pub(super) fn accept(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, ad
         host.with_raw_file(fd, |fd| sys::accept(fd, addr))
     });
     match result {
-        Ok(fd) => context.host.insert_host_file(fd),
+        Ok(fd) => context.host.insert_socket_resource(fd),
         Err(error) => {
             context.host.record_error(error);
             context.host.invalid_fd()

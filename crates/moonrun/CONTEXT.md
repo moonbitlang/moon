@@ -24,6 +24,10 @@ _Avoid_: Notify pipe, callback queue
 The wasm linear memory owned by the guest program.
 _Avoid_: Wasm buffer, V8 memory
 
+**Untrusted Guest**:
+A wasm program that may call the async boundary outside the sequencing and ownership discipline expected from MoonBit async code.
+_Avoid_: Random wasm, malicious MoonBit
+
 **Guest String Path**:
 A MoonBit `String` pointer plus UTF-16 code-unit length used for async path arguments crossing `moonbitlang/async`.
 Moonrun converts this directly into `OsString`; guest code must not send UTF-8 `Bytes` for paths.
@@ -33,9 +37,22 @@ _Avoid_: Guest UTF-8 path buffer
 Memory owned by moonrun while servicing guest jobs.
 _Avoid_: Native buffer, temporary buffer
 
+**Resource**:
+A moonrun-owned OS or runtime resource exposed to MoonBit through an opaque async boundary value.
+_Avoid_: Capability, Host Resource, Guest Resource, raw fd, pointer, id
+
+**Resource Handle**:
+An opaque value held by MoonBit code that names a resource at the async boundary.
+_Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
+
 **Native-Shaped Async Boundary**:
 The wasm async host boundary that keeps MoonBit-facing concepts aligned with `moonbitlang/async` native concepts even when moonrun uses different host representations.
 _Avoid_: Wasm-specific async API, shortcut API
+
+**Native Behavior**:
+The observable behavior of `moonbitlang/async` native execution that moonrun should match byte-for-byte unless that behavior is questionable or not user facing.
+For normal MoonBit async paths, moonrun should stay strictly native-shaped and avoid adding observable intermediate states. Extra validation exists at the async boundary to reject stale or unexpected calls from an Untrusted Guest before they can violate moonrun's Rust or OS ownership invariants.
+_Avoid_: Conceptual parity, best-effort compatibility
 
 **Async API**:
 The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm ABI values, reacquires guest memory, sets return values, and reports traps.

@@ -36,10 +36,12 @@ use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::event_loop::{
     poll::{self, PollInstance},
     thread_pool::{
-        self, HostFile, HostFileTable, HostHandle, HostWorkerHandle, HostWorkerJob, Job,
+        self, FileResource, FileResourceRef, FileResourceTable, HostHandle, HostWorkerHandle,
+        HostWorkerJob, Job,
     },
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
+use crate::async_sys::socket::RawSocket;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 compile_error!("moonrun async wasm host currently supports only Linux, macOS, and Windows hosts");
@@ -140,32 +142,23 @@ fn guest_bounds(offset: i32, len: i32) -> AsyncHostResult<(usize, usize)> {
     Ok((offset, end))
 }
 
-pub(crate) fn read_u16(memory: &[u8], offset: i32, len: i32) -> AsyncHostResult<&[u16]> {
+pub(crate) fn read_u16(memory: &[u8], offset: i32, len: i32) -> AsyncHostResult<Vec<u16>> {
     let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-    let (offset, _) = u16_bounds(memory.len(), offset, len)?;
-    if len == 0 {
-        return Ok(&[]);
-    }
-    let ptr = unsafe { memory.as_ptr().add(offset) };
-    if !(ptr as usize).is_multiple_of(std::mem::align_of::<u16>()) {
-        return Err(AsyncHostError::Fault);
-    }
-    let ptr = ptr.cast::<u16>();
-    Ok(unsafe { std::slice::from_raw_parts(ptr, len) })
+    let (offset, end) = u16_bounds(memory.len(), offset, len)?;
+    Ok(memory[offset..end]
+        .chunks_exact(std::mem::size_of::<u16>())
+        .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+        .collect())
 }
 
 pub(crate) fn write_u16(memory: &mut [u8], offset: i32, data: &[u16]) -> AsyncHostResult<()> {
-    let (offset, _) = u16_bounds(memory.len(), offset, data.len())?;
-    if data.is_empty() {
-        return Ok(());
+    let (offset, end) = u16_bounds(memory.len(), offset, data.len())?;
+    for (dst, value) in memory[offset..end]
+        .chunks_exact_mut(std::mem::size_of::<u16>())
+        .zip(data.iter().copied())
+    {
+        dst.copy_from_slice(&value.to_le_bytes());
     }
-    let ptr = unsafe { memory.as_mut_ptr().add(offset) };
-    if !(ptr as usize).is_multiple_of(std::mem::align_of::<u16>()) {
-        return Err(AsyncHostError::Fault);
-    }
-    let ptr = ptr.cast::<u16>();
-    let dst = unsafe { std::slice::from_raw_parts_mut(ptr, data.len()) };
-    dst.copy_from_slice(data);
     Ok(())
 }
 
@@ -204,64 +197,18 @@ impl<const N: usize> GuestMemory for [u8; N] {
     }
 }
 
-impl HostFileTable for SlotMap<HostFileKey, HostFile> {
+impl FileResourceTable for SlotMap<FileResourceKey, FileResourceRef> {
     fn insert_file(&mut self, file: RawFd) -> AsyncHostResult<u64> {
-        Ok(handle_from_key(self.insert(HostFile::new(file))))
-    }
-
-    fn is_invalid_file_handle(&self, handle: HostHandle) -> bool {
-        self.get(key_from_handle::<HostFileKey>(handle))
-            .is_some_and(HostFile::is_invalid)
-    }
-
-    #[cfg(windows)]
-    fn with_borrowed_raw_file<T>(
-        &mut self,
-        handle: HostHandle,
-        f: impl FnOnce(RawFd) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        let file = self
-            .get(key_from_handle::<HostFileKey>(handle))
-            .ok_or(AsyncHostError::Badf)?;
-        if file.is_invalid() {
-            return Err(AsyncHostError::Badf);
-        }
-        f(file.raw_fd())
-    }
-
-    fn with_raw_file<U>(
-        &mut self,
-        handle: u64,
-        f: impl FnOnce(RawFd) -> AsyncHostResult<U>,
-    ) -> AsyncHostResult<U> {
-        let file = self
-            .get_mut(key_from_handle::<HostFileKey>(handle))
-            .ok_or(AsyncHostError::Badf)?;
-        if file.is_invalid() {
-            return Err(AsyncHostError::Badf);
-        }
-        f(file.raw_fd())
-    }
-
-    fn with_host_file_mut<U>(
-        &mut self,
-        handle: u64,
-        f: impl FnOnce(&mut HostFile) -> AsyncHostResult<U>,
-    ) -> AsyncHostResult<U> {
-        let file = self
-            .get_mut(key_from_handle::<HostFileKey>(handle))
-            .ok_or(AsyncHostError::Badf)?;
-        if file.is_invalid() {
-            return Err(AsyncHostError::Badf);
-        }
-        f(file)
+        Ok(handle_from_key(
+            self.insert(Arc::new(FileResource::new(file))),
+        ))
     }
 }
 
 new_key_type! {
     pub(crate) struct HostAddrInfoKey;
     pub(crate) struct HostCBufferKey;
-    pub(crate) struct HostFileKey;
+    pub(crate) struct FileResourceKey;
     pub(crate) struct HostIoResultKey;
     pub(crate) struct HostJobKey;
     pub(crate) struct HostPollKey;
@@ -293,8 +240,8 @@ struct AsyncHostState {
     jobs: SlotMap<HostJobKey, Option<Job>>,
     polls: SlotMap<HostPollKey, Arc<Mutex<HostPoll>>>,
     current_event_poll: Option<HostPollKey>,
-    files: SlotMap<HostFileKey, HostFile>,
-    invalid_file: HostFileKey,
+    files: SlotMap<FileResourceKey, FileResourceRef>,
+    invalid_file: FileResourceKey,
     workers: SlotMap<HostWorkerKey, HostWorkerHandle>,
     #[cfg(unix)]
     completion_notifier: Option<Arc<ThreadPoolCompletionNotifier>>,
@@ -328,7 +275,7 @@ impl OverlappedAddr {
 impl Default for AsyncHostState {
     fn default() -> Self {
         let mut files = SlotMap::with_key();
-        let invalid_file = files.insert(HostFile::invalid());
+        let invalid_file = files.insert(Arc::new(FileResource::invalid()));
         Self {
             errno: 0,
             addr_infos: SlotMap::with_key(),
@@ -369,30 +316,19 @@ impl AsyncHostState {
         handle_from_key(self.invalid_file)
     }
 
-    fn file(&self, handle: HostHandle) -> AsyncHostResult<&HostFile> {
+    fn file(&self, handle: HostHandle) -> AsyncHostResult<FileResourceRef> {
         let file = self
             .files
-            .get(key_from_handle::<HostFileKey>(handle))
+            .get(key_from_handle::<FileResourceKey>(handle))
             .ok_or(AsyncHostError::Badf)?;
         if file.is_invalid() {
             return Err(AsyncHostError::Badf);
         }
-        Ok(file)
+        Ok(Arc::clone(file))
     }
 
-    fn file_mut(&mut self, handle: HostHandle) -> AsyncHostResult<&mut HostFile> {
-        let file = self
-            .files
-            .get_mut(key_from_handle::<HostFileKey>(handle))
-            .ok_or(AsyncHostError::Badf)?;
-        if file.is_invalid() {
-            return Err(AsyncHostError::Badf);
-        }
-        Ok(file)
-    }
-
-    fn remove_file(&mut self, handle: HostHandle) -> AsyncHostResult<HostFile> {
-        let key = key_from_handle::<HostFileKey>(handle);
+    fn remove_file(&mut self, handle: HostHandle) -> AsyncHostResult<FileResourceRef> {
+        let key = key_from_handle::<FileResourceKey>(handle);
         if key == self.invalid_file {
             return Err(AsyncHostError::Badf);
         }
@@ -1074,7 +1010,8 @@ impl AsyncHost {
             let completion_notifier = Arc::new(completion_notifier);
             let source = {
                 let mut state = self.state.lock().unwrap();
-                let source = handle_from_key(state.files.insert(HostFile::new(event_fd)));
+                let source =
+                    handle_from_key(state.files.insert(Arc::new(FileResource::new(event_fd))));
                 state.completion_notifier = Some(Arc::clone(&completion_notifier));
                 state.completion_source = Some(source);
                 source
@@ -1363,12 +1300,12 @@ impl AsyncHost {
         Ok(())
     }
 
-    pub(crate) fn insert_host_file(&self, raw_fd: RawFd) -> HostHandle {
+    pub(crate) fn insert_socket_resource(&self, raw_socket: RawSocket) -> HostHandle {
         #[cfg(unix)]
-        let file = HostFile::new(raw_fd);
+        let file = FileResource::new(raw_socket);
         #[cfg(windows)]
-        let file = HostFile::new_socket(raw_fd);
-        handle_from_key(self.state.lock().unwrap().files.insert(file))
+        let file = FileResource::new_socket(raw_socket);
+        handle_from_key(self.state.lock().unwrap().files.insert(Arc::new(file)))
     }
 
     pub(crate) fn with_raw_file<T>(
@@ -1380,12 +1317,16 @@ impl AsyncHost {
         f(state.file(handle)?.raw_fd())
     }
 
+    pub(crate) fn file_resource(&self, handle: HostHandle) -> AsyncHostResult<FileResourceRef> {
+        self.state.lock().unwrap().file(handle)
+    }
+
     pub(crate) fn pipe(
         &self,
         read_end_is_async: bool,
         write_end_is_async: bool,
     ) -> AsyncHostResult<[HostHandle; 2]> {
-        crate::async_sys::internal::fd_util::stub::pipe_host_files(
+        crate::async_sys::internal::fd_util::stub::pipe_file_resources(
             &mut self.state.lock().unwrap().files,
             read_end_is_async,
             write_end_is_async,
@@ -1991,15 +1932,15 @@ impl AsyncHost {
     }
 
     pub(crate) fn try_lock_file(&self, handle: HostHandle, exclusive: bool) -> AsyncHostResult<()> {
-        let mut state = self.state.lock().unwrap();
-        let file = state.file_mut(handle)?;
-        crate::async_sys::fs::stub::try_lock_host_file(file, exclusive)
+        let state = self.state.lock().unwrap();
+        let file = state.file(handle)?;
+        crate::async_sys::fs::stub::try_lock_file_resource(&file, exclusive)
     }
 
     pub(crate) fn unlock_file(&self, handle: HostHandle) -> AsyncHostResult<()> {
-        let mut state = self.state.lock().unwrap();
-        let file = state.file_mut(handle)?;
-        crate::async_sys::fs::stub::unlock_host_file(file)
+        let state = self.state.lock().unwrap();
+        let file = state.file(handle)?;
+        crate::async_sys::fs::stub::unlock_file_resource(&file)
     }
 
     pub(crate) fn run_job(&self, handle: u64) -> AsyncHostResult<()> {
@@ -2229,54 +2170,15 @@ struct SharedFileTable {
     state: Arc<Mutex<AsyncHostState>>,
 }
 
-impl HostFileTable for SharedFileTable {
+impl FileResourceTable for SharedFileTable {
     fn insert_file(&mut self, file: RawFd) -> AsyncHostResult<HostHandle> {
         Ok(handle_from_key(
-            self.state.lock().unwrap().files.insert(HostFile::new(file)),
+            self.state
+                .lock()
+                .unwrap()
+                .files
+                .insert(Arc::new(FileResource::new(file))),
         ))
-    }
-
-    fn is_invalid_file_handle(&self, handle: HostHandle) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .files
-            .get(key_from_handle::<HostFileKey>(handle))
-            .is_some_and(HostFile::is_invalid)
-    }
-
-    #[cfg(windows)]
-    fn with_borrowed_raw_file<T>(
-        &mut self,
-        handle: HostHandle,
-        f: impl FnOnce(RawFd) -> AsyncHostResult<T>,
-    ) -> AsyncHostResult<T> {
-        let state = self.state.lock().unwrap();
-        f(state.file(handle)?.raw_fd())
-    }
-
-    fn with_raw_file<U>(
-        &mut self,
-        handle: HostHandle,
-        f: impl FnOnce(RawFd) -> AsyncHostResult<U>,
-    ) -> AsyncHostResult<U> {
-        let file = {
-            let mut state = self.state.lock().unwrap();
-            state.file_mut(handle)?.duplicate()?
-        };
-        f(file.raw_fd())
-    }
-
-    fn with_host_file_mut<U>(
-        &mut self,
-        handle: HostHandle,
-        f: impl FnOnce(&mut HostFile) -> AsyncHostResult<U>,
-    ) -> AsyncHostResult<U> {
-        // Keep this path for host-owned file state operations such as readdir
-        // where duplicating the fd would change the directory cursor.
-        let mut state = self.state.lock().unwrap();
-        let file = state.file_mut(handle)?;
-        f(file)
     }
 }
 
@@ -2505,19 +2407,11 @@ mod tests {
     }
 
     #[test]
-    fn guest_memory_helpers_reject_unaligned_u16_storage() {
+    fn guest_memory_helpers_reject_odd_u16_offsets() {
         let mut memory = [0; 8];
-        let start = if (memory.as_ptr() as usize).is_multiple_of(std::mem::align_of::<u16>()) {
-            1
-        } else {
-            0
-        };
 
-        assert_eq!(read_u16(&memory[start..], 0, 1), Err(AsyncHostError::Fault));
-        assert_eq!(
-            write_u16(&mut memory[start..], 0, &[1]),
-            Err(AsyncHostError::Fault)
-        );
+        assert_eq!(read_u16(&memory, 1, 1), Err(AsyncHostError::Fault));
+        assert_eq!(write_u16(&mut memory, 1, &[1]), Err(AsyncHostError::Fault));
     }
 
     #[test]
@@ -2543,7 +2437,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn completion_source_is_host_file_handle() {
+    fn completion_source_is_file_resource_handle() {
         let host = AsyncHost::default();
         let poll = host.poll_create().unwrap();
         let completion_source = host.init_thread_pool(poll).unwrap();
@@ -2595,7 +2489,7 @@ mod tests {
         let host = AsyncHost::default();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
-        let job = thread_pool::make_read_job(0, 3, -1);
+        let job = thread_pool::make_read_job(Arc::new(FileResource::invalid()), 3, -1);
         let job_handle = host.insert_job(job).unwrap();
         {
             let mut state = host.state.lock().unwrap();
@@ -2731,7 +2625,11 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let first_job = host
-            .insert_job(thread_pool::make_read_job(0, 1, -1))
+            .insert_job(thread_pool::make_read_job(
+                Arc::new(FileResource::invalid()),
+                1,
+                -1,
+            ))
             .unwrap();
         let old_worker = host.spawn_worker(42, first_job).unwrap();
         host.poll_wait(poll, 1000).unwrap();
@@ -2752,7 +2650,11 @@ mod tests {
 
         host.init_thread_pool(poll).unwrap();
         let second_job = host
-            .insert_job(thread_pool::make_read_job(0, 1, -1))
+            .insert_job(thread_pool::make_read_job(
+                Arc::new(FileResource::invalid()),
+                1,
+                -1,
+            ))
             .unwrap();
         let new_worker = host.spawn_worker(43, second_job).unwrap();
         let wake_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
@@ -2810,7 +2712,11 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let job = host
-            .insert_job(thread_pool::make_read_job(0, 1, -1))
+            .insert_job(thread_pool::make_read_job(
+                Arc::new(FileResource::invalid()),
+                1,
+                -1,
+            ))
             .unwrap();
         let worker = host.spawn_worker(42, job).unwrap();
         host.poll_wait(poll, 1000).unwrap();
@@ -2834,35 +2740,20 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn shared_worker_file_survives_guest_close() {
+    fn acquired_file_resource_survives_guest_close() {
         let host = AsyncHost::default();
         let [read, write] = host.pipe(false, false).unwrap();
-        let mut files = SharedFileTable {
-            state: Arc::clone(&host.state),
-        };
+        let file = host.file_resource(read).unwrap();
 
-        let byte = files
-            .with_raw_file(read, |raw_read| {
-                host.close_fd(read)?;
-                let mut input = *b"x";
-                host.write_fd(&mut input, write, 0, 0, 1)?;
+        host.close_fd(read).unwrap();
+        let mut input = *b"x";
+        host.write_fd(&mut input, write, 0, 0, 1).unwrap();
 
-                let mut output = [0];
-                let ret = unsafe { libc::read(raw_read, output.as_mut_ptr().cast(), output.len()) };
-                if ret < 0 {
-                    Err(AsyncHostError::Native(
-                        std::io::Error::last_os_error()
-                            .raw_os_error()
-                            .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-                    ))
-                } else {
-                    assert_eq!(ret, 1);
-                    Ok(output[0])
-                }
-            })
-            .unwrap();
+        let mut output = [0];
+        let ret = unsafe { libc::read(file.raw_fd(), output.as_mut_ptr().cast(), output.len()) };
+        assert_eq!(ret, 1);
 
-        assert_eq!(byte, b'x');
+        assert_eq!(output[0], b'x');
         assert_eq!(host.close_fd(read), Err(AsyncHostError::Badf));
     }
 
@@ -3144,25 +3035,10 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         host.poll_register(poll, read, true).unwrap();
 
-        {
-            let mut state = host.state.lock().unwrap();
-            state
-                .files
-                .with_raw_file(write, |fd| {
-                    let byte = b"x";
-                    let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
-                    if ret < 0 {
-                        Err(AsyncHostError::Native(
-                            std::io::Error::last_os_error()
-                                .raw_os_error()
-                                .unwrap_or_else(|| AsyncHostError::Inval.errno()),
-                        ))
-                    } else {
-                        Ok(())
-                    }
-                })
-                .unwrap();
-        }
+        let fd = host.file_resource(write).unwrap().raw_fd();
+        let byte = b"x";
+        let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
+        assert_eq!(ret, 1);
 
         assert_eq!(host.poll_wait(poll, 100).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
