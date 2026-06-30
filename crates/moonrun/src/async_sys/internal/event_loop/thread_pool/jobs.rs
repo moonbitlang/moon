@@ -82,7 +82,7 @@ ported_fns! {
         position: i64,
     ) -> Job {
         Job::new(JobPayload::Read {
-            file,
+            file: Some(file),
             len,
             position,
             result: None,
@@ -94,7 +94,11 @@ ported_fns! {
         original = "moonbitlang_async_make_write_job"
     )]
     pub(crate) fn make_write_job(file: FileResourceRef, data: Vec<u8>, position: i64) -> Job {
-        Job::new(JobPayload::Write { file, data, position })
+        Job::new(JobPayload::Write {
+            file: Some(file),
+            data,
+            position,
+        })
     }
 
     #[ported(
@@ -173,7 +177,10 @@ ported_fns! {
         original = "moonbitlang_async_make_file_size_job"
     )]
     pub(crate) fn make_file_size_job(file: FileResourceRef) -> Job {
-        Job::new(JobPayload::FileSize { file, result: 0 })
+        Job::new(JobPayload::FileSize {
+            file: Some(file),
+            result: 0,
+        })
     }
 
     #[ported(
@@ -182,7 +189,7 @@ ported_fns! {
     )]
     pub(crate) fn make_file_time_job(file: FileResourceRef) -> Job {
         Job::new(JobPayload::FileTime {
-            file,
+            file: Some(file),
             result: None,
         })
     }
@@ -234,7 +241,10 @@ ported_fns! {
         original = "moonbitlang_async_make_fsync_job"
     )]
     pub(crate) fn make_fsync_job(file: FileResourceRef, only_data: bool) -> Job {
-        Job::new(JobPayload::Fsync { file, only_data })
+        Job::new(JobPayload::Fsync {
+            file: Some(file),
+            only_data,
+        })
     }
 
     #[ported(
@@ -242,7 +252,10 @@ ported_fns! {
         original = "moonbitlang_async_make_flock_job"
     )]
     pub(crate) fn make_flock_job(file: FileResourceRef, exclusive: bool) -> Job {
-        Job::new(JobPayload::Flock { file, exclusive })
+        Job::new(JobPayload::Flock {
+            file: Some(file),
+            exclusive,
+        })
     }
 
     #[ported(
@@ -304,7 +317,7 @@ ported_fns! {
         restart: bool,
     ) -> Job {
         Job::new(JobPayload::Readdir {
-            dir,
+            dir: Some(dir),
             buffer,
             len,
             restart,
@@ -316,7 +329,10 @@ ported_fns! {
         original = "moonbitlang_async_make_bind_job"
     )]
     pub(crate) fn make_bind_job(socket: FileResourceRef, addr: Vec<u8>) -> Job {
-        Job::new(JobPayload::Bind { socket, addr })
+        Job::new(JobPayload::Bind {
+            socket: Some(socket),
+            addr,
+        })
     }
 
     #[ported(
@@ -337,6 +353,13 @@ pub(crate) fn open_job_result(job: &Job) -> AsyncHostResult<&OpenJobResult> {
         } => Ok(result),
         JobPayload::Open { .. } => Err(AsyncHostError::Inval),
         _ => Err(AsyncHostError::Badf),
+    }
+}
+
+pub(crate) fn take_open_job_result(job: &mut Job) -> Option<OpenJobResult> {
+    match job.payload_mut() {
+        JobPayload::Open { result, .. } => result.take(),
+        _ => None,
     }
 }
 
@@ -383,7 +406,7 @@ mod tests {
 
         match job.payload() {
             JobPayload::Read {
-                file: actual_file,
+                file: Some(actual_file),
                 len,
                 position,
                 result: None,
@@ -430,6 +453,19 @@ mod tests {
 
         assert_eq!(job_get_ret(&job), 0);
         assert_eq!(job_get_err(&job), 0);
+    }
+
+    #[test]
+    fn resource_job_releases_file_when_worker_finishes() {
+        let file = Arc::new(FileResource::invalid());
+        let file_ref = Arc::downgrade(&file);
+        let mut job = make_flock_job(Arc::clone(&file), true);
+        let mut files = NoFiles;
+        drop(file);
+
+        run_host_job(&mut job, &mut files);
+
+        assert!(file_ref.upgrade().is_none());
     }
 
     #[cfg(unix)]

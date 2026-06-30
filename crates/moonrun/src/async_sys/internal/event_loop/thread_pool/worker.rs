@@ -122,18 +122,23 @@ impl HostWorkerHandle {
                 };
                 run_job(job);
 
-                let terminating = {
+                let (terminating, should_wait) = {
                     let mut state = worker_shared.state.lock().unwrap();
                     if state.terminating {
-                        true
-                    } else {
+                        (true, false)
+                    } else if state.job == Some(job) {
                         state.waiting = true;
-                        false
+                        (false, true)
+                    } else {
+                        (false, false)
                     }
                 };
                 complete_job(job);
                 if terminating {
                     break;
+                }
+                if !should_wait {
+                    continue;
                 }
 
                 let mut state = worker_shared.state.lock().unwrap();
@@ -349,6 +354,47 @@ mod tests {
         );
 
         assert_eq!(receiver.recv().unwrap().job_id, 3);
+        assert_eq!(completion_receiver.recv().unwrap().job_id, 3);
+        free_worker(worker);
+    }
+
+    #[test]
+    fn wake_during_running_job_is_not_lost() {
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let (completion_sender, completion_receiver) = mpsc::channel();
+        let worker = spawn_worker(
+            HostWorkerJob {
+                job_id: 1,
+                job_handle: 2,
+            },
+            move |job| {
+                started_sender.send(job).unwrap();
+                if job.job_id == 1 {
+                    release_receiver.recv().unwrap();
+                }
+            },
+            move |job| completion_sender.send(job).unwrap(),
+        );
+
+        assert_eq!(started_receiver.recv().unwrap().job_id, 1);
+        wake_worker(
+            &worker,
+            HostWorkerJob {
+                job_id: 3,
+                job_handle: 4,
+            },
+        );
+        release_sender.send(()).unwrap();
+
+        assert_eq!(completion_receiver.recv().unwrap().job_id, 1);
+        assert_eq!(
+            started_receiver
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap()
+                .job_id,
+            3
+        );
         assert_eq!(completion_receiver.recv().unwrap().job_id, 3);
         free_worker(worker);
     }

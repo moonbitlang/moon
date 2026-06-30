@@ -60,19 +60,34 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl FileResourceTable) {
             len,
             position,
             result,
-        } => run_read_job(file, *len, *position, result),
+        } => match file.take() {
+            Some(file) => run_read_job(&file, *len, *position, result),
+            None => Err(AsyncHostError::Badf),
+        },
         JobPayload::Write {
             file,
             data,
             position,
-        } => run_write_job(file, data, *position),
+        } => match file.take() {
+            Some(file) => run_write_job(&file, data, *position),
+            None => Err(AsyncHostError::Badf),
+        },
         JobPayload::FileKindByPath {
             parent,
             path,
             follow_symlink,
-        } => run_file_kind_by_path_job(parent.as_deref(), path.clone(), *follow_symlink),
-        JobPayload::FileSize { file, result } => run_file_size_job(file, result),
-        JobPayload::FileTime { file, result, .. } => run_file_time_job(file, result),
+        } => {
+            let parent = parent.take();
+            run_file_kind_by_path_job(parent.as_deref(), path.clone(), *follow_symlink)
+        }
+        JobPayload::FileSize { file, result } => match file.take() {
+            Some(file) => run_file_size_job(&file, result),
+            None => Err(AsyncHostError::Badf),
+        },
+        JobPayload::FileTime { file, result, .. } => match file.take() {
+            Some(file) => run_file_time_job(&file, result),
+            None => Err(AsyncHostError::Badf),
+        },
         JobPayload::FileTimeByPath {
             path,
             follow_symlink,
@@ -81,8 +96,14 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl FileResourceTable) {
         } => run_file_time_by_path_job(path.clone(), *follow_symlink, result),
         JobPayload::Access { path, access } => run_access_job(path.clone(), *access),
         JobPayload::Chmod { path, mode } => run_chmod_job(path.clone(), *mode),
-        JobPayload::Fsync { file, only_data } => run_fsync_job(file, *only_data),
-        JobPayload::Flock { file, exclusive } => run_flock_job(file, *exclusive),
+        JobPayload::Fsync { file, only_data } => match file.take() {
+            Some(file) => run_fsync_job(&file, *only_data),
+            None => Err(AsyncHostError::Badf),
+        },
+        JobPayload::Flock { file, exclusive } => match file.take() {
+            Some(file) => run_flock_job(&file, *exclusive),
+            None => Err(AsyncHostError::Badf),
+        },
         JobPayload::Remove { path } => run_remove_job(path.clone()),
         JobPayload::Rename {
             old_path,
@@ -101,8 +122,14 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl FileResourceTable) {
             buffer,
             len,
             restart,
-        } => run_readdir_job(dir, buffer, *len, *restart),
-        JobPayload::Bind { socket, addr } => run_bind_job(socket, addr),
+        } => match dir.take() {
+            Some(dir) => run_readdir_job(&dir, buffer, *len, *restart),
+            None => Err(AsyncHostError::Badf),
+        },
+        JobPayload::Bind { socket, addr } => match socket.take() {
+            Some(socket) => run_bind_job(&socket, addr),
+            None => Err(AsyncHostError::Badf),
+        },
         JobPayload::GetAddrInfo { host, result } => run_getaddrinfo_job(host.clone(), result),
     };
 

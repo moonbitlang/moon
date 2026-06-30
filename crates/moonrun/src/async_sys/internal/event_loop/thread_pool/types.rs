@@ -224,13 +224,13 @@ pub(crate) enum JobPayload {
         duration_ms: i32,
     },
     Read {
-        file: FileResourceRef,
+        file: Option<FileResourceRef>,
         len: i32,
         position: i64,
         result: Option<Vec<u8>>,
     },
     Write {
-        file: FileResourceRef,
+        file: Option<FileResourceRef>,
         data: Vec<u8>,
         position: i64,
     },
@@ -249,11 +249,11 @@ pub(crate) enum JobPayload {
         follow_symlink: bool,
     },
     FileSize {
-        file: FileResourceRef,
+        file: Option<FileResourceRef>,
         result: i64,
     },
     FileTime {
-        file: FileResourceRef,
+        file: Option<FileResourceRef>,
         result: Option<FileTimeResult>,
     },
     FileTimeByPath {
@@ -270,11 +270,11 @@ pub(crate) enum JobPayload {
         mode: i32,
     },
     Fsync {
-        file: FileResourceRef,
+        file: Option<FileResourceRef>,
         only_data: bool,
     },
     Flock {
-        file: FileResourceRef,
+        file: Option<FileResourceRef>,
         exclusive: bool,
     },
     Remove {
@@ -298,13 +298,13 @@ pub(crate) enum JobPayload {
         path: OsString,
     },
     Readdir {
-        dir: FileResourceRef,
+        dir: Option<FileResourceRef>,
         buffer: HostCBuffer,
         len: i32,
         restart: bool,
     },
     Bind {
-        socket: FileResourceRef,
+        socket: Option<FileResourceRef>,
         addr: Vec<u8>,
     },
     GetAddrInfo {

@@ -335,6 +335,28 @@ impl AsyncHostState {
         self.files.remove(key).ok_or(AsyncHostError::Badf)
     }
 
+    fn restore_completed_job(&mut self, key: HostJobKey, mut job: Job) -> AsyncHostResult<()> {
+        let can_restore = match self.jobs.get(key) {
+            Some(slot) => slot.is_none(),
+            None => {
+                self.discard_job_results(&mut job);
+                return Err(AsyncHostError::Badf);
+            }
+        };
+        if !can_restore {
+            self.discard_job_results(&mut job);
+            return Err(AsyncHostError::Badf);
+        }
+        *self.jobs.get_mut(key).ok_or(AsyncHostError::Badf)? = Some(job);
+        Ok(())
+    }
+
+    fn discard_job_results(&mut self, job: &mut Job) {
+        if let Some(result) = thread_pool::take_open_job_result(job) {
+            let _ = self.remove_file(result.fd);
+        }
+    }
+
     fn take_workers(&mut self) -> Vec<HostWorkerHandle> {
         let keys: Vec<_> = self.workers.keys().collect();
         keys.into_iter()
@@ -949,14 +971,32 @@ impl AsyncHost {
             let poll_key = state.current_event_poll.ok_or(AsyncHostError::Badf)?;
             Arc::clone(state.polls.get(poll_key).ok_or(AsyncHostError::Badf)?)
         };
-        let poll = poll.lock().unwrap();
-        poll::event_list_get(&poll.instance, index)?;
-        let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-        poll.event_fd_handles
-            .get(index)
-            .copied()
-            .flatten()
-            .ok_or(AsyncHostError::Badf)
+        let fd = {
+            let poll = poll.lock().unwrap();
+            poll::event_list_get(&poll.instance, index)?;
+            let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
+            poll.event_fd_handles
+                .get(index)
+                .copied()
+                .flatten()
+                .ok_or(AsyncHostError::Badf)?
+        };
+        let state = self.state.lock().unwrap();
+        #[cfg(windows)]
+        let is_thread_pool_completion =
+            fd == raw_fd_to_guest(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE)?;
+        #[cfg(not(windows))]
+        let is_thread_pool_completion = false;
+        if fd == state.invalid_fd()
+            || is_thread_pool_completion
+            || state
+                .files
+                .contains_key(key_from_handle::<FileResourceKey>(fd))
+        {
+            Ok(fd)
+        } else {
+            Err(AsyncHostError::Badf)
+        }
     }
 
     #[cfg(unix)]
@@ -1010,15 +1050,22 @@ impl AsyncHost {
             let completion_notifier = Arc::new(completion_notifier);
             let source = {
                 let mut state = self.state.lock().unwrap();
+                if state.completion_source.is_some() {
+                    drop(state);
+                    let poll = poll.lock().unwrap();
+                    let _ = poll::poll_unregister(&poll.instance, event_fd);
+                    drop(FileResource::new(event_fd));
+                    return Err(AsyncHostError::Inval);
+                }
                 let source =
                     handle_from_key(state.files.insert(Arc::new(FileResource::new(event_fd))));
                 state.completion_notifier = Some(Arc::clone(&completion_notifier));
                 state.completion_source = Some(source);
+                let mut poll = poll.lock().unwrap();
+                poll.registered_fds.insert(raw_fd_key(event_fd), source);
+                poll.completion_notifier = Some(completion_notifier);
                 source
             };
-            let mut poll = poll.lock().unwrap();
-            poll.registered_fds.insert(raw_fd_key(event_fd), source);
-            poll.completion_notifier = Some(completion_notifier);
             Ok(source)
         }
         #[cfg(windows)]
@@ -1055,10 +1102,11 @@ impl AsyncHost {
             {
                 let raw_fd = file.raw_fd();
                 for poll in state.polls.values_mut() {
-                    poll.lock()
-                        .unwrap()
-                        .registered_fds
-                        .remove(&raw_fd_key(raw_fd));
+                    let mut poll = poll.lock().unwrap();
+                    if poll.registered_fds.contains_key(&raw_fd_key(raw_fd)) {
+                        let _ = poll::poll_unregister(&poll.instance, raw_fd);
+                    }
+                    poll.registered_fds.remove(&raw_fd_key(raw_fd));
                 }
             }
             state.completion_notifier = None;
@@ -1291,10 +1339,12 @@ impl AsyncHost {
             }
         }
         for poll in state.polls.values() {
-            poll.lock()
-                .unwrap()
-                .registered_fds
-                .remove(&raw_fd_key(raw_fd));
+            let mut poll = poll.lock().unwrap();
+            if poll.registered_fds.contains_key(&raw_fd_key(raw_fd)) {
+                #[cfg(unix)]
+                poll::poll_unregister(&poll.instance, raw_fd)?;
+            }
+            poll.registered_fds.remove(&raw_fd_key(raw_fd));
         }
         state.remove_file(handle)?;
         Ok(())
@@ -1958,12 +2008,7 @@ impl AsyncHost {
         };
         thread_pool::run_host_job(&mut job, &mut files);
         let mut state = self.state.lock().unwrap();
-        let slot = state.jobs.get_mut(key).ok_or(AsyncHostError::Badf)?;
-        if slot.is_some() {
-            return Err(AsyncHostError::Badf);
-        }
-        *slot = Some(job);
-        Ok(())
+        state.restore_completed_job(key, job)
     }
 
     pub(crate) fn spawn_worker(&self, job_id: i32, job_handle: u64) -> AsyncHostResult<u64> {
@@ -2145,11 +2190,7 @@ impl AsyncHost {
                 thread_pool::run_host_job(&mut job, &mut files);
 
                 let mut state = run_state.lock().unwrap();
-                if let Some(slot) = state.jobs.get_mut(key)
-                    && slot.is_none()
-                {
-                    *slot = Some(job);
-                }
+                let _ = state.restore_completed_job(key, job);
             },
             move |worker_job| {
                 // Even if cancellation discarded the job handle, the event loop
@@ -2592,6 +2633,53 @@ mod tests {
     }
 
     #[test]
+    fn discarded_completed_open_job_removes_opened_resource() {
+        let host = AsyncHost::default();
+        let path =
+            std::env::temp_dir().join(format!("moonrun-discarded-open-job-{}", std::process::id()));
+        let job_handle = host
+            .insert_job(thread_pool::make_open_job(
+                path.as_os_str().to_os_string(),
+                2,
+                3,
+                false,
+                0,
+                0o600,
+            ))
+            .unwrap();
+        let key = key_from_handle::<HostJobKey>(job_handle);
+        let mut job = host
+            .state
+            .lock()
+            .unwrap()
+            .jobs
+            .get_mut(key)
+            .and_then(Option::take)
+            .unwrap();
+        let mut files = SharedFileTable {
+            state: Arc::clone(&host.state),
+        };
+
+        thread_pool::run_host_job(&mut job, &mut files);
+
+        assert_eq!(job.err(), 0);
+        let opened = thread_pool::open_job_get_fd(thread_pool::open_job_result(&job).unwrap());
+        assert!(host.state.lock().unwrap().file(opened).is_ok());
+        host.state.lock().unwrap().jobs.remove(key);
+
+        {
+            let mut state = host.state.lock().unwrap();
+            assert_eq!(
+                state.restore_completed_job(key, job),
+                Err(AsyncHostError::Badf)
+            );
+            assert!(matches!(state.file(opened), Err(AsyncHostError::Badf)));
+        }
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn drop_destroys_pool_even_when_worker_holds_state() {
         let host = AsyncHost::default();
         let state = Arc::downgrade(&host.state);
@@ -2706,6 +2794,22 @@ mod tests {
         assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 43);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn thread_pool_completion_reports_native_sentinel() {
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let completion_notifier = host.init_thread_pool(poll).unwrap();
+        let completion = host.state.lock().unwrap().completion_port.unwrap();
+
+        poll::post_thread_pool_completion(completion.port, 42, completion.generation).unwrap();
+
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+        assert_eq!(host.poll_event_fd(event).unwrap(), completion_notifier);
+        assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
+    }
+
     #[test]
     fn stale_worker_handle_is_rejected_after_free() {
         let host = AsyncHost::default();
@@ -2755,6 +2859,33 @@ mod tests {
 
         assert_eq!(output[0], b'x');
         assert_eq!(host.close_fd(read), Err(AsyncHostError::Badf));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn close_fd_unregisters_poll_when_job_still_holds_resource() {
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let [read, write] = host.pipe(true, true).unwrap();
+        host.poll_register(poll, read, true).unwrap();
+        let job = host
+            .insert_job(thread_pool::make_read_job(
+                host.file_resource(read).unwrap(),
+                1,
+                -1,
+            ))
+            .unwrap();
+
+        host.close_fd(read).unwrap();
+        let fd = host.file_resource(write).unwrap().raw_fd();
+        let byte = b"x";
+        let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
+        assert_eq!(ret, 1);
+
+        assert_eq!(host.poll_wait(poll, 0).unwrap(), 0);
+
+        host.free_job(job).unwrap();
+        host.close_fd(write).unwrap();
     }
 
     #[cfg(windows)]
@@ -3050,6 +3181,27 @@ mod tests {
             poll::READ_EVENT
         );
         host.close_fd(read).unwrap();
+        host.close_fd(write).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn close_fd_invalidates_cached_poll_event_fd() {
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let [read, write] = host.pipe(true, true).unwrap();
+        host.poll_register(poll, read, true).unwrap();
+
+        let fd = host.file_resource(write).unwrap().raw_fd();
+        let byte = b"x";
+        let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
+        assert_eq!(ret, 1);
+        assert_eq!(host.poll_wait(poll, 100).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+
+        host.close_fd(read).unwrap();
+
+        assert_eq!(host.poll_event_fd(event), Err(AsyncHostError::Badf));
         host.close_fd(write).unwrap();
     }
 
