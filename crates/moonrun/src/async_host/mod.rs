@@ -280,8 +280,16 @@ impl FileTable {
     }
 }
 
+// A job stays in the table while queued or running so its guest handle can
+// cancel it without making the payload available for duplicate execution.
+enum HostJobState {
+    Ready(Job),
+    Queued(Job),
+    Running,
+}
+
 struct JobTable {
-    jobs: SlotMap<HostJobKey, Option<Job>>,
+    jobs: SlotMap<HostJobKey, HostJobState>,
 }
 
 impl Default for JobTable {
@@ -293,11 +301,82 @@ impl Default for JobTable {
 }
 
 impl JobTable {
-    fn take_job(&mut self, key: HostJobKey) -> AsyncHostResult<Job> {
-        self.jobs
-            .get_mut(key)
-            .and_then(Option::take)
-            .ok_or(AsyncHostError::Badf)
+    fn insert_job(&mut self, job: Job) -> HostJobKey {
+        self.jobs.insert(HostJobState::Ready(job))
+    }
+
+    fn ready_job(&self, key: HostJobKey) -> AsyncHostResult<&Job> {
+        match self.jobs.get(key) {
+            Some(HostJobState::Ready(job)) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    fn ready_job_mut(&mut self, key: HostJobKey) -> AsyncHostResult<&mut Job> {
+        match self.jobs.get_mut(key) {
+            Some(HostJobState::Ready(job)) => Ok(job),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    fn take_ready_job(&mut self, key: HostJobKey) -> AsyncHostResult<Job> {
+        let slot = self.jobs.get_mut(key).ok_or(AsyncHostError::Badf)?;
+        match std::mem::replace(slot, HostJobState::Running) {
+            HostJobState::Ready(job) => Ok(job),
+            other => {
+                *slot = other;
+                Err(AsyncHostError::Badf)
+            }
+        }
+    }
+
+    fn queue_job(&mut self, key: HostJobKey) -> AsyncHostResult<()> {
+        let slot = self.jobs.get_mut(key).ok_or(AsyncHostError::Badf)?;
+        match std::mem::replace(slot, HostJobState::Running) {
+            HostJobState::Ready(job) => {
+                *slot = HostJobState::Queued(job);
+                Ok(())
+            }
+            other => {
+                *slot = other;
+                Err(AsyncHostError::Badf)
+            }
+        }
+    }
+
+    fn take_queued_job(&mut self, key: HostJobKey) -> AsyncHostResult<Job> {
+        let slot = self.jobs.get_mut(key).ok_or(AsyncHostError::Badf)?;
+        match std::mem::replace(slot, HostJobState::Running) {
+            HostJobState::Queued(job) => Ok(job),
+            other => {
+                *slot = other;
+                Err(AsyncHostError::Badf)
+            }
+        }
+    }
+
+    fn unqueue_job(&mut self, key: HostJobKey) -> AsyncHostResult<()> {
+        let slot = self.jobs.get_mut(key).ok_or(AsyncHostError::Badf)?;
+        match std::mem::replace(slot, HostJobState::Running) {
+            HostJobState::Queued(job) => {
+                *slot = HostJobState::Ready(job);
+                Ok(())
+            }
+            other => {
+                *slot = other;
+                Err(AsyncHostError::Badf)
+            }
+        }
+    }
+
+    fn restore_job(&mut self, key: HostJobKey, job: &mut Option<Job>) -> bool {
+        match self.jobs.get_mut(key) {
+            Some(slot @ HostJobState::Running) => {
+                *slot = HostJobState::Ready(job.take().expect("job is restored at most once"));
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -776,20 +855,9 @@ impl AsyncHost {
 
     fn restore_job(&self, key: HostJobKey, job: Job) -> AsyncHostResult<()> {
         let mut job = Some(job);
-        let restored = {
-            let mut jobs = self.jobs.lock().unwrap();
-            match jobs.jobs.get_mut(key) {
-                Some(slot) if slot.is_none() => {
-                    *slot = job.take();
-                    true
-                }
-                _ => false,
-            }
-        };
-        if restored {
+        if self.jobs.lock().unwrap().restore_job(key, &mut job) {
             return Ok(());
         }
-
         let mut job = job.expect("job is only taken after being restored");
         self.discard_job_results(&mut job);
         Err(AsyncHostError::Badf)
@@ -807,11 +875,7 @@ impl AsyncHost {
         let mut jobs = self.jobs.lock().unwrap();
         let placeholder = OpenJobResource::Published(self.invalid_fd());
         let file = {
-            let job = jobs
-                .jobs
-                .get_mut(key)
-                .and_then(Option::as_mut)
-                .ok_or(AsyncHostError::Badf)?;
+            let job = jobs.ready_job_mut(key)?;
             let result = thread_pool::open_job_result_mut(job)?;
             match std::mem::replace(&mut result.resource, placeholder) {
                 OpenJobResource::Published(fd) => {
@@ -823,11 +887,7 @@ impl AsyncHost {
         };
 
         let fd = self.files.lock().unwrap().insert_file_resource(file);
-        let job = jobs
-            .jobs
-            .get_mut(key)
-            .and_then(Option::as_mut)
-            .ok_or(AsyncHostError::Badf)?;
+        let job = jobs.ready_job_mut(key)?;
         let result = thread_pool::open_job_result_mut(job)?;
         result.resource = OpenJobResource::Published(fd);
         thread_pool::open_job_get_fd(result)
@@ -1282,7 +1342,9 @@ impl AsyncHost {
                 .collect::<Vec<_>>()
         };
         for worker in workers {
-            let _ = thread_pool::free_worker(worker);
+            if let Some(replaced_job) = thread_pool::free_worker(worker) {
+                let _ = self.jobs.lock().unwrap().unqueue_job(replaced_job.job_key);
+            }
         }
         self.restore_completed_jobs();
 
@@ -1381,7 +1443,7 @@ impl AsyncHost {
     }
 
     pub(crate) fn insert_job(&self, job: Job) -> AsyncHostResult<u64> {
-        let key = self.jobs.lock().unwrap().jobs.insert(Some(job));
+        let key = self.jobs.lock().unwrap().insert_job(job);
         Ok(handle_from_key(key))
     }
 
@@ -1399,22 +1461,14 @@ impl AsyncHost {
     pub(crate) fn job_get_ret(&self, handle: u64) -> AsyncHostResult<i64> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
+        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
         Ok(crate::async_sys::internal::event_loop::thread_pool::job_get_ret(job))
     }
 
     pub(crate) fn job_get_err(&self, handle: u64) -> AsyncHostResult<i32> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
+        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
         Ok(crate::async_sys::internal::event_loop::thread_pool::job_get_err(job))
     }
 
@@ -1426,11 +1480,7 @@ impl AsyncHost {
     pub(crate) fn open_job_get_kind(&self, handle: u64) -> AsyncHostResult<i32> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
+        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
         let result = thread_pool::open_job_result(job)?;
         Ok(thread_pool::open_job_get_kind(result))
     }
@@ -1438,11 +1488,7 @@ impl AsyncHost {
     pub(crate) fn open_job_get_dev_id(&self, handle: u64) -> AsyncHostResult<u64> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
+        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
         let result = thread_pool::open_job_result(job)?;
         Ok(thread_pool::open_job_get_dev_id(result))
     }
@@ -1450,11 +1496,7 @@ impl AsyncHost {
     pub(crate) fn open_job_get_file_id(&self, handle: u64) -> AsyncHostResult<u64> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
+        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
         let result = thread_pool::open_job_result(job)?;
         Ok(thread_pool::open_job_get_file_id(result))
     }
@@ -1462,11 +1504,7 @@ impl AsyncHost {
     pub(crate) fn get_file_size_result(&self, handle: u64) -> AsyncHostResult<i64> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
+        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
         crate::async_sys::internal::event_loop::thread_pool::get_file_size_result(job)
     }
 
@@ -1474,11 +1512,7 @@ impl AsyncHost {
         self.restore_completed_jobs();
         let addrs: Vec<Box<[u8]>> = {
             let jobs = self.jobs.lock().unwrap();
-            let job = jobs
-                .jobs
-                .get(key_from_handle::<HostJobKey>(handle))
-                .and_then(Option::as_ref)
-                .ok_or(AsyncHostError::Badf)?;
+            let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
             thread_pool::getaddrinfo_job_result(job)?.to_vec()
         };
         let mut addr_infos = self.addr_infos.lock().unwrap();
@@ -2229,7 +2263,7 @@ impl AsyncHost {
 
     pub(crate) fn run_job(&self, handle: u64) -> AsyncHostResult<()> {
         let key = key_from_handle::<HostJobKey>(handle);
-        let mut job = self.jobs.lock().unwrap().take_job(key)?;
+        let mut job = self.jobs.lock().unwrap().take_ready_job(key)?;
         thread_pool::run_host_job(&mut job);
         self.restore_job(key, job)
     }
@@ -2238,13 +2272,6 @@ impl AsyncHost {
         self.restore_completed_jobs();
         let completion_id = WorkerCompletionId::from_abi(completion_id);
         let job_key = key_from_handle::<HostJobKey>(job_handle);
-        {
-            let jobs = self.jobs.lock().unwrap();
-            jobs.jobs
-                .get(job_key)
-                .and_then(Option::as_ref)
-                .ok_or(AsyncHostError::Badf)?;
-        }
         #[cfg(unix)]
         let worker = {
             let completion_notifier = self
@@ -2254,6 +2281,7 @@ impl AsyncHost {
                 .notifier
                 .clone()
                 .ok_or(AsyncHostError::Badf)?;
+            self.jobs.lock().unwrap().queue_job(job_key)?;
             self.spawn_worker_thread(
                 HostWorkerJob {
                     completion_id,
@@ -2272,6 +2300,7 @@ impl AsyncHost {
                 .unwrap()
                 .target
                 .ok_or(AsyncHostError::Badf)?;
+            self.jobs.lock().unwrap().queue_job(job_key)?;
             self.spawn_worker_thread(
                 HostWorkerJob {
                     completion_id,
@@ -2300,28 +2329,12 @@ impl AsyncHost {
         let completion_id = WorkerCompletionId::from_abi(completion_id);
         let worker_key = key_from_handle::<HostWorkerKey>(worker_handle);
         let job_key = key_from_handle::<HostJobKey>(job_handle);
-        if self
-            .workers
-            .lock()
-            .unwrap()
-            .workers
-            .get(worker_key)
-            .is_none()
-        {
-            return Err(AsyncHostError::Badf);
-        }
-        {
-            let jobs = self.jobs.lock().unwrap();
-            jobs.jobs
-                .get(job_key)
-                .and_then(Option::as_ref)
-                .ok_or(AsyncHostError::Badf)?;
-        }
         let replaced_job = {
             let workers = self.workers.lock().unwrap();
             let Some(worker) = workers.workers.get(worker_key) else {
                 return Err(AsyncHostError::Badf);
             };
+            self.jobs.lock().unwrap().queue_job(job_key)?;
             thread_pool::wake_worker(
                 worker,
                 HostWorkerJob {
@@ -2330,13 +2343,15 @@ impl AsyncHost {
                 },
             )
         };
-        let _ = replaced_job;
+        if let Some(replaced_job) = replaced_job {
+            let _ = self.jobs.lock().unwrap().unqueue_job(replaced_job.job_key);
+        }
         Ok(())
     }
 
     pub(crate) fn worker_enter_idle(&self, worker_handle: u64) -> AsyncHostResult<()> {
         self.restore_completed_jobs();
-        let _ = {
+        let replaced_job = {
             let workers = self.workers.lock().unwrap();
             let worker = workers
                 .workers
@@ -2344,6 +2359,9 @@ impl AsyncHost {
                 .ok_or(AsyncHostError::Badf)?;
             thread_pool::worker_enter_idle(worker)
         };
+        if let Some(replaced_job) = replaced_job {
+            let _ = self.jobs.lock().unwrap().unqueue_job(replaced_job.job_key);
+        }
         Ok(())
     }
 
@@ -2356,7 +2374,9 @@ impl AsyncHost {
             .workers
             .remove(key_from_handle::<HostWorkerKey>(worker_handle))
             .ok_or(AsyncHostError::Badf)?;
-        let _ = thread_pool::free_worker(worker);
+        if let Some(replaced_job) = thread_pool::free_worker(worker) {
+            let _ = self.jobs.lock().unwrap().unqueue_job(replaced_job.job_key);
+        }
         self.restore_completed_jobs();
         Ok(())
     }
@@ -2380,11 +2400,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
+        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
         thread_pool::get_read_result(job, memory, dst, offset, len)
     }
 
@@ -2396,11 +2412,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
+        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
         thread_pool::get_file_time_result(job, memory, dst)
     }
 
@@ -2452,7 +2464,7 @@ impl AsyncHost {
         thread_pool::spawn_worker(
             init_job,
             move |worker_job| {
-                let Ok(mut job) = jobs.lock().unwrap().take_job(worker_job.job_key) else {
+                let Ok(mut job) = jobs.lock().unwrap().take_queued_job(worker_job.job_key) else {
                     return None;
                 };
                 thread_pool::run_host_job(&mut job);
@@ -2787,9 +2799,7 @@ mod tests {
         {
             let mut jobs = host.jobs.lock().unwrap();
             let job = jobs
-                .jobs
-                .get_mut(key_from_handle::<HostJobKey>(job_handle))
-                .and_then(Option::as_mut)
+                .ready_job_mut(key_from_handle::<HostJobKey>(job_handle))
                 .unwrap();
             let thread_pool::JobPayload::Read { result, .. } = job.payload_mut() else {
                 panic!("expected read job");
@@ -2937,14 +2947,7 @@ mod tests {
             ))
             .unwrap();
         let key = key_from_handle::<HostJobKey>(job_handle);
-        let mut job = host
-            .jobs
-            .lock()
-            .unwrap()
-            .jobs
-            .get_mut(key)
-            .and_then(Option::take)
-            .unwrap();
+        let mut job = host.jobs.lock().unwrap().take_ready_job(key).unwrap();
 
         thread_pool::run_host_job(&mut job);
 
@@ -3033,13 +3036,15 @@ mod tests {
         let worker = {
             let jobs = Arc::clone(&host.jobs);
             let completed_jobs = Arc::clone(&host.completed_jobs);
+            host.jobs.lock().unwrap().queue_job(first_key).unwrap();
             thread_pool::spawn_worker(
                 HostWorkerJob {
                     completion_id: WorkerCompletionId::from_abi(1),
                     job_key: first_key,
                 },
                 move |worker_job| {
-                    let Ok(mut job) = jobs.lock().unwrap().take_job(worker_job.job_key) else {
+                    let Ok(mut job) = jobs.lock().unwrap().take_queued_job(worker_job.job_key)
+                    else {
                         return None;
                     };
                     started_sender.send(worker_job.completion_id).unwrap();
@@ -3070,19 +3075,35 @@ mod tests {
             WorkerCompletionId::from_abi(1)
         );
 
-        let path = std::env::temp_dir().join(format!(
+        let displaced_path = std::env::temp_dir().join(format!(
+            "moonrun-displaced-queued-worker-job-{}",
+            std::process::id()
+        ));
+        std::fs::write(&displaced_path, b"displaced").unwrap();
+        let displaced_job = host
+            .insert_job(thread_pool::make_remove_job(
+                displaced_path.as_os_str().to_os_string(),
+            ))
+            .unwrap();
+        let queued_path = std::env::temp_dir().join(format!(
             "moonrun-cancelled-queued-worker-job-{}",
             std::process::id()
         ));
-        std::fs::write(&path, b"queued").unwrap();
+        std::fs::write(&queued_path, b"queued").unwrap();
         let queued_job = host
             .insert_job(thread_pool::make_remove_job(
-                path.as_os_str().to_os_string(),
+                queued_path.as_os_str().to_os_string(),
             ))
             .unwrap();
 
-        host.wake_worker(worker, 2, queued_job).unwrap();
-        assert_eq!(host.job_get_ret(queued_job).unwrap(), 0);
+        host.wake_worker(worker, 2, displaced_job).unwrap();
+        host.wake_worker(worker, 3, queued_job).unwrap();
+        host.run_job(displaced_job).unwrap();
+        assert!(!displaced_path.exists());
+        host.free_job(displaced_job).unwrap();
+        assert_eq!(host.job_get_ret(queued_job), Err(AsyncHostError::Badf));
+        assert_eq!(host.run_job(queued_job), Err(AsyncHostError::Badf));
+        assert_eq!(host.spawn_worker(4, queued_job), Err(AsyncHostError::Badf));
         host.free_job(queued_job).unwrap();
 
         release_sender.send(()).unwrap();
@@ -3096,12 +3117,13 @@ mod tests {
             completion_receiver
                 .recv_timeout(std::time::Duration::from_secs(1))
                 .unwrap(),
-            (WorkerCompletionId::from_abi(2), false)
+            (WorkerCompletionId::from_abi(3), false)
         );
-        assert!(path.exists());
+        assert!(queued_path.exists());
 
         host.free_worker(worker).unwrap();
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(displaced_path);
+        let _ = std::fs::remove_file(queued_path);
     }
 
     #[test]
