@@ -63,19 +63,13 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
         // Error format
         self.defaults.add_error_format(args);
 
-        // Warning and alert handling
-        self.defaults.add_deny_all(args);
-
         // Input files
         self.required.add_mbt_sources(args);
         // Additional inputs in stable ordering
         self.required.add_doctest_only_sources(args);
 
-        // Custom warning list
-        self.defaults.add_custom_warn_list(args);
-
-        // Third-party package handling (allow all)
-        self.defaults.add_warn_alert_allow_all(args);
+        // Warning selection and deny handling
+        self.defaults.add_warning_options(args);
 
         // Output
         args.extend(["-o".to_string(), self.core_out.display().to_string()]);

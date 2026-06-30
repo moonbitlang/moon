@@ -225,12 +225,21 @@ impl<'a> BuildCommonConfig<'a> {
         }
     }
 
-    /// Add custom warning list arguments
-    pub(crate) fn add_custom_warn_list(&self, args: &mut Vec<String>) {
-        if let WarnAlertConfig::List(warn_list) = &self.warn_config
-            && !warn_list.is_empty()
-        {
-            args.extend(["-w".to_string(), warn_list.to_string()]);
+    /// Add the warning selection expression, with deny promotion appended last
+    /// when `--deny-warn` is enabled.
+    pub(crate) fn add_warning_options(&self, args: &mut Vec<String>) {
+        let mut warn_list = match &self.warn_config {
+            WarnAlertConfig::Default => String::new(),
+            WarnAlertConfig::List(warn_list) => warn_list.to_string(),
+            WarnAlertConfig::Suppress => MOONC_SUPPRESS_WARNING_SET.to_string(),
+        };
+        if self.deny_warn {
+            // `moonc -w` parses the list left-to-right. `@a` promotes active
+            // warnings to errors, so it must come after opt-ins like `+missing_doc`.
+            warn_list.push_str(MOONC_DENY_WARNING_SET);
+        }
+        if !warn_list.is_empty() {
+            args.extend(["-w".to_string(), warn_list]);
         }
     }
 
@@ -252,20 +261,6 @@ impl<'a> BuildCommonConfig<'a> {
     pub(crate) fn add_virtual_package_check(&self, args: &mut Vec<String>) {
         if let Some(check_mi_path) = &self.check_mi {
             args.extend(["-check-mi".to_string(), check_mi_path.display().to_string()]);
-        }
-    }
-
-    /// Add warning/alert deny all arguments (combined)
-    pub(crate) fn add_deny_all(&self, args: &mut Vec<String>) {
-        if self.deny_warn {
-            args.extend(["-w".to_string(), MOONC_DENY_WARNING_SET.to_string()]);
-        }
-    }
-
-    /// Add warning/alert allow all arguments
-    pub(crate) fn add_warn_alert_allow_all(&self, args: &mut Vec<String>) {
-        if matches!(self.warn_config, WarnAlertConfig::Suppress) {
-            args.extend(["-w".to_string(), MOONC_SUPPRESS_WARNING_SET.into()]);
         }
     }
 

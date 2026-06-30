@@ -44,12 +44,10 @@ impl<'a> CmdlineAbstraction for MooncProve<'a> {
 
         self.defaults.add_patch_file_moonc(args);
         self.defaults.add_error_format(args);
-        self.defaults.add_deny_all(args);
         self.required.add_mbt_sources(args);
         self.required.add_doctest_only_sources(args);
         self.required.add_include_doctests_if_blackbox(args);
-        self.defaults.add_custom_warn_list(args);
-        self.defaults.add_warn_alert_allow_all(args);
+        self.defaults.add_warning_options(args);
         args.extend([
             "-whyml-output-path".to_string(),
             self.whyml_out.display().to_string(),

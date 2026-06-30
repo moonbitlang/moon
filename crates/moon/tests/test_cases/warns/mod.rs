@@ -1,5 +1,37 @@
 use super::*;
 
+fn assert_deny_warn_appended_to_custom_warn_list(stdout: &str, command_prefix: &str) {
+    let mut checked_commands = 0;
+
+    for command in stdout
+        .lines()
+        .filter(|line| line.starts_with(command_prefix))
+    {
+        let args = command.split_whitespace().collect::<Vec<_>>();
+        let warn_lists = args
+            .windows(2)
+            .filter_map(|pair| (pair[0] == "-w").then_some(pair[1]))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            warn_lists.len(),
+            1,
+            "expected a single warning list in command:\n{command}"
+        );
+        let warn_list = warn_lists[0];
+        assert!(
+            warn_list.ends_with("@a") && warn_list.len() > "@a".len(),
+            "deny warning token should be appended after custom warning list:\n{command}"
+        );
+        checked_commands += 1;
+    }
+
+    assert!(
+        checked_commands > 0,
+        "expected at least one `{command_prefix}` command in dry-run output:\n{stdout}"
+    );
+}
+
 #[test]
 fn test_warn_list_dry_run() {
     let dir = TestDir::new("warns/warn_list");
@@ -32,6 +64,18 @@ fn test_warn_list_dry_run() {
             moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/lib1/lib1.core ./_build/wasm-gc/debug/build/main/main.core -main username/hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources username/hello/lib:./lib -pkg-sources username/hello/lib1:./lib1 -pkg-sources username/hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
         "#]],
     );
+
+    let build_deny_warn_stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            "--deny-warn",
+            "--sort-input",
+            "--no-render",
+            "--dry-run",
+        ],
+    );
+    assert_deny_warn_appended_to_custom_warn_list(&build_deny_warn_stdout, "moonc build-package");
 
     check(
         get_stdout(&dir, ["test", "--sort-input"]),
@@ -85,6 +129,18 @@ fn test_warn_list_dry_run() {
             moonc check ./lib/hello_test.mbt -doctest-only ./lib/hello.mbt -include-doctests -w -2-29 -o ./_build/wasm-gc/debug/check/lib/lib.blackbox_test.mi -pkg username/hello/lib_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib_blackbox_test:./lib -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
         "#]],
     );
+
+    let check_deny_warn_stdout = get_stdout(
+        &dir,
+        [
+            "check",
+            "--deny-warn",
+            "--sort-input",
+            "--no-render",
+            "--dry-run",
+        ],
+    );
+    assert_deny_warn_appended_to_custom_warn_list(&check_deny_warn_stdout, "moonc check");
 }
 
 #[test]
