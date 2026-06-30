@@ -137,7 +137,14 @@ fn normalize_current_moon_binary(s: &mut String) {
     let moon = crate::util::moon_bin();
     let moon = moon.to_string_lossy();
     *s = s.replace(moon.as_ref(), "$MOON_HOME/bin/moon");
-    *s = s.replace(moon.replace('\\', "/").as_str(), "$MOON_HOME/bin/moon");
+    if let Some(moon_without_exe) = moon.strip_suffix(".exe") {
+        *s = s.replace(moon_without_exe, "$MOON_HOME/bin/moon");
+    }
+    let moon_with_forward_slashes = moon.replace('\\', "/");
+    *s = s.replace(moon_with_forward_slashes.as_str(), "$MOON_HOME/bin/moon");
+    if let Some(moon_without_exe) = moon_with_forward_slashes.strip_suffix(".exe") {
+        *s = s.replace(moon_without_exe, "$MOON_HOME/bin/moon");
+    }
 }
 
 fn transform_graph(graph: &mut BuildGraphDump, transform: impl Fn(&mut String)) {
