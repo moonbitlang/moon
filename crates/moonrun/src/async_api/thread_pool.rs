@@ -54,10 +54,10 @@ pub(super) fn destroy_thread_pool(context: &mut ImportContext<'_, '_>) {
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn spawn_worker(
     context: &mut ImportContext<'_, '_>,
-    worker_id: i32,
-    waiting_worker_id: u64,
+    completion_id: i32,
+    job: u64,
 ) -> AsyncHostResult<u64> {
-    context.host.spawn_worker(worker_id, waiting_worker_id)
+    context.host.spawn_worker(completion_id, job)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
@@ -69,10 +69,10 @@ pub(super) fn free_worker(context: &mut ImportContext<'_, '_>, worker: u64) -> A
 pub(super) fn wake_worker(
     context: &mut ImportContext<'_, '_>,
     worker: u64,
-    job_id: i32,
+    completion_id: i32,
     job: u64,
 ) -> AsyncHostResult<()> {
-    context.host.wake_worker(worker, job_id, job)
+    context.host.wake_worker(worker, completion_id, job)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]

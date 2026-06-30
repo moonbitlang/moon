@@ -21,13 +21,29 @@ use std::thread::JoinHandle;
 
 #[cfg(windows)]
 use crate::async_host::AsyncHostError;
-use crate::async_host::AsyncHostResult;
+use crate::async_host::{AsyncHostResult, HostJobKey};
 use crate::async_sys::ported_fns;
 
+use super::Job;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WorkerCompletionId(i32);
+
+impl WorkerCompletionId {
+    pub(crate) fn from_abi(value: i32) -> Self {
+        Self(value)
+    }
+
+    pub(crate) fn as_i32(self) -> i32 {
+        self.0
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct HostWorkerJob {
-    pub(crate) job_id: i32,
-    pub(crate) job_handle: u64,
+    pub(crate) completion_id: WorkerCompletionId,
+    pub(crate) job_key: HostJobKey,
+    pub(crate) job: Job,
 }
 
 #[derive(Debug)]
@@ -87,7 +103,7 @@ fn init_worker_signal_handler() {
 impl HostWorkerHandle {
     pub(crate) fn spawn(
         init_job: HostWorkerJob,
-        mut run_job: impl FnMut(HostWorkerJob) + Send + 'static,
+        mut run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
         mut complete_job: impl FnMut(HostWorkerJob) + Send + 'static,
     ) -> Self {
         #[cfg(unix)]
@@ -114,38 +130,27 @@ impl HostWorkerHandle {
 
             loop {
                 let job = {
-                    let state = worker_shared.state.lock().unwrap();
-                    if state.terminating { None } else { state.job }
+                    let mut state = worker_shared.state.lock().unwrap();
+                    while state.job.is_none() && !state.terminating {
+                        state.waiting = true;
+                        state = worker_shared.wakeup.wait(state).unwrap();
+                    }
+                    (!state.terminating).then(|| state.job.take()).flatten()
                 };
-                let Some(job) = job else {
+                let Some(mut job) = job else {
                     break;
                 };
-                run_job(job);
+                run_job(&mut job);
 
-                let (terminating, should_wait) = {
+                let terminating = {
                     let mut state = worker_shared.state.lock().unwrap();
-                    if state.terminating {
-                        (true, false)
-                    } else if state.job == Some(job) {
+                    if !state.terminating && state.job.is_none() {
                         state.waiting = true;
-                        (false, true)
-                    } else {
-                        (false, false)
                     }
+                    state.terminating
                 };
                 complete_job(job);
                 if terminating {
-                    break;
-                }
-                if !should_wait {
-                    continue;
-                }
-
-                let mut state = worker_shared.state.lock().unwrap();
-                while state.waiting && !state.terminating {
-                    state = worker_shared.wakeup.wait(state).unwrap();
-                }
-                if state.terminating {
                     break;
                 }
             }
@@ -163,20 +168,22 @@ impl HostWorkerHandle {
         }
     }
 
-    pub(crate) fn wake(&self, job: Option<HostWorkerJob>) {
+    pub(crate) fn wake(&self, job: Option<HostWorkerJob>) -> Option<HostWorkerJob> {
         let mut state = self.shared.state.lock().unwrap();
         // A missing job is only used by `free_worker`; keep it as an explicit
         // termination state so a wake sent during `run_job` is still observed.
         if job.is_none() {
             state.terminating = true;
         }
+        let previous_job = state.job.take();
         state.job = job;
         state.waiting = false;
         self.shared.wakeup.notify_one();
+        previous_job
     }
 
-    pub(crate) fn enter_idle(&self) {
-        self.shared.state.lock().unwrap().job = None;
+    pub(crate) fn enter_idle(&self) -> Option<HostWorkerJob> {
+        self.shared.state.lock().unwrap().job.take()
     }
 
     pub(crate) fn cancel(&self) -> AsyncHostResult<i32> {
@@ -216,11 +223,16 @@ impl HostWorkerHandle {
         }
     }
 
-    pub(crate) fn join(&mut self) {
+    pub(crate) fn join(&mut self) -> Option<HostWorkerJob> {
+        let previous_job = if self.thread.is_some() {
+            self.wake(None)
+        } else {
+            None
+        };
         if let Some(thread) = self.thread.take() {
-            self.wake(None);
             let _ = thread.join();
         }
+        previous_job
     }
 }
 
@@ -231,7 +243,7 @@ ported_fns! {
     )]
     pub(crate) fn spawn_worker(
         init_job: HostWorkerJob,
-        run_job: impl FnMut(HostWorkerJob) + Send + 'static,
+        run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
         complete_job: impl FnMut(HostWorkerJob) + Send + 'static,
     ) -> HostWorkerHandle {
         HostWorkerHandle::spawn(init_job, run_job, complete_job)
@@ -241,16 +253,19 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_wake_worker"
     )]
-    pub(crate) fn wake_worker(worker: &HostWorkerHandle, job: HostWorkerJob) {
-        worker.wake(Some(job));
+    pub(crate) fn wake_worker(
+        worker: &HostWorkerHandle,
+        job: HostWorkerJob,
+    ) -> Option<HostWorkerJob> {
+        worker.wake(Some(job))
     }
 
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_worker_enter_idle"
     )]
-    pub(crate) fn worker_enter_idle(worker: &HostWorkerHandle) {
-        worker.enter_idle();
+    pub(crate) fn worker_enter_idle(worker: &HostWorkerHandle) -> Option<HostWorkerJob> {
+        worker.enter_idle()
     }
 
     #[ported(
@@ -265,67 +280,64 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_free_worker"
     )]
-    pub(crate) fn free_worker(mut worker: HostWorkerHandle) {
-        worker.join();
+    pub(crate) fn free_worker(mut worker: HostWorkerHandle) -> Option<HostWorkerJob> {
+        worker.join()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::async_sys::internal::event_loop::thread_pool::make_sleep_job;
+    use slotmap::KeyData;
     use std::sync::mpsc;
+
+    fn make_job_key(value: u64) -> HostJobKey {
+        KeyData::from_ffi(value).into()
+    }
+
+    fn worker_job_summary(job: &HostWorkerJob) -> (WorkerCompletionId, HostJobKey) {
+        (job.completion_id, job.job_key)
+    }
+
+    fn make_worker_job(completion_id: i32, job_key: u64) -> HostWorkerJob {
+        HostWorkerJob {
+            completion_id: WorkerCompletionId::from_abi(completion_id),
+            job_key: make_job_key(job_key),
+            job: make_sleep_job(0),
+        }
+    }
 
     #[test]
     fn host_worker_runs_initial_job_then_waits_for_wake() {
         let (sender, receiver) = mpsc::channel();
         let (completion_sender, completion_receiver) = mpsc::channel();
         let worker = spawn_worker(
-            HostWorkerJob {
-                job_id: 7,
-                job_handle: 11,
-            },
-            move |job| sender.send(job).unwrap(),
-            move |job| completion_sender.send(job).unwrap(),
+            make_worker_job(7, 11),
+            move |job| sender.send(worker_job_summary(job)).unwrap(),
+            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
         );
 
         assert_eq!(
             receiver.recv().unwrap(),
-            HostWorkerJob {
-                job_id: 7,
-                job_handle: 11
-            }
+            (WorkerCompletionId::from_abi(7), make_job_key(11))
         );
         assert_eq!(
             completion_receiver.recv().unwrap(),
-            HostWorkerJob {
-                job_id: 7,
-                job_handle: 11
-            }
+            (WorkerCompletionId::from_abi(7), make_job_key(11))
         );
         assert_eq!(cancel_worker(&worker), Ok(1));
 
-        wake_worker(
-            &worker,
-            HostWorkerJob {
-                job_id: 13,
-                job_handle: 17,
-            },
-        );
+        assert!(wake_worker(&worker, make_worker_job(13, 17)).is_none());
         assert_eq!(
             receiver.recv().unwrap(),
-            HostWorkerJob {
-                job_id: 13,
-                job_handle: 17
-            }
+            (WorkerCompletionId::from_abi(13), make_job_key(17))
         );
         assert_eq!(
             completion_receiver.recv().unwrap(),
-            HostWorkerJob {
-                job_id: 13,
-                job_handle: 17
-            }
+            (WorkerCompletionId::from_abi(13), make_job_key(17))
         );
-        free_worker(worker);
+        assert!(free_worker(worker).is_none());
     }
 
     #[test]
@@ -333,29 +345,26 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let (completion_sender, completion_receiver) = mpsc::channel();
         let worker = spawn_worker(
-            HostWorkerJob {
-                job_id: 1,
-                job_handle: 2,
-            },
-            move |job| sender.send(job).unwrap(),
-            move |job| completion_sender.send(job).unwrap(),
+            make_worker_job(1, 2),
+            move |job| sender.send(worker_job_summary(job)).unwrap(),
+            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
         );
 
-        assert_eq!(receiver.recv().unwrap().job_id, 1);
-        assert_eq!(completion_receiver.recv().unwrap().job_id, 1);
-
-        worker_enter_idle(&worker);
-        wake_worker(
-            &worker,
-            HostWorkerJob {
-                job_id: 3,
-                job_handle: 4,
-            },
+        assert_eq!(receiver.recv().unwrap().0, WorkerCompletionId::from_abi(1));
+        assert_eq!(
+            completion_receiver.recv().unwrap().0,
+            WorkerCompletionId::from_abi(1)
         );
 
-        assert_eq!(receiver.recv().unwrap().job_id, 3);
-        assert_eq!(completion_receiver.recv().unwrap().job_id, 3);
-        free_worker(worker);
+        assert!(worker_enter_idle(&worker).is_none());
+        assert!(wake_worker(&worker, make_worker_job(3, 4)).is_none());
+
+        assert_eq!(receiver.recv().unwrap().0, WorkerCompletionId::from_abi(3));
+        assert_eq!(
+            completion_receiver.recv().unwrap().0,
+            WorkerCompletionId::from_abi(3)
+        );
+        assert!(free_worker(worker).is_none());
     }
 
     #[test]
@@ -364,39 +373,97 @@ mod tests {
         let (release_sender, release_receiver) = mpsc::channel();
         let (completion_sender, completion_receiver) = mpsc::channel();
         let worker = spawn_worker(
-            HostWorkerJob {
-                job_id: 1,
-                job_handle: 2,
-            },
+            make_worker_job(1, 2),
             move |job| {
-                started_sender.send(job).unwrap();
-                if job.job_id == 1 {
+                started_sender.send(worker_job_summary(job)).unwrap();
+                if job.completion_id == WorkerCompletionId::from_abi(1) {
                     release_receiver.recv().unwrap();
                 }
             },
-            move |job| completion_sender.send(job).unwrap(),
+            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
         );
 
-        assert_eq!(started_receiver.recv().unwrap().job_id, 1);
-        wake_worker(
-            &worker,
-            HostWorkerJob {
-                job_id: 3,
-                job_handle: 4,
-            },
+        assert_eq!(
+            started_receiver.recv().unwrap().0,
+            WorkerCompletionId::from_abi(1)
         );
+        assert!(wake_worker(&worker, make_worker_job(3, 4)).is_none());
         release_sender.send(()).unwrap();
 
-        assert_eq!(completion_receiver.recv().unwrap().job_id, 1);
+        assert_eq!(
+            completion_receiver.recv().unwrap().0,
+            WorkerCompletionId::from_abi(1)
+        );
         assert_eq!(
             started_receiver
                 .recv_timeout(std::time::Duration::from_secs(1))
                 .unwrap()
-                .job_id,
-            3
+                .0,
+            WorkerCompletionId::from_abi(3)
         );
-        assert_eq!(completion_receiver.recv().unwrap().job_id, 3);
-        free_worker(worker);
+        assert_eq!(
+            completion_receiver.recv().unwrap().0,
+            WorkerCompletionId::from_abi(3)
+        );
+        assert!(free_worker(worker).is_none());
+    }
+
+    #[test]
+    fn completion_receives_job_mutated_by_runner() {
+        let (completion_sender, completion_receiver) = mpsc::channel();
+        let worker = spawn_worker(
+            make_worker_job(1, 2),
+            move |job| job.job.set_ret(123),
+            move |job| completion_sender.send(job.job.ret()).unwrap(),
+        );
+
+        assert_eq!(completion_receiver.recv().unwrap(), 123);
+        assert!(free_worker(worker).is_none());
+    }
+
+    #[test]
+    fn worker_enter_idle_returns_queued_job() {
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let (completion_sender, completion_receiver) = mpsc::channel();
+        let worker = spawn_worker(
+            make_worker_job(1, 2),
+            move |job| {
+                started_sender.send(worker_job_summary(job)).unwrap();
+                release_receiver.recv().unwrap();
+            },
+            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
+        );
+
+        assert_eq!(
+            started_receiver.recv().unwrap(),
+            (WorkerCompletionId::from_abi(1), make_job_key(2))
+        );
+        assert!(wake_worker(&worker, make_worker_job(3, 4)).is_none());
+        let displaced = worker_enter_idle(&worker).unwrap();
+        assert_eq!(
+            worker_job_summary(&displaced),
+            (WorkerCompletionId::from_abi(3), make_job_key(4))
+        );
+
+        release_sender.send(()).unwrap();
+        assert_eq!(
+            completion_receiver.recv().unwrap(),
+            (WorkerCompletionId::from_abi(1), make_job_key(2))
+        );
+        assert!(wake_worker(&worker, make_worker_job(5, 6)).is_none());
+        assert_eq!(
+            started_receiver
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap(),
+            (WorkerCompletionId::from_abi(5), make_job_key(6))
+        );
+        release_sender.send(()).unwrap();
+        assert_eq!(
+            completion_receiver.recv().unwrap(),
+            (WorkerCompletionId::from_abi(5), make_job_key(6))
+        );
+        assert!(free_worker(worker).is_none());
     }
 
     #[test]
@@ -405,21 +472,24 @@ mod tests {
         let (release_sender, release_receiver) = mpsc::channel();
         let (completion_sender, completion_receiver) = mpsc::channel();
         let worker = spawn_worker(
-            HostWorkerJob {
-                job_id: 21,
-                job_handle: 34,
-            },
+            make_worker_job(21, 34),
             move |job| {
-                started_sender.send(job).unwrap();
+                started_sender.send(worker_job_summary(job)).unwrap();
                 release_receiver.recv().unwrap();
             },
-            move |job| completion_sender.send(job).unwrap(),
+            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
         );
 
-        assert_eq!(started_receiver.recv().unwrap().job_id, 21);
-        worker.wake(None);
+        assert_eq!(
+            started_receiver.recv().unwrap().0,
+            WorkerCompletionId::from_abi(21)
+        );
+        assert!(worker.wake(None).is_none());
         release_sender.send(()).unwrap();
-        assert_eq!(completion_receiver.recv().unwrap().job_id, 21);
+        assert_eq!(
+            completion_receiver.recv().unwrap().0,
+            WorkerCompletionId::from_abi(21)
+        );
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
         while worker
@@ -436,6 +506,6 @@ mod tests {
                 .as_ref()
                 .is_some_and(|thread| thread.is_finished())
         );
-        free_worker(worker);
+        assert!(free_worker(worker).is_none());
     }
 }

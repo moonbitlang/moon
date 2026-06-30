@@ -330,11 +330,11 @@ declare_async_imports! {
 
     helper thread_pool::run_job(job: u64) -> void => "thread_pool/run_job";
 
-    ported thread_pool::spawn_worker(worker_id: i32, waiting_worker_id: u64) -> u64 => "thread_pool/spawn_worker";
+    ported thread_pool::spawn_worker(completion_id: i32, job: u64) -> u64 => "thread_pool/spawn_worker";
 
     ported thread_pool::free_worker(worker: u64) -> void => "thread_pool/free_worker";
 
-    ported thread_pool::wake_worker(worker: u64, job_id: i32, job: u64) -> void => "thread_pool/wake_worker";
+    ported thread_pool::wake_worker(worker: u64, completion_id: i32, job: u64) -> void => "thread_pool/wake_worker";
 
     ported thread_pool::worker_enter_idle(worker: u64) -> void => "thread_pool/worker_enter_idle";
 

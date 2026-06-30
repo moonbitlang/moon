@@ -184,7 +184,7 @@ ported_fns! {
 
 pub(crate) fn post_thread_pool_completion(
     completion_port: CompletionPort,
-    job_id: i32,
+    completion_id: i32,
     generation: usize,
 ) -> AsyncHostResult<()> {
     use windows_sys::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
@@ -192,11 +192,12 @@ pub(crate) fn post_thread_pool_completion(
 
     debug_assert_ne!(generation, 0);
     // Native thread_pool.c posts worker completions to the event bus IOCP with
-    // INVALID_HANDLE_VALUE as the completion key and the job id as transferred bytes.
+    // INVALID_HANDLE_VALUE as the completion key and the native job id as
+    // transferred bytes. Rust treats that value as an opaque completion id.
     if unsafe {
         PostQueuedCompletionStatus(
             completion_port.0,
-            job_id as u32,
+            completion_id as u32,
             INVALID_HANDLE_VALUE as usize,
             worker_generation_to_overlapped(generation),
         )

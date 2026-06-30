@@ -58,8 +58,8 @@ impl ThreadPoolCompletionNotifier {
         ))
     }
 
-    pub(crate) fn notify(&self, job_id: i32) -> AsyncHostResult<()> {
-        let bytes = job_id.to_ne_bytes();
+    pub(crate) fn notify(&self, completion_id: i32) -> AsyncHostResult<()> {
+        let bytes = completion_id.to_ne_bytes();
         let mut offset = 0;
         loop {
             let n = unsafe {
