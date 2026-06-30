@@ -731,8 +731,8 @@ impl HostIoResult {
     }
 
     fn cancel_pending(&mut self) -> AsyncHostResult<i32> {
-        use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
-        use windows_sys::Win32::System::IO::CancelIoEx;
+        use windows_sys::Win32::Foundation::{ERROR_IO_INCOMPLETE, ERROR_NOT_FOUND};
+        use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
 
         let Some(file) = &self.pending_file else {
             return Ok(0);
@@ -744,11 +744,22 @@ impl HostIoResult {
             if errno != ERROR_NOT_FOUND as i32 {
                 return Err(AsyncHostError::Native(errno));
             }
-            // The operation may have completed after the cancellation request
-            // raced with IOCP delivery. Keep the result pending until the
-            // completion packet is consumed through poll_event_io_result.
         }
-        Ok(1)
+
+        let mut bytes_transferred = 0;
+        if unsafe { GetOverlappedResult(raw_fd, overlapped, &mut bytes_transferred, 0) } != 0 {
+            self.clear_pending();
+            return Ok(0);
+        }
+        let errno = last_errno();
+        if errno == ERROR_IO_INCOMPLETE as i32 {
+            // Native leaves the result pending here so MoonBit waits for the
+            // completion packet before freeing the IO result.
+            Ok(1)
+        } else {
+            self.clear_pending();
+            Ok(0)
+        }
     }
 
     fn cancel_and_drain_pending(&mut self) -> AsyncHostResult<()> {
@@ -789,6 +800,9 @@ pub(crate) struct AsyncHost {
     // separate guest concepts: resource handles and ABI values stay unchanged.
     // Keep nested table locks short and in the existing directions:
     // jobs -> files for publishing open-job results,
+    // files -> io_results for Windows overlapped-IO submission/close; submit
+    // paths keep files held until io_results is locked so close_fd cannot miss
+    // an operation that is about to become pending,
     // completions -> files -> polls for completion-source init, and
     // workers -> jobs -> worker state for worker assignment.
     // Do not hold table locks while running worker jobs or blocking I/O.
@@ -1928,9 +1942,13 @@ impl AsyncHost {
         use windows_sys::Win32::Networking::WinSock as ws;
         use windows_sys::Win32::Storage::FileSystem::ReadFile;
 
-        let file = self.file_resource(fd_handle)?;
+        // Keep the fd handle reserved until io_results is locked. close_fd uses
+        // the same order before removing the handle from files.
+        let files = self.files.lock().unwrap();
+        let file = files.file(fd_handle)?;
         let raw_fd = file.raw_fd();
         let mut io_results = self.io_results.lock().unwrap();
+        drop(files);
         let result = io_results
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
@@ -2026,9 +2044,13 @@ impl AsyncHost {
         use windows_sys::Win32::Networking::WinSock as ws;
         use windows_sys::Win32::Storage::FileSystem::WriteFile;
 
-        let file = self.file_resource(fd_handle)?;
+        // Keep the fd handle reserved until io_results is locked. close_fd uses
+        // the same order before removing the handle from files.
+        let files = self.files.lock().unwrap();
+        let file = files.file(fd_handle)?;
         let raw_fd = file.raw_fd();
         let mut io_results = self.io_results.lock().unwrap();
+        drop(files);
         let result = io_results
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
@@ -2120,9 +2142,13 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let file = self.file_resource(fd_handle)?;
+        // Keep the fd handle reserved until io_results is locked. close_fd uses
+        // the same order before removing the handle from files.
+        let files = self.files.lock().unwrap();
+        let file = files.file(fd_handle)?;
         let raw_fd = file.raw_fd();
         let mut io_results = self.io_results.lock().unwrap();
+        drop(files);
         let result = io_results
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
@@ -2188,11 +2214,15 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let server_file = self.file_resource(server_fd_handle)?;
-        let conn_file = self.file_resource(conn_fd_handle)?;
+        // Keep both fd handles reserved until io_results is locked. close_fd
+        // uses the same order before removing either handle from files.
+        let files = self.files.lock().unwrap();
+        let server_file = files.file(server_fd_handle)?;
+        let conn_file = files.file(conn_fd_handle)?;
         let server_fd = server_file.raw_fd();
         let conn_fd = conn_file.raw_fd();
         let mut io_results = self.io_results.lock().unwrap();
+        drop(files);
         let result = io_results
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
@@ -3456,13 +3486,12 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn cancel_io_result_keeps_pending_until_completion_is_delivered() {
+    fn cancel_io_result_clears_pending_result_when_no_wait_is_needed() {
         let host = AsyncHost::default();
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
-        let raw_read = {
+        {
             let read_file = host.file_resource(read).unwrap();
-            let raw_read = read_file.raw_fd();
             host.io_results
                 .lock()
                 .unwrap()
@@ -3471,6 +3500,39 @@ mod tests {
                 .unwrap()
                 .mark_pending(read_file)
                 .unwrap();
+        }
+
+        assert_eq!(host.cancel_io_result(result, read), Ok(0));
+        {
+            let io_results = host.io_results.lock().unwrap();
+            let result = io_results
+                .io_results
+                .get(key_from_handle::<HostIoResultKey>(result))
+                .unwrap();
+            assert_eq!(result.pending_raw_fd(), None);
+        }
+
+        host.free_io_result(result).unwrap();
+        host.close_fd(read).unwrap();
+        host.close_fd(write).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cancel_io_result_keeps_pending_result_when_wait_is_needed() {
+        let host = AsyncHost::default();
+        let [read, write] = host.pipe(true, true).unwrap();
+        let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
+        let raw_read = {
+            let read_file = host.file_resource(read).unwrap();
+            let raw_read = read_file.raw_fd();
+            let mut io_results = host.io_results.lock().unwrap();
+            let result = io_results
+                .io_results
+                .get_mut(key_from_handle::<HostIoResultKey>(result))
+                .unwrap();
+            result.overlapped.Internal = windows_sys::Win32::Foundation::STATUS_PENDING as usize;
+            result.mark_pending(read_file).unwrap();
             raw_read
         };
 
