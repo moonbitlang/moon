@@ -280,12 +280,14 @@ impl FileTable {
     }
 }
 
-// A job stays in the table while queued or running so its guest handle can
-// cancel it without making the payload available for duplicate execution.
+// Jobs are one-shot work items with result handles. Queued jobs stay cancellable
+// by handle, running jobs keep only a reservation slot, and finished jobs become
+// result-readable but cannot be submitted again.
 enum HostJobState {
     Ready(Job),
     Queued(Job),
     Running,
+    ResultReady(Job),
 }
 
 struct JobTable {
@@ -305,16 +307,16 @@ impl JobTable {
         self.jobs.insert(HostJobState::Ready(job))
     }
 
-    fn ready_job(&self, key: HostJobKey) -> AsyncHostResult<&Job> {
+    fn visible_job(&self, key: HostJobKey) -> AsyncHostResult<&Job> {
         match self.jobs.get(key) {
-            Some(HostJobState::Ready(job)) => Ok(job),
+            Some(HostJobState::Ready(job) | HostJobState::ResultReady(job)) => Ok(job),
             _ => Err(AsyncHostError::Badf),
         }
     }
 
-    fn ready_job_mut(&mut self, key: HostJobKey) -> AsyncHostResult<&mut Job> {
+    fn visible_job_mut(&mut self, key: HostJobKey) -> AsyncHostResult<&mut Job> {
         match self.jobs.get_mut(key) {
-            Some(HostJobState::Ready(job)) => Ok(job),
+            Some(HostJobState::Ready(job) | HostJobState::ResultReady(job)) => Ok(job),
             _ => Err(AsyncHostError::Badf),
         }
     }
@@ -372,7 +374,8 @@ impl JobTable {
     fn restore_job(&mut self, key: HostJobKey, job: &mut Option<Job>) -> bool {
         match self.jobs.get_mut(key) {
             Some(slot @ HostJobState::Running) => {
-                *slot = HostJobState::Ready(job.take().expect("job is restored at most once"));
+                *slot =
+                    HostJobState::ResultReady(job.take().expect("job is restored at most once"));
                 true
             }
             _ => false,
@@ -447,10 +450,10 @@ impl Default for IoResultTable {
 
 #[cfg(windows)]
 impl IoResultTable {
-    fn has_pending_io_for_raw_fd(&self, raw_fd: RawFd) -> bool {
+    fn has_pending_io_for_file(&self, file: &FileResourceRef) -> bool {
         self.io_results
             .values()
-            .any(|result| result.protects_pending_raw_fd(raw_fd))
+            .any(|result| result.protects_pending_file(file))
     }
 }
 
@@ -474,9 +477,15 @@ impl OverlappedAddr {
 }
 
 #[derive(Debug)]
+struct RegisteredFd {
+    handle: HostHandle,
+    file: FileResourceRef,
+}
+
+#[derive(Debug)]
 struct HostPoll {
     instance: PollInstance,
-    registered_fds: HashMap<isize, HostHandle>,
+    registered_fds: HashMap<isize, RegisteredFd>,
     #[cfg(unix)]
     completion_notifier: Option<Arc<ThreadPoolCompletionNotifier>>,
     event_fd_handles: Vec<Option<HostHandle>>,
@@ -517,11 +526,11 @@ struct HostIoResult {
     accept_buffer: Vec<u8>,
     accept_bytes_received: u32,
     direction: Option<HostIoDirection>,
-    pending_raw_fd: Option<RawFd>,
+    pending_file: Option<FileResourceRef>,
     // AcceptEx submits one overlapped operation with both the listening socket
-    // and a pre-created accepted socket. Cancel/status use pending_raw_fd, but
+    // and a pre-created accepted socket. Cancel/status use pending_file, but
     // close protection must cover the accepted socket as well until completion.
-    extra_pending_close_raw_fd: Option<RawFd>,
+    extra_pending_close_file: Option<FileResourceRef>,
 }
 
 #[cfg(windows)]
@@ -548,8 +557,8 @@ impl HostIoResult {
             accept_buffer: Vec::new(),
             accept_bytes_received: 0,
             direction: None,
-            pending_raw_fd: None,
-            extra_pending_close_raw_fd: None,
+            pending_file: None,
+            extra_pending_close_file: None,
         }
     }
 
@@ -569,8 +578,8 @@ impl HostIoResult {
             accept_buffer: Vec::new(),
             accept_bytes_received: 0,
             direction: None,
-            pending_raw_fd: None,
-            extra_pending_close_raw_fd: None,
+            pending_file: None,
+            extra_pending_close_file: None,
         }
     }
 
@@ -598,8 +607,8 @@ impl HostIoResult {
             accept_buffer: Vec::new(),
             accept_bytes_received: 0,
             direction: None,
-            pending_raw_fd: None,
-            extra_pending_close_raw_fd: None,
+            pending_file: None,
+            extra_pending_close_file: None,
         }
     }
 
@@ -619,8 +628,8 @@ impl HostIoResult {
             accept_buffer: Vec::new(),
             accept_bytes_received: 0,
             direction: None,
-            pending_raw_fd: None,
-            extra_pending_close_raw_fd: None,
+            pending_file: None,
+            extra_pending_close_file: None,
         }
     }
 
@@ -647,8 +656,8 @@ impl HostIoResult {
             accept_buffer: vec![0; accept_buffer_len],
             accept_bytes_received: 0,
             direction: None,
-            pending_raw_fd: None,
-            extra_pending_close_raw_fd: None,
+            pending_file: None,
+            extra_pending_close_file: None,
         })
     }
 
@@ -681,52 +690,58 @@ impl HostIoResult {
 
     #[cfg(test)]
     fn pending_raw_fd(&self) -> Option<RawFd> {
-        self.pending_raw_fd
+        self.pending_file.as_ref().map(|file| file.raw_fd())
     }
 
     fn is_pending(&self) -> bool {
-        self.pending_raw_fd.is_some() || self.extra_pending_close_raw_fd.is_some()
+        self.pending_file.is_some() || self.extra_pending_close_file.is_some()
     }
 
-    fn protects_pending_raw_fd(&self, raw_fd: RawFd) -> bool {
-        self.pending_raw_fd == Some(raw_fd) || self.extra_pending_close_raw_fd == Some(raw_fd)
+    fn protects_pending_file(&self, file: &FileResourceRef) -> bool {
+        self.pending_file
+            .as_ref()
+            .is_some_and(|pending| Arc::ptr_eq(pending, file))
+            || self
+                .extra_pending_close_file
+                .as_ref()
+                .is_some_and(|pending| Arc::ptr_eq(pending, file))
     }
 
-    fn mark_pending(&mut self, raw_fd: RawFd) -> AsyncHostResult<()> {
+    fn mark_pending(&mut self, file: FileResourceRef) -> AsyncHostResult<()> {
         if self.is_pending() {
             return Err(AsyncHostError::Inval);
         }
-        self.pending_raw_fd = Some(raw_fd);
+        self.pending_file = Some(file);
         Ok(())
     }
 
     fn mark_pending_with_close_guard(
         &mut self,
-        raw_fd: RawFd,
-        close_guard_raw_fd: RawFd,
+        file: FileResourceRef,
+        close_guard: FileResourceRef,
     ) -> AsyncHostResult<()> {
-        self.mark_pending(raw_fd)?;
-        self.extra_pending_close_raw_fd = Some(close_guard_raw_fd);
+        self.mark_pending(file)?;
+        self.extra_pending_close_file = Some(close_guard);
         Ok(())
     }
 
     fn clear_pending(&mut self) {
-        self.pending_raw_fd = None;
-        self.extra_pending_close_raw_fd = None;
+        self.pending_file = None;
+        self.extra_pending_close_file = None;
     }
 
-    fn validate_pending_handle(&self, raw_fd: RawFd) -> AsyncHostResult<()> {
+    fn validate_pending_file(&self, file: &FileResourceRef) -> AsyncHostResult<()> {
         // The import boundary may receive malformed/stale fd handles. Validate
         // before asserting the internal "pending operation uses submitter fd"
         // invariant so debug builds do not panic on bad guest input.
-        if let Some(pending_raw_fd) = self.pending_raw_fd
-            && pending_raw_fd != raw_fd
+        if let Some(pending_file) = &self.pending_file
+            && !Arc::ptr_eq(pending_file, file)
         {
             return Err(AsyncHostError::Badf);
         }
         debug_assert!(
-            match self.pending_raw_fd {
-                Some(pending_raw_fd) => pending_raw_fd == raw_fd,
+            match &self.pending_file {
+                Some(pending_file) => Arc::ptr_eq(pending_file, file),
                 None => true,
             },
             "pending IO operation must use the submitting handle"
@@ -738,9 +753,10 @@ impl HostIoResult {
         use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
         use windows_sys::Win32::System::IO::CancelIoEx;
 
-        let Some(raw_fd) = self.pending_raw_fd else {
+        let Some(file) = &self.pending_file else {
             return Ok(0);
         };
+        let raw_fd = file.raw_fd();
         let overlapped = self.overlapped_ptr();
         if unsafe { CancelIoEx(raw_fd, overlapped) } == 0 {
             let errno = last_errno();
@@ -758,9 +774,10 @@ impl HostIoResult {
         use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
         use windows_sys::Win32::System::IO::{CancelIoEx, GetOverlappedResult};
 
-        let Some(raw_fd) = self.pending_raw_fd else {
+        let Some(file) = &self.pending_file else {
             return Ok(());
         };
+        let raw_fd = file.raw_fd();
         let overlapped = self.overlapped_ptr();
         if unsafe { CancelIoEx(raw_fd, overlapped) } == 0 {
             let errno = last_errno();
@@ -875,7 +892,7 @@ impl AsyncHost {
         let mut jobs = self.jobs.lock().unwrap();
         let placeholder = OpenJobResource::Published(self.invalid_fd());
         let file = {
-            let job = jobs.ready_job_mut(key)?;
+            let job = jobs.visible_job_mut(key)?;
             let result = thread_pool::open_job_result_mut(job)?;
             match std::mem::replace(&mut result.resource, placeholder) {
                 OpenJobResource::Published(fd) => {
@@ -887,7 +904,7 @@ impl AsyncHost {
         };
 
         let fd = self.files.lock().unwrap().insert_file_resource(file);
-        let job = jobs.ready_job_mut(key)?;
+        let job = jobs.visible_job_mut(key)?;
         let result = thread_pool::open_job_result_mut(job)?;
         result.resource = OpenJobResource::Published(fd);
         thread_pool::open_job_get_fd(result)
@@ -1063,7 +1080,8 @@ impl AsyncHost {
         fd_handle: HostHandle,
         read_only: bool,
     ) -> AsyncHostResult<()> {
-        let raw_fd = self.files.lock().unwrap().file(fd_handle)?.raw_fd();
+        let file = self.file_resource(fd_handle)?;
+        let raw_fd = file.raw_fd();
         let poll = Arc::clone(
             self.polls
                 .lock()
@@ -1072,9 +1090,30 @@ impl AsyncHost {
                 .get(key_from_handle::<HostPollKey>(poll_handle))
                 .ok_or(AsyncHostError::Badf)?,
         );
+        {
+            let poll = poll.lock().unwrap();
+            poll::poll_register(&poll.instance, raw_fd, read_only)?;
+        }
+        let files = self.files.lock().unwrap();
+        if !files
+            .files
+            .get(key_from_handle::<FileResourceKey>(fd_handle))
+            .is_some_and(|current| Arc::ptr_eq(current, &file))
+        {
+            drop(files);
+            let poll = poll.lock().unwrap();
+            #[cfg(unix)]
+            poll::poll_unregister(&poll.instance, raw_fd)?;
+            return Err(AsyncHostError::Badf);
+        }
         let mut poll = poll.lock().unwrap();
-        poll::poll_register(&poll.instance, raw_fd, read_only)?;
-        poll.registered_fds.insert(raw_fd_key(raw_fd), fd_handle);
+        poll.registered_fds.insert(
+            raw_fd_key(raw_fd),
+            RegisteredFd {
+                handle: fd_handle,
+                file,
+            },
+        );
         Ok(())
     }
 
@@ -1148,7 +1187,7 @@ impl AsyncHost {
                 let fd_handle = poll_guard
                     .registered_fds
                     .get(&raw_fd_key(raw_fd))
-                    .copied()
+                    .map(|registered| registered.handle)
                     .or_else(|| completion_event_fd(raw_fd));
                 #[cfg(windows)]
                 let fd_handle = fd_handle.or(Some(invalid_fd));
@@ -1200,15 +1239,22 @@ impl AsyncHost {
             let poll_key = polls.current_event_poll.ok_or(AsyncHostError::Badf)?;
             Arc::clone(polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?)
         };
-        let fd = {
+        let (fd, registered_file) = {
             let poll = poll.lock().unwrap();
-            poll::event_list_get(&poll.instance, index)?;
+            let event = poll::event_list_get(&poll.instance, index)?;
+            let raw_fd = poll::event_get_fd(event);
+            let registered_file = poll
+                .registered_fds
+                .get(&raw_fd_key(raw_fd))
+                .map(|registered| Arc::clone(&registered.file));
             let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-            poll.event_fd_handles
+            let fd = poll
+                .event_fd_handles
                 .get(index)
                 .copied()
                 .flatten()
-                .ok_or(AsyncHostError::Badf)?
+                .ok_or(AsyncHostError::Badf)?;
+            (fd, registered_file)
         };
         #[cfg(windows)]
         let is_thread_pool_completion =
@@ -1216,15 +1262,26 @@ impl AsyncHost {
         #[cfg(not(windows))]
         let is_thread_pool_completion = false;
         let files = self.files.lock().unwrap();
-        if fd == files.invalid_fd()
-            || is_thread_pool_completion
-            || files
-                .files
-                .contains_key(key_from_handle::<FileResourceKey>(fd))
-        {
+        if fd == files.invalid_fd() || is_thread_pool_completion {
             Ok(fd)
+        } else if let Some(registered_file) = registered_file {
+            let key = key_from_handle::<FileResourceKey>(fd);
+            if files
+                .files
+                .get(key)
+                .is_some_and(|current| Arc::ptr_eq(current, &registered_file))
+            {
+                Ok(fd)
+            } else {
+                Err(AsyncHostError::Badf)
+            }
         } else {
-            Err(AsyncHostError::Badf)
+            let key = key_from_handle::<FileResourceKey>(fd);
+            files
+                .files
+                .contains_key(key)
+                .then_some(fd)
+                .ok_or(AsyncHostError::Badf)
         }
     }
 
@@ -1301,16 +1358,21 @@ impl AsyncHost {
                     drop(FileResource::new(event_fd));
                     return Err(AsyncHostError::Inval);
                 }
-                let source = self
-                    .files
-                    .lock()
-                    .unwrap()
-                    .insert_file_resource(FileResource::new(event_fd));
+                let mut files = self.files.lock().unwrap();
+                let source = files.insert_file_resource(FileResource::new(event_fd));
+                let source_file = files.file(source)?;
+                drop(files);
                 completions.notifier = Some(Arc::clone(&completion_notifier));
                 completions.source = Some(source);
                 drop(completions);
                 let mut poll = poll.lock().unwrap();
-                poll.registered_fds.insert(raw_fd_key(event_fd), source);
+                poll.registered_fds.insert(
+                    raw_fd_key(event_fd),
+                    RegisteredFd {
+                        handle: source,
+                        file: source_file,
+                    },
+                );
                 poll.completion_notifier = Some(completion_notifier);
                 source
             };
@@ -1461,14 +1523,14 @@ impl AsyncHost {
     pub(crate) fn job_get_ret(&self, handle: u64) -> AsyncHostResult<i64> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
+        let job = jobs.visible_job(key_from_handle::<HostJobKey>(handle))?;
         Ok(crate::async_sys::internal::event_loop::thread_pool::job_get_ret(job))
     }
 
     pub(crate) fn job_get_err(&self, handle: u64) -> AsyncHostResult<i32> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
+        let job = jobs.visible_job(key_from_handle::<HostJobKey>(handle))?;
         Ok(crate::async_sys::internal::event_loop::thread_pool::job_get_err(job))
     }
 
@@ -1480,7 +1542,7 @@ impl AsyncHost {
     pub(crate) fn open_job_get_kind(&self, handle: u64) -> AsyncHostResult<i32> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
+        let job = jobs.visible_job(key_from_handle::<HostJobKey>(handle))?;
         let result = thread_pool::open_job_result(job)?;
         Ok(thread_pool::open_job_get_kind(result))
     }
@@ -1488,7 +1550,7 @@ impl AsyncHost {
     pub(crate) fn open_job_get_dev_id(&self, handle: u64) -> AsyncHostResult<u64> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
+        let job = jobs.visible_job(key_from_handle::<HostJobKey>(handle))?;
         let result = thread_pool::open_job_result(job)?;
         Ok(thread_pool::open_job_get_dev_id(result))
     }
@@ -1496,7 +1558,7 @@ impl AsyncHost {
     pub(crate) fn open_job_get_file_id(&self, handle: u64) -> AsyncHostResult<u64> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
+        let job = jobs.visible_job(key_from_handle::<HostJobKey>(handle))?;
         let result = thread_pool::open_job_result(job)?;
         Ok(thread_pool::open_job_get_file_id(result))
     }
@@ -1504,7 +1566,7 @@ impl AsyncHost {
     pub(crate) fn get_file_size_result(&self, handle: u64) -> AsyncHostResult<i64> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
+        let job = jobs.visible_job(key_from_handle::<HostJobKey>(handle))?;
         crate::async_sys::internal::event_loop::thread_pool::get_file_size_result(job)
     }
 
@@ -1512,7 +1574,7 @@ impl AsyncHost {
         self.restore_completed_jobs();
         let addrs: Vec<Box<[u8]>> = {
             let jobs = self.jobs.lock().unwrap();
-            let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
+            let job = jobs.visible_job(key_from_handle::<HostJobKey>(handle))?;
             thread_pool::getaddrinfo_job_result(job)?.to_vec()
         };
         let mut addr_infos = self.addr_infos.lock().unwrap();
@@ -1560,16 +1622,23 @@ impl AsyncHost {
     }
 
     pub(crate) fn close_fd(&self, handle: HostHandle) -> AsyncHostResult<()> {
-        let raw_fd = self.files.lock().unwrap().file(handle)?.raw_fd();
-        #[cfg(windows)]
-        if self
-            .io_results
-            .lock()
-            .unwrap()
-            .has_pending_io_for_raw_fd(raw_fd)
-        {
-            return Err(AsyncHostError::Inval);
-        }
+        let file = {
+            let mut files = self.files.lock().unwrap();
+            #[cfg(windows)]
+            {
+                let file = files.file(handle)?;
+                if self
+                    .io_results
+                    .lock()
+                    .unwrap()
+                    .has_pending_io_for_file(&file)
+                {
+                    return Err(AsyncHostError::Inval);
+                }
+            }
+            files.remove_file(handle)?
+        };
+        let raw_fd = file.raw_fd();
         #[cfg(unix)]
         {
             let completion_source_closed = {
@@ -1612,7 +1681,6 @@ impl AsyncHost {
             }
             poll.registered_fds.remove(&raw_fd_key(raw_fd));
         }
-        self.files.lock().unwrap().remove_file(handle)?;
         Ok(())
     }
 
@@ -1629,8 +1697,8 @@ impl AsyncHost {
         handle: HostHandle,
         f: impl FnOnce(RawFd) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let raw_fd = self.files.lock().unwrap().file(handle)?.raw_fd();
-        f(raw_fd)
+        let file = self.file_resource(handle)?;
+        f(file.raw_fd())
     }
 
     pub(crate) fn file_resource(&self, handle: HostHandle) -> AsyncHostResult<FileResourceRef> {
@@ -1652,12 +1720,13 @@ impl AsyncHost {
 
     #[cfg(unix)]
     pub(crate) fn set_nonblocking(&self, handle: HostHandle) -> AsyncHostResult<()> {
-        let raw_fd = self.files.lock().unwrap().file(handle)?.raw_fd();
-        crate::async_sys::internal::fd_util::stub::set_nonblocking(raw_fd)
+        let file = self.file_resource(handle)?;
+        crate::async_sys::internal::fd_util::stub::set_nonblocking(file.raw_fd())
     }
 
     pub(crate) fn set_cloexec(&self, handle: HostHandle) -> AsyncHostResult<()> {
-        let raw_fd = self.files.lock().unwrap().file(handle)?.raw_fd();
+        let file = self.file_resource(handle)?;
+        let raw_fd = file.raw_fd();
         #[cfg(unix)]
         {
             crate::async_sys::internal::fd_util::stub::set_cloexec(raw_fd)
@@ -1680,8 +1749,8 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         let offset_dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
         let dst = memory.read_exact_mut(offset_dst, len)?;
-        let raw_fd = self.files.lock().unwrap().file(handle)?.raw_fd();
-        crate::async_sys::internal::event_loop::io::read(raw_fd, dst)
+        let file = self.file_resource(handle)?;
+        crate::async_sys::internal::event_loop::io::read(file.raw_fd(), dst)
             .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
     }
 
@@ -1696,8 +1765,8 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         let offset_src = src.checked_add(offset).ok_or(AsyncHostError::Fault)?;
         let src = memory.read_exact(offset_src, len)?;
-        let raw_fd = self.files.lock().unwrap().file(handle)?.raw_fd();
-        crate::async_sys::internal::event_loop::io::write(raw_fd, src)
+        let file = self.file_resource(handle)?;
+        crate::async_sys::internal::event_loop::io::write(file.raw_fd(), src)
             .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
     }
 
@@ -1841,13 +1910,13 @@ impl AsyncHost {
         result_handle: u64,
         fd_handle: HostHandle,
     ) -> AsyncHostResult<i32> {
-        let raw_fd = self.files.lock().unwrap().file(fd_handle)?.raw_fd();
+        let file = self.file_resource(fd_handle)?;
         let mut io_results = self.io_results.lock().unwrap();
         let result = io_results
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
-        result.validate_pending_handle(raw_fd)?;
+        result.validate_pending_file(&file)?;
         result.cancel_pending()
     }
 
@@ -1860,13 +1929,14 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::System::IO::GetOverlappedResult;
 
-        let raw_fd = self.files.lock().unwrap().file(fd_handle)?.raw_fd();
+        let file = self.file_resource(fd_handle)?;
+        let raw_fd = file.raw_fd();
         let mut io_results = self.io_results.lock().unwrap();
         let result = io_results
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
-        result.validate_pending_handle(raw_fd)?;
+        result.validate_pending_file(&file)?;
         let mut bytes_transferred = 0;
         if unsafe {
             GetOverlappedResult(raw_fd, result.overlapped_ptr(), &mut bytes_transferred, 0)
@@ -1900,7 +1970,8 @@ impl AsyncHost {
         use windows_sys::Win32::Networking::WinSock as ws;
         use windows_sys::Win32::Storage::FileSystem::ReadFile;
 
-        let raw_fd = self.files.lock().unwrap().file(fd_handle)?.raw_fd();
+        let file = self.file_resource(fd_handle)?;
+        let raw_fd = file.raw_fd();
         let mut io_results = self.io_results.lock().unwrap();
         let result = io_results
             .io_results
@@ -1979,7 +2050,7 @@ impl AsyncHost {
         if errno == ERROR_HANDLE_EOF as i32 {
             Ok(0)
         } else if errno == ERROR_IO_PENDING as i32 {
-            result.mark_pending(raw_fd)?;
+            result.mark_pending(file)?;
             Err(AsyncHostError::Native(errno))
         } else {
             Err(AsyncHostError::Native(errno))
@@ -1997,7 +2068,8 @@ impl AsyncHost {
         use windows_sys::Win32::Networking::WinSock as ws;
         use windows_sys::Win32::Storage::FileSystem::WriteFile;
 
-        let raw_fd = self.files.lock().unwrap().file(fd_handle)?.raw_fd();
+        let file = self.file_resource(fd_handle)?;
+        let raw_fd = file.raw_fd();
         let mut io_results = self.io_results.lock().unwrap();
         let result = io_results
             .io_results
@@ -2076,7 +2148,7 @@ impl AsyncHost {
             };
             let error = AsyncHostError::Native(errno);
             if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32) {
-                result.mark_pending(raw_fd)?;
+                result.mark_pending(file)?;
             }
             Err(error)
         }
@@ -2090,7 +2162,8 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let raw_fd = self.files.lock().unwrap().file(fd_handle)?.raw_fd();
+        let file = self.file_resource(fd_handle)?;
+        let raw_fd = file.raw_fd();
         let mut io_results = self.io_results.lock().unwrap();
         let result = io_results
             .io_results
@@ -2120,7 +2193,7 @@ impl AsyncHost {
         } else {
             let errno = last_wsa_errno();
             if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32 {
-                result.mark_pending(raw_fd)?;
+                result.mark_pending(file)?;
             }
             Err(AsyncHostError::Native(errno))
         }
@@ -2130,11 +2203,11 @@ impl AsyncHost {
     pub(crate) fn setup_connected_socket(&self, fd_handle: HostHandle) -> AsyncHostResult<()> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let raw_fd = self.files.lock().unwrap().file(fd_handle)?.raw_fd();
+        let file = self.file_resource(fd_handle)?;
         let yes: u32 = 1;
         if unsafe {
             ws::setsockopt(
-                raw_fd as usize,
+                file.raw_fd() as usize,
                 ws::SOL_SOCKET,
                 ws::SO_UPDATE_CONNECT_CONTEXT,
                 (&yes as *const u32).cast(),
@@ -2157,10 +2230,10 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let files = self.files.lock().unwrap();
-        let server_fd = files.file(server_fd_handle)?.raw_fd();
-        let conn_fd = files.file(conn_fd_handle)?.raw_fd();
-        drop(files);
+        let server_file = self.file_resource(server_fd_handle)?;
+        let conn_file = self.file_resource(conn_fd_handle)?;
+        let server_fd = server_file.raw_fd();
+        let conn_fd = conn_file.raw_fd();
         let mut io_results = self.io_results.lock().unwrap();
         let result = io_results
             .io_results
@@ -2191,7 +2264,7 @@ impl AsyncHost {
         } else {
             let errno = last_wsa_errno();
             if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32 {
-                result.mark_pending_with_close_guard(server_fd, conn_fd)?;
+                result.mark_pending_with_close_guard(server_file, conn_file)?;
             }
             Err(AsyncHostError::Native(errno))
         }
@@ -2231,13 +2304,12 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let files = self.files.lock().unwrap();
-        let listen_fd = files.file(listen_fd_handle)?.raw_fd();
-        let accept_fd = files.file(accept_fd_handle)?.raw_fd();
-        let listen_socket = listen_fd as usize;
+        let listen_file = self.file_resource(listen_fd_handle)?;
+        let accept_file = self.file_resource(accept_fd_handle)?;
+        let listen_socket = listen_file.raw_fd() as usize;
         if unsafe {
             ws::setsockopt(
-                accept_fd as usize,
+                accept_file.raw_fd() as usize,
                 ws::SOL_SOCKET,
                 ws::SO_UPDATE_ACCEPT_CONTEXT,
                 (&listen_socket as *const usize).cast(),
@@ -2400,7 +2472,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
+        let job = jobs.visible_job(key_from_handle::<HostJobKey>(handle))?;
         thread_pool::get_read_result(job, memory, dst, offset, len)
     }
 
@@ -2412,7 +2484,7 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         self.restore_completed_jobs();
         let jobs = self.jobs.lock().unwrap();
-        let job = jobs.ready_job(key_from_handle::<HostJobKey>(handle))?;
+        let job = jobs.visible_job(key_from_handle::<HostJobKey>(handle))?;
         thread_pool::get_file_time_result(job, memory, dst)
     }
 
@@ -2766,7 +2838,7 @@ mod tests {
             assert_eq!(
                 poll.registered_fds
                     .get(&raw_fd_key(raw_completion_fd))
-                    .copied(),
+                    .map(|registered| registered.handle),
                 Some(completion_source)
             );
         }
@@ -2799,7 +2871,7 @@ mod tests {
         {
             let mut jobs = host.jobs.lock().unwrap();
             let job = jobs
-                .ready_job_mut(key_from_handle::<HostJobKey>(job_handle))
+                .visible_job_mut(key_from_handle::<HostJobKey>(job_handle))
                 .unwrap();
             let thread_pool::JobPayload::Read { result, .. } = job.payload_mut() else {
                 panic!("expected read job");
@@ -2920,6 +2992,7 @@ mod tests {
 
         let opened = host.open_job_get_fd(job).unwrap();
         assert_eq!(host.open_job_get_fd(job).unwrap(), opened);
+        assert_eq!(host.run_job(job), Err(AsyncHostError::Badf));
         {
             let files = host.files.lock().unwrap();
             assert_eq!(files.files.len(), 2);
@@ -3005,6 +3078,9 @@ mod tests {
 
         assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
         assert_eq!(host.job_get_ret(job).unwrap(), 0);
+        assert_eq!(host.run_job(job), Err(AsyncHostError::Badf));
+        assert_eq!(host.spawn_worker(43, job), Err(AsyncHostError::Badf));
+        assert_eq!(host.wake_worker(worker, 44, job), Err(AsyncHostError::Badf));
 
         #[cfg(unix)]
         {
@@ -3022,6 +3098,64 @@ mod tests {
 
         host.free_worker(worker).unwrap();
         host.free_job(job).unwrap();
+        host.destroy_thread_pool();
+    }
+
+    #[test]
+    fn freed_running_worker_job_is_not_restored_after_completion() {
+        let host = AsyncHost::default();
+        let first_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+        let first_key = key_from_handle::<HostJobKey>(first_job);
+        let (started_sender, started_receiver) = std::sync::mpsc::channel();
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let (completion_sender, completion_receiver) = std::sync::mpsc::channel();
+        let worker = {
+            let jobs = Arc::clone(&host.jobs);
+            let completed_jobs = Arc::clone(&host.completed_jobs);
+            host.jobs.lock().unwrap().queue_job(first_key).unwrap();
+            thread_pool::spawn_worker(
+                HostWorkerJob {
+                    completion_id: WorkerCompletionId::from_abi(1),
+                    job_key: first_key,
+                },
+                move |worker_job| {
+                    let Ok(mut job) = jobs.lock().unwrap().take_queued_job(worker_job.job_key)
+                    else {
+                        return None;
+                    };
+                    started_sender.send(worker_job.completion_id).unwrap();
+                    release_receiver.recv().unwrap();
+                    thread_pool::run_host_job(&mut job);
+                    Some(job)
+                },
+                move |worker_job| {
+                    if let Some(job) = worker_job.job {
+                        completed_jobs.lock().unwrap().push(CompletedJob {
+                            key: worker_job.job_key,
+                            job,
+                        });
+                    }
+                    completion_sender.send(worker_job.completion_id).unwrap();
+                },
+            )
+        };
+        let worker = handle_from_key(host.workers.lock().unwrap().workers.insert(worker));
+
+        assert_eq!(
+            started_receiver.recv().unwrap(),
+            WorkerCompletionId::from_abi(1)
+        );
+        host.free_job(first_job).unwrap();
+
+        release_sender.send(()).unwrap();
+        assert_eq!(
+            completion_receiver.recv().unwrap(),
+            WorkerCompletionId::from_abi(1)
+        );
+        assert_eq!(host.job_get_ret(first_job), Err(AsyncHostError::Badf));
+        assert_eq!(host.run_job(first_job), Err(AsyncHostError::Badf));
+
+        host.free_worker(worker).unwrap();
         host.destroy_thread_pool();
     }
 
@@ -3312,13 +3446,14 @@ mod tests {
     #[test]
     fn io_result_status_rejects_wrong_fd_without_clearing_pending() {
         let mut result = HostIoResult::for_file(0, Vec::new(), 0, 0);
-        let pending_fd = 1usize as RawFd;
-        let other_fd = 2usize as RawFd;
+        let pending_file = Arc::new(FileResource::invalid());
+        let other_file = Arc::new(FileResource::invalid());
+        let pending_fd = pending_file.raw_fd();
 
-        result.mark_pending(pending_fd).unwrap();
+        result.mark_pending(pending_file).unwrap();
 
         assert_eq!(
-            result.validate_pending_handle(other_fd),
+            result.validate_pending_file(&other_file),
             Err(AsyncHostError::Badf)
         );
         assert_eq!(result.pending_raw_fd(), Some(pending_fd));
@@ -3331,14 +3466,15 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
         let raw_read = {
-            let raw_read = host.files.lock().unwrap().file(read).unwrap().raw_fd();
+            let read_file = host.file_resource(read).unwrap();
+            let raw_read = read_file.raw_fd();
             host.io_results
                 .lock()
                 .unwrap()
                 .io_results
                 .get_mut(key_from_handle::<HostIoResultKey>(result))
                 .unwrap()
-                .mark_pending(raw_read)
+                .mark_pending(read_file)
                 .unwrap();
             raw_read
         };
@@ -3369,14 +3505,15 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
         let raw_read = {
-            let raw_read = host.files.lock().unwrap().file(read).unwrap().raw_fd();
+            let read_file = host.file_resource(read).unwrap();
+            let raw_read = read_file.raw_fd();
             host.io_results
                 .lock()
                 .unwrap()
                 .io_results
                 .get_mut(key_from_handle::<HostIoResultKey>(result))
                 .unwrap()
-                .mark_pending(raw_read)
+                .mark_pending(read_file)
                 .unwrap();
             raw_read
         };
@@ -3406,14 +3543,15 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
         let raw_read = {
-            let raw_read = host.files.lock().unwrap().file(read).unwrap().raw_fd();
+            let read_file = host.file_resource(read).unwrap();
+            let raw_read = read_file.raw_fd();
             host.io_results
                 .lock()
                 .unwrap()
                 .io_results
                 .get_mut(key_from_handle::<HostIoResultKey>(result))
                 .unwrap()
-                .mark_pending(raw_read)
+                .mark_pending(read_file)
                 .unwrap();
             raw_read
         };
@@ -3442,17 +3580,17 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
         let (raw_read, raw_write) = {
-            let files = host.files.lock().unwrap();
-            let raw_read = files.file(read).unwrap().raw_fd();
-            let raw_write = files.file(write).unwrap().raw_fd();
-            drop(files);
+            let read_file = host.file_resource(read).unwrap();
+            let write_file = host.file_resource(write).unwrap();
+            let raw_read = read_file.raw_fd();
+            let raw_write = write_file.raw_fd();
             host.io_results
                 .lock()
                 .unwrap()
                 .io_results
                 .get_mut(key_from_handle::<HostIoResultKey>(result))
                 .unwrap()
-                .mark_pending_with_close_guard(raw_read, raw_write)
+                .mark_pending_with_close_guard(read_file, write_file)
                 .unwrap();
             (raw_read, raw_write)
         };
@@ -3474,7 +3612,14 @@ mod tests {
                 .get_mut(key_from_handle::<HostIoResultKey>(result))
                 .unwrap();
             assert_eq!(result.pending_raw_fd(), Some(raw_read));
-            assert!(result.protects_pending_raw_fd(raw_write));
+            assert!(result.protects_pending_file(&host.file_resource(write).unwrap()));
+            assert_eq!(
+                result
+                    .extra_pending_close_file
+                    .as_ref()
+                    .map(|file| file.raw_fd()),
+                Some(raw_write)
+            );
             result.clear_pending();
         }
 
@@ -3487,15 +3632,17 @@ mod tests {
     #[test]
     fn free_io_result_rejects_pending_result() {
         let host = AsyncHost::default();
+        let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
         {
+            let read_file = host.file_resource(read).unwrap();
             host.io_results
                 .lock()
                 .unwrap()
                 .io_results
                 .get_mut(key_from_handle::<HostIoResultKey>(result))
                 .unwrap()
-                .mark_pending(1usize as RawFd)
+                .mark_pending(read_file)
                 .unwrap();
         }
 
@@ -3507,6 +3654,16 @@ mod tests {
                 .io_results
                 .contains_key(key_from_handle::<HostIoResultKey>(result))
         );
+        host.io_results
+            .lock()
+            .unwrap()
+            .io_results
+            .get_mut(key_from_handle::<HostIoResultKey>(result))
+            .unwrap()
+            .clear_pending();
+        host.free_io_result(result).unwrap();
+        host.close_fd(read).unwrap();
+        host.close_fd(write).unwrap();
     }
 
     #[cfg(windows)]
@@ -3527,14 +3684,16 @@ mod tests {
             poll.instance.raw_fd()
         };
         let result = host.make_file_io_result(&mut [], 0, 0, 0, 0, 0).unwrap();
-        let raw_fd = 0x1234usize as RawFd;
+        let [read, write] = host.pipe(true, true).unwrap();
+        let read_file = host.file_resource(read).unwrap();
+        let raw_fd = read_file.raw_fd();
         let overlapped = {
             let mut io_results = host.io_results.lock().unwrap();
             let result = io_results
                 .io_results
                 .get_mut(key_from_handle::<HostIoResultKey>(result))
                 .unwrap();
-            result.mark_pending(raw_fd).unwrap();
+            result.mark_pending(read_file).unwrap();
             result.overlapped_ptr()
         };
         let posted =
@@ -3556,6 +3715,8 @@ mod tests {
             None
         );
         host.free_io_result(result).unwrap();
+        host.close_fd(read).unwrap();
+        host.close_fd(write).unwrap();
     }
 
     #[cfg(windows)]

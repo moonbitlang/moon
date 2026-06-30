@@ -446,6 +446,44 @@ mod tests {
     }
 
     #[test]
+    fn completion_reports_missing_job_and_worker_continues() {
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (completion_sender, completion_receiver) = mpsc::channel();
+        let worker = spawn_worker(
+            make_worker_job(1, 2),
+            move |job| {
+                started_sender.send(worker_job_summary(&job)).unwrap();
+                None
+            },
+            move |job| {
+                completion_sender
+                    .send((worker_result_summary(&job), job.job.is_some()))
+                    .unwrap()
+            },
+        );
+
+        assert_eq!(
+            started_receiver.recv().unwrap(),
+            (WorkerCompletionId::from_abi(1), make_job_key(2))
+        );
+        assert_eq!(
+            completion_receiver.recv().unwrap(),
+            ((WorkerCompletionId::from_abi(1), make_job_key(2)), false)
+        );
+
+        assert!(wake_worker(&worker, make_worker_job(3, 4)).is_none());
+        assert_eq!(
+            started_receiver.recv().unwrap(),
+            (WorkerCompletionId::from_abi(3), make_job_key(4))
+        );
+        assert_eq!(
+            completion_receiver.recv().unwrap(),
+            ((WorkerCompletionId::from_abi(3), make_job_key(4)), false)
+        );
+        assert!(free_worker(worker).is_none());
+    }
+
+    #[test]
     fn worker_enter_idle_returns_queued_job() {
         let (started_sender, started_receiver) = mpsc::channel();
         let (release_sender, release_receiver) = mpsc::channel();
