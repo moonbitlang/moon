@@ -148,12 +148,18 @@ fn raw_socket(raw: &OwnedSocket) -> fd_util::stub::RawFd {
     raw.as_raw_socket() as fd_util::stub::RawFd
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub(crate) struct OpenJobResult {
-    pub(crate) fd: HostHandle,
+    pub(crate) resource: OpenJobResource,
     pub(crate) kind: i32,
     pub(crate) dev_id: u64,
     pub(crate) file_id: u64,
+}
+
+#[derive(Debug)]
+pub(crate) enum OpenJobResource {
+    Unpublished(FileResource),
+    Published(HostHandle),
 }
 
 #[derive(Clone, Copy)]
@@ -175,7 +181,7 @@ impl std::fmt::Debug for FileTimeResult {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct Job {
     ret: i64,
     err: i32,
@@ -218,7 +224,7 @@ impl Job {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) enum JobPayload {
     Sleep {
         duration_ms: i32,

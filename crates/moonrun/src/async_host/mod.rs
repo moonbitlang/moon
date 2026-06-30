@@ -37,7 +37,7 @@ use crate::async_sys::internal::event_loop::{
     poll::{self, PollInstance},
     thread_pool::{
         self, FileResource, FileResourceRef, FileResourceTable, HostHandle, HostWorkerHandle,
-        HostWorkerJob, Job,
+        HostWorkerJob, Job, OpenJobResource,
     },
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -335,6 +335,38 @@ impl AsyncHostState {
         self.files.remove(key).ok_or(AsyncHostError::Badf)
     }
 
+    fn insert_file_resource(&mut self, file: FileResource) -> HostHandle {
+        handle_from_key(self.files.insert(Arc::new(file)))
+    }
+
+    fn publish_open_job_result(&mut self, key: HostJobKey) -> AsyncHostResult<HostHandle> {
+        let placeholder = OpenJobResource::Published(self.invalid_fd());
+        let file = {
+            let job = self
+                .jobs
+                .get_mut(key)
+                .and_then(Option::as_mut)
+                .ok_or(AsyncHostError::Badf)?;
+            let result = thread_pool::open_job_result_mut(job)?;
+            match std::mem::replace(&mut result.resource, placeholder) {
+                OpenJobResource::Published(fd) => {
+                    result.resource = OpenJobResource::Published(fd);
+                    return Ok(fd);
+                }
+                OpenJobResource::Unpublished(file) => file,
+            }
+        };
+        let fd = self.insert_file_resource(file);
+        let job = self
+            .jobs
+            .get_mut(key)
+            .and_then(Option::as_mut)
+            .ok_or(AsyncHostError::Badf)?;
+        let result = thread_pool::open_job_result_mut(job)?;
+        result.resource = OpenJobResource::Published(fd);
+        thread_pool::open_job_get_fd(result)
+    }
+
     fn restore_completed_job(&mut self, key: HostJobKey, mut job: Job) -> AsyncHostResult<()> {
         let can_restore = match self.jobs.get(key) {
             Some(slot) => slot.is_none(),
@@ -352,8 +384,10 @@ impl AsyncHostState {
     }
 
     fn discard_job_results(&mut self, job: &mut Job) {
-        if let Some(result) = thread_pool::take_open_job_result(job) {
-            let _ = self.remove_file(result.fd);
+        if let Some(result) = thread_pool::take_open_job_result(job)
+            && let OpenJobResource::Published(fd) = result.resource
+        {
+            let _ = self.remove_file(fd);
         }
     }
 
@@ -1215,14 +1249,10 @@ impl AsyncHost {
     }
 
     pub(crate) fn open_job_get_fd(&self, handle: u64) -> AsyncHostResult<HostHandle> {
-        let state = self.state.lock().unwrap();
-        let job = state
-            .jobs
-            .get(key_from_handle::<HostJobKey>(handle))
-            .and_then(Option::as_ref)
-            .ok_or(AsyncHostError::Badf)?;
-        let result = thread_pool::open_job_result(job)?;
-        Ok(thread_pool::open_job_get_fd(result))
+        self.state
+            .lock()
+            .unwrap()
+            .publish_open_job_result(key_from_handle::<HostJobKey>(handle))
     }
 
     pub(crate) fn open_job_get_kind(&self, handle: u64) -> AsyncHostResult<i32> {
@@ -2003,10 +2033,7 @@ impl AsyncHost {
             .get_mut(key)
             .and_then(Option::take)
             .ok_or(AsyncHostError::Badf)?;
-        let mut files = SharedFileTable {
-            state: Arc::clone(&self.state),
-        };
-        thread_pool::run_host_job(&mut job, &mut files);
+        thread_pool::run_host_job(&mut job);
         let mut state = self.state.lock().unwrap();
         state.restore_completed_job(key, job)
     }
@@ -2184,10 +2211,7 @@ impl AsyncHost {
                     return;
                 };
 
-                let mut files = SharedFileTable {
-                    state: Arc::clone(&run_state),
-                };
-                thread_pool::run_host_job(&mut job, &mut files);
+                thread_pool::run_host_job(&mut job);
 
                 let mut state = run_state.lock().unwrap();
                 let _ = state.restore_completed_job(key, job);
@@ -2204,22 +2228,6 @@ impl AsyncHost {
 impl Drop for AsyncHost {
     fn drop(&mut self) {
         self.destroy_thread_pool();
-    }
-}
-
-struct SharedFileTable {
-    state: Arc<Mutex<AsyncHostState>>,
-}
-
-impl FileResourceTable for SharedFileTable {
-    fn insert_file(&mut self, file: RawFd) -> AsyncHostResult<HostHandle> {
-        Ok(handle_from_key(
-            self.state
-                .lock()
-                .unwrap()
-                .files
-                .insert(Arc::new(FileResource::new(file))),
-        ))
     }
 }
 
@@ -2633,7 +2641,42 @@ mod tests {
     }
 
     #[test]
-    fn discarded_completed_open_job_removes_opened_resource() {
+    fn open_job_get_fd_publishes_opened_resource_once() {
+        let host = AsyncHost::default();
+        let path =
+            std::env::temp_dir().join(format!("moonrun-published-open-job-{}", std::process::id()));
+        let job = host
+            .insert_job(thread_pool::make_open_job(
+                path.as_os_str().to_os_string(),
+                2,
+                3,
+                false,
+                0,
+                0o600,
+            ))
+            .unwrap();
+
+        host.run_job(job).unwrap();
+        {
+            let state = host.state.lock().unwrap();
+            assert_eq!(state.files.len(), 1);
+        }
+
+        let opened = host.open_job_get_fd(job).unwrap();
+        assert_eq!(host.open_job_get_fd(job).unwrap(), opened);
+        {
+            let state = host.state.lock().unwrap();
+            assert_eq!(state.files.len(), 2);
+            assert!(state.file(opened).is_ok());
+        }
+
+        host.close_fd(opened).unwrap();
+        host.free_job(job).unwrap();
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn discarded_completed_open_job_drops_unpublished_resource() {
         let host = AsyncHost::default();
         let path =
             std::env::temp_dir().join(format!("moonrun-discarded-open-job-{}", std::process::id()));
@@ -2656,15 +2699,15 @@ mod tests {
             .get_mut(key)
             .and_then(Option::take)
             .unwrap();
-        let mut files = SharedFileTable {
-            state: Arc::clone(&host.state),
-        };
 
-        thread_pool::run_host_job(&mut job, &mut files);
+        thread_pool::run_host_job(&mut job);
 
         assert_eq!(job.err(), 0);
-        let opened = thread_pool::open_job_get_fd(thread_pool::open_job_result(&job).unwrap());
-        assert!(host.state.lock().unwrap().file(opened).is_ok());
+        assert!(matches!(
+            thread_pool::open_job_result(&job).unwrap().resource,
+            OpenJobResource::Unpublished(_)
+        ));
+        assert_eq!(host.state.lock().unwrap().files.len(), 1);
         host.state.lock().unwrap().jobs.remove(key);
 
         {
@@ -2673,7 +2716,7 @@ mod tests {
                 state.restore_completed_job(key, job),
                 Err(AsyncHostError::Badf)
             );
-            assert!(matches!(state.file(opened), Err(AsyncHostError::Badf)));
+            assert_eq!(state.files.len(), 1);
         }
 
         let _ = std::fs::remove_file(path);

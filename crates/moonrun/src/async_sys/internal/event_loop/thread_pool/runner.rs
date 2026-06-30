@@ -27,9 +27,9 @@ use super::fs::{
 };
 use super::sleep::run_sleep_job;
 use super::socket::{run_bind_job, run_getaddrinfo_job};
-use super::types::{FileResourceTable, Job, JobPayload};
+use super::types::{Job, JobPayload};
 
-pub(crate) fn run_host_job(job: &mut Job, files: &mut impl FileResourceTable) {
+pub(crate) fn run_host_job(job: &mut Job) {
     job.set_ret(0);
 
     let result = match job.payload_mut() {
@@ -46,7 +46,6 @@ pub(crate) fn run_host_job(job: &mut Job, files: &mut impl FileResourceTable) {
             mode,
             result,
         } => run_open_job(
-            files,
             result,
             filename.clone(),
             *access,
