@@ -453,12 +453,7 @@ fn format_test_identity(
     index: u32,
     pkg_src: &impl PackageSrcResolver,
 ) -> String {
-    let package = test
-        .args
-        .package
-        .strip_suffix("_blackbox_test")
-        .unwrap_or(&test.args.package);
-    let path = pkg_src.resolve_pkg_src(package).join(file);
+    let path = pkg_src.resolve_pkg_src(&test.args.package).join(file);
     let location = path.display().to_string();
     let Some(info) = find_test_info(&test.meta, file, index) else {
         return location;
