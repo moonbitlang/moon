@@ -1345,9 +1345,8 @@ impl AsyncHost {
                 let source = files.insert_file_resource(FileResource::new(event_fd));
                 let source_file = files.file(source)?;
                 drop(files);
-                completions.notifier = Some(Arc::clone(&completion_notifier));
-                completions.source = Some(source);
-                drop(completions);
+                // Publish the poll-side mapping before exposing the notifier:
+                // workers can notify as soon as completions.notifier is visible.
                 let mut poll = poll.lock().unwrap();
                 poll.registered_fds.insert(
                     raw_fd_key(event_fd),
@@ -1356,7 +1355,10 @@ impl AsyncHost {
                         file: source_file,
                     },
                 );
-                poll.completion_notifier = Some(completion_notifier);
+                poll.completion_notifier = Some(Arc::clone(&completion_notifier));
+                drop(poll);
+                completions.notifier = Some(completion_notifier);
+                completions.source = Some(source);
                 source
             };
             Ok(source)
