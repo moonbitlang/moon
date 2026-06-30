@@ -39,11 +39,17 @@ impl WorkerCompletionId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct HostWorkerJob {
     pub(crate) completion_id: WorkerCompletionId,
     pub(crate) job_key: HostJobKey,
-    pub(crate) job: Job,
+}
+
+#[derive(Debug)]
+pub(crate) struct HostWorkerJobResult {
+    pub(crate) completion_id: WorkerCompletionId,
+    pub(crate) job_key: HostJobKey,
+    pub(crate) job: Option<Job>,
 }
 
 #[derive(Debug)]
@@ -103,8 +109,8 @@ fn init_worker_signal_handler() {
 impl HostWorkerHandle {
     pub(crate) fn spawn(
         init_job: HostWorkerJob,
-        mut run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        mut complete_job: impl FnMut(HostWorkerJob) + Send + 'static,
+        mut run_job: impl FnMut(HostWorkerJob) -> Option<Job> + Send + 'static,
+        mut complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
     ) -> Self {
         #[cfg(unix)]
         init_worker_signal_handler();
@@ -137,10 +143,10 @@ impl HostWorkerHandle {
                     }
                     (!state.terminating).then(|| state.job.take()).flatten()
                 };
-                let Some(mut job) = job else {
+                let Some(job) = job else {
                     break;
                 };
-                run_job(&mut job);
+                let result = run_job(job);
 
                 let terminating = {
                     let mut state = worker_shared.state.lock().unwrap();
@@ -149,7 +155,11 @@ impl HostWorkerHandle {
                     }
                     state.terminating
                 };
-                complete_job(job);
+                complete_job(HostWorkerJobResult {
+                    completion_id: job.completion_id,
+                    job_key: job.job_key,
+                    job: result,
+                });
                 if terminating {
                     break;
                 }
@@ -243,8 +253,8 @@ ported_fns! {
     )]
     pub(crate) fn spawn_worker(
         init_job: HostWorkerJob,
-        run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
-        complete_job: impl FnMut(HostWorkerJob) + Send + 'static,
+        run_job: impl FnMut(HostWorkerJob) -> Option<Job> + Send + 'static,
+        complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
     ) -> HostWorkerHandle {
         HostWorkerHandle::spawn(init_job, run_job, complete_job)
     }
@@ -300,11 +310,14 @@ mod tests {
         (job.completion_id, job.job_key)
     }
 
+    fn worker_result_summary(job: &HostWorkerJobResult) -> (WorkerCompletionId, HostJobKey) {
+        (job.completion_id, job.job_key)
+    }
+
     fn make_worker_job(completion_id: i32, job_key: u64) -> HostWorkerJob {
         HostWorkerJob {
             completion_id: WorkerCompletionId::from_abi(completion_id),
             job_key: make_job_key(job_key),
-            job: make_sleep_job(0),
         }
     }
 
@@ -314,8 +327,11 @@ mod tests {
         let (completion_sender, completion_receiver) = mpsc::channel();
         let worker = spawn_worker(
             make_worker_job(7, 11),
-            move |job| sender.send(worker_job_summary(job)).unwrap(),
-            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
+            move |job| {
+                sender.send(worker_job_summary(&job)).unwrap();
+                Some(make_sleep_job(0))
+            },
+            move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
 
         assert_eq!(
@@ -346,8 +362,11 @@ mod tests {
         let (completion_sender, completion_receiver) = mpsc::channel();
         let worker = spawn_worker(
             make_worker_job(1, 2),
-            move |job| sender.send(worker_job_summary(job)).unwrap(),
-            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
+            move |job| {
+                sender.send(worker_job_summary(&job)).unwrap();
+                Some(make_sleep_job(0))
+            },
+            move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
 
         assert_eq!(receiver.recv().unwrap().0, WorkerCompletionId::from_abi(1));
@@ -375,12 +394,13 @@ mod tests {
         let worker = spawn_worker(
             make_worker_job(1, 2),
             move |job| {
-                started_sender.send(worker_job_summary(job)).unwrap();
+                started_sender.send(worker_job_summary(&job)).unwrap();
                 if job.completion_id == WorkerCompletionId::from_abi(1) {
                     release_receiver.recv().unwrap();
                 }
+                Some(make_sleep_job(0))
             },
-            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
+            move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
 
         assert_eq!(
@@ -413,8 +433,12 @@ mod tests {
         let (completion_sender, completion_receiver) = mpsc::channel();
         let worker = spawn_worker(
             make_worker_job(1, 2),
-            move |job| job.job.set_ret(123),
-            move |job| completion_sender.send(job.job.ret()).unwrap(),
+            move |_| {
+                let mut job = make_sleep_job(0);
+                job.set_ret(123);
+                Some(job)
+            },
+            move |job| completion_sender.send(job.job.unwrap().ret()).unwrap(),
         );
 
         assert_eq!(completion_receiver.recv().unwrap(), 123);
@@ -429,10 +453,11 @@ mod tests {
         let worker = spawn_worker(
             make_worker_job(1, 2),
             move |job| {
-                started_sender.send(worker_job_summary(job)).unwrap();
+                started_sender.send(worker_job_summary(&job)).unwrap();
                 release_receiver.recv().unwrap();
+                Some(make_sleep_job(0))
             },
-            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
+            move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
 
         assert_eq!(
@@ -474,10 +499,11 @@ mod tests {
         let worker = spawn_worker(
             make_worker_job(21, 34),
             move |job| {
-                started_sender.send(worker_job_summary(job)).unwrap();
+                started_sender.send(worker_job_summary(&job)).unwrap();
                 release_receiver.recv().unwrap();
+                Some(make_sleep_job(0))
             },
-            move |job| completion_sender.send(worker_job_summary(&job)).unwrap(),
+            move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
 
         assert_eq!(
