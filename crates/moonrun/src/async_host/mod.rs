@@ -1069,9 +1069,11 @@ impl AsyncHost {
             .is_some_and(|current| Arc::ptr_eq(current, &file))
         {
             drop(files);
-            let poll = poll.lock().unwrap();
             #[cfg(unix)]
-            poll::poll_unregister(&poll.instance, raw_fd)?;
+            {
+                let poll = poll.lock().unwrap();
+                poll::poll_unregister(&poll.instance, raw_fd)?;
+            }
             return Err(AsyncHostError::Badf);
         }
         let mut poll = poll.lock().unwrap();
@@ -1579,10 +1581,10 @@ impl AsyncHost {
 
     pub(crate) fn close_fd(&self, handle: HostHandle) -> AsyncHostResult<()> {
         let file = {
-            let files = self.files.lock().unwrap();
-            let file = files.file(handle)?;
+            let mut files = self.files.lock().unwrap();
             #[cfg(windows)]
             {
+                let file = files.file(handle)?;
                 if self
                     .io_results
                     .lock()
@@ -1592,7 +1594,7 @@ impl AsyncHost {
                     return Err(AsyncHostError::Inval);
                 }
             }
-            file
+            files.remove_file(handle)?
         };
         let raw_fd = file.raw_fd();
         let polls = self
@@ -1607,7 +1609,7 @@ impl AsyncHost {
             let mut poll = poll.lock().unwrap();
             if poll.registered_fds.contains_key(&raw_fd_key(raw_fd)) {
                 #[cfg(unix)]
-                poll::poll_unregister(&poll.instance, raw_fd)?;
+                let _ = poll::poll_unregister(&poll.instance, raw_fd);
             }
             poll.registered_fds.remove(&raw_fd_key(raw_fd));
         }
@@ -1637,7 +1639,6 @@ impl AsyncHost {
                 }
             }
         }
-        self.files.lock().unwrap().remove_file(handle)?;
         Ok(())
     }
 
