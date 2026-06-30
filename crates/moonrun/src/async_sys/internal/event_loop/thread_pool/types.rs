@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::OsString;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostResult, HostCBuffer};
 use crate::async_sys::internal::fd_util;
@@ -41,6 +41,8 @@ type OwnedRawFile = OwnedHandle;
 #[derive(Debug)]
 pub(crate) struct FileResource {
     raw: RawFileResource,
+    // Native directory enumeration mutates cursor state on the opened resource.
+    directory_cursor: Mutex<()>,
 }
 
 #[derive(Debug)]
@@ -58,6 +60,7 @@ impl FileResource {
         }
         Self {
             raw: RawFileResource::File(owned_raw_file(raw)),
+            directory_cursor: Mutex::new(()),
         }
     }
 
@@ -68,12 +71,14 @@ impl FileResource {
         }
         Self {
             raw: RawFileResource::Socket(owned_raw_socket(raw)),
+            directory_cursor: Mutex::new(()),
         }
     }
 
     pub(crate) fn invalid() -> Self {
         Self {
             raw: RawFileResource::Invalid,
+            directory_cursor: Mutex::new(()),
         }
     }
 
@@ -88,6 +93,10 @@ impl FileResource {
             #[cfg(windows)]
             RawFileResource::Socket(raw) => raw_socket(raw),
         }
+    }
+
+    pub(crate) fn lock_directory_cursor(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.directory_cursor.lock().unwrap()
     }
 }
 

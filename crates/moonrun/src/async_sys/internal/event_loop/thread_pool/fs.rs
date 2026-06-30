@@ -249,6 +249,7 @@ ported_fns! {
         restart: bool,
     ) -> AsyncHostResult<i64> {
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+        let _directory_cursor = dir.lock_directory_cursor();
         let mut buffer = buffer.lock().unwrap();
         let buffer = buffer.get_mut(..len).ok_or(AsyncHostError::Fault)?;
         read_native_dir(dir, buffer, restart)
