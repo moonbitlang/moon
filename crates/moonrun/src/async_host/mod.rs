@@ -304,14 +304,6 @@ impl JobTable {
 struct PollTable {
     polls: SlotMap<HostPollKey, Arc<Mutex<HostPoll>>>,
     current_event_poll: Option<HostPollKey>,
-    #[cfg(unix)]
-    completion_notifier: Option<Arc<ThreadPoolCompletionNotifier>>,
-    #[cfg(unix)]
-    completion_source: Option<HostHandle>,
-    #[cfg(windows)]
-    completion_port: Option<ThreadPoolCompletionTarget>,
-    #[cfg(windows)]
-    thread_pool_generation: usize,
 }
 
 impl Default for PollTable {
@@ -319,26 +311,30 @@ impl Default for PollTable {
         Self {
             polls: SlotMap::with_key(),
             current_event_poll: None,
-            #[cfg(unix)]
-            completion_notifier: None,
-            #[cfg(unix)]
-            completion_source: None,
-            #[cfg(windows)]
-            completion_port: None,
-            #[cfg(windows)]
-            thread_pool_generation: 0,
         }
     }
 }
 
-impl PollTable {
+#[derive(Default)]
+struct ThreadPoolCompletions {
+    #[cfg(unix)]
+    notifier: Option<Arc<ThreadPoolCompletionNotifier>>,
+    #[cfg(unix)]
+    source: Option<HostHandle>,
     #[cfg(windows)]
-    fn next_thread_pool_generation(&mut self) -> usize {
-        self.thread_pool_generation = self.thread_pool_generation.wrapping_add(1);
-        if self.thread_pool_generation == 0 {
-            self.thread_pool_generation = 1;
+    target: Option<ThreadPoolCompletionTarget>,
+    #[cfg(windows)]
+    generation_counter: usize,
+}
+
+impl ThreadPoolCompletions {
+    #[cfg(windows)]
+    fn advance_generation(&mut self) -> usize {
+        self.generation_counter = self.generation_counter.wrapping_add(1);
+        if self.generation_counter == 0 {
+            self.generation_counter = 1;
         }
-        self.thread_pool_generation
+        self.generation_counter
     }
 }
 
@@ -721,6 +717,7 @@ pub(crate) struct AsyncHost {
     io_results: Mutex<IoResultTable>,
     jobs: Arc<Mutex<JobTable>>,
     polls: Mutex<PollTable>,
+    thread_pool_completions: Mutex<ThreadPoolCompletions>,
     files: Mutex<FileTable>,
     workers: Mutex<WorkerTable>,
     completed_jobs: Arc<Mutex<Vec<CompletedJob>>>,
@@ -736,6 +733,7 @@ impl Default for AsyncHost {
             io_results: Mutex::new(IoResultTable::default()),
             jobs: Arc::new(Mutex::new(JobTable::default())),
             polls: Mutex::new(PollTable::default()),
+            thread_pool_completions: Mutex::new(ThreadPoolCompletions::default()),
             files: Mutex::new(FileTable::default()),
             workers: Mutex::new(WorkerTable::default()),
             completed_jobs: Arc::new(Mutex::new(Vec::new())),
@@ -880,18 +878,21 @@ impl AsyncHost {
                 if !polls.polls.is_empty() {
                     leaks.push(format!("polls={}", polls.polls.len()));
                 }
+            }
+            {
+                let completions = self.thread_pool_completions.lock().unwrap();
                 #[cfg(unix)]
                 {
-                    if polls.completion_notifier.is_some() {
+                    if completions.notifier.is_some() {
                         leaks.push("completion_notifier=1".to_string());
                     }
-                    if polls.completion_source.is_some() {
+                    if completions.source.is_some() {
                         leaks.push("completion_source=1".to_string());
                     }
                 }
                 #[cfg(windows)]
                 {
-                    if polls.completion_port.is_some() {
+                    if completions.target.is_some() {
                         leaks.push("completion_port=1".to_string());
                     }
                 }
@@ -954,20 +955,24 @@ impl AsyncHost {
         let poll = Arc::try_unwrap(poll).map_err(|_| AsyncHostError::Inval)?;
         let poll = poll.into_inner().unwrap();
 
-        #[cfg(unix)]
-        let completion_source = {
+        {
             let mut polls = self.polls.lock().unwrap();
             if polls.current_event_poll == Some(poll_key) {
                 polls.current_event_poll = None;
             }
+        }
+
+        #[cfg(unix)]
+        let completion_source = {
+            let mut completions = self.thread_pool_completions.lock().unwrap();
             if let Some(notifier) = &poll.completion_notifier
-                && polls
-                    .completion_notifier
+                && completions
+                    .notifier
                     .as_ref()
                     .is_some_and(|active| Arc::ptr_eq(active, notifier))
             {
-                polls.completion_notifier = None;
-                polls.completion_source.take()
+                completions.notifier = None;
+                completions.source.take()
             } else {
                 None
             }
@@ -980,15 +985,12 @@ impl AsyncHost {
         }
         #[cfg(windows)]
         {
-            let mut polls = self.polls.lock().unwrap();
-            if polls.current_event_poll == Some(poll_key) {
-                polls.current_event_poll = None;
-            }
-            if polls
-                .completion_port
+            let mut completions = self.thread_pool_completions.lock().unwrap();
+            if completions
+                .target
                 .is_some_and(|target| target.poll == poll_key)
             {
-                polls.completion_port = None;
+                completions.target = None;
             }
         }
         poll::poll_destroy(poll.instance);
@@ -1020,10 +1022,19 @@ impl AsyncHost {
         let poll_key = key_from_handle::<HostPollKey>(poll_handle);
         #[cfg(windows)]
         let (poll, thread_pool_generation, invalid_fd) = {
-            let polls = self.polls.lock().unwrap();
-            let poll = Arc::clone(polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?);
-            let thread_pool_generation = polls
-                .completion_port
+            let poll = Arc::clone(
+                self.polls
+                    .lock()
+                    .unwrap()
+                    .polls
+                    .get(poll_key)
+                    .ok_or(AsyncHostError::Badf)?,
+            );
+            let thread_pool_generation = self
+                .thread_pool_completions
+                .lock()
+                .unwrap()
+                .target
                 .filter(|target| target.poll == poll_key)
                 .map(|target| target.generation);
             (poll, thread_pool_generation, self.invalid_fd())
@@ -1192,16 +1203,28 @@ impl AsyncHost {
         let poll_key = key_from_handle::<HostPollKey>(poll_handle);
         let poll = {
             let polls = self.polls.lock().unwrap();
-            #[cfg(unix)]
-            if polls.completion_source.is_some() {
-                return Err(AsyncHostError::Inval);
-            }
-            #[cfg(windows)]
-            if polls.completion_port.is_some() {
-                return Err(AsyncHostError::Inval);
-            }
             Arc::clone(polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?)
         };
+        #[cfg(unix)]
+        if self
+            .thread_pool_completions
+            .lock()
+            .unwrap()
+            .source
+            .is_some()
+        {
+            return Err(AsyncHostError::Inval);
+        }
+        #[cfg(windows)]
+        if self
+            .thread_pool_completions
+            .lock()
+            .unwrap()
+            .target
+            .is_some()
+        {
+            return Err(AsyncHostError::Inval);
+        }
         #[cfg(unix)]
         {
             let (completion_notifier, event_fd) = {
@@ -1210,9 +1233,9 @@ impl AsyncHost {
             };
             let completion_notifier = Arc::new(completion_notifier);
             let source = {
-                let mut polls = self.polls.lock().unwrap();
-                if polls.completion_source.is_some() {
-                    drop(polls);
+                let mut completions = self.thread_pool_completions.lock().unwrap();
+                if completions.source.is_some() {
+                    drop(completions);
                     let poll = poll.lock().unwrap();
                     let _ = poll::poll_unregister(&poll.instance, event_fd);
                     drop(FileResource::new(event_fd));
@@ -1223,9 +1246,9 @@ impl AsyncHost {
                     .lock()
                     .unwrap()
                     .insert_file_resource(FileResource::new(event_fd));
-                polls.completion_notifier = Some(Arc::clone(&completion_notifier));
-                polls.completion_source = Some(source);
-                drop(polls);
+                completions.notifier = Some(Arc::clone(&completion_notifier));
+                completions.source = Some(source);
+                drop(completions);
                 let mut poll = poll.lock().unwrap();
                 poll.registered_fds.insert(raw_fd_key(event_fd), source);
                 poll.completion_notifier = Some(completion_notifier);
@@ -1236,12 +1259,12 @@ impl AsyncHost {
         #[cfg(windows)]
         {
             let completion_port = poll::CompletionPort::from_poll(&poll.lock().unwrap().instance);
-            let mut polls = self.polls.lock().unwrap();
-            if polls.completion_port.is_some() {
+            let mut completions = self.thread_pool_completions.lock().unwrap();
+            if completions.target.is_some() {
                 return Err(AsyncHostError::Inval);
             }
-            let generation = polls.next_thread_pool_generation();
-            polls.completion_port = Some(ThreadPoolCompletionTarget {
+            let generation = completions.advance_generation();
+            completions.target = Some(ThreadPoolCompletionTarget {
                 poll: poll_key,
                 port: completion_port,
                 generation,
@@ -1265,13 +1288,20 @@ impl AsyncHost {
 
         #[cfg(unix)]
         {
-            let (completion_source, polls) = {
-                let mut polls = self.polls.lock().unwrap();
-                let completion_source = polls.completion_source.take();
-                polls.completion_notifier = None;
-                let poll_entries = polls.polls.values().cloned().collect::<Vec<_>>();
-                (completion_source, poll_entries)
+            let completion_source = {
+                let mut completions = self.thread_pool_completions.lock().unwrap();
+                let completion_source = completions.source.take();
+                completions.notifier = None;
+                completion_source
             };
+            let polls = self
+                .polls
+                .lock()
+                .unwrap()
+                .polls
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
             if let Some(source) = completion_source
                 && let Ok(file) = self.files.lock().unwrap().remove_file(source)
             {
@@ -1290,7 +1320,7 @@ impl AsyncHost {
         }
         #[cfg(windows)]
         {
-            self.polls.lock().unwrap().completion_port = None;
+            self.thread_pool_completions.lock().unwrap().target = None;
         }
     }
 
@@ -1508,17 +1538,25 @@ impl AsyncHost {
         }
         #[cfg(unix)]
         {
-            let completion_source_polls = {
-                let mut polls = self.polls.lock().unwrap();
-                if polls.completion_source == Some(handle) {
-                    polls.completion_source = None;
-                    polls.completion_notifier = None;
-                    Some(polls.polls.values().cloned().collect::<Vec<_>>())
+            let completion_source_closed = {
+                let mut completions = self.thread_pool_completions.lock().unwrap();
+                if completions.source == Some(handle) {
+                    completions.source = None;
+                    completions.notifier = None;
+                    true
                 } else {
-                    None
+                    false
                 }
             };
-            if let Some(polls) = completion_source_polls {
+            if completion_source_closed {
+                let polls = self
+                    .polls
+                    .lock()
+                    .unwrap()
+                    .polls
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>();
                 for poll in polls {
                     poll.lock().unwrap().completion_notifier = None;
                 }
@@ -2210,10 +2248,10 @@ impl AsyncHost {
         #[cfg(unix)]
         let worker = {
             let completion_notifier = self
-                .polls
+                .thread_pool_completions
                 .lock()
                 .unwrap()
-                .completion_notifier
+                .notifier
                 .clone()
                 .ok_or(AsyncHostError::Badf)?;
             self.spawn_worker_thread(
@@ -2229,10 +2267,10 @@ impl AsyncHost {
         #[cfg(windows)]
         let worker = {
             let completion_target = self
-                .polls
+                .thread_pool_completions
                 .lock()
                 .unwrap()
-                .completion_port
+                .target
                 .ok_or(AsyncHostError::Badf)?;
             self.spawn_worker_thread(
                 HostWorkerJob {
@@ -2376,13 +2414,10 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         self.restore_completed_jobs();
         let (completion_notifier, completion_source) = {
-            let polls = self.polls.lock().unwrap();
+            let completions = self.thread_pool_completions.lock().unwrap();
             (
-                polls
-                    .completion_notifier
-                    .clone()
-                    .ok_or(AsyncHostError::Badf)?,
-                polls.completion_source.ok_or(AsyncHostError::Badf)?,
+                completions.notifier.clone().ok_or(AsyncHostError::Badf)?,
+                completions.source.ok_or(AsyncHostError::Badf)?,
             )
         };
         if completion_source != source_fd {
@@ -2725,13 +2760,8 @@ mod tests {
         }
 
         {
-            let polls = host.polls.lock().unwrap();
-            polls
-                .completion_notifier
-                .as_ref()
-                .unwrap()
-                .notify(17)
-                .unwrap();
+            let completions = host.thread_pool_completions.lock().unwrap();
+            completions.notifier.as_ref().unwrap().notify(17).unwrap();
         }
         assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
@@ -2765,10 +2795,10 @@ mod tests {
                 panic!("expected read job");
             };
             *result = Some(b"abc".to_vec());
-            host.polls
+            host.thread_pool_completions
                 .lock()
                 .unwrap()
-                .completion_notifier
+                .notifier
                 .as_ref()
                 .unwrap()
                 .notify(42)
@@ -2820,8 +2850,8 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         {
-            let polls = host.polls.lock().unwrap();
-            let notifier = polls.completion_notifier.as_ref().unwrap();
+            let completions = host.thread_pool_completions.lock().unwrap();
+            let notifier = completions.notifier.as_ref().unwrap();
             notifier.notify(41).unwrap();
             notifier.notify(42).unwrap();
         }
@@ -3133,7 +3163,7 @@ mod tests {
         let poll = host.poll_create().unwrap();
 
         host.init_thread_pool(poll).unwrap();
-        let stale_completion = host.polls.lock().unwrap().completion_port.unwrap();
+        let stale_completion = host.thread_pool_completions.lock().unwrap().target.unwrap();
         // Fill the current IOCP batch so a valid completion can sit behind
         // stale completions from the destroyed pool generation.
         for completion_id in 0..1024 {
@@ -3147,7 +3177,7 @@ mod tests {
         host.destroy_thread_pool();
 
         let completion_notifier = host.init_thread_pool(poll).unwrap();
-        let current_completion = host.polls.lock().unwrap().completion_port.unwrap();
+        let current_completion = host.thread_pool_completions.lock().unwrap().target.unwrap();
         assert_ne!(stale_completion.generation, current_completion.generation);
 
         poll::post_thread_pool_completion(
@@ -3168,7 +3198,7 @@ mod tests {
         let host = AsyncHost::default();
         let poll = host.poll_create().unwrap();
         let completion_notifier = host.init_thread_pool(poll).unwrap();
-        let completion = host.polls.lock().unwrap().completion_port.unwrap();
+        let completion = host.thread_pool_completions.lock().unwrap().target.unwrap();
 
         poll::post_thread_pool_completion(completion.port, 42, completion.generation).unwrap();
 
