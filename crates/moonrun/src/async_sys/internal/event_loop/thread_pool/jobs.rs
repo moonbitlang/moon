@@ -21,7 +21,9 @@ use std::ffi::OsString;
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
 
-use super::types::{FileResourceRef, HostHandle, Job, JobPayload, OpenJobResult, platform};
+use super::types::{
+    FileResourceRef, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, platform,
+};
 
 ported_fns! {
     #[ported(
@@ -144,8 +146,11 @@ ported_fns! {
         source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_open_job_get_fd"
     )]
-    pub(crate) fn open_job_get_fd(result: &OpenJobResult) -> HostHandle {
-        result.fd
+    pub(crate) fn open_job_get_fd(result: &OpenJobResult) -> AsyncHostResult<HostHandle> {
+        match &result.resource {
+            OpenJobResource::Published(fd) => Ok(*fd),
+            OpenJobResource::Unpublished(_) => Err(AsyncHostError::Inval),
+        }
     }
 
     #[ported(
@@ -356,6 +361,17 @@ pub(crate) fn open_job_result(job: &Job) -> AsyncHostResult<&OpenJobResult> {
     }
 }
 
+pub(crate) fn open_job_result_mut(job: &mut Job) -> AsyncHostResult<&mut OpenJobResult> {
+    match job.payload_mut() {
+        JobPayload::Open {
+            result: Some(result),
+            ..
+        } => Ok(result),
+        JobPayload::Open { .. } => Err(AsyncHostError::Inval),
+        _ => Err(AsyncHostError::Badf),
+    }
+}
+
 pub(crate) fn take_open_job_result(job: &mut Job) -> Option<OpenJobResult> {
     match job.payload_mut() {
         JobPayload::Open { result, .. } => result.take(),
@@ -377,19 +393,8 @@ pub(crate) fn getaddrinfo_job_result(job: &Job) -> AsyncHostResult<&[Box<[u8]>]>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_sys::internal::event_loop::thread_pool::{
-        FileResource, FileResourceTable, run_host_job,
-    };
-    use crate::async_sys::internal::fd_util::stub::RawFd;
+    use crate::async_sys::internal::event_loop::thread_pool::{FileResource, run_host_job};
     use std::sync::Arc;
-
-    struct NoFiles;
-
-    impl FileResourceTable for NoFiles {
-        fn insert_file(&mut self, _file: RawFd) -> AsyncHostResult<HostHandle> {
-            unreachable!("sleep jobs do not access files")
-        }
-    }
 
     #[test]
     fn sleep_job_initial_result_matches_native_job_header() {
@@ -447,9 +452,8 @@ mod tests {
     #[test]
     fn sleep_job_runs_without_error() {
         let mut job = make_sleep_job(0);
-        let mut files = NoFiles;
 
-        run_host_job(&mut job, &mut files);
+        run_host_job(&mut job);
 
         assert_eq!(job_get_ret(&job), 0);
         assert_eq!(job_get_err(&job), 0);
@@ -460,10 +464,9 @@ mod tests {
         let file = Arc::new(FileResource::invalid());
         let file_ref = Arc::downgrade(&file);
         let mut job = make_flock_job(Arc::clone(&file), true);
-        let mut files = NoFiles;
         drop(file);
 
-        run_host_job(&mut job, &mut files);
+        run_host_job(&mut job);
 
         assert!(file_ref.upgrade().is_none());
     }

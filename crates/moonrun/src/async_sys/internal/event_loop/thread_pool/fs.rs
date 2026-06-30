@@ -25,7 +25,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult, HostCBuffer};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 
-use super::{FileResource, FileResourceTable, FileTimeResult, OpenJobResult};
+use super::{FileResource, FileTimeResult, OpenJobResource, OpenJobResult};
 
 type RawFile = fd_util::stub::RawFd;
 
@@ -36,7 +36,6 @@ ported_fns! {
     )]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run_open_job(
-        files: &mut impl FileResourceTable,
         result: &mut Option<OpenJobResult>,
         filename: OsString,
         access: i32,
@@ -51,9 +50,8 @@ ported_fns! {
             dev_id,
             file_id,
         } = open_native_file(filename, access, create_mode, append, sync, mode)?;
-        let fd = files.insert_file(file)?;
         *result = Some(OpenJobResult {
-            fd,
+            resource: OpenJobResource::Unpublished(FileResource::new(file)),
             kind,
             dev_id,
             file_id,
