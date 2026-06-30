@@ -56,6 +56,9 @@ fn make_sleep_job(ms : Int) -> UInt64 = "moonbitlang/async" "thread_pool/make_sl
 fn free_job(job : UInt64) -> Unit = "moonbitlang/async" "thread_pool/free_job"
 
 ///|
+fn job_get_ret(job : UInt64) -> Int = "moonbitlang/async" "thread_pool/job_get_ret"
+
+///|
 fn spawn_worker(worker_id : Int, job : UInt64) -> UInt64 = "moonbitlang/async" "thread_pool/spawn_worker"
 
 ///|
@@ -214,6 +217,10 @@ fn main {
       "completion drain returned wrong job id",
     )
   }
+  assert_true(
+    job_get_ret(job) == 0,
+    "completed worker job result was not readable",
+  )
   free_worker(worker)
   free_job(job)
   destroy_thread_pool()
