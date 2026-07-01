@@ -96,10 +96,7 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
                         "Could not find the latest published version of `{pkg_name}` in the registry. Please consider running `moon update` to update the index."
                     )
                 }
-            })?
-            .version
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("latest registry entry for `{pkg_name}` has no version"))?;
+            })?;
         if !cli.quiet {
             println!("Latest version of {pkg_name} is {latest_version}");
         }

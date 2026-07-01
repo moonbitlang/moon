@@ -29,7 +29,7 @@ use moonutil::{
 };
 use semver::Version;
 
-use crate::registry::Registry;
+use crate::registry::{Registry, RegistryVersionInfo};
 
 use super::ResolverError;
 
@@ -65,21 +65,22 @@ impl<'a> ResolverEnv<'a> {
     pub(crate) fn all_versions_of(
         &mut self,
         name: &ModuleName,
-    ) -> Option<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
+    ) -> Option<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
         self.registry.all_versions_of(name).ok()
-    }
-
-    pub(crate) fn get_module_version(
-        &mut self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> Option<Arc<MoonMod>> {
-        self.registry.get_module_version(name, version)
     }
 
     pub(crate) fn get(&mut self, ms: &ModuleSource) -> Option<Arc<MoonMod>> {
         match ms.source() {
-            ModuleSourceKind::Registry => self.get_module_version(ms.name(), ms.version()),
+            ModuleSourceKind::Registry => {
+                let version_info = self.registry.all_versions_of(ms.name()).ok()?;
+                let deps = version_info.get(ms.version())?.deps.clone();
+                Some(Arc::new(MoonMod {
+                    name: ms.name().to_string(),
+                    version: Some(ms.version().clone()),
+                    deps,
+                    ..Default::default()
+                }))
+            }
             ModuleSourceKind::Git(_) => todo!("Resolve git module"),
             ModuleSourceKind::Local(path) => self.resolve_local_module(path).ok(),
             ModuleSourceKind::Stdlib(_) => self.stdlib.clone(),

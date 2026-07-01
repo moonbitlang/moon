@@ -26,7 +26,7 @@ use std::{
 use moonutil::{dependency::SourceDependencyInfo, module::MoonMod, mooncakes::ModuleName};
 use semver::Version;
 
-use super::Registry;
+use super::{Registry, RegistryVersionInfo};
 
 /// A mock registry, primarily used in tests.
 pub struct MockRegistry {
@@ -150,11 +150,24 @@ impl Registry for MockRegistry {
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
+    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
         self.modules
             .get(name)
+            .map(|versions| {
+                versions
+                    .iter()
+                    .map(|(version, module)| {
+                        (
+                            version.clone(),
+                            RegistryVersionInfo {
+                                deps: module.deps.clone(),
+                            },
+                        )
+                    })
+                    .collect()
+            })
             .ok_or_else(|| anyhow::anyhow!("module not found in mock registry"))
-            .cloned()
+            .map(Arc::new)
     }
 
     fn install_to(

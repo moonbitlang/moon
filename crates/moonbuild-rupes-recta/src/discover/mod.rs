@@ -231,9 +231,9 @@ pub(crate) fn discover_packages_for_mod(
         });
     }
 
-    let source_dir_name = m.source.as_deref().unwrap_or("");
+    let source_dir_name = m.source.clone().unwrap_or_default();
     let scan_source_root = {
-        let p = dir.join(source_dir_name);
+        let p = dir.join(&source_dir_name);
         dunce::canonicalize(p).map_err(|e| DiscoverError::CantReadModulePackages {
             module: module_source.clone(),
             inner: e.into(),
@@ -246,6 +246,7 @@ pub(crate) fn discover_packages_for_mod(
             path: dir.to_owned(),
             inner: e,
         })?;
+    res.set_module_info(id, Arc::new(m));
 
     // Recursively walk through the module's directories
     let mut walkdir = WalkDir::new(&scan_source_root)
@@ -504,4 +505,80 @@ fn discover_virtual_mbti(
     };
 
     Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use moonutil::{
+        module::MoonMod,
+        mooncakes::{DirSyncResult, ModuleSource, result::ResolvedEnv},
+    };
+
+    use super::discover_packages;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "moonbuild-rupes-recta-discover-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("failed to create temporary module directory");
+        dir
+    }
+
+    #[test]
+    fn discover_packages_keeps_installed_module_manifest() {
+        let dir = temp_dir("module-info");
+        std::fs::write(
+            dir.join("moon.mod.json"),
+            r#"{
+  "name": "example/pkg",
+  "version": "0.2.1",
+  "compile-flags": ["-DREGISTRY"],
+  "link-flags": ["-lregistry"],
+  "warn-list": "+a",
+  "--moonbit-unstable-prebuild": "prebuild.py",
+  "rule": [
+    { "name": "gen", "command": "tool $input -o $output" }
+  ]
+}
+"#,
+        )
+        .expect("failed to write test moon.mod.json");
+
+        let source: ModuleSource = "example/pkg@0.2.1"
+            .parse()
+            .expect("failed to parse test module source");
+        let stub = MoonMod {
+            name: "example/pkg".to_string(),
+            version: Some(source.version().clone()),
+            ..Default::default()
+        };
+        let (resolved_env, id) = ResolvedEnv::only_one_module(source, stub);
+        let mut dirs = DirSyncResult::default();
+        dirs.insert(id, dir.clone());
+
+        let discovered =
+            discover_packages(&resolved_env, &dirs).expect("failed to discover test packages");
+
+        let module = discovered.module_info(id);
+        assert_eq!(
+            module.compile_flags.as_deref(),
+            Some(&["-DREGISTRY".into()][..])
+        );
+        assert_eq!(
+            module.link_flags.as_deref(),
+            Some(&["-lregistry".into()][..])
+        );
+        assert_eq!(module.warn_list.as_deref(), Some("+a"));
+        assert_eq!(
+            module.__moonbit_unstable_prebuild.as_deref(),
+            Some("prebuild.py")
+        );
+        let rule = module.rule.as_ref().expect("expected test rule to be kept");
+        assert_eq!(rule.len(), 1);
+        assert_eq!(rule[0].name, "gen");
+        assert_eq!(rule[0].command, "tool $input -o $output");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

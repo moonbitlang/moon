@@ -90,10 +90,7 @@ pub fn add_latest(
                     pkg_name_str
                 )
             }
-        })?
-        .version
-        .clone()
-        .unwrap();
+        })?;
     add(
         project_root,
         module_dir,

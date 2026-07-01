@@ -258,14 +258,9 @@ pub(super) fn install_binary(
     let version = if let Some(v) = &spec.version {
         v.clone()
     } else {
-        let module_info = registry
+        registry
             .get_latest_version(&spec.module_name)
-            .ok_or_else(|| {
-                anyhow::anyhow!("Module `{}` not found in registry", spec.module_name)
-            })?;
-        module_info.version.clone().ok_or_else(|| {
-            anyhow::anyhow!("Module `{}` has no version information", spec.module_name)
-        })?
+            .ok_or_else(|| anyhow::anyhow!("Module `{}` not found in registry", spec.module_name))?
     };
 
     output.info(format!("Installing {}@{}", spec.module_name, version));

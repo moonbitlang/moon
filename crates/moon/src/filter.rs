@@ -326,7 +326,6 @@ pub(crate) fn preferred_target_backend_for_package(
 ) -> TargetBackend {
     let module_id = resolve_output.pkg_dirs.get_package(pkg_id).module;
     resolve_output
-        .module_rel
         .module_info(module_id)
         .preferred_target
         .unwrap_or_default()

@@ -25,18 +25,28 @@ use std::{
 };
 
 use anyhow::bail;
-use moonutil::module::{MoonMod, MoonModJSON};
-use moonutil::{common::execute_postadd_script, mooncakes::ModuleName};
+use indexmap::map::IndexMap;
+use moonutil::{
+    common::execute_postadd_script, dependency::SourceDependencyInfo, mooncakes::ModuleName,
+};
 use reqwest::header::USER_AGENT;
 use semver::Version;
+use serde::Deserialize;
 
-use crate::zip_util::extract_zip_to_dir;
+use crate::{registry::RegistryVersionInfo, zip_util::extract_zip_to_dir};
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct RegistryIndexEntry {
+    version: Option<String>,
+    deps: Option<IndexMap<String, SourceDependencyInfo>>,
+    checksum: Option<String>,
+}
 
 pub struct OnlineRegistry {
     index: std::path::PathBuf,
     url_base: String, // TODO: add download feature to registry interface
-    #[allow(clippy::type_complexity)] // Isn't it still pretty clear?
-    cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, Arc<MoonMod>>>>>,
+    cache: RefCell<HashMap<ModuleName, Arc<BTreeMap<Version, RegistryVersionInfo>>>>,
 }
 
 impl OnlineRegistry {
@@ -60,7 +70,7 @@ impl super::Registry for OnlineRegistry {
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
+    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
         // check cache
         if let Some(v) = self.cache.borrow().get(name) {
             return Ok(Arc::clone(v));
@@ -75,16 +85,20 @@ impl super::Registry for OnlineRegistry {
         let mut res = BTreeMap::new();
         for line in lines {
             let line = line?;
-            let module: MoonModJSON = match serde_json_lenient::from_str(&line) {
+            let entry = match serde_json_lenient::from_str::<RegistryIndexEntry>(&line) {
                 Ok(m) => m,
                 Err(e) => {
                     log::warn!("Error when reading index file of {}: {}", name, e);
                     continue;
                 }
             };
-            let module: MoonMod = module.try_into()?;
-            if let Some(v) = &module.version {
-                res.insert(v.clone(), Arc::new(module));
+            if let Some(v) = entry.version.as_deref() {
+                res.insert(
+                    Version::parse(v)?,
+                    RegistryVersionInfo {
+                        deps: entry.deps.unwrap_or_default(),
+                    },
+                );
             }
         }
 
@@ -143,9 +157,9 @@ impl OnlineRegistry {
         let lines = reader.lines().collect::<std::io::Result<Vec<String>>>()?;
         let version_str = version.to_string();
         for line in lines.iter().rev() {
-            let j: MoonModJSON = serde_json_lenient::from_str(line)?;
-            if j.version.as_ref() == Some(&version_str) {
-                if let Some(checksum) = j.checksum {
+            let entry = serde_json_lenient::from_str::<RegistryIndexEntry>(line)?;
+            if entry.version.as_deref() == Some(version_str.as_str()) {
+                if let Some(checksum) = entry.checksum {
                     return Ok(checksum);
                 } else {
                     bail!(
@@ -250,4 +264,65 @@ fn test_urlencode() {
         .append_key_only("0.1.2+3")
         .finish();
     assert_eq!(s, "0.1.2%2B3");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+    use crate::registry::Registry;
+
+    fn temp_index_dir() -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "mooncake-registry-index-test-{}-{nanos}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn all_versions_accepts_single_rule_object_from_index_jsonl() {
+        let index = temp_index_dir();
+        let index_file = index.join("user").join("bobzhang").join("openseek.index");
+        std::fs::create_dir_all(index_file.parent().unwrap()).unwrap();
+        std::fs::write(
+            &index_file,
+            r#"{"name":"bobzhang/openseek","version":"0.2.1","deps":{"bobzhang/jsonl":"0.2.0"},"preferred_target":"native","checksum":"abc123","rule":{"name":"md_to_mbt_string","command":"moon run --quiet --target native scripts/md_to_mbt_string -- \"$input\" \"$output\""}}
+"#,
+        )
+        .unwrap();
+
+        let registry = OnlineRegistry {
+            index: index.clone(),
+            url_base: String::new(),
+            cache: RefCell::new(HashMap::new()),
+        };
+        let versions = registry
+            .all_versions_of(&ModuleName {
+                username: "bobzhang".into(),
+                unqual: "openseek".into(),
+            })
+            .unwrap();
+
+        let version = Version::parse("0.2.1").unwrap();
+        assert!(versions.contains_key(&version));
+        assert_eq!(
+            registry
+                .read_checksum_from_index_file(
+                    &ModuleName {
+                        username: "bobzhang".into(),
+                        unqual: "openseek".into(),
+                    },
+                    &version,
+                )
+                .unwrap(),
+            "abc123"
+        );
+
+        let _ = std::fs::remove_dir_all(index);
+    }
 }

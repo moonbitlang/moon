@@ -118,7 +118,13 @@ fn select_min_version_satisfying_in_env(
         select_min_version_satisfying(dependency, dependant, req, all_versions.keys());
     match min_version_satisfying {
         Ok(version) => {
-            let module = Arc::clone(&all_versions[&version]);
+            let source = ModuleSource::from_version(dependency.clone(), version.clone());
+            let module = env
+                .get(&source)
+                .ok_or_else(|| ResolverError::ModuleMissing {
+                    dependency: dependency.clone(),
+                    dependant: dependant.clone(),
+                })?;
             Ok((version, module))
         }
         Err(err) => Err(err),
@@ -597,7 +603,11 @@ mod test {
         let module_name: ModuleName = "dep/three".parse().unwrap();
         let version: Version = "0.1.0".parse().unwrap();
         let root_ms = ModuleSource::from_version(module_name.clone(), version.clone());
-        let root = registry.get_module_version(&module_name, &version).unwrap();
+        let root = Arc::new(create_mock_module(
+            "dep/three",
+            "0.1.0",
+            [("dep/two", "0.1.0")],
+        ));
         let (roots, _) = ResolvedModule::only_one_module(root_ms.clone(), root);
         let mut env = ResolverEnv::new(registry.as_ref());
         let mut result_env = ResolvedEnv::from_root_modules(roots);
