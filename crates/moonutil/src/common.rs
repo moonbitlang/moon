@@ -260,10 +260,14 @@ impl Serialize for MoonfmtModJsonInput<'_> {
         for (key, value) in map.iter() {
             output.serialize_entry(key, value)?;
         }
-        if let Some(serde_json_lenient::Value::Array(rules)) = rules {
-            for rule in rules {
-                output.serialize_entry("rule", &rule)?;
+        match rules {
+            Some(serde_json_lenient::Value::Array(rules)) => {
+                for rule in rules {
+                    output.serialize_entry("rule", &rule)?;
+                }
             }
+            Some(rule) => output.serialize_entry("rule", &rule)?,
+            None => {}
         }
         output.end()
     }

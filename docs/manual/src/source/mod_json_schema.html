@@ -141,6 +141,17 @@
         "null"
       ]
     },
+    "rule": {
+      "description": "Rules that can be referenced by package-level `dev_build` entries.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/MoonModJSONRules"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "scripts": {
       "description": "Scripts related to the current module.",
       "type": [
@@ -231,6 +242,34 @@
           ]
         }
       ]
+    },
+    "MoonModJSONRules": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/MoonModRule"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MoonModRule"
+          }
+        }
+      ]
+    },
+    "MoonModRule": {
+      "type": "object",
+      "required": [
+        "command",
+        "name"
+      ],
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
     },
     "SourceDependencyInfo": {
       "description": "Information about a specific dependency. This supports both simple string syntax and detailed object syntax in `moon.mod.json`.",

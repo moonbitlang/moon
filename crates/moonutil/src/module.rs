@@ -76,7 +76,31 @@ pub struct MoonModRule {
     pub command: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum MoonModJSONRules {
+    Single(MoonModRule),
+    Multiple(Vec<MoonModRule>),
+}
+
+impl MoonModJSONRules {
+    fn into_vec(self) -> Vec<MoonModRule> {
+        match self {
+            Self::Single(rule) => vec![rule],
+            Self::Multiple(rules) => rules,
+        }
+    }
+
+    fn from_vec(mut rules: Vec<MoonModRule>) -> Option<Self> {
+        match rules.len() {
+            0 => None,
+            1 => rules.pop().map(Self::Single),
+            _ => Some(Self::Multiple(rules)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 #[schemars(
     title = "JSON schema for MoonBit moon.mod.json files",
@@ -141,8 +165,7 @@ pub struct MoonModJSON {
 
     /// Rules that can be referenced by package-level `dev_build` entries.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(skip)]
-    pub rule: Option<Vec<MoonModRule>>,
+    pub rule: Option<MoonModJSONRules>,
 
     /// Fields not covered by the info above, which should be left as-is.
     #[serde(flatten)]
@@ -239,7 +262,7 @@ impl TryFrom<MoonModJSON> for MoonMod {
             link_flags: j.link_flags,
             checksum: j.checksum,
             source,
-            rule: j.rule,
+            rule: j.rule.map(MoonModJSONRules::into_vec),
             ext: j.ext,
 
             warn_list: j.warn_list,
@@ -274,7 +297,7 @@ pub fn convert_module_to_mod_json(m: MoonMod) -> MoonModJSON {
         link_flags: m.link_flags,
         checksum: m.checksum,
         source: m.source,
-        rule: m.rule,
+        rule: m.rule.and_then(MoonModJSONRules::from_vec),
         ext: m.ext,
 
         warn_list: m.warn_list,
