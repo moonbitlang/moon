@@ -54,6 +54,7 @@ extern "js" fn moonbit_test_driver_js_parse_args() -> Array[
   #|}
 
 ///|
+/// Executes selected JavaScript tests from parsed test entries.
 #cfg(target="js")
 pub fn moonbit_test_driver_internal_execute(
   tests : Array[MoonBitTestDriverInternalTestEntry],
@@ -75,6 +76,7 @@ pub fn moonbit_test_driver_internal_execute(
 let moonbit_test_driver_internal_wasm_async_tests : Array[async () -> Unit] = []
 
 ///|
+/// Executes one selected WebAssembly test and stores async work for finalization.
 #cfg(target="wasm")
 pub fn moonbit_test_driver_internal_execute(
   filename : MoonbitTestDriverInternalExternString,
@@ -87,6 +89,7 @@ pub fn moonbit_test_driver_internal_execute(
 }
 
 ///|
+/// Executes one selected WebAssembly GC test and drains async work immediately.
 #cfg(target="wasm-gc")
 pub fn moonbit_test_driver_internal_execute(
   filename : MoonbitTestDriverInternalExternString,
@@ -99,6 +102,7 @@ pub fn moonbit_test_driver_internal_execute(
 }
 
 ///|
+/// Finishes pending WebAssembly async tests and coverage collection.
 #cfg(target="wasm")
 pub fn moonbit_test_driver_finish() -> Unit {
   MoonBit_Async_Test_Driver_Impl::run_async_tests(
@@ -108,6 +112,7 @@ pub fn moonbit_test_driver_finish() -> Unit {
 }
 
 ///|
+/// Finishes coverage collection for backends without pending async work.
 #cfg(any(target="js", target="wasm-gc"))
 pub fn moonbit_test_driver_finish() -> Unit {
   // {COVERAGE_END}

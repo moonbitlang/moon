@@ -1137,24 +1137,20 @@ fn process_captured_diagnostics(
     cfg: &BuildConfig,
     build_succeeded: bool,
 ) {
-    let mut has_unprocessed = false;
     match cfg.output_style {
         OutputStyle::Json => {
             let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
             for content in &catcher.content_writer {
                 match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
                     Ok(d) => {
-                        // errors/warnings in test driver should be in rare case and
-                        // are not expected in normal builds, so we skip rendering them
-                        if d.path.contains("__generated_driver_for_") {
-                            has_unprocessed = true;
-                        } else {
-                            let file_key = d.path.clone();
-                            by_file
-                                .entry(file_key)
-                                .or_default()
-                                .insert((d, content.clone()));
+                        if diagnostic_is_generated_test_driver_warning(&d) {
+                            continue;
                         }
+                        let file_key = d.path.clone();
+                        by_file
+                            .entry(file_key)
+                            .or_default()
+                            .insert((d, content.clone()));
                     }
                     Err(_) => {
                         // Non-diagnostics output, just print as-is
@@ -1232,13 +1228,10 @@ fn process_captured_diagnostics(
             for content in &catcher.content_writer {
                 match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
                     Ok(d) => {
-                        // errors/warnings in test driver should be in rare case and
-                        // are not expected in normal builds, so we skip rendering them
-                        if d.path.contains("__generated_driver_for_") {
-                            has_unprocessed = true;
-                        } else {
-                            by_file.entry(d.path.clone()).or_default().insert(d);
+                        if diagnostic_is_generated_test_driver_warning(&d) {
+                            continue;
                         }
+                        by_file.entry(d.path.clone()).or_default().insert(d);
                     }
                     Err(_) => {
                         // Non-diagnostics output, just print as-is
@@ -1332,12 +1325,6 @@ fn process_captured_diagnostics(
         }
         OutputStyle::Raw => {}
     }
-
-    if has_unprocessed {
-        cfg.user_diagnostics.warn(
-            "Some diagnostics could not be rendered, please run with --no-render to see raw output.",
-        );
-    }
 }
 
 fn diagnostic_is_error(diag: &MooncDiagnostic) -> bool {
@@ -1346,6 +1333,10 @@ fn diagnostic_is_error(diag: &MooncDiagnostic) -> bool {
 
 fn diagnostic_is_warning(diag: &MooncDiagnostic) -> bool {
     matches!(diag.level.as_str(), "warn" | "warning")
+}
+
+fn diagnostic_is_generated_test_driver_warning(diag: &MooncDiagnostic) -> bool {
+    diagnostic_is_warning(diag) && diag.path.contains("__generated_driver_for_")
 }
 
 fn diagnostic_is_renderable(diag: &MooncDiagnostic, cfg: &BuildConfig) -> bool {
@@ -1366,5 +1357,61 @@ fn warn_limited_diagnostics(
             "diagnostic output limited by --diagnostic-limit: {} errors and {} warnings were not displayed.",
             hidden_errors, hidden_warnings
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use moonutil::render::{Loc, Position};
+
+    fn diagnostic(path: &str, level: &str) -> MooncDiagnostic {
+        MooncDiagnostic {
+            path: path.to_string(),
+            loc: Loc {
+                start: Position { line: 1, col: 1 },
+                end: Position { line: 1, col: 2 },
+            },
+            level: level.to_string(),
+            message: String::new(),
+            error_code: 0,
+            children: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn suppresses_generated_test_driver_warnings_only() {
+        assert!(diagnostic_is_generated_test_driver_warning(&diagnostic(
+            "./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt",
+            "warning"
+        )));
+        assert!(!diagnostic_is_generated_test_driver_warning(&diagnostic(
+            "./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt",
+            "error"
+        )));
+        assert!(!diagnostic_is_generated_test_driver_warning(&diagnostic(
+            "./lib/hello.mbt",
+            "warning"
+        )));
+    }
+
+    #[test]
+    fn generated_test_driver_errors_are_counted() {
+        let generated_driver_path =
+            "./_build/wasm-gc/debug/test/lib/__generated_driver_for_internal_test.mbt";
+        let warning = diagnostic(generated_driver_path, "warning");
+        let error = diagnostic(generated_driver_path, "error");
+        let mut catcher = ResultCatcher::default();
+        catcher.append_content(serde_json::to_string(&warning).unwrap(), None);
+        catcher.append_content(serde_json::to_string(&error).unwrap(), None);
+
+        let cfg = BuildConfig {
+            output_style: OutputStyle::Json,
+            ..Default::default()
+        };
+        process_captured_diagnostics(&mut catcher, &cfg, false);
+
+        assert_eq!(catcher.n_warnings, 0);
+        assert_eq!(catcher.n_errors, 1);
     }
 }

@@ -187,6 +187,67 @@ fn test_warn_list_real_run() {
 }
 
 #[test]
+fn test_pkg_warn_list_does_not_report_generated_test_driver_warnings() {
+    let dir = TestDir::new("warns/test_driver_warn_list");
+    let assert = moon_cmd(&dir)
+        .args(["test", "--sort-input"])
+        .assert()
+        .success();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("__generated_driver_for_"),
+        "generated test driver diagnostics should not be reported:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("missing_doc"),
+        "package missing_doc warnings should not come from the generated test driver:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("could not be rendered"),
+        "filtered generated test driver warnings should not emit a generic render warning:\n{stderr}"
+    );
+    check(
+        stdout.as_ref(),
+        expect![[r#"
+            Total tests: 2, passed: 2, failed: 0.
+        "#]],
+    );
+
+    let deny_assert = moon_cmd(&dir)
+        .args([
+            "test",
+            "--sort-input",
+            "--target-dir",
+            "warn-as-error-target",
+            "--warn-list",
+            "+a@a",
+        ])
+        .assert()
+        .success();
+    let deny_stderr = String::from_utf8_lossy(&deny_assert.get_output().stderr);
+    assert!(
+        !deny_stderr.contains("__generated_driver_for_"),
+        "generated test driver warnings should not fail under +a@a:\n{deny_stderr}"
+    );
+
+    moon_cmd(&dir)
+        .args([
+            "bench",
+            "--build-only",
+            "--sort-input",
+            "--target-dir",
+            "bench-target",
+            "--warn-list",
+            "+a@a",
+        ])
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_warn_list_alerts() {
     // TODO: Audit that the environment access only happens in single-threaded code.
     unsafe { std::env::set_var("NO_COLOR", "1") };

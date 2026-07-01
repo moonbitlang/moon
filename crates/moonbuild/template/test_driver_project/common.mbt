@@ -101,7 +101,7 @@ fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude
   fn moonbit_test_driver_internal_parse_int_(s : String) -> Int {
     let mut res = 0
     let len = s.length()
-    for i = 0; i < len; i = i + 1 {
+    for i in 0..<len {
       res = res * 10 + (string_get(s, i) - '0')
     }
     res
@@ -156,7 +156,7 @@ fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude
   ] {
     let tmp = moonbit_test_driver_internal_get_cli_args_ffi()
     let res = @moonbitlang/core/prelude.Array::new(capacity=tmp.length())
-    for i = 0; i < tmp.length(); i = i + 1 {
+    for i in 0..<tmp.length() {
       res.push(moonbit_test_driver_internal_utf8_bytes_to_mbt_string(tmp[i]))
     }
     res
@@ -197,7 +197,7 @@ fn moonbit_test_driver_internal_native_parse_args() -> @moonbitlang/core/prelude
     )
     let start = moonbit_test_driver_internal_parse_int_(start_and_end[0])
     let end = moonbit_test_driver_internal_parse_int_(start_and_end[1])
-    for i = start; i < end; i = i + 1 {
+    for i in start..<end {
       file_and_index.push((file, i))
     }
   }
@@ -234,6 +234,7 @@ extern "js" fn MoonBitTestDriverInternalTestEntry::index(self : Self) -> Int =
   #| (entry) => entry[1]
 
 ///|
+/// JavaScript error captured by the generated test driver.
 pub(all) suberror MoonBitTestDriverInternalJsError {
   MoonBitTestDriverInternalJsError(String)
 }
