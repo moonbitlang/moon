@@ -84,7 +84,7 @@ jobs:
       - name: Checkout
         run: |
           git clone --depth 1 "https://${{ secrets.MOON_CLONE_PAT }}@github.com/moonbitlang/moon.git" "$GITHUB_WORKSPACE"
-          git submodule update --init --recursive
+          git submodule update --init crates/moonutil/resources/error_codes
 
       - name: Install Rustup
         run: |
