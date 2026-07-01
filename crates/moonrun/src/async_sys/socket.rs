@@ -22,6 +22,8 @@ use std::ffi::CStr;
 use std::ffi::CString;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
+#[cfg(windows)]
+use windows_sys::Win32::Networking::WinSock as ws;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -351,13 +353,6 @@ mod win {
             ws::AF_INET6 => Ok(unsafe { read_sockaddr_in6(addr)?.sin6_addr.u.Byte[0] } == 0xff),
             _ => Ok(false),
         }
-    }
-
-    pub(super) fn addr_copy_ipv6_bytes(addr: &[u8], out: &mut [u8]) -> AsyncHostResult<()> {
-        let addr = read_sockaddr_in6(addr)?;
-        let out = out.get_mut(..16).ok_or(AsyncHostError::Fault)?;
-        out.copy_from_slice(unsafe { &addr.sin6_addr.u.Byte });
-        Ok(())
     }
 
     pub(super) fn addr_get_ipv6_scope_id(addr: &[u8]) -> AsyncHostResult<i32> {
@@ -903,23 +898,20 @@ ported_fns! {
 
     #[ported(
         source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_get_ipv6_bytes"
+        original = "moonbitlang_async_addr_get_ipv6_bytes_offset"
     )]
     #[cfg(unix)]
-    pub(crate) fn addr_copy_ipv6_bytes(addr: &[u8], out: &mut [u8]) -> AsyncHostResult<()> {
-        let addr = read_sockaddr_in6(addr)?;
-        let out = out.get_mut(..16).ok_or(AsyncHostError::Fault)?;
-        out.copy_from_slice(&addr.sin6_addr.s6_addr);
-        Ok(())
+    pub(crate) fn addr_get_ipv6_bytes_offset() -> i32 {
+        std::mem::offset_of!(libc::sockaddr_in6, sin6_addr) as i32
     }
 
     #[ported(
         source = "src/socket/socket.c",
-        original = "moonbitlang_async_addr_get_ipv6_bytes"
+        original = "moonbitlang_async_addr_get_ipv6_bytes_offset"
     )]
     #[cfg(windows)]
-    pub(crate) fn addr_copy_ipv6_bytes(addr: &[u8], out: &mut [u8]) -> AsyncHostResult<()> {
-        win::addr_copy_ipv6_bytes(addr, out)
+    pub(crate) fn addr_get_ipv6_bytes_offset() -> i32 {
+        std::mem::offset_of!(ws::SOCKADDR_IN6, sin6_addr) as i32
     }
 
     #[ported(
@@ -1804,5 +1796,25 @@ fn set_tcp_int(fd: RawFd, option: libc::c_int, value: i32) -> AsyncHostResult<()
         Err(last_native_error())
     } else {
         Ok(())
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn addr_get_ipv6_bytes_offset_uses_sin6_addr_offset() {
+        let ip = [
+            0x20, 0x01, 0x0d, 0xb8, 0x85, 0xa3, 0x00, 0x00, 0x00, 0x00, 0x8a, 0x2e, 0x03, 0x70,
+            0x73, 0x34,
+        ];
+        let mut addr = vec![0; ipv6_addr_size() as usize];
+        init_ipv6_addr(&mut addr, &ip, 443, 0).unwrap();
+
+        let offset = std::mem::offset_of!(libc::sockaddr_in6, sin6_addr);
+        assert_eq!(addr_get_ipv6_bytes_offset(), offset as i32);
+        let len = std::mem::size_of::<libc::in6_addr>();
+        assert_eq!(&addr[offset..offset + len], &ip);
     }
 }
