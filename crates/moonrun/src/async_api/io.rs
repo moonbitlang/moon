@@ -69,13 +69,29 @@ pub(super) fn write(
     original = "moonbitlang_async_make_file_io_result"
 )]
 #[cfg(windows)]
-pub(super) fn make_file_io_result(
+pub(super) fn make_file_read_io_result(
     context: &mut ImportContext<'_, '_>,
-    events: i32,
     len: i32,
     position: i64,
 ) -> crate::async_host::AsyncHostResult<u64> {
-    context.host.make_file_io_result(events, len, position)
+    context.host.make_file_read_io_result(len, position)
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_file_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_file_write_io_result(
+    context: &mut ImportContext<'_, '_>,
+    src: i32,
+    offset: i32,
+    len: i32,
+    position: i64,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_file_write_io_result(memory, src, offset, len, position)
+    })
 }
 
 #[ported(
@@ -83,13 +99,29 @@ pub(super) fn make_file_io_result(
     original = "moonbitlang_async_make_socket_io_result"
 )]
 #[cfg(windows)]
-pub(super) fn make_socket_io_result(
+pub(super) fn make_socket_read_io_result(
     context: &mut ImportContext<'_, '_>,
-    events: i32,
     len: i32,
     flags: i32,
 ) -> crate::async_host::AsyncHostResult<u64> {
-    context.host.make_socket_io_result(events, len, flags)
+    context.host.make_socket_read_io_result(len, flags)
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_socket_io_result"
+)]
+#[cfg(windows)]
+pub(super) fn make_socket_write_io_result(
+    context: &mut ImportContext<'_, '_>,
+    src: i32,
+    offset: i32,
+    len: i32,
+    flags: i32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_socket_write_io_result(memory, src, offset, len, flags)
+    })
 }
 
 #[ported(
@@ -98,16 +130,35 @@ pub(super) fn make_socket_io_result(
 )]
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
-pub(super) fn make_socket_with_addr_io_result(
+pub(super) fn make_socket_with_addr_read_io_result(
     context: &mut ImportContext<'_, '_>,
-    events: i32,
     len: i32,
     flags: i32,
     addr: i32,
     addr_len: i32,
 ) -> crate::async_host::AsyncHostResult<u64> {
     context.with_host_and_memory_mut(|host, memory| {
-        host.make_socket_with_addr_io_result(memory, events, len, flags, addr, addr_len)
+        host.make_socket_with_addr_read_io_result(memory, len, flags, addr, addr_len)
+    })
+}
+
+#[ported(
+    source = "src/internal/event_loop/io_windows.c",
+    original = "moonbitlang_async_make_socket_with_addr_io_result"
+)]
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn make_socket_with_addr_write_io_result(
+    context: &mut ImportContext<'_, '_>,
+    src: i32,
+    offset: i32,
+    len: i32,
+    flags: i32,
+    addr: i32,
+    addr_len: i32,
+) -> crate::async_host::AsyncHostResult<u64> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.make_socket_with_addr_write_io_result(memory, src, offset, len, flags, addr, addr_len)
     })
 }
 
@@ -213,8 +264,21 @@ pub(super) fn io_result_get_status(
 }
 
 #[cfg(windows)]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn io_result_copy_read(
+    context: &mut ImportContext<'_, '_>,
+    result: u64,
+    dst: i32,
+    offset: i32,
+    len: i32,
+) -> crate::async_host::AsyncHostResult<()> {
+    context.with_host_and_memory_mut(|host, memory| {
+        host.io_result_copy_read(memory, result, dst, offset, len)
+    })
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn io_result_copy_read_with_addr(
     context: &mut ImportContext<'_, '_>,
     result: u64,
     dst: i32,
@@ -224,7 +288,7 @@ pub(super) fn io_result_copy_read(
     addr_len: i32,
 ) -> crate::async_host::AsyncHostResult<()> {
     context.with_host_and_memory_mut(|host, memory| {
-        host.io_result_copy_read(memory, result, dst, offset, len, addr, addr_len)
+        host.io_result_copy_read_with_addr(memory, result, dst, offset, len, addr, addr_len)
     })
 }
 
@@ -252,19 +316,12 @@ pub(super) fn read_io_result(
     original = "moonbitlang_async_write"
 )]
 #[cfg(windows)]
-#[allow(clippy::too_many_arguments)]
 pub(super) fn write_io_result(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
     result: u64,
-    src: i32,
-    offset: i32,
-    len: i32,
 ) -> i32 {
-    match context.with_host_and_memory_mut(|host, memory| {
-        host.write_io_result(memory, fd, result, src, offset, len)
-    })
-    {
+    match context.host.write_io_result(fd, result) {
         Ok(bytes) => bytes,
         Err(error) => {
             context.host.record_error(error);

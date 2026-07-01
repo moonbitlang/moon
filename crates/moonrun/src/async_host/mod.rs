@@ -473,11 +473,10 @@ struct HostPoll {
 }
 
 #[cfg(windows)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum HostIoDirection {
-    Read,
-    Write,
-}
+const IO_RESULT_READ_EVENT: i32 = 1;
+
+#[cfg(windows)]
+const IO_RESULT_WRITE_EVENT: i32 = 2;
 
 #[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -494,9 +493,10 @@ struct HostIoResult {
     overlapped: windows_sys::Win32::System::IO::OVERLAPPED,
     kind: HostIoKind,
     event: i32,
-    // Native async retains the MoonBit buffer object. The wasm host keeps only
-    // stable host buffers here; import calls provide current guest memory for
-    // submit-time input copies and completion-time output copies.
+    // Native async retains MoonBit objects until free_io_result. The wasm host
+    // cannot retain guest pointers, so IOResults keep only host-owned buffers:
+    // read constructors allocate output capacity, and write constructors copy
+    // the input payload before any overlapped operation can outlive the import.
     buffer: Vec<u8>,
     socket_flags: u32,
     addr_buffer: Vec<u8>,
@@ -505,7 +505,6 @@ struct HostIoResult {
     addr_len: i32,
     accept_buffer: Vec<u8>,
     accept_bytes_received: u32,
-    direction: Option<HostIoDirection>,
     pending_file: Option<FileResourceRef>,
     // AcceptEx submits one overlapped operation with both the listening socket
     // and a pre-created accepted socket. Cancel/status use pending_file, but
@@ -518,94 +517,121 @@ unsafe impl Send for HostIoResult {}
 
 #[cfg(windows)]
 impl HostIoResult {
-    fn for_file(event: i32, len: i32, position: i64) -> AsyncHostResult<Self> {
+    fn zeroed_overlapped() -> windows_sys::Win32::System::IO::OVERLAPPED {
         let overlapped =
             std::mem::MaybeUninit::<windows_sys::Win32::System::IO::OVERLAPPED>::zeroed();
-        let mut overlapped = unsafe { overlapped.assume_init() };
+        unsafe { overlapped.assume_init() }
+    }
+
+    fn for_file_read(len: i32, position: i64) -> AsyncHostResult<Self> {
+        let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
+        Ok(Self::for_file(IO_RESULT_READ_EVENT, buffer, position))
+    }
+
+    fn for_file_write(buffer: Vec<u8>, position: i64) -> Self {
+        Self::for_file(IO_RESULT_WRITE_EVENT, buffer, position)
+    }
+
+    fn for_file(event: i32, buffer: Vec<u8>, position: i64) -> Self {
+        let mut overlapped = Self::zeroed_overlapped();
         overlapped.Anonymous.Anonymous.Offset = position as u32;
         overlapped.Anonymous.Anonymous.OffsetHigh = (position >> 32) as u32;
-        Ok(Self {
+        Self {
             overlapped,
             kind: HostIoKind::File,
             event,
-            buffer: vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?],
+            buffer,
             socket_flags: 0,
             addr_buffer: Vec::new(),
             addr_len: 0,
             accept_buffer: Vec::new(),
             accept_bytes_received: 0,
-            direction: None,
             pending_file: None,
             extra_pending_close_file: None,
-        })
+        }
     }
 
-    fn for_socket(event: i32, len: i32, flags: i32) -> AsyncHostResult<Self> {
-        let overlapped =
-            std::mem::MaybeUninit::<windows_sys::Win32::System::IO::OVERLAPPED>::zeroed();
-        Ok(Self {
-            overlapped: unsafe { overlapped.assume_init() },
+    fn for_socket_read(len: i32, flags: i32) -> AsyncHostResult<Self> {
+        let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
+        Ok(Self::for_socket(IO_RESULT_READ_EVENT, buffer, flags))
+    }
+
+    fn for_socket_write(buffer: Vec<u8>, flags: i32) -> Self {
+        Self::for_socket(IO_RESULT_WRITE_EVENT, buffer, flags)
+    }
+
+    fn for_socket(event: i32, buffer: Vec<u8>, flags: i32) -> Self {
+        Self {
+            overlapped: Self::zeroed_overlapped(),
             kind: HostIoKind::Socket,
             event,
-            buffer: vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?],
+            buffer,
             socket_flags: flags as u32,
             addr_buffer: Vec::new(),
             addr_len: 0,
             accept_buffer: Vec::new(),
             accept_bytes_received: 0,
-            direction: None,
             pending_file: None,
             extra_pending_close_file: None,
-        })
+        }
     }
 
-    fn for_socket_with_addr(
-        event: i32,
+    fn for_socket_with_addr_read(
         len: i32,
         flags: i32,
         addr_buffer: Vec<u8>,
     ) -> AsyncHostResult<Self> {
-        let overlapped =
-            std::mem::MaybeUninit::<windows_sys::Win32::System::IO::OVERLAPPED>::zeroed();
+        let buffer = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
+        Self::for_socket_with_addr(IO_RESULT_READ_EVENT, buffer, flags, addr_buffer)
+    }
+
+    fn for_socket_with_addr_write(
+        buffer: Vec<u8>,
+        flags: i32,
+        addr_buffer: Vec<u8>,
+    ) -> AsyncHostResult<Self> {
+        Self::for_socket_with_addr(IO_RESULT_WRITE_EVENT, buffer, flags, addr_buffer)
+    }
+
+    fn for_socket_with_addr(
+        event: i32,
+        buffer: Vec<u8>,
+        flags: i32,
+        addr_buffer: Vec<u8>,
+    ) -> AsyncHostResult<Self> {
         let addr_len = i32::try_from(addr_buffer.len()).map_err(|_| AsyncHostError::Fault)?;
         Ok(Self {
-            overlapped: unsafe { overlapped.assume_init() },
+            overlapped: Self::zeroed_overlapped(),
             kind: HostIoKind::SocketWithAddr,
             event,
-            buffer: vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?],
+            buffer,
             socket_flags: flags as u32,
             addr_buffer,
             addr_len,
             accept_buffer: Vec::new(),
             accept_bytes_received: 0,
-            direction: None,
             pending_file: None,
             extra_pending_close_file: None,
         })
     }
 
     fn for_connect(addr_buffer: Vec<u8>) -> Self {
-        let overlapped =
-            std::mem::MaybeUninit::<windows_sys::Win32::System::IO::OVERLAPPED>::zeroed();
         Self {
-            overlapped: unsafe { overlapped.assume_init() },
+            overlapped: Self::zeroed_overlapped(),
             kind: HostIoKind::Connect,
-            event: 2,
+            event: IO_RESULT_WRITE_EVENT,
             buffer: Vec::new(),
             socket_flags: 0,
             addr_buffer,
             addr_len: 0,
             accept_buffer: Vec::new(),
             accept_bytes_received: 0,
-            direction: None,
             pending_file: None,
             extra_pending_close_file: None,
         }
     }
 
     fn for_accept(addr_len: i32) -> AsyncHostResult<Self> {
-        let overlapped =
-            std::mem::MaybeUninit::<windows_sys::Win32::System::IO::OVERLAPPED>::zeroed();
         let addr_len_usize = usize::try_from(addr_len).map_err(|_| AsyncHostError::Fault)?;
         let accept_addr_len = addr_len_usize
             .checked_add(16)
@@ -614,16 +640,15 @@ impl HostIoResult {
             .checked_mul(2)
             .ok_or(AsyncHostError::Fault)?;
         Ok(Self {
-            overlapped: unsafe { overlapped.assume_init() },
+            overlapped: Self::zeroed_overlapped(),
             kind: HostIoKind::Accept,
-            event: 1,
+            event: IO_RESULT_READ_EVENT,
             buffer: Vec::new(),
             socket_flags: 0,
             addr_buffer: Vec::new(),
             addr_len,
             accept_buffer: vec![0; accept_buffer_len],
             accept_bytes_received: 0,
-            direction: None,
             pending_file: None,
             extra_pending_close_file: None,
         })
@@ -637,7 +662,48 @@ impl HostIoResult {
         OverlappedAddr::from_ptr(self.overlapped_ptr())
     }
 
+    fn validate_completed_read(&self) -> AsyncHostResult<()> {
+        if self.event != IO_RESULT_READ_EVENT {
+            return Err(AsyncHostError::Inval);
+        }
+        if self.is_pending() {
+            return Err(AsyncHostError::Inval);
+        }
+        Ok(())
+    }
+
+    fn copy_read_payload(
+        &self,
+        memory: &mut (impl GuestMemory + ?Sized),
+        dst: i32,
+        offset: i32,
+        len: i32,
+    ) -> AsyncHostResult<()> {
+        let dst_offset = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+        let bytes_transferred = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+        let data = self
+            .buffer
+            .get(..bytes_transferred)
+            .ok_or(AsyncHostError::Fault)?;
+        memory.write_exact(dst_offset, data)?;
+        Ok(())
+    }
+
     fn copy_read_result(
+        &self,
+        memory: &mut (impl GuestMemory + ?Sized),
+        dst: i32,
+        offset: i32,
+        len: i32,
+    ) -> AsyncHostResult<()> {
+        self.validate_completed_read()?;
+        if self.kind == HostIoKind::SocketWithAddr {
+            return Err(AsyncHostError::Inval);
+        }
+        self.copy_read_payload(memory, dst, offset, len)
+    }
+
+    fn copy_read_result_with_addr(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
         dst: i32,
@@ -646,45 +712,17 @@ impl HostIoResult {
         addr: i32,
         addr_len: i32,
     ) -> AsyncHostResult<()> {
-        if self.direction != Some(HostIoDirection::Read) {
+        self.validate_completed_read()?;
+        if self.kind != HostIoKind::SocketWithAddr {
             return Err(AsyncHostError::Inval);
         }
-        if self.is_pending() {
-            return Err(AsyncHostError::Inval);
-        }
-        let dst_offset = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-        let bytes_transferred = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        let data = self
-            .buffer
-            .get(..bytes_transferred)
+        self.copy_read_payload(memory, dst, offset, len)?;
+        let actual_addr_len = usize::try_from(self.addr_len).map_err(|_| AsyncHostError::Fault)?;
+        let addr_data = self
+            .addr_buffer
+            .get(..actual_addr_len)
             .ok_or(AsyncHostError::Fault)?;
-        memory.write_exact(dst_offset, data)?;
-        if self.kind == HostIoKind::SocketWithAddr {
-            let actual_addr_len =
-                usize::try_from(self.addr_len).map_err(|_| AsyncHostError::Fault)?;
-            let addr_data = self
-                .addr_buffer
-                .get(..actual_addr_len)
-                .ok_or(AsyncHostError::Fault)?;
-            memory.write_with_capacity(addr, addr_len, addr_data)?;
-        }
-        Ok(())
-    }
-
-    fn copy_write_source(
-        &mut self,
-        memory: &mut (impl GuestMemory + ?Sized),
-        src: i32,
-        offset: i32,
-        len: i32,
-    ) -> AsyncHostResult<()> {
-        if usize::try_from(len).map_err(|_| AsyncHostError::Fault)? != self.buffer.len() {
-            return Err(AsyncHostError::Fault);
-        }
-        let src_offset = src.checked_add(offset).ok_or(AsyncHostError::Fault)?;
-        let data = memory.read_exact(src_offset, len)?;
-        self.buffer.copy_from_slice(data);
-        Ok(())
+        memory.write_with_capacity(addr, addr_len, addr_data)
     }
 
     #[cfg(test)]
@@ -1763,49 +1801,85 @@ impl AsyncHost {
     }
 
     #[cfg(windows)]
-    pub(crate) fn make_file_io_result(
+    fn read_guest_slice(
+        memory: &mut (impl GuestMemory + ?Sized),
+        ptr: i32,
+        offset: i32,
+        len: i32,
+    ) -> AsyncHostResult<Vec<u8>> {
+        let start = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
+        Ok(memory.read_exact(start, len)?.to_vec())
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn make_file_read_io_result(&self, len: i32, position: i64) -> AsyncHostResult<u64> {
+        self.insert_io_result(HostIoResult::for_file_read(len, position)?)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn make_file_write_io_result(
         &self,
-        event: i32,
+        memory: &mut (impl GuestMemory + ?Sized),
+        src: i32,
+        offset: i32,
         len: i32,
         position: i64,
     ) -> AsyncHostResult<u64> {
-        let result = Box::new(HostIoResult::for_file(event, len, position)?);
-
-        let mut io_results = self.io_results.lock().unwrap();
-        let key = io_results.io_results.insert(result);
-        let overlapped = io_results
-            .io_results
-            .get_mut(key)
-            .ok_or(AsyncHostError::Badf)?
-            .overlapped_addr();
-        io_results.io_results_by_overlapped.insert(overlapped, key);
-        Ok(handle_from_key(key))
+        let buffer = Self::read_guest_slice(memory, src, offset, len)?;
+        self.insert_io_result(HostIoResult::for_file_write(buffer, position))
     }
 
     #[cfg(windows)]
-    pub(crate) fn make_socket_io_result(
+    pub(crate) fn make_socket_read_io_result(&self, len: i32, flags: i32) -> AsyncHostResult<u64> {
+        self.insert_io_result(HostIoResult::for_socket_read(len, flags)?)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn make_socket_write_io_result(
         &self,
-        event: i32,
+        memory: &mut (impl GuestMemory + ?Sized),
+        src: i32,
+        offset: i32,
         len: i32,
         flags: i32,
     ) -> AsyncHostResult<u64> {
-        self.insert_io_result(HostIoResult::for_socket(event, len, flags)?)
+        let buffer = Self::read_guest_slice(memory, src, offset, len)?;
+        self.insert_io_result(HostIoResult::for_socket_write(buffer, flags))
     }
 
     #[cfg(windows)]
-    pub(crate) fn make_socket_with_addr_io_result(
+    pub(crate) fn make_socket_with_addr_read_io_result(
         &self,
         memory: &mut (impl GuestMemory + ?Sized),
-        event: i32,
         len: i32,
         flags: i32,
         addr: i32,
         addr_len: i32,
     ) -> AsyncHostResult<u64> {
         let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
-        self.insert_io_result(HostIoResult::for_socket_with_addr(
-            event,
+        self.insert_io_result(HostIoResult::for_socket_with_addr_read(
             len,
+            flags,
+            addr_buffer,
+        )?)
+    }
+
+    #[cfg(windows)]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn make_socket_with_addr_write_io_result(
+        &self,
+        memory: &mut (impl GuestMemory + ?Sized),
+        src: i32,
+        offset: i32,
+        len: i32,
+        flags: i32,
+        addr: i32,
+        addr_len: i32,
+    ) -> AsyncHostResult<u64> {
+        let buffer = Self::read_guest_slice(memory, src, offset, len)?;
+        let addr_buffer = memory.read_exact(addr, addr_len)?.to_vec();
+        self.insert_io_result(HostIoResult::for_socket_with_addr_write(
+            buffer,
             flags,
             addr_buffer,
         )?)
@@ -1930,6 +2004,24 @@ impl AsyncHost {
         dst: i32,
         offset: i32,
         len: i32,
+    ) -> AsyncHostResult<()> {
+        let io_results = self.io_results.lock().unwrap();
+        let result = io_results
+            .io_results
+            .get(key_from_handle::<HostIoResultKey>(result_handle))
+            .ok_or(AsyncHostError::Badf)?;
+        result.copy_read_result(memory, dst, offset, len)
+    }
+
+    #[cfg(windows)]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn io_result_copy_read_with_addr(
+        &self,
+        memory: &mut (impl GuestMemory + ?Sized),
+        result_handle: u64,
+        dst: i32,
+        offset: i32,
+        len: i32,
         addr: i32,
         addr_len: i32,
     ) -> AsyncHostResult<()> {
@@ -1938,7 +2030,7 @@ impl AsyncHost {
             .io_results
             .get(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
-        result.copy_read_result(memory, dst, offset, len, addr, addr_len)
+        result.copy_read_result_with_addr(memory, dst, offset, len, addr, addr_len)
     }
 
     #[cfg(windows)]
@@ -1962,10 +2054,9 @@ impl AsyncHost {
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
-        if result.is_pending() {
+        if result.is_pending() || result.event != IO_RESULT_READ_EVENT {
             return Err(AsyncHostError::Inval);
         }
-        result.direction = Some(HostIoDirection::Read);
         let mut bytes_transferred = 0;
         let success = match result.kind {
             HostIoKind::File => {
@@ -2042,12 +2133,8 @@ impl AsyncHost {
     #[cfg(windows)]
     pub(crate) fn write_io_result(
         &self,
-        memory: &mut (impl GuestMemory + ?Sized),
         fd_handle: HostHandle,
         result_handle: u64,
-        src: i32,
-        offset: i32,
-        len: i32,
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
         use windows_sys::Win32::Networking::WinSock as ws;
@@ -2064,16 +2151,9 @@ impl AsyncHost {
             .io_results
             .get_mut(key_from_handle::<HostIoResultKey>(result_handle))
             .ok_or(AsyncHostError::Badf)?;
-        if result.is_pending() {
+        if result.is_pending() || result.event != IO_RESULT_WRITE_EVENT {
             return Err(AsyncHostError::Inval);
         }
-        if matches!(
-            result.kind,
-            HostIoKind::File | HostIoKind::Socket | HostIoKind::SocketWithAddr
-        ) {
-            result.copy_write_source(memory, src, offset, len)?;
-        }
-        result.direction = Some(HostIoDirection::Write);
         let mut bytes_transferred = 0;
         let success = match result.kind {
             HostIoKind::File => {
@@ -3436,7 +3516,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn io_result_status_rejects_wrong_fd_without_clearing_pending() {
-        let mut result = HostIoResult::for_file(0, 0, 0).unwrap();
+        let mut result = HostIoResult::for_file_read(0, 0).unwrap();
         let pending_file = Arc::new(FileResource::invalid());
         let other_file = Arc::new(FileResource::invalid());
         let pending_fd = pending_file.raw_fd();
@@ -3453,23 +3533,22 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn io_result_creation_keeps_only_host_buffer_capacity() {
-        let result = HostIoResult::for_file(0, 3, 0).unwrap();
+        let result = HostIoResult::for_file_read(3, 0).unwrap();
 
         assert_eq!(result.buffer, vec![0; 3]);
-        assert_eq!(result.direction, None);
+        assert_eq!(result.event, IO_RESULT_READ_EVENT);
         assert_eq!(result.pending_raw_fd(), None);
     }
 
     #[cfg(windows)]
     #[test]
     fn io_result_read_copy_uses_current_guest_destination() {
-        let mut result = HostIoResult::for_file(0, 3, 0).unwrap();
-        result.direction = Some(HostIoDirection::Read);
+        let mut result = HostIoResult::for_file_read(3, 0).unwrap();
         result.buffer.copy_from_slice(b"abc");
         let mut memory = vec![0; 16];
 
         result
-            .copy_read_result(memory.as_mut_slice(), 8, 1, 3, 0, 0)
+            .copy_read_result(memory.as_mut_slice(), 8, 1, 3)
             .unwrap();
 
         assert_eq!(&memory[9..12], b"abc");
@@ -3477,24 +3556,52 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn io_result_socket_addr_creation_copies_guest_source() {
-        let result = HostIoResult::for_socket_with_addr(0, 3, 0, b"addr".to_vec()).unwrap();
+    fn io_result_read_with_addr_copy_uses_current_guest_buffers() {
+        let mut result = HostIoResult::for_socket_with_addr_read(3, 0, b"addr".to_vec()).unwrap();
+        result.buffer.copy_from_slice(b"abc");
+        result.addr_len = 4;
+        let mut memory = vec![0; 16];
 
-        assert_eq!(result.addr_buffer, b"addr");
-        assert_eq!(result.addr_len, 4);
+        result
+            .copy_read_result_with_addr(memory.as_mut_slice(), 8, 1, 3, 0, 4)
+            .unwrap();
+
+        assert_eq!(&memory[0..4], b"addr");
+        assert_eq!(&memory[9..12], b"abc");
+        assert_eq!(
+            result.copy_read_result(memory.as_mut_slice(), 8, 1, 3),
+            Err(AsyncHostError::Inval)
+        );
     }
 
     #[cfg(windows)]
     #[test]
-    fn io_result_write_copy_uses_current_guest_source() {
-        let mut result = HostIoResult::for_file(0, 3, 0).unwrap();
+    fn io_result_socket_addr_creation_copies_guest_source() {
+        let result = HostIoResult::for_socket_with_addr_read(3, 0, b"addr".to_vec()).unwrap();
+
+        assert_eq!(result.addr_buffer, b"addr");
+        assert_eq!(result.addr_len, 4);
+        assert_eq!(result.event, IO_RESULT_READ_EVENT);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn io_result_write_creation_copies_guest_source() {
+        let host = AsyncHost::default();
         let mut memory = b"zzzabc".to_vec();
 
-        result
-            .copy_write_source(memory.as_mut_slice(), 3, 0, 3)
+        let result = host
+            .make_file_write_io_result(memory.as_mut_slice(), 3, 0, 3, 0)
             .unwrap();
+        memory[3..6].copy_from_slice(b"xxx");
 
+        let io_results = host.io_results.lock().unwrap();
+        let result = io_results
+            .io_results
+            .get(key_from_handle::<HostIoResultKey>(result))
+            .unwrap();
         assert_eq!(result.buffer, b"abc");
+        assert_eq!(result.event, IO_RESULT_WRITE_EVENT);
     }
 
     #[cfg(windows)]
@@ -3502,7 +3609,7 @@ mod tests {
     fn cancel_io_result_rejects_wrong_fd_without_clearing_pending() {
         let host = AsyncHost::default();
         let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_io_result(0, 0, 0).unwrap();
+        let result = host.make_file_read_io_result(0, 0).unwrap();
         let raw_read = {
             let read_file = host.file_resource(read).unwrap();
             let raw_read = read_file.raw_fd();
@@ -3541,7 +3648,7 @@ mod tests {
     fn cancel_io_result_clears_pending_result_when_no_wait_is_needed() {
         let host = AsyncHost::default();
         let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_io_result(0, 0, 0).unwrap();
+        let result = host.make_file_read_io_result(0, 0).unwrap();
         {
             let read_file = host.file_resource(read).unwrap();
             host.io_results
@@ -3574,7 +3681,7 @@ mod tests {
     fn cancel_io_result_keeps_pending_result_when_wait_is_needed() {
         let host = AsyncHost::default();
         let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_io_result(0, 0, 0).unwrap();
+        let result = host.make_file_read_io_result(0, 0).unwrap();
         let raw_read = {
             let read_file = host.file_resource(read).unwrap();
             let raw_read = read_file.raw_fd();
@@ -3611,7 +3718,7 @@ mod tests {
     fn close_fd_rejects_pending_io_result() {
         let host = AsyncHost::default();
         let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_io_result(0, 0, 0).unwrap();
+        let result = host.make_file_read_io_result(0, 0).unwrap();
         let raw_read = {
             let read_file = host.file_resource(read).unwrap();
             let raw_read = read_file.raw_fd();
@@ -3648,7 +3755,7 @@ mod tests {
     fn close_fd_rejects_extra_pending_close_guard() {
         let host = AsyncHost::default();
         let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_io_result(0, 0, 0).unwrap();
+        let result = host.make_file_read_io_result(0, 0).unwrap();
         let (raw_read, raw_write) = {
             let read_file = host.file_resource(read).unwrap();
             let write_file = host.file_resource(write).unwrap();
@@ -3703,7 +3810,7 @@ mod tests {
     fn free_io_result_rejects_pending_result() {
         let host = AsyncHost::default();
         let [read, write] = host.pipe(true, true).unwrap();
-        let result = host.make_file_io_result(0, 0, 0).unwrap();
+        let result = host.make_file_read_io_result(0, 0).unwrap();
         {
             let read_file = host.file_resource(read).unwrap();
             host.io_results
@@ -3753,7 +3860,7 @@ mod tests {
                 .unwrap();
             poll.instance.raw_fd()
         };
-        let result = host.make_file_io_result(0, 0, 0).unwrap();
+        let result = host.make_file_read_io_result(0, 0).unwrap();
         let [read, write] = host.pipe(true, true).unwrap();
         let read_file = host.file_resource(read).unwrap();
         let raw_fd = read_file.raw_fd();

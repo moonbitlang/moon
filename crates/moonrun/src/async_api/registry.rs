@@ -571,50 +571,96 @@ declare_async_imports! {
     fake socket::setup_accepted_socket(listen_fd: u64, accept_fd: u64) -> i32 => "socket/setup_accepted_socket/windows";
 
     #[cfg(windows)]
-    ported io::make_file_io_result(
-        events: i32,
+    ported io::make_file_read_io_result(
         len: i32,
         position: i64,
-    ) -> u64 => "io/make_file_io_result/windows";
+    ) -> u64 => "io/make_file_read_io_result/windows";
 
     #[cfg(not(windows))]
-    fake io::make_file_io_result(
-        events: i32,
+    fake io::make_file_read_io_result(
         len: i32,
         position: i64,
-    ) -> u64 => "io/make_file_io_result/windows";
+    ) -> u64 => "io/make_file_read_io_result/windows";
 
     #[cfg(windows)]
-    ported io::make_socket_io_result(
-        events: i32,
+    ported io::make_file_write_io_result(
+        src: i32,
+        offset: i32,
         len: i32,
-        flags: i32,
-    ) -> u64 => "io/make_socket_io_result/windows";
+        position: i64,
+    ) -> u64 => "io/make_file_write_io_result/windows";
 
     #[cfg(not(windows))]
-    fake io::make_socket_io_result(
-        events: i32,
+    fake io::make_file_write_io_result(
+        src: i32,
+        offset: i32,
         len: i32,
-        flags: i32,
-    ) -> u64 => "io/make_socket_io_result/windows";
+        position: i64,
+    ) -> u64 => "io/make_file_write_io_result/windows";
 
     #[cfg(windows)]
-    ported io::make_socket_with_addr_io_result(
-        events: i32,
+    ported io::make_socket_read_io_result(
+        len: i32,
+        flags: i32,
+    ) -> u64 => "io/make_socket_read_io_result/windows";
+
+    #[cfg(not(windows))]
+    fake io::make_socket_read_io_result(
+        len: i32,
+        flags: i32,
+    ) -> u64 => "io/make_socket_read_io_result/windows";
+
+    #[cfg(windows)]
+    ported io::make_socket_write_io_result(
+        src: i32,
+        offset: i32,
+        len: i32,
+        flags: i32,
+    ) -> u64 => "io/make_socket_write_io_result/windows";
+
+    #[cfg(not(windows))]
+    fake io::make_socket_write_io_result(
+        src: i32,
+        offset: i32,
+        len: i32,
+        flags: i32,
+    ) -> u64 => "io/make_socket_write_io_result/windows";
+
+    #[cfg(windows)]
+    ported io::make_socket_with_addr_read_io_result(
         len: i32,
         flags: i32,
         addr: i32,
         addr_len: i32,
-    ) -> u64 => "io/make_socket_with_addr_io_result/windows";
+    ) -> u64 => "io/make_socket_with_addr_read_io_result/windows";
 
     #[cfg(not(windows))]
-    fake io::make_socket_with_addr_io_result(
-        events: i32,
+    fake io::make_socket_with_addr_read_io_result(
         len: i32,
         flags: i32,
         addr: i32,
         addr_len: i32,
-    ) -> u64 => "io/make_socket_with_addr_io_result/windows";
+    ) -> u64 => "io/make_socket_with_addr_read_io_result/windows";
+
+    #[cfg(windows)]
+    ported io::make_socket_with_addr_write_io_result(
+        src: i32,
+        offset: i32,
+        len: i32,
+        flags: i32,
+        addr: i32,
+        addr_len: i32,
+    ) -> u64 => "io/make_socket_with_addr_write_io_result/windows";
+
+    #[cfg(not(windows))]
+    fake io::make_socket_with_addr_write_io_result(
+        src: i32,
+        offset: i32,
+        len: i32,
+        flags: i32,
+        addr: i32,
+        addr_len: i32,
+    ) -> u64 => "io/make_socket_with_addr_write_io_result/windows";
 
     #[cfg(windows)]
     ported io::make_connect_io_result(addr: i32, addr_len: i32) -> u64 => "io/make_connect_io_result/windows";
@@ -659,10 +705,16 @@ declare_async_imports! {
     fake io::io_result_get_status(result: u64, fd: u64) -> i32 => "io/io_result_get_status/windows";
 
     #[cfg(windows)]
-    helper io::io_result_copy_read(result: u64, dst: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> void => "io/io_result_copy_read/windows";
+    helper io::io_result_copy_read(result: u64, dst: i32, offset: i32, len: i32) -> void => "io/io_result_copy_read/windows";
 
     #[cfg(not(windows))]
-    fake io::io_result_copy_read(result: u64, dst: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> void => "io/io_result_copy_read/windows";
+    fake io::io_result_copy_read(result: u64, dst: i32, offset: i32, len: i32) -> void => "io/io_result_copy_read/windows";
+
+    #[cfg(windows)]
+    helper io::io_result_copy_read_with_addr(result: u64, dst: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> void => "io/io_result_copy_read_with_addr/windows";
+
+    #[cfg(not(windows))]
+    fake io::io_result_copy_read_with_addr(result: u64, dst: i32, offset: i32, len: i32, addr: i32, addr_len: i32) -> void => "io/io_result_copy_read_with_addr/windows";
 
     #[cfg(windows)]
     ported io::read_io_result(fd: u64, result: u64) -> i32 => "io/read/windows";
@@ -671,10 +723,10 @@ declare_async_imports! {
     fake io::read_io_result(fd: u64, result: u64) -> i32 => "io/read/windows";
 
     #[cfg(windows)]
-    ported io::write_io_result(fd: u64, result: u64, src: i32, offset: i32, len: i32) -> i32 => "io/write/windows";
+    ported io::write_io_result(fd: u64, result: u64) -> i32 => "io/write/windows";
 
     #[cfg(not(windows))]
-    fake io::write_io_result(fd: u64, result: u64, src: i32, offset: i32, len: i32) -> i32 => "io/write/windows";
+    fake io::write_io_result(fd: u64, result: u64) -> i32 => "io/write/windows";
 
     #[cfg(windows)]
     ported io::errno_is_read_eof(errno: i32) -> i32 => "io/errno_is_read_EOF/windows";
