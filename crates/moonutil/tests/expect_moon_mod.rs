@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use moonutil::common::{
     TargetBackend, read_module_desc_file_in_dir, read_module_from_dsl, write_module_dsl_to_file,
 };
-use moonutil::module::{MoonModJSON, convert_module_to_mod_json};
+use moonutil::module::{MoonMod, MoonModJSON, MoonModRule, convert_module_to_mod_json};
 use moonutil::package::SupportedTargetsConfig;
 use semver::Version;
 
@@ -321,8 +321,6 @@ rule(name: "rule2", command: "exe2 $input -o $output")
     let module = read_module_from_dsl(&path).unwrap();
     let module_json = convert_module_to_mod_json(module);
     assert!(module_json.rule.is_some());
-    let json = serde_json_lenient::to_string(&module_json).unwrap();
-    assert!(json.contains("\"rule\""));
     write_module_dsl_to_file(&module_json, &dir).unwrap();
 
     let module = read_module_from_dsl(&path).unwrap();
@@ -332,6 +330,111 @@ rule(name: "rule2", command: "exe2 $input -o $output")
     assert_eq!(rule[0].command, "exe1 $input -o $output");
     assert_eq!(rule[1].name, "rule2");
     assert_eq!(rule[1].command, "exe2 $input -o $output");
+}
+
+#[test]
+fn read_module_json_accepts_object_rule() {
+    let dir = temp_dir("object-rule-module-read");
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{
+  "name": "example/mod",
+  "rule": {
+    "name": "rule1",
+    "command": "exe1 $input -o $output"
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    let module = read_module_desc_file_in_dir(&dir).unwrap();
+    let rule = module.rule.unwrap();
+    assert_eq!(rule.len(), 1);
+    assert_eq!(rule[0].name, "rule1");
+    assert_eq!(rule[0].command, "exe1 $input -o $output");
+}
+
+#[test]
+fn moon_mod_json_conversion_serializes_single_rule_as_object() {
+    let module_json = convert_module_to_mod_json(MoonMod {
+        name: "example/mod".to_string(),
+        rule: Some(vec![MoonModRule {
+            name: "rule1".to_string(),
+            command: "exe1".to_string(),
+        }]),
+        ..Default::default()
+    });
+    let actual = serde_json_lenient::to_string_pretty(&module_json).unwrap();
+
+    expect_test::expect![[r#"
+        {
+          "name": "example/mod",
+          "deps": {},
+          "rule": {
+            "name": "rule1",
+            "command": "exe1"
+          }
+        }"#]]
+    .assert_eq(&actual);
+}
+
+#[test]
+fn moon_mod_json_conversion_serializes_multiple_rules_as_array() {
+    let module_json = convert_module_to_mod_json(MoonMod {
+        name: "example/mod".to_string(),
+        rule: Some(vec![
+            MoonModRule {
+                name: "rule1".to_string(),
+                command: "exe1".to_string(),
+            },
+            MoonModRule {
+                name: "rule2".to_string(),
+                command: "exe2".to_string(),
+            },
+        ]),
+        ..Default::default()
+    });
+    let actual = serde_json_lenient::to_string_pretty(&module_json).unwrap();
+
+    expect_test::expect![[r#"
+        {
+          "name": "example/mod",
+          "deps": {},
+          "rule": [
+            {
+              "name": "rule1",
+              "command": "exe1"
+            },
+            {
+              "name": "rule2",
+              "command": "exe2"
+            }
+          ]
+        }"#]]
+    .assert_eq(&actual);
+}
+
+#[test]
+fn moon_mod_json_accepts_array_rule() {
+    let module_json = serde_json_lenient::from_str::<MoonModJSON>(
+        r#"{
+  "name": "example/mod",
+  "rule": [
+    {
+      "name": "rule1",
+      "command": "exe1"
+    }
+  ]
+}
+"#,
+    )
+    .unwrap();
+    let module: MoonMod = module_json.try_into().unwrap();
+    let rule = module.rule.unwrap();
+    assert_eq!(rule.len(), 1);
+    assert_eq!(rule[0].name, "rule1");
+    assert_eq!(rule[0].command, "exe1");
 }
 
 #[test]
