@@ -32,7 +32,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_action_plan::BuildProduct,
     build_lower::compiler::{CmdlineAbstraction, MoondocCommand, Mooninfo},
-    build_plan::{BuildTargetInfo, PrebuildInfo},
+    build_plan::{BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
 
@@ -152,7 +152,8 @@ impl<'a> super::LoweringContext<'a> {
     pub(super) fn lower_compile_runtime(
         &mut self,
         products: &ActionProducts,
-    ) -> anyhow::Result<BuildCommand> {
+        info: &BuildRuntimeInfo,
+    ) -> BuildCommand {
         let artifact_path = products
             .single_output_path_matching(|product| matches!(product, BuildProduct::RuntimeLib));
 
@@ -165,52 +166,62 @@ impl<'a> super::LoweringContext<'a> {
             (CCOutputType::Object, true)
         };
 
-        let resolved_cc = moonutil::compiler_flags::default_native_toolchain(
-            self.opt
-                .tcc_run
-                .as_ref()
-                .map(|config| config.internal_tcc()),
-        )?
-        .cc()
-        .clone();
-        let use_simdutf = !use_shared_runtime
-            && resolved_cc.can_use_simdutf()
-            && self.opt.compiler_paths().simdutf_object_paths().is_some();
+        let runtime_toolchain = info.effective_native_toolchain.clone();
+        let resolved_cc = runtime_toolchain.cc().clone();
+        let cc_cmd = if self.opt.selected_backend.is_windows_msvc_direct() && resolved_cc.is_msvc()
+        {
+            compiler::msvc::compile_runtime_command(
+                &runtime_toolchain,
+                &runtime_c_path,
+                &artifact_path,
+                &self.opt.compiler_paths().include_path,
+                self.opt
+                    .native_mode
+                    .msvc_crt_policy()
+                    .expect("Windows MSVC mode should carry a CRT policy"),
+            )
+            .into()
+        } else {
+            let use_simdutf = !use_shared_runtime
+                && resolved_cc.can_use_simdutf()
+                && self.opt.compiler_paths().simdutf_object_paths().is_some();
 
-        let cc_cmd = make_cc_command_resolved(
-            resolved_cc,
-            CCConfigBuilder::default()
-                .no_sys_header(true)
-                .output_ty(output_ty)
-                .opt_level(CCOptLevel::Speed)
-                .debug_info(true)
-                .allow_stacktrace(
-                    self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
-                )
-                .define_tinyc_macro(use_shared_runtime)
-                .preserve_frame_pointer(use_shared_runtime)
-                .link_moonbitrun(link_moonbitrun)
-                .link_libbacktrace(output_ty == CCOutputType::SharedLib)
-                .define_use_shared_runtime_macro(false)
-                .use_simdutf(use_simdutf)
-                .build()
-                .expect("Failed to build CC configuration for runtime"),
-            &[] as &[&str],
-            [runtime_c_path.display().to_string()],
-            &self
-                .artifact_paths
-                .target_layout()
-                .runtime_output_dir(self.opt.target_backend)
-                .display()
-                .to_string(),
-            Some(&artifact_path.display().to_string()),
-            self.opt.compiler_paths(),
-        );
+            make_cc_command_resolved(
+                resolved_cc,
+                CCConfigBuilder::default()
+                    .no_sys_header(true)
+                    .output_ty(output_ty)
+                    .opt_level(CCOptLevel::Speed)
+                    .debug_info(true)
+                    .allow_stacktrace(
+                        self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
+                    )
+                    .define_tinyc_macro(use_shared_runtime)
+                    .preserve_frame_pointer(use_shared_runtime)
+                    .link_moonbitrun(link_moonbitrun)
+                    .link_libbacktrace(output_ty == CCOutputType::SharedLib)
+                    .define_use_shared_runtime_macro(false)
+                    .use_simdutf(use_simdutf)
+                    .build()
+                    .expect("Failed to build CC configuration for runtime"),
+                &[] as &[&str],
+                [runtime_c_path.display().to_string()],
+                &self
+                    .artifact_paths
+                    .target_layout()
+                    .runtime_output_dir(self.opt.target_backend)
+                    .display()
+                    .to_string(),
+                Some(&artifact_path.display().to_string()),
+                self.opt.compiler_paths(),
+            )
+            .into()
+        };
 
-        Ok(BuildCommand {
+        BuildCommand {
             extra_inputs: vec![runtime_c_path],
-            commandline: cc_cmd.into(),
-        })
+            commandline: cc_cmd,
+        }
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products))]

@@ -61,6 +61,7 @@ globset = "0.4"
 libc.workspace = true
 
 [target."cfg(windows)".dependencies]
+find-msvc-tools.workspace = true
 junction = "1"
 
 [dev-dependencies]

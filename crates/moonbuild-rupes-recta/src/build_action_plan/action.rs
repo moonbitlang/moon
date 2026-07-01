@@ -20,7 +20,8 @@ use moonutil::mooncakes::ModuleId;
 
 use crate::{
     build_plan::{
-        BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo, PrebuildInfo,
+        BuildCStubsInfo, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
+        PrebuildInfo,
     },
     model::{BuildTarget, PackageId},
 };
@@ -80,7 +81,9 @@ pub enum BuildAction<'a> {
         module: ModuleId,
         targets: &'a [BuildTarget],
     },
-    BuildRuntimeLib,
+    BuildRuntimeLib {
+        info: &'a BuildRuntimeInfo,
+    },
     BuildDocs {
         module: ModuleId,
     },

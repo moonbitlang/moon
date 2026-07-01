@@ -44,7 +44,8 @@ use moonbuild_rupes_recta::{
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
-        Artifacts, BuildPlanNode, NativeTarget, PackageId, RunBackend, TargetKind, TccRunConfig,
+        Artifacts, BuildPlanNode, DirectNativeMode, NativeBackendMode, NativeTarget, PackageId,
+        RunBackend, TargetKind, TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, TargetLayout},
@@ -341,26 +342,30 @@ impl CompilePreConfig {
             _ => None,
         };
         info!("New native target: {:?}", native_target);
-
-        let (run_backend, tcc_run) = match target_backend {
-            TargetBackend::Wasm => (RunBackend::Wasm, None),
-            TargetBackend::WasmGC => (RunBackend::WasmGC, None),
-            TargetBackend::Js => (RunBackend::Js, None),
-            TargetBackend::Native => (
-                RunBackend::Native,
-                if native_target.is_some() {
+        let (run_backend, native_mode) = match target_backend {
+            TargetBackend::Wasm => (RunBackend::Wasm, NativeBackendMode::GeneratedC),
+            TargetBackend::WasmGC => (RunBackend::WasmGC, NativeBackendMode::GeneratedC),
+            TargetBackend::Js => (RunBackend::Js, NativeBackendMode::GeneratedC),
+            TargetBackend::Native => {
+                let native_mode = if let Some(native_target) = native_target {
                     info!("Disabling `tcc -run`: new native backend selected");
-                    None
-                } else {
+                    NativeBackendMode::DirectObject(
+                        self.direct_native_mode(native_target, input_nodes)?,
+                    )
+                } else if let Some(tcc_run) =
                     self.select_tcc_run_config(resolve_output, input_nodes, output)
-                },
-            ),
-            TargetBackend::LLVM => (RunBackend::Llvm, None),
+                {
+                    NativeBackendMode::TccRun(tcc_run)
+                } else {
+                    NativeBackendMode::GeneratedC
+                };
+                (RunBackend::Native, native_mode)
+            }
+            TargetBackend::LLVM => (RunBackend::Llvm, NativeBackendMode::GeneratedC),
         };
         info!(
-            "Final run backend: {:?}, tcc-run enabled: {}",
-            run_backend,
-            tcc_run.is_some()
+            "Final run backend: {:?}, native mode: {:?}",
+            run_backend, native_mode
         );
         let stdlib_path = if std {
             Some(moonutil::toolchain::core())
@@ -378,8 +383,7 @@ impl CompilePreConfig {
         Ok(CompileConfig {
             target_dir: self.target_dir,
             target_backend: run_backend,
-            native_target,
-            tcc_run,
+            native_mode,
             opt_level: self.opt_level,
             action: self.action,
             debug_symbols: self.debug_symbols,
@@ -426,6 +430,37 @@ impl CompilePreConfig {
         info!("`tcc -run` availability: true");
         Some(TccRunConfig::new(internal_tcc))
     }
+
+    fn direct_native_mode(
+        &self,
+        native_target: NativeTarget,
+        input_nodes: &[BuildPlanNode],
+    ) -> anyhow::Result<DirectNativeMode> {
+        match native_target {
+            NativeTarget::X86_64PcWindowsMsvc if needs_native_c_toolchain(input_nodes) => {
+                let toolchain = compiler_flags::windows_msvc_native_toolchain(None).with_context(
+                    || "failed to resolve Windows MSVC native toolchain for direct native mode",
+                )?;
+                Ok(DirectNativeMode::resolved_windows_msvc(toolchain))
+            }
+            NativeTarget::X86_64PcWindowsMsvc => Ok(DirectNativeMode::pending_windows_msvc()),
+            NativeTarget::Aarch64AppleDarwin | NativeTarget::X86_64UnknownLinuxGnu => {
+                Ok(DirectNativeMode::generic(native_target))
+            }
+        }
+    }
+}
+
+fn needs_native_c_toolchain(input_nodes: &[BuildPlanNode]) -> bool {
+    input_nodes.iter().any(|node| {
+        matches!(
+            node,
+            BuildPlanNode::BuildCStub(_, _)
+                | BuildPlanNode::ArchiveOrLinkCStubs(_)
+                | BuildPlanNode::MakeExecutable(_)
+                | BuildPlanNode::BuildRuntimeLib
+        )
+    })
 }
 
 /// Read in the commandline flags and build flags to create a
@@ -643,8 +678,8 @@ pub(crate) fn plan_resolved_build_from_intent(
         resolve_output,
         artifacts: compile_output.artifacts,
         target_backend: cx.target_backend,
-        native_target: cx.native_target,
-        tcc_run: cx.tcc_run.clone(),
+        native_target: cx.native_mode.direct_target(),
+        tcc_run: cx.native_mode.tcc_run().cloned(),
         opt_level: cx.opt_level,
         artifact_paths: cx.artifact_paths.clone(),
     };

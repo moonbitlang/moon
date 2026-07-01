@@ -147,7 +147,12 @@ impl<'a> BuildActionPlan<'a> {
                     .expect("Bundle info should be present when lowering bundle node")
                     .bundle_targets,
             },
-            BuildPlanNode::BuildRuntimeLib => BuildAction::BuildRuntimeLib,
+            BuildPlanNode::BuildRuntimeLib => BuildAction::BuildRuntimeLib {
+                info: self
+                    .plan
+                    .get_runtime_info()
+                    .expect("Runtime info should be present for BuildRuntimeLib nodes"),
+            },
             BuildPlanNode::BuildDocs(module) => BuildAction::BuildDocs { module },
             BuildPlanNode::RunPrebuild(package, index) => BuildAction::RunPrebuild {
                 package,

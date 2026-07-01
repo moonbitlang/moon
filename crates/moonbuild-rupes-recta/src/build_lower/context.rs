@@ -288,9 +288,9 @@ impl<'a> LoweringContext<'a> {
             BuildAction::Bundle { module, targets } => {
                 self.lower_bundle(&action_products, module, targets)
             }
-            BuildAction::BuildRuntimeLib => self
-                .lower_compile_runtime(&action_products)
-                .map_err(LoweringError::RuntimeNativeToolchain)?,
+            BuildAction::BuildRuntimeLib { info } => {
+                self.lower_compile_runtime(&action_products, info)
+            }
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
             BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info),
             BuildAction::RunMoonLexPrebuild { package, index } => {

@@ -25,7 +25,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::{self, LoweringEnvironment, WarningCondition},
     build_plan::{self, BuildEnvironment, InputDirective},
-    model::{Artifacts, BuildPlanNode, NativeTarget, RunBackend, TccRunConfig},
+    model::{Artifacts, BuildPlanNode, NativeBackendMode, RunBackend},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -39,10 +39,8 @@ pub struct CompileConfig {
     pub target_dir: PathBuf,
     /// The backend selected for this build.
     pub target_backend: RunBackend,
-    /// Experimental direct object-code backend selected under native, if any.
-    pub native_target: Option<NativeTarget>,
-    /// Configuration for `tcc -run`, if the native build selected it.
-    pub tcc_run: Option<TccRunConfig>,
+    /// Native implementation selected under `RunBackend::Native`.
+    pub native_mode: NativeBackendMode,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
     /// The action done in this operation, currently only used in legacy directory layout
@@ -127,8 +125,7 @@ pub fn compile(
 
     let build_env = BuildEnvironment {
         target_backend: cx.target_backend,
-        native_target: cx.native_target,
-        tcc_run: cx.tcc_run.clone(),
+        native_mode: cx.native_mode.clone(),
         opt_level: cx.opt_level,
         action: cx.action,
         std: cx.stdlib_path.is_some(),
@@ -146,17 +143,12 @@ pub fn compile(
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());
 
-    let selected_backend = build_lower::SelectedBackend::new(
-        cx.target_backend,
-        cx.native_target,
-        cx.tcc_run.is_some(),
-        cx.output_wat,
-    );
+    let selected_backend =
+        build_lower::SelectedBackend::new(cx.target_backend, &cx.native_mode, cx.output_wat);
     let lower_env = build_lower::BuildOptions {
         artifact_paths: cx.artifact_paths.clone(),
         target_backend: cx.target_backend,
-        native_target: cx.native_target,
-        tcc_run: cx.tcc_run.clone(),
+        native_mode: cx.native_mode.clone(),
         selected_backend,
         opt_level: cx.opt_level,
         action: cx.action,

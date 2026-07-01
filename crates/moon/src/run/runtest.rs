@@ -654,6 +654,15 @@ fn run_one_test_executable(
     debug!(?exit_status, "test process finished");
 
     if !exit_status.success() {
+        #[cfg(windows)]
+        if is_windows_app_control_block(&exit_status) {
+            anyhow::bail!(
+                "Windows App Control/Device Guard blocked generated executable. Disable Smart App Control, use audit mode, or sign/allow generated executables.\nExecutable: {}\nExit status: {}",
+                test.executable.display(),
+                exit_status
+            );
+        }
+
         anyhow::bail!(
             "Failed to run the test: {}\nThe test executable exited with {}",
             test.executable.display(),
@@ -682,6 +691,11 @@ fn mk_coverage_capture() -> SectionCapture<'static> {
         MOON_COVERAGE_DELIMITER_END,
         true,
     )
+}
+
+#[cfg(windows)]
+fn is_windows_app_control_block(exit_status: &std::process::ExitStatus) -> bool {
+    exit_status.code() == Some(4551)
 }
 
 fn make_test_capture() -> SectionCapture<'static> {

@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use moonutil::{
     common::TargetBackend,
-    compiler_flags::CC,
+    compiler_flags::{CC, Toolchain},
     mooncakes::{ModuleId, result::ResolvedEnv},
 };
 
@@ -54,6 +54,49 @@ pub const ENV_MOONBIT_NEW_NATIVE: &str = "MOONBIT_NEW_NATIVE";
 pub enum NativeTarget {
     Aarch64AppleDarwin,
     X86_64UnknownLinuxGnu,
+    X86_64PcWindowsMsvc,
+}
+
+/// The native implementation selected under the user-visible `native` backend.
+#[derive(Clone, Debug)]
+pub enum NativeBackendMode {
+    /// Legacy generated-C native path.
+    GeneratedC,
+    /// Native execution through `tcc -run`.
+    TccRun(TccRunConfig),
+    /// Experimental direct object-code native path.
+    DirectObject(DirectNativeMode),
+}
+
+/// Concrete direct object-code native implementation.
+#[derive(Clone, Debug)]
+pub enum DirectNativeMode {
+    Generic { target: NativeTarget },
+    WindowsMsvc(WindowsMsvcMode),
+}
+
+/// MSVC CRT policy shared by runtime, C stubs, and final linking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MsvcCrtPolicy {
+    StaticMt,
+}
+
+/// Windows MSVC direct-native mode.
+///
+/// `Pending` is used for native check-style operations that need the direct
+/// native target shape but do not need a C compiler/linker. Any runtime, C stub,
+/// or executable action must use `Resolved`.
+#[derive(Clone, Debug)]
+pub enum WindowsMsvcMode {
+    Pending,
+    Resolved(ResolvedWindowsMsvcMode),
+}
+
+/// Resolved Windows MSVC direct-native mode.
+#[derive(Clone, Debug)]
+pub struct ResolvedWindowsMsvcMode {
+    toolchain: Toolchain,
+    crt: MsvcCrtPolicy,
 }
 
 impl NativeTarget {
@@ -68,6 +111,7 @@ impl NativeTarget {
         match (arch, os) {
             ("aarch64", "macos") => Some(Self::Aarch64AppleDarwin),
             ("x86_64", "linux") => Some(Self::X86_64UnknownLinuxGnu),
+            ("x86_64", "windows") => Some(Self::X86_64PcWindowsMsvc),
             _ => None,
         }
     }
@@ -76,6 +120,104 @@ impl NativeTarget {
         match self {
             Self::Aarch64AppleDarwin => "aarch64-apple-darwin",
             Self::X86_64UnknownLinuxGnu => "x86_64-unknown-linux-gnu",
+            Self::X86_64PcWindowsMsvc => "x86_64-pc-windows-msvc",
+        }
+    }
+}
+
+impl NativeBackendMode {
+    pub fn direct_target(&self) -> Option<NativeTarget> {
+        self.direct_native_mode().map(DirectNativeMode::target)
+    }
+
+    pub fn direct_native_mode(&self) -> Option<&DirectNativeMode> {
+        match self {
+            Self::DirectObject(mode) => Some(mode),
+            Self::GeneratedC | Self::TccRun(_) => None,
+        }
+    }
+
+    pub fn tcc_run(&self) -> Option<&TccRunConfig> {
+        match self {
+            Self::TccRun(config) => Some(config),
+            Self::GeneratedC | Self::DirectObject(_) => None,
+        }
+    }
+
+    pub fn is_tcc_run(&self) -> bool {
+        self.tcc_run().is_some()
+    }
+
+    pub fn is_windows_msvc_direct(&self) -> bool {
+        matches!(
+            self.direct_native_mode(),
+            Some(DirectNativeMode::WindowsMsvc(_))
+        )
+    }
+
+    pub fn resolved_windows_msvc(&self) -> Option<&ResolvedWindowsMsvcMode> {
+        match self.direct_native_mode() {
+            Some(DirectNativeMode::WindowsMsvc(WindowsMsvcMode::Resolved(mode))) => Some(mode),
+            _ => None,
+        }
+    }
+
+    pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
+        self.is_windows_msvc_direct()
+            .then_some(MsvcCrtPolicy::StaticMt)
+    }
+}
+
+impl DirectNativeMode {
+    pub fn generic(target: NativeTarget) -> Self {
+        Self::Generic { target }
+    }
+
+    pub fn pending_windows_msvc() -> Self {
+        Self::WindowsMsvc(WindowsMsvcMode::Pending)
+    }
+
+    pub fn resolved_windows_msvc(toolchain: Toolchain) -> Self {
+        Self::WindowsMsvc(WindowsMsvcMode::Resolved(ResolvedWindowsMsvcMode::new(
+            toolchain,
+            MsvcCrtPolicy::StaticMt,
+        )))
+    }
+
+    pub fn target(&self) -> NativeTarget {
+        match self {
+            Self::Generic { target } => *target,
+            Self::WindowsMsvc(_) => NativeTarget::X86_64PcWindowsMsvc,
+        }
+    }
+}
+
+impl ResolvedWindowsMsvcMode {
+    pub fn new(toolchain: Toolchain, crt: MsvcCrtPolicy) -> Self {
+        debug_assert!(
+            toolchain.cc().is_msvc(),
+            "Windows MSVC mode requires a cl-compatible compiler"
+        );
+        Self { toolchain, crt }
+    }
+
+    pub fn toolchain(&self) -> &Toolchain {
+        &self.toolchain
+    }
+
+    pub fn crt(&self) -> MsvcCrtPolicy {
+        self.crt
+    }
+
+    pub fn effective_toolchain(&self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+        moonutil::compiler_flags::windows_msvc_toolchain_from_resolved(&self.toolchain, package_cc)
+    }
+}
+
+impl MsvcCrtPolicy {
+    pub fn compiler_flag(self) -> &'static str {
+        match self {
+            Self::StaticMt => moonutil::compiler_flags::WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
         }
     }
 }
@@ -580,6 +722,10 @@ mod tests {
         assert_eq!(
             NativeTarget::from_host("x86_64", "linux"),
             Some(NativeTarget::X86_64UnknownLinuxGnu)
+        );
+        assert_eq!(
+            NativeTarget::from_host("x86_64", "windows"),
+            Some(NativeTarget::X86_64PcWindowsMsvc)
         );
         assert_eq!(NativeTarget::from_host("aarch64", "linux"), None);
     }

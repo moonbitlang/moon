@@ -46,13 +46,14 @@ use crate::{
     build_plan::{BuildBundleInfo, FileDependencyKind, PlanArtifactNeed, PrebuildInfo},
     cond_comp,
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
+    model::{BuildPlanNode, BuildTarget, DirectNativeMode, PackageId, TargetKind, WindowsMsvcMode},
     pkg_name::PackageFQNWithSource,
     user_warning::UserWarning,
 };
 
 use super::{
-    BuildCStubsInfo, BuildPlanConstructError, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo,
+    BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
+    MakeExecutableInfo,
     constructor::{BuildPlanConstructor, PackageFileSet},
 };
 
@@ -78,7 +79,7 @@ impl DependencyInterfaceMode {
 
 impl<'a> BuildPlanConstructor<'a> {
     fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
-        if self.build_env.native_target.is_some() {
+        if self.build_env.native_mode.direct_target().is_some() {
             err.context(
                 "new native backend requires a C compiler/linker driver; install clang/cc or set MOON_CC",
             )
@@ -89,11 +90,23 @@ impl<'a> BuildPlanConstructor<'a> {
 
     fn effective_native_toolchain(&self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
         debug_assert!(self.build_env.target_backend.is_native());
+        if let Some(DirectNativeMode::WindowsMsvc(msvc_mode)) =
+            self.build_env.native_mode.direct_native_mode()
+        {
+            return match msvc_mode {
+                WindowsMsvcMode::Resolved(mode) => mode.effective_toolchain(package_cc),
+                WindowsMsvcMode::Pending => {
+                    anyhow::bail!(
+                        "Windows MSVC native backend requires a resolved MSVC toolchain for this action"
+                    )
+                }
+            };
+        }
         moonutil::compiler_flags::effective_native_toolchain(
             package_cc,
             self.build_env
-                .tcc_run
-                .as_ref()
+                .native_mode
+                .tcc_run()
                 .map(|config| config.internal_tcc()),
         )
     }
@@ -751,7 +764,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         // If we're tcc run, also depend on the runtime library
-        if self.build_env.tcc_run.is_some() {
+        if self.build_env.native_mode.is_tcc_run() {
             let make_exec_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
             self.add_edge(node, make_exec_node);
         }
@@ -1131,7 +1144,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let Some(prebuild) = self.prebuild_config else {
             return;
         };
-        let is_msvc_like = toolchain.cc().is_msvc();
+        let is_msvc_like = toolchain.cc().is_msvc() || toolchain.cc().targets_msvc();
         for pkg in pkgs {
             let Some(link_config) = prebuild.package_configs.get(&pkg) else {
                 continue;
@@ -1298,10 +1311,15 @@ impl<'a> BuildPlanConstructor<'a> {
     #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_runtime_lib(
         &mut self,
-        _node: BuildPlanNode,
+        node: BuildPlanNode,
     ) -> Result<(), BuildPlanConstructError> {
-        // Nothing specific to do here ;)
-        self.resolved_node(_node);
+        let effective_native_toolchain = self.effective_native_toolchain(None).map_err(|e| {
+            BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
+        })?;
+        self.res.runtime_info = Some(BuildRuntimeInfo {
+            effective_native_toolchain,
+        });
+        self.resolved_node(node);
         Ok(())
     }
 

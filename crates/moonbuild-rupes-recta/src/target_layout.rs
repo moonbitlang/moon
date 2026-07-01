@@ -910,7 +910,7 @@ impl ArtifactPathResolver {
                     ..
                 },
             ) => *module == action_module,
-            (BuildProduct::RuntimeLib, BuildAction::BuildRuntimeLib) => true,
+            (BuildProduct::RuntimeLib, BuildAction::BuildRuntimeLib { .. }) => true,
             (
                 BuildProduct::GeneratedMbti { target },
                 BuildAction::GenerateMbti {
@@ -1139,7 +1139,7 @@ mod tests {
     use super::*;
     use crate::{
         build_action_plan::{BuildAction, BuildProduct},
-        build_plan::{BuildCStubsInfo, BuildPlan, BuildTargetInfo, PrebuildInfo},
+        build_plan::{BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo, PrebuildInfo},
         discover::DiscoveredPackage,
         model::BuildPlanNode,
         pkg_name::{PackageFQN, PackagePath},
@@ -1251,16 +1251,26 @@ mod tests {
 
     fn c_stubs_info() -> BuildCStubsInfo {
         BuildCStubsInfo {
-            effective_native_toolchain: Toolchain::from_path_probe(CC {
-                cc_kind: CCKind::SystemCC,
-                cc_path: "cc".to_string(),
-                ar_kind: ARKind::GnuAr,
-                ar_path: "ar".to_string(),
-                target_triple: None,
-                is_env_override: false,
-            }),
+            effective_native_toolchain: system_cc_toolchain(),
             cc_flags: Vec::new(),
             link_flags: Vec::new(),
+        }
+    }
+
+    fn system_cc_toolchain() -> Toolchain {
+        Toolchain::from_path_probe(CC {
+            cc_kind: CCKind::SystemCC,
+            cc_path: "cc".to_string(),
+            ar_kind: ARKind::GnuAr,
+            ar_path: "ar".to_string(),
+            target_triple: None,
+            is_env_override: false,
+        })
+    }
+
+    fn runtime_info() -> BuildRuntimeInfo {
+        BuildRuntimeInfo {
+            effective_native_toolchain: system_cc_toolchain(),
         }
     }
 
@@ -1566,7 +1576,9 @@ mod tests {
         assert_eq!(
             resolver.paths_for_product(
                 &BuildProduct::RuntimeLib,
-                BuildAction::BuildRuntimeLib,
+                BuildAction::BuildRuntimeLib {
+                    info: &runtime_info(),
+                },
                 &packages,
                 &modules,
                 options,
