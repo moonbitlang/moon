@@ -28,7 +28,7 @@
 //! This mirrors the legacy path in `moon/src/cli/test.rs:get_module_for_single_file`
 //! where it programmatically enumerates imports for the synthetic single-file package.
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use indexmap::IndexSet;
 use moonutil::common::TargetBackend;
@@ -58,6 +58,7 @@ pub fn build_synth_single_file_package(
     let &[mid] = env.input_module_ids() else {
         panic!("No multiple main modules are supported")
     };
+    discovered.set_module_info(mid, Arc::clone(env.module_info(mid)));
 
     // Resolve ModuleSource for the ModuleId
     let module_src = env

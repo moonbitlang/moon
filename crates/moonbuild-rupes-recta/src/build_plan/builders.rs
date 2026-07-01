@@ -608,7 +608,7 @@ impl<'a> BuildPlanConstructor<'a> {
         };
 
         let pkg = self.input.pkg_dirs.get_package(target.package);
-        let module = self.input.module_rel.module_info(pkg.module);
+        let module = self.input.module_info(pkg.module);
 
         // Populate `warn_list` by concatenating module-level, package-level,
         // and command-line settings.
@@ -1461,7 +1461,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let command = match prebuild_cmd {
             MoonPkgGenerate::Direct { command, .. } => Cow::Borrowed(command.as_str()),
             MoonPkgGenerate::Rule { rule, .. } => {
-                let module_info = self.input.module_rel.module_info(pkg.module);
+                let module_info = self.input.module_info(pkg.module);
                 Cow::Owned(resolve_prebuild_rule_command(
                     pkg.local_rules(),
                     module_info,

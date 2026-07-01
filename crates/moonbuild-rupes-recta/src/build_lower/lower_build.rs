@@ -340,7 +340,7 @@ impl<'a> LoweringContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let module = self.modules.module_info(package.module);
+        let module = self.packages.module_info(package.module);
 
         let mi_output = products
             .optional_single_output_path_matching(|product| {
@@ -429,7 +429,7 @@ impl<'a> LoweringContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let module = self.modules.module_info(package.module);
+        let module = self.packages.module_info(package.module);
         let mi_inputs = self.prove_mi_inputs_of(target);
 
         let files_vec = self.compiler_source_files(info);
@@ -490,7 +490,7 @@ impl<'a> LoweringContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let module = self.modules.module_info(package.module);
+        let module = self.packages.module_info(package.module);
         let mi_inputs = self.prove_mi_inputs_of(target);
 
         let files_vec = self.compiler_source_files(info);
@@ -570,7 +570,7 @@ impl<'a> LoweringContext<'a> {
         info: &BuildTargetInfo,
     ) -> BuildCommand {
         let package = self.get_package(target);
-        let module = self.modules.module_info(package.module);
+        let module = self.packages.module_info(package.module);
 
         let core_output = products.single_output_path_matching(|product| {
             matches!(
@@ -680,7 +680,7 @@ impl<'a> LoweringContext<'a> {
         let _ = make_executable_info;
 
         let package = self.get_package(target);
-        let module = self.modules.module_info(package.module);
+        let module = self.packages.module_info(package.module);
 
         let mut core_input_files = Vec::new();
         // Add core for the standard library

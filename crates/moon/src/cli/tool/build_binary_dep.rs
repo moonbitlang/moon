@@ -110,7 +110,7 @@ pub(crate) fn run_build_binary_dep(
     let &[main_module_id] = resolve_output.local_modules() else {
         panic!("Expected exactly one main module when building all packages");
     };
-    let main_module_ref = resolve_output.module_rel.module_info(main_module_id);
+    let main_module_ref = resolve_output.module_info(main_module_id);
     let default_backend = main_module_ref.preferred_target.unwrap_or_default();
 
     // Okay let's filter the packages

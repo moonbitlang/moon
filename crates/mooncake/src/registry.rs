@@ -23,22 +23,23 @@ pub mod path;
 
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
-use moonutil::module::MoonMod;
+use indexmap::IndexMap;
+use moonutil::dependency::SourceDependencyInfo;
 use moonutil::mooncakes::ModuleName;
 pub use online::*;
 use semver::Version;
+
+#[derive(Debug, Clone, Default)]
+pub struct RegistryVersionInfo {
+    pub deps: IndexMap<String, SourceDependencyInfo>,
+}
 
 pub trait Registry {
     /// Get all versions of a module.
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>>;
-
-    fn get_module_version(&self, name: &ModuleName, version: &Version) -> Option<Arc<MoonMod>> {
-        let all_versions = self.all_versions_of(name).ok()?;
-        all_versions.get(version).cloned()
-    }
+    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>>;
 
     /// Resolve an unversioned import-style path into:
     /// - module path
@@ -62,9 +63,11 @@ pub trait Registry {
         })
     }
 
-    fn get_latest_version(&self, name: &ModuleName) -> Option<Arc<MoonMod>> {
+    fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
         let all_versions = self.all_versions_of(name).ok()?;
-        all_versions.values().last().cloned()
+        all_versions
+            .last_key_value()
+            .map(|(version, _)| version.clone())
     }
 
     fn install_to(
@@ -83,7 +86,7 @@ where
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
+    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
         (**self).all_versions_of(name)
     }
 
@@ -97,11 +100,7 @@ where
         (**self).install_to(name, version, to, quiet)
     }
 
-    fn get_module_version(&self, name: &ModuleName, version: &Version) -> Option<Arc<MoonMod>> {
-        (**self).get_module_version(name, version)
-    }
-
-    fn get_latest_version(&self, name: &ModuleName) -> Option<Arc<MoonMod>> {
+    fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
         (**self).get_latest_version(name)
     }
 
@@ -117,7 +116,7 @@ where
     fn all_versions_of(
         &self,
         name: &ModuleName,
-    ) -> anyhow::Result<Arc<BTreeMap<Version, Arc<MoonMod>>>> {
+    ) -> anyhow::Result<Arc<BTreeMap<Version, RegistryVersionInfo>>> {
         (**self).all_versions_of(name)
     }
 
@@ -131,11 +130,7 @@ where
         (**self).install_to(name, version, to, quiet)
     }
 
-    fn get_module_version(&self, name: &ModuleName, version: &Version) -> Option<Arc<MoonMod>> {
-        (**self).get_module_version(name, version)
-    }
-
-    fn get_latest_version(&self, name: &ModuleName) -> Option<Arc<MoonMod>> {
+    fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
         (**self).get_latest_version(name)
     }
 

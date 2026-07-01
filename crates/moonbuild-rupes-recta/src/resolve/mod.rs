@@ -40,6 +40,7 @@ use moonutil::{
     },
     dependency::SourceDependencyInfo,
     dirs::WorkspaceEnv,
+    module::MoonMod,
     mooncakes::{DirSyncResult, ModuleId, result::ResolvedEnv, sync::AutoSyncFlags},
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
 };
@@ -77,6 +78,10 @@ impl ResolveOutput {
     /// `ModuleSourceKind::Local`.
     pub fn local_modules(&self) -> &[ModuleId] {
         self.module_rel.input_module_ids()
+    }
+
+    pub fn module_info(&self, id: ModuleId) -> &MoonMod {
+        self.pkg_dirs.module_info(id)
     }
 }
 

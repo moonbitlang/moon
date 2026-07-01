@@ -56,7 +56,7 @@ pub fn gen_metadata_json(
     let (name, deps, source) = match ctx.local_modules() {
         &[main_module_id] => {
             let main_module = ctx.module_rel.module_source(main_module_id);
-            let main_module_json = ctx.module_rel.module_info(main_module_id);
+            let main_module_json = ctx.module_info(main_module_id);
             (
                 main_module.name().to_string(),
                 main_module_json.deps.keys().cloned().collect(),
@@ -70,7 +70,7 @@ pub fn gen_metadata_json(
             let deps = ctx
                 .local_modules()
                 .iter()
-                .flat_map(|&module_id| ctx.module_rel.module_info(module_id).deps.keys().cloned())
+                .flat_map(|&module_id| ctx.module_info(module_id).deps.keys().cloned())
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect();

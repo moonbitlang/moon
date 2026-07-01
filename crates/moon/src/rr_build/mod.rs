@@ -166,12 +166,7 @@ fn local_modules_preferred_target(
     let preferred = resolve_output
         .local_modules()
         .iter()
-        .filter_map(|&module_id| {
-            resolve_output
-                .module_rel
-                .module_info(module_id)
-                .preferred_target
-        })
+        .filter_map(|&module_id| resolve_output.module_info(module_id).preferred_target)
         .collect::<BTreeSet<_>>();
 
     if preferred.len() > 1 {
@@ -532,7 +527,7 @@ pub(crate) fn prepare_resolved_build(
     // Preferred backend
     info!("Checking local modules and backend");
     let main_module = match resolve_output.local_modules() {
-        &[module_id] => Some(resolve_output.module_rel.module_info(module_id)),
+        &[module_id] => Some(resolve_output.module_info(module_id)),
         _ => None,
     };
     let preferred_target = if preconfig.target_backend.is_some() {

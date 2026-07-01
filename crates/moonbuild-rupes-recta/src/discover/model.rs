@@ -21,11 +21,12 @@
 use std::{
     collections::{BTreeMap, HashMap},
     path::PathBuf,
+    sync::Arc,
 };
 
 use moonbuild::expect::PackageSrcResolver;
 use moonutil::common::{MOON_PKG_JSON, TargetBackend};
-use moonutil::module::MoonModRule;
+use moonutil::module::{MoonMod, MoonModRule};
 use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedRootModules};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
 use slotmap::{SecondaryMap, SlotMap};
@@ -149,6 +150,9 @@ impl DiscoveredPackage {
 /// The result of a package discovery process.
 #[derive(Debug, Clone, Default)]
 pub struct DiscoverResult {
+    /// Module manifests read from the resolved source directories.
+    module_infos: SecondaryMap<ModuleId, Arc<MoonMod>>,
+
     /// The directory of all discovered packages
     packages: SlotMap<PackageId, DiscoveredPackage>,
 
@@ -185,6 +189,17 @@ pub struct DiscoveredLocalProject {
 }
 
 impl DiscoverResult {
+    pub(super) fn set_module_info(&mut self, module: ModuleId, info: Arc<MoonMod>) {
+        self.module_infos.insert(module, info);
+    }
+
+    pub fn module_info(&self, module: ModuleId) -> &MoonMod {
+        self.module_infos
+            .get(module)
+            .expect("module info should be discovered before use")
+            .as_ref()
+    }
+
     /// Add a discovered package to the result.
     ///
     /// If a package with the same fully-qualified name already exists, an error

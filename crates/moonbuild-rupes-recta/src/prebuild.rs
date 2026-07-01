@@ -84,7 +84,7 @@ fn run_prebuild_for_module(
     environment: &PrebuildEnvironment,
     ret: &mut PrebuildOutput,
 ) -> anyhow::Result<()> {
-    let m_info = &**resolve_output.module_rel.module_info(m);
+    let m_info = resolve_output.module_info(m);
     let m_dir = resolve_output.module_dirs.get(m).expect("module not found");
     let Some(prebuild) = &m_info.__moonbit_unstable_prebuild else {
         return Ok(());
