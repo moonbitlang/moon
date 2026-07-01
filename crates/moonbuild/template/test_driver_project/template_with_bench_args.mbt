@@ -25,7 +25,7 @@ impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_With_Bench_Args with f
         }
       }
     }
-    let bench = @moonbitlang/core/bench.new()
+    let bench = @moonbitlang/core/bench.Bench()
     moonbit_test_driver_internal_catch_error(
       () => f(bench),
       on_ok=() => {
