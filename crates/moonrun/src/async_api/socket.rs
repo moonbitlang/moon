@@ -124,22 +124,9 @@ pub(super) fn addr_is_multicast(
         .map(i32::from)
 }
 
-#[ported(
-    source = "src/socket/socket.c",
-    original = "moonbitlang_async_addr_get_ipv6_bytes"
-)]
-pub(super) fn addr_copy_ipv6_bytes(
-    context: &mut ImportContext<'_, '_>,
-    addr: i32,
-    out: i32,
-    addr_len: i32,
-    len: i32,
-) -> AsyncHostResult<()> {
-    context.with_memory_mut(|memory| {
-        let addr = memory.read_exact(addr, addr_len)?.to_vec();
-        let out = memory.read_exact_mut(out, len)?;
-        sys::addr_copy_ipv6_bytes(&addr, out)
-    })
+#[ported(source = "src/socket/socket.c")]
+pub(super) fn addr_get_ipv6_bytes_offset(_context: &mut ImportContext<'_, '_>) -> i32 {
+    sys::addr_get_ipv6_bytes_offset()
 }
 
 #[ported(source = "src/socket/socket.c")]

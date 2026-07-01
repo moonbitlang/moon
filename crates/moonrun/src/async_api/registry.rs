@@ -462,7 +462,7 @@ declare_async_imports! {
 
     ported socket::addr_is_multicast(addr: i32, addr_len: i32) -> i32 => "socket/addr_is_multicast";
 
-    ported socket::addr_copy_ipv6_bytes(addr: i32, out: i32, addr_len: i32, len: i32) -> void => "socket/addr_copy_ipv6_bytes";
+    ported socket::addr_get_ipv6_bytes_offset() -> i32 => "socket/addr_get_ipv6_bytes_offset";
 
     ported socket::addr_get_ipv6_scope_id(addr: i32, addr_len: i32) -> i32 => "socket/addr_get_ipv6_scope_id";
 
