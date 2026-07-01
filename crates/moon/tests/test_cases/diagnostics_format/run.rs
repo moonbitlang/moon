@@ -12,10 +12,10 @@ fn test_moon_run_json_output() {
             ["run", "main", "--output-json", "--sort-input", "-j1", "-q"],
         ),
         expect![[r#"
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"4:7-4:8","message":"Warning (unused_value): Unused variable 'a'"}
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"11:7-11:9","message":"Warning (unused_value): Unused variable '中文'"}
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"12:7-12:12","message":"Warning (unused_value): Unused variable '🤣😭🤣😭🤣'"}
-            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/main/main.mbt","loc":"2:7-2:8","message":"Warning (unused_value): Unused variable 'a'"}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"4:7-4:8","message":"Warning (unused_value): Unused variable 'a'","context":"3 |fn _a() -> Unit {/n4 |  let a = 1;/n5 |  // 中文中文中文中文中文中文/n"}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"11:7-11:9","message":"Warning (unused_value): Unused variable '中文'","context":"10 |  // 🤣😭🤣😭🤣😭🤣😭🤣😭/n11 |  let 中文 = 2/n12 |  let 🤣😭🤣😭🤣 = 2/n"}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/lib/hello.mbt","loc":"12:7-12:12","message":"Warning (unused_value): Unused variable '🤣😭🤣😭🤣'","context":"11 |  let 中文 = 2/n12 |  let 🤣😭🤣😭🤣 = 2/n13 |  alert_1();/n"}
+            {"$message_type":"diagnostic","level":"warning","error_code":2,"path":"$ROOT/main/main.mbt","loc":"2:7-2:8","message":"Warning (unused_value): Unused variable 'a'","context":"1 |fn main {/n2 |  let a = 0/n3 |  @lib.hello()/n"}
         "#]],
     );
 }
