@@ -21,7 +21,7 @@ use std::ffi::OsString;
 use crate::async_host::AsyncHostResult;
 use crate::async_sys::ported_fns;
 
-use super::FileResource;
+use super::Resource;
 
 ported_fns! {
     #[ported(
@@ -29,7 +29,7 @@ ported_fns! {
         original = "bind_job_worker"
     )]
         pub(super) fn run_bind_job(
-        socket: &FileResource,
+        socket: &Resource,
         addr: &[u8],
     ) -> AsyncHostResult<i64> {
         crate::async_sys::socket::bind(socket.raw_fd(), addr)?;

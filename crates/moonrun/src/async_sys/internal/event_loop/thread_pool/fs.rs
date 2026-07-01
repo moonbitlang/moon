@@ -25,7 +25,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult, HostCBuffer};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 
-use super::{FileResource, FileTimeResult, OpenJobResource, OpenJobResult};
+use super::{FileTimeResult, OpenJobResource, OpenJobResult, Resource};
 
 type RawFile = fd_util::stub::RawFd;
 
@@ -51,7 +51,7 @@ ported_fns! {
             file_id,
         } = open_native_file(filename, access, create_mode, append, sync, mode)?;
         *result = Some(OpenJobResult {
-            resource: OpenJobResource::Unpublished(FileResource::new(file)),
+            resource: OpenJobResource::Unpublished(Resource::new(file)),
             kind,
             dev_id,
             file_id,
@@ -64,7 +64,7 @@ ported_fns! {
         original = "read_job_worker"
     )]
     pub(super) fn run_read_job(
-        file: &FileResource,
+        file: &Resource,
         len: i32,
         position: i64,
         result: &mut Option<Vec<u8>>,
@@ -81,7 +81,7 @@ ported_fns! {
         original = "write_job_worker"
     )]
     pub(super) fn run_write_job(
-        file: &FileResource,
+        file: &Resource,
         data: &[u8],
         position: i64,
     ) -> AsyncHostResult<i64> {
@@ -94,7 +94,7 @@ ported_fns! {
         original = "file_kind_by_path_job_worker"
     )]
     pub(super) fn run_file_kind_by_path_job(
-        parent: Option<&FileResource>,
+        parent: Option<&Resource>,
         path: OsString,
         follow_symlink: bool,
     ) -> AsyncHostResult<i64> {
@@ -106,7 +106,7 @@ ported_fns! {
         original = "file_size_job_worker"
     )]
     pub(super) fn run_file_size_job(
-        file: &FileResource,
+        file: &Resource,
         result: &mut i64,
     ) -> AsyncHostResult<i64> {
         *result = file_size(file.raw_fd())?;
@@ -118,7 +118,7 @@ ported_fns! {
         original = "file_time_job_worker"
     )]
     pub(super) fn run_file_time_job(
-        file: &FileResource,
+        file: &Resource,
         result: &mut Option<FileTimeResult>,
     ) -> AsyncHostResult<i64> {
         *result = Some(FileTimeResult::new(file_time(file.raw_fd())?));
@@ -164,7 +164,7 @@ ported_fns! {
         original = "fsync_job_worker"
     )]
     pub(super) fn run_fsync_job(
-        file: &FileResource,
+        file: &Resource,
         only_data: bool,
     ) -> AsyncHostResult<i64> {
         sync_native_file(file.raw_fd(), only_data)?;
@@ -176,7 +176,7 @@ ported_fns! {
         original = "flock_job_worker"
     )]
     pub(super) fn run_flock_job(
-        file: &FileResource,
+        file: &Resource,
         exclusive: bool,
     ) -> AsyncHostResult<i64> {
         lock_native_file(file.raw_fd(), exclusive)?;
@@ -241,7 +241,7 @@ ported_fns! {
         original = "readdir_job_worker"
     )]
     pub(super) fn run_readdir_job(
-        dir: &FileResource,
+        dir: &Resource,
         buffer: &HostCBuffer,
         len: i32,
         restart: bool,
@@ -571,7 +571,7 @@ fn write_to_native_file(fd: RawFile, data: &[u8], position: i64) -> AsyncHostRes
 
 #[cfg(unix)]
 fn file_kind_by_path(
-    parent: Option<&FileResource>,
+    parent: Option<&Resource>,
     path: OsString,
     follow_symlink: bool,
 ) -> AsyncHostResult<i32> {
@@ -582,7 +582,7 @@ fn file_kind_by_path(
         libc::AT_SYMLINK_NOFOLLOW
     };
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    let parent = parent.map(FileResource::raw_fd).unwrap_or(libc::AT_FDCWD);
+    let parent = parent.map(Resource::raw_fd).unwrap_or(libc::AT_FDCWD);
     let ret = unsafe { libc::fstatat(parent, path.as_ptr(), stat.as_mut_ptr(), flags) };
     if ret < 0 {
         Err(last_native_error())
@@ -739,7 +739,7 @@ fn rmdir_native_path(path: OsString) -> AsyncHostResult<()> {
 }
 
 #[cfg(all(unix, target_os = "linux"))]
-fn read_native_dir(file: &FileResource, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
+fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
     let fd = file.raw_fd();
     if restart && unsafe { libc::lseek(fd, 0, libc::SEEK_SET) } < 0 {
         return Err(last_native_error());
@@ -755,7 +755,7 @@ fn read_native_dir(file: &FileResource, out: &mut [u8], restart: bool) -> AsyncH
 }
 
 #[cfg(all(unix, target_os = "macos"))]
-fn read_native_dir(file: &FileResource, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
+fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
     let fd = file.raw_fd();
     if restart && unsafe { libc::lseek(fd, 0, libc::SEEK_SET) } < 0 {
         return Err(last_native_error());
@@ -1003,7 +1003,7 @@ fn restore_file_pointer(
 
 #[cfg(windows)]
 fn file_kind_by_path(
-    parent: Option<&FileResource>,
+    parent: Option<&Resource>,
     path: OsString,
     follow_symlink: bool,
 ) -> AsyncHostResult<i32> {
@@ -1043,7 +1043,7 @@ fn file_kind_by_path(
 
 #[cfg(windows)]
 fn resolve_windows_path_for_parent(
-    parent: Option<&FileResource>,
+    parent: Option<&Resource>,
     path: OsString,
 ) -> AsyncHostResult<OsString> {
     let Some(parent) = parent else {
@@ -1491,7 +1491,7 @@ fn rmdir_native_path(path: OsString) -> AsyncHostResult<()> {
 }
 
 #[cfg(windows)]
-fn read_native_dir(file: &FileResource, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
+fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
     use windows_sys::Win32::Foundation::{ERROR_NO_MORE_FILES, HANDLE};
     use windows_sys::Win32::Storage::FileSystem::{
         FileIdBothDirectoryInfo, FileIdBothDirectoryRestartInfo, GetFileInformationByHandleEx,

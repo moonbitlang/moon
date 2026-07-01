@@ -21,7 +21,7 @@ use std::thread::JoinHandle;
 
 #[cfg(windows)]
 use crate::async_host::AsyncHostError;
-use crate::async_host::{AsyncHostResult, HostJobKey};
+use crate::async_host::{AsyncHostResult, HandleKey};
 use crate::async_sys::ported_fns;
 
 use super::Job;
@@ -42,13 +42,13 @@ impl WorkerCompletionId {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct HostWorkerJob {
     pub(crate) completion_id: WorkerCompletionId,
-    pub(crate) job_key: HostJobKey,
+    pub(crate) job_key: HandleKey,
 }
 
 #[derive(Debug)]
 pub(crate) struct HostWorkerJobResult {
     pub(crate) completion_id: WorkerCompletionId,
-    pub(crate) job_key: HostJobKey,
+    pub(crate) job_key: HandleKey,
     pub(crate) job: Option<Job>,
 }
 
@@ -302,15 +302,15 @@ mod tests {
     use slotmap::KeyData;
     use std::sync::mpsc;
 
-    fn make_job_key(value: u64) -> HostJobKey {
+    fn make_job_key(value: u64) -> HandleKey {
         KeyData::from_ffi(value).into()
     }
 
-    fn worker_job_summary(job: &HostWorkerJob) -> (WorkerCompletionId, HostJobKey) {
+    fn worker_job_summary(job: &HostWorkerJob) -> (WorkerCompletionId, HandleKey) {
         (job.completion_id, job.job_key)
     }
 
-    fn worker_result_summary(job: &HostWorkerJobResult) -> (WorkerCompletionId, HostJobKey) {
+    fn worker_result_summary(job: &HostWorkerJobResult) -> (WorkerCompletionId, HandleKey) {
         (job.completion_id, job.job_key)
     }
 

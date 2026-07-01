@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::thread_pool::{FileResourceTable, HostHandle};
+use crate::async_sys::internal::event_loop::thread_pool::{HostHandle, ResourceTable};
 use crate::async_sys::ported_fns;
 
 #[cfg(unix)]
@@ -250,8 +250,8 @@ fn create_named_pipe_client(name: &std::ffi::OsStr, is_async: bool) -> RawFd {
     }
 }
 
-pub(crate) fn pipe_file_resources(
-    files: &mut impl FileResourceTable,
+pub(crate) fn pipe_resources(
+    resources: &mut impl ResourceTable,
     read_end_is_async: bool,
     write_end_is_async: bool,
 ) -> AsyncHostResult<[HostHandle; 2]> {
@@ -259,8 +259,8 @@ pub(crate) fn pipe_file_resources(
     {
         let _ = (read_end_is_async, write_end_is_async);
         let fds = pipe()?;
-        let read = files.insert_file(fds[0])?;
-        let write = files.insert_file(fds[1])?;
+        let read = resources.insert_file(fds[0])?;
+        let write = resources.insert_file(fds[1])?;
         Ok([read, write])
     }
 
@@ -291,8 +291,8 @@ pub(crate) fn pipe_file_resources(
             return Err(last_native_error());
         }
 
-        let read = files.insert_file(read)?;
-        let write = files.insert_file(write)?;
+        let read = resources.insert_file(read)?;
+        let write = resources.insert_file(write)?;
         Ok([read, write])
     }
 }

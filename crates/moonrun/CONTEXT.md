@@ -37,13 +37,29 @@ _Avoid_: Guest UTF-8 path buffer
 Memory owned by moonrun while servicing guest jobs.
 _Avoid_: Native buffer, temporary buffer
 
+**Handle**:
+An opaque value held by MoonBit code that names a moonrun object at the Native-Shaped Async Boundary, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, or Completion Source.
+_Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
+
 **Resource**:
-A moonrun-owned OS or runtime resource exposed to MoonBit through an opaque async boundary value.
+A moonrun-owned OS or runtime object that can be acquired by a Job, such as a file, socket, or directory cursor.
+A Resource is not the Handle that names it.
 _Avoid_: Capability, Host Resource, Guest Resource, raw fd, pointer, id
 
+**Resource Class**:
+The host-side classification of a Resource used for operation checks and future policy decisions; the current classes are file, TCP socket, and UDP socket.
+A Resource Class is not a separate Handle namespace.
+_Avoid_: Handle type, fd type, raw OS type
+
 **Resource Handle**:
-An opaque value held by MoonBit code that names a resource at the async boundary.
+A Resource Handle is a Handle that names a Resource while it remains reachable to guest code.
+Closing a Resource Handle removes future reachability; it does not describe ownership of already-acquired references.
 _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
+
+**Acquired Resource**:
+A host-owned reference to a Resource captured before a Job runs.
+It lets an already-submitted Job finish without duplicating OS handles, even if the Resource Handle is closed later.
+_Avoid_: Duplicated fd, borrowed fd, guest handle
 
 **Native-Shaped Async Boundary**:
 The wasm async host boundary that keeps MoonBit-facing concepts aligned with `moonbitlang/async` native concepts even when moonrun uses different host representations.
@@ -59,7 +75,7 @@ The V8-facing `moonbitlang/async` adapter that registers imports, decodes wasm A
 _Avoid_: Runtime state, native-stub implementation
 
 **Async Host**:
-Moonrun-owned async runtime state for one V8 `moonbitlang/async` host instance: handle tables, host workers, completion queues, guest-memory helper types, and opaque host poll instances.
+Moonrun-owned async runtime state for one V8 `moonbitlang/async` host instance: the Handle table, host workers, completion queues, guest-memory helper types, and opaque host poll instances.
 _Avoid_: `moonbitlang/async` source mirror
 
 **Async Sys**:
@@ -67,7 +83,7 @@ The V8-free native-stub port layer. Implemented files follow the `moonbitlang/as
 _Avoid_: V8 adapter, placeholder unsupported imports
 
 **Host Poller**:
-The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque `Instance` handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`; moonrun resolves registered host fd handles to platform fds or HANDLEs.
+The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque `Instance` handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`; moonrun resolves registered file-like Resource Handles to platform fds or HANDLEs.
 _Avoid_: Completion queue, worker wakeup
 
 **Thread-Pool Completion Source**:

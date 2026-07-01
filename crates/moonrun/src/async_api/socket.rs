@@ -19,6 +19,7 @@
 #[cfg(unix)]
 use crate::async_host::AsyncHostError;
 use crate::async_host::{AsyncHostResult, GuestMemory, read_u16};
+use crate::async_sys::internal::event_loop::thread_pool::ResourceClass;
 use crate::async_sys::socket as sys;
 
 use super::context::ImportContext;
@@ -215,7 +216,9 @@ pub(super) fn addrinfo_free(context: &mut ImportContext<'_, '_>, addrinfo: u64) 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn make_tcp_socket(context: &mut ImportContext<'_, '_>, family: i32) -> u64 {
     match sys::make_tcp_socket(family) {
-        Ok(fd) => context.host.insert_socket_resource(fd),
+        Ok(fd) => context
+            .host
+            .insert_socket_resource(fd, ResourceClass::TcpSocket),
         Err(error) => {
             context.host.record_error(error);
             context.host.invalid_fd()
@@ -226,7 +229,9 @@ pub(super) fn make_tcp_socket(context: &mut ImportContext<'_, '_>, family: i32) 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn make_udp_socket(context: &mut ImportContext<'_, '_>, family: i32, multicast: i32) -> u64 {
     match sys::make_udp_socket(family, multicast != 0) {
-        Ok(fd) => context.host.insert_socket_resource(fd),
+        Ok(fd) => context
+            .host
+            .insert_socket_resource(fd, ResourceClass::UdpSocket),
         Err(error) => {
             context.host.record_error(error);
             context.host.invalid_fd()
@@ -247,7 +252,7 @@ pub(super) fn join_multicast_group(
     let result = context.with_memory_mut(|memory| {
         let multi_addr = memory.read_exact(multi_addr, multi_addr_len)?.to_vec();
         let local_addr = memory.read_exact(local_addr, local_addr_len)?.to_vec();
-        host.with_raw_file(fd, |fd| {
+        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
             sys::join_multicast_group(fd, &multi_addr, &local_addr)
         })
     });
@@ -265,7 +270,7 @@ pub(super) fn join_multicast_group_v6(
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let multi_addr = memory.read_exact(multi_addr, multi_addr_len)?.to_vec();
-        host.with_raw_file(fd, |fd| {
+        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
             sys::join_multicast_group_v6(fd, &multi_addr, interface_index)
         })
     });
@@ -282,7 +287,9 @@ pub(super) fn set_multicast_interface(
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let local_addr = memory.read_exact(local_addr, local_addr_len)?.to_vec();
-        host.with_raw_file(fd, |fd| sys::set_multicast_interface(fd, &local_addr))
+        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
+            sys::set_multicast_interface(fd, &local_addr)
+        })
     });
     zero_or_minus_one(context, result)
 }
@@ -296,7 +303,7 @@ pub(super) fn set_multicast_interface_v6(
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_file(fd, |fd| {
+        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
             sys::set_multicast_interface_v6(fd, interface_index)
         }),
     )
@@ -312,7 +319,9 @@ pub(super) fn set_multicast_ttl(
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_file(fd, |fd| sys::set_multicast_ttl(fd, ttl, family)),
+        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
+            sys::set_multicast_ttl(fd, ttl, family)
+        }),
     )
 }
 
@@ -326,7 +335,7 @@ pub(super) fn set_multicast_loopback(
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_file(fd, |fd| {
+        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
             sys::set_multicast_loopback(fd, enable != 0, family)
         }),
     )
@@ -335,13 +344,16 @@ pub(super) fn set_multicast_loopback(
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn disable_nagle(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
     let host = context.host;
-    zero_or_minus_one(context, host.with_raw_file(fd, sys::disable_nagle))
+    zero_or_minus_one(
+        context,
+        host.with_raw_resource_class(fd, ResourceClass::TcpSocket, sys::disable_nagle),
+    )
 }
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn allow_reuse_addr(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
     let host = context.host;
-    zero_or_minus_one(context, host.with_raw_file(fd, sys::allow_reuse_addr))
+    zero_or_minus_one(context, host.with_raw_socket(fd, sys::allow_reuse_addr))
 }
 
 #[ported(source = "src/socket/socket.c")]
@@ -349,14 +361,17 @@ pub(super) fn set_ipv6_only(context: &mut ImportContext<'_, '_>, fd: u64, ipv6_o
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_file(fd, |fd| sys::set_ipv6_only(fd, ipv6_only != 0)),
+        host.with_raw_socket(fd, |fd| sys::set_ipv6_only(fd, ipv6_only != 0)),
     )
 }
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn listen(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
     let host = context.host;
-    zero_or_minus_one(context, host.with_raw_file(fd, sys::listen))
+    zero_or_minus_one(
+        context,
+        host.with_raw_resource_class(fd, ResourceClass::TcpSocket, sys::listen),
+    )
 }
 
 #[ported(source = "src/socket/socket.c")]
@@ -370,7 +385,7 @@ pub(super) fn enable_keepalive(
     let host = context.host;
     zero_or_minus_one(
         context,
-        host.with_raw_file(fd, |fd| {
+        host.with_raw_resource_class(fd, ResourceClass::TcpSocket, |fd| {
             sys::enable_keepalive(fd, keep_idle, keep_count, keep_intvl)
         }),
     )
@@ -381,7 +396,7 @@ pub(super) fn getsockname(context: &mut ImportContext<'_, '_>, fd: u64, addr: i3
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact_mut(addr, addr_len)?;
-        host.with_raw_file(fd, |fd| sys::getsockname(fd, addr))
+        host.with_raw_socket(fd, |fd| sys::getsockname(fd, addr))
     });
     zero_or_minus_one(context, result)
 }
@@ -427,7 +442,9 @@ pub(super) fn udp_client_connect(
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?.to_vec();
-        host.with_raw_file(fd, |fd| sys::udp_client_connect(fd, &addr))
+        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
+            sys::udp_client_connect(fd, &addr)
+        })
     });
     zero_or_minus_one(context, result)
 }
@@ -436,7 +453,7 @@ pub(super) fn bind(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?.to_vec();
-        host.with_raw_file(fd, |fd| sys::bind(fd, &addr))
+        host.with_raw_socket(fd, |fd| sys::bind(fd, &addr))
     });
     zero_or_minus_one(context, result)
 }
@@ -464,7 +481,9 @@ pub(super) fn recvfrom(
         memory.read_exact(offset_buf, len)?;
         let mut data = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
         let mut addr_data = memory.read_exact(addr, addr_len)?.to_vec();
-        let n = host.with_raw_file(fd, |fd| sys::recvfrom(fd, &mut data, &mut addr_data))?;
+        let n = host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
+            sys::recvfrom(fd, &mut data, &mut addr_data)
+        })?;
         memory.write_exact(offset_buf, &data[..n])?;
         memory.write_exact(addr, &addr_data)?;
         i32::try_from(n).map_err(|_| AsyncHostError::Fault)
@@ -500,7 +519,9 @@ pub(super) fn sendto(
     let result = context.with_memory_mut(|memory| {
         let data = memory.read_exact(offset_buf, len)?.to_vec();
         let addr = memory.read_exact(addr, addr_len)?.to_vec();
-        host.with_raw_file(fd, |fd| sys::sendto(fd, &data, &addr))
+        host.with_raw_resource_class(fd, ResourceClass::UdpSocket, |fd| {
+            sys::sendto(fd, &data, &addr)
+        })
             .and_then(|n| i32::try_from(n).map_err(|_| AsyncHostError::Fault))
     });
     match result {
@@ -518,7 +539,7 @@ pub(super) fn connect(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, a
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
-        host.with_raw_file(fd, |fd| sys::connect(fd, addr))
+        host.with_raw_resource_class(fd, ResourceClass::TcpSocket, |fd| sys::connect(fd, addr))
     });
     zero_or_minus_one(context, result)
 }
@@ -527,7 +548,7 @@ pub(super) fn connect(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, a
 #[cfg(unix)]
 pub(super) fn getsockerr(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
     let host = context.host;
-    match host.with_raw_file(fd, sys::getsockerr) {
+    match host.with_raw_socket(fd, sys::getsockerr) {
         Ok(err) => err,
         Err(error) => {
             context.host.record_error(error);
@@ -542,10 +563,12 @@ pub(super) fn accept(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, ad
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact_mut(addr, addr_len)?;
-        host.with_raw_file(fd, |fd| sys::accept(fd, addr))
+        host.with_raw_resource_class(fd, ResourceClass::TcpSocket, |fd| sys::accept(fd, addr))
     });
     match result {
-        Ok(fd) => context.host.insert_socket_resource(fd),
+        Ok(fd) => context
+            .host
+            .insert_socket_resource(fd, ResourceClass::TcpSocket),
         Err(error) => {
             context.host.record_error(error);
             context.host.invalid_fd()
