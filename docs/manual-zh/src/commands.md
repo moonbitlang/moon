@@ -261,6 +261,9 @@ Local package inputs are handled like `moon run --target wasm`:
   moon runwasm main
   moon runwasm ./main
 
+Experimental moonrun policy forwarding:
+  moon runwasm --experimental-policy moonrun-policy.toml main
+
 Accepted Mooncakes coordinate forms:
   moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
   moon runwasm moonbitlang/parser@0.3.3/cmd/moonfmt
@@ -271,12 +274,18 @@ the latest version from the registry index, updating it only when the module is
 absent from the local index. Fetched wasm files are cached under
 $MOON_HOME/registry/cache/assets and reused on later runs.
 
-**Usage:** `moon runwasm <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]...`
+**Usage:** `moon runwasm [OPTIONS] <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]...`
 
 ###### **Arguments:**
 
 * `<LOCAL_PACKAGE|PACKAGE[@VERSION]>` — Local package path or Mooncakes package coordinate of the prebuilt wasm binary
 * `<ARGS>` — The arguments provided to the wasm program
+
+###### **Options:**
+
+* `--experimental-policy <PATH>` — Experimental: pass a moonrun TOML policy file for moonbitlang/async runtime access.
+
+   The policy applies to moonbitlang/async and moonrun-owned unstable FFI; WASI is not covered.
 
 
 

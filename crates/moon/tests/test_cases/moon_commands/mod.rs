@@ -146,6 +146,43 @@ arg2
 }
 
 #[test]
+fn test_runwasm_help_marks_policy_as_experimental() {
+    let dir = TestDir::new_empty();
+    let help = get_stdout(&dir, ["runwasm", "--help"]);
+    assert!(
+        help.contains("--experimental-policy <PATH>"),
+        "expected runwasm help to expose experimental policy flag, got:\n{help}"
+    );
+    assert!(
+        help.contains("Experimental: pass a moonrun TOML policy file"),
+        "expected runwasm help to mark policy as experimental, got:\n{help}"
+    );
+    assert!(
+        help.contains("WASI is not covered"),
+        "expected runwasm help to explain policy scope, got:\n{help}"
+    );
+}
+
+#[test]
+fn test_runwasm_local_package_forwards_experimental_policy() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "runwasm",
+            "--experimental-policy",
+            "missing-policy.toml",
+            "main",
+        ],
+        [("MOONRUN_OVERRIDE", moonrun_bin())],
+    );
+    assert!(
+        stderr.contains("failed to load moonrun policy"),
+        "expected moonrun policy load error, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn test_run_with_explicit_target_exits_with_guest_exit_code() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)
@@ -218,6 +255,45 @@ fn test_runwasm_cached_asset_exits_with_guest_exit_code() {
         .code(7)
         .stdout_eq("")
         .stderr_eq("");
+}
+
+#[test]
+fn test_runwasm_cached_asset_forwards_experimental_policy() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
+
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::copy(
+        dir.join("_build/wasm-gc/debug/build/main/main.wasm"),
+        &cache_path,
+    )
+    .unwrap();
+
+    let envs = vec![
+        ("MOON_HOME".to_string(), moon_home.path().to_path_buf()),
+        ("MOONRUN_OVERRIDE".to_string(), moonrun_bin()),
+    ];
+    let stderr = get_err_stderr_with_envs(
+        &dir,
+        [
+            "runwasm",
+            "--experimental-policy",
+            "missing-policy.toml",
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+        ],
+        envs,
+    );
+    assert!(
+        stderr.contains("failed to load moonrun policy"),
+        "expected moonrun policy load error, got:\n{stderr}"
+    );
 }
 
 #[test]

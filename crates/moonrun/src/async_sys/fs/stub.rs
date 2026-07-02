@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::Resource;
@@ -58,30 +58,6 @@ ported_fns! {
         {
             tmp_path_from_native_stub()
         }
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn get_tmp_path_buffer() -> AsyncHostResult<Box<[u8]>> {
-        use std::os::unix::ffi::OsStrExt;
-
-        let path = tmp_path_from_native_stub();
-        Ok(copy_c_string_bytes(path.as_os_str().as_bytes()))
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn get_tmp_path_buffer() -> AsyncHostResult<Box<[u8]>> {
-        use windows_sys::Win32::Foundation::{GetLastError, MAX_PATH};
-        use windows_sys::Win32::Storage::FileSystem::GetTempPath2W;
-
-        let mut wide_buffer = [0u16; MAX_PATH as usize + 1];
-        let len = unsafe { GetTempPath2W(wide_buffer.len() as u32, wide_buffer.as_mut_ptr()) };
-        if len == 0 {
-            return Err(AsyncHostError::Native(unsafe { GetLastError() as i32 }));
-        }
-
-        let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
-        let units = wide_buffer.get(..len).ok_or(AsyncHostError::Fault)?;
-        Ok(copy_wide_c_string_bytes(units))
     }
 
     #[ported(
@@ -171,6 +147,37 @@ pub(crate) fn unlock_acquired_file(file: &Resource) -> AsyncHostResult<()> {
     unlock_file(file.raw_fd())
 }
 
+#[cfg(unix)]
+pub(crate) fn get_tmp_path_from_env(tmpdir: Option<OsString>) -> AsyncHostResult<OsString> {
+    Ok(tmp_path_from_env(tmpdir))
+}
+
+#[cfg(windows)]
+pub(crate) fn get_tmp_path_from_env(
+    tmp: Option<OsString>,
+    temp: Option<OsString>,
+) -> AsyncHostResult<OsString> {
+    tmp.or(temp)
+        .and_then(separator_terminated_windows_path)
+        .ok_or(AsyncHostError::PermissionDenied)
+}
+
+#[cfg(unix)]
+pub(crate) fn tmp_path_buffer(path: &OsStr) -> AsyncHostResult<Box<[u8]>> {
+    use std::os::unix::ffi::OsStrExt;
+
+    Ok(copy_c_string_bytes(path.as_bytes()))
+}
+
+#[cfg(windows)]
+pub(crate) fn tmp_path_buffer(path: &OsStr) -> AsyncHostResult<Box<[u8]>> {
+    use std::os::windows::ffi::OsStrExt;
+
+    Ok(wide_units_to_tmp_path_buffer(
+        &path.encode_wide().collect::<Vec<_>>(),
+    ))
+}
+
 fn last_native_error() -> AsyncHostError {
     AsyncHostError::Native(
         std::io::Error::last_os_error()
@@ -181,10 +188,15 @@ fn last_native_error() -> AsyncHostError {
 
 #[cfg(unix)]
 fn tmp_path_from_native_stub() -> OsString {
+    tmp_path_from_env(std::env::var_os("TMPDIR"))
+}
+
+#[cfg(unix)]
+fn tmp_path_from_env(tmpdir: Option<OsString>) -> OsString {
     // POSIX reserves TMPDIR for temporary-file placement. The async tmpdir
     // layer concatenates this base path with a generated name, so the host
     // normalizes the Unix base to include the separator.
-    std::env::var_os("TMPDIR")
+    tmpdir
         .and_then(separator_terminated_unix_path)
         .unwrap_or_else(default_unix_tmp_path)
 }
@@ -214,6 +226,20 @@ fn separator_terminated_unix_path(path: OsString) -> Option<OsString> {
     let mut bytes = path.into_vec();
     bytes.push(b'/');
     Some(OsString::from_vec(bytes))
+}
+
+#[cfg(windows)]
+fn separator_terminated_windows_path(path: OsString) -> Option<OsString> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    let mut units = path.as_os_str().encode_wide().collect::<Vec<_>>();
+    if units.is_empty() {
+        return None;
+    }
+    if !matches!(units.last(), Some(unit) if *unit == b'\\' as u16 || *unit == b'/' as u16) {
+        units.push(b'\\' as u16);
+    }
+    Some(OsString::from_wide(&units))
 }
 
 #[cfg(windows)]
@@ -259,6 +285,11 @@ fn copy_wide_c_string_bytes(units: &[u16]) -> Box<[u8]> {
     unsafe { buffer.assume_init() }
 }
 
+#[cfg(windows)]
+fn wide_units_to_tmp_path_buffer(units: &[u16]) -> Box<[u8]> {
+    copy_wide_c_string_bytes(units)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,7 +305,8 @@ mod tests {
 
     #[test]
     fn tmp_path_buffer_is_non_empty() {
-        let buffer = get_tmp_path_buffer().unwrap();
+        let path = get_tmp_path().unwrap();
+        let buffer = tmp_path_buffer(path.as_os_str()).unwrap();
 
         assert!(!buffer.is_empty());
         #[cfg(unix)]

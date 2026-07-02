@@ -16,15 +16,18 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use anyhow::Context;
 use clap::Parser;
 use std::any::Any;
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::Arc;
 use std::{cell::Cell, io::Read, path::PathBuf, time::Instant};
 use v8::V8::set_flags_from_string;
 
 mod async_api;
 mod async_host;
+mod async_policy;
 mod async_sys;
 mod backtrace_api;
 mod demangle_js_template;
@@ -356,6 +359,7 @@ fn init_env(
     scope: &mut v8::HandleScope,
     wasm_file_name: &str,
     args: &[String],
+    async_policy: Arc<async_policy::AsyncPolicy>,
 ) {
     let global_proxy = scope.get_current_context().global(scope);
 
@@ -388,7 +392,7 @@ fn init_env(
 
     {
         let async_runtime = global_proxy.child(scope, async_api::MOONBIT_ASYNC_MODULE);
-        async_api::init_env(async_runtime, scope, dtors);
+        async_api::init_env(async_runtime, scope, dtors, Arc::clone(&async_policy));
     }
 
     {
@@ -399,8 +403,15 @@ fn init_env(
     // API for the fs module
     {
         let obj = global_proxy.child(scope, "__moonbit_fs_unstable");
-        sys_api::init_env(obj, scope, wasm_file_name, args);
-        fs_api_temp::init_fs(obj, scope);
+        sys_api::init_env(
+            obj,
+            scope,
+            wasm_file_name,
+            args,
+            Arc::clone(&async_policy),
+            dtors,
+        );
+        fs_api_temp::init_fs(obj, scope, Arc::clone(&async_policy), dtors);
     }
     backtrace_api::init(scope);
 
@@ -457,6 +468,7 @@ fn wasm_mode(
     args: &[String],
     no_stack_trace: bool,
     test_args: Option<String>,
+    async_policy: Arc<async_policy::AsyncPolicy>,
 ) -> anyhow::Result<()> {
     let isolate = &mut v8::Isolate::new(Default::default());
     let scope = &mut v8::HandleScope::new(isolate);
@@ -492,7 +504,7 @@ fn wasm_mode(
         }
     }
     let mut dtors = Vec::new();
-    init_env(&mut dtors, scope, &wasm_file_name, args);
+    init_env(&mut dtors, scope, &wasm_file_name, args, async_policy);
 
     if let Some(ref test_args) = test_args {
         let test_args = serde_json_lenient::from_str::<TestArgs>(test_args).unwrap();
@@ -564,11 +576,40 @@ struct Commandline {
     #[clap(long)]
     stack_size: Option<String>,
 
+    /// Experimental: sandbox moonbitlang/async runtime access using a TOML policy file.
+    #[clap(
+        long,
+        value_name = "PATH",
+        long_help = r#"Experimental: Sandbox moonbitlang/async and moonrun-owned __moonbit_*_unstable FFI access using a TOML policy file. WASI is not covered.
+
+Supplying --policy enables deny-by-default mode: omitted or empty [fs], [net], and [env] sections deny that surface.
+
+Common allow-all policy:
+  [env]
+  from_host = ["*"]
+
+  [fs]
+  read = ["*"]
+  write = ["*"]
+
+  [net]
+  dns = ["*"]
+  connect = ["*:*"]
+  bind = ["*:*"]
+
+Filesystem roots are host paths. Relative roots are resolved relative to the policy file. "*" allows every host path on every platform.
+
+Environment values default to empty in policy mode. Use from_host for optional host variables, required_from_host for required host variables and secrets, and [env.set] for non-secret literals. [env.set] overrides copied host values.
+
+Network connect controls outbound sockets; bind controls local bind/listen addresses. Hostname connect rules also permit DNS lookup for those hostnames, so connect = ["api.deepseek.com:443"] does not require a separate dns entry. Bind rules must use IP addresses or *."#
+    )]
+    policy: Option<PathBuf>,
+
     #[clap(short, long)]
     interactive: bool,
 }
 
-fn run_interactive() -> anyhow::Result<()> {
+fn run_interactive(async_policy: Arc<async_policy::AsyncPolicy>) -> anyhow::Result<()> {
     loop {
         let stdin = io::stdin();
         let mut handle = stdin.lock();
@@ -582,7 +623,13 @@ fn run_interactive() -> anyhow::Result<()> {
         let mut input = vec![0u8; length as usize];
         handle.read_exact(&mut input)?;
 
-        wasm_mode(Source::Bytes(input), &[], false, None)?;
+        wasm_mode(
+            Source::Bytes(input),
+            &[],
+            false,
+            None,
+            Arc::clone(&async_policy),
+        )?;
         const END_MARKER: [u8; 4] = [0xFF, 0xFE, 0xFD, 0xFC];
         io::stdout().write_all(&END_MARKER)?;
         io::stdout().write_all(b"\n")?;
@@ -606,10 +653,16 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let matches = Commandline::parse();
+    let async_policy = Arc::new(match matches.policy.as_ref() {
+        Some(path) => async_policy::AsyncPolicy::from_file(path).context(
+            "failed to load moonrun policy (experimental); run `moonrun --help` for policy format notes",
+        )?,
+        None => async_policy::AsyncPolicy::allow_all(),
+    });
 
     if matches.interactive {
         initialize_v8();
-        run_interactive()
+        run_interactive(async_policy)
     } else {
         let file = matches.path.as_ref().unwrap();
 
@@ -629,6 +682,7 @@ fn main() -> anyhow::Result<()> {
                     &matches.args,
                     matches.no_stack_trace,
                     matches.test_args,
+                    async_policy,
                 )
             }
             _ => anyhow::bail!("Unsupported file type"),

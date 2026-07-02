@@ -178,6 +178,22 @@ RuntimeError: unreachable
 }
 
 #[test]
+fn test_moonrun_help_describes_policy_shape() {
+    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg("--help")
+        .assert()
+        .success();
+    let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
+
+    assert!(stdout.contains("Experimental: Sandbox moonbitlang/async"));
+    assert!(stdout.contains("deny-by-default mode"));
+    assert!(stdout.contains("from_host = [\"*\"]"));
+    assert!(stdout.contains("read = [\"*\"]"));
+    assert!(stdout.contains("connect = [\"api.deepseek.com:443\"]"));
+    assert!(stdout.contains("Hostname connect rules also permit DNS lookup"));
+}
+
+#[test]
 fn test_moonrun_wasm_stack_trace_in_test_blocks() {
     let dir = TestDir::new("test_stack_trace.in");
 
@@ -355,6 +371,104 @@ fn test_moon_run_with_async_host_imports() {
         .assert()
         .success()
         .stdout_eq("ok\n");
+}
+
+#[test]
+fn test_moon_run_async_policy_with_workspace_async_fs() {
+    let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
+    let case_dir = case_root.join("test_async_policy_workspace.in");
+    let dir = tempfile::Builder::new()
+        .prefix("test_async_policy_workspace.")
+        .tempdir_in(&case_root)
+        .expect("create temp fixture");
+    moon_test_util::test_dir::copy_tree(&case_dir, dir.path(), false).expect("copy test fixture");
+
+    moon_cmd()
+        .current_dir(dir.path())
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = |package: &str| {
+        std::fs::canonicalize(dir.path().join(format!(
+            "_build/wasm/debug/build/moon/async_policy_workspace/{package}/{package}.wasm"
+        )))
+        .unwrap()
+    };
+    let fs_allow_wasm = wasm_file("fs_allow");
+    let fs_deny_read_wasm = wasm_file("fs_deny_read");
+    let env_get_wasm = wasm_file("env_get");
+    let env_mutate_wasm = wasm_file("env_mutate");
+    let listen_implicit_bind_wasm = wasm_file("listen_implicit_bind");
+    let policy_file = std::fs::canonicalize(dir.path().join("policy.toml")).unwrap();
+    let deny_all_policy_file = std::fs::canonicalize(dir.path().join("deny-all.toml")).unwrap();
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&fs_allow_wasm)
+        .assert()
+        .success()
+        .stdout_eq("workspace input\n|workspace async policy\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&env_get_wasm)
+        .assert()
+        .success()
+        .stdout_eq("configured by policy\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&env_mutate_wasm)
+        .assert()
+        .success()
+        .stdout_eq("runtime override\nmissing\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env("MOONRUN_POLICY_ENV", "host value")
+        .arg("--policy")
+        .arg(&deny_all_policy_file)
+        .arg(&env_get_wasm)
+        .assert()
+        .success()
+        .stdout_eq("missing\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--policy")
+        .arg(&deny_all_policy_file)
+        .arg(&listen_implicit_bind_wasm)
+        .assert()
+        .success()
+        .stdout_eq("listen denied\n");
+
+    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&fs_deny_read_wasm)
+        .assert()
+        .failure()
+        .stderr_eq("");
+    let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
+    assert!(
+        stdout.contains("@fs.open()"),
+        "expected async fs open failure in stdout, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("denied/secret.txt"),
+        "expected denied path in stdout, got:\n{stdout}"
+    );
 }
 
 #[test]

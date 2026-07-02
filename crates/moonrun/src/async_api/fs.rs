@@ -16,7 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::ffi::OsString;
+
 use crate::async_host::{AsyncHostError, AsyncHostResult, write_u16};
+use crate::async_policy::AsyncPolicy;
 use crate::async_sys::fs::dir;
 use crate::async_sys::fs::stub;
 
@@ -25,7 +28,7 @@ use super::provenance::ported_imports;
 
 ported_imports! {
 pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
-    match tmp_path_utf16_units()
+    match tmp_path_utf16_units(context.host.policy())
         .and_then(|units| i32::try_from(units.len()).map_err(|_| AsyncHostError::Fault))
     {
         Ok(len) => len,
@@ -39,7 +42,7 @@ pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
 #[ported(source = "src/fs/stub.c")]
 pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: i32, len: i32) -> i32 {
     let result = (|| {
-        let units = tmp_path_utf16_units()?;
+        let units = tmp_path_utf16_units(context.host.policy())?;
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
         if len != units.len() {
             return Err(AsyncHostError::Inval);
@@ -50,7 +53,10 @@ pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: i32, len: i
 }
 
 pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
-    Ok(context.host.insert_c_buffer(stub::get_tmp_path_buffer()?))
+    let path = tmp_path(context.host.policy())?;
+    Ok(context
+        .host
+        .insert_c_buffer(stub::tmp_path_buffer(path.as_os_str())?))
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
@@ -124,8 +130,25 @@ pub(super) fn dir_entry_file_id(
         .with_c_buffer(buf, |buf| dir::entry_file_id(buf, 0, offset))
 }
 
-fn tmp_path_utf16_units() -> AsyncHostResult<Vec<u16>> {
-    os_string_to_utf16_units(stub::get_tmp_path()?)
+fn tmp_path_utf16_units(policy: &AsyncPolicy) -> AsyncHostResult<Vec<u16>> {
+    os_string_to_utf16_units(tmp_path(policy)?)
+}
+
+fn tmp_path(policy: &AsyncPolicy) -> AsyncHostResult<OsString> {
+    if !policy.has_env_policy() {
+        return stub::get_tmp_path();
+    }
+    tmp_path_from_policy_env(policy)
+}
+
+#[cfg(unix)]
+fn tmp_path_from_policy_env(policy: &AsyncPolicy) -> AsyncHostResult<OsString> {
+    stub::get_tmp_path_from_env(policy.env_var_os("TMPDIR"))
+}
+
+#[cfg(windows)]
+fn tmp_path_from_policy_env(policy: &AsyncPolicy) -> AsyncHostResult<OsString> {
+    stub::get_tmp_path_from_env(policy.env_var_os("TMP"), policy.env_var_os("TEMP"))
 }
 
 #[cfg(unix)]
@@ -177,6 +200,53 @@ fn zero_or_minus_one(context: &ImportContext<'_, '_>, result: AsyncHostResult<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn policy_tmp_path_uses_policy_tmpdir() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let policy_file = dir.path().join("policy.toml");
+        std::fs::write(&policy_file, "[env.set]\nTMPDIR = \"/policy/tmp\"\n").unwrap();
+        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+
+        let path = tmp_path(&policy).unwrap();
+
+        assert_eq!(path.as_os_str().as_bytes(), b"/policy/tmp/");
+    }
+
+    #[cfg(all(unix, not(target_os = "android")))]
+    #[test]
+    fn policy_tmp_path_ignores_denied_host_tmpdir() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let policy_file = dir.path().join("policy.toml");
+        std::fs::write(&policy_file, "").unwrap();
+        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+
+        let path = tmp_path(&policy).unwrap();
+
+        assert_eq!(path.as_os_str().as_bytes(), b"/tmp/");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn policy_tmp_path_requires_configured_windows_temp_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let policy_file = dir.path().join("policy.toml");
+        std::fs::write(&policy_file, "").unwrap();
+        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+
+        assert_eq!(tmp_path(&policy), Err(AsyncHostError::PermissionDenied));
+
+        std::fs::write(&policy_file, "[env.set]\nTEMP = \"C:/Temp\"\n").unwrap();
+        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+        let path = tmp_path(&policy).unwrap();
+
+        assert_eq!(path.to_string_lossy(), "C:/Temp\\");
+    }
 
     #[cfg(unix)]
     #[test]

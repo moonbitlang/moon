@@ -488,6 +488,7 @@ fn profile_run_subcommand(cmd: RunSubcommand) -> anyhow::Result<RunSubcommand> {
         command: cmd.command,
         build_flags,
         args: cmd.args,
+        moonrun_policy: None,
         auto_sync_flags: cmd.auto_sync_flags,
         build_only: false,
         profile: false,

@@ -43,8 +43,10 @@ mod thread_pool;
 mod time;
 
 use std::any::Any;
+use std::sync::Arc;
 
 use crate::async_host::AsyncHost;
+use crate::async_policy::AsyncPolicy;
 
 pub(crate) use registry::MOONBIT_ASYNC_MODULE;
 
@@ -52,8 +54,13 @@ pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
     dtors: &mut Vec<Box<dyn Any>>,
+    policy: Arc<AsyncPolicy>,
 ) {
-    let context = Box::new(context::AsyncContext::new(scope, obj, AsyncHost::default()));
+    let context = Box::new(context::AsyncContext::new(
+        scope,
+        obj,
+        AsyncHost::new(policy),
+    ));
     let context_ptr = &*context as *const context::AsyncContext;
     dtors.push(context);
 

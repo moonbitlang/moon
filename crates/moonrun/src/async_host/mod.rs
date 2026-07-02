@@ -31,13 +31,14 @@ use std::sync::{Arc, Mutex};
 
 use slotmap::{Key, KeyData, SecondaryMap, SlotMap, new_key_type};
 
+use crate::async_policy::{AsyncPolicy, RuntimePathBase};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::event_loop::{
     poll::{self, PollInstance},
     thread_pool::{
-        self, HostHandle, HostWorkerHandle, HostWorkerJob, Job, OpenJobResource, Resource,
-        ResourceClass, ResourceRef, ResourceTable, WorkerCompletionId,
+        self, HostHandle, HostWorkerHandle, HostWorkerJob, Job, JobPayload, OpenJobResource,
+        Resource, ResourceClass, ResourceRef, ResourceTable, WorkerCompletionId,
     },
 };
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -54,6 +55,7 @@ pub(crate) enum AsyncHostError {
     Fault,
     Inval,
     Badf,
+    PermissionDenied,
     Native(i32),
 }
 
@@ -65,6 +67,7 @@ pub(crate) type HostCBuffer = Arc<Mutex<Box<[u8]>>>;
 #[cfg(unix)]
 mod native_errno {
     pub(crate) const BADF: i32 = libc::EBADF;
+    pub(crate) const ACCESS: i32 = libc::EACCES;
     pub(crate) const FAULT: i32 = libc::EFAULT;
     pub(crate) const INVAL: i32 = libc::EINVAL;
 }
@@ -72,9 +75,10 @@ mod native_errno {
 #[cfg(windows)]
 mod native_errno {
     use windows_sys::Win32::Foundation::{
-        ERROR_INVALID_ADDRESS, ERROR_INVALID_HANDLE, ERROR_INVALID_PARAMETER,
+        ERROR_ACCESS_DENIED, ERROR_INVALID_ADDRESS, ERROR_INVALID_HANDLE, ERROR_INVALID_PARAMETER,
     };
 
+    pub(crate) const ACCESS: i32 = ERROR_ACCESS_DENIED as i32;
     pub(crate) const BADF: i32 = ERROR_INVALID_HANDLE as i32;
     pub(crate) const FAULT: i32 = ERROR_INVALID_ADDRESS as i32;
     pub(crate) const INVAL: i32 = ERROR_INVALID_PARAMETER as i32;
@@ -86,6 +90,7 @@ impl AsyncHostError {
             Self::Fault => native_errno::FAULT,
             Self::Inval => native_errno::INVAL,
             Self::Badf => native_errno::BADF,
+            Self::PermissionDenied => native_errno::ACCESS,
             Self::Native(errno) => errno,
         }
     }
@@ -1003,6 +1008,7 @@ pub(crate) struct AsyncHost {
     // completions -> handles -> polls for completion-source init, and
     // workers -> jobs -> worker state for worker assignment.
     // Do not hold table locks while running worker jobs or blocking I/O.
+    policy: Arc<AsyncPolicy>,
     errno: Mutex<i32>,
     addr_infos: Mutex<SecondaryMap<HandleKey, HostAddrInfo>>,
     c_buffers: Mutex<SecondaryMap<HandleKey, HostCBuffer>>,
@@ -1017,7 +1023,14 @@ pub(crate) struct AsyncHost {
 
 impl Default for AsyncHost {
     fn default() -> Self {
+        Self::new(Arc::new(AsyncPolicy::allow_all()))
+    }
+}
+
+impl AsyncHost {
+    pub(crate) fn new(policy: Arc<AsyncPolicy>) -> Self {
         Self {
+            policy,
             errno: Mutex::new(0),
             addr_infos: Mutex::new(SecondaryMap::new()),
             c_buffers: Mutex::new(SecondaryMap::new()),
@@ -1030,9 +1043,7 @@ impl Default for AsyncHost {
             workers: Mutex::new(SecondaryMap::new()),
         }
     }
-}
 
-impl AsyncHost {
     pub(crate) fn invalid_fd(&self) -> HostHandle {
         self.handles.lock().unwrap().invalid_fd()
     }
@@ -1764,12 +1775,14 @@ impl AsyncHost {
     }
 
     pub(crate) fn get_getaddrinfo_result(&self, handle: u64) -> AsyncHostResult<u64> {
-        let addrs: Vec<Box<[u8]>> = {
+        let (host, addrs) = {
             let key = self.handles.lock().unwrap().job(handle)?;
             let jobs = self.jobs.lock().unwrap();
             let job = jobs.visible_job(key)?;
-            thread_pool::getaddrinfo_job_result(job)?.to_vec()
+            let (host, addrs) = thread_pool::getaddrinfo_job_result(job)?;
+            (host.to_os_string(), addrs.to_vec())
         };
+        self.policy.register_dns_result(&host, &addrs)?;
         let (entries, next) = {
             let mut handles = self.handles.lock().unwrap();
             let mut entries = Vec::new();
@@ -1887,9 +1900,18 @@ impl AsyncHost {
         &self,
         raw_socket: RawSocket,
         class: ResourceClass,
+        family: i32,
     ) -> HostHandle {
-        let file = Resource::new_socket(raw_socket, class);
+        let file = Resource::new_socket(raw_socket, class, family);
         self.handles.lock().unwrap().insert_resource(file)
+    }
+
+    pub(crate) fn insert_failed_job(&self, error: AsyncHostError) -> AsyncHostResult<u64> {
+        self.insert_job(thread_pool::make_failed_job(error.errno()))
+    }
+
+    pub(crate) fn policy(&self) -> &AsyncPolicy {
+        &self.policy
     }
 
     pub(crate) fn with_raw_resource_class<T>(
@@ -2357,6 +2379,9 @@ impl AsyncHost {
         let file = result.kind.resource(&handles, fd_handle)?;
         let raw_fd = file.raw_fd();
         drop(handles);
+        if result.kind == HostIoKind::SocketWithAddr {
+            self.policy.connect_socket(&result.addr_buffer)?;
+        }
         let mut bytes_transferred = 0;
         let success = match result.kind {
             HostIoKind::File => {
@@ -2445,6 +2470,7 @@ impl AsyncHost {
         if result.kind != HostIoKind::Connect || result.is_pending() {
             return Err(AsyncHostError::Inval);
         }
+        self.policy.connect_socket(&result.addr_buffer)?;
 
         bind_any_for_connect(raw_fd, &result.addr_buffer)?;
         let connect_ex = get_wsa_extension::<ws::LPFN_CONNECTEX>(raw_fd, &ws::WSAID_CONNECTEX)?
@@ -2605,6 +2631,7 @@ impl AsyncHost {
             .lock()
             .unwrap()
             .resource_of_class(handle, ResourceClass::File)?;
+        Self::check_file_lock_policy(&self.policy, Some(&file), exclusive)?;
         crate::async_sys::fs::stub::try_lock_acquired_file(&file, exclusive)
     }
 
@@ -2620,8 +2647,124 @@ impl AsyncHost {
     pub(crate) fn run_job(&self, handle: u64) -> AsyncHostResult<()> {
         let key = self.handles.lock().unwrap().job(handle)?;
         let mut job = self.jobs.lock().unwrap().take_ready_job(key)?;
-        thread_pool::run_host_job(&mut job);
+        Self::run_policy_checked_job(&self.policy, &mut job);
         self.restore_job(key, job)
+    }
+
+    fn run_policy_checked_job(policy: &AsyncPolicy, job: &mut Job) {
+        if let Err(error) = Self::check_job_policy(policy, job) {
+            job.set_err(error.errno());
+            return;
+        }
+        thread_pool::run_host_job(job);
+    }
+
+    fn check_job_policy(policy: &AsyncPolicy, job: &Job) -> AsyncHostResult<()> {
+        match job.payload() {
+            JobPayload::Open {
+                filename,
+                access,
+                create_mode,
+                append,
+                ..
+            } => policy.open_path(
+                RuntimePathBase::CurrentDirectory,
+                filename,
+                *access,
+                *create_mode,
+                *append,
+            ),
+            JobPayload::FileKindByPath {
+                parent,
+                path,
+                follow_symlink,
+            } => Self::check_path_metadata_policy(
+                policy,
+                Self::resource_path_base(parent.as_ref()),
+                path,
+                *follow_symlink,
+            ),
+            JobPayload::FileSize { file, .. } | JobPayload::FileTime { file, .. } => {
+                Self::check_file_metadata_policy(policy, file.as_ref())
+            }
+            JobPayload::FileTimeByPath {
+                path,
+                follow_symlink,
+                ..
+            } => Self::check_path_metadata_policy(
+                policy,
+                RuntimePathBase::CurrentDirectory,
+                path,
+                *follow_symlink,
+            ),
+            JobPayload::Access { path, access } => policy.access_path(path, *access),
+            JobPayload::Chmod { path, .. } => policy.chmod_path(path),
+            JobPayload::Flock { file, exclusive } => {
+                Self::check_file_lock_policy(policy, file.as_ref(), *exclusive)
+            }
+            JobPayload::Remove { path } => policy.remove_path(path),
+            JobPayload::Rename {
+                old_path, new_path, ..
+            } => policy.rename_path(old_path, new_path),
+            JobPayload::Symlink { path, .. } => policy.symlink_path(path),
+            JobPayload::Mkdir { path, .. } => policy.mkdir_path(path),
+            JobPayload::Rmdir { path } => policy.rmdir_path(path),
+            _ => Ok(()),
+        }
+    }
+
+    fn check_file_metadata_policy(
+        policy: &AsyncPolicy,
+        file: Option<&ResourceRef>,
+    ) -> AsyncHostResult<()> {
+        let file = file.ok_or(AsyncHostError::Badf)?;
+        match file.policy_path() {
+            Some(path) => policy.stat_path(RuntimePathBase::CurrentDirectory, path.as_os_str()),
+            None => policy.stat_path(RuntimePathBase::Untracked, std::ffi::OsStr::new("")),
+        }
+    }
+
+    fn check_path_metadata_policy(
+        policy: &AsyncPolicy,
+        base: RuntimePathBase<'_>,
+        path: &std::ffi::OsStr,
+        follow_symlink: bool,
+    ) -> AsyncHostResult<()> {
+        if follow_symlink {
+            policy.stat_path(base, path)
+        } else {
+            policy.stat_entry_path(base, path)
+        }
+    }
+
+    fn check_file_lock_policy(
+        policy: &AsyncPolicy,
+        file: Option<&ResourceRef>,
+        exclusive: bool,
+    ) -> AsyncHostResult<()> {
+        let file = file.ok_or(AsyncHostError::Badf)?;
+        match file.policy_path() {
+            Some(path) => policy.lock_path(
+                RuntimePathBase::CurrentDirectory,
+                path.as_os_str(),
+                exclusive,
+            ),
+            None => policy.lock_path(
+                RuntimePathBase::Untracked,
+                std::ffi::OsStr::new(""),
+                exclusive,
+            ),
+        }
+    }
+
+    fn resource_path_base(parent: Option<&ResourceRef>) -> RuntimePathBase<'_> {
+        match parent {
+            None => RuntimePathBase::CurrentDirectory,
+            Some(parent) => parent
+                .policy_path()
+                .map(RuntimePathBase::PolicyPath)
+                .unwrap_or(RuntimePathBase::Untracked),
+        }
     }
 
     pub(crate) fn spawn_worker(&self, completion_id: i32, job_handle: u64) -> AsyncHostResult<u64> {
@@ -2811,6 +2954,7 @@ impl AsyncHost {
     ) -> HostWorkerHandle {
         let jobs_for_runner = Arc::clone(&self.jobs);
         let jobs_for_completion = Arc::clone(&self.jobs);
+        let policy = Arc::clone(&self.policy);
         thread_pool::spawn_worker(
             init_job,
             move |worker_job| {
@@ -2821,7 +2965,7 @@ impl AsyncHost {
                 else {
                     return None;
                 };
-                thread_pool::run_host_job(&mut job);
+                Self::run_policy_checked_job(&policy, &mut job);
                 Some(job)
             },
             move |worker_job| {
@@ -3032,6 +3176,10 @@ mod tests {
             .resource_count_excluding_invalid()
     }
 
+    fn host_with_policy(path: &std::path::Path) -> AsyncHost {
+        AsyncHost::new(Arc::new(AsyncPolicy::from_file(path).unwrap()))
+    }
+
     #[cfg(windows)]
     fn io_result_key(host: &AsyncHost, handle: HostHandle) -> HandleKey {
         host.handles.lock().unwrap().io_result(handle).unwrap()
@@ -3134,23 +3282,28 @@ mod tests {
         host.close_fd(write).unwrap();
     }
 
-    #[cfg(unix)]
     #[test]
     fn resource_class_rejects_tcp_and_udp_mixups() {
+        #[cfg(windows)]
+        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+
         let host = AsyncHost::default();
         let tcp = host.insert_socket_resource(
             crate::async_sys::socket::make_tcp_socket(4).unwrap(),
             ResourceClass::TcpSocket,
+            4,
         );
         let udp = host.insert_socket_resource(
             crate::async_sys::socket::make_udp_socket(4, false).unwrap(),
             ResourceClass::UdpSocket,
+            4,
         );
 
         assert!(
             host.with_raw_resource_class(tcp, ResourceClass::TcpSocket, |_| Ok(()))
                 .is_ok()
         );
+        assert_eq!(host.resource(tcp).unwrap().socket_family(), Some(4));
         assert_eq!(
             host.with_raw_resource_class(tcp, ResourceClass::UdpSocket, |_| Ok(())),
             Err(AsyncHostError::Inval)
@@ -3166,6 +3319,9 @@ mod tests {
 
         host.close_fd(tcp).unwrap();
         host.close_fd(udp).unwrap();
+
+        #[cfg(windows)]
+        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
     }
 
     #[cfg(unix)]
@@ -3342,6 +3498,425 @@ mod tests {
         host.close_fd(opened).unwrap();
         host.free_job(job).unwrap();
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn run_job_checks_open_policy_at_execution() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let denied_file = denied.join("secret.txt");
+        std::fs::write(&denied_file, "secret").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let job = host
+            .insert_job(thread_pool::make_open_job(
+                denied_file.as_os_str().to_os_string(),
+                0,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+
+        host.run_job(job).unwrap();
+
+        assert_eq!(host.job_get_ret(job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        host.free_job(job).unwrap();
+    }
+
+    #[test]
+    fn worker_checks_open_policy_at_execution() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let denied_file = denied.join("secret.txt");
+        std::fs::write(&denied_file, "secret").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let poll = host.poll_create().unwrap();
+        let completion_source = host.init_thread_pool(poll).unwrap();
+        let job = host
+            .insert_job(thread_pool::make_open_job(
+                denied_file.as_os_str().to_os_string(),
+                0,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+        let worker = host.spawn_worker(42, job).unwrap();
+
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        #[cfg(unix)]
+        {
+            let mut memory = [0; 4];
+            host.fetch_completion(memory.as_mut_slice(), completion_source, 0, 1)
+                .unwrap();
+            assert_eq!(i32::from_le_bytes(memory), 42);
+        }
+        #[cfg(windows)]
+        {
+            let event = host.poll_get_event(poll, 0).unwrap();
+            assert_eq!(host.poll_event_fd(event).unwrap(), completion_source);
+            assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
+        }
+
+        assert_eq!(host.job_get_ret(job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        host.free_worker(worker).unwrap();
+        host.free_job(job).unwrap();
+        host.destroy_thread_pool();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_job_rechecks_swapped_open_symlink_at_execution() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let allowed_file = allowed.join("input.txt");
+        let denied_file = denied.join("secret.txt");
+        let link = allowed.join("link.txt");
+        std::fs::write(&allowed_file, "allowed").unwrap();
+        std::fs::write(&denied_file, "secret").unwrap();
+        std::os::unix::fs::symlink(&allowed_file, &link).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+
+        host.policy()
+            .open_path(
+                RuntimePathBase::CurrentDirectory,
+                link.as_os_str(),
+                0,
+                0,
+                false,
+            )
+            .unwrap();
+        let job = host
+            .insert_job(thread_pool::make_open_job(
+                link.as_os_str().to_os_string(),
+                0,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&denied_file, &link).unwrap();
+
+        host.run_job(job).unwrap();
+
+        assert_eq!(host.job_get_ret(job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        host.free_job(job).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn entry_mutation_jobs_check_link_path_not_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let allowed_target = allowed.join("target.txt");
+        let allowed_source = allowed.join("source.txt");
+        let denied_link = denied.join("link.txt");
+        std::fs::write(&allowed_target, "target").unwrap();
+        std::fs::write(&allowed_source, "source").unwrap();
+        std::os::unix::fs::symlink(&allowed_target, &denied_link).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let remove_job = host
+            .insert_job(thread_pool::make_remove_job(
+                denied_link.as_os_str().to_os_string(),
+            ))
+            .unwrap();
+        let rename_job = host
+            .insert_job(thread_pool::make_rename_job(
+                allowed_source.as_os_str().to_os_string(),
+                denied_link.as_os_str().to_os_string(),
+                true,
+            ))
+            .unwrap();
+
+        host.run_job(remove_job).unwrap();
+        host.run_job(rename_job).unwrap();
+
+        assert_eq!(host.job_get_ret(remove_job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(remove_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        assert_eq!(host.job_get_ret(rename_job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(rename_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        assert!(
+            std::fs::symlink_metadata(&denied_link)
+                .unwrap()
+                .is_symlink()
+        );
+        assert!(allowed_source.exists());
+        host.free_job(rename_job).unwrap();
+        host.free_job(remove_job).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_follow_metadata_jobs_check_link_path_not_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let allowed_file = allowed.join("target.txt");
+        let denied_link = denied.join("link.txt");
+        std::fs::write(&allowed_file, "target").unwrap();
+        std::os::unix::fs::symlink(&allowed_file, &denied_link).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let kind_job = host
+            .insert_job(thread_pool::make_file_kind_by_path_job(
+                None,
+                denied_link.as_os_str().to_os_string(),
+                false,
+            ))
+            .unwrap();
+        let time_job = host
+            .insert_job(thread_pool::make_file_time_by_path_job(
+                denied_link.as_os_str().to_os_string(),
+                false,
+            ))
+            .unwrap();
+
+        host.run_job(kind_job).unwrap();
+        host.run_job(time_job).unwrap();
+
+        assert_eq!(host.job_get_ret(kind_job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(kind_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        assert_eq!(host.job_get_ret(time_job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(time_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        host.free_job(time_job).unwrap();
+        host.free_job(kind_job).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_follow_metadata_jobs_honor_parent_resource_base() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let allowed_file = allowed.join("target.txt");
+        let denied_file = denied.join("target.txt");
+        let allowed_link = allowed.join("link.txt");
+        let denied_link = denied.join("link.txt");
+        std::fs::write(&allowed_file, "allowed").unwrap();
+        std::fs::write(&denied_file, "denied").unwrap();
+        std::os::unix::fs::symlink(&denied_file, &allowed_link).unwrap();
+        std::os::unix::fs::symlink(&allowed_file, &denied_link).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let parent_open_job = host
+            .insert_job(thread_pool::make_open_job(
+                allowed.as_os_str().to_os_string(),
+                0,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+
+        host.run_job(parent_open_job).unwrap();
+        let parent_fd = host.open_job_get_fd(parent_open_job).unwrap();
+        let parent = host.resource(parent_fd).unwrap();
+        let allowed_link_job = host
+            .insert_job(thread_pool::make_file_kind_by_path_job(
+                Some(Arc::clone(&parent)),
+                std::ffi::OsString::from("link.txt"),
+                false,
+            ))
+            .unwrap();
+        let denied_link_job = host
+            .insert_job(thread_pool::make_file_kind_by_path_job(
+                None,
+                denied_link.as_os_str().to_os_string(),
+                false,
+            ))
+            .unwrap();
+
+        host.run_job(allowed_link_job).unwrap();
+        host.run_job(denied_link_job).unwrap();
+
+        assert_eq!(host.job_get_ret(allowed_link_job).unwrap(), 3);
+        assert_eq!(host.job_get_ret(denied_link_job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(denied_link_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        host.free_job(denied_link_job).unwrap();
+        host.free_job(allowed_link_job).unwrap();
+        host.close_fd(parent_fd).unwrap();
+        host.free_job(parent_open_job).unwrap();
+    }
+
+    #[test]
+    fn fd_metadata_jobs_require_read_policy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let writable = tmp.path().join("writable");
+        std::fs::create_dir(&writable).unwrap();
+        let file = writable.join("data.txt");
+        std::fs::write(&file, "secret").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"writable\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let open_job = host
+            .insert_job(thread_pool::make_open_job(
+                file.as_os_str().to_os_string(),
+                1,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+
+        host.run_job(open_job).unwrap();
+        let fd = host.open_job_get_fd(open_job).unwrap();
+        let resource = host.resource(fd).unwrap();
+        let size_job = host
+            .insert_job(thread_pool::make_file_size_job(Arc::clone(&resource)))
+            .unwrap();
+        let time_job = host
+            .insert_job(thread_pool::make_file_time_job(Arc::clone(&resource)))
+            .unwrap();
+
+        host.run_job(size_job).unwrap();
+        host.run_job(time_job).unwrap();
+
+        assert_eq!(host.job_get_ret(size_job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(size_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        assert_eq!(host.job_get_ret(time_job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(time_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        host.free_job(time_job).unwrap();
+        host.free_job(size_job).unwrap();
+        host.close_fd(fd).unwrap();
+        host.free_job(open_job).unwrap();
+    }
+
+    #[test]
+    fn direct_exclusive_lock_requires_write_policy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let readable = tmp.path().join("readable");
+        std::fs::create_dir(&readable).unwrap();
+        let file = readable.join("data.txt");
+        std::fs::write(&file, "secret").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"readable\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let open_job = host
+            .insert_job(thread_pool::make_open_job(
+                file.as_os_str().to_os_string(),
+                0,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+
+        host.run_job(open_job).unwrap();
+        let fd = host.open_job_get_fd(open_job).unwrap();
+
+        assert_eq!(
+            host.try_lock_file(fd, true),
+            Err(AsyncHostError::PermissionDenied)
+        );
+
+        host.close_fd(fd).unwrap();
+        host.free_job(open_job).unwrap();
+    }
+
+    #[test]
+    fn flock_job_exclusive_lock_requires_write_policy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let readable = tmp.path().join("readable");
+        std::fs::create_dir(&readable).unwrap();
+        let file = readable.join("data.txt");
+        std::fs::write(&file, "secret").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"readable\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let open_job = host
+            .insert_job(thread_pool::make_open_job(
+                file.as_os_str().to_os_string(),
+                0,
+                0,
+                false,
+                0,
+                0,
+            ))
+            .unwrap();
+
+        host.run_job(open_job).unwrap();
+        let fd = host.open_job_get_fd(open_job).unwrap();
+        let resource = host.resource(fd).unwrap();
+        let flock_job = host
+            .insert_job(thread_pool::make_flock_job(Arc::clone(&resource), true))
+            .unwrap();
+
+        host.run_job(flock_job).unwrap();
+
+        assert_eq!(host.job_get_ret(flock_job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(flock_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        host.free_job(flock_job).unwrap();
+        host.close_fd(fd).unwrap();
+        host.free_job(open_job).unwrap();
     }
 
     #[test]

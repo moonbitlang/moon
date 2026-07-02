@@ -44,14 +44,19 @@ ported_fns! {
         sync: i32,
         mode: i32,
     ) -> AsyncHostResult<i64> {
+        let filename_for_policy = filename.clone();
         let OpenedFile {
             file,
             kind,
             dev_id,
             file_id,
         } = open_native_file(filename, access, create_mode, append, sync, mode)?;
+        let policy_path = std::fs::canonicalize(filename_for_policy).ok();
         *result = Some(OpenJobResult {
-            resource: OpenJobResource::Unpublished(Resource::new(file)),
+            resource: OpenJobResource::Unpublished(Resource::new_with_policy_path(
+                file,
+                policy_path,
+            )),
             kind,
             dev_id,
             file_id,

@@ -2387,12 +2387,16 @@ _moon() {
             return 0
             ;;
         moon__runwasm)
-            opts="-q -v -h --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]..."
+            opts="-q -v -h --experimental-policy --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
+                --experimental-policy)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
                 --manifest-path)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0

@@ -256,6 +256,7 @@ _arguments "${_arguments_options[@]}" : \
 ;;
 (runwasm)
 _arguments "${_arguments_options[@]}" : \
+'--experimental-policy=[Experimental\: pass a moonrun TOML policy file for moonbitlang/async runtime access]:PATH:_files' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '-q[Suppress output]' \
