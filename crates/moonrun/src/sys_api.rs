@@ -17,7 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
+use crate::{async_policy::AsyncPolicy, util::get_ref};
+use std::any::Any;
 use std::io::IsTerminal;
+use std::sync::Arc;
 
 fn construct_args_list<'s>(
     wasm_file_name: &str,
@@ -36,9 +39,12 @@ fn construct_args_list<'s>(
     arr
 }
 
-fn construct_env_vars<'s>(scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::Map> {
+fn construct_env_vars<'s>(
+    policy: &AsyncPolicy,
+    scope: &mut v8::HandleScope<'s>,
+) -> v8::Local<'s, v8::Map> {
     let map = v8::Map::new(scope);
-    for (k, v) in std::env::vars() {
+    for (k, v) in policy.env_vars() {
         let key = scope.string(&k);
         let val = scope.string(&v);
         map.set(scope, key.into(), val.into());
@@ -50,11 +56,11 @@ fn set_env_var(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let policy = unsafe { get_ref::<AsyncPolicy>(&args) };
     let key = args.string_lossy(scope, 0);
     let value = args.string_lossy(scope, 1);
 
-    // TODO: Audit that the environment access only happens in single-threaded code.
-    unsafe { std::env::set_var(&key, &value) };
+    policy.set_env_var(key, value);
 
     ret.set_undefined()
 }
@@ -64,9 +70,9 @@ fn unset_env_var(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let policy = unsafe { get_ref::<AsyncPolicy>(&args) };
     let key = args.string_lossy(scope, 0);
-    // TODO: Audit that the environment access only happens in single-threaded code.
-    unsafe { std::env::remove_var(&key) };
+    policy.unset_env_var(&key);
     ret.set_undefined()
 }
 
@@ -75,8 +81,9 @@ fn get_env_var(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let policy = unsafe { get_ref::<AsyncPolicy>(&args) };
     let key = args.string_lossy(scope, 0);
-    let value = std::env::var(&key).unwrap_or_default();
+    let value = policy.get_env_var(&key).unwrap_or_default();
     let value = scope.string(&value);
     ret.set(value.into());
 }
@@ -86,18 +93,20 @@ fn get_env_var_exists(
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let policy = unsafe { get_ref::<AsyncPolicy>(&args) };
     let key = args.string_lossy(scope, 0);
-    ret.set_bool(std::env::var(key).is_ok());
+    ret.set_bool(policy.env_var_exists(&key));
 }
 
 fn get_env_vars(
     scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    let policy = unsafe { get_ref::<AsyncPolicy>(&args) };
     let result = v8::Array::new(scope, 0);
     let mut index = 0;
-    for (k, v) in std::env::vars() {
+    for (k, v) in policy.env_vars() {
         let key = scope.string(&k);
         let val = scope.string(&v);
         result.set_index(scope, index, key.into()).unwrap();
@@ -112,9 +121,11 @@ pub(crate) fn init_env<'s>(
     scope: &mut v8::HandleScope<'s>,
     wasm_file_name: &str,
     args: &[String],
+    policy: Arc<AsyncPolicy>,
+    dtors: &mut Vec<Box<dyn Any>>,
 ) {
     let args_list = construct_args_list(wasm_file_name, args, scope);
-    let env_vars = construct_env_vars(scope);
+    let env_vars = construct_env_vars(&policy, scope);
     let env_obj = v8::Object::new(scope);
     let env_vars_key = scope.string("env_vars").into();
     env_obj.set(scope, env_vars_key, env_vars.into());
@@ -129,9 +140,33 @@ pub(crate) fn init_env<'s>(
     let run_env_key = scope.string("__moonbit_run_env");
     global_proxy.set(scope, run_env_key.into(), env_obj.into());
 
-    obj.set_func(scope, "set_env_var", set_env_var);
-    obj.set_func(scope, "unset_env_var", unset_env_var);
-    obj.set_func(scope, "get_env_vars", get_env_vars);
-    obj.set_func(scope, "get_env_var", get_env_var);
-    obj.set_func(scope, "get_env_var_exists", get_env_var_exists);
+    let policy_ptr = Arc::as_ptr(&policy);
+    dtors.push(Box::new(policy));
+
+    set_policy_func(obj, scope, "set_env_var", set_env_var, policy_ptr);
+    set_policy_func(obj, scope, "unset_env_var", unset_env_var, policy_ptr);
+    set_policy_func(obj, scope, "get_env_vars", get_env_vars, policy_ptr);
+    set_policy_func(obj, scope, "get_env_var", get_env_var, policy_ptr);
+    set_policy_func(
+        obj,
+        scope,
+        "get_env_var_exists",
+        get_env_var_exists,
+        policy_ptr,
+    );
+}
+
+fn set_policy_func<'s>(
+    obj: v8::Local<'s, v8::Object>,
+    scope: &mut v8::HandleScope<'s>,
+    name: &str,
+    callback: impl v8::MapFnTo<v8::FunctionCallback>,
+    policy_ptr: *const AsyncPolicy,
+) {
+    let data = v8::External::new(scope, policy_ptr as *mut std::ffi::c_void);
+    let function = v8::Function::builder(callback)
+        .data(data.into())
+        .build(scope)
+        .unwrap();
+    obj.set_value(scope, name, function.into());
 }

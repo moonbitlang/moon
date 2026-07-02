@@ -27,7 +27,7 @@ pub(crate) use runtest::{
     PackageFilter, TestFilter, TestIndex, TestOutlineEntry, collect_test_invocations,
     collect_test_outline, perform_promotion, run_tests,
 };
-pub(crate) use runtime::command_for;
+pub(crate) use runtime::{command_for, command_for_with_moonrun_policy};
 
 use std::sync::OnceLock;
 

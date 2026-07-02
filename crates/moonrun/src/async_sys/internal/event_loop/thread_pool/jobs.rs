@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::ported_fns;
@@ -24,6 +24,10 @@ use crate::async_sys::ported_fns;
 use super::types::{
     HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, ResourceRef, platform,
 };
+
+pub(crate) fn make_failed_job(errno: i32) -> Job {
+    Job::new(JobPayload::Failed { errno })
+}
 
 ported_fns! {
     #[ported(
@@ -379,12 +383,12 @@ pub(crate) fn take_open_job_result(job: &mut Job) -> Option<OpenJobResult> {
     }
 }
 
-pub(crate) fn getaddrinfo_job_result(job: &Job) -> AsyncHostResult<&[Box<[u8]>]> {
+pub(crate) fn getaddrinfo_job_result(job: &Job) -> AsyncHostResult<(&OsStr, &[Box<[u8]>])> {
     match job.payload() {
         JobPayload::GetAddrInfo {
+            host,
             result: Some(result),
-            ..
-        } => Ok(result),
+        } => Ok((host.as_os_str(), result)),
         JobPayload::GetAddrInfo { .. } => Err(AsyncHostError::Inval),
         _ => Err(AsyncHostError::Badf),
     }

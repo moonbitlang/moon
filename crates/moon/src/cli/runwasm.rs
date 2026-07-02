@@ -47,6 +47,9 @@ Local package inputs are handled like `moon run --target wasm`:
   moon runwasm main
   moon runwasm ./main
 
+Experimental moonrun policy forwarding:
+  moon runwasm --experimental-policy moonrun-policy.toml main
+
 Accepted Mooncakes coordinate forms:
   moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
   moon runwasm moonbitlang/parser@0.3.3/cmd/moonfmt
@@ -61,6 +64,13 @@ pub(crate) struct RunWasmSubcommand {
     /// Local package path or Mooncakes package coordinate of the prebuilt wasm binary
     #[clap(value_name = "LOCAL_PACKAGE|PACKAGE[@VERSION]")]
     pub package: String,
+
+    /// Experimental: pass a moonrun TOML policy file for moonbitlang/async runtime access.
+    ///
+    /// The policy applies to moonbitlang/async and moonrun-owned unstable FFI;
+    /// WASI is not covered.
+    #[clap(long = "experimental-policy", value_name = "PATH")]
+    pub experimental_policy: Option<PathBuf>,
 
     /// The arguments provided to the wasm program
     #[clap(trailing_var_arg = true, num_args = 0.., allow_hyphen_values = true)]
@@ -158,7 +168,13 @@ pub(crate) fn run_runwasm(cli: &UniversalFlags, cmd: RunWasmSubcommand) -> anyho
     let asset = coordinate.with_version(version, &registry_config.registry);
     let wasm_path = ensure_cached_wasm(&asset, output)?;
 
-    let mut run_cmd = crate::run::command_for(RunBackend::WasmGC, None, &wasm_path, None);
+    let mut run_cmd = crate::run::command_for_with_moonrun_policy(
+        RunBackend::WasmGC,
+        None,
+        &wasm_path,
+        None,
+        cmd.experimental_policy.as_deref(),
+    );
     run_cmd.args(&cmd.args);
 
     if cli.verbose {
@@ -205,6 +221,7 @@ fn runwasm_as_run_subcommand(cmd: RunWasmSubcommand) -> RunSubcommand {
         command: None,
         build_flags,
         args: cmd.args,
+        moonrun_policy: cmd.experimental_policy,
         auto_sync_flags: AutoSyncFlags { frozen: false },
         build_only: false,
         profile: false,

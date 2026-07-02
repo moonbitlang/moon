@@ -18,6 +18,15 @@
 
 //! Temporary-use FS API. Only has whole-file read/write and no other features.
 
+use std::any::Any;
+use std::ffi::OsStr;
+use std::sync::{Arc, LazyLock, Mutex};
+
+use crate::async_host::AsyncHostResult;
+use crate::async_policy::{AsyncPolicy, RuntimePathBase};
+use crate::util::get_ref;
+use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
+
 /// `fn read_file_to_string(path: JSString) -> JSString`
 fn read_file_to_string(
     scope: &mut v8::HandleScope,
@@ -25,6 +34,7 @@ fn read_file_to_string(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    ensure_read(&args, &path).unwrap_or_else(|_| panic!("Permission denied: {path}"));
 
     let contents =
         std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("Failed to read file: {path}"));
@@ -40,6 +50,7 @@ fn write_string_to_file(
 ) {
     let path = args.string_lossy(scope, 0);
     let contents = args.string_lossy(scope, 1);
+    ensure_write(&args, &path).unwrap_or_else(|_| panic!("Permission denied: {path}"));
 
     std::fs::write(&path, contents).unwrap_or_else(|_| panic!("Failed to write file: {path}"));
 
@@ -53,6 +64,7 @@ fn write_bytes_to_file(
 ) {
     let path = args.string_lossy(scope, 0);
     let contents = args.get(1);
+    ensure_write(&args, &path).unwrap_or_else(|_| panic!("Permission denied: {path}"));
 
     let uint8_array = v8::Local::<v8::Uint8Array>::try_from(contents).unwrap();
     let length = uint8_array.byte_length();
@@ -70,6 +82,7 @@ fn create_dir(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    ensure_write(&args, &path).unwrap_or_else(|_| panic!("Permission denied: {path}"));
 
     std::fs::create_dir_all(&path).unwrap_or_else(|_| panic!("Failed to create directory: {path}"));
 
@@ -83,6 +96,7 @@ fn read_dir(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    ensure_read(&args, &path).unwrap_or_else(|_| panic!("Permission denied: {path}"));
 
     let entries =
         std::fs::read_dir(&path).unwrap_or_else(|_| panic!("Failed to read directory: {path}"));
@@ -111,6 +125,10 @@ fn is_file(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_read(&args, &path).is_err() {
+        ret.set_bool(false);
+        return;
+    }
 
     let is_file = std::path::Path::new(&path).is_file();
     ret.set_bool(is_file);
@@ -122,6 +140,10 @@ fn is_dir(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_read(&args, &path).is_err() {
+        ret.set_bool(false);
+        return;
+    }
 
     let is_dir = std::path::Path::new(&path).is_dir();
     ret.set_bool(is_dir);
@@ -133,6 +155,7 @@ fn remove_file(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    ensure_remove(&args, &path).unwrap_or_else(|_| panic!("Permission denied: {path}"));
 
     std::fs::remove_file(&path).unwrap_or_else(|_| panic!("Failed to remove file: {path}"));
 
@@ -145,6 +168,7 @@ fn remove_dir(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    ensure_remove(&args, &path).unwrap_or_else(|_| panic!("Permission denied: {path}"));
 
     std::fs::remove_dir_all(&path).unwrap_or_else(|_| panic!("Failed to remove directory: {path}"));
 
@@ -157,6 +181,10 @@ fn path_exists(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_read(&args, &path).is_err() {
+        ret.set_bool(false);
+        return;
+    }
 
     let exists = std::path::Path::new(&path).exists();
     ret.set_bool(exists);
@@ -164,20 +192,19 @@ fn path_exists(
 
 fn current_dir(
     scope: &mut v8::HandleScope,
-    _args: v8::FunctionCallbackArguments,
+    args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
+    if ensure_read(&args, ".").is_err() {
+        ret.set(scope.string("").into());
+        return;
+    }
+
     let current_dir = std::env::current_dir().unwrap_or_default();
     let current_dir = current_dir.to_str().unwrap();
     let current_dir = scope.string(current_dir);
     ret.set(current_dir.into());
 }
-
-// new ffi with error handling, use in moonbitlang/core
-
-use std::sync::{LazyLock, Mutex};
-
-use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 
 static GLOBAL_STATE: LazyLock<Mutex<GlobalState>> = LazyLock::new(|| {
     Mutex::new(GlobalState {
@@ -199,6 +226,9 @@ fn write_bytes_to_file_new(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_write_new(&args, &path, &mut ret) {
+        return;
+    }
 
     let contents = args.get(1);
     let uint8_array = match v8::Local::<v8::Uint8Array>::try_from(contents) {
@@ -233,6 +263,9 @@ fn read_file_to_bytes_new(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_read_new(&args, &path, &mut ret) {
+        return;
+    }
 
     match std::fs::read(&path) {
         Ok(contents) => {
@@ -283,6 +316,9 @@ fn create_dir_new(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_write_new(&args, &path, &mut ret) {
+        return;
+    }
 
     match std::fs::create_dir_all(&path) {
         Ok(_) => {
@@ -303,6 +339,9 @@ fn read_dir_new(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_read_new(&args, &path, &mut ret) {
+        return;
+    }
 
     let entries = match std::fs::read_dir(&path) {
         Ok(entries) => entries,
@@ -336,6 +375,9 @@ fn is_file_new(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_read_new(&args, &path, &mut ret) {
+        return;
+    }
 
     let is_file = match std::fs::metadata(&path) {
         Ok(metadata) => {
@@ -359,6 +401,9 @@ fn is_dir_new(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_read_new(&args, &path, &mut ret) {
+        return;
+    }
 
     let is_dir = match std::fs::metadata(&path) {
         Ok(metadata) => {
@@ -382,6 +427,9 @@ fn remove_file_new(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_remove_new(&args, &path, &mut ret) {
+        return;
+    }
 
     match std::fs::remove_file(&path) {
         Ok(_) => {
@@ -401,6 +449,9 @@ fn remove_dir_new(
     mut ret: v8::ReturnValue,
 ) {
     let path = args.string_lossy(scope, 0);
+    if ensure_remove_new(&args, &path, &mut ret) {
+        return;
+    }
 
     match std::fs::remove_dir_all(&path) {
         Ok(_) => {
@@ -424,28 +475,174 @@ fn get_error_message(
     ret.set(error.into());
 }
 
-pub(crate) fn init_fs<'s>(obj: v8::Local<'s, v8::Object>, scope: &mut v8::HandleScope<'s>) {
-    obj.set_func(scope, "read_file_to_string", read_file_to_string);
-    obj.set_func(scope, "write_string_to_file", write_string_to_file);
-    obj.set_func(scope, "write_bytes_to_file", write_bytes_to_file);
-    obj.set_func(scope, "create_dir", create_dir);
-    obj.set_func(scope, "read_dir", read_dir);
-    obj.set_func(scope, "is_file", is_file);
-    obj.set_func(scope, "is_dir", is_dir);
-    obj.set_func(scope, "remove_file", remove_file);
-    obj.set_func(scope, "remove_dir", remove_dir);
-    obj.set_func(scope, "path_exists", path_exists);
-    obj.set_func(scope, "current_dir", current_dir);
+pub(crate) fn init_fs<'s>(
+    obj: v8::Local<'s, v8::Object>,
+    scope: &mut v8::HandleScope<'s>,
+    policy: Arc<AsyncPolicy>,
+    dtors: &mut Vec<Box<dyn Any>>,
+) {
+    let policy_ptr = Arc::as_ptr(&policy);
+    dtors.push(Box::new(policy));
 
-    obj.set_func(scope, "read_file_to_bytes_new", read_file_to_bytes_new);
-    obj.set_func(scope, "write_bytes_to_file_new", write_bytes_to_file_new);
+    set_policy_func(
+        obj,
+        scope,
+        "read_file_to_string",
+        read_file_to_string,
+        policy_ptr,
+    );
+    set_policy_func(
+        obj,
+        scope,
+        "write_string_to_file",
+        write_string_to_file,
+        policy_ptr,
+    );
+    set_policy_func(
+        obj,
+        scope,
+        "write_bytes_to_file",
+        write_bytes_to_file,
+        policy_ptr,
+    );
+    set_policy_func(obj, scope, "create_dir", create_dir, policy_ptr);
+    set_policy_func(obj, scope, "read_dir", read_dir, policy_ptr);
+    set_policy_func(obj, scope, "is_file", is_file, policy_ptr);
+    set_policy_func(obj, scope, "is_dir", is_dir, policy_ptr);
+    set_policy_func(obj, scope, "remove_file", remove_file, policy_ptr);
+    set_policy_func(obj, scope, "remove_dir", remove_dir, policy_ptr);
+    set_policy_func(obj, scope, "path_exists", path_exists, policy_ptr);
+    set_policy_func(obj, scope, "current_dir", current_dir, policy_ptr);
+
+    set_policy_func(
+        obj,
+        scope,
+        "read_file_to_bytes_new",
+        read_file_to_bytes_new,
+        policy_ptr,
+    );
+    set_policy_func(
+        obj,
+        scope,
+        "write_bytes_to_file_new",
+        write_bytes_to_file_new,
+        policy_ptr,
+    );
     obj.set_func(scope, "get_file_content", get_file_content);
     obj.set_func(scope, "get_dir_files", get_dir_files);
     obj.set_func(scope, "get_error_message", get_error_message);
-    obj.set_func(scope, "create_dir_new", create_dir_new);
-    obj.set_func(scope, "read_dir_new", read_dir_new);
-    obj.set_func(scope, "is_file_new", is_file_new);
-    obj.set_func(scope, "is_dir_new", is_dir_new);
-    obj.set_func(scope, "remove_file_new", remove_file_new);
-    obj.set_func(scope, "remove_dir_new", remove_dir_new);
+    set_policy_func(obj, scope, "create_dir_new", create_dir_new, policy_ptr);
+    set_policy_func(obj, scope, "read_dir_new", read_dir_new, policy_ptr);
+    set_policy_func(obj, scope, "is_file_new", is_file_new, policy_ptr);
+    set_policy_func(obj, scope, "is_dir_new", is_dir_new, policy_ptr);
+    set_policy_func(obj, scope, "remove_file_new", remove_file_new, policy_ptr);
+    set_policy_func(obj, scope, "remove_dir_new", remove_dir_new, policy_ptr);
+}
+
+fn ensure_read(args: &v8::FunctionCallbackArguments<'_>, path: &str) -> AsyncHostResult<()> {
+    let policy = unsafe { get_ref::<AsyncPolicy>(args) };
+    policy.stat_path(RuntimePathBase::CurrentDirectory, OsStr::new(path))
+}
+
+fn ensure_write(args: &v8::FunctionCallbackArguments<'_>, path: &str) -> AsyncHostResult<()> {
+    let policy = unsafe { get_ref::<AsyncPolicy>(args) };
+    policy.open_path(
+        RuntimePathBase::CurrentDirectory,
+        OsStr::new(path),
+        1,
+        1,
+        false,
+    )
+}
+
+fn ensure_remove(args: &v8::FunctionCallbackArguments<'_>, path: &str) -> AsyncHostResult<()> {
+    let policy = unsafe { get_ref::<AsyncPolicy>(args) };
+    ensure_remove_policy(policy, path)
+}
+
+fn ensure_remove_policy(policy: &AsyncPolicy, path: &str) -> AsyncHostResult<()> {
+    policy.remove_path(OsStr::new(path))
+}
+
+fn ensure_read_new(
+    args: &v8::FunctionCallbackArguments<'_>,
+    path: &str,
+    ret: &mut v8::ReturnValue,
+) -> bool {
+    if ensure_read(args, path).is_ok() {
+        return false;
+    }
+    GLOBAL_STATE.lock().unwrap().error_message = format!("Permission denied: {path}");
+    ret.set_int32(-1);
+    true
+}
+
+fn ensure_write_new(
+    args: &v8::FunctionCallbackArguments<'_>,
+    path: &str,
+    ret: &mut v8::ReturnValue,
+) -> bool {
+    if ensure_write(args, path).is_ok() {
+        return false;
+    }
+    GLOBAL_STATE.lock().unwrap().error_message = format!("Permission denied: {path}");
+    ret.set_int32(-1);
+    true
+}
+
+fn ensure_remove_new(
+    args: &v8::FunctionCallbackArguments<'_>,
+    path: &str,
+    ret: &mut v8::ReturnValue,
+) -> bool {
+    if ensure_remove(args, path).is_ok() {
+        return false;
+    }
+    GLOBAL_STATE.lock().unwrap().error_message = format!("Permission denied: {path}");
+    ret.set_int32(-1);
+    true
+}
+
+fn set_policy_func<'s>(
+    obj: v8::Local<'s, v8::Object>,
+    scope: &mut v8::HandleScope<'s>,
+    name: &str,
+    callback: impl v8::MapFnTo<v8::FunctionCallback>,
+    policy_ptr: *const AsyncPolicy,
+) {
+    let data = v8::External::new(scope, policy_ptr as *mut std::ffi::c_void);
+    let function = v8::Function::builder(callback)
+        .data(data.into())
+        .build(scope)
+        .unwrap();
+    obj.set_value(scope, name, function.into());
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn temp_remove_policy_checks_link_path_not_target() {
+        use crate::async_host::AsyncHostError;
+
+        use super::*;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let allowed_file = allowed.join("target.txt");
+        let denied_link = denied.join("link.txt");
+        std::fs::write(&allowed_file, "target").unwrap();
+        std::os::unix::fs::symlink(&allowed_file, &denied_link).unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nwrite = [\"allowed\"]\n").unwrap();
+        let policy = AsyncPolicy::from_file(&policy_file).unwrap();
+
+        assert_eq!(
+            ensure_remove_policy(&policy, denied_link.to_str().unwrap()),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
 }

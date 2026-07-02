@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostResult, HostCBuffer};
@@ -55,6 +56,8 @@ impl ResourceClass {
 pub(crate) struct Resource {
     raw: RawResource,
     class: ResourceClass,
+    policy_path: Option<PathBuf>,
+    socket_family: Option<i32>,
     // Native directory enumeration mutates cursor state on the opened resource.
     directory_cursor: Mutex<()>,
 }
@@ -75,12 +78,30 @@ impl Resource {
         Self {
             raw: RawResource::File(owned_raw_file(raw)),
             class: ResourceClass::File,
+            policy_path: None,
+            socket_family: None,
+            directory_cursor: Mutex::new(()),
+        }
+    }
+
+    pub(crate) fn new_with_policy_path(
+        raw: fd_util::stub::RawFd,
+        policy_path: Option<PathBuf>,
+    ) -> Self {
+        if raw == invalid_raw_file() {
+            return Self::invalid();
+        }
+        Self {
+            raw: RawResource::File(owned_raw_file(raw)),
+            class: ResourceClass::File,
+            policy_path,
+            socket_family: None,
             directory_cursor: Mutex::new(()),
         }
     }
 
     #[cfg(unix)]
-    pub(crate) fn new_socket(raw: fd_util::stub::RawFd, class: ResourceClass) -> Self {
+    pub(crate) fn new_socket(raw: fd_util::stub::RawFd, class: ResourceClass, family: i32) -> Self {
         debug_assert!(class.is_socket());
         if raw == invalid_raw_file() {
             return Self::invalid();
@@ -88,12 +109,14 @@ impl Resource {
         Self {
             raw: RawResource::File(owned_raw_file(raw)),
             class,
+            policy_path: None,
+            socket_family: Some(family),
             directory_cursor: Mutex::new(()),
         }
     }
 
     #[cfg(windows)]
-    pub(crate) fn new_socket(raw: RawSocket, class: ResourceClass) -> Self {
+    pub(crate) fn new_socket(raw: RawSocket, class: ResourceClass, family: i32) -> Self {
         debug_assert!(class.is_socket());
         if raw == invalid_raw_socket() {
             return Self::invalid();
@@ -101,6 +124,8 @@ impl Resource {
         Self {
             raw: RawResource::Socket(owned_raw_socket(raw)),
             class,
+            policy_path: None,
+            socket_family: Some(family),
             directory_cursor: Mutex::new(()),
         }
     }
@@ -109,6 +134,8 @@ impl Resource {
         Self {
             raw: RawResource::Invalid,
             class: ResourceClass::File,
+            policy_path: None,
+            socket_family: None,
             directory_cursor: Mutex::new(()),
         }
     }
@@ -128,6 +155,14 @@ impl Resource {
             #[cfg(windows)]
             RawResource::Socket(raw) => raw_socket(raw),
         }
+    }
+
+    pub(crate) fn policy_path(&self) -> Option<&Path> {
+        self.policy_path.as_deref()
+    }
+
+    pub(crate) fn socket_family(&self) -> Option<i32> {
+        self.socket_family
     }
 
     pub(crate) fn lock_directory_cursor(&self) -> std::sync::MutexGuard<'_, ()> {
@@ -261,6 +296,9 @@ impl Job {
 
 #[derive(Debug)]
 pub(crate) enum JobPayload {
+    Failed {
+        errno: i32,
+    },
     Sleep {
         duration_ms: i32,
     },

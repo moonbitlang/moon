@@ -221,6 +221,7 @@ complete -c moon -n "__fish_moon_using_subcommand run" -l trace -d 'Trace the ex
 complete -c moon -n "__fish_moon_using_subcommand run" -l dry-run -d 'Do not actually run the command'
 complete -c moon -n "__fish_moon_using_subcommand run" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand run" -s h -l help -d 'Print help'
+complete -c moon -n "__fish_moon_using_subcommand runwasm" -l experimental-policy -d 'Experimental: pass a moonrun TOML policy file for moonbitlang/async runtime access' -r -F
 complete -c moon -n "__fish_moon_using_subcommand runwasm" -l manifest-path -d 'Path to `moon.mod.json` or `moon.work` to use as the project manifest (does not change the working directory)' -r -F
 complete -c moon -n "__fish_moon_using_subcommand runwasm" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand runwasm" -s q -l quiet -d 'Suppress output'

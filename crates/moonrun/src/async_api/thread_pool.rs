@@ -401,9 +401,10 @@ pub(super) fn make_bind_job(
 ) -> AsyncHostResult<u64> {
     let socket = context.host.socket_resource(socket)?;
     let addr = context.with_memory_mut(|memory| Ok(memory.read_exact(addr, addr_len)?.to_vec()))?;
-    context
-        .host
-        .insert_job(thread_pool::make_bind_job(socket, addr))
+    match context.host.policy().bind_socket(&addr) {
+        Ok(()) => context.host.insert_job(thread_pool::make_bind_job(socket, addr)),
+        Err(error) => context.host.insert_failed_job(error),
+    }
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
@@ -413,9 +414,10 @@ pub(super) fn make_getaddrinfo_job(
     host_len: i32,
 ) -> AsyncHostResult<u64> {
     let host = read_guest_os_string(context, host, host_len)?;
-    context
-        .host
-        .insert_job(thread_pool::make_getaddrinfo_job(host))
+    match context.host.policy().resolve_dns(&host) {
+        Ok(()) => context.host.insert_job(thread_pool::make_getaddrinfo_job(host)),
+        Err(error) => context.host.insert_failed_job(error),
+    }
 }
 
 pub(super) fn get_getaddrinfo_result(

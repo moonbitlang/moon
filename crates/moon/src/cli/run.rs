@@ -95,6 +95,9 @@ pub(crate) struct RunSubcommand {
     #[clap(trailing_var_arg = true, num_args = 0.., allow_hyphen_values = true)]
     pub args: Vec<String>,
 
+    #[clap(skip)]
+    pub(crate) moonrun_policy: Option<PathBuf>,
+
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -280,6 +283,7 @@ fn run_source_as_single_file(
         command: _,
         build_flags,
         args,
+        moonrun_policy,
         auto_sync_flags,
         build_only,
         profile,
@@ -290,6 +294,7 @@ fn run_source_as_single_file(
         command: None,
         build_flags,
         args,
+        moonrun_policy,
         auto_sync_flags,
         build_only,
         profile,
@@ -337,11 +342,12 @@ fn build_wasm_file_executable_from_arg(
 
     let print_dir = std::env::current_dir().context("failed to get current directory")?;
     if cli.dry_run {
-        let mut run_cmd = crate::run::command_for(
+        let mut run_cmd = crate::run::command_for_with_moonrun_policy(
             moonbuild_rupes_recta::model::RunBackend::WasmGC,
             None,
             &wasm_path,
             None,
+            cmd.moonrun_policy.as_deref(),
         );
         run_cmd.args(&cmd.args);
         rr_build::dry_print_command(run_cmd.as_std(), &print_dir, false);
@@ -570,13 +576,18 @@ pub(crate) fn plan_run_rr_from_resolved(
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
-fn get_run_cmd(build_meta: &rr_build::BuildMeta, argv: &[String]) -> tokio::process::Command {
+fn get_run_cmd(
+    build_meta: &rr_build::BuildMeta,
+    argv: &[String],
+    moonrun_policy: Option<&Path>,
+) -> tokio::process::Command {
     let executable = get_run_executable(build_meta);
-    let mut cmd = crate::run::command_for(
+    let mut cmd = crate::run::command_for_with_moonrun_policy(
         build_meta.target_backend,
         build_meta.tcc_run.as_ref(),
         executable,
         None,
+        moonrun_policy,
     );
     cmd.args(argv);
     cmd
@@ -749,7 +760,7 @@ fn build_executable_from_plan(
         );
 
         if options.print_dry_run_run_command {
-            let run_cmd = get_run_cmd(build_meta, &cmd.args);
+            let run_cmd = get_run_cmd(build_meta, &cmd.args, cmd.moonrun_policy.as_deref());
             rr_build::dry_print_command(run_cmd.as_std(), source_dir, false);
         }
         return Ok(RunExecutable {
@@ -810,11 +821,12 @@ fn run_executable(
         return Ok(build_exit_code);
     }
 
-    let mut run_cmd = crate::run::command_for(
+    let mut run_cmd = crate::run::command_for_with_moonrun_policy(
         executable.target_backend,
         executable.tcc_run.as_ref(),
         executable.executable.as_path(),
         None,
+        cmd.moonrun_policy.as_deref(),
     );
     run_cmd.args(&cmd.args);
     if cli.verbose {

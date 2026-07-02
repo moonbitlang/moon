@@ -33,6 +33,7 @@ pub(crate) fn run_host_job(job: &mut Job) {
     job.set_ret(0);
 
     let result = match job.payload_mut() {
+        JobPayload::Failed { errno } => Err(AsyncHostError::Native(*errno)),
         JobPayload::Sleep { duration_ms } => {
             run_sleep_job(*duration_ms);
             Ok(0)

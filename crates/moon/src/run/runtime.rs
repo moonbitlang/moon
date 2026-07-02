@@ -44,6 +44,16 @@ pub(crate) fn command_for(
     mbt_executable: &Path,
     test: Option<&TestArgs>,
 ) -> Command {
+    command_for_with_moonrun_policy(backend, tcc_run, mbt_executable, test, None)
+}
+
+pub(crate) fn command_for_with_moonrun_policy(
+    backend: RunBackend,
+    tcc_run: Option<&TccRunConfig>,
+    mbt_executable: &Path,
+    test: Option<&TestArgs>,
+    moonrun_policy: Option<&Path>,
+) -> Command {
     debug_assert!(tcc_run.is_none() || backend == RunBackend::Native);
 
     match (backend, tcc_run) {
@@ -52,6 +62,10 @@ pub(crate) fn command_for(
             if let Some(t) = test {
                 cmd.arg("--test-args");
                 cmd.arg(serde_json::to_string(t).unwrap());
+            }
+            if let Some(policy) = moonrun_policy {
+                cmd.arg("--policy");
+                cmd.arg(policy);
             }
             cmd.arg(mbt_executable);
             cmd.arg("--");
