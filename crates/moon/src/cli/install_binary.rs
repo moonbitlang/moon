@@ -32,6 +32,8 @@ use moonutil::{
 };
 use semver::Version;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use tracing::debug;
 
 use crate::{
     cli::BuildFlags,
@@ -645,6 +647,10 @@ fn build_and_install_packages(
         };
         let binary_dst = install_dir.join(dst_name);
 
+        #[cfg(target_os = "macos")]
+        macos_install_file(&binary_src, &binary_dst)?;
+
+        #[cfg(not(target_os = "macos"))]
         std::fs::copy(&binary_src, &binary_dst).with_context(|| {
             format!(
                 "Failed to copy binary from `{}` to `{}`",
@@ -678,6 +684,57 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// macOS-only: copy `src` onto `dst` by writing to a sibling tempfile
+/// and atomically renaming it into place.
+///
+/// Overwriting the destination with `fs::copy` would truncate it via
+/// `O_TRUNC`; on macOS the kernel SIGKILLs any process that re-execs the
+/// modified inode because the code-signature cache no longer matches the
+/// on-disk bytes. Renaming a fresh file into place avoids this — the
+/// old inode is unlinked but remains alive for the running process, and
+/// new executions resolve to the new inode.
+///
+/// The tempfile is created *inside* `install_dir` (a sibling of `dst`)
+/// so the final rename is same-filesystem and therefore atomic. `src`
+/// is copied rather than moved because it is the build graph's declared
+/// artifact and must remain in `_build` for subsequent no-op commands.
+///
+/// Linux has a related issue (`ETXTBSY` on truncate of a running text
+/// segment) and Windows has a sharing-violation failure mode, but
+/// those surface as loud errors the user can diagnose. Only the macOS
+/// SIGKILL is silent enough to justify the extra complexity here.
+#[cfg(target_os = "macos")]
+fn macos_install_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    let install_dir = dst.parent().ok_or_else(|| {
+        anyhow::anyhow!("Install path `{}` has no parent directory", dst.display())
+    })?;
+
+    let tmp_path = tempfile::NamedTempFile::new_in(install_dir)
+        .with_context(|| {
+            format!(
+                "Failed to create temporary file in `{}`",
+                install_dir.display()
+            )
+        })?
+        .into_temp_path();
+
+    std::fs::copy(src, &tmp_path).with_context(|| {
+        format!(
+            "Failed to copy binary from `{}` to `{}`",
+            src.display(),
+            tmp_path.display()
+        )
+    })?;
+    debug!(src = %src.display(), "staged via copy");
+
+    tmp_path
+        .persist(dst)
+        .map_err(|err| err.error)
+        .with_context(|| format!("Failed to install binary to `{}`", dst.display()))?;
+    debug!(dst = %dst.display(), "installed via rename");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -836,5 +893,50 @@ mod tests {
             "native/pixeladventure",
         ));
         assert!(!filter.matches(&test_path(&["repo", "examples", "web", "demo"]), "web/demo",));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_install_file_fresh_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"hello world").unwrap();
+
+        macos_install_file(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"hello world");
+        assert_eq!(std::fs::read(&src).unwrap(), b"hello world");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_install_file_overwrites_existing_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&dst, b"old contents").unwrap();
+
+        macos_install_file(&src, &dst).unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+        assert_eq!(std::fs::read(&src).unwrap(), b"new contents");
+
+        // The build artifact must remain in place and no staging tempfile
+        // should remain behind.
+        let siblings: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        let mut siblings = siblings;
+        siblings.sort();
+        assert_eq!(
+            siblings,
+            vec![
+                std::ffi::OsString::from("dst"),
+                std::ffi::OsString::from("src")
+            ]
+        );
     }
 }
