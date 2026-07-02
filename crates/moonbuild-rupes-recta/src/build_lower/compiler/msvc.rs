@@ -20,9 +20,7 @@
 
 use std::path::Path;
 
-use moonutil::compiler_flags::{Toolchain, WINDOWS_MSVC_DEFAULT_LIBS};
-
-use crate::model::MsvcCrtPolicy;
+use moonutil::compiler_flags::{MsvcCrtPolicy, Toolchain, WINDOWS_MSVC_DEFAULT_LIBS};
 
 pub(crate) fn add_environment_include_paths(toolchain: &Toolchain, command: &mut Vec<String>) {
     let Some(environment) = toolchain.msvc_environment() else {

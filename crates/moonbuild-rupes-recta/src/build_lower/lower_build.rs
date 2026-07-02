@@ -761,7 +761,7 @@ impl<'a> LoweringContext<'a> {
             extra_link_opts: module.link_flags.as_deref().unwrap_or_default(),
             #[cfg(target_os = "windows")]
             native_toolchain_is_msvc: make_executable_info
-                .is_some_and(|info| info.effective_native_toolchain.cc().is_msvc()),
+                .is_some_and(|info| info.effective_native_toolchain.uses_msvc_abi()),
         };
 
         // Ensure n2 sees stdlib core bundle changes as inputs
@@ -915,7 +915,6 @@ impl<'a> LoweringContext<'a> {
             .debug_info(self.opt.debug_symbols)
             .link_moonbitrun(!use_shared_runtime)
             .define_use_shared_runtime_macro(use_shared_runtime)
-            .msvc_static_runtime(self.opt.selected_backend.is_windows_msvc_direct())
             .build()
             .expect("Failed to build CC configuration for C stub");
 
@@ -1203,8 +1202,8 @@ impl<'a> LoweringContext<'a> {
             .display()
             .to_string();
 
-        let cc_cmd = make_cc_command_resolved_with_link_flags(
-            cc,
+        let cc_cmd = make_cc_command_resolved_for_toolchain(
+            &info.effective_native_toolchain,
             config,
             &info.c_flags,
             &info.link_flags,
@@ -1280,12 +1279,7 @@ impl<'a> LoweringContext<'a> {
             &cc,
         );
 
-        let commandline = if self.opt.selected_backend.is_windows_msvc_direct() {
-            assert!(
-                cc.is_msvc(),
-                "Windows MSVC native backend requires an MSVC cl-compatible compiler driver; found {}",
-                cc.cc_path
-            );
+        let commandline = if info.effective_native_toolchain.uses_msvc_driver() {
             compiler::msvc::link_executable_command(
                 &info.effective_native_toolchain,
                 &source_args,

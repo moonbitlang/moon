@@ -166,19 +166,15 @@ impl<'a> super::LoweringContext<'a> {
             (CCOutputType::Object, true)
         };
 
-        let runtime_toolchain = info.effective_native_toolchain.clone();
+        let runtime_toolchain = &info.effective_native_toolchain;
         let resolved_cc = runtime_toolchain.cc().clone();
-        let cc_cmd = if self.opt.selected_backend.is_windows_msvc_direct() && resolved_cc.is_msvc()
-        {
+        let cc_cmd = if let Some(crt) = runtime_toolchain.msvc_crt_policy() {
             compiler::msvc::compile_runtime_command(
-                &runtime_toolchain,
+                runtime_toolchain,
                 &runtime_c_path,
                 &artifact_path,
                 &self.opt.compiler_paths().include_path,
-                self.opt
-                    .native_mode
-                    .msvc_crt_policy()
-                    .expect("Windows MSVC mode should carry a CRT policy"),
+                crt,
             )
             .into()
         } else {

@@ -45,3 +45,21 @@ _Avoid_: Using process names for durable data entities
 **Entity Name**:
 A noun or noun phrase used for stable MoonBuild concepts produced or consumed by build stages. A distinct entity name does not require a distinct data container.
 _Avoid_: Using entity names for operations, adding containers only to mirror vocabulary
+
+## Native Build
+
+**Native Payload Form**:
+The representation produced by MoonBit before the host C compiler or linker is invoked, such as generated C or direct object code.
+_Avoid_: Treating generated C, TCC execution, and direct object linking as the same kind of backend choice
+
+**Native Toolchain**:
+The selected native compiler/linker together with the ABI family and runtime-linkage obligations it imposes on runtime, C stubs, and executable linking.
+_Avoid_: Raw compiler path, native backend mode
+
+**ABI Family**:
+The binary interface family fixed by the native toolchain. On Windows, MSVC and GNU-like toolchains are different ABI families and must not be mixed in one native executable.
+_Avoid_: Compiler flavor, executable style
+
+**CRT Linkage**:
+The C runtime linkage policy required by an ABI family. For MSVC, every native object participating in one executable must use a consistent CRT linkage policy.
+_Avoid_: Per-command compiler flag
