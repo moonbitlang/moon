@@ -349,9 +349,7 @@ impl CompilePreConfig {
             TargetBackend::Native => {
                 let native_mode = if let Some(native_target) = native_target {
                     info!("Disabling `tcc -run`: new native backend selected");
-                    NativeBackendMode::DirectObject(
-                        self.direct_native_mode(native_target, input_nodes)?,
-                    )
+                    NativeBackendMode::DirectObject(self.direct_native_mode(native_target))
                 } else if let Some(tcc_run) =
                     self.select_tcc_run_config(resolve_output, input_nodes, output)
                 {
@@ -431,36 +429,9 @@ impl CompilePreConfig {
         Some(TccRunConfig::new(internal_tcc))
     }
 
-    fn direct_native_mode(
-        &self,
-        native_target: NativeTarget,
-        input_nodes: &[BuildPlanNode],
-    ) -> anyhow::Result<DirectNativeMode> {
-        match native_target {
-            NativeTarget::X86_64PcWindowsMsvc if needs_native_c_toolchain(input_nodes) => {
-                let toolchain = compiler_flags::windows_msvc_native_toolchain(None).with_context(
-                    || "failed to resolve Windows MSVC native toolchain for direct native mode",
-                )?;
-                Ok(DirectNativeMode::resolved_windows_msvc(toolchain))
-            }
-            NativeTarget::X86_64PcWindowsMsvc => Ok(DirectNativeMode::pending_windows_msvc()),
-            NativeTarget::Aarch64AppleDarwin | NativeTarget::X86_64UnknownLinuxGnu => {
-                Ok(DirectNativeMode::generic(native_target))
-            }
-        }
+    fn direct_native_mode(&self, native_target: NativeTarget) -> DirectNativeMode {
+        DirectNativeMode::Target(native_target)
     }
-}
-
-fn needs_native_c_toolchain(input_nodes: &[BuildPlanNode]) -> bool {
-    input_nodes.iter().any(|node| {
-        matches!(
-            node,
-            BuildPlanNode::BuildCStub(_, _)
-                | BuildPlanNode::ArchiveOrLinkCStubs(_)
-                | BuildPlanNode::MakeExecutable(_)
-                | BuildPlanNode::BuildRuntimeLib
-        )
-    })
 }
 
 /// Read in the commandline flags and build flags to create a

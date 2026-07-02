@@ -22,22 +22,15 @@
 //! backend branch for command shape and runtime/linking behavior. Concrete
 //! product paths are resolved by `target_layout`.
 
-use crate::model::{DirectNativeMode, NativeBackendMode, RunBackend, TccRunConfig};
+use crate::model::{NativeBackendMode, RunBackend};
 
 #[derive(Clone, Debug)]
 pub(crate) enum SelectedBackend {
     Wasm { use_wat: bool },
     WasmGc { use_wat: bool },
     Js,
-    C(CBackend),
+    C(NativeBackendMode),
     Llvm,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum CBackend {
-    GeneratedC,
-    TccRun(TccRunConfig),
-    DirectObject(DirectNativeMode),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -82,7 +75,7 @@ impl SelectedBackend {
                 use_wat: output_wat,
             },
             RunBackend::Js => Self::Js,
-            RunBackend::Native => Self::C(CBackend::new(native_mode)),
+            RunBackend::Native => Self::C(native_mode.clone()),
             RunBackend::Llvm => Self::Llvm,
         }
     }
@@ -95,20 +88,6 @@ impl SelectedBackend {
                 unreachable!("C stubs are only realized for C or LLVM backends")
             }
         }
-    }
-
-    pub(crate) fn direct_native_mode(&self) -> Option<&DirectNativeMode> {
-        match self {
-            Self::C(backend) => backend.direct_native_mode(),
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm => None,
-        }
-    }
-
-    pub(crate) fn is_windows_msvc_direct(&self) -> bool {
-        matches!(
-            self.direct_native_mode(),
-            Some(DirectNativeMode::WindowsMsvc(_))
-        )
     }
 
     pub(crate) fn use_wat(&self) -> bool {
@@ -131,48 +110,30 @@ impl SelectedBackend {
     }
 }
 
-impl CBackend {
-    fn new(native_mode: &NativeBackendMode) -> Self {
-        match native_mode {
-            NativeBackendMode::GeneratedC => Self::GeneratedC,
-            NativeBackendMode::TccRun(config) => Self::TccRun(config.clone()),
-            NativeBackendMode::DirectObject(mode) => Self::DirectObject(mode.clone()),
-        }
-    }
-
+impl NativeBackendMode {
     pub(crate) fn executable_realization(&self) -> CExecutableRealization {
         match self {
-            Self::GeneratedC => CExecutableRealization::CompileAndLinkGeneratedC,
-            Self::TccRun(_) => CExecutableRealization::WriteTccRunResponseFile,
-            Self::DirectObject(_) => CExecutableRealization::LinkDirectObject,
+            NativeBackendMode::GeneratedC => CExecutableRealization::CompileAndLinkGeneratedC,
+            NativeBackendMode::TccRun(_) => CExecutableRealization::WriteTccRunResponseFile,
+            NativeBackendMode::DirectObject(_) => CExecutableRealization::LinkDirectObject,
         }
     }
 
     fn runtime_realization(&self) -> CRuntimeRealization {
         match self {
-            Self::TccRun(_) => CRuntimeRealization::SharedLibraryForTccRun,
-            Self::GeneratedC | Self::DirectObject(_) => CRuntimeRealization::StaticObject,
+            NativeBackendMode::TccRun(_) => CRuntimeRealization::SharedLibraryForTccRun,
+            NativeBackendMode::GeneratedC | NativeBackendMode::DirectObject(_) => {
+                CRuntimeRealization::StaticObject
+            }
         }
     }
 
     pub(crate) fn c_stub_library_realization(&self) -> CStubLibraryRealization {
         match self {
-            Self::TccRun(_) => CStubLibraryRealization::SharedLibraryForTccRun,
-            Self::GeneratedC | Self::DirectObject(_) => CStubLibraryRealization::StaticArchive,
-        }
-    }
-
-    pub(crate) fn tcc_run(&self) -> Option<&TccRunConfig> {
-        match self {
-            Self::TccRun(config) => Some(config),
-            Self::GeneratedC | Self::DirectObject(_) => None,
-        }
-    }
-
-    pub(crate) fn direct_native_mode(&self) -> Option<&DirectNativeMode> {
-        match self {
-            Self::DirectObject(mode) => Some(mode),
-            Self::GeneratedC | Self::TccRun(_) => None,
+            NativeBackendMode::TccRun(_) => CStubLibraryRealization::SharedLibraryForTccRun,
+            NativeBackendMode::GeneratedC | NativeBackendMode::DirectObject(_) => {
+                CStubLibraryRealization::StaticArchive
+            }
         }
     }
 }
@@ -180,6 +141,8 @@ impl CBackend {
 #[cfg(test)]
 mod tests {
     use moonutil::compiler_flags::{ARKind, CC, CCKind};
+
+    use crate::model::{DirectNativeMode, TccRunConfig};
 
     use super::*;
 
@@ -206,11 +169,11 @@ mod tests {
         let native_mode = NativeBackendMode::TccRun(fake_tcc_run());
         let backend = SelectedBackend::new(RunBackend::Native, &native_mode, false);
 
-        let SelectedBackend::C(ref c_backend) = backend else {
+        let SelectedBackend::C(ref native_mode) = backend else {
             panic!("native backend should select C lowering")
         };
         assert_eq!(
-            c_backend.executable_realization(),
+            native_mode.executable_realization(),
             CExecutableRealization::WriteTccRunResponseFile
         );
         assert_eq!(
@@ -222,16 +185,16 @@ mod tests {
 
     #[test]
     fn c_direct_object_realizes_linker_executable() {
-        let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::generic(
+        let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
             crate::model::NativeTarget::Aarch64AppleDarwin,
         ));
         let backend = SelectedBackend::new(RunBackend::Native, &native_mode, false);
 
-        let SelectedBackend::C(ref c_backend) = backend else {
+        let SelectedBackend::C(ref native_mode) = backend else {
             panic!("native backend should select C lowering")
         };
         assert_eq!(
-            c_backend.executable_realization(),
+            native_mode.executable_realization(),
             CExecutableRealization::LinkDirectObject
         );
         assert_eq!(

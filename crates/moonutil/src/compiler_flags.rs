@@ -81,6 +81,27 @@ pub struct MsvcEnvironment {
     pub lib_paths: Vec<PathBuf>,
 }
 
+/// MSVC CRT policy shared by runtime, C stubs, and final linking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MsvcCrtPolicy {
+    StaticMt,
+}
+
+impl MsvcCrtPolicy {
+    pub fn compiler_flag(self) -> &'static str {
+        match self {
+            Self::StaticMt => WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
+        }
+    }
+}
+
+/// ABI family carried by a native compiler/linker selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeAbiFamily {
+    Msvc,
+    Other,
+}
+
 impl Toolchain {
     pub fn from_env_override(cc: CC) -> Self {
         Self {
@@ -120,6 +141,30 @@ impl Toolchain {
 
     pub fn source(&self) -> ToolchainSource {
         self.source
+    }
+
+    pub fn abi_family(&self) -> NativeAbiFamily {
+        if self.cc.is_msvc() || self.cc.targets_msvc() {
+            NativeAbiFamily::Msvc
+        } else {
+            NativeAbiFamily::Other
+        }
+    }
+
+    pub fn uses_msvc_abi(&self) -> bool {
+        self.abi_family() == NativeAbiFamily::Msvc
+    }
+
+    pub fn uses_msvc_driver(&self) -> bool {
+        self.cc.is_msvc()
+    }
+
+    pub fn uses_msvc_link_library_names(&self) -> bool {
+        self.uses_msvc_abi()
+    }
+
+    pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
+        self.uses_msvc_driver().then_some(MsvcCrtPolicy::StaticMt)
     }
 
     pub fn with_msvc_environment(mut self, environment: MsvcEnvironment) -> Self {
@@ -277,8 +322,7 @@ fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
 }
 
 pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-    if let Some(env_cc) = ENV_CC.as_ref() {
-        ensure_windows_msvc_compatible(env_cc)?;
+    if let Some(env_cc) = ENV_CC.as_ref().filter(|cc| cc.is_msvc()) {
         let resolved =
             attach_msvc_environment_if_available(Toolchain::from_env_override(env_cc.clone()));
         return windows_msvc_toolchain_with_package_override(resolved, package_cc);
@@ -290,6 +334,10 @@ pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<
 
     let resolved = resolve_windows_msvc_toolchain()?;
     windows_msvc_toolchain_with_package_override(resolved, package_cc)
+}
+
+pub fn has_incompatible_windows_msvc_env_override() -> bool {
+    ENV_CC.as_ref().is_some_and(|cc| !cc.is_msvc())
 }
 
 fn windows_msvc_toolchain_with_package_override(
@@ -311,17 +359,6 @@ fn windows_msvc_toolchain_with_package_override(
     }
 
     Ok(toolchain)
-}
-
-/// Apply package-level native CC override to a pre-resolved Windows MSVC toolchain.
-///
-/// This function does not probe the host. It preserves `MOON_CC` precedence and
-/// reuses the MSVC environment already attached to `resolved`.
-pub fn windows_msvc_toolchain_from_resolved(
-    resolved: &Toolchain,
-    package_cc: Option<&CC>,
-) -> anyhow::Result<Toolchain> {
-    windows_msvc_toolchain_with_package_override(resolved.clone(), package_cc)
 }
 
 impl CC {
@@ -801,9 +838,6 @@ pub struct CCConfig {
     #[builder(default = false)]
     // Define MOONBIT_USE_SIMDUTF.
     pub use_simdutf: bool,
-    #[builder(default = false)]
-    // Use the static MSVC runtime library (/MT).
-    pub msvc_static_runtime: bool,
 }
 
 #[derive(Clone, Builder)]
@@ -1275,9 +1309,11 @@ fn add_cc_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bo
     buf.push("/nologo".to_string());
 }
 
-fn add_cc_msvc_runtime_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
-    if cc.is_msvc() && config.msvc_static_runtime {
-        buf.push(WINDOWS_MSVC_STATIC_RUNTIME_FLAG.to_string());
+fn add_cc_msvc_runtime_flags(cc: &CC, toolchain: Option<&Toolchain>, buf: &mut Vec<String>) {
+    if cc.is_msvc()
+        && let Some(crt) = toolchain.and_then(Toolchain::msvc_crt_policy)
+    {
+        buf.push(crt.compiler_flag().to_string());
     }
 }
 
@@ -1604,7 +1640,7 @@ where
 
     add_cc_common_libraries(&cc, &mut buf, &config);
     buf.extend(cc_flags.iter().map(|s| s.as_ref().to_string()));
-    add_cc_msvc_runtime_flags(&cc, &mut buf, &config);
+    add_cc_msvc_runtime_flags(&cc, toolchain, &mut buf);
     buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
     if config.link_libbacktrace && config.output_ty != OutputType::Object {
         let libbacktrace_path = Path::new(&paths.lib_path).join("libbacktrace.a");
@@ -1644,7 +1680,6 @@ mod tests {
             preserve_frame_pointer: false,
             define_use_shared_runtime_macro: false,
             use_simdutf: false,
-            msvc_static_runtime: false,
         }
     }
 
@@ -1678,6 +1713,40 @@ mod tests {
     }
 
     #[test]
+    fn toolchain_detects_msvc_abi_and_crt_policy() {
+        let mut cc = fake_cc(CCKind::Msvc, None);
+        cc.cc_path = "cl.exe".to_string();
+        cc.ar_kind = ARKind::MsvcLib;
+        cc.ar_path = "lib.exe".to_string();
+
+        let toolchain = Toolchain::from_path_probe(cc);
+
+        assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
+        assert!(toolchain.uses_msvc_abi());
+        assert!(toolchain.uses_msvc_driver());
+        assert_eq!(toolchain.msvc_crt_policy(), Some(MsvcCrtPolicy::StaticMt));
+        assert_eq!(
+            toolchain
+                .msvc_crt_policy()
+                .expect("MSVC toolchain has CRT policy")
+                .compiler_flag(),
+            WINDOWS_MSVC_STATIC_RUNTIME_FLAG
+        );
+    }
+
+    #[test]
+    fn toolchain_tracks_msvc_abi_without_cl_driver_crt_policy() {
+        let toolchain =
+            Toolchain::from_path_probe(fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")));
+
+        assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
+        assert!(toolchain.uses_msvc_abi());
+        assert!(!toolchain.uses_msvc_driver());
+        assert!(toolchain.uses_msvc_link_library_names());
+        assert_eq!(toolchain.msvc_crt_policy(), None);
+    }
+
+    #[test]
     fn windows_msvc_package_override_preserves_env_override_precedence() {
         let mut env_cc = fake_cc(CCKind::Msvc, None);
         env_cc.cc_path = "env-cl.exe".to_string();
@@ -1708,27 +1777,28 @@ mod tests {
     }
 
     #[test]
-    fn msvc_static_runtime_config_adds_mt_to_cc_command() {
+    fn msvc_toolchain_adds_mt_to_cc_command() {
         let mut cc = fake_cc(CCKind::Msvc, None);
         cc.cc_path = "cl.exe".to_string();
         cc.ar_kind = ARKind::MsvcLib;
         cc.ar_path = "lib.exe".to_string();
+        let toolchain = Toolchain::from_path_probe(cc);
         let paths = CompilerPaths {
             include_path: "moon/include".to_string(),
             lib_path: "moon/lib".to_string(),
         };
 
-        let command = make_cc_command_resolved(
-            cc,
+        let command = make_cc_command_resolved_for_toolchain(
+            &toolchain,
             CCConfigBuilder::default()
                 .no_sys_header(true)
                 .link_moonbitrun(false)
                 .output_ty(OutputType::Object)
                 .define_use_shared_runtime_macro(false)
-                .msvc_static_runtime(true)
                 .build()
-                .expect("MSVC static runtime config should build"),
+                .expect("MSVC command config should build"),
             &["/MD"],
+            &[] as &[&str],
             ["stub.c".to_string()],
             "pkg",
             Some("stub.obj"),

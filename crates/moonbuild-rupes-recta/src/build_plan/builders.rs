@@ -32,7 +32,7 @@ use moonutil::{
         DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOONCAKE_BIN, PKG_DIR, TargetBackend,
         is_moon_mod, is_moon_pkg, is_moon_script_ignored,
     },
-    compiler_flags::{CC, Toolchain},
+    compiler_flags::{self, CC, Toolchain},
     module::{MoonMod, MoonModRule},
     mooncakes::ModuleId,
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
@@ -46,7 +46,7 @@ use crate::{
     build_plan::{BuildBundleInfo, FileDependencyKind, PlanArtifactNeed, PrebuildInfo},
     cond_comp,
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, DirectNativeMode, PackageId, TargetKind, WindowsMsvcMode},
+    model::{BuildPlanNode, BuildTarget, NativeTarget, PackageId, TargetKind},
     pkg_name::PackageFQNWithSource,
     user_warning::UserWarning,
 };
@@ -79,7 +79,11 @@ impl DependencyInterfaceMode {
 
 impl<'a> BuildPlanConstructor<'a> {
     fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
-        if self.build_env.native_mode.direct_target().is_some() {
+        if self.build_env.native_mode.direct_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+            err.context(
+                "Windows MSVC native backend requires an MSVC compiler/linker driver such as cl.exe or clang-cl.exe",
+            )
+        } else if self.build_env.native_mode.direct_target().is_some() {
             err.context(
                 "new native backend requires a C compiler/linker driver; install clang/cc or set MOON_CC",
             )
@@ -88,21 +92,27 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    fn effective_native_toolchain(&self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-        debug_assert!(self.build_env.target_backend.is_native());
-        if let Some(DirectNativeMode::WindowsMsvc(msvc_mode)) =
-            self.build_env.native_mode.direct_native_mode()
-        {
-            return match msvc_mode {
-                WindowsMsvcMode::Resolved(mode) => mode.effective_toolchain(package_cc),
-                WindowsMsvcMode::Pending => {
-                    anyhow::bail!(
-                        "Windows MSVC native backend requires a resolved MSVC toolchain for this action"
-                    )
-                }
-            };
+    fn warn_incompatible_windows_msvc_env_override(&mut self) {
+        if !compiler_flags::has_incompatible_windows_msvc_env_override() {
+            return;
         }
-        moonutil::compiler_flags::effective_native_toolchain(
+
+        let warning = UserWarning::warn(
+            "MOON_CC is ignored for Windows MSVC native backend because it is not a cl-compatible driver; set MOON_CC to cl.exe or clang-cl.exe to override MSVC discovery.",
+        );
+        if !self.user_warnings.contains(&warning) {
+            self.user_warnings.push(warning);
+        }
+    }
+
+    fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+        debug_assert!(self.build_env.target_backend.is_native());
+        if self.build_env.native_mode.direct_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+            self.warn_incompatible_windows_msvc_env_override();
+            return compiler_flags::windows_msvc_native_toolchain(package_cc);
+        }
+
+        compiler_flags::effective_native_toolchain(
             package_cc,
             self.build_env
                 .native_mode
@@ -1144,7 +1154,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let Some(prebuild) = self.prebuild_config else {
             return;
         };
-        let is_msvc_like = toolchain.cc().is_msvc() || toolchain.cc().targets_msvc();
+        let is_msvc_like = toolchain.uses_msvc_link_library_names();
         for pkg in pkgs {
             let Some(link_config) = prebuild.package_configs.get(&pkg) else {
                 continue;

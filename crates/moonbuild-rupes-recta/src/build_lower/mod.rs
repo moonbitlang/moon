@@ -346,7 +346,10 @@ mod tests {
             LinkCoreInfo, MakeExecutableInfo, PlanArtifactNeed,
         },
         discover::{DiscoverResult, DiscoveredPackage},
-        model::{BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode, TargetKind},
+        model::{
+            BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode, NativeTarget,
+            TargetKind,
+        },
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::DepRelationship,
         resolve::ResolveOutput,
@@ -616,8 +619,8 @@ mod tests {
             ),
             None,
         );
-        let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::resolved_windows_msvc(
-            toolchain.clone(),
+        let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
+            NativeTarget::X86_64PcWindowsMsvc,
         ));
         let options = BuildOptions {
             artifact_paths: artifact_paths.clone(),

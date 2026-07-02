@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use moonutil::{
     common::TargetBackend,
-    compiler_flags::{CC, Toolchain},
+    compiler_flags::CC,
     mooncakes::{ModuleId, result::ResolvedEnv},
 };
 
@@ -71,32 +71,7 @@ pub enum NativeBackendMode {
 /// Concrete direct object-code native implementation.
 #[derive(Clone, Debug)]
 pub enum DirectNativeMode {
-    Generic { target: NativeTarget },
-    WindowsMsvc(WindowsMsvcMode),
-}
-
-/// MSVC CRT policy shared by runtime, C stubs, and final linking.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MsvcCrtPolicy {
-    StaticMt,
-}
-
-/// Windows MSVC direct-native mode.
-///
-/// `Pending` is used for native check-style operations that need the direct
-/// native target shape but do not need a C compiler/linker. Any runtime, C stub,
-/// or executable action must use `Resolved`.
-#[derive(Clone, Debug)]
-pub enum WindowsMsvcMode {
-    Pending,
-    Resolved(ResolvedWindowsMsvcMode),
-}
-
-/// Resolved Windows MSVC direct-native mode.
-#[derive(Clone, Debug)]
-pub struct ResolvedWindowsMsvcMode {
-    toolchain: Toolchain,
-    crt: MsvcCrtPolicy,
+    Target(NativeTarget),
 }
 
 impl NativeTarget {
@@ -147,77 +122,12 @@ impl NativeBackendMode {
     pub fn is_tcc_run(&self) -> bool {
         self.tcc_run().is_some()
     }
-
-    pub fn is_windows_msvc_direct(&self) -> bool {
-        matches!(
-            self.direct_native_mode(),
-            Some(DirectNativeMode::WindowsMsvc(_))
-        )
-    }
-
-    pub fn resolved_windows_msvc(&self) -> Option<&ResolvedWindowsMsvcMode> {
-        match self.direct_native_mode() {
-            Some(DirectNativeMode::WindowsMsvc(WindowsMsvcMode::Resolved(mode))) => Some(mode),
-            _ => None,
-        }
-    }
-
-    pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
-        self.is_windows_msvc_direct()
-            .then_some(MsvcCrtPolicy::StaticMt)
-    }
 }
 
 impl DirectNativeMode {
-    pub fn generic(target: NativeTarget) -> Self {
-        Self::Generic { target }
-    }
-
-    pub fn pending_windows_msvc() -> Self {
-        Self::WindowsMsvc(WindowsMsvcMode::Pending)
-    }
-
-    pub fn resolved_windows_msvc(toolchain: Toolchain) -> Self {
-        Self::WindowsMsvc(WindowsMsvcMode::Resolved(ResolvedWindowsMsvcMode::new(
-            toolchain,
-            MsvcCrtPolicy::StaticMt,
-        )))
-    }
-
     pub fn target(&self) -> NativeTarget {
         match self {
-            Self::Generic { target } => *target,
-            Self::WindowsMsvc(_) => NativeTarget::X86_64PcWindowsMsvc,
-        }
-    }
-}
-
-impl ResolvedWindowsMsvcMode {
-    pub fn new(toolchain: Toolchain, crt: MsvcCrtPolicy) -> Self {
-        debug_assert!(
-            toolchain.cc().is_msvc(),
-            "Windows MSVC mode requires a cl-compatible compiler"
-        );
-        Self { toolchain, crt }
-    }
-
-    pub fn toolchain(&self) -> &Toolchain {
-        &self.toolchain
-    }
-
-    pub fn crt(&self) -> MsvcCrtPolicy {
-        self.crt
-    }
-
-    pub fn effective_toolchain(&self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-        moonutil::compiler_flags::windows_msvc_toolchain_from_resolved(&self.toolchain, package_cc)
-    }
-}
-
-impl MsvcCrtPolicy {
-    pub fn compiler_flag(self) -> &'static str {
-        match self {
-            Self::StaticMt => moonutil::compiler_flags::WINDOWS_MSVC_STATIC_RUNTIME_FLAG,
+            Self::Target(target) => *target,
         }
     }
 }
@@ -710,7 +620,7 @@ impl std::str::FromStr for OperatingSystem {
 
 #[cfg(test)]
 mod tests {
-    use super::NativeTarget;
+    use super::{DirectNativeMode, NativeTarget};
 
     #[test]
     fn native_target_selection_is_host_specific() {
@@ -728,5 +638,12 @@ mod tests {
             Some(NativeTarget::X86_64PcWindowsMsvc)
         );
         assert_eq!(NativeTarget::from_host("aarch64", "linux"), None);
+    }
+
+    #[test]
+    fn direct_native_mode_carries_only_target_choice() {
+        let mode = DirectNativeMode::Target(NativeTarget::X86_64PcWindowsMsvc);
+
+        assert_eq!(mode.target(), NativeTarget::X86_64PcWindowsMsvc);
     }
 }
