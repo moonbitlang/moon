@@ -16,8 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::async_host::AsyncHostError;
-use crate::async_host::{AsyncHostResult, GuestMemory, read_u16};
+use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, read_u16};
 use crate::async_policy::AsyncPolicy;
 use crate::async_sys::internal::event_loop::thread_pool::{ResourceClass, ResourceRef};
 use crate::async_sys::socket as sys;
@@ -66,7 +65,7 @@ pub(super) fn init_ipv6_addr(
     })
 }
 
-#[ported(source = "src/internal/event_loop/network.mbt", original = "gai_strerror")]
+#[ported(source = "src/internal/event_loop/network.wasm.mbt", original = "gai_strerror")]
 #[cfg(unix)]
 pub(super) fn gai_strerror(context: &mut ImportContext<'_, '_>, code: i32) -> u64 {
     context.host.insert_c_buffer(sys::gai_strerror(code))
@@ -127,6 +126,30 @@ pub(super) fn addr_is_multicast(
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_get_ipv6_bytes_offset(_context: &mut ImportContext<'_, '_>) -> i32 {
     sys::addr_get_ipv6_bytes_offset()
+}
+
+pub(super) fn addr_copy_ipv6_bytes(
+    context: &mut ImportContext<'_, '_>,
+    addr: i32,
+    out: i32,
+    addr_len: i32,
+    len: i32,
+) -> AsyncHostResult<()> {
+    context.with_memory_mut(|memory| {
+        let addr = memory.read_exact(addr, addr_len)?;
+        let offset =
+            usize::try_from(sys::addr_get_ipv6_bytes_offset()).map_err(|_| AsyncHostError::Fault)?;
+        let ip = addr
+            .get(offset..offset + 16)
+            .ok_or(AsyncHostError::Fault)?
+            .to_vec();
+        let out = memory
+            .read_exact_mut(out, len)?
+            .get_mut(..16)
+            .ok_or(AsyncHostError::Fault)?;
+        out.copy_from_slice(&ip);
+        Ok(())
+    })
 }
 
 #[ported(source = "src/socket/socket.c")]

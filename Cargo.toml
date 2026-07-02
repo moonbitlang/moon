@@ -61,6 +61,8 @@ reqwest = { version = "0.12.24", default-features = false, features = [
     "http2",
     "system-proxy",
 ] }
+openssl = { version = "0.10.75", features = ["vendored"] }
+openssl-probe = "0.2.0"
 petgraph = { version = "0.6.4", features = [
     "graphmap",
 ], default-features = false }

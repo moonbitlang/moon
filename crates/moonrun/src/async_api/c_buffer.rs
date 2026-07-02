@@ -78,6 +78,12 @@ pub(super) fn strlen(context: &mut ImportContext<'_, '_>, buf: u64) -> AsyncHost
     context.host.with_c_buffer(buf, stub::strlen)
 }
 
+pub(super) fn length(context: &mut ImportContext<'_, '_>, buf: u64) -> AsyncHostResult<i32> {
+    context
+        .host
+        .with_c_buffer(buf, |buf| i32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault))
+}
+
 pub(super) fn free(context: &mut ImportContext<'_, '_>, ptr: u64) -> AsyncHostResult<()> {
     context.host.free_c_buffer(ptr)
 }

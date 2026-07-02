@@ -105,16 +105,28 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
         let mut symbols = PORTED_SYMBOLS.to_vec();
         symbols.extend_from_slice(&[
             ported_windows_symbol(
-                "make_file_io_result",
-                "moonbitlang_async_make_file_io_result",
+                "make_file_read_io_result",
+                "moonbitlang_async_make_file_read_io_result",
             ),
             ported_windows_symbol(
-                "make_socket_io_result",
-                "moonbitlang_async_make_socket_io_result",
+                "make_file_write_io_result",
+                "moonbitlang_async_make_file_write_io_result",
             ),
             ported_windows_symbol(
-                "make_socket_with_addr_io_result",
-                "moonbitlang_async_make_socket_with_addr_io_result",
+                "make_socket_read_io_result",
+                "moonbitlang_async_make_socket_read_io_result",
+            ),
+            ported_windows_symbol(
+                "make_socket_write_io_result",
+                "moonbitlang_async_make_socket_write_io_result",
+            ),
+            ported_windows_symbol(
+                "make_socket_with_addr_read_io_result",
+                "moonbitlang_async_make_socket_with_addr_read_io_result",
+            ),
+            ported_windows_symbol(
+                "make_socket_with_addr_write_io_result",
+                "moonbitlang_async_make_socket_with_addr_write_io_result",
             ),
             ported_windows_symbol(
                 "make_connect_io_result",
