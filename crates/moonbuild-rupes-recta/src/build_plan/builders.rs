@@ -32,7 +32,7 @@ use moonutil::{
         DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOONCAKE_BIN, PKG_DIR, TargetBackend,
         is_moon_mod, is_moon_pkg, is_moon_script_ignored,
     },
-    compiler_flags::{self, CC, Toolchain},
+    compiler_flags::{self, CC, NativeAbiFamily, NativeToolchain},
     module::{MoonMod, MoonModRule},
     mooncakes::ModuleId,
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
@@ -78,6 +78,14 @@ impl DependencyInterfaceMode {
 }
 
 impl<'a> BuildPlanConstructor<'a> {
+    fn expected_direct_target_abi(&self) -> Option<NativeAbiFamily> {
+        match self.build_env.native_mode.direct_target()? {
+            NativeTarget::Aarch64AppleDarwin => Some(NativeAbiFamily::AppleDarwin),
+            NativeTarget::X86_64UnknownLinuxGnu => Some(NativeAbiFamily::UnixLike),
+            NativeTarget::X86_64PcWindowsMsvc => Some(NativeAbiFamily::Msvc),
+        }
+    }
+
     fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
         if self.build_env.native_mode.direct_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             err.context(
@@ -90,6 +98,28 @@ impl<'a> BuildPlanConstructor<'a> {
         } else {
             err
         }
+    }
+
+    fn validate_direct_target_toolchain(&self, toolchain: &NativeToolchain) -> anyhow::Result<()> {
+        let Some(expected) = self.expected_direct_target_abi() else {
+            return Ok(());
+        };
+
+        if toolchain.abi_family() != expected {
+            anyhow::bail!(
+                "native target {} requires {} ABI, but selected compiler {} uses {} ABI",
+                self.build_env
+                    .native_mode
+                    .direct_target()
+                    .expect("expected direct native target")
+                    .moonc_target_flag(),
+                expected,
+                toolchain.cc().cc_path,
+                toolchain.abi_family()
+            );
+        }
+
+        Ok(())
     }
 
     fn warn_incompatible_windows_msvc_env_override(&mut self) {
@@ -105,20 +135,34 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+    fn native_toolchain_for_action(
+        &mut self,
+        package_cc: Option<&CC>,
+    ) -> anyhow::Result<NativeToolchain> {
         debug_assert!(self.build_env.target_backend.is_native());
-        if self.build_env.native_mode.direct_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
-            self.warn_incompatible_windows_msvc_env_override();
-            return compiler_flags::windows_msvc_native_toolchain(package_cc);
+        if let Some(selected) = self.native_default_toolchain.as_ref() {
+            return compiler_flags::native_toolchain_with_package_override(selected, package_cc);
         }
 
-        compiler_flags::effective_native_toolchain(
-            package_cc,
-            self.build_env
-                .native_mode
-                .tcc_run()
-                .map(|config| config.internal_tcc()),
-        )
+        let selected = if self.build_env.native_mode.direct_target()
+            == Some(NativeTarget::X86_64PcWindowsMsvc)
+        {
+            self.warn_incompatible_windows_msvc_env_override();
+            compiler_flags::windows_msvc_native_toolchain()?
+        } else {
+            compiler_flags::default_native_toolchain(
+                self.build_env
+                    .native_mode
+                    .tcc_run()
+                    .map(|config| config.internal_tcc()),
+            )?
+        };
+
+        compiler_flags::ensure_supported_native_toolchain_contract(selected.contract())?;
+        self.validate_direct_target_toolchain(&selected)?;
+        self.res.native_contract = Some(selected.contract().clone());
+        self.native_default_toolchain = Some(selected.clone());
+        compiler_flags::native_toolchain_with_package_override(&selected, package_cc)
     }
 
     fn module_prebuild_vars(&self, module: ModuleId) -> Option<&HashMap<String, String>> {
@@ -815,7 +859,7 @@ impl<'a> BuildPlanConstructor<'a> {
             .unwrap_or_default();
 
         let effective_native_toolchain = self
-            .effective_native_toolchain(stub_cc.as_ref())
+            .native_toolchain_for_action(stub_cc.as_ref())
             .map_err(|e| {
                 BuildPlanConstructError::FailedToSetStubCC(
                     self.new_native_linker_context(e),
@@ -957,7 +1001,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         let effective_native_toolchain =
-            self.effective_native_toolchain(cc.as_ref()).map_err(|e| {
+            self.native_toolchain_for_action(cc.as_ref()).map_err(|e| {
                 BuildPlanConstructError::FailedToSetCC(
                     self.new_native_linker_context(e),
                     pkg.fqn.clone().into(),
@@ -1147,7 +1191,7 @@ impl<'a> BuildPlanConstructor<'a> {
     /// Propagate the link configuration of the packages in dependency to the output list
     fn propagate_link_config(
         &self,
-        toolchain: &Toolchain,
+        toolchain: &NativeToolchain,
         pkgs: impl Iterator<Item = PackageId>,
         out: &mut Vec<String>,
     ) {
@@ -1323,7 +1367,7 @@ impl<'a> BuildPlanConstructor<'a> {
         &mut self,
         node: BuildPlanNode,
     ) -> Result<(), BuildPlanConstructError> {
-        let effective_native_toolchain = self.effective_native_toolchain(None).map_err(|e| {
+        let effective_native_toolchain = self.native_toolchain_for_action(None).map_err(|e| {
             BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
         })?;
         self.res.runtime_info = Some(BuildRuntimeInfo {

@@ -52,7 +52,7 @@ use std::{
 use log::{debug, info};
 use moonutil::{
     common::{RunMode, TargetBackend},
-    compiler_flags::Toolchain,
+    compiler_flags::{NativeBuildContract, NativeToolchain},
     cond_expr::OptLevel,
     mooncakes::ModuleId,
 };
@@ -107,6 +107,9 @@ pub struct BuildPlan {
 
     /// The information needed to build the native runtime library.
     runtime_info: Option<BuildRuntimeInfo>,
+
+    /// The native ABI/CRT/toolchain-environment contract selected for this build graph.
+    native_contract: Option<NativeBuildContract>,
 
     /// The map of package to its prebuild information, if any.
     prebuild_info: HashMap<PackageId, Vec<Option<PrebuildInfo>>>,
@@ -235,6 +238,10 @@ impl BuildPlan {
     /// Get runtime library build information.
     pub fn get_runtime_info(&self) -> Option<&BuildRuntimeInfo> {
         self.runtime_info.as_ref()
+    }
+
+    pub fn native_contract(&self) -> Option<&NativeBuildContract> {
+        self.native_contract.as_ref()
     }
 
     /// Get prebuild information for the given package.
@@ -399,7 +406,7 @@ pub struct LinkCoreInfo {
 #[derive(Debug)]
 pub struct BuildCStubsInfo {
     /// The effective native toolchain for compiling the C stubs
-    pub(crate) effective_native_toolchain: Toolchain,
+    pub(crate) effective_native_toolchain: NativeToolchain,
     /// Additional flags to pass to the C compiler when compiling the C stubs
     pub(crate) cc_flags: Vec<String>,
     /// Additional flags to pass to the linker (TCC only)
@@ -410,7 +417,7 @@ pub struct BuildCStubsInfo {
 #[derive(Debug)]
 pub struct MakeExecutableInfo {
     /// The effective native toolchain for this executable step
-    pub(crate) effective_native_toolchain: Toolchain,
+    pub(crate) effective_native_toolchain: NativeToolchain,
     /// The flags to pass to the C compiler when compiling the package itself
     pub(crate) c_flags: Vec<String>,
     /// The flags to pass to the C compiler driver when linking the executable
@@ -422,7 +429,7 @@ pub struct MakeExecutableInfo {
 #[derive(Debug)]
 pub struct BuildRuntimeInfo {
     /// The effective native toolchain for compiling the runtime library.
-    pub(crate) effective_native_toolchain: Toolchain,
+    pub(crate) effective_native_toolchain: NativeToolchain,
 }
 
 /// Resolved information about a prebuild command.

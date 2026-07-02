@@ -1131,7 +1131,7 @@ mod tests {
     use indexmap::IndexSet;
     use moonutil::mooncakes::{DEFAULT_VERSION, ModuleName, ModuleSource};
     use moonutil::{
-        compiler_flags::{ARKind, CC, CCKind, Toolchain},
+        compiler_flags::{ARKind, CC, CCKind, NativeToolchain},
         module::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
     };
@@ -1257,8 +1257,8 @@ mod tests {
         }
     }
 
-    fn system_cc_toolchain() -> Toolchain {
-        Toolchain::from_path_probe(CC {
+    fn system_cc_toolchain() -> NativeToolchain {
+        NativeToolchain::from_path_probe(CC {
             cc_kind: CCKind::SystemCC,
             cc_path: "cc".to_string(),
             ar_kind: ARKind::GnuAr,

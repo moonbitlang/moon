@@ -332,7 +332,7 @@ mod tests {
     use indexmap::IndexSet;
     use moonutil::{
         common::TargetBackend,
-        compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, Toolchain},
+        compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, NativeToolchain},
         module::MoonMod,
         mooncakes::{
             DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, result::ResolvedEnv,
@@ -469,8 +469,8 @@ mod tests {
         }
     }
 
-    fn msvc_toolchain() -> Toolchain {
-        Toolchain::from_path_probe(CC {
+    fn msvc_toolchain() -> NativeToolchain {
+        NativeToolchain::from_path_probe(CC {
             cc_kind: CCKind::Msvc,
             cc_path: "cl.exe".to_string(),
             ar_kind: ARKind::MsvcLib,
@@ -480,6 +480,10 @@ mod tests {
         })
         .with_msvc_environment(MsvcEnvironment {
             cl_exe: PathBuf::from("cl.exe"),
+            env_pairs: vec![(
+                std::ffi::OsString::from("PATH"),
+                std::ffi::OsString::from("msvc/bin"),
+            )],
             include_paths: vec![PathBuf::from("crt/include"), PathBuf::from("sdk/include")],
             lib_paths: vec![PathBuf::from("crt/lib"), PathBuf::from("sdk/lib")],
         })

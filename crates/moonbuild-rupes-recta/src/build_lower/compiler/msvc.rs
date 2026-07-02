@@ -20,9 +20,12 @@
 
 use std::path::Path;
 
-use moonutil::compiler_flags::{MsvcCrtPolicy, Toolchain, WINDOWS_MSVC_DEFAULT_LIBS};
+use moonutil::compiler_flags::{MsvcCrtPolicy, NativeToolchain, WINDOWS_MSVC_DEFAULT_LIBS};
 
-pub(crate) fn add_environment_include_paths(toolchain: &Toolchain, command: &mut Vec<String>) {
+pub(crate) fn add_environment_include_paths(
+    toolchain: &NativeToolchain,
+    command: &mut Vec<String>,
+) {
     let Some(environment) = toolchain.msvc_environment() else {
         return;
     };
@@ -34,7 +37,7 @@ pub(crate) fn add_environment_include_paths(toolchain: &Toolchain, command: &mut
     );
 }
 
-fn add_environment_lib_paths(toolchain: &Toolchain, command: &mut Vec<String>) {
+fn add_environment_lib_paths(toolchain: &NativeToolchain, command: &mut Vec<String>) {
     let Some(environment) = toolchain.msvc_environment() else {
         return;
     };
@@ -47,7 +50,7 @@ fn add_environment_lib_paths(toolchain: &Toolchain, command: &mut Vec<String>) {
 }
 
 pub(crate) fn compile_runtime_command(
-    toolchain: &Toolchain,
+    toolchain: &NativeToolchain,
     source: &Path,
     dest: &Path,
     moon_include_path: &str,
@@ -71,7 +74,7 @@ pub(crate) fn compile_runtime_command(
 }
 
 pub(crate) fn link_executable_command(
-    toolchain: &Toolchain,
+    toolchain: &NativeToolchain,
     sources: &[String],
     user_link_flags: &[String],
     dest: &str,
@@ -99,12 +102,12 @@ pub(crate) fn link_executable_command(
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use moonutil::compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, Toolchain};
+    use moonutil::compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, NativeToolchain};
 
     use super::*;
 
-    fn fake_msvc_toolchain() -> Toolchain {
-        Toolchain::from_path_probe(CC {
+    fn fake_msvc_toolchain() -> NativeToolchain {
+        NativeToolchain::from_path_probe(CC {
             cc_kind: CCKind::Msvc,
             cc_path: "cl.exe".to_string(),
             ar_kind: ARKind::MsvcLib,
@@ -114,6 +117,10 @@ mod tests {
         })
         .with_msvc_environment(MsvcEnvironment {
             cl_exe: PathBuf::from("cl.exe"),
+            env_pairs: vec![(
+                std::ffi::OsString::from("PATH"),
+                std::ffi::OsString::from("msvc/bin"),
+            )],
             include_paths: vec![PathBuf::from("crt/include"), PathBuf::from("sdk/include")],
             lib_paths: vec![PathBuf::from("crt/lib"), PathBuf::from("sdk/lib")],
         })

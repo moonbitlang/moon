@@ -11,6 +11,17 @@ The resolved toolchain has three roles:
 Moon does not resolve a standalone linker executable such as `ld` or `lld-link` in this path.
 Linking is performed through the selected compiler driver.
 
+For MSVC-family toolchains, the resolved toolchain also needs the Visual Studio/MSVC environment
+that supplies tool, header, library, Windows SDK, and CRT search context. That environment is part
+of the toolchain decision, not a separate backend choice.
+
+Implementation vocabulary:
+
+- `NativeCommandDriver`: the compiler/linker executable and archiver used by one native action
+- `NativeBuildContract`: the invocation-level ABI family, CRT policy, and MSVC environment
+- `NativeToolchain`: an action-level command driver paired with the contract it has been checked
+  against
+
 ## Standard C Pipeline
 
 The ordinary C pipeline is:
@@ -68,11 +79,19 @@ There are three sources of C toolchain selection:
 2. package-level override
 3. default auto-detection
 
-When a native build step chooses its compiler, the current precedence is:
+When a native build invocation chooses its contract, the package-level overrides are not scanned
+first and do not decide the graph's ABI world. The contract selection is:
 
-1. `MOON_CC` / `MOON_AR`
-2. package-level override (`link.native.cc` or `link.native.stub_cc`)
-3. detected default toolchain
+1. Windows direct-object MSVC target: resolve an MSVC-family toolchain environment and require a
+   cl-compatible driver. A cl-compatible `MOON_CC` may choose the driver; incompatible `MOON_CC`
+   is ignored for this target with a warning.
+2. Other native paths: use `MOON_CC` / `MOON_AR` if present.
+3. Otherwise use default auto-detection.
+
+Moon then treats the result as the native build contract for the invocation: one ABI family, one CRT
+linkage policy where applicable, and one toolchain environment. Runtime compilation, generated-C
+compilation and linking, C stub archives, and direct-object executable linking are all validated
+against that contract.
 
 ## Global Environment Override
 
@@ -101,16 +120,61 @@ They are useful as escape hatches, but they are toolchain-specific, not portable
 For example, `cc = "cl"` is MSVC-specific, while `cc = "gcc"` or GNU-style flags are specific to
 other toolchain families.
 
+Package-level overrides must not be treated as independent ABI decisions for a final executable.
+If the executable has selected an MSVC-family toolchain, package-level C compiler overrides must stay
+within that family and use the same toolchain environment. If they do not, Moon should reject the
+combination instead of producing a mixed-ABI link.
+
+Moon currently does not build the same dependency package multiple times for different native
+contracts in one `moon build --target native` invocation. Supporting that would require the build
+plan, artifact paths, and cache keys for runtime objects, C stub archives, generated C outputs, and
+final executable links to include the native contract. Until that model exists, conflicting package
+overrides are rejected.
+
 ## Default Auto-Detection
 
-When `MOON_CC` is unset and no package-specific override is being applied to that step, Moon probes
-for a default native toolchain in this order:
+When `MOON_CC` is unset, Moon probes for a default native toolchain. On Windows, Moon first tries
+MSVC environment discovery so generated-C builds can also work outside a Developer Command Prompt.
+If that fails, or on non-Windows hosts, Moon falls back to generic compiler probing:
 
 1. `cl`
 2. `cc`
 3. `gcc`
 4. `clang`
 5. internal `tcc`
+
+Moon should not scan every package configuration first to decide the default native toolchain. The
+default belongs to the build invocation: use the explicit global/direct-target choice when present,
+otherwise use host default resolution. Package C and C-stub overrides are then compatibility checks
+against that selected contract.
+
+On Windows, host default resolution for an MSVC-family build should prefer MSVC discovery through
+the Visual Studio tool environment before falling back to generic C compiler probes. Generic GNU-like
+fallbacks remain valid only for build paths that have not selected or required the MSVC ABI.
+
+## MSVC Toolchain Environment
+
+The decision record for this model is [ADR 0003](../../adr/0003-one-native-build-contract-per-invocation.md).
+
+Microsoft's command-line C++ tools require more than a compiler executable on `PATH`. The environment
+sets the locations of the compiler tools, include files, libraries, and SDKs, and is specific to the
+installed Visual Studio/MSVC version, host architecture, target architecture, Windows SDK, and platform
+toolset.
+
+`cl.exe` consumes this environment directly, including `INCLUDE`, `LIB`, and `LIBPATH`. `clang-cl.exe`
+is also a cl-compatible Windows driver: it uses MSVC-style options, links with the Microsoft runtime
+ecosystem, and needs a Visual Studio/MSVC environment to find system headers, libraries, and the
+linker when used from the command line.
+
+Because of that, a Moon build that targets the MSVC ABI resolves one MSVC toolchain environment for
+the build invocation. It may use a different compatible driver within that environment, such as
+`clang-cl.exe`, but it must not mix a runtime built under one Visual Studio environment with C stubs
+or final linking under another.
+
+The `n2` graph currently stores command lines, not per-command environment maps. Moon therefore
+applies the resolved MSVC environment to the Moon process while the native graph executes and restores
+the previous environment afterward. That operational constraint is another reason the current model
+has one MSVC environment per native build invocation.
 
 ## Compiler Kind Detection
 

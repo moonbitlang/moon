@@ -52,9 +52,25 @@ _Avoid_: Using entity names for operations, adding containers only to mirror voc
 The representation produced by MoonBit before the host C compiler or linker is invoked, such as generated C or direct object code.
 _Avoid_: Treating generated C, TCC execution, and direct object linking as the same kind of backend choice
 
+**Native Command Driver**:
+The concrete compiler/linker executable and archiver used by one native build action, such as `cl.exe`, `clang-cl.exe`, `cc`, or `tcc`.
+_Avoid_: ABI family, process environment, build graph contract
+
+**Native Build Contract**:
+The single ABI family, CRT linkage, and toolchain environment selected for one native build invocation. Every native runtime build, C stub archive, generated-C compile/link, and direct-object link in that invocation must match this contract.
+_Avoid_: Per-package ABI world, implicit compiler preference, duplicate shared native artifacts
+
 **Native Toolchain**:
-The selected native compiler/linker together with the ABI family and runtime-linkage obligations it imposes on runtime, C stubs, and executable linking.
-_Avoid_: Raw compiler path, native backend mode
+A native command driver paired with the native build contract it has been validated against. It is action-scoped; the durable graph-level choice is the native build contract.
+_Avoid_: Raw compiler path, native backend mode, global per-package compiler
+
+**Native Link Unit**:
+The final native artifact together with every object file and archive that participates in one link. A native link unit consumes the invocation's native build contract.
+_Avoid_: Per-package executable world, independent C command
+
+**Native Toolchain Environment**:
+The installation- and target-specific environment required to run a native toolchain, including the tool, header, library, and SDK search context.
+_Avoid_: User shell, PATH lookup result, compiler flags
 
 **ABI Family**:
 The binary interface family fixed by the native toolchain. On Windows, MSVC and GNU-like toolchains are different ABI families and must not be mixed in one native executable.

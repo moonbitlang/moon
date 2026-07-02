@@ -29,6 +29,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ffi::OsString,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -57,7 +58,7 @@ use moonutil::{
         BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
         WHITEBOX_TEST_PATCH,
     },
-    compiler_flags::{self, CC},
+    compiler_flags::{self, CC, NativeBuildContract},
     cond_expr::OptLevel as BuildProfile,
     dirs::WorkspaceEnv,
     features::FeatureGate,
@@ -662,6 +663,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     let input = BuildInput {
         graph: compile_output.build_graph,
         command_args_by_output: compile_output.command_args_by_output,
+        native_contract: compile_output.native_contract,
         db_path,
     };
 
@@ -695,6 +697,7 @@ pub fn plan_fmt(
     let input = BuildInput {
         graph,
         command_args_by_output: Default::default(),
+        native_contract: None,
         db_path,
     };
     Ok((input, user_warnings))
@@ -937,10 +940,56 @@ pub struct BuildInput {
     /// Structured command argv keyed by generated output path.
     command_args_by_output: moonbuild_rupes_recta::build_lower::CommandArgMap,
 
+    /// Native ABI/CRT/toolchain-environment contract selected for this build graph.
+    native_contract: Option<NativeBuildContract>,
+
     /// The build cache database path for n2
     ///
     /// This path is passed here because it changes between different execution configurations.
     db_path: PathBuf,
+}
+
+struct ScopedEnv {
+    saved: Vec<(OsString, Option<OsString>)>,
+}
+
+impl ScopedEnv {
+    fn apply(pairs: &[(OsString, OsString)]) -> Self {
+        // n2 only accepts command strings. MSVC environment discovered during
+        // planning is therefore applied to the Moon process before n2 starts
+        // worker jobs, then restored after n2 exits.
+        let saved = pairs
+            .iter()
+            .map(|(key, value)| {
+                let old_value = std::env::var_os(key);
+                // SAFETY: this is scoped to graph execution and Moon does not
+                // concurrently mutate environment variables while n2 is
+                // running. If n2 grows per-command environments, this global
+                // mutation should be removed.
+                unsafe {
+                    std::env::set_var(key, value);
+                }
+                (key.clone(), old_value)
+            })
+            .collect();
+        Self { saved }
+    }
+}
+
+impl Drop for ScopedEnv {
+    fn drop(&mut self) {
+        for (key, value) in self.saved.iter().rev() {
+            // SAFETY: see ScopedEnv::apply. Restore happens after n2 has
+            // returned and before this build invocation continues.
+            unsafe {
+                if let Some(value) = value {
+                    std::env::set_var(key, value);
+                } else {
+                    std::env::remove_var(key);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1001,6 +1050,7 @@ pub fn execute_build_partial(
     ))?;
 
     let mut build_graph = input.graph;
+    let native_contract = input.native_contract;
     let db_path = input.db_path;
     db_path
         .parent()
@@ -1056,8 +1106,13 @@ pub fn execute_build_partial(
     want_files(&mut work).context("Failed to determine the files to be built")?;
 
     // The actual execution done by the n2 executor
+    let msvc_env = native_contract
+        .as_ref()
+        .and_then(NativeBuildContract::msvc_environment)
+        .map(|environment| ScopedEnv::apply(&environment.env_pairs));
     let res = work.run().context("Failed to run n2 graph");
     drop(work);
+    drop(msvc_env);
     drop(prog_console); // Ensure the progress bar won't mess with diagnostic output
     let res = res?;
     let build_succeeded = res.is_some();

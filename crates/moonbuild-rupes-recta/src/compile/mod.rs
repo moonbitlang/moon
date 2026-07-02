@@ -18,7 +18,7 @@
 
 use indexmap::IndexMap;
 use log::{debug, info};
-use moonutil::{common::RunMode, cond_expr::OptLevel};
+use moonutil::{common::RunMode, compiler_flags::NativeBuildContract, cond_expr::OptLevel};
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
@@ -91,6 +91,9 @@ pub struct CompileOutput {
 
     /// User-facing warnings discovered during planning.
     pub user_warnings: Vec<UserWarning>,
+
+    /// Native ABI/CRT/toolchain-environment contract selected for this build graph.
+    pub native_contract: Option<NativeBuildContract>,
 
     /// The build plan, but only if we decided to export it.
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
@@ -187,6 +190,7 @@ pub fn compile(
         command_args_by_output,
         artifacts,
         user_warnings,
+        native_contract: plan.native_contract().cloned(),
         build_plan: if cx.debug_export_build_plan {
             Some(Box::new(plan))
         } else {

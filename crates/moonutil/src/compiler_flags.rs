@@ -20,11 +20,10 @@ use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
 use colored::Colorize;
 use derive_builder::Builder;
-#[cfg(any(windows, test))]
-use std::ffi::OsString;
 use std::{
     env,
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
+    fmt,
     path::{Path, PathBuf},
     process::Command,
     sync::OnceLock,
@@ -61,22 +60,23 @@ pub struct CC {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum ToolchainSource {
+enum NativeDriverSource {
     EnvOverride,
     PathProbe,
     PackageOverride,
 }
 
+/// Compiler/linker executable and archiver chosen for one native action.
 #[derive(Clone, Debug)]
-pub struct Toolchain {
+struct NativeCommandDriver {
     cc: CC,
-    source: ToolchainSource,
-    msvc_environment: Option<MsvcEnvironment>,
+    source: NativeDriverSource,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MsvcEnvironment {
     pub cl_exe: PathBuf,
+    pub env_pairs: Vec<(OsString, OsString)>,
     pub include_paths: Vec<PathBuf>,
     pub lib_paths: Vec<PathBuf>,
 }
@@ -99,86 +99,100 @@ impl MsvcCrtPolicy {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativeAbiFamily {
     Msvc,
+    WindowsGnu,
+    AppleDarwin,
+    UnixLike,
     Other,
 }
 
-impl Toolchain {
-    pub fn from_env_override(cc: CC) -> Self {
+impl fmt::Display for NativeAbiFamily {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Msvc => f.write_str("msvc"),
+            Self::WindowsGnu => f.write_str("windows-gnu"),
+            Self::AppleDarwin => f.write_str("apple-darwin"),
+            Self::UnixLike => f.write_str("unix-like"),
+            Self::Other => f.write_str("other"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NativeBuildContract {
+    abi_family: NativeAbiFamily,
+    msvc_crt_policy: Option<MsvcCrtPolicy>,
+    msvc_environment: Option<MsvcEnvironment>,
+}
+
+/// Action-scoped driver paired with the native build contract it satisfies.
+#[derive(Clone, Debug)]
+pub struct NativeToolchain {
+    driver: NativeCommandDriver,
+    contract: NativeBuildContract,
+}
+
+impl NativeCommandDriver {
+    fn from_env_override(cc: CC) -> Self {
         Self {
             cc,
-            source: ToolchainSource::EnvOverride,
-            msvc_environment: None,
+            source: NativeDriverSource::EnvOverride,
         }
     }
 
-    pub fn from_path_probe(cc: CC) -> Self {
+    fn from_path_probe(cc: CC) -> Self {
         Self {
             cc,
-            source: ToolchainSource::PathProbe,
-            msvc_environment: None,
+            source: NativeDriverSource::PathProbe,
         }
     }
 
-    pub fn from_package_override(cc: CC) -> Self {
+    fn from_package_override(cc: CC) -> Self {
         Self {
             cc,
-            source: ToolchainSource::PackageOverride,
-            msvc_environment: None,
+            source: NativeDriverSource::PackageOverride,
         }
     }
 
-    pub fn from_cc(cc: CC) -> Self {
-        if cc.is_env_override {
-            Toolchain::from_env_override(cc)
-        } else {
-            Toolchain::from_path_probe(cc)
-        }
-    }
-
-    pub fn cc(&self) -> &CC {
+    fn cc(&self) -> &CC {
         &self.cc
     }
 
-    pub fn source(&self) -> ToolchainSource {
-        self.source
-    }
+    fn abi_family(&self) -> NativeAbiFamily {
+        if self.cc.is_msvc() {
+            return NativeAbiFamily::Msvc;
+        }
 
-    pub fn abi_family(&self) -> NativeAbiFamily {
-        if self.cc.is_msvc() || self.cc.targets_msvc() {
+        let Some(target) = self.cc.target_triple.as_deref() else {
+            return NativeAbiFamily::Other;
+        };
+
+        if target.contains("msvc") {
             NativeAbiFamily::Msvc
+        } else if target.contains("windows-gnu")
+            || target.contains("windows-gnullvm")
+            || target.contains("w64")
+        {
+            NativeAbiFamily::WindowsGnu
+        } else if target.contains("apple-darwin") {
+            NativeAbiFamily::AppleDarwin
+        } else if target.contains("linux") || target.contains("freebsd") {
+            NativeAbiFamily::UnixLike
         } else {
             NativeAbiFamily::Other
         }
     }
 
-    pub fn uses_msvc_abi(&self) -> bool {
-        self.abi_family() == NativeAbiFamily::Msvc
-    }
-
-    pub fn uses_msvc_driver(&self) -> bool {
+    fn uses_msvc_driver(&self) -> bool {
         self.cc.is_msvc()
     }
 
-    pub fn uses_msvc_link_library_names(&self) -> bool {
-        self.uses_msvc_abi()
-    }
-
-    pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
+    fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
         self.uses_msvc_driver().then_some(MsvcCrtPolicy::StaticMt)
     }
 
-    pub fn with_msvc_environment(mut self, environment: MsvcEnvironment) -> Self {
-        self.msvc_environment = Some(environment);
-        self
-    }
-
-    pub fn msvc_environment(&self) -> Option<&MsvcEnvironment> {
-        self.msvc_environment.as_ref()
-    }
-
-    pub fn with_package_override(&self, package_cc: Option<&CC>) -> Toolchain {
+    fn with_package_override(&self, package_cc: Option<&CC>) -> Self {
         match (self.source, package_cc) {
-            (ToolchainSource::EnvOverride, Some(_)) => {
+            (NativeDriverSource::EnvOverride, Some(_)) => {
                 static WARN_ONCE: std::sync::Once = std::sync::Once::new();
                 WARN_ONCE.call_once(|| {
                     eprintln!(
@@ -189,8 +203,107 @@ impl Toolchain {
                 });
                 self.clone()
             }
-            (ToolchainSource::EnvOverride, None) | (_, None) => self.clone(),
-            (_, Some(package_cc)) => Toolchain::from_package_override(package_cc.clone()),
+            (NativeDriverSource::EnvOverride, None) | (_, None) => self.clone(),
+            (_, Some(package_cc)) => Self::from_package_override(package_cc.clone()),
+        }
+    }
+}
+
+impl NativeBuildContract {
+    fn from_driver(driver: &NativeCommandDriver) -> Self {
+        Self {
+            abi_family: driver.abi_family(),
+            msvc_crt_policy: driver.msvc_crt_policy(),
+            msvc_environment: None,
+        }
+    }
+
+    pub fn abi_family(&self) -> NativeAbiFamily {
+        self.abi_family
+    }
+
+    pub fn uses_msvc_abi(&self) -> bool {
+        self.abi_family == NativeAbiFamily::Msvc
+    }
+
+    pub fn uses_msvc_link_library_names(&self) -> bool {
+        self.uses_msvc_abi()
+    }
+
+    pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
+        self.msvc_crt_policy
+    }
+
+    pub fn msvc_environment(&self) -> Option<&MsvcEnvironment> {
+        self.msvc_environment.as_ref()
+    }
+
+    pub fn with_msvc_environment(mut self, environment: MsvcEnvironment) -> Self {
+        self.msvc_environment = Some(environment);
+        self
+    }
+}
+
+impl NativeToolchain {
+    fn from_driver(driver: NativeCommandDriver) -> Self {
+        let contract = NativeBuildContract::from_driver(&driver);
+        Self { driver, contract }
+    }
+
+    pub fn from_env_override(cc: CC) -> Self {
+        Self::from_driver(NativeCommandDriver::from_env_override(cc))
+    }
+
+    pub fn from_path_probe(cc: CC) -> Self {
+        Self::from_driver(NativeCommandDriver::from_path_probe(cc))
+    }
+
+    pub fn contract(&self) -> &NativeBuildContract {
+        &self.contract
+    }
+
+    fn driver(&self) -> &NativeCommandDriver {
+        &self.driver
+    }
+
+    pub fn cc(&self) -> &CC {
+        self.driver.cc()
+    }
+
+    pub fn abi_family(&self) -> NativeAbiFamily {
+        self.contract.abi_family()
+    }
+
+    pub fn uses_msvc_abi(&self) -> bool {
+        self.contract.uses_msvc_abi()
+    }
+
+    pub fn uses_msvc_driver(&self) -> bool {
+        self.driver.uses_msvc_driver()
+    }
+
+    pub fn uses_msvc_link_library_names(&self) -> bool {
+        self.contract.uses_msvc_link_library_names()
+    }
+
+    pub fn msvc_crt_policy(&self) -> Option<MsvcCrtPolicy> {
+        self.contract.msvc_crt_policy()
+    }
+
+    pub fn msvc_environment(&self) -> Option<&MsvcEnvironment> {
+        self.contract.msvc_environment()
+    }
+
+    pub fn with_msvc_environment(mut self, environment: MsvcEnvironment) -> Self {
+        self.contract = self.contract.with_msvc_environment(environment);
+        self
+    }
+
+    pub fn with_package_override(&self, package_cc: Option<&CC>) -> Self {
+        let driver = self.driver.with_package_override(package_cc);
+        Self {
+            driver,
+            contract: self.contract.clone(),
         }
     }
 }
@@ -243,6 +356,7 @@ fn msvc_environment_from_env_pairs(
         .collect::<Vec<_>>();
     Some(MsvcEnvironment {
         cl_exe,
+        env_pairs: env.to_vec(),
         include_paths,
         lib_paths,
     })
@@ -284,16 +398,31 @@ pub fn resolve_windows_msvc_environment() -> anyhow::Result<MsvcEnvironment> {
         )
 }
 
-fn attach_msvc_environment_if_available(toolchain: Toolchain) -> Toolchain {
+fn attach_msvc_environment(toolchain: NativeToolchain) -> anyhow::Result<NativeToolchain> {
+    if !toolchain.cc().is_msvc() {
+        return Ok(toolchain);
+    }
+
+    let environment = resolve_windows_msvc_environment()?;
+    let cl_exe = PathBuf::from(&toolchain.cc().cc_path);
+    Ok(toolchain.with_msvc_environment(MsvcEnvironment {
+        cl_exe,
+        env_pairs: environment.env_pairs,
+        include_paths: environment.include_paths,
+        lib_paths: environment.lib_paths,
+    }))
+}
+
+fn attach_msvc_environment_if_available(toolchain: NativeToolchain) -> NativeToolchain {
     if !toolchain.cc().is_msvc() {
         return toolchain;
     }
-
     match resolve_windows_msvc_environment() {
         Ok(environment) => {
             let cl_exe = PathBuf::from(&toolchain.cc().cc_path);
             toolchain.with_msvc_environment(MsvcEnvironment {
                 cl_exe,
+                env_pairs: environment.env_pairs,
                 include_paths: environment.include_paths,
                 lib_paths: environment.lib_paths,
             })
@@ -302,12 +431,12 @@ fn attach_msvc_environment_if_available(toolchain: Toolchain) -> Toolchain {
     }
 }
 
-pub fn resolve_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
+pub fn resolve_windows_msvc_toolchain() -> anyhow::Result<NativeToolchain> {
     let environment = resolve_windows_msvc_environment()?;
     let cl_exe = environment.cl_exe.display().to_string();
     let cc = CC::try_from_path(&cl_exe)
         .with_context(|| format!("failed to resolve MSVC compiler at {cl_exe}"))?;
-    Ok(Toolchain::from_path_probe(cc).with_msvc_environment(environment))
+    Ok(NativeToolchain::from_path_probe(cc).with_msvc_environment(environment))
 }
 
 fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
@@ -315,50 +444,75 @@ fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
         Ok(())
     } else {
         anyhow::bail!(
-            "Windows native backend requires an MSVC cl-compatible compiler driver such as cl.exe or clang-cl.exe; found {}",
+            "MSVC ABI native builds require a cl-compatible compiler driver such as cl.exe or clang-cl.exe; found {}",
             cc.cc_path
         )
     }
 }
 
-pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
+pub fn ensure_supported_native_toolchain_contract(
+    contract: &NativeBuildContract,
+) -> anyhow::Result<()> {
+    if contract.uses_msvc_abi() {
+        if contract.msvc_crt_policy().is_none() {
+            anyhow::bail!("MSVC ABI native builds require a known CRT policy")
+        }
+        if contract.msvc_environment().is_none() {
+            anyhow::bail!("MSVC ABI native builds require a resolved MSVC toolchain environment")
+        }
+    }
+    Ok(())
+}
+
+fn validate_native_driver_for_contract(
+    contract: &NativeBuildContract,
+    driver: &NativeCommandDriver,
+) -> anyhow::Result<()> {
+    if driver.abi_family() != contract.abi_family() {
+        anyhow::bail!(
+            "native toolchain ABI mismatch: selected build uses {} ABI, but package override uses {} ABI via {}",
+            contract.abi_family(),
+            driver.abi_family(),
+            driver.cc().cc_path
+        );
+    }
+
+    if driver.msvc_crt_policy() != contract.msvc_crt_policy() {
+        anyhow::bail!(
+            "native toolchain CRT mismatch: selected build uses {:?}, but package override uses {:?} via {}",
+            contract.msvc_crt_policy(),
+            driver.msvc_crt_policy(),
+            driver.cc().cc_path
+        );
+    }
+
+    if contract.uses_msvc_abi() {
+        ensure_windows_msvc_compatible(driver.cc())?;
+    }
+
+    Ok(())
+}
+
+pub fn native_toolchain_with_package_override(
+    selected: &NativeToolchain,
+    package_cc: Option<&CC>,
+) -> anyhow::Result<NativeToolchain> {
+    let toolchain = selected.with_package_override(package_cc);
+    validate_native_driver_for_contract(toolchain.contract(), toolchain.driver())?;
+    ensure_supported_native_toolchain_contract(toolchain.contract())?;
+    Ok(toolchain)
+}
+
+pub fn windows_msvc_native_toolchain() -> anyhow::Result<NativeToolchain> {
     if let Some(env_cc) = ENV_CC.as_ref().filter(|cc| cc.is_msvc()) {
-        let resolved =
-            attach_msvc_environment_if_available(Toolchain::from_env_override(env_cc.clone()));
-        return windows_msvc_toolchain_with_package_override(resolved, package_cc);
+        return attach_msvc_environment(NativeToolchain::from_env_override(env_cc.clone()));
     }
 
-    if let Some(package_cc) = package_cc {
-        ensure_windows_msvc_compatible(package_cc)?;
-    }
-
-    let resolved = resolve_windows_msvc_toolchain()?;
-    windows_msvc_toolchain_with_package_override(resolved, package_cc)
+    resolve_windows_msvc_toolchain()
 }
 
 pub fn has_incompatible_windows_msvc_env_override() -> bool {
     ENV_CC.as_ref().is_some_and(|cc| !cc.is_msvc())
-}
-
-fn windows_msvc_toolchain_with_package_override(
-    resolved: Toolchain,
-    package_cc: Option<&CC>,
-) -> anyhow::Result<Toolchain> {
-    let mut toolchain = resolved.with_package_override(package_cc);
-    ensure_windows_msvc_compatible(toolchain.cc())?;
-
-    if toolchain.source() == ToolchainSource::PackageOverride
-        && let Some(environment) = resolved.msvc_environment()
-    {
-        let cl_exe = PathBuf::from(&toolchain.cc().cc_path);
-        toolchain = toolchain.with_msvc_environment(MsvcEnvironment {
-            cl_exe,
-            include_paths: environment.include_paths.clone(),
-            lib_paths: environment.lib_paths.clone(),
-        });
-    }
-
-    Ok(toolchain)
 }
 
 impl CC {
@@ -758,30 +912,30 @@ pub fn has_cc_env_override() -> bool {
     env::var_os(ENV_MOON_CC).is_some()
 }
 
-pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::Result<Toolchain> {
+pub fn default_native_toolchain(
+    internal_tcc_fallback: Option<&CC>,
+) -> anyhow::Result<NativeToolchain> {
     if let Some(env_cc) = ENV_CC.as_ref() {
-        return Ok(Toolchain::from_env_override(env_cc.clone()));
+        return Ok(attach_msvc_environment_if_available(
+            NativeToolchain::from_env_override(env_cc.clone()),
+        ));
     }
+
+    if cfg!(windows)
+        && let Ok(toolchain) = resolve_windows_msvc_toolchain()
+    {
+        return Ok(toolchain);
+    }
+
     match try_system_cc() {
-        Ok(cc) => Ok(Toolchain::from_path_probe(cc)),
+        Ok(cc) => Ok(attach_msvc_environment_if_available(
+            NativeToolchain::from_path_probe(cc),
+        )),
         Err(err) => match internal_tcc_fallback {
-            Some(internal_tcc) => Ok(Toolchain::from_path_probe(internal_tcc.clone())),
+            Some(internal_tcc) => Ok(NativeToolchain::from_path_probe(internal_tcc.clone())),
             None => Err(err),
         },
     }
-}
-
-pub fn effective_native_toolchain(
-    package_cc: Option<&CC>,
-    internal_tcc_fallback: Option<&CC>,
-) -> anyhow::Result<Toolchain> {
-    if let Some(env_cc) = ENV_CC.as_ref() {
-        return Ok(Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc));
-    }
-    if let Some(package_cc) = package_cc {
-        return Ok(Toolchain::from_package_override(package_cc.clone()));
-    }
-    default_native_toolchain(internal_tcc_fallback)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1239,8 +1393,11 @@ fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpa
     }
 }
 
-fn add_cc_msvc_environment_include_paths(toolchain: Option<&Toolchain>, buf: &mut Vec<String>) {
-    let Some(environment) = toolchain.and_then(Toolchain::msvc_environment) else {
+fn add_cc_msvc_environment_include_paths(
+    toolchain: Option<&NativeToolchain>,
+    buf: &mut Vec<String>,
+) {
+    let Some(environment) = toolchain.and_then(NativeToolchain::msvc_environment) else {
         return;
     };
     buf.extend(
@@ -1309,9 +1466,9 @@ fn add_cc_msvc_specific_flags(cc: &CC, buf: &mut Vec<String>, has_user_flags: bo
     buf.push("/nologo".to_string());
 }
 
-fn add_cc_msvc_runtime_flags(cc: &CC, toolchain: Option<&Toolchain>, buf: &mut Vec<String>) {
+fn add_cc_msvc_runtime_flags(cc: &CC, toolchain: Option<&NativeToolchain>, buf: &mut Vec<String>) {
     if cc.is_msvc()
-        && let Some(crt) = toolchain.and_then(Toolchain::msvc_crt_policy)
+        && let Some(crt) = toolchain.and_then(NativeToolchain::msvc_crt_policy)
     {
         buf.push(crt.compiler_flag().to_string());
     }
@@ -1567,7 +1724,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 pub fn make_cc_command_resolved_for_toolchain<S, L>(
-    toolchain: &Toolchain,
+    toolchain: &NativeToolchain,
     config: CCConfig,
     cc_flags: &[S],
     user_link_flags: &[L],
@@ -1595,7 +1752,7 @@ where
 
 #[allow(clippy::too_many_arguments)]
 fn make_cc_command_resolved_with_link_flags_and_toolchain<S, L>(
-    toolchain: Option<&Toolchain>,
+    toolchain: Option<&NativeToolchain>,
     cc: CC,
     config: CCConfig,
     cc_flags: &[S],
@@ -1700,6 +1857,43 @@ mod tests {
     }
 
     #[test]
+    fn classifies_native_abi_family_from_target_triple() {
+        assert_eq!(
+            NativeToolchain::from_path_probe(fake_cc(CCKind::Msvc, None)).abi_family(),
+            NativeAbiFamily::Msvc
+        );
+        assert_eq!(
+            NativeToolchain::from_path_probe(fake_cc(
+                CCKind::Clang,
+                Some("x86_64-pc-windows-msvc")
+            ))
+            .abi_family(),
+            NativeAbiFamily::Msvc
+        );
+        assert_eq!(
+            NativeToolchain::from_path_probe(fake_cc(CCKind::Gcc, Some("x86_64-w64-windows-gnu")))
+                .abi_family(),
+            NativeAbiFamily::WindowsGnu
+        );
+        assert_eq!(
+            NativeToolchain::from_path_probe(fake_cc(
+                CCKind::Clang,
+                Some("arm64-apple-darwin25.5.0")
+            ))
+            .abi_family(),
+            NativeAbiFamily::AppleDarwin
+        );
+        assert_eq!(
+            NativeToolchain::from_path_probe(fake_cc(
+                CCKind::Gcc,
+                Some("x86_64-unknown-linux-gnu")
+            ))
+            .abi_family(),
+            NativeAbiFamily::UnixLike
+        );
+    }
+
+    #[test]
     fn windows_msvc_compatibility_rejects_gnu_toolchains() {
         assert!(ensure_windows_msvc_compatible(&fake_cc(CCKind::Msvc, None)).is_ok());
         assert!(
@@ -1719,7 +1913,7 @@ mod tests {
         cc.ar_kind = ARKind::MsvcLib;
         cc.ar_path = "lib.exe".to_string();
 
-        let toolchain = Toolchain::from_path_probe(cc);
+        let toolchain = NativeToolchain::from_path_probe(cc);
 
         assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
@@ -1736,14 +1930,30 @@ mod tests {
 
     #[test]
     fn toolchain_tracks_msvc_abi_without_cl_driver_crt_policy() {
-        let toolchain =
-            Toolchain::from_path_probe(fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")));
+        let toolchain = NativeToolchain::from_path_probe(fake_cc(
+            CCKind::Clang,
+            Some("x86_64-pc-windows-msvc"),
+        ));
 
         assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
         assert!(!toolchain.uses_msvc_driver());
         assert!(toolchain.uses_msvc_link_library_names());
         assert_eq!(toolchain.msvc_crt_policy(), None);
+    }
+
+    #[test]
+    fn msvc_contract_requires_resolved_toolchain_environment() {
+        let mut cc = fake_cc(CCKind::Msvc, None);
+        cc.cc_path = "cl.exe".to_string();
+        cc.ar_kind = ARKind::MsvcLib;
+        cc.ar_path = "lib.exe".to_string();
+        let toolchain = NativeToolchain::from_path_probe(cc);
+
+        let err = ensure_supported_native_toolchain_contract(toolchain.contract())
+            .expect_err("MSVC ABI contract without environment should be rejected");
+
+        assert!(err.to_string().contains("MSVC toolchain environment"));
     }
 
     #[test]
@@ -1754,18 +1964,18 @@ mod tests {
         env_cc.ar_path = "env-lib.exe".to_string();
         env_cc.is_env_override = true;
         let resolved =
-            Toolchain::from_env_override(env_cc).with_msvc_environment(MsvcEnvironment {
+            NativeToolchain::from_env_override(env_cc).with_msvc_environment(MsvcEnvironment {
                 cl_exe: PathBuf::from("env-cl.exe"),
+                env_pairs: vec![(OsString::from("PATH"), OsString::from("env/bin"))],
                 include_paths: vec![PathBuf::from("env/include")],
                 lib_paths: vec![PathBuf::from("env/lib")],
             });
         let mut package_cc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));
         package_cc.cc_path = "clang.exe".to_string();
 
-        let toolchain = windows_msvc_toolchain_with_package_override(resolved, Some(&package_cc))
+        let toolchain = native_toolchain_with_package_override(&resolved, Some(&package_cc))
             .expect("MOON_CC-style source should ignore package cc");
 
-        assert_eq!(toolchain.source(), ToolchainSource::EnvOverride);
         assert_eq!(toolchain.cc().cc_path, "env-cl.exe");
         assert_eq!(
             toolchain
@@ -1773,6 +1983,89 @@ mod tests {
                 .expect("env toolchain keeps MSVC environment")
                 .lib_paths,
             vec![PathBuf::from("env/lib")]
+        );
+        assert_eq!(
+            toolchain
+                .msvc_environment()
+                .expect("env toolchain keeps MSVC environment")
+                .env_pairs,
+            vec![(OsString::from("PATH"), OsString::from("env/bin"))]
+        );
+    }
+
+    #[test]
+    fn native_toolchain_contract_rejects_mixed_msvc_and_windows_gnu_abi() {
+        let mut selected_cc = fake_cc(CCKind::Msvc, None);
+        selected_cc.cc_path = "cl.exe".to_string();
+        selected_cc.ar_kind = ARKind::MsvcLib;
+        selected_cc.ar_path = "lib.exe".to_string();
+        let selected =
+            NativeToolchain::from_path_probe(selected_cc).with_msvc_environment(MsvcEnvironment {
+                cl_exe: PathBuf::from("cl.exe"),
+                env_pairs: vec![(OsString::from("PATH"), OsString::from("msvc/bin"))],
+                include_paths: vec![PathBuf::from("msvc/include")],
+                lib_paths: vec![PathBuf::from("msvc/lib")],
+            });
+        let mut package_cc = fake_cc(CCKind::Gcc, Some("x86_64-w64-windows-gnu"));
+        package_cc.cc_path = "x86_64-w64-mingw32-gcc".to_string();
+
+        let err = native_toolchain_with_package_override(&selected, Some(&package_cc))
+            .expect_err("Windows-GNU package override must not enter an MSVC link contract");
+
+        assert!(err.to_string().contains("ABI mismatch"));
+    }
+
+    #[test]
+    fn native_toolchain_contract_rejects_plain_clang_msvc_driver_for_now() {
+        let mut selected_cc = fake_cc(CCKind::Msvc, None);
+        selected_cc.cc_path = "cl.exe".to_string();
+        selected_cc.ar_kind = ARKind::MsvcLib;
+        selected_cc.ar_path = "lib.exe".to_string();
+        let selected = NativeToolchain::from_path_probe(selected_cc);
+        let mut package_cc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));
+        package_cc.cc_path = "clang.exe".to_string();
+
+        let err = native_toolchain_with_package_override(&selected, Some(&package_cc))
+            .expect_err("plain clang MSVC target has a different CRT driver contract today");
+
+        assert!(err.to_string().contains("CRT mismatch"));
+    }
+
+    #[test]
+    fn native_toolchain_contract_reuses_msvc_environment_for_clang_cl_override() {
+        let mut selected_cc = fake_cc(CCKind::Msvc, None);
+        selected_cc.cc_path = "cl.exe".to_string();
+        selected_cc.ar_kind = ARKind::MsvcLib;
+        selected_cc.ar_path = "lib.exe".to_string();
+        let selected =
+            NativeToolchain::from_path_probe(selected_cc).with_msvc_environment(MsvcEnvironment {
+                cl_exe: PathBuf::from("cl.exe"),
+                env_pairs: vec![(OsString::from("PATH"), OsString::from("msvc/bin"))],
+                include_paths: vec![PathBuf::from("msvc/include")],
+                lib_paths: vec![PathBuf::from("msvc/lib")],
+            });
+        let mut package_cc = fake_cc(CCKind::Msvc, None);
+        package_cc.cc_path = "clang-cl.exe".to_string();
+        package_cc.ar_kind = ARKind::MsvcLib;
+        package_cc.ar_path = "lib.exe".to_string();
+
+        let toolchain = native_toolchain_with_package_override(&selected, Some(&package_cc))
+            .expect("clang-cl should be compatible with the selected MSVC contract");
+
+        assert_eq!(toolchain.cc().cc_path, "clang-cl.exe");
+        assert_eq!(
+            toolchain
+                .msvc_environment()
+                .expect("compatible package override reuses MSVC env")
+                .env_pairs,
+            vec![(OsString::from("PATH"), OsString::from("msvc/bin"))]
+        );
+        assert_eq!(
+            toolchain
+                .msvc_environment()
+                .expect("compatible package override reuses MSVC env")
+                .cl_exe,
+            PathBuf::from("cl.exe")
         );
     }
 
@@ -1782,7 +2075,7 @@ mod tests {
         cc.cc_path = "cl.exe".to_string();
         cc.ar_kind = ARKind::MsvcLib;
         cc.ar_path = "lib.exe".to_string();
-        let toolchain = Toolchain::from_path_probe(cc);
+        let toolchain = NativeToolchain::from_path_probe(cc);
         let paths = CompilerPaths {
             include_path: "moon/include".to_string(),
             lib_path: "moon/lib".to_string(),

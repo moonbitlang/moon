@@ -31,6 +31,7 @@ use crate::{
     user_warning::UserWarning,
 };
 use indexmap::IndexMap;
+use moonutil::compiler_flags::NativeToolchain;
 use tracing::{Level, debug, instrument};
 
 use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
@@ -48,6 +49,11 @@ pub(super) struct BuildPlanConstructor<'a> {
 
     /// The resulting build plan
     pub(super) res: BuildPlan,
+
+    /// Default native command driver selected for this planning invocation.
+    /// The build plan stores only the native compatibility contract; this
+    /// driver is planner-local state for later compatible package overrides.
+    pub(super) native_default_toolchain: Option<NativeToolchain>,
 
     /// Currently pending nodes that need to be processed.
     pub(super) pending: Vec<BuildPlanNode>,
@@ -146,6 +152,7 @@ impl<'a> BuildPlanConstructor<'a> {
             user_warnings: Vec::new(),
 
             res: BuildPlan::default(),
+            native_default_toolchain: None,
             pending: Vec::new(),
             resolved: HashSet::new(),
             warned_missing_supported_targets: HashSet::new(),

@@ -12,4 +12,4 @@ Native builds have separate choices that are easy to conflate: the native payloa
 
 ## Consequences
 
-The interface between build planning and lowering carries more domain meaning than a raw compiler path, which improves locality for ABI and CRT changes. Future GNU-like Windows support should refine toolchain policy and resolution instead of adding another backend mode. Follow-up work may split payload form and executable realization further if more native backends make the current enum shallow.
+The interface between build planning and lowering carries more domain meaning than a raw compiler path, which improves locality for ABI and CRT changes. Future GNU-like Windows support should refine toolchain policy and resolution instead of adding another backend mode. Follow-up work may split payload form and executable realization further if more native backends make the current enum shallow. Invocation-scoped native contract selection follows the same toolchain-owned boundary and is recorded separately in [ADR 0003](0003-one-native-build-contract-per-invocation.md).
