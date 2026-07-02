@@ -95,7 +95,10 @@ pub(crate) fn compare_graphs_with_replacements(
     let actual_file = std::fs::File::open(actual).expect("Failed to open actual graph output file");
     let mut actual_graph =
         BuildGraphDump::read_from(actual_file).expect("Failed to read actual graph");
-    transform_graph(&mut actual_graph, transform);
+    transform_graph(&mut actual_graph, |s| {
+        normalize_current_moon_binary(s);
+        transform(s);
+    });
 
     let Ok(expected_graph) = BuildGraphDump::read_from(expected.data().as_bytes()) else {
         if !expected.can_update() {
@@ -127,6 +130,20 @@ pub(crate) fn compare_graphs_with_replacements(
         expected.update(&actual_graph_str);
     } else if differ {
         panic!("Graph snapshot differs:\n{out}");
+    }
+}
+
+fn normalize_current_moon_binary(s: &mut String) {
+    let moon = crate::util::moon_bin();
+    let moon = moon.to_string_lossy();
+    *s = s.replace(moon.as_ref(), "$MOON_HOME/bin/moon");
+    if let Some(moon_without_exe) = moon.strip_suffix(".exe") {
+        *s = s.replace(moon_without_exe, "$MOON_HOME/bin/moon");
+    }
+    let moon_with_forward_slashes = moon.replace('\\', "/");
+    *s = s.replace(moon_with_forward_slashes.as_str(), "$MOON_HOME/bin/moon");
+    if let Some(moon_without_exe) = moon_with_forward_slashes.strip_suffix(".exe") {
+        *s = s.replace(moon_without_exe, "$MOON_HOME/bin/moon");
     }
 }
 

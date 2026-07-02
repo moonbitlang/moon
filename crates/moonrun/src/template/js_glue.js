@@ -566,7 +566,12 @@ try {
                 const stack = e && e.stack ? e.stack.toString() : String(e);
                 const formatted = stack.split('\n').map(formatStackLine).join('\n');
                 console.log("----- BEGIN MOON TEST RESULT -----")
-                console.log(`{"package": "${packageName}", "filename": "${param[0]}", "index": "${param[1]}", "test_name": "${param[1]}", "message": "${formatted.replaceAll("\\", "\\\\").split('\n').join('\\n')}"}`);
+                console.log(JSON.stringify({
+                    type: "result",
+                    file: param[0],
+                    index: parseInt(param[1]),
+                    message: formatted,
+                }));
                 console.log("----- END MOON TEST RESULT -----")
             }
         }

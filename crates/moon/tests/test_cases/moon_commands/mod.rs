@@ -164,10 +164,19 @@ fn test_test_with_explicit_target_fails_on_test_executable_exit_code() {
         ["test", "main", "--target", "wasm", "--filter", "exit-7"],
         [("MOONRUN_OVERRIDE", moonrun_bin())],
     );
-    assert!(
-        stderr.contains("The test executable exited with exit status: 7")
-            || stderr.contains("The test executable exited with exit code: 7"),
-        "expected moon test to report the test executable exit status/code, got:\n{stderr}"
+    snapbox::assert_data_eq!(
+        stderr,
+        snapbox::str![[r#"
+...
+Error: failed to run test for target Wasm
+
+Caused by:
+    Failed to run the test: $ROOT/_build/wasm/debug/test/main/main.blackbox_test.wasm
+    The test executable exited with exit [..]: 7
+    Active test at executable exit:
+      - $ROOT/main/exit_wasm_test.mbt:1 "exit-7"
+
+"#]],
     );
 }
 

@@ -19,6 +19,19 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+pub enum TestDriverEvent {
+    #[serde(rename = "start")]
+    Start { file: String, index: u32 },
+    #[serde(rename = "result")]
+    Result {
+        file: String,
+        index: u32,
+        message: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TestStatistics {
     pub package: String,
     pub filename: String,

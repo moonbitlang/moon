@@ -126,18 +126,26 @@ fn moonbit_test_driver_internal_do_execute(
 ) -> Unit {
   // These two are internalized to avoid unused warnings
 
-  fn handle_result(testname : String, message : String, skipped : Bool) {
+  fn handle_start() {
+    let file_name = filename.escape()
+    @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
+    @moonbitlang/core/prelude.println(
+      "{\"type\":\"start\",\"file\":\{file_name},\"index\":\{index}}",
+    )
+    @moonbitlang/core/prelude.println("{END_MOONTEST}")
+  }
+
+  fn handle_result(_testname : String, message : String, skipped : Bool) {
     // In WASM, this function is called by the external test driver, but here
     // in native mode there's nothing that calls it, so we call it manually.
     if !skipped && MOONBIT_TEST_DRIVER_INTERNAL_IS_NATIVE {
       // {COVERAGE_END}
     }
     let file_name = filename.escape()
-    let test_name = testname.escape()
     let message = message.escape()
     @moonbitlang/core/prelude.println("{BEGIN_MOONTEST}")
     @moonbitlang/core/prelude.println(
-      "{\"package\": \"{PACKAGE}\", \"filename\": \{file_name}, \"index\": \"\{index}\", \"test_name\": \{test_name}, \"message\": \{message}}",
+      "{\"type\":\"result\",\"file\":\{file_name},\"index\":\{index},\"message\":\{message}}",
     )
     @moonbitlang/core/prelude.println("{END_MOONTEST}")
   }
@@ -154,19 +162,19 @@ fn moonbit_test_driver_internal_do_execute(
 
   try {
     if !(MoonBit_Test_Driver_Internal_No_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_With_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_Async_No_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_Async_With_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       ) ||
       MoonBit_Test_Driver_Internal_With_Bench_Args::run_test(
-        async_tests, filename, index, handle_result, error_to_string,
+        async_tests, filename, index, handle_start, handle_result, error_to_string,
       )) {
       raise MoonBitTestDriverInternalSkipTest(name="")
     }

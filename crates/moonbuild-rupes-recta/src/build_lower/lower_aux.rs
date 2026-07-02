@@ -100,9 +100,11 @@ impl<'a> super::LoweringContext<'a> {
 
         let commandline = cmd.build_command(&*BINARIES.moonbuild);
 
-        // Track doctest files as extra inputs
+        // The generated driver embeds moon's private test-driver protocol, so
+        // cached driver artifacts must invalidate when the moon binary changes.
         let mut extra_inputs = files_vec;
         extra_inputs.extend_from_slice(&info.doctest_files);
+        extra_inputs.push(BINARIES.moonbuild.clone());
 
         BuildCommand {
             commandline: commandline.into(),

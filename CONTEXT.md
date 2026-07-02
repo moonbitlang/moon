@@ -28,6 +28,10 @@ _Avoid_: Build fact
 The target-specific view produced by applying build rules to package declarations, package file sets, and file interpretations. It is not the source of truth for package content.
 _Avoid_: Build target facts, target file facts
 
+**Test Driver Event**:
+A record emitted by a generated test driver that describes a lifecycle or result fact for one selected test case.
+_Avoid_: Treating every driver record as a test result
+
 **Command Information Demand**:
 The level of package information a MoonBuild command needs before it can produce its result.
 _Avoid_: Always-full package model, eager package facts

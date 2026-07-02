@@ -22,6 +22,7 @@ const MOONBIT_ASYNC_CHECK_FD_LEAK: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
 
 fn moon_cmd() -> snapbox::cmd::Command {
     snapbox::cmd::Command::new(moon_bin())
+        .env("MOONRUN_OVERRIDE", snapbox::cmd::cargo_bin!("moonrun"))
 }
 
 fn moon_bin() -> &'static PathBuf {

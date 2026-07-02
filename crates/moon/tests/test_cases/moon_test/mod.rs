@@ -93,10 +93,18 @@ fn run_upstream_async_wasm_package(package: &str) -> String {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let moonrun = moonrun_bin();
     let async_dir = repo_root().join("third_party/moonbitlang_async");
+    let build_dir = async_dir.join("_build");
+    std::fs::create_dir_all(&build_dir).expect("failed to create async test build dir");
+    let target_dir = tempfile::Builder::new()
+        .prefix("moon-test-target-")
+        .tempdir_in(&build_dir)
+        .expect("failed to create async test target dir");
     let output = moon_cmd(&async_dir)
         .env("MOON_OVERRIDE", moon_bin())
         .env("MOONRUN_OVERRIDE", &moonrun)
         .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg("--target-dir")
+        .arg(target_dir.path())
         .args([
             "test",
             "--target",
