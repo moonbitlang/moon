@@ -41,6 +41,7 @@ mod runtime;
 mod socket;
 mod thread_pool;
 mod time;
+mod tls;
 
 use std::any::Any;
 use std::sync::Arc;

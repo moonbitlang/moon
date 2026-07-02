@@ -26,7 +26,7 @@ use super::context::{
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
 use super::{
     c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, runtime,
-    socket, thread_pool, time,
+    socket, thread_pool, time, tls,
 };
 
 pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
@@ -263,9 +263,9 @@ fn register_func_impl<'s>(
 //   kind callback maps to "namespace/wasm_symbol".
 //
 // Kind legend:
-// - ported: imports that have Rust ports corresponding to native async C stubs.
-//   Tests require separate native provenance entries for these imports.
-// - helper: wasm-only support import or host-control glue.
+// - ported: imports that have Rust ports corresponding to moonbitlang/async
+//   implementations. Tests require separate provenance entries for these imports.
+// - helper: auxiliary glue around ported ABI.
 // - fake: link-only import for runtime-dispatched wasm; the generated callback is unreachable.
 declare_async_imports! {
 
@@ -463,6 +463,8 @@ declare_async_imports! {
     ported socket::addr_is_multicast(addr: i32, addr_len: i32) -> i32 => "socket/addr_is_multicast";
 
     ported socket::addr_get_ipv6_bytes_offset() -> i32 => "socket/addr_get_ipv6_bytes_offset";
+
+    helper socket::addr_copy_ipv6_bytes(addr: i32, out: i32, addr_len: i32, len: i32) -> void => "socket/addr_copy_ipv6_bytes";
 
     ported socket::addr_get_ipv6_scope_id(addr: i32, addr_len: i32) -> i32 => "socket/addr_get_ipv6_scope_id";
 
@@ -748,6 +750,65 @@ declare_async_imports! {
 
     helper c_buffer::free(ptr: u64) -> void => "c_buffer/free";
 
+    // Host-backed TLS state machine. MoonBit owns async transport IO and
+    // feeds/drains encrypted bytes through these host-side TLS handles.
+    ported tls::client_new(
+        host: i32,
+        host_len: i32,
+        sni: i32,
+        trust: i32,
+        custom_roots: i32,
+        custom_roots_len: i32,
+    ) -> u64 => "tls/connection/client_new";
+
+    ported tls::server_new(
+        private_key_file: i32,
+        private_key_file_len: i32,
+        private_key_type_abi: i32,
+        certificate_file: i32,
+        certificate_file_len: i32,
+        certificate_type_abi: i32,
+    ) -> u64 => "tls/connection/server_new";
+
+    ported tls::server_pfx_new(
+        pfx_content: i32,
+        pfx_content_len: i32,
+    ) -> u64 => "tls/connection/server_pfx_new";
+
+    ported tls::free(tls: u64) -> void => "tls/connection/free";
+
+    ported tls::take_error(tls: u64) -> u64 => "tls/connection/take_error";
+
+    ported tls::take_global_error() -> u64 => "tls/error/take_global";
+
+    ported tls::read_tls(tls: u64, src: i32, offset: i32, len: i32) -> i32 => "tls/connection/read_tls";
+
+    ported tls::write_tls(tls: u64, dst: i32, offset: i32, len: i32) -> i32 => "tls/connection/write_tls";
+
+    ported tls::read_plain(tls: u64, dst: i32, offset: i32, len: i32) -> i32 => "tls/connection/read_plain";
+
+    ported tls::write_plain(tls: u64, src: i32, offset: i32, len: i32) -> i32 => "tls/connection/write_plain";
+
+    ported tls::wants_read(tls: u64) -> i32 => "tls/connection/wants_read";
+
+    ported tls::wants_write(tls: u64) -> i32 => "tls/connection/wants_write";
+
+    ported tls::is_handshaking(tls: u64) -> i32 => "tls/connection/is_handshaking";
+
+    ported tls::send_close_notify(tls: u64) -> i32 => "tls/connection/send_close_notify";
+
+    ported tls::peer_certificate_len(tls: u64) -> i32 => "tls/connection/peer_certificate_len";
+
+    ported tls::peer_certificate(tls: u64, dst: i32, offset: i32, len: i32) -> i32 => "tls/connection/peer_certificate";
+
+    ported tls::unique_channel_binding_len(tls: u64) -> i32 => "tls/connection/unique_channel_binding_len";
+
+    ported tls::unique_channel_binding(tls: u64, dst: i32, offset: i32, len: i32) -> i32 => "tls/connection/unique_channel_binding";
+
+    ported tls::server_endpoint_channel_binding_len(tls: u64) -> i32 => "tls/connection/server_endpoint_channel_binding_len";
+
+    ported tls::server_endpoint_channel_binding(tls: u64, dst: i32, offset: i32, len: i32) -> i32 => "tls/connection/server_endpoint_channel_binding";
+
     // fs/stub.c and fs/dir.c.
     ported fs::errno_is_lock_violation(errno: i32) -> i32 => "fs/errno_is_lock_violation";
 
@@ -878,6 +939,7 @@ fn async_api_ported_imports() -> Vec<PortedImport> {
     imports.extend_from_slice(env_util::PORTED_IMPORTS);
     imports.extend_from_slice(c_buffer::PORTED_IMPORTS);
     imports.extend_from_slice(socket::PORTED_IMPORTS);
+    imports.extend_from_slice(tls::PORTED_IMPORTS);
     imports
 }
 
@@ -930,6 +992,12 @@ mod tests {
         })
     }
 
+    fn rust_ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
+        let mut symbols = crate::async_sys::ported_symbols();
+        symbols.extend(tls::ported_symbols());
+        symbols
+    }
+
     #[test]
     fn wasm_import_names_are_unique() {
         let mut seen = BTreeSet::new();
@@ -950,6 +1018,21 @@ mod tests {
             }),
             "async wasm integration must not depend on older runtime namespaces for exit"
         );
+    }
+
+    #[test]
+    fn tls_imports_are_ported_abi() {
+        for import in ASYNC_IMPORTS
+            .iter()
+            .filter(|import| import.wasm_symbol.starts_with("tls/"))
+        {
+            assert_eq!(
+                import.kind,
+                AsyncImportKind::Ported,
+                "TLS import {} must be classified as ported ABI",
+                import.wasm_symbol
+            );
+        }
     }
 
     #[test]
@@ -1056,7 +1139,7 @@ mod tests {
     #[test]
     fn ported_imports_have_ported_implementations() {
         let api_ported_imports = async_api_ported_imports();
-        let ported_symbols = crate::async_sys::ported_symbols();
+        let ported_symbols = rust_ported_symbols();
 
         for import in ASYNC_IMPORTS {
             if import.kind != AsyncImportKind::Ported {
@@ -1092,7 +1175,7 @@ mod tests {
     #[test]
     fn ported_implementations_are_registered_imports() {
         let api_ported_imports = async_api_ported_imports();
-        for ported in crate::async_sys::ported_symbols() {
+        for ported in rust_ported_symbols() {
             assert!(
                 api_ported_imports.iter().any(|ported_import| {
                     let Some(registered_import) = registered_import_for_ported(ported_import)
