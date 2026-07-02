@@ -804,6 +804,26 @@ fn test_async_wasm_upstream_socket_package() {
 }
 
 #[test]
+fn test_async_wasm_upstream_tls_package() {
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async/tls"),
+        expect![[r#"
+            Total tests: 7, passed: 7, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
+fn test_async_wasm_upstream_http_package() {
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async/http"),
+        expect![[r#"
+            Total tests: 44, passed: 44, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_max_concurrent_tests() {
     let dir = TestDir::new("moon_test");
     let out1 = get_stdout(

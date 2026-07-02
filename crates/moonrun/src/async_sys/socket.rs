@@ -808,7 +808,7 @@ ported_fns! {
     }
 
     #[ported(
-        source = "src/internal/event_loop/network.mbt",
+        source = "src/internal/event_loop/network.wasm.mbt",
         original = "gai_strerror"
     )]
     #[cfg(unix)]
