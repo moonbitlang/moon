@@ -35,6 +35,10 @@ tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 v8 = "0.106.0"
 
+[target."cfg(not(windows))".dependencies]
+openssl.workspace = true
+openssl-probe.workspace = true
+
 [target."cfg(unix)".dependencies]
 libc.workspace = true
 
@@ -46,6 +50,9 @@ features = [
     "Win32_NetworkManagement_Ndis",
     "Win32_Networking_WinSock",
     "Win32_Security",
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Credentials",
+    "Win32_Security_Cryptography",
     "Win32_Storage_FileSystem",
     "Win32_System_Console",
     "Win32_System_Diagnostics_Debug",

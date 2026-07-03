@@ -66,7 +66,7 @@ pub(super) fn write(
 
 #[ported(
     source = "src/internal/event_loop/io_windows.c",
-    original = "moonbitlang_async_make_file_io_result"
+    original = "moonbitlang_async_make_file_read_io_result"
 )]
 #[cfg(windows)]
 pub(super) fn make_file_read_io_result(
@@ -79,7 +79,7 @@ pub(super) fn make_file_read_io_result(
 
 #[ported(
     source = "src/internal/event_loop/io_windows.c",
-    original = "moonbitlang_async_make_file_io_result"
+    original = "moonbitlang_async_make_file_write_io_result"
 )]
 #[cfg(windows)]
 pub(super) fn make_file_write_io_result(
@@ -96,7 +96,7 @@ pub(super) fn make_file_write_io_result(
 
 #[ported(
     source = "src/internal/event_loop/io_windows.c",
-    original = "moonbitlang_async_make_socket_io_result"
+    original = "moonbitlang_async_make_socket_read_io_result"
 )]
 #[cfg(windows)]
 pub(super) fn make_socket_read_io_result(
@@ -109,7 +109,7 @@ pub(super) fn make_socket_read_io_result(
 
 #[ported(
     source = "src/internal/event_loop/io_windows.c",
-    original = "moonbitlang_async_make_socket_io_result"
+    original = "moonbitlang_async_make_socket_write_io_result"
 )]
 #[cfg(windows)]
 pub(super) fn make_socket_write_io_result(
@@ -126,7 +126,7 @@ pub(super) fn make_socket_write_io_result(
 
 #[ported(
     source = "src/internal/event_loop/io_windows.c",
-    original = "moonbitlang_async_make_socket_with_addr_io_result"
+    original = "moonbitlang_async_make_socket_with_addr_read_io_result"
 )]
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
@@ -144,7 +144,7 @@ pub(super) fn make_socket_with_addr_read_io_result(
 
 #[ported(
     source = "src/internal/event_loop/io_windows.c",
-    original = "moonbitlang_async_make_socket_with_addr_io_result"
+    original = "moonbitlang_async_make_socket_with_addr_write_io_result"
 )]
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
