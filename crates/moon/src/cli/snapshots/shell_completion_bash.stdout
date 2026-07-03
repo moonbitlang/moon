@@ -465,7 +465,7 @@ _moon() {
             return 0
             ;;
         moon__bench)
-            opts="-g -d -j -p -f -i -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --package --file --index --frozen --build-only --no-parallelize --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-g -d -j -p -f -i -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --package --file --index --related --frozen --build-only --no-parallelize --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -516,6 +516,10 @@ _moon() {
                     return 0
                     ;;
                 -i)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --related)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;
@@ -2439,7 +2443,7 @@ _moon() {
             return 0
             ;;
         moon__test)
-            opts="-g -d -j -p -i -u -l -f -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --package --file --index --doc-index --update --limit --frozen --build-only --profile --no-parallelize --outline --test-failure-json --patch-file --doc --include-skipped --filter --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
+            opts="-g -d -j -p -i -u -l -f -q -v -h --std --nostd --debug --release --strip --no-strip --target --serial --enable-coverage --sort-input --output-wat --deny-warn --no-render --output-json --warn-list --enable-value-tracing --jobs --render-no-loc --diagnostic-limit --package --file --index --doc-index --update --limit --frozen --build-only --profile --no-parallelize --outline --test-failure-json --patch-file --doc --related --include-skipped --filter --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2502,6 +2506,10 @@ _moon() {
                     return 0
                     ;;
                 --patch-file)
+                    COMPREPLY=($(compgen -f "${cur}"))
+                    return 0
+                    ;;
+                --related)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

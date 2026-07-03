@@ -183,6 +183,7 @@ fn native_target_dry_run_test_command_parses_as_expected() {
                 patch_file: None,
                 doc_test: false,
                 path: [],
+                related: [],
                 include_skipped: false,
                 filter: None,
             },

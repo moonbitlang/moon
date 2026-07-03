@@ -43,8 +43,8 @@ use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::common::{
-    FileLock, RunMode, SurfaceTarget, TargetBackend, TestArtifacts, TestIndexRange,
-    lower_surface_targets,
+    FileLock, RunMode, SurfaceTarget, TargetBackend, TestArtifacts, TestIndexRange, is_moon_mod,
+    is_moon_work, lower_surface_targets,
 };
 use moonutil::dirs::ProjectProbe;
 use moonutil::mooncakes::sync::AutoSyncFlags;
@@ -69,19 +69,19 @@ enum ResolvedTestSelection {
     Paths {
         filters: Vec<ResolvedTestPathFilter>,
     },
+    Related {
+        packages: Vec<PackageId>,
+        filters: Vec<ResolvedTestPathFilter>,
+    },
 }
 
 impl ResolvedTestSelection {
-    fn to_runtime_filter(
+    fn apply_to_runtime_filter(
         &self,
         resolve_output: &moonbuild_rupes_recta::ResolveOutput,
         cmd: &TestLikeSubcommand<'_>,
-    ) -> Result<TestFilter, anyhow::Error> {
-        let mut filter = TestFilter {
-            name_filter: cmd.filter.clone(),
-            ..Default::default()
-        };
-
+        filter: &mut TestFilter,
+    ) -> Result<(), anyhow::Error> {
         match self {
             ResolvedTestSelection::Workspace { .. } => {}
             ResolvedTestSelection::Packages { packages } => {
@@ -113,7 +113,34 @@ impl ResolvedTestSelection {
                     );
                 }
             }
+            ResolvedTestSelection::Related { packages, filters } => {
+                for &pkg_id in packages {
+                    filter.add_autodetermine_target(pkg_id, None, None);
+                }
+                for path_filter in filters {
+                    filter.add_autodetermine_target(
+                        path_filter.package,
+                        path_filter.filename.as_deref(),
+                        None,
+                    );
+                }
+            }
         };
+
+        Ok(())
+    }
+
+    fn to_runtime_filter(
+        &self,
+        resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+        cmd: &TestLikeSubcommand<'_>,
+    ) -> Result<TestFilter, anyhow::Error> {
+        let mut filter = TestFilter {
+            name_filter: cmd.filter.clone(),
+            ..Default::default()
+        };
+
+        self.apply_to_runtime_filter(resolve_output, cmd, &mut filter)?;
 
         Ok(filter)
     }
@@ -166,8 +193,23 @@ impl ResolvedTestSelection {
                     }
                     ResolvedTestSelection::Paths { .. } => InputDirective::default(),
                     ResolvedTestSelection::Workspace { .. } => unreachable!(),
+                    ResolvedTestSelection::Related { .. } => unreachable!(),
                 };
                 Ok((test_intents_from_filter(filter), directive).into())
+            }
+            ResolvedTestSelection::Related { packages, filters } => {
+                let mut selected_packages = packages.clone();
+                for filter in filters {
+                    if !selected_packages.contains(&filter.package) {
+                        selected_packages.push(filter.package);
+                    }
+                }
+                ensure_packages_support_backend(
+                    resolve_output,
+                    selected_packages.iter().copied(),
+                    target_backend,
+                )?;
+                Ok((test_intents_from_filter(filter), InputDirective::default()).into())
             }
         }
     }
@@ -301,8 +343,17 @@ pub(crate) struct TestSubcommand {
     /// Run tests for a filesystem path. If in a project, `PATH` may point to a
     /// package directory or a file inside a package; otherwise, runs in a
     /// temporary project.
-    #[clap(conflicts_with_all = ["file", "package"], name="PATH")]
+    #[clap(conflicts_with_all = ["file", "package", "related"], name="PATH")]
     pub path: Vec<PathBuf>,
+
+    /// Run tests related to the specified source paths and their reverse package dependencies.
+    #[clap(
+        long,
+        value_name = "PATH",
+        num_args(1..),
+        conflicts_with_all = ["package", "file", "index", "doc_index", "patch_file"]
+    )]
+    pub related: Vec<PathBuf>,
 
     /// Include skipped tests. Automatically implied when `--[doc-]index` is set.
     #[clap(long)]
@@ -618,6 +669,8 @@ pub(crate) struct TestLikeSubcommand<'a> {
     pub build_flags: &'a BuildFlags,
     /// Explicit filesystem path filters from positional `PATH` arguments.
     pub explicit_path_filters: &'a [PathBuf],
+    /// Files whose related package/test dependency closure should run.
+    pub related_path_filters: &'a [PathBuf],
     pub package: &'a Option<Vec<String>>,
     pub file: &'a Option<String>,
     pub index: &'a Option<TestIndexRange>,
@@ -643,6 +696,7 @@ impl<'a> From<&'a TestSubcommand> for TestLikeSubcommand<'a> {
             build_flags: &cmd.build_flags,
             package: &cmd.package,
             explicit_path_filters: &cmd.path,
+            related_path_filters: &cmd.related,
             file: &cmd.file,
             index: &cmd.index,
             doc_index: &cmd.doc_index,
@@ -666,6 +720,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
             run_mode: RunMode::Bench,
             build_flags: &cmd.build_flags,
             explicit_path_filters: &[],
+            related_path_filters: &cmd.related,
             package: &cmd.package,
             file: &cmd.file,
             index: &cmd.index,
@@ -908,6 +963,7 @@ pub(crate) fn run_test_or_bench_internal(
         build_only = cmd.build_only,
         package_filters = cmd.package.as_ref().map(|p| p.len()).unwrap_or(0),
         path_filters = cmd.explicit_path_filters.len(),
+        related_path_filters = cmd.related_path_filters.len(),
         "entering run_test_or_bench_internal"
     );
     trace!(
@@ -937,6 +993,18 @@ pub(crate) fn run_test_or_bench_internal(
     }
     if !cmd.explicit_path_filters.is_empty() && (cmd.package.is_some() || cmd.file.is_some()) {
         anyhow::bail!("cannot combine positional `PATH` filters with `--package` or `--file`");
+    }
+    if !cmd.related_path_filters.is_empty()
+        && (!cmd.explicit_path_filters.is_empty()
+            || cmd.package.is_some()
+            || cmd.file.is_some()
+            || cmd.index.is_some()
+            || cmd.doc_index.is_some()
+            || cmd.patch_file.is_some())
+    {
+        anyhow::bail!(
+            "`--related` cannot be combined with positional `PATH`, `--package`, `--file`, `--index`, `--doc-index`, or `--patch-file`"
+        );
     }
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
@@ -1190,6 +1258,13 @@ fn calc_user_intent_from_packages(
         module_count = resolve_output.local_modules().len(),
         "calculating user intent for workspace"
     );
+    if !cmd.related_path_filters.is_empty() {
+        let resolved_selection =
+            resolve_related_test_selection(resolve_output, cmd.related_path_filters, None, output)?;
+        resolved_selection.apply_to_runtime_filter(resolve_output, cmd, out_filter)?;
+        return resolved_selection.to_build_intent(resolve_output, cmd, target_backend, out_filter);
+    }
+
     let backend_affected_packages = all_affected_packages
         .iter()
         .copied()
@@ -1318,6 +1393,15 @@ fn resolve_scoped_test_selection(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     scoped_packages: Vec<PackageId>,
 ) -> anyhow::Result<ResolvedTestSelection> {
+    if !cmd.related_path_filters.is_empty() {
+        return resolve_related_test_selection(
+            resolve_output,
+            cmd.related_path_filters,
+            Some(&scoped_packages),
+            UserDiagnostics::default(),
+        );
+    }
+
     if !cmd.explicit_path_filters.is_empty() {
         let mut filters = Vec::new();
         for path in cmd.explicit_path_filters {
@@ -1343,6 +1427,230 @@ fn resolve_scoped_test_selection(
     Ok(ResolvedTestSelection::Workspace {
         packages: scoped_packages,
     })
+}
+
+fn resolve_related_test_selection(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    related_paths: &[PathBuf],
+    scoped_packages: Option<&[PackageId]>,
+    output: UserDiagnostics,
+) -> anyhow::Result<ResolvedTestSelection> {
+    let mut seed_packages = Vec::new();
+    let mut file_filters = Vec::new();
+
+    for path in related_paths {
+        match resolve_related_path(resolve_output, path, output)? {
+            RelatedPathSelection::Package(package) => push_unique(&mut seed_packages, package),
+            RelatedPathSelection::Packages(packages) => {
+                for package in packages {
+                    push_unique(&mut seed_packages, package);
+                }
+            }
+            RelatedPathSelection::TestFile { package, filename } => {
+                if !file_filters.iter().any(|filter: &ResolvedTestPathFilter| {
+                    filter.package == package && filter.filename.as_ref() == Some(&filename)
+                }) {
+                    file_filters.push(ResolvedTestPathFilter {
+                        package,
+                        filename: Some(filename),
+                    });
+                }
+            }
+            RelatedPathSelection::Ignored => {}
+        }
+    }
+
+    let mut packages = reverse_package_dependency_closure(resolve_output, &seed_packages);
+    if let Some(scoped_packages) = scoped_packages {
+        packages.retain(|package| scoped_packages.contains(package));
+        file_filters.retain(|filter| scoped_packages.contains(&filter.package));
+    }
+
+    Ok(ResolvedTestSelection::Related {
+        packages,
+        filters: file_filters,
+    })
+}
+
+enum RelatedPathSelection {
+    Package(PackageId),
+    Packages(Vec<PackageId>),
+    TestFile {
+        package: PackageId,
+        filename: String,
+    },
+    Ignored,
+}
+
+fn resolve_related_path(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    path: &Path,
+    output: UserDiagnostics,
+) -> anyhow::Result<RelatedPathSelection> {
+    let input_path = dunce::canonicalize(path).with_context(|| {
+        format!(
+            "Failed to canonicalize related input path `{}`",
+            path.display()
+        )
+    })?;
+    let filename = input_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned);
+
+    if filename.as_deref().is_some_and(is_moon_work) {
+        return Ok(RelatedPathSelection::Packages(local_packages(
+            resolve_output,
+        )));
+    }
+
+    if filename.as_deref().is_some_and(is_moon_mod)
+        && let Some(module_id) = local_module_containing_path(resolve_output, &input_path)
+    {
+        return Ok(RelatedPathSelection::Packages(packages_for_module(
+            resolve_output,
+            module_id,
+        )));
+    }
+
+    if let Some(package) = local_package_containing_path(resolve_output, &input_path) {
+        if input_path.is_file()
+            && let Some(filename) = filename
+            && related_file_can_use_file_filter(&filename)
+        {
+            return Ok(RelatedPathSelection::TestFile { package, filename });
+        }
+        return Ok(RelatedPathSelection::Package(package));
+    }
+
+    output.info(format!(
+        "skipping related path `{}` because it is not in a local package.",
+        path.display()
+    ));
+    Ok(RelatedPathSelection::Ignored)
+}
+
+fn related_file_can_use_file_filter(filename: &str) -> bool {
+    !matches!(
+        moonbuild_rupes_recta::cond_comp::get_file_test_kind_full(filename),
+        moonbuild_rupes_recta::cond_comp::FileTestKind::NoTest
+    )
+}
+
+fn reverse_package_dependency_closure(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    seed_packages: &[PackageId],
+) -> Vec<PackageId> {
+    let local_packages = local_packages(resolve_output);
+    let mut affected = Vec::new();
+    for &package in seed_packages {
+        if local_packages.contains(&package) {
+            push_unique(&mut affected, package);
+        }
+    }
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (dependent, dependency, _) in resolve_output.pkg_rel.dep_graph.all_edges() {
+            if !affected.contains(&dependency.package) {
+                continue;
+            }
+            if !local_packages.contains(&dependent.package) {
+                continue;
+            }
+            if !affected.contains(&dependent.package) {
+                affected.push(dependent.package);
+                changed = true;
+            }
+        }
+    }
+
+    local_packages
+        .into_iter()
+        .filter(|package| affected.contains(package))
+        .collect()
+}
+
+fn local_package_containing_path(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    path: &Path,
+) -> Option<PackageId> {
+    local_packages(resolve_output)
+        .into_iter()
+        .filter(|&package| {
+            let package = resolve_output.pkg_dirs.get_package(package);
+            path.starts_with(&package.root_path)
+        })
+        .max_by_key(|&package| {
+            resolve_output
+                .pkg_dirs
+                .get_package(package)
+                .root_path
+                .components()
+                .count()
+        })
+}
+
+fn local_module_containing_path(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    path: &Path,
+) -> Option<moonutil::mooncakes::ModuleId> {
+    resolve_output
+        .local_modules()
+        .iter()
+        .copied()
+        .filter(|&module_id| {
+            resolve_output
+                .module_dirs
+                .get(module_id)
+                .is_some_and(|module_dir| path.starts_with(module_dir))
+        })
+        .max_by_key(|&module_id| {
+            resolve_output
+                .module_dirs
+                .get(module_id)
+                .map(|module_dir| module_dir.components().count())
+                .unwrap_or_default()
+        })
+}
+
+fn local_packages(resolve_output: &moonbuild_rupes_recta::ResolveOutput) -> Vec<PackageId> {
+    resolve_output
+        .local_modules()
+        .iter()
+        .flat_map(|&module_id| packages_for_module(resolve_output, module_id))
+        .collect()
+}
+
+fn packages_for_module(
+    resolve_output: &moonbuild_rupes_recta::ResolveOutput,
+    module_id: moonutil::mooncakes::ModuleId,
+) -> Vec<PackageId> {
+    resolve_output
+        .pkg_dirs
+        .packages_for_module(module_id)
+        .into_iter()
+        .flat_map(|packages| packages.values().copied())
+        .collect()
+}
+
+fn packages_from_related_selection(selection: &ResolvedTestSelection) -> Vec<PackageId> {
+    let ResolvedTestSelection::Related { packages, filters } = selection else {
+        return vec![];
+    };
+
+    let mut selected = packages.clone();
+    for filter in filters {
+        push_unique(&mut selected, filter.package);
+    }
+    selected
+}
+
+fn push_unique<T: PartialEq>(items: &mut Vec<T>, item: T) {
+    if !items.contains(&item) {
+        items.push(item);
+    }
 }
 
 fn selected_test_index(cmd: &TestLikeSubcommand<'_>) -> anyhow::Result<Option<TestIndex>> {
@@ -1380,7 +1688,9 @@ fn test_intents_from_filter(filter: &TestFilter) -> Vec<UserIntent> {
 }
 
 fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
-    !cmd.explicit_path_filters.is_empty() || cmd.package.is_some()
+    !cmd.related_path_filters.is_empty()
+        || !cmd.explicit_path_filters.is_empty()
+        || cmd.package.is_some()
 }
 
 fn resolve_test_target_selections(
@@ -1409,6 +1719,12 @@ fn resolve_selected_test_packages(
     cmd: &TestLikeSubcommand<'_>,
     output: UserDiagnostics,
 ) -> anyhow::Result<Vec<PackageId>> {
+    if !cmd.related_path_filters.is_empty() {
+        let related =
+            resolve_related_test_selection(resolve_output, cmd.related_path_filters, None, output)?;
+        return Ok(packages_from_related_selection(&related));
+    }
+
     if !cmd.explicit_path_filters.is_empty() {
         return Ok(select_packages(cmd.explicit_path_filters, output, |dir| {
             filter_pkg_by_dir(resolve_output, dir)

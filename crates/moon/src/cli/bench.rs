@@ -22,7 +22,7 @@ use moonutil::{
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use super::{BuildFlags, UniversalFlags};
@@ -45,6 +45,15 @@ pub(crate) struct BenchSubcommand {
     /// right-exclusive range like `0-2`. Only valid when `--file` is also specified.
     #[clap(short, long, requires("file"))]
     pub index: Option<TestIndexRange>,
+
+    /// Run benchmarks related to the specified source paths and their reverse package dependencies.
+    #[clap(
+        long,
+        value_name = "PATH",
+        num_args(1..),
+        conflicts_with_all = ["package", "file", "index"]
+    )]
+    pub related: Vec<PathBuf>,
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
