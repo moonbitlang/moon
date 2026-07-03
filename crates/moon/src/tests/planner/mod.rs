@@ -24,5 +24,6 @@ mod package_filter_planning;
 mod path_filter_planning;
 mod profile_planning;
 mod profile_policy;
+mod related_planning;
 mod target_backend_planning;
 mod whitespace_planning;

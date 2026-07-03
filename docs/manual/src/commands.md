@@ -338,6 +338,7 @@ Test the current package
 * `--outline` — Print the outline of tests to be executed and exit
 * `--test-failure-json` — Print failure message in JSON format
 * `--patch-file <PATCH_FILE>` — Path to the patch file
+* `--related <PATH>` — Run tests related to the specified source paths and their reverse package dependencies
 * `--include-skipped` — Include skipped tests. Automatically implied when `--[doc-]index` is set
 * `-f`, `--filter <FILTER>` — Run only tests whose name matches the given glob pattern. Supports '*' (matches any sequence) and '?' (matches any single character)
 
@@ -474,6 +475,7 @@ Run benchmarks in the current package
 * `-p`, `--package <PACKAGE>` — Run test in the specified package
 * `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
 * `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified
+* `--related <PATH>` — Run benchmarks related to the specified source paths and their reverse package dependencies
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not bench
 * `--no-parallelize` — Run the benchmarks in a target backend sequentially

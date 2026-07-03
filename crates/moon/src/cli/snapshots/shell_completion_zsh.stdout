@@ -289,6 +289,7 @@ _arguments "${_arguments_options[@]}" : \
 '-l+[Limit of expect test update passes to run, in order to avoid infinite loops]:LIMIT: ' \
 '--limit=[Limit of expect test update passes to run, in order to avoid infinite loops]:LIMIT: ' \
 '(-u --update)--patch-file=[Path to the patch file]:PATCH_FILE:_files' \
+'(-p --package --file -i --index --doc-index --patch-file)*--related=[Run tests related to the specified source paths and their reverse package dependencies]:PATH:_files' \
 '-f+[Run only tests whose name matches the given glob pattern. Supports '\''*'\'' (matches any sequence) and '\''?'\'' (matches any single character)]:FILTER: ' \
 '--filter=[Run only tests whose name matches the given glob pattern. Supports '\''*'\'' (matches any sequence) and '\''?'\'' (matches any single character)]:FILTER: ' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
@@ -511,6 +512,7 @@ _arguments "${_arguments_options[@]}" : \
 '--file=[Run test in the specified file. Only valid when \`--package\` is also specified]:FILE: ' \
 '-i+[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified]:INDEX: ' \
 '--index=[Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like \`0-2\`. Only valid when \`--file\` is also specified]:INDEX: ' \
+'(-p --package -f --file -i --index)*--related=[Run benchmarks related to the specified source paths and their reverse package dependencies]:PATH:_files' \
 '--manifest-path=[Path to \`moon.mod.json\` or \`moon.work\` to use as the project manifest (does not change the working directory)]:PATH:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '(--nostd)--std[Enable the standard library (default)]' \

@@ -164,6 +164,25 @@ Filtering is handled by `TestFilter` (`runtest/filter.rs`). It stores allowed
   `TestFilter::add_autodetermine_target` inspects the file type to decide whether to
   request inline, whitebox, or blackbox targets.
 
+### Related path filtering
+
+- `moon test --related PATH...` and `moon bench --related PATH...` run the test/bench
+  targets related to the given paths. The selector is intentionally separate from
+  positional `PATH` filtering: positional `PATH` means "run this package/file", while
+  `--related` means "start from this changed path and run affected tests/benches".
+- For source files and package manifests, the owning local package becomes a seed.
+  The resolver then walks the package dependency graph in reverse
+  (dependent package -> dependency package edges are traversed from dependency to
+  dependents) and runs every affected local package.
+- For module/workspace manifests, selection is conservative and expands to all packages
+  in the affected local module or workspace.
+- For explicit test files (`*_test.mbt` and `*_wbtest.mbt`), the selector uses the
+  existing file-level `TestFilter` for the owning package instead of expanding to
+  reverse package dependencies.
+- The current related selector is package-graph based. It does not infer precise
+  same-package symbol/file dependencies for ordinary source files; those still run the
+  affected package as a whole.
+
 ### Individual test indices
 
 - `--index N` selects a single inline test (the index is taken from the generated
