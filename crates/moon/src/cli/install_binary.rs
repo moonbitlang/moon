@@ -28,7 +28,7 @@ use moonutil::{
     cli::UniversalFlags,
     common::{FileLock, MOON_MOD, MOON_MOD_JSON, RunMode, TargetBackend},
     dirs::PackageDirs,
-    mooncakes::{ModuleName, RegistryConfig},
+    mooncakes::{ModuleName, ModuleSourceKind, RegistryConfig},
 };
 use semver::Version;
 use std::path::{Path, PathBuf};
@@ -298,9 +298,13 @@ pub(super) fn install_from_local(
         )
     })?;
 
-    let module_dirs = cli
+    let mut query = cli
         .source_tgt_dir
-        .source_module_package_dirs(&input_path)?
+        .query_from(&input_path, cli.workspace_env.clone())?;
+    let project = query.project()?;
+    let module_root = project
+        .selected_module()
+        .map(|module| module.root)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Path `{}` is not in a MoonBit module (no {} or {} found in ancestors)",
@@ -309,16 +313,17 @@ pub(super) fn install_from_local(
                 MOON_MOD_JSON
             )
         })?;
+    let package_dirs = query.package_dirs()?;
 
-    let module = moonutil::common::read_module_desc_file_in_dir(&module_dirs.module_root)?;
+    let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
     let filter = PackageFilter::filesystem(input_path, install_all);
 
     build_and_install_packages(
         cli,
         &module_name,
-        &module_dirs.module_root,
-        module_dirs.package_dirs,
+        &module_root,
+        package_dirs,
         install_dir,
         filter,
     )
@@ -458,6 +463,12 @@ fn build_and_install_packages(
     install_dir: &Path,
     filter: PackageFilter,
 ) -> anyhow::Result<i32> {
+    let module_dir = dunce::canonicalize(module_dir).with_context(|| {
+        format!(
+            "Failed to resolve module directory `{}`",
+            module_dir.display()
+        )
+    })?;
     let quiet = cli.quiet;
     let output = UserDiagnostics::from_flags(cli);
     let source_dir = package_dirs.source_dir;
@@ -476,7 +487,23 @@ fn build_and_install_packages(
     )?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
 
-    let main_module_id = resolve_output.local_modules()[0];
+    let main_module_id = resolve_output
+        .local_modules()
+        .iter()
+        .copied()
+        .find(|&module_id| {
+            matches!(
+                resolve_output.module_rel.module_source(module_id).source(),
+                ModuleSourceKind::Local(path) if path == &module_dir
+            )
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Module `{}` at path `{}` was not resolved as a local project module",
+                module_name,
+                module_dir.display()
+            )
+        })?;
     let Some(all_pkgs) = resolve_output.pkg_dirs.packages_for_module(main_module_id) else {
         bail!(
             "No packages found in module at path `{}`",
@@ -523,7 +550,7 @@ fn build_and_install_packages(
     }
 
     if selected_packages.is_empty() {
-        return Err(filter.no_match_error(module_name, module_dir));
+        return Err(filter.no_match_error(module_name, &module_dir));
     }
 
     if cli.dry_run {

@@ -33,6 +33,18 @@ fn test_moon_install_global_deprecated_warning() {
 }
 
 #[test]
+fn test_moon_install_global_deprecated_uses_workspace_context() {
+    let dir = TestDir::new("workspace_basic.in");
+
+    let stderr = get_stderr(&dir, ["-C", "app", "install"]);
+    assert!(
+        stderr.contains("deprecated"),
+        "Expected deprecation warning in stderr, got: {}",
+        stderr
+    );
+}
+
+#[test]
 fn test_moon_install_global_local_path() {
     // Test installing from local path using --path
     let dir = TestDir::new("moon_install_global.in");
@@ -54,6 +66,37 @@ fn test_moon_install_global_local_path() {
     );
 
     // Check that the binary was created
+    #[cfg(unix)]
+    let binary_path = install_dir.join("main");
+    #[cfg(target_os = "windows")]
+    let binary_path = install_dir.join("main.exe");
+
+    assert!(
+        binary_path.exists(),
+        "Expected binary at {:?} to exist",
+        binary_path
+    );
+}
+
+#[test]
+fn test_moon_install_global_local_path_uses_workspace_context() {
+    let dir = TestDir::new("workspace_basic.in");
+    let install_dir = dir.join("test_bin_install_workspace");
+    std::fs::create_dir_all(&install_dir).unwrap();
+
+    let _output = get_stdout(
+        &dir,
+        [
+            "-C",
+            "app",
+            "install",
+            "--path",
+            "src/main",
+            "--bin",
+            install_dir.to_str().unwrap(),
+        ],
+    );
+
     #[cfg(unix)]
     let binary_path = install_dir.join("main");
     #[cfg(target_os = "windows")]
