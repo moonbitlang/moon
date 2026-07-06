@@ -25,16 +25,13 @@ use crate::{
 use super::sync::SyncOutputOptions;
 use anyhow::Context;
 use moonutil::{
-    common::{MOONBITLANG_CORE, read_module_desc_file_in_dir},
+    common::MOONBITLANG_CORE,
     mooncakes::{
-        DirSyncResult, ModuleSource,
-        result::{DependencyKind, ResolvedEnv, ResolvedModule, ResolvedRootModules},
+        DirSyncResult,
+        result::{DependencyKind, ResolvedEnv, ResolvedRootModules},
     },
 };
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::{Path, PathBuf};
 
 /// Install a binary package globally or install project dependencies (deprecated without args)
 #[derive(Debug, clap::Parser)]
@@ -81,28 +78,6 @@ pub struct InstallSubcommand {
     /// Git tag to checkout (requires git URL)
     #[clap(long, group = "git_ref", requires = "source")]
     pub tag: Option<String>,
-}
-
-pub fn install(
-    source_dir: &Path,
-    mooncakes_dir: &Path,
-    quiet: bool,
-    verbose: bool,
-    no_std: bool,
-) -> anyhow::Result<i32> {
-    let m = read_module_desc_file_in_dir(source_dir)?;
-    let m = Arc::new(m);
-    let ms = ModuleSource::from_local_module(&m, source_dir);
-    let (roots, _) = ResolvedModule::only_one_module(ms, m);
-    install_impl(
-        mooncakes_dir,
-        roots,
-        SyncOutputOptions::new(quiet, true),
-        verbose,
-        false,
-        no_std,
-    )
-    .map(|_| 0)
 }
 
 pub(crate) fn install_impl(

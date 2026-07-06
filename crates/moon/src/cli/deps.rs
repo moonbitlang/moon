@@ -18,12 +18,13 @@
 
 use anyhow::bail;
 use mooncake::pkg::{
-    add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
+    add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand,
+    sync::SyncOutputOptions, tree::TreeSubcommand,
 };
 use moonutil::{
     dirs::{PackageDirs, ProjectContext},
     moon_dir,
-    mooncakes::{ModuleName, RegistryConfig},
+    mooncakes::{ModuleName, RegistryConfig, sync::AutoSyncFlags},
 };
 use std::path::{Path, PathBuf};
 
@@ -74,18 +75,22 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         let PackageDirs {
             source_dir,
             mooncakes_dir,
+            project_manifest_path,
             ..
         } = cli
             .source_tgt_dir
             .query(cli.workspace_env.clone())?
             .package_dirs()?;
-        return mooncake::pkg::install::install(
+        mooncake::pkg::sync::auto_sync(
             &source_dir,
             &mooncakes_dir,
-            cli.quiet,
-            cli.verbose,
+            &AutoSyncFlags { frozen: false },
+            SyncOutputOptions::new(cli.quiet, true),
             true,
-        );
+            cli.workspace_env.clone(),
+            project_manifest_path.as_deref(),
+        )?;
+        return Ok(0);
     }
 
     let install_dir = cmd.bin.unwrap_or_else(moon_dir::user_bin);
