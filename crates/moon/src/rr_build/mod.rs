@@ -59,7 +59,7 @@ use moonutil::{
     },
     compiler_flags::{self, CC},
     cond_expr::OptLevel as BuildProfile,
-    dirs::WorkspaceEnv,
+    dirs::{ProjectManifest, WorkspaceEnv},
     features::FeatureGate,
     mooncakes::sync::AutoSyncFlags,
     package::SupportedTargetsDeclKind,
@@ -673,18 +673,16 @@ pub(crate) fn plan_resolved_build_from_intent(
 pub fn plan_fmt(
     resolved: &FmtResolveOutput,
     cfg: &FmtConfig,
-    source_dir: &Path,
     target_dir: &Path,
     selected_packages: &[PackageId],
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
 ) -> anyhow::Result<(BuildInput, Vec<UserWarning>)> {
     let (graph, user_warnings) = moonbuild_rupes_recta::fmt::build_graph_for_fmt(
         resolved,
         cfg,
-        source_dir,
         target_dir,
         selected_packages,
-        project_manifest_path,
+        project_manifest,
     )?;
     let layout = TargetLayout::from_fmt_resolve_output(
         target_dir.to_path_buf(),

@@ -123,7 +123,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         source_dir: project_root,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     } = query.package_dirs()?;
     let build_flags = cmd.to_build_flags();
     let verif_dir = target_dir.join("verif");
@@ -158,7 +158,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         &resolve_cfg,
         &project_root,
         &mooncakes_dir,
-        project_manifest_path.as_deref(),
+        &project_manifest,
     )?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
 

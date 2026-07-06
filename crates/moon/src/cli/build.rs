@@ -23,7 +23,7 @@ use moonutil::common::FileLock;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
 use moonutil::common::lower_surface_targets;
-use moonutil::dirs::PackageDirs;
+use moonutil::dirs::{PackageDirs, ProjectManifest};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
@@ -87,7 +87,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
@@ -100,7 +100,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
             &source_dir,
             &target_dir,
             &mooncakes_dir,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             None,
         );
     }
@@ -115,7 +115,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
             &source_dir,
             &target_dir,
             &mooncakes_dir,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             Some(t),
         )
         .context(format!("failed to run build for target {t:?}"))?;
@@ -131,7 +131,7 @@ fn run_build_internal(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let f = |watch: bool| {
@@ -141,7 +141,7 @@ fn run_build_internal(
             source_dir,
             target_dir,
             mooncakes_dir,
-            project_manifest_path,
+            project_manifest,
             watch,
             selected_target_backend,
         )
@@ -165,7 +165,7 @@ fn run_build_rr(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
@@ -180,7 +180,7 @@ fn run_build_rr(
         &resolve_cfg,
         source_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     )?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
     let prebuild_list = if watch {

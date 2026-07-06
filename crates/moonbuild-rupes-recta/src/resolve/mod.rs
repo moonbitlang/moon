@@ -39,7 +39,7 @@ use moonutil::{
         MBTI_USER_WRITTEN, MOONBITLANG_CORE, MbtMdHeader, TargetBackend, parse_front_matter_config,
     },
     dependency::SourceDependencyInfo,
-    dirs::WorkspaceEnv,
+    dirs::{ProjectManifest, WorkspaceEnv},
     module::MoonMod,
     mooncakes::{DirSyncResult, ModuleId, result::ResolvedEnv, sync::AutoSyncFlags},
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
@@ -333,7 +333,7 @@ pub fn sync_dependencies(
     cfg: &ResolveConfig,
     source_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
 ) -> Result<(ResolvedEnv, DirSyncResult), ResolveError> {
     info!(
         "Starting dependency sync for source directory: {}",
@@ -348,7 +348,7 @@ pub fn sync_dependencies(
         cfg.sync_output,
         cfg.no_std,
         cfg.workspace_env.clone(),
-        project_manifest_path,
+        project_manifest,
     )
     .map_err(ResolveError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");

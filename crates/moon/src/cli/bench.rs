@@ -19,7 +19,7 @@
 use anyhow::Context;
 use moonutil::{
     common::{TargetBackend, TestIndexRange, lower_surface_targets},
-    dirs::PackageDirs,
+    dirs::{PackageDirs, ProjectManifest},
     mooncakes::sync::AutoSyncFlags,
 };
 use std::path::{Path, PathBuf};
@@ -69,7 +69,7 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
@@ -82,7 +82,7 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
             &source_dir,
             &target_dir,
             &mooncakes_dir,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             None,
             None,
         );
@@ -99,7 +99,7 @@ pub(crate) fn run_bench(cli: UniversalFlags, cmd: BenchSubcommand) -> anyhow::Re
             &source_dir,
             &target_dir,
             &mooncakes_dir,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             display_backend_hint,
             Some(t),
         )
@@ -117,7 +117,7 @@ fn run_bench_internal(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -127,7 +127,7 @@ fn run_bench_internal(
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
         display_backend_hint,
         selected_target_backend,
     )

@@ -20,13 +20,14 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
 use moonutil::{
-    common::{MOON_WORK, read_module_desc_file_in_dir},
+    common::read_module_desc_file_in_dir,
+    dirs::ProjectManifest,
     module::MoonMod,
     mooncakes::{
         ModuleSource,
         result::{ResolvedModule, ResolvedRootModules},
     },
-    workspace::{canonical_workspace_module_dirs, read_workspace, read_workspace_file},
+    workspace::{canonical_workspace_module_dirs, read_workspace_file},
 };
 
 pub mod add;
@@ -39,36 +40,17 @@ mod work;
 pub use work::{init_workspace, sync_workspace, use_workspace};
 
 pub(crate) fn roots_for_selected_module(
-    project_root: &Path,
     module_dir: &Path,
     module: Arc<MoonMod>,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
 ) -> anyhow::Result<ResolvedRootModules> {
-    if let Some(project_manifest_path) = project_manifest_path {
-        if project_manifest_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            == Some(MOON_WORK)
-        {
-            let workspace_root = project_manifest_path
-                .parent()
-                .context("workspace manifest path has no parent directory")?;
-            let workspace = read_workspace_file(project_manifest_path)?;
-            let mut roots = ResolvedRootModules::with_key();
-            for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
-                let member = if member_dir == module_dir {
-                    Arc::clone(&module)
-                } else {
-                    Arc::new(read_module_desc_file_in_dir(&member_dir)?)
-                };
-                let source = ModuleSource::from_local_module(&member, &member_dir);
-                roots.insert(ResolvedModule::new(source, member));
-            }
-            return Ok(roots);
-        }
-    } else if let Some(workspace) = read_workspace(project_root)? {
+    if let ProjectManifest::Workspace(project_manifest) = project_manifest {
+        let workspace_root = project_manifest
+            .parent()
+            .context("workspace manifest path has no parent directory")?;
+        let workspace = read_workspace_file(project_manifest)?;
         let mut roots = ResolvedRootModules::with_key();
-        for member_dir in canonical_workspace_module_dirs(project_root, &workspace)? {
+        for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
             let member = if member_dir == module_dir {
                 Arc::clone(&module)
             } else {

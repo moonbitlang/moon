@@ -75,7 +75,7 @@ pub(crate) fn run_build_binary_dep(
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
@@ -94,7 +94,7 @@ pub(crate) fn run_build_binary_dep(
         &resolve_cfg,
         &source_dir,
         &mooncakes_dir,
-        project_manifest_path.as_deref(),
+        &project_manifest,
     )?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
 

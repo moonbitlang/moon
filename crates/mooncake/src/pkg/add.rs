@@ -23,6 +23,7 @@ use moonutil::common::{
     MOON_MOD, MOONBITLANG_CORE, read_module_desc_file_in_dir, write_module_json_to_file,
 };
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
+use moonutil::dirs::ProjectManifest;
 use moonutil::module::convert_module_to_mod_json;
 use moonutil::moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file};
 use moonutil::mooncakes::ModuleName;
@@ -55,9 +56,8 @@ pub struct AddSubcommand {
 
 #[allow(clippy::too_many_arguments)]
 pub fn add_latest(
-    project_root: &Path,
     module_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     mooncakes_dir: &Path,
     pkg_name: &ModuleName,
     bin: bool,
@@ -92,9 +92,8 @@ pub fn add_latest(
             }
         })?;
     add(
-        project_root,
         module_dir,
-        project_manifest_path,
+        project_manifest,
         mooncakes_dir,
         pkg_name,
         bin,
@@ -112,9 +111,8 @@ fn test_module_name() {
 
 #[allow(clippy::too_many_arguments)]
 pub fn add(
-    project_root: &Path,
     module_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     mooncakes_dir: &Path,
     pkg_name: &ModuleName,
     bin: bool,
@@ -193,12 +191,7 @@ pub fn add(
     }
 
     let m = Arc::new(m);
-    let roots = roots_for_selected_module(
-        project_root,
-        module_dir,
-        Arc::clone(&m),
-        project_manifest_path,
-    )?;
+    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
     install_impl(
         mooncakes_dir,
         roots,

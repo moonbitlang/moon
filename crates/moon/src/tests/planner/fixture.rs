@@ -25,7 +25,7 @@ use moonutil::{
     cli::UniversalFlags,
     common::{BUILD_DIR, TargetBackend},
     cond_expr::OptLevel,
-    dirs::WorkspaceEnv,
+    dirs::{ProjectManifest, WorkspaceEnv},
 };
 
 use crate::cli::{
@@ -89,7 +89,7 @@ impl PlanningFixture {
             &resolve_cfg,
             &source_dir,
             &mooncakes_dir,
-            None,
+            &ProjectManifest::None,
         )?;
         let resolve_output =
             moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;

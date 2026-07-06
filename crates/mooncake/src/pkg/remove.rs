@@ -21,6 +21,7 @@ use std::{path::Path, sync::Arc};
 
 use moonutil::{
     common::{MOON_MOD, read_module_desc_file_in_dir, write_module_json_to_file},
+    dirs::ProjectManifest,
     module::convert_module_to_mod_json,
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
 };
@@ -40,9 +41,8 @@ pub struct RemoveSubcommand {
 }
 
 pub fn remove(
-    project_root: &Path,
     module_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     username: &str,
     pkgname: &str,
 ) -> anyhow::Result<i32> {
@@ -57,12 +57,7 @@ pub fn remove(
         )
     }
     let m = Arc::new(m);
-    let roots = roots_for_selected_module(
-        project_root,
-        module_dir,
-        Arc::clone(&m),
-        project_manifest_path,
-    )?;
+    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
 
     let resolve_cfg = ResolveConfig {
         registry: registry::default_registry(),

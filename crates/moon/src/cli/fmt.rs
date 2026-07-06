@@ -60,7 +60,7 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
-        project_manifest_path,
+        project_manifest,
         ..
     } = cli
         .source_tgt_dir
@@ -68,9 +68,8 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         .package_dirs()?;
 
     let output = UserDiagnostics::from_flags(cli);
-    let resolved =
-        moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir, project_manifest_path.as_deref())
-            .context("Failed to resolve environment")?;
+    let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir, &project_manifest)
+        .context("Failed to resolve environment")?;
 
     let mut selected_packages = Vec::new();
 
@@ -94,10 +93,9 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
     let (graph, user_warnings) = plan_fmt(
         &resolved,
         &fmt_config,
-        &source_dir,
         &target_dir,
         &selected_packages,
-        project_manifest_path.as_deref(),
+        &project_manifest,
     )?;
     for message in &user_warnings {
         output.user_message(message);
