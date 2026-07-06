@@ -665,7 +665,7 @@ impl<'a> From<&'a BenchSubcommand> for TestLikeSubcommand<'a> {
         Self {
             run_mode: RunMode::Bench,
             build_flags: &cmd.build_flags,
-            explicit_path_filters: &[],
+            explicit_path_filters: &cmd.path,
             package: &cmd.package,
             file: &cmd.file,
             index: &cmd.index,

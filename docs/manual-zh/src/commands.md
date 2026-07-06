@@ -444,7 +444,11 @@ By default, `moon info` writes `pkg.generated.mbti` from each selected package's
 
 Run benchmarks in the current package
 
-**Usage:** `moon bench [OPTIONS]`
+**Usage:** `moon bench [OPTIONS] [PATH]...`
+
+###### **Arguments:**
+
+* `<PATH>` — Run benchmarks for a filesystem path. `PATH` may point to a package directory or a file inside a package
 
 ###### **Options:**
 
@@ -471,9 +475,9 @@ Run benchmarks in the current package
   Possible values: `info`, `warn`, `error`
 
 * `--diagnostic-limit <N>` — Limit the number of rendered diagnostics
-* `-p`, `--package <PACKAGE>` — Run test in the specified package
-* `-f`, `--file <FILE>` — Run test in the specified file. Only valid when `--package` is also specified
-* `-i`, `--index <INDEX>` — Run only the index-th test in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when `--file` is also specified
+* `-p`, `--package <PACKAGE>` — Run benchmarks in the specified package
+* `-f`, `--file <FILE>` — Run benchmarks in the specified file. Only valid when `--package` is also specified
+* `-i`, `--index <INDEX>` — Run only the index-th benchmark in the file. Accepts a single index or a left-inclusive right-exclusive range like `0-2`. Only valid when a single file is selected
 * `--frozen` — Do not sync dependencies, assuming local dependencies are up-to-date
 * `--build-only` — Only build, do not bench
 * `--no-parallelize` — Run the benchmarks in a target backend sequentially

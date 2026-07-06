@@ -22,7 +22,7 @@ use moonutil::{
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use super::{BuildFlags, UniversalFlags};
@@ -33,18 +33,23 @@ pub(crate) struct BenchSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
-    /// Run test in the specified package
+    /// Run benchmarks in the specified package
     #[clap(short, long, num_args(1..))]
     pub package: Option<Vec<String>>,
 
-    /// Run test in the specified file. Only valid when `--package` is also specified.
+    /// Run benchmarks in the specified file. Only valid when `--package` is also specified.
     #[clap(short, long, requires("package"))]
     pub file: Option<String>,
 
-    /// Run only the index-th test in the file. Accepts a single index or a left-inclusive
-    /// right-exclusive range like `0-2`. Only valid when `--file` is also specified.
-    #[clap(short, long, requires("file"))]
+    /// Run only the index-th benchmark in the file. Accepts a single index or a left-inclusive
+    /// right-exclusive range like `0-2`. Only valid when a single file is selected.
+    #[clap(short, long)]
     pub index: Option<TestIndexRange>,
+
+    /// Run benchmarks for a filesystem path. `PATH` may point to a package
+    /// directory or a file inside a package.
+    #[clap(conflicts_with_all = ["file", "package"], name = "PATH")]
+    pub path: Vec<PathBuf>,
 
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
