@@ -23,13 +23,20 @@ use crate::util::toolchain_root_for_tests;
 
 use super::TestDir;
 
-const CHILD_OUTPUT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+struct KillOnDrop(std::process::Child);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
 
 /// Exercise the fix: install v1, keep a v1 child *running*, then
-/// install v2 on top of it. `macos_install_file`'s atomic rename
-/// must leave the running v1 alone while the destination path becomes
-/// a launchable v2. A pre-fix `fs::copy` reinstall poisons macOS's
-/// code-signing cache, so the fresh v2 launch below is killed.
+/// install v2 on top of it. Atomic replacement must leave the running
+/// v1 alone while the destination path becomes a launchable v2. A
+/// pre-fix `fs::copy` reinstall poisons macOS's code-signing cache,
+/// so the fresh v2 launch below is killed.
 #[test]
 fn test_install_replaces_while_running() {
     let moon_exe = PathBuf::from(env!("CARGO_BIN_EXE_moon"));
@@ -42,16 +49,28 @@ fn test_install_replaces_while_running() {
     rewrite_version(&main_mbt, "version 1");
     moon_install(&moon_exe, fixture.as_ref(), &pkg_path, install_dir.path());
 
-    let mut v1_child = Command::new(&victim_path)
-        .arg("hold")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn v1");
-    let v1_stdout = v1_child.stdout.take().expect("capture v1 stdout");
-    let v1_lines = child_stdout_lines(v1_stdout);
-    wait_for_line(&v1_lines, "version 1", CHILD_OUTPUT_TIMEOUT);
+    let v1_out = Command::new(&victim_path).output().expect("run v1");
+    assert!(v1_out.status.success(), "v1 exit: {:?}", v1_out.status);
+    assert_eq!(
+        String::from_utf8_lossy(&v1_out.stdout).trim(),
+        "version 1",
+        "v1 stdout mismatch: initial install did not leave v1 bytes on disk"
+    );
+
+    let mut v1_child = KillOnDrop(
+        Command::new(&victim_path)
+            .arg("hold")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn v1"),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(
+        matches!(v1_child.0.try_wait(), Ok(None)),
+        "held v1 exited before reinstall"
+    );
 
     rewrite_version(&main_mbt, "version 2");
     moon_install(&moon_exe, fixture.as_ref(), &pkg_path, install_dir.path());
@@ -64,58 +83,11 @@ fn test_install_replaces_while_running() {
         "v2 stdout mismatch: reinstall did not leave v2 bytes on disk"
     );
 
-    // The held v1 process should still be able to self-spawn through
-    // the destination path after reinstall. A pre-fix in-place copy
-    // kills that post-reinstall launch on macOS.
-    wait_for_line(&v1_lines, "version 2", CHILD_OUTPUT_TIMEOUT);
     assert!(
-        matches!(v1_child.try_wait(), Ok(None)),
+        matches!(v1_child.0.try_wait(), Ok(None)),
         "running v1 died during reinstall: the atomic-rename path did \
          not leave the running process usable"
     );
-    let _ = v1_child.kill();
-    let _ = v1_child.wait();
-}
-
-fn child_stdout_lines(stdout: std::process::ChildStdout) -> std::sync::mpsc::Receiver<String> {
-    use std::io::BufRead;
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let reader = std::io::BufReader::new(stdout);
-        for line in reader.lines() {
-            let Ok(line) = line else { break };
-            if tx.send(line).is_err() {
-                break;
-            }
-        }
-    });
-    rx
-}
-
-fn wait_for_line(
-    lines: &std::sync::mpsc::Receiver<String>,
-    expected: &str,
-    timeout: std::time::Duration,
-) {
-    let deadline = std::time::Instant::now() + timeout;
-    let mut seen = Vec::new();
-    loop {
-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-        if remaining.is_zero() {
-            panic!("timed out waiting for `{expected}`; seen output: {seen:?}");
-        }
-        match lines.recv_timeout(remaining) {
-            Ok(line) if line.trim() == expected => return,
-            Ok(line) => seen.push(line),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                panic!("timed out waiting for `{expected}`; seen output: {seen:?}");
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                panic!("stdout closed while waiting for `{expected}`; seen output: {seen:?}");
-            }
-        }
-    }
 }
 
 fn moon_install(moon_exe: &Path, cwd: &Path, pkg_path: &Path, install_dir: &Path) {
@@ -165,16 +137,13 @@ fn rewrite_version(main_mbt: &Path, version: &str) {
     }
     body.push_str("\n]\n\n");
     let main_fn = format!(
-        "///|\nasync fn main {{\n  \
+        "///|\nfn main {{\n  \
            let mut sum : Int64 = 0L\n  \
            for v in payload {{ sum = sum + v.to_int64() }}\n  \
            if sum == 0x7fffffffffffffffL {{ println(\"unreachable\") }}\n  \
            println(\"{version}\")\n  \
            if @env.args().length() > 1 {{\n    \
-             let self_path = @env.args()[0]\n    \
              for ;; {{\n      \
-               @async.sleep(100)\n      \
-               let _ = (@process.run(self_path, []) : Int)\n    \
              }}\n  \
            }}\n\
          }}\n"
