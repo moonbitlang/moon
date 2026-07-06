@@ -32,6 +32,7 @@ use moonutil::{
 };
 use semver::Version;
 use std::path::{Path, PathBuf};
+use tracing::debug;
 
 use crate::{
     cli::BuildFlags,
@@ -670,15 +671,7 @@ fn build_and_install_packages(
         } else {
             pkg.binary_name.clone()
         };
-        let binary_dst = install_dir.join(dst_name);
-
-        std::fs::copy(&binary_src, &binary_dst).with_context(|| {
-            format!(
-                "Failed to copy binary from `{}` to `{}`",
-                binary_src.display(),
-                binary_dst.display()
-            )
-        })?;
+        let binary_dst = install_file_atomically(&binary_src, install_dir, &dst_name)?;
 
         #[cfg(unix)]
         {
@@ -705,6 +698,52 @@ fn build_and_install_packages(
     }
 
     Ok(0)
+}
+
+/// Copy `src` into `install_dir/dst_name` by writing to a sibling tempfile
+/// and atomically replacing the destination command entry.
+///
+/// `moon install --bin <dir>` manages `<dir>/<binary>`, so an existing
+/// destination path is replaced rather than opened and overwritten in place.
+/// This avoids exposing a partially written executable and avoids platform
+/// traps such as macOS code-signature cache kills after truncating a Mach-O
+/// binary that has already been executed.
+///
+/// The tempfile is created inside `install_dir` so the final persist is a
+/// same-filesystem replacement. `src` is copied rather than moved because it
+/// is the build graph's declared artifact and must remain in `_build` for
+/// subsequent no-op commands.
+fn install_file_atomically(
+    src: &Path,
+    install_dir: &Path,
+    dst_name: &str,
+) -> anyhow::Result<PathBuf> {
+    let dst = install_dir.join(dst_name);
+
+    let tmp_path = tempfile::NamedTempFile::new_in(install_dir)
+        .with_context(|| {
+            format!(
+                "Failed to create temporary file in `{}`",
+                install_dir.display()
+            )
+        })?
+        .into_temp_path();
+
+    std::fs::copy(src, &tmp_path).with_context(|| {
+        format!(
+            "Failed to copy binary from `{}` to `{}`",
+            src.display(),
+            tmp_path.display()
+        )
+    })?;
+    debug!(src = %src.display(), "staged via copy");
+
+    tmp_path
+        .persist(&dst)
+        .map_err(|err| err.error)
+        .with_context(|| format!("Failed to install binary to `{}`", dst.display()))?;
+    debug!(dst = %dst.display(), "installed via rename");
+    Ok(dst)
 }
 
 #[cfg(test)]
@@ -863,5 +902,93 @@ mod tests {
             "native/pixeladventure",
         ));
         assert!(!filter.matches(&test_path(&["repo", "examples", "web", "demo"]), "web/demo",));
+    }
+
+    #[test]
+    fn install_file_atomically_fresh_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::write(&src, b"hello world").unwrap();
+
+        let dst = install_file_atomically(&src, dir.path(), "dst").unwrap();
+
+        assert_eq!(std::fs::read(&dst).unwrap(), b"hello world");
+        assert_eq!(std::fs::read(&src).unwrap(), b"hello world");
+    }
+
+    #[test]
+    fn install_file_atomically_overwrites_existing_destination() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&dst, b"old contents").unwrap();
+
+        let installed = install_file_atomically(&src, dir.path(), "dst").unwrap();
+
+        assert_eq!(installed, dst);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+        assert_eq!(std::fs::read(&src).unwrap(), b"new contents");
+
+        // The build artifact must remain in place and no staging tempfile
+        // should remain behind.
+        let siblings: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        let mut siblings = siblings;
+        siblings.sort();
+        assert_eq!(
+            siblings,
+            vec![
+                std::ffi::OsString::from("dst"),
+                std::ffi::OsString::from("src")
+            ]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_file_atomically_replaces_existing_inode() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&dst, b"old contents").unwrap();
+        let old_ino = std::fs::metadata(&dst).unwrap().ino();
+
+        let installed = install_file_atomically(&src, dir.path(), "dst").unwrap();
+
+        let new_ino = std::fs::metadata(&dst).unwrap().ino();
+        assert_eq!(installed, dst);
+        assert_ne!(old_ino, new_ino);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+        assert_eq!(std::fs::read(&src).unwrap(), b"new contents");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_file_atomically_replaces_destination_symlink_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let target = dir.path().join("target");
+        let dst = dir.path().join("dst");
+        std::fs::write(&src, b"new contents").unwrap();
+        std::fs::write(&target, b"old contents").unwrap();
+        std::os::unix::fs::symlink(&target, &dst).unwrap();
+
+        let installed = install_file_atomically(&src, dir.path(), "dst").unwrap();
+
+        assert_eq!(installed, dst);
+        assert_eq!(std::fs::read(&dst).unwrap(), b"new contents");
+        assert_eq!(std::fs::read(&target).unwrap(), b"old contents");
+        assert!(
+            !std::fs::symlink_metadata(&dst)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
     }
 }
