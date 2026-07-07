@@ -477,9 +477,16 @@ fn try_detect_solver(spec: &SolverSpec) -> Option<DetectedSolver> {
 
     Some(DetectedSolver {
         name: spec.name,
-        path: path_str,
+        path: escape_windows_path(&path_str),
         version: version.to_string(),
     })
+}
+
+fn escape_windows_path(s: &str) -> String {
+    // Why3 configuration strings treat backslashes as escapes. Keep the native
+    // Windows path spelling instead of normalizing to `/`, so the generated
+    // prover path stays the exact executable path returned by PATH/env lookup.
+    s.replace('\\', "\\\\")
 }
 
 fn generate_why3_config(solvers: &[DetectedSolver]) -> String {
@@ -905,6 +912,14 @@ mod tests {
         assert!(config.contains("[partial_prover]\nname = \"Z3\""));
         assert!(config.contains("name = \"MoonBit_Auto\""));
         assert!(!config.contains("Alt-Ergo"));
+    }
+
+    #[test]
+    fn test_generate_config_escapes_windows_solver_path() {
+        let path = escape_windows_path(r"C:\Users\guest\bin\z3.exe");
+        let solvers = vec![make_solver("Z3", &path, "4.16.0")];
+        let config = generate_why3_config(&solvers);
+        assert!(config.contains(r#"path = "C:\\Users\\guest\\bin\\z3.exe""#));
     }
 
     #[test]
