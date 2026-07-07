@@ -654,11 +654,6 @@ fn initialize_v8() {
 }
 
 fn main() -> anyhow::Result<()> {
-    tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .compact()
-        .init();
-
     let matches = Commandline::parse();
     let async_policy = Arc::new(match matches.policy.as_ref() {
         Some(path) => async_policy::AsyncPolicy::from_file(path).context(

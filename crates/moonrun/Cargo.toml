@@ -32,8 +32,6 @@ slotmap.workspace = true
 toml = { workspace = true, features = ["parse", "serde", "std"] }
 moonutil.workspace = true
 rand = "0.8.5"
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 v8 = "0.106.0"
 
 [target."cfg(not(windows))".dependencies]
