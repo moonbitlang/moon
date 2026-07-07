@@ -30,6 +30,7 @@ serde.workspace = true
 serde_json_lenient.workspace = true
 slotmap.workspace = true
 toml = { workspace = true, features = ["parse", "serde", "std"] }
+moonutil.workspace = true
 rand = "0.8.5"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
@@ -71,7 +72,6 @@ chrono.workspace = true
 [dev-dependencies]
 escargot.workspace = true
 moon-test-util = { path = "../moon-test-util" }
-moonutil.workspace = true
 snapbox.workspace = true
 tempfile.workspace = true
 

@@ -32,6 +32,7 @@ mod async_sys;
 mod backtrace_api;
 mod demangle_js_template;
 mod fs_api_temp;
+mod memory_sanitizer_api;
 mod sys_api;
 mod util;
 mod v8_builder;
@@ -393,6 +394,12 @@ fn init_env(
     {
         let async_runtime = global_proxy.child(scope, async_api::MOONBIT_ASYNC_MODULE);
         async_api::init_env(async_runtime, scope, dtors, Arc::clone(&async_policy));
+    }
+
+    {
+        let memory_sanitizer =
+            global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
+        memory_sanitizer_api::init_env(memory_sanitizer, scope, dtors);
     }
 
     {

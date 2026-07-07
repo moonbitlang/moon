@@ -144,6 +144,8 @@ const __moonbit_backtrace_runtime = globalThis.__moonbit_backtrace_runtime || {
 
 const __moonbit_wasi_unstable = globalThis.__moonbit_wasi_unstable || {};
 const moonbitlang_async = globalThis["moonbitlang/async"] || {};
+const moonbit_ffi_memory_sanitizer =
+    globalThis["moonbit:ffi/memory-sanitizer"] || {};
 
 delete globalThis.__moonbit_run_env;
 delete globalThis.__moonbit_backtrace_runtime;
@@ -438,6 +440,7 @@ const spectest = {
     __moonbit_sys_unstable: __moonbit_sys_unstable,
     __moonbit_time_unstable: __moonbit_time_unstable,
     "moonbitlang/async": moonbitlang_async,
+    "moonbit:ffi/memory-sanitizer": moonbit_ffi_memory_sanitizer,
     wasi_snapshot_preview1: wasi_snapshot_preview1,
     moonbit: {
         string_to_js_string() {
