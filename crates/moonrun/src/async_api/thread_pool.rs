@@ -19,7 +19,7 @@
 use std::ffi::OsString;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, read_u16};
-use crate::async_sys::internal::event_loop::thread_pool::{self, ResourceClass};
+use crate::async_sys::internal::event_loop::thread_pool::{self, ResourceClass, ResourceRef};
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;
@@ -420,11 +420,118 @@ pub(super) fn make_getaddrinfo_job(
     }
 }
 
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn make_spawn_job(
+    context: &mut ImportContext<'_, '_>,
+    path: i32,
+    path_len: i32,
+    args: u64,
+    args_len: i32,
+    env: u64,
+    env_len: i32,
+    inherit_env: i32,
+    stdin: u64,
+    stdout: u64,
+    stderr: u64,
+    cwd: i32,
+    cwd_len: i32,
+    has_cwd: i32,
+) -> AsyncHostResult<u64> {
+    let path = read_guest_os_string(context, path, path_len)?;
+    let args = read_c_buffer(context, args, args_len).and_then(nul_separated_os_strings)?;
+    let env = read_c_buffer(context, env, env_len).and_then(nul_separated_env)?;
+    let cwd = if has_cwd == 0 {
+        None
+    } else {
+        Some(read_guest_os_string(context, cwd, cwd_len)?)
+    };
+    let stdin = optional_resource(context, stdin)?;
+    let stdout = optional_resource(context, stdout)?;
+    let stderr = optional_resource(context, stderr)?;
+    context.host.insert_job(thread_pool::make_spawn_job(
+        path,
+        args,
+        env,
+        inherit_env != 0,
+        stdin,
+        stdout,
+        stderr,
+        cwd,
+    ))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn get_spawn_job_result_handle(
+    context: &mut ImportContext<'_, '_>,
+    job: u64,
+) -> AsyncHostResult<u64> {
+    context.host.get_spawn_job_result_handle(job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_wait_for_process_job(
+    context: &mut ImportContext<'_, '_>,
+    handle: u64,
+    pid: i32,
+) -> AsyncHostResult<u64> {
+    let handle = optional_resource(context, handle)?;
+    context
+        .host
+        .insert_job(thread_pool::make_wait_for_process_job(handle, pid))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[cfg(unix)]
+pub(super) fn make_sigwait_job(
+    context: &mut ImportContext<'_, '_>,
+    signals: i32,
+    signals_len: i32,
+) -> AsyncHostResult<u64> {
+    let signals =
+        context.with_memory_mut(|memory| read_i32_array(memory, signals, signals_len))?;
+    let notifier = context.host.thread_pool_notifier()?;
+    context
+        .host
+        .insert_job(thread_pool::make_sigwait_job(signals, notifier))
+}
+
+fn optional_resource(
+    context: &mut ImportContext<'_, '_>,
+    handle: u64,
+) -> AsyncHostResult<Option<ResourceRef>> {
+    if handle == crate::async_host::INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
+        Ok(None)
+    } else {
+        context.host.resource(handle).map(Some)
+    }
+}
+
 pub(super) fn get_getaddrinfo_result(
     context: &mut ImportContext<'_, '_>,
     job: u64,
 ) -> AsyncHostResult<u64> {
     context.host.get_getaddrinfo_result(job)
+}
+
+#[cfg(unix)]
+fn read_i32_array(
+    memory: &(impl GuestMemory + ?Sized),
+    offset: i32,
+    len: i32,
+) -> AsyncHostResult<Vec<i32>> {
+    let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+    let byte_len = len
+        .checked_mul(std::mem::size_of::<i32>())
+        .ok_or(AsyncHostError::Fault)?;
+    let bytes = memory.read_exact(
+        offset,
+        i32::try_from(byte_len).map_err(|_| AsyncHostError::Fault)?,
+    )?;
+    Ok(bytes
+        .chunks_exact(std::mem::size_of::<i32>())
+        .map(|chunk| i32::from_le_bytes(chunk.try_into().unwrap()))
+        .collect())
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
@@ -470,6 +577,70 @@ fn read_guest_os_string(context: &mut ImportContext<'_, '_>, ptr: i32, len: i32)
             Ok(OsString::from_wide(&units))
         }
     })
+}
+
+fn read_c_buffer(
+    context: &mut ImportContext<'_, '_>,
+    handle: u64,
+    len: i32,
+) -> AsyncHostResult<Vec<u8>> {
+    let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+    context.host.with_c_buffer(handle, |buffer| {
+        buffer
+            .get(..len)
+            .map(<[u8]>::to_vec)
+            .ok_or(AsyncHostError::Fault)
+    })
+}
+
+fn nul_separated_os_strings(bytes: Vec<u8>) -> AsyncHostResult<Vec<OsString>> {
+    let mut values = Vec::new();
+    let mut start = 0;
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == 0 {
+            values.push(os_string_from_utf8_bytes(&bytes[start..index])?);
+            start = index + 1;
+        }
+    }
+    if start != bytes.len() {
+        return Err(AsyncHostError::Inval);
+    }
+    Ok(values)
+}
+
+fn nul_separated_env(bytes: Vec<u8>) -> AsyncHostResult<Vec<(OsString, OsString)>> {
+    let mut values = Vec::new();
+    let mut start = 0;
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == 0 {
+            let entry = &bytes[start..index];
+            let Some(eq) = entry.iter().position(|byte| *byte == b'=') else {
+                return Err(AsyncHostError::Inval);
+            };
+            values.push((
+                os_string_from_utf8_bytes(&entry[..eq])?,
+                os_string_from_utf8_bytes(&entry[eq + 1..])?,
+            ));
+            start = index + 1;
+        }
+    }
+    if start != bytes.len() {
+        return Err(AsyncHostError::Inval);
+    }
+    Ok(values)
+}
+
+fn os_string_from_utf8_bytes(bytes: &[u8]) -> AsyncHostResult<OsString> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        Ok(OsString::from_vec(bytes.to_vec()))
+    }
+    #[cfg(windows)]
+    {
+        let value = String::from_utf8(bytes.to_vec()).map_err(|_| AsyncHostError::Inval)?;
+        Ok(OsString::from(value))
+    }
 }
 
 }

@@ -143,6 +143,25 @@ ported_fns! {
 
     #[ported(
         source = "src/internal/fd_util/stub.c",
+        original = "moonbitlang_async_set_blocking"
+    )]
+    #[cfg(unix)]
+    pub(crate) fn set_blocking(fd: RawFd) -> AsyncHostResult<()> {
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 {
+            return Err(last_native_error());
+        }
+        if (flags & libc::O_NONBLOCK) != 0 {
+            let ret = unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) };
+            if ret < 0 {
+                return Err(last_native_error());
+            }
+        }
+        Ok(())
+    }
+
+    #[ported(
+        source = "src/internal/fd_util/stub.c",
         original = "moonbitlang_async_get_atime_sec"
     )]
     #[allow(clippy::unnecessary_cast)]

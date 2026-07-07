@@ -17,8 +17,12 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::{OsStr, OsString};
+#[cfg(unix)]
+use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(unix)]
+use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::ported_fns;
 
 use super::types::{
@@ -352,6 +356,70 @@ ported_fns! {
         Job::new(JobPayload::GetAddrInfo { host, result: None })
     }
 
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_make_spawn_job"
+    )]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn make_spawn_job(
+        path: OsString,
+        args: Vec<OsString>,
+        env: Vec<(OsString, OsString)>,
+        inherit_env: bool,
+        stdin: Option<ResourceRef>,
+        stdout: Option<ResourceRef>,
+        stderr: Option<ResourceRef>,
+        cwd: Option<OsString>,
+    ) -> Job {
+        Job::new(JobPayload::Spawn {
+            path,
+            args,
+            env,
+            inherit_env,
+            stdio: [stdin, stdout, stderr],
+            cwd,
+            result: None,
+        })
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_get_spawn_job_result_handle"
+    )]
+    pub(crate) fn get_spawn_job_result_handle(job: &Job) -> AsyncHostResult<HostHandle> {
+        match job.payload() {
+            JobPayload::Spawn {
+                result: Some(OpenJobResource::Published(handle)),
+                ..
+            } => Ok(*handle),
+            JobPayload::Spawn {
+                result: Some(OpenJobResource::Unpublished(_)),
+                ..
+            } => Err(AsyncHostError::Inval),
+            JobPayload::Spawn { result: None, .. } => Ok(crate::async_host::INVALID_HOST_HANDLE),
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_make_wait_for_process_job"
+    )]
+    pub(crate) fn make_wait_for_process_job(handle: Option<ResourceRef>, pid: i32) -> Job {
+        Job::new(JobPayload::WaitForProcess { handle, pid })
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_make_sigwait_job"
+    )]
+    #[cfg(unix)]
+    pub(crate) fn make_sigwait_job(
+        signals: Vec<i32>,
+        notifier: Arc<ThreadPoolCompletionNotifier>,
+    ) -> Job {
+        Job::new(JobPayload::Sigwait { signals, notifier })
+    }
 }
 
 pub(crate) fn open_job_result(job: &Job) -> AsyncHostResult<&OpenJobResult> {
@@ -380,6 +448,26 @@ pub(crate) fn take_open_job_result(job: &mut Job) -> Option<OpenJobResult> {
     match job.payload_mut() {
         JobPayload::Open { result, .. } => result.take(),
         _ => None,
+    }
+}
+
+pub(crate) fn take_spawn_job_result(job: &mut Job) -> Option<OpenJobResource> {
+    match job.payload_mut() {
+        JobPayload::Spawn { result, .. } => result.take(),
+        _ => None,
+    }
+}
+
+pub(crate) fn set_spawn_job_result(
+    job: &mut Job,
+    resource: OpenJobResource,
+) -> AsyncHostResult<()> {
+    match job.payload_mut() {
+        JobPayload::Spawn { result, .. } => {
+            *result = Some(resource);
+            Ok(())
+        }
+        _ => Err(AsyncHostError::Badf),
     }
 }
 

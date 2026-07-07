@@ -25,8 +25,8 @@ use super::context::{
 #[cfg(test)]
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
 use super::{
-    c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, runtime,
-    socket, stdio, thread_pool, time, tls,
+    c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, process,
+    runtime, signal, socket, stdio, thread_pool, time, tls,
 };
 
 pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
@@ -389,6 +389,26 @@ declare_async_imports! {
 
     helper stdio::get_stdio_handle(id: i32) -> u64 => "stdio/get_stdio_handle";
 
+    helper signal::get_signal_by_index(index: i32) -> i32 => "signal/get_signal_by_index";
+
+    ported signal::get_signal_by_name(name: i32, name_len: i32) -> i32 => "signal/get_signal_by_name";
+
+    #[cfg(unix)]
+    ported signal::set_global_cancellation_signals(
+        all_signals: i32,
+        signals: i32,
+        all_signals_len: i32,
+        signals_len: i32,
+    ) -> void => "signal/set_global_cancellation_signals";
+
+    #[cfg(windows)]
+    fake signal::set_global_cancellation_signals(
+        all_signals: i32,
+        signals: i32,
+        all_signals_len: i32,
+        signals_len: i32,
+    ) -> void => "signal/set_global_cancellation_signals";
+
     ported fd_util::kind_of_fd(fd: u64) -> i32 => "fd_util/kind_of_fd";
 
     #[cfg(unix)]
@@ -414,6 +434,12 @@ declare_async_imports! {
     fake fd_util::set_nonblocking(fd: u64) -> i32 => "fd_util/set_nonblocking/unix";
 
     helper fd_util::set_cloexec(fd: u64) -> i32 => "fd_util/set_cloexec";
+
+    #[cfg(unix)]
+    ported fd_util::set_blocking(fd: u64) -> i32 => "fd_util/set_blocking/unix";
+
+    #[cfg(windows)]
+    helper fd_util::set_blocking(fd: u64) -> i32 => "fd_util/set_blocking/unix";
 
     helper fd_util::sizeof_file_time() -> i32 => "fd_util/sizeof_file_time";
 
@@ -973,6 +999,38 @@ declare_async_imports! {
     ported thread_pool::make_getaddrinfo_job(host: i32, host_len: i32) -> u64 => "thread_pool/make_getaddrinfo_job";
 
     helper thread_pool::get_getaddrinfo_result(job: u64) -> u64 => "thread_pool/get_getaddrinfo_result";
+
+    ported thread_pool::make_spawn_job(
+        path: i32,
+        path_len: i32,
+        args: u64,
+        args_len: i32,
+        env: u64,
+        env_len: i32,
+        inherit_env: i32,
+        stdin: u64,
+        stdout: u64,
+        stderr: u64,
+        cwd: i32,
+        cwd_len: i32,
+        has_cwd: i32,
+    ) -> u64 => "thread_pool/make_spawn_job";
+
+    ported thread_pool::get_spawn_job_result_handle(job: u64) -> u64 => "thread_pool/get_spawn_job_result_handle";
+
+    ported thread_pool::make_wait_for_process_job(handle: u64, pid: i32) -> u64 => "thread_pool/make_wait_for_process_job";
+
+    #[cfg(unix)]
+    ported thread_pool::make_sigwait_job(signals: i32, signals_len: i32) -> u64 => "thread_pool/make_sigwait_job";
+
+    #[cfg(windows)]
+    fake thread_pool::make_sigwait_job(signals: i32, signals_len: i32) -> u64 => "thread_pool/make_sigwait_job";
+
+    helper process::open_pid_handle(pid: i32) -> u64 => "process/open_pid_handle";
+
+    ported process::terminate(pid: i32, signal: i32) -> void => "process/terminate";
+
+    ported process::kill(pid: i32) -> void => "process/kill";
 }
 
 #[cfg(test)]
@@ -987,8 +1045,10 @@ fn async_api_ported_imports() -> Vec<PortedImport> {
     imports.extend_from_slice(io::PORTED_IMPORTS);
     imports.extend_from_slice(env_util::PORTED_IMPORTS);
     imports.extend_from_slice(c_buffer::PORTED_IMPORTS);
+    imports.extend_from_slice(signal::PORTED_IMPORTS);
     imports.extend_from_slice(socket::PORTED_IMPORTS);
     imports.extend_from_slice(tls::PORTED_IMPORTS);
+    imports.extend_from_slice(process::PORTED_IMPORTS);
     imports
 }
 

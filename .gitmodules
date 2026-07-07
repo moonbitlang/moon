@@ -5,3 +5,4 @@
 [submodule "third_party/moonbitlang_async"]
 	path = third_party/moonbitlang_async
 	url = https://github.com/moonbitlang/async.git
+	branch = codex/async-process

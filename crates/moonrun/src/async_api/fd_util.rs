@@ -133,6 +133,32 @@ pub(super) fn set_cloexec(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
     }
 }
 
+#[ported(
+    source = "src/internal/fd_util/stub.c",
+    original = "moonbitlang_async_set_blocking"
+)]
+#[cfg(unix)]
+pub(super) fn set_blocking(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+    match context.host.set_blocking(fd) {
+        Ok(()) => 0,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
+#[cfg(windows)]
+pub(super) fn set_blocking(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+    match context.host.set_blocking(fd) {
+        Ok(()) => 0,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
 fn file_time_i64(context: &mut ImportContext<'_, '_>, ptr: i32, field_offset: i32) -> AsyncHostResult<i64> {
     read_field(context, ptr, field_offset, 8)
         .map(|bytes| i64::from_le_bytes(bytes.as_slice().try_into().unwrap()))

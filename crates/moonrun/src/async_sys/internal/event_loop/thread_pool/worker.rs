@@ -131,6 +131,7 @@ impl HostWorkerHandle {
         let thread = std::thread::spawn(move || {
             #[cfg(unix)]
             {
+                let _ = crate::async_sys::signal::set_worker_thread_signal_mask();
                 *worker_thread_id.lock().unwrap() = Some(unsafe { libc::pthread_self() });
             }
 

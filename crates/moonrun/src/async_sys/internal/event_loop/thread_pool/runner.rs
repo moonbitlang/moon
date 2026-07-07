@@ -25,6 +25,9 @@ use super::fs::{
     run_open_job, run_read_job, run_readdir_job, run_remove_job, run_rename_job, run_rmdir_job,
     run_symlink_job, run_write_job,
 };
+use super::process::{run_spawn_job, run_wait_for_process_job};
+#[cfg(unix)]
+use super::signal::run_sigwait_job;
 use super::sleep::run_sleep_job;
 use super::socket::{run_bind_job, run_getaddrinfo_job};
 use super::types::{Job, JobPayload};
@@ -131,6 +134,26 @@ pub(crate) fn run_host_job(job: &mut Job) {
             None => Err(AsyncHostError::Badf),
         },
         JobPayload::GetAddrInfo { host, result } => run_getaddrinfo_job(host.clone(), result),
+        JobPayload::Spawn {
+            path,
+            args,
+            env,
+            inherit_env,
+            stdio,
+            cwd,
+            result,
+        } => run_spawn_job(
+            path.clone(),
+            args.clone(),
+            env.clone(),
+            *inherit_env,
+            stdio.clone(),
+            cwd.clone(),
+            result,
+        ),
+        JobPayload::WaitForProcess { handle, pid } => run_wait_for_process_job(handle.take(), *pid),
+        #[cfg(unix)]
+        JobPayload::Sigwait { signals, notifier } => run_sigwait_job(signals, notifier),
     };
 
     match result {

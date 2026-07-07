@@ -637,6 +637,8 @@ struct ThreadPoolCompletions {
     notifier: Option<Arc<ThreadPoolCompletionNotifier>>,
     #[cfg(unix)]
     source: Option<HostHandle>,
+    #[cfg(unix)]
+    old_signal_mask: Option<libc::sigset_t>,
     #[cfg(windows)]
     target: Option<ThreadPoolCompletionTarget>,
     #[cfg(windows)]
@@ -1203,6 +1205,9 @@ impl AsyncHost {
         {
             let _ = self.handles.lock().unwrap().remove_resource(fd);
         }
+        if let Some(OpenJobResource::Published(fd)) = thread_pool::take_spawn_job_result(job) {
+            let _ = self.handles.lock().unwrap().remove_resource(fd);
+        }
     }
 
     fn publish_open_job_result(&self, key: HandleKey) -> AsyncHostResult<HostHandle> {
@@ -1664,9 +1669,18 @@ impl AsyncHost {
         }
         #[cfg(unix)]
         {
+            let old_signal_mask = crate::async_sys::signal::init_thread_pool_signal_mask()?;
             let (completion_notifier, event_fd) = {
                 let poll = poll.lock().unwrap();
-                ThreadPoolCompletionNotifier::new(&poll.instance)?
+                match ThreadPoolCompletionNotifier::new(&poll.instance) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        let _ = crate::async_sys::signal::restore_thread_pool_signal_mask(
+                            &old_signal_mask,
+                        );
+                        return Err(error);
+                    }
+                }
             };
             let completion_notifier = Arc::new(completion_notifier);
             let source = {
@@ -1676,6 +1690,8 @@ impl AsyncHost {
                     let poll = poll.lock().unwrap();
                     let _ = poll::poll_unregister(&poll.instance, event_fd);
                     drop(Resource::new(event_fd));
+                    let _ =
+                        crate::async_sys::signal::restore_thread_pool_signal_mask(&old_signal_mask);
                     return Err(AsyncHostError::Inval);
                 }
                 let mut handles = self.handles.lock().unwrap();
@@ -1696,6 +1712,7 @@ impl AsyncHost {
                 drop(poll);
                 completions.notifier = Some(completion_notifier);
                 completions.source = Some(source);
+                completions.old_signal_mask = Some(old_signal_mask);
                 source
             };
             Ok(source)
@@ -1739,11 +1756,11 @@ impl AsyncHost {
         }
         #[cfg(unix)]
         {
-            let completion_source = {
+            let (completion_source, old_signal_mask) = {
                 let mut completions = self.thread_pool_completions.lock().unwrap();
                 let completion_source = completions.source.take();
                 completions.notifier = None;
-                completion_source
+                (completion_source, completions.old_signal_mask.take())
             };
             let polls = self
                 .polls
@@ -1767,6 +1784,9 @@ impl AsyncHost {
             }
             for poll in polls {
                 poll.lock().unwrap().completion_notifier = None;
+            }
+            if let Some(old_signal_mask) = old_signal_mask {
+                let _ = crate::async_sys::signal::restore_thread_pool_signal_mask(&old_signal_mask);
             }
         }
         #[cfg(windows)]
@@ -1929,6 +1949,25 @@ impl AsyncHost {
         Ok(next.unwrap_or(INVALID_HOST_HANDLE))
     }
 
+    pub(crate) fn get_spawn_job_result_handle(&self, handle: u64) -> AsyncHostResult<HostHandle> {
+        let key = self.handles.lock().unwrap().job(handle)?;
+        let mut jobs = self.jobs.lock().unwrap();
+        let job = jobs.visible_job_mut(key)?;
+        let Some(result) = thread_pool::take_spawn_job_result(job) else {
+            return Ok(INVALID_HOST_HANDLE);
+        };
+        let resource = match result {
+            OpenJobResource::Published(fd) => {
+                thread_pool::set_spawn_job_result(job, OpenJobResource::Published(fd))?;
+                return Ok(fd);
+            }
+            OpenJobResource::Unpublished(resource) => resource,
+        };
+        let fd = self.handles.lock().unwrap().insert_resource(resource);
+        thread_pool::set_spawn_job_result(job, OpenJobResource::Published(fd))?;
+        thread_pool::get_spawn_job_result_handle(job)
+    }
+
     pub(crate) fn addrinfo_next(&self, handle: u64) -> AsyncHostResult<u64> {
         if handle == INVALID_HOST_HANDLE {
             return Ok(INVALID_HOST_HANDLE);
@@ -2060,6 +2099,14 @@ impl AsyncHost {
         f(file.raw_fd())
     }
 
+    #[cfg(windows)]
+    pub(crate) fn insert_host_file_handle(&self, raw_fd: RawFd) -> HostHandle {
+        self.handles
+            .lock()
+            .unwrap()
+            .insert_resource(Resource::new(raw_fd))
+    }
+
     pub(crate) fn resource(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
         self.handles.lock().unwrap().resource(handle)
     }
@@ -2101,6 +2148,20 @@ impl AsyncHost {
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
         let file = self.resource(handle)?;
         crate::async_sys::internal::fd_util::stub::kind_of_fd(file.raw_fd())
+    }
+
+    pub(crate) fn set_blocking(&self, handle: HostHandle) -> AsyncHostResult<()> {
+        let file = self.resource(handle)?;
+        let raw_fd = file.raw_fd();
+        #[cfg(unix)]
+        {
+            crate::async_sys::internal::fd_util::stub::set_blocking(raw_fd)
+        }
+        #[cfg(windows)]
+        {
+            let _ = raw_fd;
+            Ok(())
+        }
     }
 
     pub(crate) fn set_cloexec(&self, handle: HostHandle) -> AsyncHostResult<()> {
@@ -3040,6 +3101,18 @@ impl AsyncHost {
         let jobs = self.jobs.lock().unwrap();
         let job = jobs.visible_job(key)?;
         thread_pool::get_file_time_result(job, memory, dst)
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn thread_pool_notifier(
+        &self,
+    ) -> AsyncHostResult<Arc<ThreadPoolCompletionNotifier>> {
+        self.thread_pool_completions
+            .lock()
+            .unwrap()
+            .notifier
+            .clone()
+            .ok_or(AsyncHostError::Badf)
     }
 
     #[cfg(unix)]

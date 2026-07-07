@@ -21,6 +21,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostResult, HostCBuffer};
+#[cfg(unix)]
+use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
 
 #[cfg(unix)]
@@ -405,6 +407,24 @@ pub(crate) enum JobPayload {
     GetAddrInfo {
         host: OsString,
         result: Option<Vec<Box<[u8]>>>,
+    },
+    Spawn {
+        path: OsString,
+        args: Vec<OsString>,
+        env: Vec<(OsString, OsString)>,
+        inherit_env: bool,
+        stdio: [Option<ResourceRef>; 3],
+        cwd: Option<OsString>,
+        result: Option<OpenJobResource>,
+    },
+    WaitForProcess {
+        handle: Option<ResourceRef>,
+        pid: i32,
+    },
+    #[cfg(unix)]
+    Sigwait {
+        signals: Vec<i32>,
+        notifier: Arc<ThreadPoolCompletionNotifier>,
     },
 }
 
