@@ -39,6 +39,7 @@ mod provenance;
 mod registry;
 mod runtime;
 mod socket;
+mod stdio;
 mod thread_pool;
 mod time;
 mod tls;

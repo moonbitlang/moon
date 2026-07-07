@@ -66,6 +66,8 @@ pub(crate) struct Resource {
 enum RawResource {
     Invalid,
     File(OwnedRawFile),
+    // Reserved process stdio handle. The guest can use it, but does not own it.
+    StdioFile(isize),
     #[cfg(windows)]
     Socket(OwnedSocket),
 }
@@ -95,6 +97,19 @@ impl Resource {
             raw: RawResource::File(owned_raw_file(raw)),
             class: ResourceClass::File,
             policy_path,
+            socket_family: None,
+            directory_cursor: Mutex::new(()),
+        }
+    }
+
+    pub(crate) fn stdio_file(raw: fd_util::stub::RawFd) -> Self {
+        if raw == invalid_raw_file() {
+            return Self::invalid();
+        }
+        Self {
+            raw: RawResource::StdioFile(raw as isize),
+            class: ResourceClass::File,
+            policy_path: None,
             socket_family: None,
             directory_cursor: Mutex::new(()),
         }
@@ -152,6 +167,7 @@ impl Resource {
         match &self.raw {
             RawResource::Invalid => invalid_raw_file(),
             RawResource::File(raw) => raw_file(raw),
+            RawResource::StdioFile(raw) => *raw as fd_util::stub::RawFd,
             #[cfg(windows)]
             RawResource::Socket(raw) => raw_socket(raw),
         }

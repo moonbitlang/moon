@@ -26,7 +26,7 @@ use super::context::{
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
 use super::{
     c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, runtime,
-    socket, thread_pool, time, tls,
+    socket, stdio, thread_pool, time, tls,
 };
 
 pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
@@ -386,6 +386,10 @@ declare_async_imports! {
     helper fs::close_fd(fd: u64) -> i32 => "fd_util/close_fd";
 
     helper fd_util::invalid_fd() -> u64 => "fd_util/invalid_fd";
+
+    helper stdio::get_stdio_handle(id: i32) -> u64 => "stdio/get_stdio_handle";
+
+    ported fd_util::kind_of_fd(fd: u64) -> i32 => "fd_util/kind_of_fd";
 
     #[cfg(unix)]
     ported fd_util::pipe(

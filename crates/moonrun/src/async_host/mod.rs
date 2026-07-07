@@ -214,6 +214,28 @@ struct HostAddrInfo {
     next: Option<HostHandle>,
 }
 
+const STDIN_ID: i32 = 0;
+const STDOUT_ID: i32 = 1;
+const STDERR_ID: i32 = 2;
+
+#[cfg(windows)]
+const WINDOWS_STDIO_IDS: [u32; 3] = [
+    windows_sys::Win32::System::Console::STD_INPUT_HANDLE,
+    windows_sys::Win32::System::Console::STD_OUTPUT_HANDLE,
+    windows_sys::Win32::System::Console::STD_ERROR_HANDLE,
+];
+
+#[cfg(unix)]
+const STDIO_IDS: [i32; 3] = [STDIN_ID, STDOUT_ID, STDERR_ID];
+
+#[repr(usize)]
+#[derive(Clone, Copy)]
+enum Stdio {
+    Stdin,
+    Stdout,
+    Stderr,
+}
+
 fn handle_from_key(key: HandleKey) -> HostHandle {
     key.data().as_ffi()
 }
@@ -256,18 +278,54 @@ struct HandleTable {
     handles: SlotMap<HandleKey, HandleKind>,
     resources: SecondaryMap<HandleKey, ResourceRef>,
     invalid_resource: HandleKey,
+    stdio_resources: [HandleKey; 3],
 }
 
 impl Default for HandleTable {
     fn default() -> Self {
         let mut handles = SlotMap::with_key();
-        let invalid_resource = handles.insert(HandleKind::Resource);
         let mut resources = SecondaryMap::new();
+
+        let invalid_resource = handles.insert(HandleKind::Resource);
         resources.insert(invalid_resource, Arc::new(Resource::invalid()));
+
+        #[cfg(unix)]
+        let stdio_resources = STDIO_IDS.map(|id| {
+            let key = handles.insert(HandleKind::Resource);
+            resources.insert(key, Arc::new(Resource::stdio_file(id)));
+            key
+        });
+
+        #[cfg(windows)]
+        let stdio_resources = {
+            use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+            use windows_sys::Win32::System::Console::GetStdHandle;
+
+            let mut keys = [invalid_resource; 3];
+            let mut raws = [0isize; 3];
+            for (index, id) in WINDOWS_STDIO_IDS.iter().enumerate() {
+                let handle = unsafe { GetStdHandle(*id) };
+                if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                    continue;
+                }
+                let raw = handle as isize;
+                if let Some(prev) = (0..index).find(|prev| raws[*prev] == raw) {
+                    keys[index] = keys[prev];
+                    continue;
+                }
+                let key = handles.insert(HandleKind::Resource);
+                resources.insert(key, Arc::new(Resource::stdio_file(handle)));
+                keys[index] = key;
+                raws[index] = raw;
+            }
+            keys
+        };
+
         Self {
             handles,
             resources,
             invalid_resource,
+            stdio_resources,
         }
     }
 }
@@ -322,7 +380,7 @@ impl HandleTable {
 
     fn remove_resource(&mut self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
         let key = self.key(handle, HandleKind::Resource)?;
-        if key == self.invalid_resource {
+        if key == self.invalid_resource || self.stdio_resources.contains(&key) {
             return Err(AsyncHostError::Badf);
         }
         self.handles.remove(key).ok_or(AsyncHostError::Badf)?;
@@ -407,10 +465,32 @@ impl HandleTable {
         self.remove(handle, HandleKind::IoResult)
     }
 
-    fn resource_count_excluding_invalid(&self) -> usize {
+    fn resource_count_excluding_reserved(&self) -> usize {
         self.resources
             .iter()
-            .filter(|(key, resource)| *key != self.invalid_resource && !resource.is_invalid())
+            .filter(|(key, resource)| {
+                *key != self.invalid_resource
+                    && !self.stdio_resources.contains(key)
+                    && !resource.is_invalid()
+            })
+            .count()
+    }
+
+    fn handle_count_excluding_reserved(&self) -> usize {
+        self.handles
+            .iter()
+            .filter(|(key, kind)| {
+                if *key == self.invalid_resource || self.stdio_resources.contains(key) {
+                    return false;
+                }
+                match kind {
+                    HandleKind::Resource => self
+                        .resources
+                        .get(*key)
+                        .is_some_and(|resource| !resource.is_invalid()),
+                    _ => true,
+                }
+            })
             .count()
     }
 
@@ -1080,6 +1160,19 @@ impl AsyncHost {
         self.handles.lock().unwrap().invalid_fd()
     }
 
+    pub(crate) fn std_handle(&self, id: i32) -> AsyncHostResult<HostHandle> {
+        let stdio = match id {
+            STDIN_ID => Stdio::Stdin,
+            STDOUT_ID => Stdio::Stdout,
+            STDERR_ID => Stdio::Stderr,
+            _ => return Err(AsyncHostError::Inval),
+        };
+        let handles = self.handles.lock().unwrap();
+        let handle = handle_from_key(handles.stdio_resources[stdio as usize]);
+        handles.resource(handle)?;
+        Ok(handle)
+    }
+
     pub(crate) fn get_errno(&self) -> i32 {
         *self.errno.lock().unwrap()
     }
@@ -1204,12 +1297,8 @@ impl AsyncHost {
             }
             {
                 let handles = self.handles.lock().unwrap();
-                let leaked_resources = handles.resource_count_excluding_invalid();
-                let leaked_handles = handles
-                    .handles
-                    .iter()
-                    .filter(|(key, _)| *key != handles.invalid_resource)
-                    .count();
+                let leaked_resources = handles.resource_count_excluding_reserved();
+                let leaked_handles = handles.handle_count_excluding_reserved();
                 let invalid_resource_is_valid = handles
                     .handles
                     .get(handles.invalid_resource)
@@ -2007,6 +2096,11 @@ impl AsyncHost {
     pub(crate) fn set_nonblocking(&self, handle: HostHandle) -> AsyncHostResult<()> {
         let file = self.resource(handle)?;
         crate::async_sys::internal::fd_util::stub::set_nonblocking(file.raw_fd())
+    }
+
+    pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
+        let file = self.resource(handle)?;
+        crate::async_sys::internal::fd_util::stub::kind_of_fd(file.raw_fd())
     }
 
     pub(crate) fn set_cloexec(&self, handle: HostHandle) -> AsyncHostResult<()> {
@@ -3507,7 +3601,7 @@ mod tests {
         host.handles
             .lock()
             .unwrap()
-            .resource_count_excluding_invalid()
+            .resource_count_excluding_reserved()
     }
 
     fn host_with_policy(path: &std::path::Path) -> AsyncHost {

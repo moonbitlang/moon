@@ -374,6 +374,28 @@ fn test_moon_run_with_async_host_imports() {
 }
 
 #[test]
+fn test_moon_run_with_async_stdio_imports() {
+    let dir = TestDir::new("test_async_stdio.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .arg(&wasm_file)
+        .stdin("stdio input\n")
+        .assert()
+        .success()
+        .stdout_eq("stdout-ok\n")
+        .stderr_eq("stderr-ok\n");
+}
+
+#[test]
 fn test_moon_run_with_memory_sanitizer_imports() {
     let dir = TestDir::new("test_memory_sanitizer.in");
 
