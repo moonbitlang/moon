@@ -27,7 +27,7 @@
 //! build process and is consumed by the MoonBit compiler for dependency
 //! analysis.
 
-use moonutil::common::TargetBackend;
+use moonutil::target::TargetBackend;
 use serde::Serialize;
 
 use crate::{

@@ -28,13 +28,13 @@ use std::{
 
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
-    common::TargetBackend,
     compiler_flags::{self, CC, Toolchain},
     constants::{DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, PKG_DIR, is_moon_mod, is_moon_pkg},
     module::{MoonMod, MoonModRule},
     mooncakes::ModuleId,
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
     scripts::{IgnoredMoonScript, is_moon_script_ignored},
+    target::TargetBackend,
     toolchain::BINARIES,
 };
 use regex::Regex;
@@ -637,7 +637,7 @@ impl<'a> BuildPlanConstructor<'a> {
         let proof_warn_list = (pkg.raw.proof_enabled
             && !matches!(
                 self.build_env.action,
-                moonutil::common::RunMode::Check | moonutil::common::RunMode::Prove
+                moonutil::build_options::RunMode::Check | moonutil::build_options::RunMode::Prove
             ))
         .then_some(PROOF_ENABLED_WARN_SUPPRESSIONS);
         let package_warn_list = cat_opt(pkg.raw.warn_list.clone(), proof_warn_list);
@@ -1194,7 +1194,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Bundling a module gathers the build result of all its non-virtual packages, in topo order
         let topo_sorted_pkgs = self.topo_sort_module_packages(module_id);
         let mut bundle_targets = Vec::new();
-        let target_backend: moonutil::common::TargetBackend = self.build_env.target_backend.into();
+        let target_backend: moonutil::target::TargetBackend = self.build_env.target_backend.into();
         for target in topo_sorted_pkgs.into_iter() {
             let pkg = self.input.pkg_dirs.get_package(target.package);
             if !pkg.effective_supported_targets.contains(&target_backend) {

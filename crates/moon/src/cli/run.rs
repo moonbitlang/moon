@@ -26,9 +26,10 @@ use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::dirs::{PackageDirs, ProjectProbe};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use moonutil::{
-    common::{RunMode, TargetBackend, TestArtifacts},
+    build_options::{RunMode, TestArtifacts},
     constants::is_moon_pkg_exist,
     locks::FileLock,
+    target::TargetBackend,
 };
 use tracing::{Level, instrument};
 

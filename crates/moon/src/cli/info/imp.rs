@@ -32,7 +32,7 @@ use moonbuild_rupes_recta::{
     model::{BuildPlanNode, PackageId},
     pkg_name::PackageFQN,
 };
-use moonutil::{common::TargetBackend, constants::MBTI_GENERATED};
+use moonutil::{constants::MBTI_GENERATED, target::TargetBackend};
 use sha2::Digest;
 use tracing::error;
 

@@ -19,9 +19,9 @@
 use std::path::PathBuf;
 
 use moonutil::{
-    common::TargetBackend,
     compiler_flags::CC,
     mooncakes::{ModuleId, result::ResolvedEnv},
+    target::TargetBackend,
 };
 
 use crate::discover::DiscoverResult;

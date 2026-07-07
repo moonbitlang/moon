@@ -19,8 +19,8 @@
 use std::collections::HashMap;
 
 use indexmap::IndexSet;
-use moonutil::common::TargetBackend;
 use moonutil::mooncakes::ModuleSource;
+use moonutil::target::TargetBackend;
 use petgraph::prelude::DiGraphMap;
 use slotmap::SparseSecondaryMap;
 

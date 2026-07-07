@@ -23,9 +23,10 @@ use std::path::PathBuf;
 use moonbuild_rupes_recta::{ResolveOutput, model::BuildPlanNode};
 use moonutil::{
     cli::UniversalFlags,
-    common::{BUILD_DIR, TargetBackend},
     cond_expr::OptLevel,
+    constants::BUILD_DIR,
     dirs::{ProjectManifest, SourceTargetDirs, WorkspaceEnv},
+    target::TargetBackend,
 };
 
 use crate::cli::{
@@ -139,7 +140,7 @@ impl PlanningFixture {
         &self,
         cli: &UniversalFlags,
         cmd: &TestSubcommand,
-        selected_target_backend: Option<moonutil::common::TargetBackend>,
+        selected_target_backend: Option<moonutil::target::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
         let borrowed: TestLikeSubcommand<'_> = cmd.into();
         crate::cli::test::plan_test_or_bench_rr_from_resolved_all(
@@ -233,7 +234,7 @@ impl PlanningFixture {
         &self,
         cli: &UniversalFlags,
         cmd: &BuildSubcommand,
-        selected_target_backend: Option<moonutil::common::TargetBackend>,
+        selected_target_backend: Option<moonutil::target::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
         crate::cli::build::plan_build_rr_from_resolved_all(
             cli,
@@ -256,7 +257,7 @@ impl PlanningFixture {
         &self,
         cli: &UniversalFlags,
         cmd: &BundleSubcommand,
-        selected_target_backend: Option<moonutil::common::TargetBackend>,
+        selected_target_backend: Option<moonutil::target::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
         crate::cli::bundle::plan_bundle_rr_from_resolved(
             cli,
@@ -298,7 +299,7 @@ impl PlanningFixture {
         &self,
         cli: &UniversalFlags,
         cmd: &CheckSubcommand,
-        selected_target_backend: Option<moonutil::common::TargetBackend>,
+        selected_target_backend: Option<moonutil::target::TargetBackend>,
     ) -> anyhow::Result<Vec<PlannedGraph>> {
         crate::cli::check::plan_check_rr_from_resolved_all(
             cli,

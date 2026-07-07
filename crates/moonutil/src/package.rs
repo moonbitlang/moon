@@ -27,10 +27,10 @@ use serde_json_lenient::Value;
 
 pub use crate::supported_targets::resolve_supported_targets;
 use crate::{
-    common::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
     cond_expr::{CompileCondition, CondExprs},
     module::MoonModRule,
     moon_pkg,
+    target::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1134,7 +1134,7 @@ fn package_manifest_warnings_are_local_only() {
     let should_warn = |path: &std::path::Path| {
         !path
             .components()
-            .any(|component| component.as_os_str() == crate::common::DEP_PATH)
+            .any(|component| component.as_os_str() == crate::constants::DEP_PATH)
     };
 
     assert!(should_warn(std::path::Path::new(

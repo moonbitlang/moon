@@ -30,9 +30,10 @@ use std::{
 };
 
 use moonutil::{
-    common::{RunMode, TargetBackend},
+    build_options::RunMode,
     cond_expr::OptLevel,
     mooncakes::{ModuleName, ModuleSource, result::ResolvedEnv},
+    target::TargetBackend,
 };
 
 use crate::{
@@ -219,7 +220,7 @@ impl TargetLayout {
                 // no nested directory for the working module
             }
             TargetLayoutMode::Mono { .. } => {
-                dir.push(moonutil::common::DEP_PATH);
+                dir.push(moonutil::constants::DEP_PATH);
                 dir.extend(pkg.module().name().segments());
             }
             TargetLayoutMode::Workspace => {

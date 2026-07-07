@@ -24,9 +24,11 @@ use std::{
 
 use anyhow::{Context, bail};
 use moonutil::{
-    common::{read_module_desc_file_in_dir, warn_if_shadowed_manifest, write_module_json_to_file},
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
+    manifest::{
+        read_module_desc_file_in_dir, warn_if_shadowed_manifest, write_module_json_to_file,
+    },
     module::{MoonMod, convert_module_to_mod_json},
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
     mooncakes::{

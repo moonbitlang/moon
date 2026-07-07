@@ -24,7 +24,7 @@ use std::{
 };
 
 use moonutil::{
-    common::RunMode,
+    build_options::RunMode,
     compiler_flags::{
         ArchiverConfigBuilder, CC, CCConfigBuilder, LinkerConfigBuilder, OptLevel as CCOptLevel,
         OutputType as CCOutputType, make_archiver_command_resolved,

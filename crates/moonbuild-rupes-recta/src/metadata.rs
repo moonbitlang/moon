@@ -23,10 +23,10 @@ use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use moonutil::{
-    common::TargetBackend,
     cond_expr::{CompileCondition, OptLevel},
     module::ModuleDBJSON,
     package::{AliasJSON, PackageJSON},
+    target::TargetBackend,
 };
 
 use crate::{

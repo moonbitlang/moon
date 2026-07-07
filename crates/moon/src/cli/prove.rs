@@ -24,11 +24,12 @@ use std::{
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode, user_warning::UserWarning};
 use moonutil::{
+    build_options::RunMode,
     cli::UniversalFlags,
-    common::{RunMode, TargetBackend},
     dirs::PackageDirs,
     locks::FileLock,
     mooncakes::{ModuleId, sync::AutoSyncFlags},
+    target::TargetBackend,
     test_metadata::DiagnosticLevel,
 };
 use serde::Deserialize;

@@ -76,3 +76,11 @@ impl UniversalFlags {
         warnings
     }
 }
+
+pub fn dialoguer_ctrlc_handler() {
+    // Fix cursor disappears after ctrc+c
+    // https://github.com/console-rs/dialoguer/issues/77
+    let term = dialoguer::console::Term::stdout();
+    let _ = term.show_cursor();
+    std::process::exit(1);
+}

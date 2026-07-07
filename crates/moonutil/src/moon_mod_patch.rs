@@ -31,7 +31,9 @@ use std::{ops::Range, path::Path};
 use anyhow::Context;
 use indexmap::IndexMap;
 
-use crate::{common::write_module_dsl_to_file, constants::MOON_MOD, module::MoonModJSON, moon_pkg};
+use crate::{
+    constants::MOON_MOD, manifest::write_module_dsl_to_file, module::MoonModJSON, moon_pkg,
+};
 
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]

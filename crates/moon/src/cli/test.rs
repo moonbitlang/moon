@@ -42,12 +42,11 @@ use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
-use moonutil::common::{
-    RunMode, SurfaceTarget, TargetBackend, TestArtifacts, TestIndexRange, lower_surface_targets,
-};
+use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
 use moonutil::dirs::{ProjectManifest, ProjectProbe};
 use moonutil::locks::FileLock;
 use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
 use std::path::{Path, PathBuf};
 use tracing::{Level, debug, info, instrument, trace};
 
@@ -1148,7 +1147,7 @@ fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
-    target_backend: moonutil::common::TargetBackend,
+    target_backend: moonutil::target::TargetBackend,
     output: UserDiagnostics,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let all_affected_packages: Vec<_> = resolve_output
@@ -1180,7 +1179,7 @@ fn calc_user_intent_from_packages(
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     all_affected_packages: &[PackageId],
-    target_backend: moonutil::common::TargetBackend,
+    target_backend: moonutil::target::TargetBackend,
     output: UserDiagnostics,
     explicit_path_filters: &[PathBuf],
     package_filter: Option<&[String]>,

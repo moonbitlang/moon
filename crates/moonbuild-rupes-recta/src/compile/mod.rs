@@ -18,7 +18,7 @@
 
 use indexmap::IndexMap;
 use log::{debug, info};
-use moonutil::{common::RunMode, cond_expr::OptLevel};
+use moonutil::{build_options::RunMode, cond_expr::OptLevel};
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 

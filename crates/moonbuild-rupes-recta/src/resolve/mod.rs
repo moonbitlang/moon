@@ -35,7 +35,6 @@ use mooncake::{
     registry::path as registry_path,
 };
 use moonutil::{
-    common::TargetBackend,
     constants::{MBTI_USER_WRITTEN, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
     dirs::{ProjectManifest, WorkspaceEnv},
@@ -43,6 +42,7 @@ use moonutil::{
     module::MoonMod,
     mooncakes::{DirSyncResult, ModuleId, result::ResolvedEnv, sync::AutoSyncFlags},
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
+    target::TargetBackend,
 };
 use tracing::instrument;
 

@@ -20,8 +20,8 @@ use anyhow::bail;
 use indexmap::IndexSet;
 
 use crate::{
-    common::TargetBackend,
     package::{SupportedTargetsConfig, SupportedTargetsDeclKind},
+    target::TargetBackend,
 };
 
 pub fn resolve_supported_targets(

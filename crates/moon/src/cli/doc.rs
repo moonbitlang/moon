@@ -22,7 +22,7 @@ use anyhow::{Context as _, bail};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::{ModuleId, sync::AutoSyncFlags};
-use moonutil::{common::RunMode, locks::FileLock};
+use moonutil::{build_options::RunMode, locks::FileLock};
 use tracing::instrument;
 
 use super::UniversalFlags;

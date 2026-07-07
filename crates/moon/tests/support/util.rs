@@ -22,7 +22,7 @@ use std::{
 };
 
 use expect_test::Expect;
-use moonutil::{common::StringExt, compiler_flags};
+use moonutil::{compiler_flags, text::StringExt};
 
 static MOONRUN_BIN: OnceLock<PathBuf> = OnceLock::new();
 

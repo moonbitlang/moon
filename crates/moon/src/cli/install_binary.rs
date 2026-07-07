@@ -25,12 +25,13 @@ use moonbuild_rupes_recta::{
 };
 use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
+    build_options::RunMode,
     cli::UniversalFlags,
-    common::{RunMode, TargetBackend},
     constants::{MOON_MOD, MOON_MOD_JSON},
     dirs::PackageDirs,
     locks::FileLock,
     mooncakes::{ModuleName, ModuleSourceKind, RegistryConfig},
+    target::TargetBackend,
 };
 use semver::Version;
 use std::path::{Path, PathBuf};
@@ -318,7 +319,7 @@ pub(super) fn install_from_local(
         })?;
     let package_dirs = query.package_dirs()?;
 
-    let module = moonutil::common::read_module_desc_file_in_dir(&module_root)?;
+    let module = moonutil::manifest::read_module_desc_file_in_dir(&module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
     let filter = PackageFilter::filesystem(input_path, install_all);
 
@@ -443,7 +444,7 @@ pub(super) fn install_from_git(
             anyhow::anyhow!("No {} or {} found in repository", MOON_MOD, MOON_MOD_JSON)
         })?;
 
-    let module = moonutil::common::read_module_desc_file_in_dir(&module_dirs.module_root)?;
+    let module = moonutil::manifest::read_module_desc_file_in_dir(&module_dirs.module_root)?;
     let module_name: ModuleName = module.name.parse().map_err(|e| anyhow::anyhow!("{}", e))?;
     let filter = PackageFilter::filesystem(target_path, install_all);
 

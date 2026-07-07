@@ -28,8 +28,9 @@ use anyhow::{Context, bail};
 use chrono::Local;
 use moonbuild_rupes_recta::model::RunBackend;
 use moonutil::{
-    common::{RunMode, SurfaceTarget, TargetBackend},
+    build_options::RunMode,
     cond_expr::OptLevel,
+    target::{SurfaceTarget, TargetBackend},
 };
 use serde::Serialize;
 
@@ -1825,7 +1826,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use moonbuild_rupes_recta::model::RunBackend;
-    use moonutil::{common::RunMode, cond_expr::OptLevel};
+    use moonutil::{build_options::RunMode, cond_expr::OptLevel};
 
     use super::{
         CapturedProfile, PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE, ProfileArtifacts, ProfileBackend,

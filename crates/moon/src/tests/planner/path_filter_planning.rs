@@ -20,7 +20,7 @@ use super::fixture::{
     PlannedPackageRun, PlanningFixture, parse_bench_command, parse_build_command,
     parse_check_command, planned_check_package_runs, planned_root_package_runs,
 };
-use moonutil::common::TargetBackend;
+use moonutil::target::TargetBackend;
 
 fn expected_wasm_gc_packages(packages: &[&str]) -> Vec<PlannedPackageRun> {
     vec![PlannedPackageRun {

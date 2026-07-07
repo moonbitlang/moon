@@ -27,10 +27,10 @@ use clap::error::ErrorKind;
 use clap::{Subcommand, ValueEnum};
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonutil::{
-    common::{SurfaceTarget, TargetBackend},
     dirs::PackageDirs,
     locks::FileLock,
     mooncakes::sync::AutoSyncFlags,
+    target::{SurfaceTarget, TargetBackend},
 };
 use tracing::instrument;
 

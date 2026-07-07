@@ -23,7 +23,7 @@
 //! package definition and status. This is for simplifying the CLI command
 //! node generation logic.
 
-use moonutil::{common::TargetBackend, mooncakes::ModuleId};
+use moonutil::{mooncakes::ModuleId, target::TargetBackend};
 
 use crate::{
     build_plan::InputDirective,

@@ -88,7 +88,7 @@ impl<'a> super::LoweringContext<'a> {
             doctest_only_files: &info.doctest_files,
             output_driver: output_driver.into(),
             output_metadata: output_metadata.into(),
-            bench: self.opt.action == moonutil::common::RunMode::Bench,
+            bench: self.opt.action == moonutil::build_options::RunMode::Bench,
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
             driver_kind,

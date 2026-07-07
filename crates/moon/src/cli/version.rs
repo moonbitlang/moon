@@ -20,7 +20,7 @@ use moonutil::cli::UniversalFlags;
 use std::{env::current_exe, path::Path};
 
 use anyhow::Context;
-use moonutil::common::{get_moon_version, get_moonc_version, get_moonrun_version};
+use moonutil::version::{get_moon_version, get_moonc_version, get_moonrun_version};
 
 /// Print version information and exit
 #[derive(Debug, clap::Parser)]
@@ -104,8 +104,8 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
             print_unstable_footer(flags);
         }
         (false, true) => {
-            let items = moonutil::common::VersionItems {
-                items: vec![moonutil::common::VersionItem {
+            let items = moonutil::version::VersionItems {
+                items: vec![moonutil::version::VersionItem {
                     name: "moon".to_string(),
                     version: moon_version,
                     path: if nopath_flag {
@@ -122,9 +122,9 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
             );
         }
         (true, true) => {
-            let items = moonutil::common::VersionItems {
+            let items = moonutil::version::VersionItems {
                 items: vec![
-                    moonutil::common::VersionItem {
+                    moonutil::version::VersionItem {
                         name: "moon".to_string(),
                         version: moon_version,
                         path: if nopath_flag {
@@ -133,7 +133,7 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
                             Some(get_moon_path()?)
                         },
                     },
-                    moonutil::common::VersionItem {
+                    moonutil::version::VersionItem {
                         name: "moonc".to_string(),
                         version: moonc_version?,
                         path: if nopath_flag {
@@ -142,7 +142,7 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
                             Some(replace_home_with_tilde(&moonutil::BINARIES.moonc)?)
                         },
                     },
-                    moonutil::common::VersionItem {
+                    moonutil::version::VersionItem {
                         name: "moonrun".to_string(),
                         version: moonrun_version?,
                         path: if nopath_flag {

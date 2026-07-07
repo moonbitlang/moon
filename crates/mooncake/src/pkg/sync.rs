@@ -23,9 +23,10 @@ use std::{path::Path, sync::Arc};
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
-    common::{MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
+    build_options::{MoonbuildOpt, MooncOpt},
     dirs::{ProjectManifest, WorkspaceEnv},
     front_matter::MbtMdHeader,
+    manifest::read_module_desc_file_in_dir,
     module::MoonMod,
     mooncakes::{
         DirSyncResult, ModuleSource,

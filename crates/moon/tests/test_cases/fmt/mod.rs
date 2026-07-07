@@ -1,6 +1,6 @@
 use super::*;
 #[cfg(unix)]
-use moonutil::common::BUILD_DIR;
+use moonutil::constants::BUILD_DIR;
 
 #[test]
 fn test_moon_fmt() {

@@ -25,12 +25,11 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::constants::{
+    BUILD_DIR, DEP_PATH, MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK, MOON_WORK_ENV,
+};
 use crate::workspace::{
     canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
-};
-use crate::{
-    common::{BUILD_DIR, DEP_PATH},
-    constants::{MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK, MOON_WORK_ENV},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1003,10 +1002,7 @@ mod tests {
         parse_workspace_env, project_query_from_start_dir,
         resolve_project_context_from_manifest_path, resolve_project_context_from_start_dir,
     };
-    use crate::{
-        common::DEP_PATH,
-        constants::{MOON_MOD, MOON_MOD_JSON},
-    };
+    use crate::constants::{DEP_PATH, MOON_MOD, MOON_MOD_JSON};
     use std::{
         ffi::OsString,
         path::{Path, PathBuf},

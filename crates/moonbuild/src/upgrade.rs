@@ -19,8 +19,8 @@
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use dialoguer::Confirm;
-use moonutil::common::{VersionItems, get_moon_version, get_moonc_version, get_moonrun_version};
 use moonutil::moon_dir::{self};
+use moonutil::version::{VersionItems, get_moon_version, get_moonc_version, get_moonrun_version};
 use reqwest;
 use reqwest::Client;
 use std::path::{Path, PathBuf};
@@ -247,7 +247,7 @@ fn upgrade_dialoguer_ctrlc_handler() {
     #[cfg(windows)]
     windows::copy_moon_back();
 
-    moonutil::common::dialoguer_ctrlc_handler();
+    moonutil::cli::dialoguer_ctrlc_handler();
 }
 
 #[cfg(windows)]

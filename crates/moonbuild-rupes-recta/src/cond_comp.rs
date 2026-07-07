@@ -21,10 +21,10 @@
 use std::path::Path;
 
 use moonutil::{
-    common::TargetBackend,
     cond_expr::{CompileCondition as MetadataCompileCondition, CondExpr, OptLevel},
     constants::DOT_MBT_DOT_MD,
     package::MoonPkg,
+    target::TargetBackend,
 };
 
 /// Classify files that are available for the current backend and optimization

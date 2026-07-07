@@ -28,7 +28,7 @@ use moonbuild::expect::PackageSrcResolver;
 use moonutil::module::{MoonMod, MoonModRule};
 use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedRootModules};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
-use moonutil::{common::TargetBackend, constants::MOON_PKG_JSON};
+use moonutil::{constants::MOON_PKG_JSON, target::TargetBackend};
 use slotmap::{SecondaryMap, SlotMap};
 
 use crate::{

@@ -83,7 +83,7 @@ impl DepDir {
                     continue;
                 }
                 let pkg_name = pkg.file_name().to_string_lossy().replace('+', "/").into();
-                let module = moonutil::common::read_module_desc_file_in_dir(&pkg.path());
+                let module = moonutil::manifest::read_module_desc_file_in_dir(&pkg.path());
                 let version = module.map(|m| m.version).ok().flatten();
                 pkg_list.insert(pkg_name, version);
             }

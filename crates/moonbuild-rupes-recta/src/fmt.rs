@@ -38,9 +38,9 @@ use moonutil::dirs::ProjectManifest;
 use moonutil::mooncakes::{ModuleSourceKind, result::ResolvedModule};
 use moonutil::toolchain::BINARIES;
 use moonutil::{
-    common::validate_module_dsl_deps,
     cond_expr::OptLevel,
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK},
+    manifest::validate_module_dsl_deps,
 };
 use n2::graph::Build;
 

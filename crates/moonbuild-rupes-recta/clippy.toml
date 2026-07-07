@@ -36,11 +36,11 @@ disallowed-methods = [
     "std::fs::File::open",
     "std::fs::File::create",
     # Moonutil functions that perform file I/O
-    "moonutil::common::read_module_from_json",
-    "moonutil::common::write_module_json_to_file",
-    "moonutil::common::write_package_json_to_file",
-    "moonutil::common::read_module_desc_file_in_dir",
-    "moonutil::common::read_package_desc_file_in_dir",
+    "moonutil::manifest::read_module_from_json",
+    "moonutil::manifest::write_module_json_to_file",
+    "moonutil::manifest::write_package_json_to_file",
+    "moonutil::manifest::read_module_desc_file_in_dir",
+    "moonutil::manifest::read_package_desc_file_in_dir",
 ]
 disallowed-types = [
     "std::fs::File",

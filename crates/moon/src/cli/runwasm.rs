@@ -26,11 +26,11 @@ use moonbuild_rupes_recta::model::RunBackend;
 use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
     cli::UniversalFlags,
-    common::SurfaceTarget,
     constants::is_moon_pkg_exist,
     locks::FileLock,
     mooncakes::sync::AutoSyncFlags,
     mooncakes::{ModuleName, RegistryConfig},
+    target::SurfaceTarget,
 };
 use reqwest::{StatusCode, header::USER_AGENT};
 use semver::Version;

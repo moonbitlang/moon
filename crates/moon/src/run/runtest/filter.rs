@@ -25,7 +25,7 @@ use moonbuild_rupes_recta::{
     model::{BuildTarget, PackageId, TargetKind},
 };
 use moonutil::{
-    common::TestIndexRange,
+    build_options::TestIndexRange,
     glob::GlobPatternMatcher,
     test_metadata::{MbtTestInfo, MooncGenTestInfo},
 };
@@ -367,7 +367,7 @@ pub(crate) fn apply_filter(
 mod test {
     use expect_test::expect;
     use moonutil::{
-        common::TestIndexRange,
+        build_options::TestIndexRange,
         glob::glob_match,
         test_metadata::{MbtTestInfo, MooncGenTestInfo},
     };

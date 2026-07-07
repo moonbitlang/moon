@@ -19,11 +19,11 @@
 use anyhow::{Context, bail};
 use moonutil::cli::UniversalFlags;
 use moonutil::{
-    common::TargetBackend,
     constants::{
         MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, MOONBITLANG_CORE,
         MOONBITLANG_CORE_BUILTIN, MOONBITLANG_CORE_PRELUDE,
     },
+    target::TargetBackend,
     test_metadata::{DriverKind, MooncGenTestInfo},
 };
 use std::ffi::OsStr;

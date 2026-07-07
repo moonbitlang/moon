@@ -16,9 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use crate::common::{MoonModJSONFormatErrorKind, NameError, TargetBackend};
 use crate::dependency::{BinaryDependencyInfo, BinaryDependencyInfoJson, SourceDependencyInfo};
+use crate::manifest::{MoonModJSONFormatErrorKind, NameError};
 use crate::package::{PackageJSON, SupportedTargetsConfig, resolve_supported_targets};
+use crate::target::TargetBackend;
 use indexmap::map::IndexMap;
 use schemars::JsonSchema;
 use semver::Version;

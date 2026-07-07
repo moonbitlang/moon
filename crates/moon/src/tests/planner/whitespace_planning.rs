@@ -20,7 +20,7 @@ use super::fixture::{
     PlannedPackageIntent, PlanningFixture, parse_build_command, parse_run_command,
     planned_root_package_intent,
 };
-use moonutil::{common::TargetBackend, cond_expr::OptLevel};
+use moonutil::{cond_expr::OptLevel, target::TargetBackend};
 
 #[test]
 fn whitespace_cli_variants_resolve_to_same_main_package_intention() {

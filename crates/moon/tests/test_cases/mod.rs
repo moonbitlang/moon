@@ -23,9 +23,14 @@ use expect_test::expect_file;
 use super::*;
 use expect_test::expect;
 use moonutil::{
-    common::{BUILD_DIR, CargoPathExt, StringExt, TargetBackend, get_cargo_pkg_version},
-    constants::{MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK_ENV},
+    constants::{
+        BUILD_DIR, MBTI_GENERATED, MOON_BIN_DIR, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK_ENV,
+    },
     module::MoonModJSON,
+    path::CargoPathExt,
+    target::TargetBackend,
+    text::StringExt,
+    version::get_cargo_pkg_version,
 };
 use walkdir::WalkDir;
 

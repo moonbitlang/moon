@@ -52,8 +52,8 @@ use moonbuild_rupes_recta::{
     user_warning::UserWarning,
 };
 use moonutil::{
+    build_options::RunMode,
     cli::UniversalFlags,
-    common::{RunMode, TargetBackend},
     compiler_flags::{self, CC},
     cond_expr::OptLevel as BuildProfile,
     constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
@@ -62,6 +62,7 @@ use moonutil::{
     mooncakes::sync::AutoSyncFlags,
     package::SupportedTargetsDeclKind,
     render::MooncDiagnostic,
+    target::TargetBackend,
     test_metadata::DiagnosticLevel,
 };
 use tracing::{Level, info, instrument};

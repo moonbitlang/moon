@@ -19,11 +19,12 @@
 use anyhow::Context;
 use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
 use moonutil::{
+    build_options::RunMode,
     cli::UniversalFlags,
-    common::{RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
     dirs::{PackageDirs, ProjectManifest},
     locks::FileLock,
     mooncakes::sync::AutoSyncFlags,
+    target::{SurfaceTarget, TargetBackend, lower_surface_targets},
 };
 use std::path::Path;
 use tracing::instrument;

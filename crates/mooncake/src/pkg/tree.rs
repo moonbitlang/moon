@@ -21,8 +21,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Context;
-use moonutil::common::read_module_desc_file_in_dir;
 use moonutil::dirs::ProjectManifest;
+use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::mooncakes::{ModuleId, ModuleName};
 

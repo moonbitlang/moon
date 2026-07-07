@@ -19,10 +19,10 @@
 use anyhow::bail;
 use colored::Colorize;
 use indexmap::IndexMap;
-use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file};
 use moonutil::constants::{MOON_MOD, MOONBITLANG_CORE};
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
 use moonutil::dirs::ProjectManifest;
+use moonutil::manifest::{read_module_desc_file_in_dir, write_module_json_to_file};
 use moonutil::module::convert_module_to_mod_json;
 use moonutil::moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file};
 use moonutil::mooncakes::ModuleName;

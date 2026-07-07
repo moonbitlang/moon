@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonutil::common::BUILD_DIR;
+use moonutil::constants::BUILD_DIR;
 
 use super::*;
 

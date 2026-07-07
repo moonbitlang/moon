@@ -19,12 +19,12 @@
 use anyhow::Context;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
-use moonutil::common::RunMode;
-use moonutil::common::TargetBackend;
-use moonutil::common::lower_surface_targets;
+use moonutil::build_options::RunMode;
 use moonutil::dirs::{PackageDirs, ProjectManifest};
 use moonutil::locks::FileLock;
 use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonutil::target::TargetBackend;
+use moonutil::target::lower_surface_targets;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 

@@ -26,9 +26,10 @@ use moonbuild_rupes_recta::{
     sync_dependencies,
 };
 use moonutil::{
-    common::{RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
+    build_options::RunMode,
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
+    target::{SurfaceTarget, TargetBackend, lower_surface_targets},
 };
 
 use crate::{

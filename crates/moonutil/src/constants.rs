@@ -48,6 +48,12 @@ pub const MOON_COVERAGE_DELIMITER_END: &str = "----- END MOONBIT COVERAGE -----"
 
 pub const MOON_LOCK: &str = ".moon-lock";
 
+pub const DEP_PATH: &str = ".mooncakes";
+
+pub const BUILD_DIR: &str = "_build";
+
+pub const IGNORE_DIRS: &[&str] = &[BUILD_DIR, ".git", "node_modules", DEP_PATH];
+
 pub const WATCH_MODE_DIR: &str = "watch";
 
 pub const TEST_INFO_FILE: &str = "test_info.json";

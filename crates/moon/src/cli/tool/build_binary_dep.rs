@@ -36,11 +36,8 @@ use moonbuild_rupes_recta::{
     ResolveConfig, discover::DiscoveredPackage, intent::UserIntent, model::PackageId,
 };
 use moonutil::{
-    cli::UniversalFlags,
-    common::{RunMode, TargetBackend},
-    dirs::PackageDirs,
-    locks::FileLock,
-    mooncakes::sync::AutoSyncFlags,
+    build_options::RunMode, cli::UniversalFlags, dirs::PackageDirs, locks::FileLock,
+    mooncakes::sync::AutoSyncFlags, target::TargetBackend,
 };
 
 use crate::{

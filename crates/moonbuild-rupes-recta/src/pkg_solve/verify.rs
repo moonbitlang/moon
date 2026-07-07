@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use indexmap::IndexSet;
 use log::debug;
-use moonutil::common::TargetBackend;
+use moonutil::target::TargetBackend;
 use petgraph::visit::IntoNodeIdentifiers;
 
 use crate::{

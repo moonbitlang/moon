@@ -21,8 +21,8 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use moonutil::common::TargetBackend;
 use moonutil::package::{ImportMemory, JsFormat, MemoryLimits};
+use moonutil::target::TargetBackend;
 
 use crate::build_lower::compiler::{
     CmdlineAbstraction, CompilationFlags, CompiledPackageName, PackageSource,
