@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use log::{debug, trace};
-use moonutil::common::MOONBITLANG_COVERAGE;
+use moonutil::constants::MOONBITLANG_COVERAGE;
 use moonutil::mooncakes::{ModuleId, result::ResolvedEnv};
 use tracing::info;
 

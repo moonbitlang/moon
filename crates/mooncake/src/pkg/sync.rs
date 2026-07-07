@@ -23,8 +23,9 @@ use std::{path::Path, sync::Arc};
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
-    common::{MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
+    common::{MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
     dirs::{ProjectManifest, WorkspaceEnv},
+    front_matter::MbtMdHeader,
     module::MoonMod,
     mooncakes::{
         DirSyncResult, ModuleSource,
@@ -158,7 +159,7 @@ pub fn auto_sync_for_single_mbt_md(
     }
 
     let m = Arc::new(MoonMod {
-        name: moonutil::common::SINGLE_FILE_TEST_MODULE.to_string(),
+        name: moonutil::constants::SINGLE_FILE_TEST_MODULE.to_string(),
         version: Some(Version::new(0, 0, 1)),
         deps,
         warn_list: moonc_opt.build_opt.warn_list.clone(),
@@ -194,7 +195,7 @@ pub fn auto_sync_for_single_file_rr(
     }
 
     let m = Arc::new(MoonMod {
-        name: moonutil::common::SINGLE_FILE_TEST_MODULE.to_string(),
+        name: moonutil::constants::SINGLE_FILE_TEST_MODULE.to_string(),
         version: Some(Version::new(0, 0, 1)),
         deps: synth_deps,
         ..Default::default()

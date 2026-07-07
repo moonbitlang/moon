@@ -320,7 +320,7 @@ pub mod result {
     use petgraph::graphmap::DiGraphMap;
     use slotmap::SlotMap;
 
-    use crate::{common::MOD_NAME_STDLIB, module::MoonMod};
+    use crate::{constants::MOD_NAME_STDLIB, module::MoonMod};
 
     use super::{ModuleId, ModuleName, ModuleSource};
 

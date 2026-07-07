@@ -19,11 +19,11 @@
 use anyhow::Context;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
-use moonutil::common::FileLock;
 use moonutil::common::RunMode;
 use moonutil::common::TargetBackend;
 use moonutil::common::lower_surface_targets;
 use moonutil::dirs::{PackageDirs, ProjectManifest};
+use moonutil::locks::FileLock;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
@@ -175,7 +175,7 @@ fn run_build_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         source_dir,

@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use moonutil::common::{BUILD_DIR, WATCH_MODE_DIR};
+use moonutil::{common::BUILD_DIR, constants::WATCH_MODE_DIR};
 
 use super::*;
 

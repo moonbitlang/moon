@@ -24,7 +24,11 @@ use moonbuild_rupes_recta::{
     cond_comp::FileTestKind,
     model::{BuildTarget, PackageId, TargetKind},
 };
-use moonutil::common::{GlobPatternMatcher, MbtTestInfo, MooncGenTestInfo, TestIndexRange};
+use moonutil::{
+    common::TestIndexRange,
+    glob::GlobPatternMatcher,
+    test_metadata::{MbtTestInfo, MooncGenTestInfo},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum TestIndex {
@@ -362,7 +366,11 @@ pub(crate) fn apply_filter(
 #[cfg(test)]
 mod test {
     use expect_test::expect;
-    use moonutil::common::{MbtTestInfo, MooncGenTestInfo, TestIndexRange, glob_match};
+    use moonutil::{
+        common::TestIndexRange,
+        glob::glob_match,
+        test_metadata::{MbtTestInfo, MooncGenTestInfo},
+    };
 
     fn example_meta() -> MooncGenTestInfo {
         MooncGenTestInfo {

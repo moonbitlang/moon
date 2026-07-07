@@ -18,8 +18,9 @@
 
 use anyhow::bail;
 use moonutil::{
-    common::{DiagnosticLevel, RunMode, SurfaceTarget, TargetBackend},
+    common::{RunMode, SurfaceTarget, TargetBackend},
     cond_expr::OptLevel as BuildProfile,
+    test_metadata::DiagnosticLevel,
 };
 
 #[derive(Debug, clap::Parser, Clone)]

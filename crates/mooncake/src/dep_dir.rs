@@ -26,7 +26,8 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    common::{FileLock, MOONBITLANG_CORE},
+    constants::MOONBITLANG_CORE,
+    locks::FileLock,
     moon_dir::{self},
     mooncakes::{DirSyncResult, ModuleSource, ModuleSourceKind, result::ResolvedEnv},
 };
@@ -135,7 +136,7 @@ fn diff_dep_dir_state<'a>(
     for user in current.keys() {
         if !target.contains_key(user)
             // this is a temporary workaround
-            && user != moonutil::common::MOON_BIN_DIR
+            && user != moonutil::constants::MOON_BIN_DIR
         {
             remove_user.insert(user.clone());
         }

@@ -37,8 +37,9 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     cli::UniversalFlags,
-    common::{FileLock, RunMode, TargetBackend},
+    common::{RunMode, TargetBackend},
     dirs::PackageDirs,
+    locks::FileLock,
     mooncakes::sync::AutoSyncFlags,
 };
 
@@ -89,7 +90,7 @@ pub(crate) fn run_build_binary_dep(
     // running the build plan.
     let resolve_cfg =
         ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         &source_dir,

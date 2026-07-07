@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use indexmap::IndexMap;
-use moonutil::common::{FileName, MbtTestInfo, MooncGenTestInfo};
+use moonutil::test_metadata::{FileName, MbtTestInfo, MooncGenTestInfo};
 
 use crate::{TestDir, get_stdout};
 

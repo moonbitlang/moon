@@ -20,8 +20,9 @@ use anyhow::Context;
 use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
 use moonutil::{
     cli::UniversalFlags,
-    common::{FileLock, RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
+    common::{RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
     dirs::{PackageDirs, ProjectManifest},
+    locks::FileLock,
     mooncakes::sync::AutoSyncFlags,
 };
 use std::path::Path;
@@ -181,7 +182,7 @@ pub(crate) fn plan_bundle_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         source_dir,

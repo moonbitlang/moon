@@ -23,7 +23,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-use crate::common::SUB_PKG_POSTFIX;
+use crate::constants::SUB_PKG_POSTFIX;
 
 #[derive(Clone, Hash)]
 pub struct PathComponent {

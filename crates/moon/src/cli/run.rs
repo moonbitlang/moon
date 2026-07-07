@@ -23,9 +23,13 @@ use moonbuild_rupes_recta::{
     ResolveOutput, build_plan::InputDirective, intent::UserIntent, model::PackageId,
 };
 use mooncake::pkg::sync::SyncOutputOptions;
-use moonutil::common::{FileLock, RunMode, TargetBackend, TestArtifacts, is_moon_pkg_exist};
 use moonutil::dirs::{PackageDirs, ProjectProbe};
 use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonutil::{
+    common::{RunMode, TargetBackend, TestArtifacts},
+    constants::is_moon_pkg_exist,
+    locks::FileLock,
+};
 use tracing::{Level, instrument};
 
 use crate::filter::ensure_package_supports_backend;
@@ -482,7 +486,7 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         &source_dir,
@@ -683,7 +687,7 @@ fn build_single_file_executable(
         &input_path,
         true,
     )?;
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);

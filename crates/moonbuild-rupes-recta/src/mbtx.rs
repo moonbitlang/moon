@@ -22,7 +22,7 @@ use std::str::FromStr;
 use anyhow::Context;
 use indexmap::IndexMap;
 use mooncake::registry::{Registry, path as registry_path};
-use moonutil::{common::MOONBITLANG_CORE, dependency::SourceDependencyInfo, package::Import};
+use moonutil::{constants::MOONBITLANG_CORE, dependency::SourceDependencyInfo, package::Import};
 
 #[derive(Default)]
 pub(super) struct MbtxFrontMatterImports {

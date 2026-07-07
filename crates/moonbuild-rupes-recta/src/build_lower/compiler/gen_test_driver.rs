@@ -19,7 +19,7 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use moonutil::common::{DriverKind, TargetBackend};
+use moonutil::{common::TargetBackend, test_metadata::DriverKind};
 
 use crate::build_lower::compiler::CmdlineAbstraction;
 

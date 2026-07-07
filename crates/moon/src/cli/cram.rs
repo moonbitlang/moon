@@ -27,8 +27,9 @@ use clap::error::ErrorKind;
 use clap::{Subcommand, ValueEnum};
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonutil::{
-    common::{FileLock, SurfaceTarget, TargetBackend},
+    common::{SurfaceTarget, TargetBackend},
     dirs::PackageDirs,
+    locks::FileLock,
     mooncakes::sync::AutoSyncFlags,
 };
 use tracing::instrument;
@@ -131,7 +132,7 @@ fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Resul
         build_cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         &source_dir,

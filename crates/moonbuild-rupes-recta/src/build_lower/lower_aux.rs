@@ -19,12 +19,12 @@
 //! Lowering implementation for auxiliary build steps.
 
 use moonutil::{
-    common::DriverKind,
     compiler_flags::{
         CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
         make_cc_command_resolved,
     },
     mooncakes::{ModuleId, ModuleSourceKind},
+    test_metadata::DriverKind,
     toolchain::BINARIES,
 };
 use tracing::{Level, instrument};

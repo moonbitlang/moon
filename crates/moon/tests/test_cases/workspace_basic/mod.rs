@@ -1,5 +1,5 @@
 use super::*;
-use moonutil::common::{MBTI_GENERATED, MOON_NO_WORKSPACE, MOON_WORK_ENV};
+use moonutil::constants::{MBTI_GENERATED, MOON_NO_WORKSPACE, MOON_WORK_ENV};
 use std::path::Path;
 
 fn assert_requires_target_module(stderr: &str, command: &str) {

@@ -53,17 +53,16 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     cli::UniversalFlags,
-    common::{
-        BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
-        WHITEBOX_TEST_PATCH,
-    },
+    common::{RunMode, TargetBackend},
     compiler_flags::{self, CC},
     cond_expr::OptLevel as BuildProfile,
+    constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
     dirs::{ProjectManifest, WorkspaceEnv},
     features::FeatureGate,
     mooncakes::sync::AutoSyncFlags,
     package::SupportedTargetsDeclKind,
     render::MooncDiagnostic,
+    test_metadata::DiagnosticLevel,
 };
 use tracing::{Level, info, instrument};
 

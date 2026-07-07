@@ -21,7 +21,7 @@ use std::process::{Command, Stdio};
 use anyhow::bail;
 use moonutil::{
     cli::UniversalFlags,
-    common::{MOON_MOD, MOON_MOD_JSON},
+    constants::{MOON_MOD, MOON_MOD_JSON},
     mooncakes::{
         LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand,
         RegisterSubcommand,
@@ -150,7 +150,7 @@ mod tests {
     use super::single_module_mooncake_cli;
     use moonutil::{
         cli::UniversalFlags,
-        common::{MOON_MOD, MOON_MOD_JSON},
+        constants::{MOON_MOD, MOON_MOD_JSON},
         dirs::{SourceTargetDirs, WorkspaceEnv},
     };
     use std::path::Path;

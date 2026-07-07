@@ -328,7 +328,7 @@ impl<'a> LoweringContext<'a> {
             .stdlib_path
             .as_ref()
             .and_then(|stdlib_root| stdlib_root.parent())
-            .map(|lib_root| lib_root.join(moonutil::common::PRELUDE_PROOF_DIR))?;
+            .map(|lib_root| lib_root.join(moonutil::constants::PRELUDE_PROOF_DIR))?;
 
         prelude_proof.is_dir().then_some(prelude_proof)
     }

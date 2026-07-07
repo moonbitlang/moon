@@ -38,10 +38,9 @@ use moonutil::dirs::ProjectManifest;
 use moonutil::mooncakes::{ModuleSourceKind, result::ResolvedModule};
 use moonutil::toolchain::BINARIES;
 use moonutil::{
-    common::{
-        MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK, validate_module_dsl_deps,
-    },
+    common::validate_module_dsl_deps,
     cond_expr::OptLevel,
+    constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK},
 };
 use n2::graph::Build;
 
@@ -582,7 +581,7 @@ fn format_moon_pkg_node(
     pkg: &DiscoveredPackage,
     user_warnings: &mut Vec<UserWarning>,
 ) -> anyhow::Result<()> {
-    use moonutil::common::{MOON_PKG, MOON_PKG_JSON};
+    use moonutil::constants::{MOON_PKG, MOON_PKG_JSON};
 
     let moon_pkg_dsl = pkg.root_path.join(MOON_PKG);
     let moon_pkg_json = pkg.root_path.join(MOON_PKG_JSON);

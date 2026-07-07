@@ -1,6 +1,6 @@
 use super::*;
 use expect_test::expect_file;
-use moonutil::common::MBTI_GENERATED;
+use moonutil::constants::MBTI_GENERATED;
 
 #[test]
 fn test_moon_info_compare_backends() {

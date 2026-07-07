@@ -34,10 +34,11 @@ use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::cli::UniversalFlags;
 use moonutil::common::RunMode;
-use moonutil::common::WATCH_MODE_DIR;
+use moonutil::common::TargetBackend;
 use moonutil::common::lower_surface_targets;
-use moonutil::common::{FileLock, TargetBackend};
+use moonutil::constants::WATCH_MODE_DIR;
 use moonutil::dirs::{ProjectManifest, ProjectProbe};
+use moonutil::locks::FileLock;
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
@@ -303,7 +304,7 @@ fn run_check_for_single_file_rr(
         &single_file_path,
         false,
     )?;
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
         .or(cmd.build_flags.resolve_single_target_backend()?)
         .or(backend);
@@ -460,7 +461,7 @@ fn run_check_normal_internal_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         source_dir,

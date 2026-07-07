@@ -28,14 +28,13 @@ use std::{
 
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
-    common::{
-        DOT_MBT_DOT_MD, IgnoredMoonScript, MOD_DIR, MOONCAKE_BIN, PKG_DIR, TargetBackend,
-        is_moon_mod, is_moon_pkg, is_moon_script_ignored,
-    },
+    common::TargetBackend,
     compiler_flags::{self, CC, Toolchain},
+    constants::{DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, PKG_DIR, is_moon_mod, is_moon_pkg},
     module::{MoonMod, MoonModRule},
     mooncakes::ModuleId,
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
+    scripts::{IgnoredMoonScript, is_moon_script_ignored},
     toolchain::BINARIES,
 };
 use regex::Regex;

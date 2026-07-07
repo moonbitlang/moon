@@ -79,9 +79,12 @@ use moonbuild::{
     section_capture::SectionCapture,
 };
 use moonbuild_rupes_recta::model::{BuildPlanNode, BuildTarget};
-use moonutil::common::{
-    MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
-    MOON_TEST_DELIMITER_END, MbtTestInfo, MooncGenTestInfo,
+use moonutil::{
+    constants::{
+        MOON_COVERAGE_DELIMITER_BEGIN, MOON_COVERAGE_DELIMITER_END, MOON_TEST_DELIMITER_BEGIN,
+        MOON_TEST_DELIMITER_END,
+    },
+    test_metadata::{MbtTestInfo, MooncGenTestInfo},
 };
 use tokio::runtime::Runtime;
 use tracing::{debug, info, instrument, trace, warn};

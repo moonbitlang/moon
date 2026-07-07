@@ -21,8 +21,9 @@
 use std::path::Path;
 
 use moonutil::{
-    common::{DOT_MBT_DOT_MD, TargetBackend},
+    common::TargetBackend,
     cond_expr::{CompileCondition as MetadataCompileCondition, CondExpr, OptLevel},
+    constants::DOT_MBT_DOT_MD,
     package::MoonPkg,
 };
 

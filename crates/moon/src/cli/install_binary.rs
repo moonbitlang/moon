@@ -26,8 +26,10 @@ use moonbuild_rupes_recta::{
 use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
     cli::UniversalFlags,
-    common::{FileLock, MOON_MOD, MOON_MOD_JSON, RunMode, TargetBackend},
+    common::{RunMode, TargetBackend},
+    constants::{MOON_MOD, MOON_MOD_JSON},
     dirs::PackageDirs,
+    locks::FileLock,
     mooncakes::{ModuleName, ModuleSourceKind, RegistryConfig},
 };
 use semver::Version;
@@ -479,7 +481,7 @@ fn build_and_install_packages(
 
     let resolve_cfg =
         ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         &source_dir,

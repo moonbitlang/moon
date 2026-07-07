@@ -20,9 +20,9 @@ use std::path::Path;
 
 use anyhow::{Context as _, bail};
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonutil::common::{FileLock, RunMode};
 use moonutil::dirs::PackageDirs;
 use moonutil::mooncakes::{ModuleId, sync::AutoSyncFlags};
+use moonutil::{common::RunMode, locks::FileLock};
 use tracing::instrument;
 
 use super::UniversalFlags;
@@ -119,7 +119,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     preconfig.docs_serve = cmd.serve;
 
     let resolve_cfg = preconfig.resolve_config();
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         &source_dir,

@@ -27,8 +27,11 @@ use std::{
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
-use moonutil::common::{MOON_PKG, MOON_PKG_JSON, TargetBackend, is_moon_pkg_exist};
 use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
+use moonutil::{
+    common::TargetBackend,
+    constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
+};
 
 use crate::user_diagnostics::UserDiagnostics;
 
@@ -559,7 +562,8 @@ mod tests {
     use crate::user_diagnostics::UserDiagnostics;
     use moonbuild_rupes_recta::ResolveConfig;
     use moonutil::{
-        common::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK, TargetBackend},
+        common::TargetBackend,
+        constants::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK},
         dirs::{SourceTargetDirs, WorkspaceEnv},
     };
     use std::path::{Path, PathBuf};

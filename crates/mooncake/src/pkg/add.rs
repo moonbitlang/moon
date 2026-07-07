@@ -19,9 +19,8 @@
 use anyhow::bail;
 use colored::Colorize;
 use indexmap::IndexMap;
-use moonutil::common::{
-    MOON_MOD, MOONBITLANG_CORE, read_module_desc_file_in_dir, write_module_json_to_file,
-};
+use moonutil::common::{read_module_desc_file_in_dir, write_module_json_to_file};
+use moonutil::constants::{MOON_MOD, MOONBITLANG_CORE};
 use moonutil::dependency::{BinaryDependencyInfo, SourceDependencyInfo};
 use moonutil::dirs::ProjectManifest;
 use moonutil::module::convert_module_to_mod_json;

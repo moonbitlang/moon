@@ -17,7 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use indexmap::IndexMap;
-use moonutil::common::*;
+use moonutil::common::{write_module_json_to_file, write_package_json_to_file};
+use moonutil::constants::MOON_PKG_JSON;
 use moonutil::module::MoonModJSON;
 use moonutil::package::{MoonPkgJSON, PkgJSONImport};
 use std::fs;
@@ -129,7 +130,7 @@ pub fn f() -> Unit {{
                 max_concurrent_tests: None,
                 regex_backend: None,
             };
-            moonutil::common::write_package_json_to_file(&pkg, &moon_pkg).unwrap();
+            write_package_json_to_file(&pkg, &moon_pkg).unwrap();
         }
     }
 }
@@ -170,7 +171,7 @@ pub fn write(config: &Config, base_dir: &Path) {
 
         __moonbit_unstable_prebuild: None,
     };
-    moonutil::common::write_module_json_to_file(&module, base_dir).unwrap();
+    write_module_json_to_file(&module, base_dir).unwrap();
     fs::create_dir_all(base_dir.join("main")).unwrap();
     let mut main_content = String::new();
     main_content.push_str("fn main {\n");
@@ -232,6 +233,5 @@ pub fn write(config: &Config, base_dir: &Path) {
         regex_backend: None,
     };
 
-    moonutil::common::write_package_json_to_file(&pkg, &base_dir.join("main").join(MOON_PKG_JSON))
-        .unwrap();
+    write_package_json_to_file(&pkg, &base_dir.join("main").join(MOON_PKG_JSON)).unwrap();
 }

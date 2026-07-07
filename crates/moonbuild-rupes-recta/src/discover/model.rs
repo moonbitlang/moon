@@ -25,10 +25,10 @@ use std::{
 };
 
 use moonbuild::expect::PackageSrcResolver;
-use moonutil::common::{MOON_PKG_JSON, TargetBackend};
 use moonutil::module::{MoonMod, MoonModRule};
 use moonutil::mooncakes::{ModuleId, ModuleSource, result::ResolvedRootModules};
 use moonutil::package::{MoonPkg, SupportedTargetsDeclKind};
+use moonutil::{common::TargetBackend, constants::MOON_PKG_JSON};
 use slotmap::{SecondaryMap, SlotMap};
 
 use crate::{
