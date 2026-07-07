@@ -95,13 +95,6 @@ impl MsvcCrtPolicy {
     }
 }
 
-/// ABI family carried by a native compiler/linker selection.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NativeAbiFamily {
-    Msvc,
-    Other,
-}
-
 impl Toolchain {
     pub fn from_env_override(cc: CC) -> Self {
         Self {
@@ -143,16 +136,8 @@ impl Toolchain {
         self.source
     }
 
-    pub fn abi_family(&self) -> NativeAbiFamily {
-        if self.cc.is_msvc() || self.cc.targets_msvc() {
-            NativeAbiFamily::Msvc
-        } else {
-            NativeAbiFamily::Other
-        }
-    }
-
     pub fn uses_msvc_abi(&self) -> bool {
-        self.abi_family() == NativeAbiFamily::Msvc
+        self.cc.is_msvc() || self.cc.targets_msvc()
     }
 
     pub fn uses_msvc_driver(&self) -> bool {
@@ -221,6 +206,14 @@ pub const WINDOWS_MSVC_STATIC_RUNTIME_FLAG: &str = "/MT";
 
 static WINDOWS_MSVC_ENVIRONMENT: OnceLock<Option<MsvcEnvironment>> = OnceLock::new();
 
+fn windows_msvc_host_target_triple() -> Option<String> {
+    let arch = env::consts::ARCH;
+    match arch {
+        "x86_64" | "aarch64" => Some(format!("{arch}-pc-windows-msvc")),
+        _ => None,
+    }
+}
+
 #[cfg(any(windows, test))]
 fn get_env_value<'a>(env: &'a [(OsString, OsString)], name: &str) -> Option<&'a OsStr> {
     env.iter()
@@ -259,15 +252,15 @@ fn msvc_environment_from_tool_env_or_current_env(
 }
 
 #[cfg(windows)]
-fn find_windows_msvc_environment() -> Option<MsvcEnvironment> {
-    let tool = find_msvc_tools::find_tool("x86_64-pc-windows-msvc", "cl.exe")?;
+fn find_windows_msvc_environment(target: &str) -> Option<MsvcEnvironment> {
+    let tool = find_msvc_tools::find_tool(target, "cl.exe")?;
     let env = tool.env().into_iter().cloned().collect::<Vec<_>>();
     let current_env = env::vars_os().collect::<Vec<_>>();
     msvc_environment_from_tool_env_or_current_env(tool.path().to_path_buf(), &env, &current_env)
 }
 
 #[cfg(not(windows))]
-fn find_windows_msvc_environment() -> Option<MsvcEnvironment> {
+fn find_windows_msvc_environment(_target: &str) -> Option<MsvcEnvironment> {
     None
 }
 
@@ -275,9 +268,11 @@ pub fn resolve_windows_msvc_environment() -> anyhow::Result<MsvcEnvironment> {
     if !cfg!(windows) {
         anyhow::bail!("Windows MSVC environment resolution is only supported on Windows");
     }
+    let target = windows_msvc_host_target_triple()
+        .context("Windows MSVC discovery currently supports 64-bit x64 and ARM64 hosts")?;
 
     WINDOWS_MSVC_ENVIRONMENT
-        .get_or_init(find_windows_msvc_environment)
+        .get_or_init(|| find_windows_msvc_environment(&target))
         .clone()
         .with_context(
             || "Windows native backend requires MSVC Build Tools with C++ tools and Windows SDK",
@@ -758,12 +753,23 @@ pub fn has_cc_env_override() -> bool {
     env::var_os(ENV_MOON_CC).is_some()
 }
 
+fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
+    #[cfg(windows)]
+    {
+        if let Ok(toolchain) = resolve_windows_msvc_toolchain() {
+            return Ok(toolchain);
+        }
+    }
+
+    try_system_cc().map(Toolchain::from_path_probe)
+}
+
 pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::Result<Toolchain> {
     if let Some(env_cc) = ENV_CC.as_ref() {
         return Ok(Toolchain::from_env_override(env_cc.clone()));
     }
-    match try_system_cc() {
-        Ok(cc) => Ok(Toolchain::from_path_probe(cc)),
+    match detected_default_native_toolchain() {
+        Ok(toolchain) => Ok(toolchain),
         Err(err) => match internal_tcc_fallback {
             Some(internal_tcc) => Ok(Toolchain::from_path_probe(internal_tcc.clone())),
             None => Err(err),
@@ -1466,10 +1472,24 @@ fn add_cc_common_libraries(cc: &CC, buf: &mut Vec<String>, config: &CCConfig) {
     }
 }
 
-fn add_cc_msvc_linker_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, lpath: &str) {
+fn add_cc_msvc_linker_flags(
+    cc: &CC,
+    toolchain: Option<&Toolchain>,
+    buf: &mut Vec<String>,
+    config: &CCConfig,
+    lpath: &str,
+) {
     if cc.is_msvc() && config.output_ty != OutputType::Object {
         buf.push("/link".to_string());
         buf.push(format!("/LIBPATH:{lpath}"));
+        if let Some(environment) = toolchain.and_then(Toolchain::msvc_environment) {
+            buf.extend(
+                environment
+                    .lib_paths
+                    .iter()
+                    .map(|path| format!("/LIBPATH:{}", path.display())),
+            );
+        }
     }
 }
 
@@ -1648,7 +1668,7 @@ where
             buf.push(libbacktrace_path.display().to_string());
         }
     }
-    add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
+    add_cc_msvc_linker_flags(&cc, toolchain, &mut buf, &config, &paths.lib_path);
 
     buf
 }
@@ -1721,7 +1741,6 @@ mod tests {
 
         let toolchain = Toolchain::from_path_probe(cc);
 
-        assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
         assert!(toolchain.uses_msvc_driver());
         assert_eq!(toolchain.msvc_crt_policy(), Some(MsvcCrtPolicy::StaticMt));
@@ -1739,10 +1758,19 @@ mod tests {
         let toolchain =
             Toolchain::from_path_probe(fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")));
 
-        assert_eq!(toolchain.abi_family(), NativeAbiFamily::Msvc);
         assert!(toolchain.uses_msvc_abi());
         assert!(!toolchain.uses_msvc_driver());
         assert!(toolchain.uses_msvc_link_library_names());
+        assert_eq!(toolchain.msvc_crt_policy(), None);
+    }
+
+    #[test]
+    fn toolchain_does_not_treat_windows_gnu_as_msvc_abi() {
+        let toolchain =
+            Toolchain::from_path_probe(fake_cc(CCKind::Gcc, Some("x86_64-w64-windows-gnu")));
+
+        assert!(!toolchain.uses_msvc_abi());
+        assert!(!toolchain.uses_msvc_link_library_names());
         assert_eq!(toolchain.msvc_crt_policy(), None);
     }
 
@@ -1814,6 +1842,54 @@ mod tests {
             .position(|arg| arg == WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
             .expect("test command should force static runtime flag");
         assert!(mt_position > md_position);
+    }
+
+    #[test]
+    fn msvc_toolchain_adds_environment_lib_paths_to_link_command() {
+        let mut cc = fake_cc(CCKind::Msvc, None);
+        cc.cc_path = "cl.exe".to_string();
+        cc.ar_kind = ARKind::MsvcLib;
+        cc.ar_path = "lib.exe".to_string();
+        let toolchain = Toolchain::from_path_probe(cc).with_msvc_environment(MsvcEnvironment {
+            cl_exe: PathBuf::from("cl.exe"),
+            include_paths: vec![PathBuf::from("crt/include")],
+            lib_paths: vec![PathBuf::from("crt/lib"), PathBuf::from("sdk/lib")],
+        });
+        let paths = CompilerPaths {
+            include_path: "moon/include".to_string(),
+            lib_path: "moon/lib".to_string(),
+        };
+
+        let command = make_cc_command_resolved_for_toolchain(
+            &toolchain,
+            executable_cc_config(),
+            &[] as &[&str],
+            &[] as &[&str],
+            ["main.c".to_string(), "runtime.obj".to_string()],
+            "pkg",
+            Some("main.exe"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|arg| arg == "/LIBPATH:moon/lib"));
+        assert!(command.iter().any(|arg| arg == "/LIBPATH:crt/lib"));
+        assert!(command.iter().any(|arg| arg == "/LIBPATH:sdk/lib"));
+    }
+
+    #[test]
+    fn windows_msvc_host_target_triple_matches_supported_64_bit_arch() {
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(
+            windows_msvc_host_target_triple().as_deref(),
+            Some("x86_64-pc-windows-msvc")
+        );
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(
+            windows_msvc_host_target_triple().as_deref(),
+            Some("aarch64-pc-windows-msvc")
+        );
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        assert_eq!(windows_msvc_host_target_triple(), None);
     }
 
     #[test]

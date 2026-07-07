@@ -11,6 +11,19 @@ The resolved toolchain has three roles:
 Moon does not resolve a standalone linker executable such as `ld` or `lld-link` in this path.
 Linking is performed through the selected compiler driver.
 
+## Terminology
+
+This document uses these terms distinctly:
+
+- **Target backend**: the user-visible backend selection, such as Native, LLVM, Wasm, WasmGC, or
+  JS.
+- **Generated-C native backend**: the Native target backend implementation where `moonc link-core`
+  emits C and Moon invokes a C toolchain to compile and link it.
+- **Direct object native target**: the experimental direct object-code native path under the Native
+  backend, such as `x86_64-pc-windows-msvc`.
+- **Native toolchain**: the selected C compiler/linker driver and archiver used after MoonBit
+  lowering.
+
 ## Standard C Pipeline
 
 The ordinary C pipeline is:
@@ -44,8 +57,9 @@ The high-level build flow is documented in `build.md`:
 
 For native backends, `LinkCore` emits:
 
-- a generated C file for the Native backend
+- a generated C file for the generated-C native backend
 - an object file for the LLVM backend
+- an object file for a direct object native target
 
 Package C stubs are handled separately:
 
@@ -104,7 +118,14 @@ other toolchain families.
 ## Default Auto-Detection
 
 When `MOON_CC` is unset and no package-specific override is being applied to that step, Moon probes
-for a default native toolchain in this order:
+for a default native toolchain.
+
+On Windows, Moon first tries to discover an MSVC toolchain environment for the current 64-bit host
+architecture using the Visual Studio/MSVC discovery logic. The discovery target is
+`x86_64-pc-windows-msvc` on x64 Windows hosts and `aarch64-pc-windows-msvc` on ARM64 Windows hosts.
+Moon does not model cross compilation in this path. This discovery is needed so generated-C builds
+can use `cl.exe` outside a Developer Command Prompt. If MSVC discovery fails, or on non-Windows
+hosts, Moon falls back to PATH probing in this order:
 
 1. `cl`
 2. `cc`
@@ -174,6 +195,7 @@ In practice, the important dimensions are:
 - object format
 - ABI and runtime ecosystem
 - command-line style of the selected tool driver
+- CRT policy on MSVC
 
 Examples:
 
@@ -183,6 +205,26 @@ Examples:
 
 This matters because two tools may both run on Windows while still expect different flags,
 different runtime libraries, or different default link behavior.
+
+Moon currently uses focused predicates for the compatibility checks it needs, rather than a general
+"native build contract" that validates every C compiler involved in a build. This keeps fake
+toolchains, dry runs, and package-level escape hatches working unless a concrete build step requires
+a stricter tool.
+
+The generated-C native backend does not require MSVC. If a user explicitly sets `MOON_CC` or
+`link.native.cc`, Moon keeps using that compiler for the generated-C path. Package-level
+`link.native.stub_cc` is resolved independently for that package's C stubs. Moon does not preflight
+whether an independently configured stub compiler is link-compatible with the executable compiler;
+incompatible objects or archives fail naturally when the final linker consumes them.
+
+The direct object native target `x86_64-pc-windows-msvc` is stricter: it requires selecting a
+`cl`-compatible compiler driver and attaching the discovered Visual Studio include and library
+paths.
+
+The MSVC CRT policy is a separate axis from the ABI family. Moon currently forces the static CRT
+flag `/MT` for `cl`-style compile commands, matching the default MSVC runtime library list that uses
+`libcmt.lib`. `/MD` is not currently modeled as a selectable policy. `/LD` is not a CRT policy; it
+is emitted when the requested output type is a shared library.
 
 ## Flags Depend on Both Tool and Target
 

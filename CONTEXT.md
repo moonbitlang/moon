@@ -52,12 +52,24 @@ _Avoid_: Using entity names for operations, adding containers only to mirror voc
 
 ## Native Build
 
+**Target Backend**:
+The user-visible backend selection for a build, such as Native, LLVM, Wasm, WasmGC, or JS.
+_Avoid_: Native target
+
+**Generated-C Native Backend**:
+The Native target backend implementation where `moonc link-core` emits C and MoonBuild invokes a C toolchain to compile and link it.
+_Avoid_: Native target, direct object target
+
+**Direct Object Native Target**:
+The concrete architecture/OS/ABI target used by the experimental direct object-code native path, such as `x86_64-pc-windows-msvc`.
+_Avoid_: Generated-C native backend, native backend
+
 **Native Payload Form**:
 The representation produced by MoonBit before the host C compiler or linker is invoked, such as generated C or direct object code.
 _Avoid_: Treating generated C, TCC execution, and direct object linking as the same kind of backend choice
 
 **Native Toolchain**:
-The selected native compiler/linker together with the ABI family and runtime-linkage obligations it imposes on runtime, C stubs, and executable linking.
+The selected native compiler/linker used after MoonBit lowering, together with any ABI family and runtime-linkage obligations it imposes on runtime, C stubs, and executable linking.
 _Avoid_: Raw compiler path, native backend mode
 
 **ABI Family**:
