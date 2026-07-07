@@ -543,7 +543,26 @@ struct OpenedFile {
 #[cfg(unix)]
 fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHostResult<usize> {
     let ret = if position < 0 {
-        unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) }
+        loop {
+            let ret = unsafe { libc::read(fd, buf.as_mut_ptr().cast(), buf.len()) };
+            if ret >= 0 {
+                break ret;
+            }
+            let errno = std::io::Error::last_os_error()
+                .raw_os_error()
+                .unwrap_or_else(|| AsyncHostError::Inval.errno());
+            if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
+                break ret;
+            }
+            let mut pfd = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            if unsafe { libc::poll(&mut pfd, 1, -1) } < 0 {
+                break -1;
+            }
+        }
     } else {
         unsafe {
             libc::pread(
@@ -560,7 +579,26 @@ fn read_from_native_file(fd: RawFile, buf: &mut [u8], position: i64) -> AsyncHos
 #[cfg(unix)]
 fn write_to_native_file(fd: RawFile, data: &[u8], position: i64) -> AsyncHostResult<usize> {
     let ret = if position < 0 {
-        unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) }
+        loop {
+            let ret = unsafe { libc::write(fd, data.as_ptr().cast(), data.len()) };
+            if ret >= 0 {
+                break ret;
+            }
+            let errno = std::io::Error::last_os_error()
+                .raw_os_error()
+                .unwrap_or_else(|| AsyncHostError::Inval.errno());
+            if errno != libc::EAGAIN && errno != libc::EWOULDBLOCK {
+                break ret;
+            }
+            let mut pfd = libc::pollfd {
+                fd,
+                events: libc::POLLOUT,
+                revents: 0,
+            };
+            if unsafe { libc::poll(&mut pfd, 1, -1) } < 0 {
+                break -1;
+            }
+        }
     } else {
         unsafe {
             libc::pwrite(

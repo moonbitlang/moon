@@ -34,6 +34,20 @@ pub(super) fn invalid_fd(context: &mut ImportContext<'_, '_>) -> u64 {
     context.host.invalid_fd()
 }
 
+#[ported(
+    source = "src/internal/event_loop/detect_file_kind.c",
+    original = "moonbitlang_async_kind_of_fd"
+)]
+pub(super) fn kind_of_fd(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+    match context.host.kind_of_fd(fd) {
+        Ok(kind) => kind,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
 pub(super) fn sizeof_file_time(_context: &mut ImportContext<'_, '_>) -> i32 {
     FILE_TIME_RECORD_LEN
 }

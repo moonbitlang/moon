@@ -32,6 +32,38 @@ pub(crate) type FileTime = windows_sys::Win32::Storage::FileSystem::FILE_BASIC_I
 #[cfg(unix)]
 pub(crate) type FileTime = libc::stat;
 
+#[cfg(unix)]
+const FILE_KIND_UNKNOWN: i32 = 0;
+#[cfg(unix)]
+const FILE_KIND_REGULAR: i32 = 1;
+#[cfg(unix)]
+const FILE_KIND_DIRECTORY: i32 = 2;
+#[cfg(unix)]
+const FILE_KIND_SYMLINK: i32 = 3;
+#[cfg(unix)]
+const FILE_KIND_SOCKET: i32 = 4;
+#[cfg(unix)]
+const FILE_KIND_PIPE: i32 = 5;
+#[cfg(unix)]
+const FILE_KIND_BLOCK_DEVICE: i32 = 6;
+#[cfg(unix)]
+const FILE_KIND_CHAR_DEVICE: i32 = 7;
+
+#[cfg(windows)]
+const FILE_KIND_UNKNOWN: i32 = 0;
+#[cfg(windows)]
+const FILE_KIND_REGULAR: i32 = 1;
+#[cfg(windows)]
+const FILE_KIND_DIRECTORY: i32 = 2;
+#[cfg(windows)]
+const FILE_KIND_SYMLINK: i32 = 3;
+#[cfg(windows)]
+const FILE_KIND_SOCKET: i32 = 4;
+#[cfg(windows)]
+const FILE_KIND_PIPE: i32 = 5;
+#[cfg(windows)]
+const FILE_KIND_CHAR_DEVICE: i32 = 7;
+
 #[cfg(windows)]
 const WINDOWS_TICKS_PER_SECOND: i64 = 10_000_000;
 #[cfg(windows)]
@@ -87,6 +119,26 @@ ported_fns! {
             }
         }
         Ok(())
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/detect_file_kind.c",
+        original = "moonbitlang_async_kind_of_fd"
+    )]
+    pub(crate) fn kind_of_fd(fd: RawFd) -> AsyncHostResult<i32> {
+        #[cfg(unix)]
+        {
+            let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+            if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } < 0 {
+                return Err(last_native_error());
+            }
+            Ok(file_kind_from_stat(&unsafe { stat.assume_init() }))
+        }
+
+        #[cfg(windows)]
+        {
+            kind_of_raw_file(fd)
+        }
     }
 
     #[ported(
@@ -180,6 +232,107 @@ ported_fns! {
         {
             file_time.st_ctime_nsec as i32
         }
+    }
+}
+
+#[cfg(unix)]
+fn file_kind_from_stat(stat: &libc::stat) -> i32 {
+    match stat.st_mode & libc::S_IFMT {
+        libc::S_IFREG => FILE_KIND_REGULAR,
+        libc::S_IFDIR => FILE_KIND_DIRECTORY,
+        libc::S_IFLNK => FILE_KIND_SYMLINK,
+        libc::S_IFSOCK => FILE_KIND_SOCKET,
+        libc::S_IFIFO => FILE_KIND_PIPE,
+        libc::S_IFBLK => FILE_KIND_BLOCK_DEVICE,
+        libc::S_IFCHR => FILE_KIND_CHAR_DEVICE,
+        _ => FILE_KIND_UNKNOWN,
+    }
+}
+
+#[cfg(windows)]
+fn kind_of_raw_file(handle: RawFd) -> AsyncHostResult<i32> {
+    use windows_sys::Win32::Foundation::{GetLastError, SetLastError};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_BASIC_INFO, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN,
+        FileBasicInfo, GetFileInformationByHandleEx, GetFileType,
+    };
+
+    unsafe {
+        SetLastError(0);
+    }
+    match unsafe { GetFileType(handle) } {
+        FILE_TYPE_DISK => {
+            let mut info = std::mem::MaybeUninit::<FILE_BASIC_INFO>::uninit();
+            if unsafe {
+                GetFileInformationByHandleEx(
+                    handle,
+                    FileBasicInfo,
+                    info.as_mut_ptr().cast(),
+                    std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+                )
+            } == 0
+            {
+                Err(last_native_error())
+            } else {
+                Ok(file_kind_from_attr(unsafe {
+                    info.assume_init().FileAttributes
+                }))
+            }
+        }
+        FILE_TYPE_CHAR => Ok(FILE_KIND_CHAR_DEVICE),
+        FILE_TYPE_PIPE => {
+            if handle_is_socket(handle) {
+                Ok(FILE_KIND_SOCKET)
+            } else {
+                Ok(FILE_KIND_PIPE)
+            }
+        }
+        FILE_TYPE_UNKNOWN => {
+            let get_file_type_error = unsafe { GetLastError() };
+            if handle_is_socket(handle) {
+                Ok(FILE_KIND_SOCKET)
+            } else if get_file_type_error == 0 {
+                Ok(FILE_KIND_UNKNOWN)
+            } else {
+                unsafe {
+                    SetLastError(get_file_type_error);
+                }
+                Err(last_native_error())
+            }
+        }
+        _ => Ok(FILE_KIND_UNKNOWN),
+    }
+}
+
+#[cfg(windows)]
+fn file_kind_from_attr(attrs: u32) -> i32 {
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
+    };
+
+    if (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+        FILE_KIND_SYMLINK
+    } else if (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0 {
+        FILE_KIND_DIRECTORY
+    } else {
+        FILE_KIND_REGULAR
+    }
+}
+
+#[cfg(windows)]
+fn handle_is_socket(handle: RawFd) -> bool {
+    use windows_sys::Win32::Networking::WinSock::{SO_TYPE, SOCKET, SOL_SOCKET, getsockopt};
+
+    let mut opt = 0i32;
+    let mut opt_len = std::mem::size_of::<i32>() as i32;
+    unsafe {
+        getsockopt(
+            handle as SOCKET,
+            SOL_SOCKET,
+            SO_TYPE,
+            (&mut opt as *mut i32).cast(),
+            &mut opt_len,
+        ) == 0
     }
 }
 

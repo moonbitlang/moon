@@ -794,6 +794,16 @@ fn test_async_wasm_upstream_pipe_package() {
 }
 
 #[test]
+fn test_async_wasm_upstream_stdio_package() {
+    check(
+        run_upstream_async_wasm_package("moonbitlang/async/stdio"),
+        expect![[r#"
+            Total tests: 1, passed: 1, failed: 0.
+        "#]],
+    );
+}
+
+#[test]
 fn test_async_wasm_upstream_socket_package() {
     check(
         run_upstream_async_wasm_package("moonbitlang/async/socket"),
