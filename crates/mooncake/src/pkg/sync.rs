@@ -23,15 +23,15 @@ use std::{path::Path, sync::Arc};
 use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
-    common::{MOON_WORK, MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
-    dirs::{SourceTargetDirs, WorkspaceEnv},
+    common::{MbtMdHeader, MoonbuildOpt, MooncOpt, read_module_desc_file_in_dir},
+    dirs::{ProjectManifest, WorkspaceEnv},
     module::MoonMod,
     mooncakes::{
         DirSyncResult, ModuleSource,
         result::{ResolvedEnv, ResolvedModule, ResolvedRootModules},
         sync::AutoSyncFlags,
     },
-    workspace::{MoonWork, canonical_workspace_module_dirs, read_workspace, read_workspace_file},
+    workspace::{MoonWork, canonical_workspace_module_dirs, read_workspace_file},
 };
 use semver::Version;
 
@@ -77,70 +77,21 @@ pub fn auto_sync(
     output_options: SyncOutputOptions,
     no_std: bool,
     workspace_env: WorkspaceEnv,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
-    if let Some(project_manifest_path) = project_manifest_path {
-        let manifest_dir = project_manifest_path
-            .parent()
-            .context("manifest path has no parent directory")?;
-        let manifest_dir = if manifest_dir.as_os_str().is_empty() {
-            Path::new(".")
-        } else {
-            manifest_dir
-        };
-        let manifest_dir = dunce::canonicalize(manifest_dir).with_context(|| {
-            format!(
-                "failed to resolve manifest directory `{}`",
-                manifest_dir.display()
-            )
-        })?;
-        if project_manifest_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            == Some(MOON_WORK)
-            && !matches!(workspace_env, WorkspaceEnv::Off)
-        {
-            return resolve_workspace_sync(
-                mooncakes_dir,
-                cli,
-                output_options,
-                no_std,
-                manifest_dir.as_path(),
-                read_workspace_file(project_manifest_path)?,
-            );
-        } else if !matches!(workspace_env, WorkspaceEnv::Off)
-            && let Some(workspace_root) = (SourceTargetDirs {
-                cwd: None,
-                manifest_path: None,
-                target_dir: None,
-            })
-            .query_from(&manifest_dir, workspace_env.clone())?
-            .workspace_ref()?
-            .map(|workspace| workspace.root)
-        {
-            let workspace = read_workspace(&workspace_root)?.context(format!(
-                "failed to parse workspace file under `{}`",
-                workspace_root.display()
-            ))?;
-            return resolve_workspace_sync(
-                mooncakes_dir,
-                cli,
-                output_options,
-                no_std,
-                &workspace_root,
-                workspace,
-            );
-        }
-    } else if !matches!(workspace_env, WorkspaceEnv::Off)
-        && let Some(workspace) = read_workspace(source_dir)?
+    if let ProjectManifest::Workspace(project_manifest) = project_manifest
+        && !matches!(workspace_env, WorkspaceEnv::Off)
     {
+        let workspace_root = project_manifest
+            .parent()
+            .context("workspace manifest path has no parent directory")?;
         return resolve_workspace_sync(
             mooncakes_dir,
             cli,
             output_options,
             no_std,
-            source_dir,
-            workspace,
+            workspace_root,
+            read_workspace_file(project_manifest)?,
         );
     }
 

@@ -46,7 +46,7 @@ use moonutil::common::{
     FileLock, RunMode, SurfaceTarget, TargetBackend, TestArtifacts, TestIndexRange,
     lower_surface_targets,
 };
-use moonutil::dirs::ProjectProbe;
+use moonutil::dirs::{ProjectManifest, ProjectProbe};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, debug, info, instrument, trace};
@@ -389,7 +389,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
             &dirs.source_dir,
             &dirs.target_dir,
             &dirs.mooncakes_dir,
-            dirs.project_manifest_path.as_deref(),
+            &dirs.project_manifest,
             None,
             selected_target_backend,
         );
@@ -410,7 +410,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
             &dirs.source_dir,
             &dirs.target_dir,
             &dirs.mooncakes_dir,
-            dirs.project_manifest_path.as_deref(),
+            &dirs.project_manifest,
             display_backend_hint,
             Some(t),
         )
@@ -462,7 +462,7 @@ fn run_test_internal(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -477,7 +477,7 @@ fn run_test_internal(
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
         display_backend_hint,
         selected_target_backend,
     )?;
@@ -898,7 +898,7 @@ pub(crate) fn run_test_or_bench_internal(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
@@ -952,7 +952,7 @@ pub(crate) fn run_test_or_bench_internal(
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
         display_backend_hint,
         selected_target_backend,
     )
@@ -966,7 +966,7 @@ fn run_test_rr(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
     selected_target_backend: Option<TargetBackend>,
 ) -> Result<i32, anyhow::Error> {
@@ -982,7 +982,7 @@ fn run_test_rr(
         &resolve_cfg,
         source_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     )?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
     let planned_runs = plan_test_or_bench_rr_from_resolved_all(

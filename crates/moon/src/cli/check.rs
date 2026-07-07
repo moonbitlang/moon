@@ -37,7 +37,7 @@ use moonutil::common::RunMode;
 use moonutil::common::WATCH_MODE_DIR;
 use moonutil::common::lower_surface_targets;
 use moonutil::common::{FileLock, TargetBackend};
-use moonutil::dirs::ProjectProbe;
+use moonutil::dirs::{ProjectManifest, ProjectProbe};
 use moonutil::mooncakes::sync::AutoSyncFlags;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
@@ -148,7 +148,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
 
     // Check if we're running within a project
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let (source_dir, target_dir, mooncakes_dir, single_file, project_manifest_path) = match query
+    let (source_dir, target_dir, mooncakes_dir, single_file, project_manifest) = match query
         .probe_project()?
     {
         ProjectProbe::Found(_) => {
@@ -158,7 +158,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
                 dirs.target_dir,
                 dirs.mooncakes_dir,
                 false,
-                dirs.project_manifest_path,
+                dirs.project_manifest,
             )
         }
         ProjectProbe::NotFound(not_found) => {
@@ -173,7 +173,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
                         target_dir,
                         mooncakes_dir,
                         true,
-                        None,
+                        ProjectManifest::None,
                     )
                 }
                 [] => return Err(not_found.into_error().into()),
@@ -192,7 +192,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             &target_dir,
             &mooncakes_dir,
             single_file,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             None,
         );
     }
@@ -208,7 +208,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             &target_dir,
             &mooncakes_dir,
             single_file,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             Some(t),
         )
         .context(format!("failed to run check for target {t:?}"))?;
@@ -226,7 +226,7 @@ fn run_check_internal(
     target_dir: &Path,
     mooncakes_dir: &Path,
     single_file: bool,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     if single_file {
@@ -245,7 +245,7 @@ fn run_check_internal(
             source_dir,
             target_dir,
             mooncakes_dir,
-            project_manifest_path,
+            project_manifest,
             selected_target_backend,
         )
     }
@@ -407,7 +407,7 @@ fn run_check_normal_internal(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let run_once = |watch: bool, target_dir: &Path| -> anyhow::Result<WatchOutput> {
@@ -417,7 +417,7 @@ fn run_check_normal_internal(
             source_dir,
             target_dir,
             mooncakes_dir,
-            project_manifest_path,
+            project_manifest,
             watch,
             selected_target_backend,
         )
@@ -450,7 +450,7 @@ fn run_check_normal_internal_rr(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
@@ -465,7 +465,7 @@ fn run_check_normal_internal_rr(
         &resolve_cfg,
         source_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     )
     .context("Failed to calculate build plan")?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)

@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use moonutil::common::read_module_desc_file_in_dir;
+use moonutil::dirs::ProjectManifest;
 use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::mooncakes::{ModuleId, ModuleName};
 
@@ -124,18 +125,9 @@ fn format_module_label(
     label
 }
 
-pub fn tree(
-    project_root: &Path,
-    module_dir: &Path,
-    project_manifest_path: Option<&Path>,
-) -> anyhow::Result<i32> {
+pub fn tree(module_dir: &Path, project_manifest: &ProjectManifest) -> anyhow::Result<i32> {
     let module = Arc::new(read_module_desc_file_in_dir(module_dir)?);
-    let roots = roots_for_selected_module(
-        project_root,
-        module_dir,
-        Arc::clone(&module),
-        project_manifest_path,
-    )?;
+    let roots = roots_for_selected_module(module_dir, Arc::clone(&module), project_manifest)?;
     let resolve_cfg = ResolveConfig {
         registry: registry::default_registry(),
         inject_std: false,

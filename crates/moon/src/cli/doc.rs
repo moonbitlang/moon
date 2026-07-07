@@ -104,7 +104,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     } = query.package_dirs()?;
 
     // FIXME: This is copied from `moon check`'s code. Share code if possible.
@@ -124,7 +124,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         &resolve_cfg,
         &source_dir,
         &mooncakes_dir,
-        project_manifest_path.as_deref(),
+        &project_manifest,
     )?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
 

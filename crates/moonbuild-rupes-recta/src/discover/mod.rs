@@ -31,7 +31,8 @@ pub mod special_case;
 pub mod synth;
 
 pub use model::{DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage};
-use moonutil::common::{PackageSourceFileKind, is_moon_mod, package_source_file_kind};
+use moonutil::common::{PackageSourceFileKind, package_source_file_kind};
+use moonutil::dirs::ProjectManifest;
 
 use std::{
     path::{Path, PathBuf},
@@ -55,7 +56,7 @@ use moonutil::{
     },
     mooncakes::ModuleSourceKind,
     package::resolve_supported_targets,
-    workspace::{canonical_workspace_module_dirs, read_workspace, read_workspace_file},
+    workspace::{canonical_workspace_module_dirs, read_workspace_file},
 };
 use relative_path::{PathExt, RelativePath};
 use tracing::{Level, instrument};
@@ -116,20 +117,14 @@ pub fn discover_packages(
 #[instrument(skip_all)]
 pub fn discover_local_project(
     source_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
 ) -> Result<DiscoveredLocalProject, DiscoverError> {
     info!(
         "Starting local project discovery for {}",
         source_dir.display()
     );
 
-    let selected_workspace_manifest_path = project_manifest_path.filter(|path| {
-        !matches!(
-            path.file_name().and_then(|name| name.to_str()),
-            Some(name) if is_moon_mod(name)
-        )
-    });
-    let workspace = if let Some(workspace_manifest_path) = selected_workspace_manifest_path {
+    let workspace = if let ProjectManifest::Workspace(workspace_manifest_path) = project_manifest {
         read_workspace_file(workspace_manifest_path)
             .map(Some)
             .map_err(|inner| DiscoverError::CantReadLocalWorkspace {
@@ -137,14 +132,17 @@ pub fn discover_local_project(
                 inner,
             })?
     } else {
-        read_workspace(source_dir).map_err(|inner| DiscoverError::CantReadLocalWorkspace {
-            path: source_dir.to_owned(),
-            inner,
-        })?
+        None
     };
-    let workspace_root = selected_workspace_manifest_path
-        .and_then(Path::parent)
-        .unwrap_or(source_dir);
+    let workspace_root = match project_manifest {
+        ProjectManifest::Workspace(workspace_manifest_path) => workspace_manifest_path
+            .parent()
+            .ok_or_else(|| DiscoverError::CantReadLocalWorkspace {
+                path: workspace_manifest_path.to_owned(),
+                inner: anyhow::anyhow!("workspace manifest path has no parent directory"),
+            })?,
+        ProjectManifest::None | ProjectManifest::Module(_) => source_dir,
+    };
     let module_dirs = if let Some(workspace) = workspace.as_ref() {
         canonical_workspace_module_dirs(workspace_root, workspace).map_err(|inner| {
             DiscoverError::CantReadLocalWorkspace {

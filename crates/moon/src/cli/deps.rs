@@ -75,7 +75,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         let PackageDirs {
             source_dir,
             mooncakes_dir,
-            project_manifest_path,
+            project_manifest,
             ..
         } = cli
             .source_tgt_dir
@@ -88,7 +88,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
             SyncOutputOptions::new(cli.quiet, true),
             true,
             cli.workspace_env.clone(),
-            project_manifest_path.as_deref(),
+            &project_manifest,
         )?;
         return Ok(0);
     }
@@ -173,9 +173,7 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
     let project = query.project()?;
     let module_dir = require_selected_module(&project, "remove")?;
     let PackageDirs {
-        source_dir: project_root,
-        project_manifest_path,
-        ..
+        project_manifest, ..
     } = query.package_dirs()?;
     let package_path = cmd.package_path;
     let parts: Vec<&str> = package_path.splitn(2, '/').collect();
@@ -184,13 +182,7 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
     }
     let username = parts[0];
     let pkgname = parts[1];
-    mooncake::pkg::remove::remove(
-        &project_root,
-        &module_dir,
-        project_manifest_path.as_deref(),
-        username,
-        pkgname,
-    )
+    mooncake::pkg::remove::remove(&module_dir, &project_manifest, username, pkgname)
 }
 
 pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
@@ -199,9 +191,8 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
     let project = query.project()?;
     let module_dir = require_selected_module(&project, "add")?;
     let PackageDirs {
-        source_dir: project_root,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
         ..
     } = query.package_dirs()?;
 
@@ -251,9 +242,8 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
         let version: &str = parts[1];
         let version = version.parse()?;
         mooncake::pkg::add::add(
-            &project_root,
             &module_dir,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             &mooncakes_dir,
             &pkg_name,
             cmd.bin,
@@ -263,9 +253,8 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
         )
     } else {
         mooncake::pkg::add::add_latest(
-            &project_root,
             &module_dir,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             &mooncakes_dir,
             &pkg_name,
             cmd.bin,
@@ -281,11 +270,9 @@ pub(crate) fn tree_cli(cli: UniversalFlags, _cmd: TreeSubcommand) -> anyhow::Res
     let project = query.project()?;
     let module_dir = require_selected_module(&project, "tree")?;
     let PackageDirs {
-        source_dir: project_root,
-        project_manifest_path,
-        ..
+        project_manifest, ..
     } = query.package_dirs()?;
-    mooncake::pkg::tree::tree(&project_root, &module_dir, project_manifest_path.as_deref())
+    mooncake::pkg::tree::tree(&module_dir, &project_manifest)
 }
 
 #[cfg(test)]

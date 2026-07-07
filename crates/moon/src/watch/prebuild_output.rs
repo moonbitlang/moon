@@ -91,7 +91,7 @@ mod tests {
     use moonbuild_rupes_recta::resolve::{
         ResolveConfig, resolve_synced_project, sync_dependencies,
     };
-    use moonutil::dirs::WorkspaceEnv;
+    use moonutil::dirs::{ProjectManifest, WorkspaceEnv};
 
     #[test]
     fn rr_get_prebuild_watch_paths_skips_empty_modules() {
@@ -107,8 +107,13 @@ mod tests {
         let resolve_cfg =
             ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
         let mooncakes_dir = temp_dir.path().join(".mooncakes");
-        let synced_env =
-            sync_dependencies(&resolve_cfg, temp_dir.path(), &mooncakes_dir, None).unwrap();
+        let synced_env = sync_dependencies(
+            &resolve_cfg,
+            temp_dir.path(),
+            &mooncakes_dir,
+            &ProjectManifest::None,
+        )
+        .unwrap();
         let resolved = resolve_synced_project(&resolve_cfg, synced_env).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
@@ -143,8 +148,13 @@ mod tests {
         let resolve_cfg =
             ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
         let mooncakes_dir = temp_dir.path().join(".mooncakes");
-        let synced_env =
-            sync_dependencies(&resolve_cfg, temp_dir.path(), &mooncakes_dir, None).unwrap();
+        let synced_env = sync_dependencies(
+            &resolve_cfg,
+            temp_dir.path(),
+            &mooncakes_dir,
+            &ProjectManifest::None,
+        )
+        .unwrap();
         let resolved = resolve_synced_project(&resolve_cfg, synced_env).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);

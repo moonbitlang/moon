@@ -125,7 +125,7 @@ impl SourceTargetDirs {
             source_dir,
             target_dir,
             mooncakes_dir,
-            project_manifest_path: None,
+            project_manifest: ProjectManifest::None,
         })
     }
 
@@ -219,11 +219,22 @@ impl SourceTargetDirs {
     }
 }
 
+/// The project manifest selected during project query.
+///
+/// Downstream stages should treat this as authoritative instead of rediscovering
+/// whether a directory belongs to a module or workspace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProjectManifest {
+    None,
+    Module(PathBuf),
+    Workspace(PathBuf),
+}
+
 pub struct PackageDirs {
     pub source_dir: PathBuf,
     pub target_dir: PathBuf,
     pub mooncakes_dir: PathBuf,
-    pub project_manifest_path: Option<PathBuf>,
+    pub project_manifest: ProjectManifest,
 }
 
 pub struct SingleFilePackageDirs {
@@ -331,6 +342,17 @@ impl ProjectContext {
                 manifest_path: manifest_path.clone(),
             }),
             Self::Module { .. } => None,
+        }
+    }
+}
+
+impl From<&ProjectContext> for ProjectManifest {
+    fn from(project: &ProjectContext) -> Self {
+        match project {
+            ProjectContext::Workspace { manifest_path, .. } => {
+                Self::Workspace(manifest_path.clone())
+            }
+            ProjectContext::Module { manifest_path, .. } => Self::Module(manifest_path.clone()),
         }
     }
 }
@@ -481,7 +503,7 @@ impl ProjectQuery {
             source_dir,
             target_dir,
             mooncakes_dir,
-            project_manifest_path: Some(project.manifest_path().to_path_buf()),
+            project_manifest: ProjectManifest::from(&project),
         })
     }
 

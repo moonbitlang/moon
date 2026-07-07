@@ -279,7 +279,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
@@ -293,12 +293,8 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         cli.workspace_env.clone(),
     );
     let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
-    let synced_env = sync_dependencies(
-        &resolve_cfg,
-        &source_dir,
-        &mooncakes_dir,
-        project_manifest_path.as_deref(),
-    )?;
+    let synced_env =
+        sync_dependencies(&resolve_cfg, &source_dir, &mooncakes_dir, &project_manifest)?;
     let resolve_output = resolve_synced_project(&resolve_cfg, synced_env)?;
     let output = UserDiagnostics::from_flags(&cli);
     let selection = PackageSelection::new(&cmd, &resolve_output, output)?;

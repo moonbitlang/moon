@@ -34,9 +34,9 @@ use log::*;
 use std::{collections::HashSet, ffi::OsStr, path::Path};
 
 use anyhow::Context;
+use moonutil::dirs::ProjectManifest;
 use moonutil::mooncakes::{ModuleSourceKind, result::ResolvedModule};
 use moonutil::toolchain::BINARIES;
-use moonutil::workspace::workspace_manifest_path;
 use moonutil::{
     common::{
         MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK, validate_module_dsl_deps,
@@ -63,13 +63,13 @@ pub type FmtResolveOutput = DiscoveredLocalProject;
 /// rooted there via `moon.work`.
 pub fn resolve_for_fmt(
     source_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
 ) -> Result<FmtResolveOutput, ResolveError> {
     info!(
         "Resolving formatter environment for {}",
         source_dir.display()
     );
-    discover_local_project(source_dir, project_manifest_path).map_err(ResolveError::from)
+    discover_local_project(source_dir, project_manifest).map_err(ResolveError::from)
 }
 
 pub struct FmtConfig {
@@ -96,10 +96,9 @@ pub struct FmtConfig {
 pub fn build_graph_for_fmt(
     resolved: &FmtResolveOutput,
     cfg: &FmtConfig,
-    source_dir: &Path,
     target_dir: &Path,
     selected_packages: &[PackageId],
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
 ) -> anyhow::Result<(n2::graph::Graph, Vec<UserWarning>)> {
     info!(
         "Building format graph for {} root modules",
@@ -117,7 +116,7 @@ pub fn build_graph_for_fmt(
     let selected_packages = (!selected_packages.is_empty())
         .then(|| selected_packages.iter().copied().collect::<HashSet<_>>());
     let has_workspace_manifest = selected_packages.is_none()
-        && format_workspace_node(&mut graph, cfg, &layout, source_dir, project_manifest_path)?;
+        && format_workspace_node(&mut graph, cfg, &layout, project_manifest)?;
     let mut has_module_manifest = false;
 
     // If no path filter is provided, find and format `moon.mod`/`moon.mod.json`.
@@ -392,33 +391,18 @@ fn format_workspace_node(
     graph: &mut n2::graph::Graph,
     cfg: &FmtConfig,
     layout: &TargetLayout,
-    source_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
 ) -> anyhow::Result<bool> {
-    let workspace_manifest_path = project_manifest_path
-        .map(Path::to_path_buf)
-        .or_else(|| workspace_manifest_path(source_dir));
-    let Some(workspace_manifest_path) = workspace_manifest_path else {
+    let ProjectManifest::Workspace(workspace_manifest_path) = project_manifest else {
         return Ok(false);
     };
-    let file_name = workspace_manifest_path
-        .file_name()
-        .and_then(|name| name.to_str());
-    if file_name == Some(MOON_MOD_JSON) {
-        return Ok(false);
-    }
     workspace_manifest_path
         .parent()
         .context("workspace manifest path has no parent directory")?;
 
     let target_moon_work = layout.format_root_artifact_path(std::ffi::OsStr::new(MOON_WORK));
-    match file_name {
-        Some(MOON_WORK) => {
-            format_moon_work_dsl(graph, cfg, &workspace_manifest_path, &target_moon_work)?;
-            Ok(true)
-        }
-        _ => Ok(false),
-    }
+    format_moon_work_dsl(graph, cfg, workspace_manifest_path, &target_moon_work)?;
+    Ok(true)
 }
 
 fn build_for_package(

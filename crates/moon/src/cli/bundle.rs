@@ -21,7 +21,7 @@ use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
 use moonutil::{
     cli::UniversalFlags,
     common::{FileLock, RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
-    dirs::PackageDirs,
+    dirs::{PackageDirs, ProjectManifest},
     mooncakes::sync::AutoSyncFlags,
 };
 use std::path::Path;
@@ -53,7 +53,7 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
@@ -71,7 +71,7 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
             &source_dir,
             &target_dir,
             &mooncakes_dir,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             None,
         );
     }
@@ -86,7 +86,7 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
             &source_dir,
             &target_dir,
             &mooncakes_dir,
-            project_manifest_path.as_deref(),
+            &project_manifest,
             Some(t),
         )
         .context(format!("failed to run bundle for target {t:?}"))?;
@@ -102,7 +102,7 @@ pub(crate) fn run_bundle_internal(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     run_bundle_internal_rr(
@@ -111,7 +111,7 @@ pub(crate) fn run_bundle_internal(
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
         selected_target_backend,
     )
 }
@@ -123,7 +123,7 @@ pub(crate) fn run_bundle_internal_rr(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
     let (build_meta, build_graph) = plan_bundle_rr(
@@ -132,7 +132,7 @@ pub(crate) fn run_bundle_internal_rr(
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
         selected_target_backend,
     )?;
 
@@ -172,7 +172,7 @@ pub(crate) fn plan_bundle_rr(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    project_manifest_path: Option<&Path>,
+    project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
@@ -186,7 +186,7 @@ pub(crate) fn plan_bundle_rr(
         &resolve_cfg,
         source_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     )?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
     plan_bundle_rr_from_resolved(

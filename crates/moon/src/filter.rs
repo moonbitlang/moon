@@ -595,7 +595,7 @@ mod tests {
             &cfg,
             &dirs.source_dir,
             &dirs.mooncakes_dir,
-            dirs.project_manifest_path.as_deref(),
+            &dirs.project_manifest,
         )
         .unwrap();
         moonbuild_rupes_recta::resolve_synced_project(&cfg, synced_env).unwrap()

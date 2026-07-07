@@ -469,7 +469,7 @@ fn build_package_executable(
         source_dir,
         target_dir,
         mooncakes_dir,
-        project_manifest_path,
+        project_manifest,
     } = cli
         .source_tgt_dir
         .query_from(&run_start_dir, cli.workspace_env.clone())?
@@ -487,7 +487,7 @@ fn build_package_executable(
         &resolve_cfg,
         &source_dir,
         &mooncakes_dir,
-        project_manifest_path.as_deref(),
+        &project_manifest,
     )?;
     let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
