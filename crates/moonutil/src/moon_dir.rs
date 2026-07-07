@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use crate::common::{BUILD_DIR, TargetBackend};
+use crate::{constants::BUILD_DIR, target::TargetBackend};
 
 pub struct MoonDirs {
     pub moon_home: PathBuf,

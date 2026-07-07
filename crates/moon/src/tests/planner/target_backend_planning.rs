@@ -22,7 +22,7 @@ use super::fixture::{
     planned_check_package_runs, planned_graph_inputs, planned_root_package_runs,
     planned_target_backends,
 };
-use moonutil::common::{TargetBackend, lower_surface_targets};
+use moonutil::target::{TargetBackend, lower_surface_targets};
 
 // Phase 3: these tests already know the selected backend and only need to
 // verify that planning keeps the right packages and commands in the graph.

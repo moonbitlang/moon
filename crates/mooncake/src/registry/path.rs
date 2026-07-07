@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use moonutil::{
-    common::{MOD_NAME_STDLIB, MOONBITLANG_CORE},
+    constants::{MOD_NAME_STDLIB, MOONBITLANG_CORE},
     mooncakes::{DEFAULT_VERSION, ModuleName},
 };
 

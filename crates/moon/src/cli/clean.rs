@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
-use moonutil::{cli::UniversalFlags, common::FileLock};
+use moonutil::{cli::UniversalFlags, locks::FileLock};
 
 /// Remove the _build directory
 #[derive(Debug, clap::Parser)]

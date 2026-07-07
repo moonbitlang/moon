@@ -24,21 +24,21 @@ fn test_moon_version_json() -> anyhow::Result<()> {
     let dir = TestDir::new_empty();
 
     let output = get_stdout(&dir, ["version", "--json"]);
-    let items: moonutil::common::VersionItems = serde_json_lenient::from_str(&output)?;
+    let items: moonutil::version::VersionItems = serde_json_lenient::from_str(&output)?;
     assert_eq!(items.items.len(), 1);
     assert_eq!(items.items[0].name, "moon");
     assert!(items.items[0].version.contains(&get_cargo_pkg_version()));
     assert!(items.items[0].path.is_some());
 
     let output = get_stdout(&dir, ["version", "--all", "--json"]);
-    let items: moonutil::common::VersionItems = serde_json_lenient::from_str(&output)?;
+    let items: moonutil::version::VersionItems = serde_json_lenient::from_str(&output)?;
     assert_eq!(items.items.len(), 3);
     assert_eq!(items.items[0].name, "moon");
     assert!(items.items[0].version.contains(&get_cargo_pkg_version()));
     assert_eq!(items.items[1].name, "moonc");
 
     let output = get_stdout(&dir, ["version", "--all", "--json", "--no-path"]);
-    let items: moonutil::common::VersionItems = serde_json_lenient::from_str(&output)?;
+    let items: moonutil::version::VersionItems = serde_json_lenient::from_str(&output)?;
     assert!(items.items[0].path.is_none());
 
     Ok(())

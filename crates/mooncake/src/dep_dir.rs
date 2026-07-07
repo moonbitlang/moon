@@ -26,7 +26,8 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    common::{FileLock, MOONBITLANG_CORE},
+    constants::MOONBITLANG_CORE,
+    locks::FileLock,
     moon_dir::{self},
     mooncakes::{DirSyncResult, ModuleSource, ModuleSourceKind, result::ResolvedEnv},
 };
@@ -82,7 +83,7 @@ impl DepDir {
                     continue;
                 }
                 let pkg_name = pkg.file_name().to_string_lossy().replace('+', "/").into();
-                let module = moonutil::common::read_module_desc_file_in_dir(&pkg.path());
+                let module = moonutil::manifest::read_module_desc_file_in_dir(&pkg.path());
                 let version = module.map(|m| m.version).ok().flatten();
                 pkg_list.insert(pkg_name, version);
             }
@@ -135,7 +136,7 @@ fn diff_dep_dir_state<'a>(
     for user in current.keys() {
         if !target.contains_key(user)
             // this is a temporary workaround
-            && user != moonutil::common::MOON_BIN_DIR
+            && user != moonutil::constants::MOON_BIN_DIR
         {
             remove_user.insert(user.clone());
         }

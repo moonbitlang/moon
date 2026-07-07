@@ -24,7 +24,7 @@ use moonbuild::expect::{apply_expect, apply_snapshot};
 use tracing::info;
 
 use crate::run::PackageFilter;
-use moonutil::common::TestIndexRange;
+use moonutil::build_options::TestIndexRange;
 
 use super::{ReplaceableTestResults, TestCaseResult, TestResultKind};
 

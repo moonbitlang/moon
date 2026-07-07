@@ -20,7 +20,7 @@ use std::path::Path;
 
 use anyhow::bail;
 
-use crate::common::read_module_desc_file_in_dir;
+use crate::manifest::read_module_desc_file_in_dir;
 
 pub enum PrePostBuild {
     PreBuild,

@@ -32,9 +32,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 
 use crate::{
-    common::{MOON_MOD, write_module_dsl_to_file},
-    module::MoonModJSON,
-    moon_pkg,
+    constants::MOON_MOD, manifest::write_module_dsl_to_file, module::MoonModJSON, moon_pkg,
 };
 
 #[allow(clippy::large_enum_variant)]

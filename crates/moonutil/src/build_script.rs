@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::TargetBackend;
+use crate::target::TargetBackend;
 
 /// Represents the environment a build script receives
 #[derive(Serialize)]

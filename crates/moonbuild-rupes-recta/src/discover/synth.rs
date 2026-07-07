@@ -31,9 +31,9 @@
 use std::{path::Path, sync::Arc};
 
 use indexmap::IndexSet;
-use moonutil::common::TargetBackend;
 use moonutil::mooncakes::result::ResolvedEnv;
 use moonutil::package::{Import, MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind};
+use moonutil::target::TargetBackend;
 
 use crate::discover::{DiscoverError, DiscoverResult, DiscoveredPackage};
 use crate::model::PackageId;

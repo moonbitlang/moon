@@ -31,7 +31,7 @@ pub mod special_case;
 pub mod synth;
 
 pub use model::{DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage};
-use moonutil::common::{PackageSourceFileKind, package_source_file_kind};
+use moonutil::constants::{PackageSourceFileKind, package_source_file_kind};
 use moonutil::dirs::ProjectManifest;
 
 use std::{
@@ -41,18 +41,20 @@ use std::{
 
 use indexmap::IndexSet;
 use log::{debug, info, trace};
-use moonutil::common::TargetBackend;
 use moonutil::mooncakes::{
     DirSyncResult, ModuleId, ModuleSource,
     result::{ResolvedEnv, ResolvedModule, ResolvedRootModules},
 };
 use moonutil::package::MoonPkg;
+use moonutil::target::TargetBackend;
 use moonutil::{
-    common::{
+    constants::{
         IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON,
-        MOONBITLANG_ABORT, read_module_desc_file_in_dir,
-        read_package_desc_file_from_path_with_supported_targets_decl, warn_if_shadowed_manifest,
-        warn_known_shadowed_manifest,
+        MOONBITLANG_ABORT,
+    },
+    manifest::{
+        read_module_desc_file_in_dir, read_package_desc_file_from_path_with_supported_targets_decl,
+        warn_if_shadowed_manifest, warn_known_shadowed_manifest,
     },
     mooncakes::ModuleSourceKind,
     package::resolve_supported_targets,

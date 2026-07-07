@@ -26,9 +26,11 @@ use moonbuild_rupes_recta::model::RunBackend;
 use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
     cli::UniversalFlags,
-    common::{FileLock, SurfaceTarget, is_moon_pkg_exist},
+    constants::is_moon_pkg_exist,
+    locks::FileLock,
     mooncakes::sync::AutoSyncFlags,
     mooncakes::{ModuleName, RegistryConfig},
+    target::SurfaceTarget,
 };
 use reqwest::{StatusCode, header::USER_AGENT};
 use semver::Version;
@@ -713,7 +715,12 @@ mod tests {
         .unwrap();
 
         assert_eq!(path, asset.cache_path);
-        assert!(!cache_dir.path().join(moonutil::common::MOON_LOCK).exists());
+        assert!(
+            !cache_dir
+                .path()
+                .join(moonutil::constants::MOON_LOCK)
+                .exists()
+        );
     }
 
     #[test]

@@ -27,7 +27,7 @@ use std::{
 use anyhow::bail;
 use indexmap::map::IndexMap;
 use moonutil::{
-    common::execute_postadd_script, dependency::SourceDependencyInfo, mooncakes::ModuleName,
+    dependency::SourceDependencyInfo, mooncakes::ModuleName, scripts::execute_postadd_script,
 };
 use reqwest::header::USER_AGENT;
 use semver::Version;

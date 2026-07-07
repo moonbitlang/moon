@@ -21,7 +21,7 @@
 use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
 
 use log::{debug, info};
-use moonutil::{common::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel};
+use moonutil::{build_options::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel};
 use n2::graph::Graph as N2Graph;
 use tracing::instrument;
 
@@ -331,13 +331,13 @@ mod tests {
 
     use indexmap::IndexSet;
     use moonutil::{
-        common::TargetBackend,
         compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, Toolchain},
         module::MoonMod,
         mooncakes::{
             DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, result::ResolvedEnv,
         },
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
+        target::TargetBackend,
     };
 
     use crate::{

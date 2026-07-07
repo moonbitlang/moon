@@ -20,7 +20,7 @@ use std::{fs::File, io::BufReader, path::PathBuf};
 
 use anyhow::bail;
 use moonutil::{
-    common::{is_moon_mod_exist, is_moon_pkg_exist},
+    constants::{is_moon_mod_exist, is_moon_pkg_exist},
     moon_dir,
     mooncakes::{Credentials, validate_username},
 };

@@ -23,7 +23,7 @@ use n2::terminal;
 use std::io::Write;
 
 use crate::runtest::TestStatistics;
-use moonutil::common::MbtTestInfo;
+use moonutil::test_metadata::MbtTestInfo;
 
 #[allow(clippy::type_complexity)]
 pub fn create_progress_console(

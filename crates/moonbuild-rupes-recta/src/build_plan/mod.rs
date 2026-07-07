@@ -51,10 +51,8 @@ use std::{
 
 use log::{debug, info};
 use moonutil::{
-    common::{RunMode, TargetBackend},
-    compiler_flags::Toolchain,
-    cond_expr::OptLevel,
-    mooncakes::ModuleId,
+    build_options::RunMode, compiler_flags::Toolchain, cond_expr::OptLevel, mooncakes::ModuleId,
+    target::TargetBackend,
 };
 use petgraph::prelude::DiGraphMap;
 use tracing::instrument;

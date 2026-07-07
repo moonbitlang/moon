@@ -25,7 +25,7 @@ use crate::{
 use super::sync::SyncOutputOptions;
 use anyhow::Context;
 use moonutil::{
-    common::MOONBITLANG_CORE,
+    constants::MOONBITLANG_CORE,
     mooncakes::{
         DirSyncResult,
         result::{DependencyKind, ResolvedEnv, ResolvedRootModules},

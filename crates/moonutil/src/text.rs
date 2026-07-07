@@ -16,46 +16,24 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#![warn(clippy::clone_on_ref_ptr)]
+pub fn line_col_to_byte_idx(
+    line_index: &line_index::LineIndex,
+    line: u32,
+    col: u32,
+) -> Option<usize> {
+    let offset = line_index.offset(line_index.to_utf8(
+        line_index::WideEncoding::Utf32,
+        line_index::WideLineCol { line, col },
+    )?)?;
+    Some(usize::from(offset))
+}
 
-mod binaries;
-pub mod build_options;
-pub mod build_script;
-pub mod cli;
-pub mod common;
-pub mod compiler_flags;
-pub mod cond_expr;
-pub mod constants;
-pub mod demangle;
-pub mod dependency;
-pub mod dirs;
-pub mod error_code_docs;
-pub mod features;
-pub mod front_matter;
-pub mod fuzzy_match;
-pub mod git;
-pub mod glob;
-pub mod graph;
-pub mod locks;
-pub mod manifest;
-pub mod module;
-pub mod moon_dir;
-pub mod moon_mod_patch;
-pub mod moon_pkg;
-pub mod mooncakes;
-pub mod package;
-pub mod path;
-pub mod platform;
-pub mod render;
-pub mod scripts;
-pub mod shlex;
-pub mod supported_targets;
-pub mod target;
-pub mod test_metadata;
-pub mod text;
-pub mod toolchain;
-pub mod user_warning;
-pub mod version;
-pub mod workspace;
+pub trait StringExt {
+    fn replace_crlf_to_lf(&self) -> String;
+}
 
-pub use binaries::BINARIES;
+impl StringExt for str {
+    fn replace_crlf_to_lf(&self) -> String {
+        self.replace("\r\n", "\n")
+    }
+}

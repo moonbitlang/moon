@@ -26,9 +26,10 @@ use moonbuild_rupes_recta::{
     sync_dependencies,
 };
 use moonutil::{
-    common::{RunMode, SurfaceTarget, TargetBackend, lower_surface_targets},
+    build_options::RunMode,
     dirs::PackageDirs,
     mooncakes::sync::AutoSyncFlags,
+    target::{SurfaceTarget, TargetBackend, lower_surface_targets},
 };
 
 use crate::{
@@ -292,7 +293,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env =
         sync_dependencies(&resolve_cfg, &source_dir, &mooncakes_dir, &project_manifest)?;
     let resolve_output = resolve_synced_project(&resolve_cfg, synced_env)?;

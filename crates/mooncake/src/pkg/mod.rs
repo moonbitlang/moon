@@ -20,8 +20,8 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
 use moonutil::{
-    common::read_module_desc_file_in_dir,
     dirs::ProjectManifest,
+    manifest::read_module_desc_file_in_dir,
     module::MoonMod,
     mooncakes::{
         ModuleSource,

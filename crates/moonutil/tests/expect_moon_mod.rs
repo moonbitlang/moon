@@ -18,11 +18,12 @@
 
 use std::path::PathBuf;
 
-use moonutil::common::{
-    TargetBackend, read_module_desc_file_in_dir, read_module_from_dsl, write_module_dsl_to_file,
+use moonutil::manifest::{
+    read_module_desc_file_in_dir, read_module_from_dsl, write_module_dsl_to_file,
 };
 use moonutil::module::{MoonMod, MoonModJSON, MoonModRule, convert_module_to_mod_json};
 use moonutil::package::SupportedTargetsConfig;
+use moonutil::target::TargetBackend;
 use semver::Version;
 
 fn fixture_dir(name: &str) -> PathBuf {

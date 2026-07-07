@@ -148,7 +148,7 @@ pub(crate) fn default_registry() -> Box<dyn Registry> {
 mod tests {
     use super::Registry;
     use crate::registry::mock::MockRegistry;
-    use moonutil::{common::MOONBITLANG_CORE, mooncakes::DEFAULT_VERSION};
+    use moonutil::{constants::MOONBITLANG_CORE, mooncakes::DEFAULT_VERSION};
 
     #[test]
     fn resolve_unversioned_path_uses_latest_version() {

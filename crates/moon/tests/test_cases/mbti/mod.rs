@@ -1,5 +1,5 @@
 use super::*;
-use moonutil::common::MBTI_GENERATED;
+use moonutil::constants::MBTI_GENERATED;
 
 #[test]
 fn test_mbti() {

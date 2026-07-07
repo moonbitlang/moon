@@ -24,10 +24,13 @@ use std::{
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode, user_warning::UserWarning};
 use moonutil::{
+    build_options::RunMode,
     cli::UniversalFlags,
-    common::{DiagnosticLevel, FileLock, RunMode, TargetBackend},
     dirs::PackageDirs,
+    locks::FileLock,
     mooncakes::{ModuleId, sync::AutoSyncFlags},
+    target::TargetBackend,
+    test_metadata::DiagnosticLevel,
 };
 use serde::Deserialize;
 use tracing::instrument;
@@ -153,7 +156,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
     let prove_why3_config = why3_config_path.clone();
 
     let resolve_cfg = preconfig.resolve_config();
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         &project_root,

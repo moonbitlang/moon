@@ -52,18 +52,18 @@ use moonbuild_rupes_recta::{
     user_warning::UserWarning,
 };
 use moonutil::{
+    build_options::RunMode,
     cli::UniversalFlags,
-    common::{
-        BLACKBOX_TEST_PATCH, DiagnosticLevel, MOONBITLANG_CORE, RunMode, TargetBackend,
-        WHITEBOX_TEST_PATCH,
-    },
     compiler_flags::{self, CC},
     cond_expr::OptLevel as BuildProfile,
+    constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
     dirs::{ProjectManifest, WorkspaceEnv},
     features::FeatureGate,
     mooncakes::sync::AutoSyncFlags,
     package::SupportedTargetsDeclKind,
     render::MooncDiagnostic,
+    target::TargetBackend,
+    test_metadata::DiagnosticLevel,
 };
 use tracing::{Level, info, instrument};
 

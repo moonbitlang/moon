@@ -21,7 +21,7 @@ use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
 use core::fmt;
-use moonutil::common::line_col_to_byte_idx;
+use moonutil::text::line_col_to_byte_idx;
 use similar::DiffOp;
 use similar::DiffTag;
 use similar::TextDiff;

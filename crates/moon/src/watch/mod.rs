@@ -21,7 +21,7 @@ pub(crate) mod prebuild_output;
 
 use anyhow::Context;
 use colored::*;
-use moonutil::common::is_watch_relevant_project_file;
+use moonutil::constants::is_watch_relevant_project_file;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use std::collections::HashSet;
@@ -83,7 +83,7 @@ pub(crate) fn watching(
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok()
         {
-            ctrlc::set_handler(moonutil::common::dialoguer_ctrlc_handler)
+            ctrlc::set_handler(moonutil::cli::dialoguer_ctrlc_handler)
                 .expect("Error setting Ctrl-C handler");
             debug!("Ctrl-C handler registered for watch mode");
         }
@@ -371,7 +371,7 @@ fn run_and_print(run: impl FnOnce() -> anyhow::Result<WatchOutput>) -> Additiona
 mod tests {
     use super::*;
 
-    use moonutil::common::{BUILD_DIR, MOON_WORK};
+    use moonutil::{constants::BUILD_DIR, constants::MOON_WORK};
     use notify::event::{CreateKind, Event, EventKind};
 
     fn build_event(path: &Path) -> notify::Event {

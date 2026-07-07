@@ -20,10 +20,12 @@ use anyhow::bail;
 use std::fmt::Debug;
 use std::{
     fmt::Formatter,
+    fs,
+    io::ErrorKind,
     path::{Component, Path, PathBuf},
 };
 
-use crate::common::SUB_PKG_POSTFIX;
+use crate::constants::SUB_PKG_POSTFIX;
 
 #[derive(Clone, Hash)]
 pub struct PathComponent {
@@ -251,4 +253,43 @@ fn test_internal() {
         components: vec!["a".to_string(), "b".to_string(), "internal".to_string()],
     };
     assert!(!x.can_import(&y));
+}
+
+// Copy from https://github.com/rust-lang/cargo/blob/e52e360/crates/cargo-test-support/src/paths.rs#L113
+pub trait CargoPathExt {
+    fn rm_rf(&self);
+}
+
+impl CargoPathExt for Path {
+    fn rm_rf(&self) {
+        let meta = match self.symlink_metadata() {
+            Ok(meta) => meta,
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    return;
+                }
+                panic!("failed to remove {self:?}, could not read: {e:?}");
+            }
+        };
+        // There is a race condition between fetching the metadata and
+        // actually performing the removal, but we don't care all that much
+        // for our tests.
+        if meta.is_dir() {
+            if let Err(e) = fs::remove_dir_all(self) {
+                panic!("failed to remove {self:?}: {e:?}")
+            }
+        } else if let Err(e) = fs::remove_file(self) {
+            panic!("failed to remove {self:?}: {e:?}")
+        }
+    }
+}
+
+pub fn get_desc_name(package_name: &str, artifact: &str) -> String {
+    if artifact.contains("internal_test") {
+        format!("{}_{}", package_name, "internal_test")
+    } else if artifact.contains("whitebox_test") {
+        format!("{}_{}", package_name, "whitebox_test")
+    } else {
+        package_name.to_string()
+    }
 }

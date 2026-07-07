@@ -42,12 +42,11 @@ use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
-use moonutil::common::{
-    FileLock, RunMode, SurfaceTarget, TargetBackend, TestArtifacts, TestIndexRange,
-    lower_surface_targets,
-};
+use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
 use moonutil::dirs::{ProjectManifest, ProjectProbe};
+use moonutil::locks::FileLock;
 use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
 use std::path::{Path, PathBuf};
 use tracing::{Level, debug, info, instrument, trace};
 
@@ -538,7 +537,7 @@ fn run_test_in_single_file_rr(
         single_file_path,
         false,
     )?;
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = if cmd.profile {
         Some(TargetBackend::Native)
     } else {
@@ -977,7 +976,7 @@ fn run_test_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::common::MOON_BIN_DIR);
+    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         source_dir,
@@ -1148,7 +1147,7 @@ fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
-    target_backend: moonutil::common::TargetBackend,
+    target_backend: moonutil::target::TargetBackend,
     output: UserDiagnostics,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let all_affected_packages: Vec<_> = resolve_output
@@ -1180,7 +1179,7 @@ fn calc_user_intent_from_packages(
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     all_affected_packages: &[PackageId],
-    target_backend: moonutil::common::TargetBackend,
+    target_backend: moonutil::target::TargetBackend,
     output: UserDiagnostics,
     explicit_path_filters: &[PathBuf],
     package_filter: Option<&[String]>,

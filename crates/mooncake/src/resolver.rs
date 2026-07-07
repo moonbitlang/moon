@@ -20,7 +20,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use anyhow::Context;
-use moonutil::common::read_module_desc_file_in_dir;
+use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::moon_dir;
 use moonutil::mooncakes::ModuleId;
 use moonutil::mooncakes::result::{ResolvedEnv, ResolvedRootModules};

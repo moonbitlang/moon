@@ -24,9 +24,20 @@ use log::{error, warn};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    common::{DiagnosticLevel, PatchJSON, line_col_to_byte_idx},
-    error_code_docs::get_error_code_doc,
+    error_code_docs::get_error_code_doc, test_metadata::DiagnosticLevel, text::line_col_to_byte_idx,
 };
+
+#[derive(Debug, Deserialize)]
+pub struct PatchJSON {
+    pub drops: Vec<String>,
+    pub patches: Vec<PatchItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchItem {
+    pub name: String,
+    pub content: String,
+}
 
 #[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct MooncDiagnostic {
@@ -351,7 +362,7 @@ impl MooncDiagnostic {
         // a workaround for rendering the diagnostaic and error in generated test driver file correctly
         'fail_to_get_source: {
             if diagnostic.path.contains("__generated_driver_for_") {
-                let Ok(file) = crate::common::read_module_desc_file_in_dir(source_dir) else {
+                let Ok(file) = crate::manifest::read_module_desc_file_in_dir(source_dir) else {
                     error!(
                         "when working around driver file path issue, failed to read module.desc file in source dir: {}",
                         source_dir.display()

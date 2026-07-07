@@ -18,8 +18,10 @@
 
 use anyhow::bail;
 use moonutil::{
-    common::{DiagnosticLevel, RunMode, SurfaceTarget, TargetBackend},
+    build_options::RunMode,
     cond_expr::OptLevel as BuildProfile,
+    target::{SurfaceTarget, TargetBackend},
+    test_metadata::DiagnosticLevel,
 };
 
 #[derive(Debug, clap::Parser, Clone)]
@@ -143,7 +145,7 @@ impl BuildFlags {
         if targets.len() > 1 {
             bail!("`--target` only supports one target backend");
         }
-        let backends = moonutil::common::lower_surface_targets(targets);
+        let backends = moonutil::target::lower_surface_targets(targets);
         if backends.len() == 1 {
             Ok(Some(backends[0]))
         } else {

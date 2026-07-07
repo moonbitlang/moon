@@ -24,7 +24,7 @@ use std::{
 };
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use moonutil::common::BUILD_DIR;
+use moonutil::constants::BUILD_DIR;
 use tracing::{info, warn};
 
 /// Ephemeral struct to apply filters on file paths in a single run

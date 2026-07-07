@@ -26,10 +26,7 @@ use std::{
 use anyhow::Context;
 use serde::{Deserialize, Deserializer};
 
-use crate::{
-    common::{MOON_WORK, TargetBackend},
-    moon_pkg,
-};
+use crate::{constants::MOON_WORK, moon_pkg, target::TargetBackend};
 
 const PREFERRED_TARGET_DEPRECATION_WARNING: &str = "Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.";
 

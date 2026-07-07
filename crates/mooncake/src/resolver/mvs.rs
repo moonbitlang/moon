@@ -25,7 +25,7 @@ use std::{
 use anyhow::anyhow;
 use colored::Colorize;
 use moonutil::{
-    common::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
+    constants::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
     dependency::SourceDependencyInfo,
     module::MoonMod,
     mooncakes::{

@@ -21,7 +21,7 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use moonutil::common::TargetBackend;
+use moonutil::target::TargetBackend;
 
 use crate::build_lower::compiler::{
     CompiledPackageName, ErrorFormat, MOONC_DENY_WARNING_SET, MOONC_SUPPRESS_WARNING_SET,

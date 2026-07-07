@@ -18,9 +18,10 @@
 
 use anyhow::Context;
 use moonutil::{
-    common::{TargetBackend, TestIndexRange, lower_surface_targets},
+    build_options::TestIndexRange,
     dirs::{PackageDirs, ProjectManifest},
     mooncakes::sync::AutoSyncFlags,
+    target::{TargetBackend, lower_surface_targets},
 };
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
