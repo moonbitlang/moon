@@ -1799,7 +1799,6 @@ dependencies = [
  "nucleo-matcher",
  "petgraph",
  "pulldown-cmark",
- "regex",
  "schemars",
  "semver",
  "serde",

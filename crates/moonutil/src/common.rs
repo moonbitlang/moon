@@ -1652,9 +1652,7 @@ pub fn parse_front_matter_config(single_file_path: &Path) -> anyhow::Result<Opti
     let single_file_string = single_file_path.display().to_string();
     let front_matter_config: Option<MbtMdHeader> = if single_file_string.ends_with(DOT_MBT_DOT_MD) {
         let content = std::fs::read_to_string(single_file_path)?;
-        let pattern = regex::Regex::new(r"(?s)^---\s*\n((?:[^\n]+\n)*?)---\s*\n")?;
-        if let Some(cap) = pattern.captures(&content) {
-            let yaml_content = cap.get(1).unwrap().as_str();
+        if let Some(yaml_content) = markdown_front_matter_yaml(&content) {
             let config: MbtMdHeader = serde_yaml::from_str(yaml_content).map_err(|e| {
                 anyhow::anyhow!("Failed to parse front matter in markdown file: {}", e)
             })?;
@@ -1667,6 +1665,29 @@ pub fn parse_front_matter_config(single_file_path: &Path) -> anyhow::Result<Opti
         None
     };
     Ok(front_matter_config)
+}
+
+fn markdown_front_matter_yaml(content: &str) -> Option<&str> {
+    let content = content.strip_prefix("---")?;
+    let opening_marker_end = content.find('\n')?;
+    if !content[..opening_marker_end].trim().is_empty() {
+        return None;
+    }
+
+    let body = &content[opening_marker_end + 1..];
+    let mut line_start = 0;
+    while line_start < body.len() {
+        let line_end = line_start + body[line_start..].find('\n')?;
+        let line = &body[line_start..line_end];
+        if let Some(tail) = line.strip_prefix("---")
+            && tail.trim().is_empty()
+        {
+            return Some(&body[..line_start]);
+        }
+        line_start = line_end + 1;
+    }
+
+    None
 }
 
 /// Glob pattern matching supporting `*` (any sequence), `?` (any single character),
@@ -1701,4 +1722,47 @@ impl<'a> GlobPatternMatcher<'a> {
 /// Returns true if the text matches the pattern.
 pub fn glob_match(pattern: &str, text: &str) -> bool {
     GlobPatternMatcher::new(pattern).is_match(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::markdown_front_matter_yaml;
+
+    #[test]
+    fn extracts_markdown_front_matter_yaml() {
+        let content = "---\nmoonbit:\n  backend: js\n---\n# title\n";
+
+        assert_eq!(
+            markdown_front_matter_yaml(content),
+            Some("moonbit:\n  backend: js\n")
+        );
+    }
+
+    #[test]
+    fn extracts_markdown_front_matter_yaml_with_crlf() {
+        let content = "---\r\nmoonbit:\r\n  backend: js\r\n---\r\n# title\r\n";
+
+        assert_eq!(
+            markdown_front_matter_yaml(content),
+            Some("moonbit:\r\n  backend: js\r\n")
+        );
+    }
+
+    #[test]
+    fn ignores_markdown_without_front_matter() {
+        assert_eq!(markdown_front_matter_yaml("# title\n---\n"), None);
+    }
+
+    #[test]
+    fn ignores_unclosed_front_matter() {
+        assert_eq!(markdown_front_matter_yaml("---\nmoonbit:\n"), None);
+    }
+
+    #[test]
+    fn ignores_indented_closing_marker() {
+        assert_eq!(
+            markdown_front_matter_yaml("---\nmoonbit:\n  ---\n  backend: js\n"),
+            None
+        );
+    }
 }
