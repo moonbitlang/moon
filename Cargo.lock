@@ -1764,8 +1764,6 @@ dependencies = [
  "snapbox",
  "tempfile",
  "toml",
- "tracing",
- "tracing-subscriber",
  "v8",
  "vergen",
  "windows-sys 0.59.0",
