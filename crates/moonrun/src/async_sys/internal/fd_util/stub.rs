@@ -93,34 +93,32 @@ ported_fns! {
         if unsafe { libc::pipe(fds.as_mut_ptr()) } < 0 {
             return Err(last_native_error());
         }
-        for (fd, is_async) in [(fds[0], read_end_is_async), (fds[1], write_end_is_async)] {
-            if let Err(error) = set_cloexec(fd) {
-                unsafe {
-                    libc::close(fds[0]);
-                    libc::close(fds[1]);
-                }
-                return Err(error);
-            }
-            if is_async {
-                let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-                if flags < 0 {
-                    unsafe {
-                        libc::close(fds[0]);
-                        libc::close(fds[1]);
-                    }
-                    return Err(last_native_error());
-                }
-                if (flags & libc::O_NONBLOCK) == 0 {
-                    let ret = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
-                    if ret < 0 {
-                        unsafe {
-                            libc::close(fds[0]);
-                            libc::close(fds[1]);
-                        }
+
+        let setup_result = (|| {
+            for (fd, is_async) in [(fds[0], read_end_is_async), (fds[1], write_end_is_async)] {
+                set_cloexec(fd)?;
+                if is_async {
+                    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+                    if flags < 0 {
                         return Err(last_native_error());
                     }
+                    if (flags & libc::O_NONBLOCK) == 0 {
+                        let ret =
+                            unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+                        if ret < 0 {
+                            return Err(last_native_error());
+                        }
+                    }
                 }
             }
+            Ok(())
+        })();
+        if let Err(error) = setup_result {
+            unsafe {
+                libc::close(fds[0]);
+                libc::close(fds[1]);
+            }
+            return Err(error);
         }
         Ok(fds)
     }
