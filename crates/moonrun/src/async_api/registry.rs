@@ -427,11 +427,7 @@ declare_async_imports! {
         write_end_is_async: i32,
     ) -> i32 => "fd_util/pipe";
 
-    #[cfg(unix)]
-    ported fd_util::set_nonblocking(fd: u64) -> i32 => "fd_util/set_nonblocking/unix";
-
-    #[cfg(windows)]
-    fake fd_util::set_nonblocking(fd: u64) -> i32 => "fd_util/set_nonblocking/unix";
+    helper fd_util::set_nonblocking(fd: u64) -> i32 => "fd_util/set_nonblocking/unix";
 
     helper fd_util::set_cloexec(fd: u64) -> i32 => "fd_util/set_cloexec";
 

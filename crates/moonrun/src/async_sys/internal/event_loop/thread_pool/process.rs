@@ -620,7 +620,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn wait_for_unknown_process_reports_native_error() {
-        let err = run_wait_for_process_job(None, -1).unwrap_err();
+        let err = run_wait_for_process_job(None, i32::MAX).unwrap_err();
         assert!(matches!(err, AsyncHostError::Native(_)));
     }
 }

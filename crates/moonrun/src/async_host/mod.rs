@@ -2139,12 +2139,6 @@ impl AsyncHost {
         )
     }
 
-    #[cfg(unix)]
-    pub(crate) fn set_nonblocking(&self, handle: HostHandle) -> AsyncHostResult<()> {
-        let file = self.resource(handle)?;
-        crate::async_sys::internal::fd_util::stub::set_nonblocking(file.raw_fd())
-    }
-
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
         let file = self.resource(handle)?;
         crate::async_sys::internal::fd_util::stub::kind_of_fd(file.raw_fd())
@@ -3796,6 +3790,30 @@ mod tests {
 
         host.close_fd(read).unwrap();
         host.close_fd(write).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pipe_applies_async_flags_to_nonblocking_state() {
+        let host = AsyncHost::default();
+
+        for (read_is_async, write_is_async) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let [read, write] = host.pipe(read_is_async, write_is_async).unwrap();
+            let read_fd = host.resource(read).unwrap().raw_fd();
+            let write_fd = host.resource(write).unwrap().raw_fd();
+            let read_flags = unsafe { libc::fcntl(read_fd, libc::F_GETFL) };
+            let write_flags = unsafe { libc::fcntl(write_fd, libc::F_GETFL) };
+
+            assert!(read_flags >= 0);
+            assert!(write_flags >= 0);
+            assert_eq!((read_flags & libc::O_NONBLOCK) != 0, read_is_async);
+            assert_eq!((write_flags & libc::O_NONBLOCK) != 0, write_is_async);
+
+            host.close_fd(read).unwrap();
+            host.close_fd(write).unwrap();
+        }
     }
 
     #[test]

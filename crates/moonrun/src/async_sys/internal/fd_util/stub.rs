@@ -85,12 +85,15 @@ ported_fns! {
         original = "moonbitlang_async_pipe"
     )]
     #[cfg(unix)]
-    pub(crate) fn pipe() -> AsyncHostResult<[RawFd; 2]> {
+    pub(crate) fn pipe(
+        read_end_is_async: bool,
+        write_end_is_async: bool,
+    ) -> AsyncHostResult<[RawFd; 2]> {
         let mut fds = [0, 0];
         if unsafe { libc::pipe(fds.as_mut_ptr()) } < 0 {
             return Err(last_native_error());
         }
-        for fd in fds {
+        for (fd, is_async) in [(fds[0], read_end_is_async), (fds[1], write_end_is_async)] {
             if let Err(error) = set_cloexec(fd) {
                 unsafe {
                     libc::close(fds[0]);
@@ -98,27 +101,28 @@ ported_fns! {
                 }
                 return Err(error);
             }
-        }
-        Ok(fds)
-    }
-
-    #[ported(
-        source = "src/internal/fd_util/stub.c",
-        original = "moonbitlang_async_set_nonblocking"
-    )]
-    #[cfg(unix)]
-    pub(crate) fn set_nonblocking(fd: RawFd) -> AsyncHostResult<()> {
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        if flags < 0 {
-            return Err(last_native_error());
-        }
-        if (flags & libc::O_NONBLOCK) == 0 {
-            let ret = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
-            if ret < 0 {
-                return Err(last_native_error());
+            if is_async {
+                let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+                if flags < 0 {
+                    unsafe {
+                        libc::close(fds[0]);
+                        libc::close(fds[1]);
+                    }
+                    return Err(last_native_error());
+                }
+                if (flags & libc::O_NONBLOCK) == 0 {
+                    let ret = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+                    if ret < 0 {
+                        unsafe {
+                            libc::close(fds[0]);
+                            libc::close(fds[1]);
+                        }
+                        return Err(last_native_error());
+                    }
+                }
             }
         }
-        Ok(())
+        Ok(fds)
     }
 
     #[ported(
@@ -429,8 +433,7 @@ pub(crate) fn pipe_resources(
 ) -> AsyncHostResult<[HostHandle; 2]> {
     #[cfg(unix)]
     {
-        let _ = (read_end_is_async, write_end_is_async);
-        let fds = pipe()?;
+        let fds = pipe(read_end_is_async, write_end_is_async)?;
         let read = resources.insert_file(fds[0])?;
         let write = resources.insert_file(fds[1])?;
         Ok([read, write])
