@@ -21,7 +21,11 @@
 use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
 
 use log::{debug, info};
-use moonutil::{build_options::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel};
+use moonutil::{
+    build_options::RunMode,
+    compiler_flags::{CompilerPaths, Toolchain},
+    cond_expr::OptLevel,
+};
 use n2::graph::Graph as N2Graph;
 use tracing::instrument;
 
@@ -250,7 +254,7 @@ pub struct LoweringResult {
 /// time. Other shell features should be disallowed. The result will then be
 /// handled like `Args` native to the platform.
 #[derive(Debug, Clone)]
-enum Commandline {
+enum CommandlineKind {
     /// This commandline will be joined using the platform's default convention.
     Args(Vec<String>),
 
@@ -262,21 +266,65 @@ enum Commandline {
     Verbatim(String),
 }
 
+#[derive(Debug, Clone)]
+struct Commandline {
+    kind: CommandlineKind,
+    cwd: Option<PathBuf>,
+    env: Vec<(String, String)>,
+}
+
 impl From<Vec<String>> for Commandline {
     fn from(v: Vec<String>) -> Self {
-        Commandline::Args(v)
+        Commandline {
+            kind: CommandlineKind::Args(v),
+            cwd: None,
+            env: Vec::new(),
+        }
     }
 }
 
 impl Commandline {
+    fn verbatim(s: String) -> Self {
+        Self {
+            kind: CommandlineKind::Verbatim(s),
+            cwd: None,
+            env: Vec::new(),
+        }
+    }
+
     /// Convert this to the string representation expected by n2.
     fn to_n2_string(&self) -> String {
-        match self {
-            Commandline::Args(args) => {
+        match &self.kind {
+            CommandlineKind::Args(args) => {
                 moonutil::shlex::join_native(args.iter().map(|x| x.as_str()))
             }
-            Commandline::Verbatim(s) => s.clone(),
+            CommandlineKind::Verbatim(s) => s.clone(),
         }
+    }
+
+    fn args(&self) -> Option<&Vec<String>> {
+        match &self.kind {
+            CommandlineKind::Args(args) => Some(args),
+            CommandlineKind::Verbatim(_) => None,
+        }
+    }
+
+    fn cwd(&self) -> Option<&PathBuf> {
+        self.cwd.as_ref()
+    }
+
+    fn env(&self) -> &[(String, String)] {
+        &self.env
+    }
+
+    fn with_cwd(mut self, cwd: PathBuf) -> Self {
+        self.cwd = Some(cwd);
+        self
+    }
+
+    fn with_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.env.extend(env);
+        self
     }
 }
 
@@ -289,6 +337,22 @@ struct BuildCommand {
 
     /// The command to execute.
     commandline: Commandline,
+}
+
+impl BuildCommand {
+    fn with_cwd(mut self, cwd: PathBuf) -> Self {
+        self.commandline = self.commandline.with_cwd(cwd);
+        self
+    }
+
+    fn with_env(mut self, env: Vec<(String, String)>) -> Self {
+        self.commandline = self.commandline.with_env(env);
+        self
+    }
+
+    fn with_msvc_env(self, toolchain: &Toolchain) -> Self {
+        self.with_env(compiler::msvc::command_env(toolchain))
+    }
 }
 
 /// Lowers a normalized action plan into an n2 [Build Graph](n2::graph::Graph).
@@ -477,9 +541,11 @@ mod tests {
             is_env_override: false,
         })
         .with_msvc_environment(MsvcEnvironment {
-            cl_exe: PathBuf::from("cl.exe"),
-            include_paths: vec![PathBuf::from("crt/include"), PathBuf::from("sdk/include")],
-            lib_paths: vec![PathBuf::from("crt/lib"), PathBuf::from("sdk/lib")],
+            cl_exe: PathBuf::from("msvc/bin/cl.exe"),
+            command_env: vec![
+                ("INCLUDE".to_string(), "crt/include;sdk/include".to_string()),
+                ("LIB".to_string(), "crt/lib;sdk/lib".to_string()),
+            ],
         })
     }
 
@@ -652,10 +718,8 @@ mod tests {
             .get(&exe_path)
             .expect("executable command args should be captured");
 
-        assert!(command.iter().any(|arg| arg == "cl.exe"));
+        assert!(command.iter().any(|arg| arg == "msvc/bin/cl.exe"));
         assert!(command.iter().any(|arg| arg == "/subsystem:console"));
-        assert!(command.iter().any(|arg| arg == "/LIBPATH:crt/lib"));
-        assert!(command.iter().any(|arg| arg == "/LIBPATH:sdk/lib"));
         assert!(command.iter().any(|arg| arg == "/LIBPATH:pkg/lib"));
         assert!(command.iter().any(|arg| arg == "dep.lib"));
         assert!(command.iter().any(|arg| arg == "libcmt.lib"));
@@ -674,6 +738,19 @@ mod tests {
             stub_compile_command
                 .iter()
                 .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
+        );
+
+        let msvc_env_build = lowered
+            .build_graph
+            .builds
+            .iter()
+            .find(|build| build.env.iter().any(|(key, _)| key == "INCLUDE"))
+            .expect("MSVC build should carry command environment");
+        assert!(
+            msvc_env_build
+                .env
+                .iter()
+                .any(|(key, value)| key == "LIB" && value == "crt/lib;sdk/lib")
         );
     }
 }

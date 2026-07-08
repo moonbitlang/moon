@@ -20,14 +20,13 @@ use crate::moon_dir::MOON_DIRS;
 use anyhow::Context;
 use colored::Colorize;
 use derive_builder::Builder;
-#[cfg(any(windows, test))]
-use std::ffi::OsString;
+#[cfg(windows)]
+use std::sync::OnceLock;
 use std::{
     env,
     ffi::OsStr,
     path::{Path, PathBuf},
     process::Command,
-    sync::OnceLock,
 };
 
 const ENV_MOON_CC: &str = "MOON_CC";
@@ -35,7 +34,7 @@ const ENV_MOON_AR: &str = "MOON_AR";
 
 #[derive(Copy, Clone, Debug)]
 pub enum CCKind {
-    Msvc,     // cl.exe
+    Msvc,     // cl-compatible driver, such as cl.exe or clang-cl.exe
     SystemCC, // cc
     Gcc,      // gcc
     Clang,    // clang
@@ -77,8 +76,13 @@ pub struct Toolchain {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MsvcEnvironment {
     pub cl_exe: PathBuf,
-    pub include_paths: Vec<PathBuf>,
-    pub lib_paths: Vec<PathBuf>,
+    pub command_env: Vec<(String, String)>,
+}
+
+impl MsvcEnvironment {
+    pub fn command_env(&self) -> &[(String, String)] {
+        &self.command_env
+    }
 }
 
 /// MSVC CRT policy shared by runtime, C stubs, and final linking.
@@ -176,6 +180,16 @@ impl Toolchain {
         self.msvc_environment.as_ref()
     }
 
+    pub fn cc_command_path(&self) -> String {
+        if self.cc.is_msvc()
+            && let Some(environment) = self.msvc_environment()
+        {
+            return environment.cl_exe.display().to_string();
+        }
+
+        self.cc.cc_path.clone()
+    }
+
     pub fn with_package_override(&self, package_cc: Option<&CC>) -> Toolchain {
         match (self.source, package_cc) {
             (ToolchainSource::EnvOverride, Some(_)) => {
@@ -219,69 +233,55 @@ pub const WINDOWS_MSVC_DEFAULT_LIBS: &[&str] = &[
 ];
 pub const WINDOWS_MSVC_STATIC_RUNTIME_FLAG: &str = "/MT";
 
+#[cfg(windows)]
 static WINDOWS_MSVC_ENVIRONMENT: OnceLock<Option<MsvcEnvironment>> = OnceLock::new();
 
-#[cfg(any(windows, test))]
-fn get_env_value<'a>(env: &'a [(OsString, OsString)], name: &str) -> Option<&'a OsStr> {
-    env.iter()
-        .find(|(key, _)| key.to_string_lossy().eq_ignore_ascii_case(name))
-        .map(|(_, value)| value.as_os_str())
-}
-
-#[cfg(any(windows, test))]
-fn msvc_environment_from_env_pairs(
-    cl_exe: PathBuf,
-    env: &[(OsString, OsString)],
-) -> Option<MsvcEnvironment> {
-    let include = get_env_value(env, "INCLUDE")?;
-    let lib = get_env_value(env, "LIB")?;
-    let include_paths = env::split_paths(include)
-        .filter(|path| !path.as_os_str().is_empty())
-        .collect::<Vec<_>>();
-    let lib_paths = env::split_paths(lib)
-        .filter(|path| !path.as_os_str().is_empty())
-        .collect::<Vec<_>>();
-    Some(MsvcEnvironment {
-        cl_exe,
-        include_paths,
-        lib_paths,
-    })
-}
-
-#[cfg(any(windows, test))]
-fn msvc_environment_from_tool_env_or_current_env(
-    cl_exe: PathBuf,
-    tool_env: &[(OsString, OsString)],
-    current_env: &[(OsString, OsString)],
-) -> Option<MsvcEnvironment> {
-    msvc_environment_from_env_pairs(cl_exe.clone(), tool_env)
-        .or_else(|| msvc_environment_from_env_pairs(cl_exe, current_env))
+#[cfg(windows)]
+fn windows_msvc_host_target_triple() -> Option<String> {
+    let arch = env::consts::ARCH;
+    match arch {
+        "x86_64" | "aarch64" => Some(format!("{arch}-pc-windows-msvc")),
+        _ => None,
+    }
 }
 
 #[cfg(windows)]
-fn find_windows_msvc_environment() -> Option<MsvcEnvironment> {
-    let tool = find_msvc_tools::find_tool("x86_64-pc-windows-msvc", "cl.exe")?;
-    let env = tool.env().into_iter().cloned().collect::<Vec<_>>();
-    let current_env = env::vars_os().collect::<Vec<_>>();
-    msvc_environment_from_tool_env_or_current_env(tool.path().to_path_buf(), &env, &current_env)
-}
-
-#[cfg(not(windows))]
-fn find_windows_msvc_environment() -> Option<MsvcEnvironment> {
-    None
+fn find_windows_msvc_environment(target: &str) -> Option<MsvcEnvironment> {
+    let tool = find_msvc_tools::find_tool(target, "cl.exe")
+        .or_else(|| find_msvc_tools::find_tool(target, "clang-cl.exe"))?;
+    Some(MsvcEnvironment {
+        cl_exe: tool.path().to_path_buf(),
+        command_env: tool
+            .env()
+            .into_iter()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.to_string_lossy().into_owned(),
+                )
+            })
+            .collect(),
+    })
 }
 
 pub fn resolve_windows_msvc_environment() -> anyhow::Result<MsvcEnvironment> {
-    if !cfg!(windows) {
-        anyhow::bail!("Windows MSVC environment resolution is only supported on Windows");
+    #[cfg(not(windows))]
+    {
+        anyhow::bail!("Windows MSVC environment resolution is only supported on Windows")
     }
 
-    WINDOWS_MSVC_ENVIRONMENT
-        .get_or_init(find_windows_msvc_environment)
-        .clone()
-        .with_context(
-            || "Windows native backend requires MSVC Build Tools with C++ tools and Windows SDK",
-        )
+    #[cfg(windows)]
+    {
+        let target = windows_msvc_host_target_triple()
+            .context("Windows MSVC discovery currently supports 64-bit x64 and ARM64 hosts")?;
+
+        WINDOWS_MSVC_ENVIRONMENT
+            .get_or_init(|| find_windows_msvc_environment(&target))
+            .clone()
+            .with_context(|| {
+                "Windows native backend requires MSVC Build Tools with C++ tools and Windows SDK"
+            })
+    }
 }
 
 fn attach_msvc_environment_if_available(toolchain: Toolchain) -> Toolchain {
@@ -291,11 +291,10 @@ fn attach_msvc_environment_if_available(toolchain: Toolchain) -> Toolchain {
 
     match resolve_windows_msvc_environment() {
         Ok(environment) => {
-            let cl_exe = PathBuf::from(&toolchain.cc().cc_path);
+            let cl_exe = msvc_driver_path_for_toolchain(toolchain.cc(), &environment);
             toolchain.with_msvc_environment(MsvcEnvironment {
                 cl_exe,
-                include_paths: environment.include_paths,
-                lib_paths: environment.lib_paths,
+                command_env: environment.command_env,
             })
         }
         Err(_) => toolchain,
@@ -350,15 +349,26 @@ fn windows_msvc_toolchain_with_package_override(
     if toolchain.source() == ToolchainSource::PackageOverride
         && let Some(environment) = resolved.msvc_environment()
     {
-        let cl_exe = PathBuf::from(&toolchain.cc().cc_path);
+        let cl_exe = msvc_driver_path_for_toolchain(toolchain.cc(), environment);
         toolchain = toolchain.with_msvc_environment(MsvcEnvironment {
             cl_exe,
-            include_paths: environment.include_paths.clone(),
-            lib_paths: environment.lib_paths.clone(),
+            command_env: environment.command_env.clone(),
         });
     }
 
     Ok(toolchain)
+}
+
+fn msvc_driver_path_for_toolchain(cc: &CC, environment: &MsvcEnvironment) -> PathBuf {
+    let cc_path = Path::new(&cc.cc_path);
+    let has_parent = cc_path
+        .parent()
+        .is_some_and(|parent| !parent.as_os_str().is_empty());
+    if cc_path.is_absolute() || has_parent {
+        cc_path.to_path_buf()
+    } else {
+        environment.cl_exe.clone()
+    }
 }
 
 impl CC {
@@ -758,12 +768,23 @@ pub fn has_cc_env_override() -> bool {
     env::var_os(ENV_MOON_CC).is_some()
 }
 
+fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
+    #[cfg(windows)]
+    {
+        if let Ok(toolchain) = resolve_windows_msvc_toolchain() {
+            return Ok(toolchain);
+        }
+    }
+
+    try_system_cc().map(Toolchain::from_path_probe)
+}
+
 pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::Result<Toolchain> {
     if let Some(env_cc) = ENV_CC.as_ref() {
         return Ok(Toolchain::from_env_override(env_cc.clone()));
     }
-    match try_system_cc() {
-        Ok(cc) => Ok(Toolchain::from_path_probe(cc)),
+    match detected_default_native_toolchain() {
+        Ok(toolchain) => Ok(toolchain),
         Err(err) => match internal_tcc_fallback {
             Some(internal_tcc) => Ok(Toolchain::from_path_probe(internal_tcc.clone())),
             None => Err(err),
@@ -1239,18 +1260,6 @@ fn add_cc_include_and_lib_paths(cc: &CC, buf: &mut Vec<String>, ipath: &str, lpa
     }
 }
 
-fn add_cc_msvc_environment_include_paths(toolchain: Option<&Toolchain>, buf: &mut Vec<String>) {
-    let Some(environment) = toolchain.and_then(Toolchain::msvc_environment) else {
-        return;
-    };
-    buf.extend(
-        environment
-            .include_paths
-            .iter()
-            .map(|path| format!("/I{}", path.display())),
-    );
-}
-
 fn add_cc_intermediate_dir_flags(
     cc: &CC,
     buf: &mut Vec<String>,
@@ -1609,7 +1618,11 @@ where
     S: AsRef<str>,
     L: AsRef<str>,
 {
-    let mut buf = vec![cc.cc_path.clone()];
+    let mut buf = vec![
+        toolchain
+            .map(Toolchain::cc_command_path)
+            .unwrap_or_else(|| cc.cc_path.clone()),
+    ];
 
     // If user C flags are set, we only set necessary flags
     // that are tightly coupled with the paths and output types
@@ -1619,7 +1632,6 @@ where
 
     add_cc_output_flags(&cc, &mut buf, &config, dest);
     add_cc_include_and_lib_paths(&cc, &mut buf, &paths.include_path, &paths.lib_path);
-    add_cc_msvc_environment_include_paths(toolchain, &mut buf);
     add_cc_intermediate_dir_flags(&cc, &mut buf, &config, intermediate_dir);
     add_cc_debug_flags(&cc, &mut buf, &config);
     add_cc_shared_lib_flags(&cc, &mut buf, &config);
@@ -1699,6 +1711,23 @@ mod tests {
         assert!(!fake_cc(CCKind::Gcc, None).targets_msvc());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_msvc_host_target_triple_matches_supported_64_bit_arch() {
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(
+            windows_msvc_host_target_triple().as_deref(),
+            Some("x86_64-pc-windows-msvc")
+        );
+        #[cfg(target_arch = "aarch64")]
+        assert_eq!(
+            windows_msvc_host_target_triple().as_deref(),
+            Some("aarch64-pc-windows-msvc")
+        );
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        assert_eq!(windows_msvc_host_target_triple(), None);
+    }
+
     #[test]
     fn windows_msvc_compatibility_rejects_gnu_toolchains() {
         assert!(ensure_windows_msvc_compatible(&fake_cc(CCKind::Msvc, None)).is_ok());
@@ -1756,8 +1785,7 @@ mod tests {
         let resolved =
             Toolchain::from_env_override(env_cc).with_msvc_environment(MsvcEnvironment {
                 cl_exe: PathBuf::from("env-cl.exe"),
-                include_paths: vec![PathBuf::from("env/include")],
-                lib_paths: vec![PathBuf::from("env/lib")],
+                command_env: vec![("INCLUDE".to_string(), "env/include".to_string())],
             });
         let mut package_cc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));
         package_cc.cc_path = "clang.exe".to_string();
@@ -1771,9 +1799,33 @@ mod tests {
             toolchain
                 .msvc_environment()
                 .expect("env toolchain keeps MSVC environment")
-                .lib_paths,
-            vec![PathBuf::from("env/lib")]
+                .command_env(),
+            &[("INCLUDE".to_string(), "env/include".to_string())]
         );
+    }
+
+    #[test]
+    fn bare_windows_msvc_package_override_uses_discovered_driver_path() {
+        let mut discovered_cc = fake_cc(CCKind::Msvc, None);
+        discovered_cc.cc_path = "msvc/bin/cl.exe".to_string();
+        discovered_cc.ar_kind = ARKind::MsvcLib;
+        discovered_cc.ar_path = "msvc/bin/lib.exe".to_string();
+        let resolved =
+            Toolchain::from_path_probe(discovered_cc).with_msvc_environment(MsvcEnvironment {
+                cl_exe: PathBuf::from("msvc/bin/cl.exe"),
+                command_env: vec![("PATH".to_string(), "msvc/bin".to_string())],
+            });
+        let mut package_cc = fake_cc(CCKind::Msvc, None);
+        package_cc.cc_path = "cl.exe".to_string();
+        package_cc.ar_kind = ARKind::MsvcLib;
+        package_cc.ar_path = "lib.exe".to_string();
+
+        let toolchain = windows_msvc_toolchain_with_package_override(resolved, Some(&package_cc))
+            .expect("bare cl.exe package override should remain MSVC-compatible");
+
+        assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
+        assert_eq!(toolchain.cc().cc_path, "cl.exe");
+        assert_eq!(toolchain.cc_command_path(), "msvc/bin/cl.exe");
     }
 
     #[test]
@@ -1814,76 +1866,6 @@ mod tests {
             .position(|arg| arg == WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
             .expect("test command should force static runtime flag");
         assert!(mt_position > md_position);
-    }
-
-    #[test]
-    fn msvc_environment_uses_find_msvc_tools_env_pairs_case_insensitively() {
-        let include_paths = vec![PathBuf::from("crt/include"), PathBuf::from("sdk/include")];
-        let lib_paths = vec![PathBuf::from("crt/lib"), PathBuf::from("sdk/lib")];
-        let env = vec![
-            (OsString::from("Path"), OsString::from("C:\\Windows")),
-            (
-                OsString::from("include"),
-                env::join_paths(&include_paths).unwrap(),
-            ),
-            (OsString::from("LIB"), env::join_paths(&lib_paths).unwrap()),
-        ];
-        let environment = msvc_environment_from_env_pairs(PathBuf::from("cl.exe"), &env);
-
-        let environment = environment.expect("find-msvc-tools env pairs should parse");
-        assert_eq!(environment.cl_exe, PathBuf::from("cl.exe"));
-        assert_eq!(environment.include_paths, include_paths);
-        assert_eq!(environment.lib_paths, lib_paths);
-    }
-
-    #[test]
-    fn msvc_environment_ignores_empty_include_and_lib_paths() {
-        #[cfg(windows)]
-        const PATH_LIST_SEPARATOR: &str = ";";
-        #[cfg(not(windows))]
-        const PATH_LIST_SEPARATOR: &str = ":";
-
-        let include_paths = vec![PathBuf::from("crt/include"), PathBuf::from("sdk/include")];
-        let lib_paths = vec![PathBuf::from("crt/lib"), PathBuf::from("sdk/lib")];
-        let mut include = env::join_paths(&include_paths).unwrap();
-        include.push(PATH_LIST_SEPARATOR);
-        let mut lib = env::join_paths(&lib_paths).unwrap();
-        lib.push(PATH_LIST_SEPARATOR);
-        let env = vec![
-            (OsString::from("INCLUDE"), include),
-            (OsString::from("LIB"), lib),
-        ];
-
-        let environment = msvc_environment_from_env_pairs(PathBuf::from("cl.exe"), &env)
-            .expect("MSVC environment with trailing separators should parse");
-
-        assert_eq!(environment.include_paths, include_paths);
-        assert_eq!(environment.lib_paths, lib_paths);
-    }
-
-    #[test]
-    fn msvc_environment_falls_back_to_current_env_when_tool_env_is_empty() {
-        let include_paths = vec![PathBuf::from("current/include")];
-        let lib_paths = vec![PathBuf::from("current/lib")];
-        let tool_env = vec![];
-        let current_env = vec![
-            (
-                OsString::from("INCLUDE"),
-                env::join_paths(&include_paths).unwrap(),
-            ),
-            (OsString::from("LIB"), env::join_paths(&lib_paths).unwrap()),
-        ];
-
-        let environment = msvc_environment_from_tool_env_or_current_env(
-            PathBuf::from("cl.exe"),
-            &tool_env,
-            &current_env,
-        )
-        .expect("current MSVC environment should parse when find-msvc-tools env is empty");
-
-        assert_eq!(environment.cl_exe, PathBuf::from("cl.exe"));
-        assert_eq!(environment.include_paths, include_paths);
-        assert_eq!(environment.lib_paths, lib_paths);
     }
 
     #[test]
@@ -2222,6 +2204,12 @@ mod tests {
     fn try_from_path_recognizes_clang_exe() {
         let cc = CC::try_from_path("C:/llvm/bin/clang.exe").expect("parse clang.exe");
         assert!(matches!(cc.cc_kind, CCKind::Clang));
+    }
+
+    #[test]
+    fn try_from_path_recognizes_clang_cl_exe_as_msvc() {
+        let cc = CC::try_from_path("C:/llvm/bin/clang-cl.exe").expect("parse clang-cl.exe");
+        assert!(matches!(cc.cc_kind, CCKind::Msvc));
     }
 
     fn normalize_path_separators(path: &str) -> String {

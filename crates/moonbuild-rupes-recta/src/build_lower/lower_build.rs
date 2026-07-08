@@ -65,7 +65,7 @@ fn commandline_with_dsymutil(cmd: &[String], dest: &str) -> Commandline {
     let cmd_str = moonutil::shlex::join_unix(cmd.iter().map(|x| x.as_str()));
     let dsymutil_args = ["dsymutil", dest];
     let dsymutil_cmd_str = moonutil::shlex::join_unix(dsymutil_args.iter().copied());
-    Commandline::Verbatim(format!("{cmd_str} && {dsymutil_cmd_str}"))
+    Commandline::verbatim(format!("{cmd_str} && {dsymutil_cmd_str}"))
 }
 
 fn should_run_new_native_dsymutil(
@@ -940,6 +940,7 @@ impl<'a> LoweringContext<'a> {
             commandline: cc_cmd.into(),
             extra_inputs: vec![input_file.clone()],
         }
+        .with_msvc_env(&info.effective_native_toolchain)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -1008,6 +1009,7 @@ impl<'a> LoweringContext<'a> {
             extra_inputs: vec![],
             commandline: archiver_cmd.into(),
         }
+        .with_msvc_env(&info.effective_native_toolchain)
     }
 
     fn lower_link_c_stubs(
@@ -1064,6 +1066,7 @@ impl<'a> LoweringContext<'a> {
             extra_inputs: vec![],
             commandline: cc_cmd.into(),
         }
+        .with_msvc_env(&info.effective_native_toolchain)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -1228,6 +1231,7 @@ impl<'a> LoweringContext<'a> {
             extra_inputs: simdutf_objects,
             commandline,
         }
+        .with_msvc_env(&info.effective_native_toolchain)
     }
 
     fn lower_link_new_native_exe(
@@ -1309,6 +1313,7 @@ impl<'a> LoweringContext<'a> {
             extra_inputs: simdutf_objects,
             commandline,
         }
+        .with_msvc_env(&info.effective_native_toolchain)
     }
 
     /// Build the command for `tcc -run` to execute when running, as well as

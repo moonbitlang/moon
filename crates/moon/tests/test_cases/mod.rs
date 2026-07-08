@@ -139,7 +139,8 @@ fn test_moon_pkg() {
     check(
         get_stdout(&dir, ["check", "--dry-run"]),
         expect![[r#"
-            moon tool exec --cwd . --shell 'cat ./pkg/pkg.mbt > ./pkg/gen.txt'
+            moon tool exec --shell 'cat ./pkg/pkg.mbt > ./pkg/gen.txt'
+              cwd: .
             moonc check ./pkg/pkg.mbt -w -unused_value-todo -o ./_build/wasm-gc/debug/check/pkg/pkg.mi -pkg user/mod/pkg -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources user/mod/pkg:./pkg -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check ./pkg/pkg_test.mbt -doctest-only ./pkg/pkg.mbt -include-doctests -w -unused_value-todo -o ./_build/wasm-gc/debug/check/pkg/pkg.blackbox_test.mi -pkg user/mod/pkg_blackbox_test -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/pkg/pkg.mi:pkg -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources user/mod/pkg_blackbox_test:./pkg -target wasm-gc -blackbox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check ./main/main.mbt -o ./_build/wasm-gc/debug/check/main/main.mi -pkg user/mod/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/pkg/pkg.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources user/mod/main:./main -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
@@ -149,7 +150,8 @@ fn test_moon_pkg() {
     check(
         get_stdout(&dir, ["build", "--dry-run"]),
         expect![[r#"
-            moon tool exec --cwd . --shell 'cat ./pkg/pkg.mbt > ./pkg/gen.txt'
+            moon tool exec --shell 'cat ./pkg/pkg.mbt > ./pkg/gen.txt'
+              cwd: .
             moonc build-package ./pkg/pkg.mbt -w -unused_value-todo -o ./_build/wasm-gc/debug/build/pkg/pkg.core -pkg user/mod/pkg -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources user/mod/pkg:./pkg -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/pkg/pkg.core -main user/mod/pkg -o ./_build/wasm-gc/debug/build/pkg/pkg.wasm -pkg-config-path ./pkg/moon.pkg -pkg-sources user/mod/pkg:./pkg -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg user/mod/main -is-main -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/pkg/pkg.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources user/mod/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json

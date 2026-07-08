@@ -47,9 +47,19 @@ pub fn print_build_commands(
         let builds: Vec<BuildId> = stable_toposort_graph(graph, &sorted_default);
         for b in builds.iter() {
             let build = &graph.builds[*b];
-            if let Some(cmdline) = &build.cmdline {
-                let res = replacer.normalize_command(cmdline);
-                println!("{}", res);
+            if let Some(cmdline) = build.cmdline.as_ref() {
+                println!("{}", replacer.normalize_command(cmdline));
+            }
+            if let Some(cwd) = build.cwd.as_deref().map(Path::new) {
+                let resolved_cwd = if cwd.is_absolute() {
+                    cwd.to_path_buf()
+                } else {
+                    source_dir.join(cwd)
+                };
+                println!("  cwd: {}", replacer.normalize_context_path(&resolved_cwd));
+            }
+            if !build.env.is_empty() {
+                println!("  env: <set by MSVC discovery for cl.exe>");
             }
         }
     }
@@ -152,6 +162,11 @@ impl PathNormalizer {
         path = self.normalize_binary_file_name(path);
 
         path
+    }
+
+    pub fn normalize_context_path(&self, path: &Path) -> String {
+        let normalized_path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        self.normalize_path(&normalized_path.to_string_lossy())
     }
 
     fn normalize_binary_file_name(&self, s: String) -> String {
@@ -440,5 +455,16 @@ mod tests {
             replacer.normalize_path("/tmp/toolchain/bin/moonc"),
             "$MOON_TOOLCHAIN_ROOT/bin/moonc"
         );
+    }
+
+    #[test]
+    fn normalizes_context_path_relative_to_source_dir() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let cwd = source_dir.path().join("pkg");
+        std::fs::create_dir(&cwd).unwrap();
+
+        let replacer = PathNormalizer::new(source_dir.path());
+        assert_eq!(replacer.normalize_context_path(&cwd), "./pkg");
+        assert_eq!(replacer.normalize_context_path(source_dir.path()), ".");
     }
 }
