@@ -94,31 +94,15 @@ ported_fns! {
             return Err(last_native_error());
         }
 
-        let setup_result = (|| {
-            for (fd, is_async) in [(fds[0], read_end_is_async), (fds[1], write_end_is_async)] {
-                set_cloexec(fd)?;
-                if is_async {
-                    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-                    if flags < 0 {
-                        return Err(last_native_error());
-                    }
-                    if (flags & libc::O_NONBLOCK) == 0 {
-                        let ret =
-                            unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
-                        if ret < 0 {
-                            return Err(last_native_error());
-                        }
+        for (fd, is_async) in [(fds[0], read_end_is_async), (fds[1], write_end_is_async)] {
+            if let Err(error) = setup_pipe_fd(fd, is_async) {
+                for fd in fds {
+                    unsafe {
+                        libc::close(fd);
                     }
                 }
+                return Err(error);
             }
-            Ok(())
-        })();
-        if let Err(error) = setup_result {
-            unsafe {
-                libc::close(fds[0]);
-                libc::close(fds[1]);
-            }
-            return Err(error);
         }
         Ok(fds)
     }
@@ -365,6 +349,30 @@ pub(crate) fn set_cloexec(fd: RawFd) -> AsyncHostResult<()> {
     }
     if (flags & libc::FD_CLOEXEC) == 0 {
         let ret = unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
+        if ret < 0 {
+            return Err(last_native_error());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn setup_pipe_fd(fd: RawFd, is_async: bool) -> AsyncHostResult<()> {
+    set_cloexec(fd)?;
+    if is_async {
+        set_nonblocking(fd)?;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_nonblocking(fd: RawFd) -> AsyncHostResult<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(last_native_error());
+    }
+    if (flags & libc::O_NONBLOCK) == 0 {
+        let ret = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
         if ret < 0 {
             return Err(last_native_error());
         }
