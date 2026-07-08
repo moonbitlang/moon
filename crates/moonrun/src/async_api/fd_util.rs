@@ -111,16 +111,9 @@ pub(super) fn pipe(
     }
 }
 
-#[ported(source = "src/internal/fd_util/stub.c")]
-#[cfg(unix)]
-pub(super) fn set_nonblocking(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
-    match context.host.set_nonblocking(fd) {
-        Ok(()) => 0,
-        Err(error) => {
-            context.host.record_error(error);
-            -1
-        }
-    }
+// Deprecated. We'll remove it later.
+pub(super) fn set_nonblocking(_context: &mut ImportContext<'_, '_>, _fd: u64) -> i32 {
+    0
 }
 
 pub(super) fn set_cloexec(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
