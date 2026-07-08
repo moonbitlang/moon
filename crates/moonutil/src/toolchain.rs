@@ -23,9 +23,9 @@
 //! artifacts, and resolved tool executable paths. Project-local build layout
 //! should live outside this module.
 
-pub use crate::BINARIES;
-pub use crate::binaries::CachedBinaries;
+pub use crate::binaries::{BINARIES, CachedBinaries};
 pub use crate::moon_dir::{
-    MOON_DIRS, MoonDirs, abort_core_in, abort_mi_in, bin, core, core_bundle, core_bundle_in,
-    core_core, core_core_in, core_package_mi_in, include, is_toolchain_root, lib, toolchain_root,
+    MOON_DIRS, MoonDirs, RESERVED_BIN_NAMES, abort_core_in, abort_mi_in, bin, core, core_bundle,
+    core_bundle_in, core_core, core_core_in, core_package_mi_in, home, include, is_toolchain_root,
+    lib, toolchain_root, user_bin,
 };

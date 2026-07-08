@@ -25,7 +25,7 @@ use anyhow::{Context, bail};
 use moonutil::error_code_docs::{
     get_all_attribute_docs, get_all_error_code_docs, get_error_code_doc,
 };
-use moonutil::{BINARIES, cli::UniversalFlags};
+use moonutil::{cli_support::UniversalFlags, toolchain::BINARIES};
 
 /// Explain compiler diagnostics and language topics.
 #[derive(Debug, clap::Parser)]

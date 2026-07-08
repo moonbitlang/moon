@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 
 use anyhow::bail;
-use moonutil::dirs::{PackageDirs, WorkRootSelection};
+use moonutil::project::{PackageDirs, WorkRootSelection};
 
 use super::UniversalFlags;
 

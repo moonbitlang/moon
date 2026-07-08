@@ -26,10 +26,7 @@ use super::sync::SyncOutputOptions;
 use anyhow::Context;
 use moonutil::{
     constants::MOONBITLANG_CORE,
-    mooncakes::{
-        DirSyncResult,
-        result::{DependencyKind, ResolvedEnv, ResolvedRootModules},
-    },
+    resolution::{DependencyKind, DirSyncResult, ResolvedEnv, ResolvedRootModules},
 };
 use std::path::{Path, PathBuf};
 
@@ -129,7 +126,7 @@ fn install_bin_deps(
         let Some(bin_deps) = res.module_info(main_module).bin_deps.as_ref() else {
             continue;
         };
-        let moon_path = moonutil::BINARIES.moonbuild.to_string_lossy();
+        let moon_path = moonutil::toolchain::BINARIES.moonbuild.to_string_lossy();
 
         let bin_deps_iter = res
             .deps_keyed(main_module)

@@ -23,7 +23,7 @@ use anyhow::Context;
 use colored::Colorize;
 use moonutil::{
     git::{GitCommandError, Stdios},
-    mooncakes::RegistryConfig,
+    registry::RegistryConfig,
 };
 use reqwest::header::USER_AGENT;
 

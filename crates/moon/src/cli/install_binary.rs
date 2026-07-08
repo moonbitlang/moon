@@ -26,11 +26,12 @@ use moonbuild_rupes_recta::{
 use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
     build_options::RunMode,
-    cli::UniversalFlags,
+    cli_support::UniversalFlags,
     constants::{MOON_MOD, MOON_MOD_JSON},
-    dirs::PackageDirs,
     locks::FileLock,
-    mooncakes::{ModuleName, ModuleSourceKind, RegistryConfig},
+    project::PackageDirs,
+    registry::RegistryConfig,
+    resolution::{ModuleName, ModuleSourceKind},
     target::TargetBackend,
 };
 use semver::Version;
@@ -238,7 +239,7 @@ pub(super) fn install_binary(
     let quiet = cli.quiet;
     let output = UserDiagnostics::from_flags(cli);
 
-    let index_dir = moonutil::moon_dir::index();
+    let index_dir = moonutil::registry::index();
     let registry_config = RegistryConfig::load();
     let had_index = index_dir.exists();
 
@@ -362,7 +363,7 @@ pub(super) fn install_from_git(
     let clone_dir = tmp_dir.path();
 
     // Clone the repository
-    let mut clone_cmd = std::process::Command::new(moonutil::BINARIES.git_or_default());
+    let mut clone_cmd = std::process::Command::new(moonutil::toolchain::BINARIES.git_or_default());
     clone_cmd.arg("clone");
 
     match git_ref {
@@ -390,7 +391,7 @@ pub(super) fn install_from_git(
 
     // If rev specified, checkout to that commit
     if let GitRef::Rev(rev) = git_ref {
-        let status = std::process::Command::new(moonutil::BINARIES.git_or_default())
+        let status = std::process::Command::new(moonutil::toolchain::BINARIES.git_or_default())
             .current_dir(clone_dir)
             .args(["checkout", rev])
             .status()
@@ -560,7 +561,7 @@ fn build_and_install_packages(
     if cli.dry_run {
         let mut dry_run_count = 0;
         for pkg in &selected_packages {
-            if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
+            if moonutil::toolchain::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
                 output.error(format!(
                     "Cannot install `{}` - name conflicts with MoonBit toolchain binary",
                     pkg.binary_name
@@ -600,7 +601,7 @@ fn build_and_install_packages(
 
     for pkg in selected_packages {
         // Check if binary name would overwrite a reserved toolchain binary
-        if moonutil::moon_dir::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
+        if moonutil::toolchain::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
             output.error(format!(
                 "Cannot install `{}` - name conflicts with MoonBit toolchain binary",
                 pkg.binary_name
@@ -616,7 +617,7 @@ fn build_and_install_packages(
             ..BuildFlags::default()
         };
         let preconfig = preconfig_compile(
-            &moonutil::mooncakes::sync::AutoSyncFlags { frozen: false },
+            &moonutil::cli_support::AutoSyncFlags { frozen: false },
             cli,
             &build_flags,
             Some(TargetBackend::Native),

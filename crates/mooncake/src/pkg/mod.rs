@@ -20,14 +20,9 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
 use moonutil::{
-    dirs::ProjectManifest,
-    manifest::read_module_desc_file_in_dir,
-    module::MoonMod,
-    mooncakes::{
-        ModuleSource,
-        result::{ResolvedModule, ResolvedRootModules},
-    },
-    workspace::{canonical_workspace_module_dirs, read_workspace_file},
+    manifest::{MoonMod, read_module_desc_file_in_dir},
+    project::{ProjectManifest, canonical_workspace_module_dirs, read_workspace_file},
+    resolution::{ModuleSource, ResolvedModule, ResolvedRootModules},
 };
 
 pub mod add;

@@ -242,8 +242,8 @@ mod tests {
 
     use super::{MbtxFrontMatterImports, parse_mbtx_imports, split_mbtx, split_mbtx_import_path};
     use mooncake::registry::OnlineRegistry;
-    use moonutil::mooncakes::DEFAULT_VERSION;
     use moonutil::package::Import;
+    use moonutil::resolution::DEFAULT_VERSION;
 
     #[allow(clippy::disallowed_methods)] // test fixture setup/cleanup on temp files.
     fn parse_imports_from_source(content: &str) -> anyhow::Result<MbtxFrontMatterImports> {

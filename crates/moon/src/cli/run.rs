@@ -23,8 +23,8 @@ use moonbuild_rupes_recta::{
     ResolveOutput, build_plan::InputDirective, intent::UserIntent, model::PackageId,
 };
 use mooncake::pkg::sync::SyncOutputOptions;
-use moonutil::dirs::{PackageDirs, ProjectProbe};
-use moonutil::mooncakes::sync::AutoSyncFlags;
+use moonutil::cli_support::AutoSyncFlags;
+use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::{
     build_options::{RunMode, TestArtifacts},
     constants::is_moon_pkg_exist,

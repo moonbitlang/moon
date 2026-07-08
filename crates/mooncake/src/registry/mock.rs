@@ -23,7 +23,7 @@ use std::{
     sync::Arc,
 };
 
-use moonutil::{dependency::SourceDependencyInfo, module::MoonMod, mooncakes::ModuleName};
+use moonutil::{dependency::SourceDependencyInfo, manifest::MoonMod, resolution::ModuleName};
 use semver::Version;
 
 use super::{Registry, RegistryVersionInfo};

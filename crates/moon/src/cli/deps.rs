@@ -22,9 +22,11 @@ use mooncake::pkg::{
     sync::SyncOutputOptions, tree::TreeSubcommand,
 };
 use moonutil::{
-    dirs::{PackageDirs, ProjectContext},
-    moon_dir,
-    mooncakes::{ModuleName, RegistryConfig, sync::AutoSyncFlags},
+    cli_support::AutoSyncFlags,
+    project::{PackageDirs, ProjectContext},
+    registry::RegistryConfig,
+    resolution::ModuleName,
+    toolchain,
 };
 use std::path::{Path, PathBuf};
 
@@ -93,7 +95,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         return Ok(0);
     }
 
-    let install_dir = cmd.bin.unwrap_or_else(moon_dir::user_bin);
+    let install_dir = cmd.bin.unwrap_or_else(toolchain::user_bin);
     let has_git_ref = cmd.rev.is_some() || cmd.branch.is_some() || cmd.tag.is_some();
 
     // Explicit --path takes priority
@@ -200,7 +202,7 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
     // - `--no-update` keeps the previous behavior.
     // - If an index already exists, update failures are treated as warnings so users can proceed
     //   with the existing local index.
-    let index_dir = moonutil::moon_dir::index();
+    let index_dir = moonutil::registry::index();
     let mut index_updated = false;
     if !cmd.no_update && (!cmd.upgrade || !cmd.package_path.contains('@')) {
         let had_index = index_dir.exists();

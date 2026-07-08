@@ -19,7 +19,7 @@
 use super::MoonBuildCli;
 use clap::{Arg, Command, CommandFactory};
 use clap_complete::{Shell, generate};
-use moonutil::cli::UniversalFlags;
+use moonutil::cli_support::UniversalFlags;
 use std::io::{self, Write};
 
 /// Generate shell completion for bash/elvish/fish/pwsh/zsh to stdout

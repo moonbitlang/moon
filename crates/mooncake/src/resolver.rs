@@ -21,10 +21,8 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use moonutil::manifest::read_module_desc_file_in_dir;
-use moonutil::moon_dir;
-use moonutil::mooncakes::ModuleId;
-use moonutil::mooncakes::result::{ResolvedEnv, ResolvedRootModules};
-use moonutil::mooncakes::{ModuleName, ModuleSource, result};
+use moonutil::resolution::{ModuleId, ModuleName, ModuleSource, ResolvedEnv, ResolvedRootModules};
+use moonutil::toolchain;
 use semver::Version;
 use thiserror::Error;
 
@@ -101,7 +99,7 @@ pub(crate) trait Resolver {
 /// Since the build system is not yet able to handle multiple versions of the same module,
 /// this function will return an error if any duplicate module names with different versions
 /// (implying incompatible versions of the same module are resolved) are found.
-fn assert_no_duplicate_module_names(result: &result::ResolvedEnv) -> Result<(), ResolverErrors> {
+fn assert_no_duplicate_module_names(result: &ResolvedEnv) -> Result<(), ResolverErrors> {
     let mut module_name_versions: HashMap<_, Vec<_>> = HashMap::new();
     for (id, it) in result.all_modules_and_id() {
         module_name_versions
@@ -241,7 +239,7 @@ pub(crate) fn resolve_with_default_env(
     config: &ResolveConfig,
     resolver: &mut dyn Resolver,
     root: ResolvedRootModules,
-) -> Result<result::ResolvedEnv, ResolverErrors> {
+) -> Result<ResolvedEnv, ResolverErrors> {
     let mut env = env::ResolverEnv::new(config.registry.as_ref());
     let mut res = ResolvedEnv::from_root_modules(root);
 
@@ -265,7 +263,7 @@ pub(crate) fn resolve_with_default_env(
 /// Inject the definition of `moonbitlang/core` in the installation directory
 /// to the resolve graph, and mark it as the standard library.
 fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
-    let core_dir = moon_dir::core();
+    let core_dir = toolchain::core();
     let loaded_core =
         read_module_desc_file_in_dir(&core_dir).context("Cannot load the core file")?;
     let source = ModuleSource::from_stdlib(&loaded_core, &core_dir);
@@ -278,7 +276,7 @@ fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
 pub(crate) fn resolve_with_default_env_and_resolver(
     config: &ResolveConfig,
     root: ResolvedRootModules,
-) -> Result<result::ResolvedEnv, ResolverErrors> {
+) -> Result<ResolvedEnv, ResolverErrors> {
     let mut resolver = MvsSolver;
     resolve_with_default_env(config, &mut resolver, root)
 }

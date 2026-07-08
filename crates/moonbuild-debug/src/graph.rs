@@ -25,7 +25,7 @@ use std::{
     sync::LazyLock,
 };
 
-use moonutil::moon_dir::{home, toolchain_root};
+use moonutil::toolchain::{home, toolchain_root};
 use n2::graph::{BuildId, FileId};
 
 pub const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
@@ -185,7 +185,7 @@ pub struct PathNormalizer {
 
 impl PathNormalizer {
     pub fn new(source_dir: &Path) -> Self {
-        let all_moon_bins = moonutil::BINARIES.all_moon_bins();
+        let all_moon_bins = moonutil::toolchain::BINARIES.all_moon_bins();
         let replace_table = all_moon_bins
             .iter()
             .map(|(name, path)| (path.to_string_lossy().into_owned(), name.to_string()))

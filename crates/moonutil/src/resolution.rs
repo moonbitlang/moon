@@ -16,20 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-pub use crate::build_options::*;
-pub use crate::cli::dialoguer_ctrlc_handler;
-pub use crate::constants::*;
-pub use crate::front_matter::*;
-pub use crate::glob::*;
-pub use crate::locks::FileLock;
-pub use crate::manifest::*;
-pub use crate::path::{CargoPathExt, get_desc_name};
-pub use crate::render::{PatchItem, PatchJSON};
-pub use crate::scripts::*;
-pub use crate::target::*;
-pub use crate::test_metadata::*;
-pub use crate::text::*;
-pub use crate::version::{
-    VersionItem, VersionItems, get_cargo_pkg_version, get_moon_version, get_moonc_version,
-    get_moonrun_version, get_program_version,
+//! Module identity and dependency-resolution result types.
+
+pub use crate::mooncakes::{
+    CORE_MODULE, DEFAULT_VERSION, DirSyncResult, ModuleId, ModuleName, ModuleSource,
+    ModuleSourceKind,
+    result::{DependencyEdge, DependencyKind, ResolvedEnv, ResolvedModule, ResolvedRootModules},
 };

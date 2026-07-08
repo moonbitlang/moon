@@ -18,7 +18,7 @@
 
 use std::collections::HashMap;
 
-use moonutil::mooncakes::result::ResolvedEnv;
+use moonutil::resolution::ResolvedEnv;
 
 use crate::{
     build_plan::{BuildPlan, FileDependencyKind, PlanArtifactKind},

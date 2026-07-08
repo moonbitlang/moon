@@ -20,7 +20,7 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
 
     // Replace the MOON_HOME path with $MOON_HOME
     normalized_json.replace(
-        &moonutil::moon_dir::home()
+        &moonutil::toolchain::home()
             .to_str()
             .unwrap()
             .replace('\\', "/"),

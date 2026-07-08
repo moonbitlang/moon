@@ -175,7 +175,7 @@ pub fn main() {
     let _trace_guard = init_tracing(flags.trace);
 
     let (workspace_env, workspace_env_deprecation_warning) =
-        match moonutil::dirs::current_workspace_env() {
+        match moonutil::project::current_workspace_env() {
             Ok(result) => result,
             Err(err) => {
                 output.error(format!("{:?}", err));

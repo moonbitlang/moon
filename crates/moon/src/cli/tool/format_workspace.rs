@@ -77,7 +77,7 @@ pub(crate) fn run_format_workspace(cmd: FormatWorkspaceSubcommand) -> anyhow::Re
 }
 
 fn print_diff(old: &Path, new: &Path) -> anyhow::Result<i32> {
-    let mut execution = std::process::Command::new(moonutil::BINARIES.git_or_default())
+    let mut execution = std::process::Command::new(moonutil::toolchain::BINARIES.git_or_default())
         .args(["--no-pager", "diff", "--color=always", "--no-index"])
         .arg(old)
         .arg(new)

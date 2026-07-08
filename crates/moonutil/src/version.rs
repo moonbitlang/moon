@@ -71,11 +71,11 @@ pub fn get_moon_version() -> String {
 }
 
 pub fn get_moonc_version() -> anyhow::Result<String> {
-    get_program_version_ex(&*crate::BINARIES.moonc, "-v")
+    get_program_version_ex(&*crate::binaries::BINARIES.moonc, "-v")
 }
 
 pub fn get_moonrun_version() -> anyhow::Result<String> {
-    get_program_version(&*crate::BINARIES.moonrun)
+    get_program_version(&*crate::binaries::BINARIES.moonrun)
 }
 
 pub fn get_program_version(program: impl AsRef<OsStr>) -> anyhow::Result<String> {

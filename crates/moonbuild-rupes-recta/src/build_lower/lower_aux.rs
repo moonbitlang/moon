@@ -23,7 +23,7 @@ use moonutil::{
         CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
         make_cc_command_resolved,
     },
-    mooncakes::{ModuleId, ModuleSourceKind},
+    resolution::{ModuleId, ModuleSourceKind},
     test_metadata::DriverKind,
     toolchain::BINARIES,
 };

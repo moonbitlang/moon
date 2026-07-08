@@ -26,7 +26,7 @@ fn run_moon(dir: &Path, moon_home: &Path) -> snapbox::cmd::Command {
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(dir)
         .env("MOON_HOME", moon_home)
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::moon_dir::toolchain_root())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
 }
 
 fn write_registry_index(moon_home: &Path) {

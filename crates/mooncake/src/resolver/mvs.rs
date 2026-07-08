@@ -27,10 +27,9 @@ use colored::Colorize;
 use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
     dependency::SourceDependencyInfo,
-    module::MoonMod,
-    mooncakes::{
-        ModuleName, ModuleSource, ModuleSourceKind,
-        result::{DependencyEdge, DependencyKind, ResolvedEnv},
+    manifest::MoonMod,
+    resolution::{
+        DependencyEdge, DependencyKind, ModuleName, ModuleSource, ModuleSourceKind, ResolvedEnv,
     },
 };
 use semver::Version;
@@ -562,8 +561,8 @@ fn resolve_pkg(
 #[cfg(test)]
 mod test {
     use expect_test::expect;
-    use moonutil::mooncakes::ModuleId;
-    use moonutil::mooncakes::result::{DependencyEdge, ResolvedModule, ResolvedRootModules};
+    use moonutil::resolution::ModuleId;
+    use moonutil::resolution::{DependencyEdge, ResolvedModule, ResolvedRootModules};
     use petgraph::dot::{Config, Dot};
     use test_log::test;
 

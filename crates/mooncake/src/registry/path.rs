@@ -18,7 +18,7 @@
 
 use moonutil::{
     constants::{MOD_NAME_STDLIB, MOONBITLANG_CORE},
-    mooncakes::{DEFAULT_VERSION, ModuleName},
+    resolution::{DEFAULT_VERSION, ModuleName},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -28,7 +28,7 @@ use demangle::*;
 use embed::*;
 use format_and_diff::*;
 use format_workspace::*;
-use moonutil::cli::UniversalFlags;
+use moonutil::cli_support::UniversalFlags;
 use write_rsp_file::*;
 
 #[derive(Debug, clap::Parser)]

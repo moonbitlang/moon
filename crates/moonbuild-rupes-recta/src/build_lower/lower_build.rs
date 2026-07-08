@@ -32,8 +32,8 @@ use moonutil::{
         make_linker_command_resolved,
     },
     cond_expr::OptLevel,
-    mooncakes::{CORE_MODULE, ModuleId},
     package::JsFormat,
+    resolution::{CORE_MODULE, ModuleId},
     toolchain::BINARIES,
 };
 use petgraph::Direction;

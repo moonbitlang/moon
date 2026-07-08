@@ -24,16 +24,14 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
     build_options::{MoonbuildOpt, MooncOpt},
-    dirs::{ProjectManifest, WorkspaceEnv},
+    cli_support::AutoSyncFlags,
     front_matter::MbtMdHeader,
-    manifest::read_module_desc_file_in_dir,
-    module::MoonMod,
-    mooncakes::{
-        DirSyncResult, ModuleSource,
-        result::{ResolvedEnv, ResolvedModule, ResolvedRootModules},
-        sync::AutoSyncFlags,
+    manifest::{MoonMod, read_module_desc_file_in_dir},
+    project::{
+        MoonWork, ProjectManifest, WorkspaceEnv, canonical_workspace_module_dirs,
+        read_workspace_file,
     },
-    workspace::{MoonWork, canonical_workspace_module_dirs, read_workspace_file},
+    resolution::{DirSyncResult, ModuleSource, ResolvedEnv, ResolvedModule, ResolvedRootModules},
 };
 use semver::Version;
 

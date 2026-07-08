@@ -21,7 +21,7 @@
 use std::path::PathBuf;
 
 use log::debug;
-use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
+use moonutil::resolution::{DirSyncResult, ResolvedEnv};
 use n2::graph::{Build, Graph as N2Graph};
 use tracing::{Level, instrument};
 

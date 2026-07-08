@@ -20,12 +20,11 @@ use std::process::{Command, Stdio};
 
 use anyhow::bail;
 use moonutil::{
-    cli::UniversalFlags,
-    constants::{MOON_MOD, MOON_MOD_JSON},
-    mooncakes::{
+    cli_support::{
         LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand,
-        RegisterSubcommand,
+        RegisterSubcommand, UniversalFlags,
     },
+    constants::{MOON_MOD, MOON_MOD_JSON},
 };
 use serde::Serialize;
 
@@ -38,7 +37,7 @@ pub(crate) fn execute_cli<T: Serialize>(
     display_name: &str,
 ) -> anyhow::Result<i32> {
     let current_moon = std::env::current_exe()?;
-    let mut child = Command::new(&*moonutil::BINARIES.mooncake)
+    let mut child = Command::new(&*moonutil::toolchain::BINARIES.mooncake)
         .args(args)
         .env("MOON_OVERRIDE", current_moon)
         .stdout(Stdio::inherit())
@@ -71,7 +70,7 @@ pub(crate) fn execute_cli_with_inherit_stdin<T: Serialize>(
     display_name: &str,
 ) -> anyhow::Result<i32> {
     let current_moon = std::env::current_exe()?;
-    let mut command = Command::new(&*moonutil::BINARIES.mooncake);
+    let mut command = Command::new(&*moonutil::toolchain::BINARIES.mooncake);
     command
         .args(args)
         .env("MOONCAKE_ALLOW_DIRECT", "1")
@@ -149,9 +148,9 @@ fn single_module_mooncake_cli(
 mod tests {
     use super::single_module_mooncake_cli;
     use moonutil::{
-        cli::UniversalFlags,
+        cli_support::UniversalFlags,
         constants::{MOON_MOD, MOON_MOD_JSON},
-        dirs::{SourceTargetDirs, WorkspaceEnv},
+        project::{SourceTargetDirs, WorkspaceEnv},
     };
     use std::path::Path;
 

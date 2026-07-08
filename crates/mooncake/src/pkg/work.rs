@@ -27,19 +27,17 @@ use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_WORK, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
     manifest::{
-        read_module_desc_file_in_dir, warn_if_shadowed_manifest, write_module_json_to_file,
+        MoonMod, convert_module_to_mod_json, read_module_desc_file_in_dir,
+        warn_if_shadowed_manifest, write_module_json_to_file,
     },
-    module::{MoonMod, convert_module_to_mod_json},
     moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file},
-    mooncakes::{
-        ModuleId, ModuleName, ModuleSource,
-        result::{
-            DependencyEdge, DependencyKind, ResolvedEnv, ResolvedModule, ResolvedRootModules,
-        },
-    },
-    workspace::{
+    project::{
         MoonWork, canonical_workspace_module_dirs, read_workspace, workspace_manifest_path,
         write_workspace,
+    },
+    resolution::{
+        DependencyEdge, DependencyKind, ModuleId, ModuleName, ModuleSource, ModuleSourceKind,
+        ResolvedEnv, ResolvedModule, ResolvedRootModules,
     },
 };
 
@@ -241,7 +239,7 @@ fn workspace_roots(member_dirs: &[PathBuf]) -> anyhow::Result<ResolvedRootModule
             &format!("at module root '{}'", member_dir.display()),
         );
         let module = Arc::new(read_module_desc_file_in_dir(member_dir)?);
-        let source = moonutil::mooncakes::ModuleSource::from_local_module(&module, member_dir);
+        let source = ModuleSource::from_local_module(&module, member_dir);
         roots.insert(ResolvedModule::new(source, module));
     }
 
@@ -300,7 +298,7 @@ fn sync_workspace_manifests(resolved_env: &ResolvedEnv) -> anyhow::Result<Vec<Pa
 
 fn local_module_dir(source: &ModuleSource) -> Option<&Path> {
     match source.source() {
-        moonutil::mooncakes::ModuleSourceKind::Local(path) => Some(path.as_path()),
+        ModuleSourceKind::Local(path) => Some(path.as_path()),
         _ => None,
     }
 }

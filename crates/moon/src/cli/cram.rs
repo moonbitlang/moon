@@ -27,9 +27,9 @@ use clap::error::ErrorKind;
 use clap::{Subcommand, ValueEnum};
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonutil::{
-    dirs::PackageDirs,
+    cli_support::AutoSyncFlags,
     locks::FileLock,
-    mooncakes::sync::AutoSyncFlags,
+    project::PackageDirs,
     target::{SurfaceTarget, TargetBackend},
 };
 use tracing::instrument;
@@ -98,7 +98,7 @@ pub(crate) fn run_cram(cli: &UniversalFlags, cmd: CramSubcommand) -> anyhow::Res
 fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Result<i32> {
     let parsed = cram_args(cmd);
     let moon_cram = if cli.dry_run {
-        moonutil::BINARIES.moon_cram.clone()
+        moonutil::toolchain::BINARIES.moon_cram.clone()
     } else {
         resolve_moon_cram()?
     };
@@ -269,7 +269,7 @@ fn is_external_cram_tail(tail: &[OsString]) -> bool {
 }
 
 fn resolve_moon_cram() -> anyhow::Result<PathBuf> {
-    let moon_cram = moonutil::BINARIES.moon_cram.clone();
+    let moon_cram = moonutil::toolchain::BINARIES.moon_cram.clone();
     if moon_cram.is_absolute() || moon_cram.components().count() > 1 {
         return Ok(moon_cram);
     }

@@ -57,32 +57,32 @@ pub(crate) fn toolchain_root_for_tests() -> PathBuf {
         return PathBuf::from(path);
     }
 
-    let moonc =
-        dunce::canonicalize(&*moonutil::BINARIES.moonc).unwrap_or(moonutil::BINARIES.moonc.clone());
+    let moonc = dunce::canonicalize(&*moonutil::toolchain::BINARIES.moonc)
+        .unwrap_or(moonutil::toolchain::BINARIES.moonc.clone());
     if let Some(bin_dir) = moonc.parent()
         && bin_dir.file_name().is_some_and(|name| name == "bin")
         && let Some(root) = bin_dir.parent()
-        && moonutil::moon_dir::is_toolchain_root(root)
+        && moonutil::toolchain::is_toolchain_root(root)
     {
         return root.to_path_buf();
     }
 
-    moonutil::moon_dir::toolchain_root()
+    moonutil::toolchain::toolchain_root()
 }
 
 pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace("\\\\", "\\");
-    let s = moonutil::BINARIES
-        .all_moon_bins()
-        .iter()
-        .fold(s.to_string(), |s, (name, path)| {
+    let s = moonutil::toolchain::BINARIES.all_moon_bins().iter().fold(
+        s.to_string(),
+        |s, (name, path)| {
             let path = match *name {
                 #[allow(deprecated)]
                 "moon" | "moonrun" => snapbox::cmd::cargo_bin(name),
                 _ => path.clone(),
             };
             s.replace(path.to_string_lossy().as_ref(), name)
-        });
+        },
+    );
     let s = if let Some(path) = MOONRUN_BIN.get() {
         let path = path.to_string_lossy();
         let s = s.replace(path.as_ref(), "moonrun");
@@ -101,7 +101,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let s = s.replace(&path_str1, "$ROOT");
     let s = s.replace(&path_str2, "$ROOT");
     let toolchain_root = toolchain_root_for_tests();
-    let moon_home = moonutil::moon_dir::home();
+    let moon_home = moonutil::toolchain::home();
     let show_toolchain_root = match (
         dunce::canonicalize(&toolchain_root),
         dunce::canonicalize(&moon_home),
@@ -149,7 +149,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     };
     let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
     let s = s.replace("moon.exe", "moon");
-    let s = moonutil::BINARIES
+    let s = moonutil::toolchain::BINARIES
         .node
         .as_ref()
         .map(|node| s.replace(node.to_string_lossy().as_ref(), "node"))

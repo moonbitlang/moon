@@ -30,12 +30,12 @@ use anyhow::{Context, anyhow};
 use log::warn;
 use moonutil::{
     build_script::{BuildScriptEnvironment, BuildScriptOutput},
-    mooncakes::ModuleName,
+    resolution::ModuleName,
 };
 
 fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> {
     if prebuild.ends_with(".js") || prebuild.ends_with(".cjs") || prebuild.ends_with(".mjs") {
-        let Some(node) = moonutil::BINARIES.node.as_ref() else {
+        let Some(node) = moonutil::toolchain::BINARIES.node.as_ref() else {
             anyhow::bail!(
                 "Running prebuild script for module {} needs `node` executable in PATH",
                 m
@@ -45,7 +45,7 @@ fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> 
         cmd.arg("--").arg(prebuild);
         Ok(cmd)
     } else if prebuild.ends_with(".py") {
-        let Some(py) = moonutil::BINARIES.python.as_ref() else {
+        let Some(py) = moonutil::toolchain::BINARIES.python.as_ref() else {
             anyhow::bail!(
                 "Running prebuild script for module {} needs `python` or `python3` executable in PATH",
                 m
@@ -67,7 +67,7 @@ fn run_script_cmd(prebuild: &String, m: &ModuleName) -> anyhow::Result<Command> 
 }
 
 pub fn run_build_script_for_module(
-    module: &moonutil::mooncakes::ModuleSource,
+    module: &moonutil::resolution::ModuleSource,
     dir: &Path,
     input: BuildScriptEnvironment,
     prebuild: &String,

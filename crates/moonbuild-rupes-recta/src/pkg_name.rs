@@ -24,7 +24,7 @@ use std::{
 };
 
 use arcstr::ArcStr;
-use moonutil::mooncakes::{ModuleName, ModuleSource};
+use moonutil::resolution::{ModuleName, ModuleSource};
 use relative_path::RelativePath;
 
 pub const PACKAGE_SEGMENT_SEP: char = '/';

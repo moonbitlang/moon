@@ -19,7 +19,7 @@
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use dialoguer::Confirm;
-use moonutil::moon_dir::{self};
+use moonutil::toolchain;
 use moonutil::version::{VersionItems, get_moon_version, get_moonc_version, get_moonrun_version};
 use reqwest;
 use reqwest::Client;
@@ -136,8 +136,8 @@ fn should_upgrade(latest_version_info: &VersionItems) -> Option<bool> {
 }
 
 fn upgrade_home() -> Result<PathBuf> {
-    let home = moon_dir::home();
-    let toolchain_root = moon_dir::toolchain_root();
+    let home = toolchain::home();
+    let toolchain_root = toolchain::toolchain_root();
     let canonicalize =
         |path: &Path| dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
@@ -247,7 +247,7 @@ fn upgrade_dialoguer_ctrlc_handler() {
     #[cfg(windows)]
     windows::copy_moon_back();
 
-    moonutil::cli::dialoguer_ctrlc_handler();
+    moonutil::cli_support::dialoguer_ctrlc_handler();
 }
 
 #[cfg(windows)]
@@ -285,7 +285,7 @@ mod windows {
         let _ = MOON_EXE_PATH.set(current_exe.clone());
         let _ = TEMP_EXE_PATH.set(temp_exe);
 
-        if current_exe.starts_with(moon_dir::home()) {
+        if current_exe.starts_with(toolchain::home()) {
             self_replace::self_delete().context("failed to delete current moon.exe")?;
         }
 

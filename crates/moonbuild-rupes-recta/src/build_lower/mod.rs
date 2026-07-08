@@ -332,11 +332,9 @@ mod tests {
     use indexmap::IndexSet;
     use moonutil::{
         compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, Toolchain},
-        module::MoonMod,
-        mooncakes::{
-            DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, result::ResolvedEnv,
-        },
+        manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
+        resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
         target::TargetBackend,
     };
 
