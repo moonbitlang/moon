@@ -35,12 +35,7 @@ pub(crate) struct ThreadPoolCompletionNotifier {
 #[cfg(unix)]
 impl ThreadPoolCompletionNotifier {
     pub(crate) fn new(poll: &poll::PollInstance) -> AsyncHostResult<(Self, RawFd)> {
-        let fds = fd_util::pipe()?;
-
-        if let Err(error) = fd_util::set_nonblocking(fds[0]) {
-            close_fds(fds);
-            return Err(error);
-        }
+        let fds = fd_util::pipe(true, false)?;
 
         if let Err(error) = poll::poll_register(poll, fds[0], true) {
             close_fds(fds);
