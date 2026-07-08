@@ -477,7 +477,7 @@ fn try_detect_solver(spec: &SolverSpec) -> Option<DetectedSolver> {
 
     Some(DetectedSolver {
         name: spec.name,
-        path: escape_windows_path(&path_str),
+        path: path_str,
         version: version.to_string(),
     })
 }
@@ -504,7 +504,9 @@ fn generate_why3_config(solvers: &[DetectedSolver]) -> String {
              name = \"{}\"\n\
              path = \"{}\"\n\
              version = \"{}\"\n",
-            solver.name, solver.path, solver.version,
+            solver.name,
+            escape_windows_path(&solver.path),
+            solver.version,
         ));
     }
 
@@ -916,8 +918,7 @@ mod tests {
 
     #[test]
     fn test_generate_config_escapes_windows_solver_path() {
-        let path = escape_windows_path(r"C:\Users\guest\bin\z3.exe");
-        let solvers = vec![make_solver("Z3", &path, "4.16.0")];
+        let solvers = vec![make_solver("Z3", r"C:\Users\guest\bin\z3.exe", "4.16.0")];
         let config = generate_why3_config(&solvers);
         assert!(config.contains(r#"path = "C:\\Users\\guest\\bin\\z3.exe""#));
     }
