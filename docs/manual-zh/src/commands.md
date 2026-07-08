@@ -367,6 +367,7 @@ Format source code
 * `--check` — Check only and don't change the source code
 * `--sort-input` — Sort input files
 * `--warn` — Warn if code is not properly formatted
+* `-d`, `--deny-warn` — Treat all warnings as errors
 
 
 
@@ -437,6 +438,7 @@ By default, `moon info` writes `pkg.generated.mbti` from each selected package's
   Possible values: `wasm`, `wasm-gc`, `js`, `native`, `llvm`, `all`
 
 * `-p`, `--package <PACKAGE>` — The full or subset of name of the package to emit `mbti` files for
+* `-d`, `--deny-warn` — Treat all warnings as errors
 
 
 

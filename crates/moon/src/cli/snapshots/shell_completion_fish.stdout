@@ -324,6 +324,7 @@ complete -c moon -n "__fish_moon_using_subcommand fmt" -l target-dir -d 'The tar
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l check -d 'Check only and don\'t change the source code'
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l sort-input -d 'Sort input files'
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l warn -d 'Warn if code is not properly formatted'
+complete -c moon -n "__fish_moon_using_subcommand fmt" -s d -l deny-warn -d 'Treat all warnings as errors'
 complete -c moon -n "__fish_moon_using_subcommand fmt" -s q -l quiet -d 'Suppress output'
 complete -c moon -n "__fish_moon_using_subcommand fmt" -s v -l verbose -d 'Increase verbosity'
 complete -c moon -n "__fish_moon_using_subcommand fmt" -l trace -d 'Trace the execution of the program'
@@ -358,6 +359,7 @@ complete -c moon -n "__fish_moon_using_subcommand info" -l manifest-path -d 'Pat
 complete -c moon -n "__fish_moon_using_subcommand info" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand info" -l frozen -d 'Do not sync dependencies, assuming local dependencies are up-to-date'
 complete -c moon -n "__fish_moon_using_subcommand info" -l no-alias -d 'Do not use alias to shorten package names in the output'
+complete -c moon -n "__fish_moon_using_subcommand info" -s d -l deny-warn -d 'Treat all warnings as errors'
 complete -c moon -n "__fish_moon_using_subcommand info" -s q -l quiet -d 'Suppress output'
 complete -c moon -n "__fish_moon_using_subcommand info" -s v -l verbose -d 'Increase verbosity'
 complete -c moon -n "__fish_moon_using_subcommand info" -l trace -d 'Trace the execution of the program'

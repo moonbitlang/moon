@@ -78,6 +78,10 @@ pub(crate) struct InfoSubcommand {
     /// Conflicts with `--package`.
     #[clap(name = "PATH", conflicts_with("package"))]
     pub path: Vec<PathBuf>,
+
+    /// Treat all warnings as errors
+    #[clap(long, short)]
+    pub deny_warn: bool,
 }
 
 struct PackageSelection {
@@ -286,7 +290,10 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
 
-    let build_flags = BuildFlags::default();
+    let build_flags = BuildFlags {
+        deny_warn: cmd.deny_warn,
+        ..Default::default()
+    };
     let resolve_cfg = ResolveConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
         !build_flags.std(),
@@ -357,7 +364,10 @@ fn run_info_rr_internal(
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
-        &BuildFlags::default(),
+        &BuildFlags {
+            deny_warn: cmd.deny_warn,
+            ..Default::default()
+        },
         Some(target),
         target_dir,
         RunMode::Check,
@@ -394,7 +404,10 @@ fn run_info_rr_internal(
 
     // TODO: UX: Consider mirroring flags from `moon check`?
     let cfg = BuildConfig::from_flags(
-        &BuildFlags::default(),
+        &BuildFlags {
+            deny_warn: cmd.deny_warn,
+            ..Default::default()
+        },
         &cli.unstable_feature,
         cli.verbose,
         output,

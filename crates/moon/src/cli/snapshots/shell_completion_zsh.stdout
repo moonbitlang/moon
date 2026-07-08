@@ -425,6 +425,8 @@ _arguments "${_arguments_options[@]}" : \
 '--check[Check only and don'\''t change the source code]' \
 '--sort-input[Sort input files]' \
 '(--check)--warn[Warn if code is not properly formatted]' \
+'-d[Treat all warnings as errors]' \
+'--deny-warn[Treat all warnings as errors]' \
 '-q[Suppress output]' \
 '--quiet[Suppress output]' \
 '-v[Increase verbosity]' \
@@ -485,6 +487,8 @@ _arguments "${_arguments_options[@]}" : \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '--frozen[Do not sync dependencies, assuming local dependencies are up-to-date]' \
 '--no-alias[Do not use alias to shorten package names in the output]' \
+'-d[Treat all warnings as errors]' \
+'--deny-warn[Treat all warnings as errors]' \
 '-q[Suppress output]' \
 '--quiet[Suppress output]' \
 '-v[Increase verbosity]' \

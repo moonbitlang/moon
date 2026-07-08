@@ -20,7 +20,10 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::fmt::FmtConfig;
-use moonutil::dirs::PackageDirs;
+use moonutil::{
+    dirs::PackageDirs,
+    user_warning::UserMessageLevel,
+};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
@@ -46,6 +49,10 @@ pub(crate) struct FmtSubcommand {
     /// Paths to package directories or files inside packages to format
     #[clap(name = "PATH")]
     pub path: Vec<PathBuf>,
+
+    /// Treat all warnings as errors
+    #[clap(long, short)]
+    pub deny_warn: bool,
 
     /// Extra arguments passed to the formatter (after --)
     #[clap(last = true)]
@@ -101,12 +108,26 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         output.user_message(message);
     }
 
+    // With `--deny-warn`, any resolution-time warning is promoted to an error.
+    let has_warnings = cmd.deny_warn
+        && user_warnings
+            .iter()
+            .any(|w| w.level() == UserMessageLevel::Warn);
+
     if cli.dry_run {
         rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);
-        Ok(0)
+        if has_warnings {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     } else {
         let res = rr_build::execute_build(&BuildConfig::default(), graph, &target_dir)?;
         res.print_info(cli.quiet, "formatting")?;
-        Ok(res.return_code_for_success())
+        if has_warnings {
+            Ok(1)
+        } else {
+            Ok(res.return_code_for_success())
+        }
     }
 }

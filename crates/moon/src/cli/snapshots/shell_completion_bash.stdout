@@ -1019,7 +1019,7 @@ _moon() {
             return 0
             ;;
         moon__fmt)
-            opts="-q -v -h --check --sort-input --warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]... [ARGS]..."
+            opts="-d -q -v -h --check --sort-input --warn --deny-warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]... [ARGS]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
@@ -2075,7 +2075,7 @@ _moon() {
             return 0
             ;;
         moon__info)
-            opts="-p -q -v -h --frozen --no-alias --target --package --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
+            opts="-p -d -q -v -h --frozen --no-alias --target --package --deny-warn --manifest-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PATH]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0

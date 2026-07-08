@@ -139,6 +139,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
                 sort_input: false,
                 warn: true,
                 path: cmd.path.clone(),
+                deny_warn: cmd.build_flags.deny_warn,
                 args: vec![],
             },
         )?;
