@@ -430,7 +430,7 @@ mod tests {
 
     use anyhow::{Context, bail};
     use expect_test::expect_file;
-    use moonutil::BINARIES;
+    use moonutil::toolchain::BINARIES;
 
     use super::{WARNING_ENTRIES, get_warning_entries_by_mnemonic, get_warning_entry};
 

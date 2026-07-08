@@ -21,10 +21,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Context;
-use moonutil::dirs::ProjectManifest;
 use moonutil::manifest::read_module_desc_file_in_dir;
-use moonutil::mooncakes::result::ResolvedEnv;
-use moonutil::mooncakes::{ModuleId, ModuleName};
+use moonutil::project::ProjectManifest;
+use moonutil::resolution::{ModuleId, ModuleName, ResolvedEnv};
 
 use crate::pkg::roots_for_selected_module;
 use crate::registry;
@@ -151,9 +150,10 @@ pub fn tree(module_dir: &Path, project_manifest: &ProjectManifest) -> anyhow::Re
 mod tests {
     use super::*;
     use expect_test::expect;
-    use moonutil::module::MoonMod;
-    use moonutil::mooncakes::result::{DependencyEdge, DependencyKind, ResolvedModule};
-    use moonutil::mooncakes::{ModuleSource, ModuleSourceKind};
+    use moonutil::manifest::MoonMod;
+    use moonutil::resolution::{
+        DependencyEdge, DependencyKind, ModuleSource, ModuleSourceKind, ResolvedModule,
+    };
 
     fn local_source(name: &str, version: &str, path: &str) -> ModuleSource {
         ModuleSource::new_full(
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn tree_render_marks_workspace_members() {
-        let mut roots = moonutil::mooncakes::result::ResolvedRootModules::with_key();
+        let mut roots = moonutil::resolution::ResolvedRootModules::with_key();
         let app = roots.insert(ResolvedModule::new(
             local_source("alice/app", "0.1.0", "/workspace/app"),
             local_module("alice/app", "0.1.0"),

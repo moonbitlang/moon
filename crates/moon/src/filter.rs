@@ -27,7 +27,7 @@ use std::{
 
 use anyhow::Context;
 use moonbuild_rupes_recta::{ResolveOutput, fmt::FmtResolveOutput, model::PackageId};
-use moonutil::mooncakes::{DirSyncResult, result::ResolvedEnv};
+use moonutil::resolution::{DirSyncResult, ResolvedEnv};
 use moonutil::{
     constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
     target::TargetBackend,
@@ -138,7 +138,7 @@ where
 /// Perform fuzzy matching over package names and return the matching package IDs.
 pub(crate) fn match_packages_by_name_rr(
     resolve_output: &ResolveOutput,
-    main_modules: &[moonutil::mooncakes::ModuleId],
+    main_modules: &[moonutil::resolution::ModuleId],
     needle: &str,
     output: UserDiagnostics,
 ) -> Vec<PackageId> {
@@ -209,7 +209,7 @@ pub(crate) fn report_package_not_found(
     input_path: &Path,
     module_graph: &ResolvedEnv,
     module_dirs: &DirSyncResult,
-    main_modules: &[moonutil::mooncakes::ModuleId],
+    main_modules: &[moonutil::resolution::ModuleId],
 ) -> anyhow::Error {
     let m_def_and_dir = |id| {
         let module_dir = module_dirs.get(id).expect("Module should exist");
@@ -563,7 +563,7 @@ mod tests {
     use moonbuild_rupes_recta::ResolveConfig;
     use moonutil::{
         constants::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK},
-        dirs::{SourceTargetDirs, WorkspaceEnv},
+        project::{SourceTargetDirs, WorkspaceEnv},
         target::TargetBackend,
     };
     use std::path::{Path, PathBuf};

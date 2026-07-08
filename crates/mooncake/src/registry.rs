@@ -25,7 +25,7 @@ use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use indexmap::IndexMap;
 use moonutil::dependency::SourceDependencyInfo;
-use moonutil::mooncakes::ModuleName;
+use moonutil::resolution::ModuleName;
 pub use online::*;
 use semver::Version;
 
@@ -148,7 +148,7 @@ pub(crate) fn default_registry() -> Box<dyn Registry> {
 mod tests {
     use super::Registry;
     use crate::registry::mock::MockRegistry;
-    use moonutil::{constants::MOONBITLANG_CORE, mooncakes::DEFAULT_VERSION};
+    use moonutil::{constants::MOONBITLANG_CORE, resolution::DEFAULT_VERSION};
 
     #[test]
     fn resolve_unversioned_path_uses_latest_version() {

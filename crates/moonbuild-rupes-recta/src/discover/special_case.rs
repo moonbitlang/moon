@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::special_cases::CORE_MODULE_TUPLE;
-use moonutil::mooncakes::result::ResolvedEnv;
+use moonutil::resolution::ResolvedEnv;
 use tracing::{info, instrument, warn};
 
 use crate::{discover::DiscoverResult, pkg_name::PackagePath};

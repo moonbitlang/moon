@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use indexmap::IndexMap;
 use moonutil::{
     cond_expr::{CompileCondition, OptLevel},
-    module::ModuleDBJSON,
+    manifest::ModuleDBJSON,
     package::{AliasJSON, PackageJSON},
     target::TargetBackend,
 };

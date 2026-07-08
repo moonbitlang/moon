@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonutil::mooncakes::ModuleId;
+use moonutil::resolution::ModuleId;
 
 use crate::{
     build_plan::{

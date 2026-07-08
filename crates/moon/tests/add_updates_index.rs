@@ -71,7 +71,7 @@ fn test_moon_add_no_update_skips_registry_update() {
     let out = Command::new(moon_bin())
         .current_dir(project.path())
         .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::moon_dir::toolchain_root())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .args([
@@ -112,7 +112,7 @@ fn test_moon_add_updates_registry_index_by_default() {
     let out = Command::new(moon_bin())
         .current_dir(project.path())
         .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::moon_dir::toolchain_root())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .env("MOONCAKES_REGISTRY", registry_base.path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -152,7 +152,7 @@ fn test_moon_add_no_update_suggests_update_on_failure() {
     let out = Command::new(moon_bin())
         .current_dir(project.path())
         .env("MOON_HOME", moon_home.path())
-        .env("MOON_TOOLCHAIN_ROOT", moonutil::moon_dir::toolchain_root())
+        .env("MOON_TOOLCHAIN_ROOT", moonutil::toolchain::toolchain_root())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .args([

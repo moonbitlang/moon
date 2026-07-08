@@ -16,47 +16,22 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#![warn(clippy::clone_on_ref_ptr)]
+use std::path::PathBuf;
 
-mod binaries;
-pub mod build_options;
-pub mod build_script;
-mod cli;
-pub mod cli_support;
-pub mod compiler_flags;
-pub mod cond_expr;
-pub mod constants;
-pub mod demangle;
-pub mod dependency;
-mod dirs;
-pub mod error_code_docs;
-pub mod features;
-pub mod front_matter;
-pub mod fuzzy_match;
-pub mod git;
-pub mod glob;
-pub mod graph;
-pub mod locks;
-pub mod manifest;
-mod module;
-mod moon_dir;
-pub mod moon_mod_patch;
-pub mod moon_pkg;
-mod mooncakes;
-pub mod package;
-pub mod path;
-pub mod platform;
-pub mod project;
-pub mod registry;
-pub mod render;
-pub mod resolution;
-pub mod scripts;
-pub mod shlex;
-pub mod supported_targets;
-pub mod target;
-pub mod test_metadata;
-pub mod text;
-pub mod toolchain;
-pub mod user_warning;
-pub mod version;
-pub mod workspace;
+use moonutil::project::{ModuleRef, ProjectContext};
+
+#[test]
+fn project_facade_exposes_selected_module_ref() {
+    let selected_module = ModuleRef {
+        root: PathBuf::from("module"),
+        manifest_path: PathBuf::from("module/moon.mod.json"),
+    };
+    let project = ProjectContext::Workspace {
+        root: PathBuf::from("."),
+        manifest_path: PathBuf::from("moon.work.json"),
+        selected_module: Some(selected_module.clone()),
+    };
+
+    let returned: Option<ModuleRef> = project.selected_module();
+    assert_eq!(returned, Some(selected_module));
+}

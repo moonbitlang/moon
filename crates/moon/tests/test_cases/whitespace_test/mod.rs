@@ -67,7 +67,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     let out = get_stderr(&path_with_space, ["build", "--no-render"]);
     let out = out.replace(&prefix, ".");
     let out = out.replace(
-        &moonutil::moon_dir::home()
+        &moonutil::toolchain::home()
             .to_str()
             .unwrap()
             .replace('\\', "/"),

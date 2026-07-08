@@ -39,7 +39,7 @@ pub(crate) struct FormatAndDiffSubcommand {
 }
 
 pub(crate) fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Result<i32> {
-    let mut moonfmt = std::process::Command::new(&*moonutil::BINARIES.moonfmt);
+    let mut moonfmt = std::process::Command::new(&*moonutil::toolchain::BINARIES.moonfmt);
     moonfmt
         .arg("-exit-code")
         .arg(&cmd.old)
@@ -67,7 +67,7 @@ pub(crate) fn run_format_and_diff(cmd: FormatAndDiffSubcommand) -> anyhow::Resul
         return Ok(0);
     }
 
-    let mut execution = std::process::Command::new(moonutil::BINARIES.git_or_default())
+    let mut execution = std::process::Command::new(moonutil::toolchain::BINARIES.git_or_default())
         .args(["--no-pager", "diff", "--color=always", "--no-index"])
         .arg(&cmd.old)
         .arg(&cmd.new)

@@ -34,8 +34,8 @@ use log::*;
 use std::{collections::HashSet, ffi::OsStr, path::Path};
 
 use anyhow::Context;
-use moonutil::dirs::ProjectManifest;
-use moonutil::mooncakes::{ModuleSourceKind, result::ResolvedModule};
+use moonutil::project::ProjectManifest;
+use moonutil::resolution::{ModuleSourceKind, ResolvedModule};
 use moonutil::toolchain::BINARIES;
 use moonutil::{
     cond_expr::OptLevel,
@@ -275,7 +275,7 @@ fn format_moon_mod_json_migrate(
     moon_mod_json: &Path,
     target_moon_mod: &Path,
     moon_mod: &Path,
-    module_info: &moonutil::module::MoonMod,
+    module_info: &moonutil::manifest::MoonMod,
     module_dir: &Path,
 ) -> anyhow::Result<()> {
     // moon.mod `import` cannot represent local dependencies; those must live in moon.work.

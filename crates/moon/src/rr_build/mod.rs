@@ -53,14 +53,14 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     build_options::RunMode,
-    cli::UniversalFlags,
+    cli_support::AutoSyncFlags,
+    cli_support::UniversalFlags,
     compiler_flags::{self, CC},
     cond_expr::OptLevel as BuildProfile,
     constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
-    dirs::{ProjectManifest, WorkspaceEnv},
     features::FeatureGate,
-    mooncakes::sync::AutoSyncFlags,
     package::SupportedTargetsDeclKind,
+    project::{ProjectManifest, WorkspaceEnv},
     render::MooncDiagnostic,
     target::TargetBackend,
     test_metadata::DiagnosticLevel,

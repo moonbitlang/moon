@@ -28,8 +28,8 @@ use arcstr::ArcStr;
 use moonutil::{
     constants::MOONBITLANG_CORE,
     locks::FileLock,
-    moon_dir::{self},
-    mooncakes::{DirSyncResult, ModuleSource, ModuleSourceKind, result::ResolvedEnv},
+    resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
+    toolchain,
 };
 use semver::Version;
 
@@ -277,7 +277,7 @@ pub(crate) fn sync_deps(
 fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
     // Special case: core library locates in ~/.moon
     if format!("{username}/{pkgname}") == MOONBITLANG_CORE {
-        return moon_dir::core();
+        return toolchain::core();
     }
     let pkg_dir_name = pkgname.replace('/', "+");
     dep_dir.path().join(username).join(pkg_dir_name)
@@ -315,7 +315,7 @@ mod test {
     use std::collections::{HashMap, HashSet};
 
     use arcstr::ArcStr;
-    use moonutil::mooncakes::{ModuleName, ModuleSource, ModuleSourceKind};
+    use moonutil::resolution::{ModuleName, ModuleSource, ModuleSourceKind};
 
     fn to_state(s: &str) -> super::DepDirState {
         let mut state = super::DepDirState::new();

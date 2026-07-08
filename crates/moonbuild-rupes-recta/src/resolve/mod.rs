@@ -35,13 +35,14 @@ use mooncake::{
     registry::path as registry_path,
 };
 use moonutil::{
+    cli_support::AutoSyncFlags,
     constants::{MBTI_USER_WRITTEN, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
-    dirs::{ProjectManifest, WorkspaceEnv},
     front_matter::{MbtMdHeader, parse_front_matter_config},
-    module::MoonMod,
-    mooncakes::{DirSyncResult, ModuleId, result::ResolvedEnv, sync::AutoSyncFlags},
+    manifest::MoonMod,
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
+    project::{ProjectManifest, WorkspaceEnv},
+    resolution::{DirSyncResult, ModuleId, ResolvedEnv},
     target::TargetBackend,
 };
 use tracing::instrument;

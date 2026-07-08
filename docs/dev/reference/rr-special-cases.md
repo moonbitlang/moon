@@ -55,7 +55,7 @@ important ones and why they exist.
 - **Stdlib bundle paths are toolchain facts.** The bundled stdlib layout
   (`_build/<backend>/release/bundle`, `abort/abort.core`, package `.mi`
   files, and related paths) is owned by `moonutil::toolchain`, backed by the
-  existing `moonutil::moon_dir` helpers. RR may translate an already selected
+  internal toolchain-layout helpers. RR may translate an already selected
   stdlib root into concrete artifact paths, but it should not rediscover the
   installed stdlib root while lowering.
 

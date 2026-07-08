@@ -19,7 +19,7 @@
 use std::collections::HashMap;
 
 use indexmap::IndexSet;
-use moonutil::mooncakes::ModuleSource;
+use moonutil::resolution::ModuleSource;
 use moonutil::target::TargetBackend;
 use petgraph::prelude::DiGraphMap;
 use slotmap::SparseSecondaryMap;

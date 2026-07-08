@@ -19,7 +19,7 @@
 use std::fmt::Display;
 
 use colored::{ColoredString, Colorize};
-use moonutil::cli::UniversalFlags;
+use moonutil::cli_support::UniversalFlags;
 use moonutil::user_warning::{UserMessageLevel, UserWarning};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

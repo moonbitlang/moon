@@ -25,12 +25,8 @@ use anyhow::{Context, bail};
 use moonbuild_rupes_recta::model::RunBackend;
 use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
-    cli::UniversalFlags,
-    constants::is_moon_pkg_exist,
-    locks::FileLock,
-    mooncakes::sync::AutoSyncFlags,
-    mooncakes::{ModuleName, RegistryConfig},
-    target::SurfaceTarget,
+    cli_support::AutoSyncFlags, cli_support::UniversalFlags, constants::is_moon_pkg_exist,
+    locks::FileLock, registry::RegistryConfig, resolution::ModuleName, target::SurfaceTarget,
 };
 use reqwest::{StatusCode, header::USER_AGENT};
 use semver::Version;
@@ -126,7 +122,7 @@ impl RunWasmCoordinate {
             )
         };
 
-        let mut cache_path = moonutil::moon_dir::cache()
+        let mut cache_path = moonutil::registry::cache()
             .join("assets")
             .join(self.module_name.username.as_str());
         for segment in self.module_name.unqual.split('/') {
@@ -234,7 +230,7 @@ fn resolve_latest_version(
     module_name: &ModuleName,
     output: UserDiagnostics,
 ) -> anyhow::Result<Version> {
-    let index_dir = moonutil::moon_dir::index();
+    let index_dir = moonutil::registry::index();
     let registry_config = RegistryConfig::load();
     let had_index = index_dir.exists();
 

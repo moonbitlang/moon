@@ -28,7 +28,7 @@ use anyhow::Context;
 use moonbuild::build_script::make_prebuild_input_from_module;
 use moonutil::{
     build_script::{LinkConfig, RerunIfKind},
-    mooncakes::{ModuleId, ModuleSource},
+    resolution::{ModuleId, ModuleSource},
 };
 use tracing::instrument;
 

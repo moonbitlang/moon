@@ -27,8 +27,8 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     build_options::RunMode,
-    dirs::PackageDirs,
-    mooncakes::sync::AutoSyncFlags,
+    cli_support::AutoSyncFlags,
+    project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
 };
 

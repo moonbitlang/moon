@@ -91,7 +91,7 @@ mod tests {
     use moonbuild_rupes_recta::resolve::{
         ResolveConfig, resolve_synced_project, sync_dependencies,
     };
-    use moonutil::dirs::{ProjectManifest, WorkspaceEnv};
+    use moonutil::project::{ProjectManifest, WorkspaceEnv};
 
     #[test]
     fn rr_get_prebuild_watch_paths_skips_empty_modules() {

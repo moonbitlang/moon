@@ -19,10 +19,7 @@
 use anyhow::bail;
 use colored::Colorize;
 use mooncake::registry::Registry;
-use moonutil::{
-    dirs::PackageDirs,
-    mooncakes::{ModuleName, RegistryConfig},
-};
+use moonutil::{project::PackageDirs, registry::RegistryConfig, resolution::ModuleName};
 
 use super::UniversalFlags;
 use crate::user_diagnostics::UserDiagnostics;
@@ -44,7 +41,7 @@ pub(crate) struct FetchSubcommand {
 
 pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i32> {
     let output = UserDiagnostics::from_flags(&cli);
-    let index_dir = moonutil::moon_dir::index();
+    let index_dir = moonutil::registry::index();
     let mut index_updated = false;
 
     if !cmd.no_update {

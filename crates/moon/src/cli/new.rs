@@ -21,8 +21,7 @@ use std::{fs::File, io::BufReader, path::PathBuf};
 use anyhow::bail;
 use moonutil::{
     constants::{is_moon_mod_exist, is_moon_pkg_exist},
-    moon_dir,
-    mooncakes::{Credentials, validate_username},
+    registry::{Credentials, credentials_json, validate_username},
 };
 
 use super::UniversalFlags;
@@ -30,7 +29,7 @@ use crate::user_diagnostics::UserDiagnostics;
 
 /// Read the existing username from the credentials file
 fn get_existing_username(output: UserDiagnostics) -> Option<String> {
-    let credentials_path = moon_dir::credentials_json();
+    let credentials_path = credentials_json();
     if !credentials_path.exists() {
         output.warn(
             "Using default username. You may login with `moon login` to store your username, or provide one with `--user <username>`.",

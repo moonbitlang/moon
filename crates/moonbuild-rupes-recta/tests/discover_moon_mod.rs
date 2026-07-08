@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use moonbuild_rupes_recta::discover::discover_packages;
 use moonutil::manifest::read_module_desc_file_in_dir;
-use moonutil::mooncakes::{DirSyncResult, ModuleSource, result::ResolvedEnv};
+use moonutil::resolution::{DirSyncResult, ModuleSource, ResolvedEnv};
 
 fn fixture_dir(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

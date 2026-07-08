@@ -30,14 +30,17 @@ use serde::Serialize;
 
 use crate::{
     constants::{DEP_PATH, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON},
-    module::{MoonMod, MoonModJSON, MoonModRule},
     moon_pkg,
     package::{
-        MoonPkg, MoonPkgJSON, SupportedTargetsDeclKind,
         convert_pkg_dsl_to_package_with_supported_targets_decl,
         convert_pkg_json_to_package_with_supported_targets_decl,
     },
 };
+
+pub use crate::module::{
+    ModuleDBJSON, MoonMod, MoonModJSON, MoonModJSONRules, MoonModRule, convert_module_to_mod_json,
+};
+pub use crate::package::{MoonPkg, MoonPkgJSON, SupportedTargetsDeclKind};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
@@ -445,7 +448,7 @@ pub fn write_module_dsl_to_file(m: &MoonModJSON, source_dir: &Path) -> anyhow::R
     } else {
         serde_json_lenient::to_string_pretty(m)?
     };
-    let mut child = Command::new(&*crate::BINARIES.moonfmt)
+    let mut child = Command::new(&*crate::binaries::BINARIES.moonfmt)
         .arg("-file-type")
         .arg("mod_json")
         .arg("-")

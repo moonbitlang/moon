@@ -22,10 +22,10 @@ use std::path::PathBuf;
 
 use moonbuild_rupes_recta::{ResolveOutput, model::BuildPlanNode};
 use moonutil::{
-    cli::UniversalFlags,
+    cli_support::UniversalFlags,
     cond_expr::OptLevel,
     constants::BUILD_DIR,
-    dirs::{ProjectManifest, SourceTargetDirs, WorkspaceEnv},
+    project::{ProjectManifest, SourceTargetDirs, WorkspaceEnv},
     target::TargetBackend,
 };
 

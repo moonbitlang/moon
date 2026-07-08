@@ -18,7 +18,7 @@
 
 use log::{debug, trace};
 use moonutil::constants::MOONBITLANG_COVERAGE;
-use moonutil::mooncakes::{ModuleId, result::ResolvedEnv};
+use moonutil::resolution::{ModuleId, ResolvedEnv};
 use tracing::info;
 
 use super::model::{DepEdge, DepRelationship, SolveError};

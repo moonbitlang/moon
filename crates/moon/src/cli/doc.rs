@@ -20,8 +20,9 @@ use std::path::Path;
 
 use anyhow::{Context as _, bail};
 use moonbuild_rupes_recta::intent::UserIntent;
-use moonutil::dirs::PackageDirs;
-use moonutil::mooncakes::{ModuleId, sync::AutoSyncFlags};
+use moonutil::cli_support::AutoSyncFlags;
+use moonutil::project::PackageDirs;
+use moonutil::resolution::ModuleId;
 use moonutil::{build_options::RunMode, locks::FileLock};
 use tracing::instrument;
 
@@ -71,7 +72,7 @@ pub(crate) fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result
 #[instrument(skip_all)]
 fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
     output.warn("`moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
-    let query_result = std::process::Command::new(&*moonutil::BINARIES.moon_ide)
+    let query_result = std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_ide)
         .arg("doc")
         .arg(symbol)
         .stdout(std::process::Stdio::inherit())

@@ -58,7 +58,7 @@ pub(crate) fn command_for_with_moonrun_policy(
 
     match (backend, tcc_run) {
         (RunBackend::Wasm | RunBackend::WasmGC, _) => {
-            let mut cmd = Command::new(&*moonutil::BINARIES.moonrun);
+            let mut cmd = Command::new(&*moonutil::toolchain::BINARIES.moonrun);
             if let Some(t) = test {
                 cmd.arg("--test-args");
                 cmd.arg(serde_json::to_string(t).unwrap());
@@ -80,7 +80,7 @@ pub(crate) fn command_for_with_moonrun_policy(
                     let _ = std::fs::write(js_dir_package_json, "{}");
                 }
             }
-            let mut cmd = Command::new(moonutil::BINARIES.node_or_default());
+            let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
             cmd.arg("--enable-source-maps");
             cmd.arg(mbt_executable);
             if let Some(t) = test {

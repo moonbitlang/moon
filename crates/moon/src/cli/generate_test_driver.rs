@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
-use moonutil::cli::UniversalFlags;
+use moonutil::cli_support::UniversalFlags;
 use moonutil::{
     constants::{
         MOON_TEST_DELIMITER_BEGIN, MOON_TEST_DELIMITER_END, MOONBITLANG_CORE,
@@ -101,7 +101,7 @@ fn moonc_gen_test_info(
         DriverKind::Blackbox => Some("-include-doctests"),
         _ => None,
     };
-    let mut generated = std::process::Command::new(&*moonutil::BINARIES.moonc)
+    let mut generated = std::process::Command::new(&*moonutil::toolchain::BINARIES.moonc)
         .arg("gen-test-info")
         .arg("-json")
         .args(files)
@@ -156,7 +156,7 @@ fn moonc_gen_test_info(
     fn gen_error_message(files: &[PathBuf]) -> String {
         format!(
             "failed to execute `{:?} gen-test-info {}`",
-            moonutil::BINARIES.moonc,
+            moonutil::toolchain::BINARIES.moonc,
             files
                 .iter()
                 .map(|it| it.to_string_lossy())

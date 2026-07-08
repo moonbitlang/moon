@@ -51,7 +51,7 @@ use std::{
 
 use log::{debug, info};
 use moonutil::{
-    build_options::RunMode, compiler_flags::Toolchain, cond_expr::OptLevel, mooncakes::ModuleId,
+    build_options::RunMode, compiler_flags::Toolchain, cond_expr::OptLevel, resolution::ModuleId,
     target::TargetBackend,
 };
 use petgraph::prelude::DiGraphMap;

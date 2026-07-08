@@ -16,47 +16,17 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#![warn(clippy::clone_on_ref_ptr)]
+//! Project, workspace, and target-directory discovery.
+//!
+//! This is the canonical import surface for code that needs to locate a MoonBit
+//! module or workspace before building, resolving dependencies, or packaging.
 
-mod binaries;
-pub mod build_options;
-pub mod build_script;
-mod cli;
-pub mod cli_support;
-pub mod compiler_flags;
-pub mod cond_expr;
-pub mod constants;
-pub mod demangle;
-pub mod dependency;
-mod dirs;
-pub mod error_code_docs;
-pub mod features;
-pub mod front_matter;
-pub mod fuzzy_match;
-pub mod git;
-pub mod glob;
-pub mod graph;
-pub mod locks;
-pub mod manifest;
-mod module;
-mod moon_dir;
-pub mod moon_mod_patch;
-pub mod moon_pkg;
-mod mooncakes;
-pub mod package;
-pub mod path;
-pub mod platform;
-pub mod project;
-pub mod registry;
-pub mod render;
-pub mod resolution;
-pub mod scripts;
-pub mod shlex;
-pub mod supported_targets;
-pub mod target;
-pub mod test_metadata;
-pub mod text;
-pub mod toolchain;
-pub mod user_warning;
-pub mod version;
-pub mod workspace;
+pub use crate::dirs::{
+    ModuleRef, PackageDirs, PackageDirsError, ProjectContext, ProjectManifest, ProjectNotFound,
+    ProjectProbe, ProjectQuery, SingleFilePackageDirs, SourceModulePackageDirs, SourceTargetDirs,
+    WorkRootSelection, WorkspaceEnv, WorkspaceRef, current_workspace_env,
+};
+pub use crate::workspace::{
+    MoonWork, canonical_workspace_module_dirs, format_workspace_file, read_workspace,
+    read_workspace_file, workspace_manifest_path, write_workspace,
+};

@@ -18,7 +18,7 @@
 
 use std::path::PathBuf;
 
-use moonutil::mooncakes::ModuleId;
+use moonutil::resolution::ModuleId;
 
 use crate::model::{BuildTarget, PackageId};
 

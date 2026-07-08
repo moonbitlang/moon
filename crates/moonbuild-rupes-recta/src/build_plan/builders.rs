@@ -30,9 +30,9 @@ use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     compiler_flags::{self, CC, Toolchain},
     constants::{DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, PKG_DIR, is_moon_mod, is_moon_pkg},
-    module::{MoonMod, MoonModRule},
-    mooncakes::ModuleId,
+    manifest::{MoonMod, MoonModRule},
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
+    resolution::ModuleId,
     scripts::{IgnoredMoonScript, is_moon_script_ignored},
     target::TargetBackend,
     toolchain::BINARIES,
@@ -1746,7 +1746,7 @@ fn prebuild_command_paths(cwd: &Path, paths: &[PathBuf]) -> Vec<String> {
 mod tests {
     use super::*;
 
-    fn test_module(rules: Vec<moonutil::module::MoonModRule>) -> MoonMod {
+    fn test_module(rules: Vec<moonutil::manifest::MoonModRule>) -> MoonMod {
         MoonMod {
             name: "test".to_string(),
             rule: Some(rules),
@@ -1756,7 +1756,10 @@ mod tests {
 
     fn test_package(module: &MoonMod) -> PackageFQNWithSource {
         PackageFQNWithSource::new(
-            moonutil::mooncakes::ModuleSource::from_local_module(module, std::path::Path::new(".")),
+            moonutil::resolution::ModuleSource::from_local_module(
+                module,
+                std::path::Path::new("."),
+            ),
             crate::pkg_name::PackagePath::new("").expect("empty package path should parse"),
         )
     }
@@ -1834,11 +1837,11 @@ mod tests {
     #[test]
     fn resolve_prebuild_rule_command_uses_module_rule() {
         let module = test_module(vec![
-            moonutil::module::MoonModRule {
+            moonutil::manifest::MoonModRule {
                 name: "rule1".to_string(),
                 command: "exe1".to_string(),
             },
-            moonutil::module::MoonModRule {
+            moonutil::manifest::MoonModRule {
                 name: "rule2".to_string(),
                 command: "exe2".to_string(),
             },
@@ -1853,11 +1856,11 @@ mod tests {
 
     #[test]
     fn resolve_prebuild_rule_command_uses_package_local_rule() {
-        let module = test_module(vec![moonutil::module::MoonModRule {
+        let module = test_module(vec![moonutil::manifest::MoonModRule {
             name: "module_rule".to_string(),
             command: "module_exe".to_string(),
         }]);
-        let local_rules = vec![moonutil::module::MoonModRule {
+        let local_rules = vec![moonutil::manifest::MoonModRule {
             name: "local_rule".to_string(),
             command: "local_exe".to_string(),
         }];
@@ -1876,11 +1879,11 @@ mod tests {
 
     #[test]
     fn resolve_prebuild_rule_command_prefers_package_local_rule() {
-        let module = test_module(vec![moonutil::module::MoonModRule {
+        let module = test_module(vec![moonutil::manifest::MoonModRule {
             name: "rule1".to_string(),
             command: "module_exe".to_string(),
         }]);
-        let local_rules = vec![moonutil::module::MoonModRule {
+        let local_rules = vec![moonutil::manifest::MoonModRule {
             name: "rule1".to_string(),
             command: "local_exe".to_string(),
         }];
@@ -1899,7 +1902,7 @@ mod tests {
 
     #[test]
     fn resolve_prebuild_rule_command_rejects_unknown_rule() {
-        let module = test_module(vec![moonutil::module::MoonModRule {
+        let module = test_module(vec![moonutil::manifest::MoonModRule {
             name: "rule1".to_string(),
             command: "exe1".to_string(),
         }]);

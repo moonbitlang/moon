@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use moonutil::{
     compiler_flags::CC,
-    mooncakes::{ModuleId, result::ResolvedEnv},
+    resolution::{ModuleId, ResolvedEnv},
     target::TargetBackend,
 };
 

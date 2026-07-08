@@ -21,7 +21,7 @@
 use crate::discover::DiscoverResult;
 use crate::pkg_solve::DepRelationship;
 use crate::{build_plan::BuildPlan, model::BuildPlanNode};
-use moonutil::mooncakes::result::ResolvedEnv;
+use moonutil::resolution::ResolvedEnv;
 use petgraph::Direction;
 use std::io::{self, Write};
 use std::path::Path;
@@ -83,11 +83,11 @@ pub fn print_resolved_env_dot(env: &ResolvedEnv, writer: &mut dyn Write) -> io::
 
         // Color-code based on module type
         let color = match src.source() {
-            moonutil::mooncakes::ModuleSourceKind::Local(_) => "lightgreen",
-            moonutil::mooncakes::ModuleSourceKind::Registry => "lightblue",
-            moonutil::mooncakes::ModuleSourceKind::Git(_) => "lightyellow",
-            moonutil::mooncakes::ModuleSourceKind::Stdlib(_) => "lightgray",
-            moonutil::mooncakes::ModuleSourceKind::SingleFile(_) => "orange",
+            moonutil::resolution::ModuleSourceKind::Local(_) => "lightgreen",
+            moonutil::resolution::ModuleSourceKind::Registry => "lightblue",
+            moonutil::resolution::ModuleSourceKind::Git(_) => "lightyellow",
+            moonutil::resolution::ModuleSourceKind::Stdlib(_) => "lightgray",
+            moonutil::resolution::ModuleSourceKind::SingleFile(_) => "orange",
         };
 
         writeln!(

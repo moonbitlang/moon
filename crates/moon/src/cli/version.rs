@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use moonutil::cli::UniversalFlags;
+use moonutil::cli_support::UniversalFlags;
 use std::{env::current_exe, path::Path};
 
 use anyhow::Context;
@@ -93,12 +93,12 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
                 println!(
                     "moonc {} {}",
                     moonc_version?,
-                    replace_home_with_tilde(&moonutil::BINARIES.moonc)?
+                    replace_home_with_tilde(&moonutil::toolchain::BINARIES.moonc)?
                 );
                 println!(
                     "{} {}",
                     moonrun_version?,
-                    replace_home_with_tilde(&moonutil::BINARIES.moonrun)?
+                    replace_home_with_tilde(&moonutil::toolchain::BINARIES.moonrun)?
                 );
             }
             print_unstable_footer(flags);
@@ -139,7 +139,9 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
                         path: if nopath_flag {
                             None
                         } else {
-                            Some(replace_home_with_tilde(&moonutil::BINARIES.moonc)?)
+                            Some(replace_home_with_tilde(
+                                &moonutil::toolchain::BINARIES.moonc,
+                            )?)
                         },
                     },
                     moonutil::version::VersionItem {
@@ -148,7 +150,9 @@ pub(crate) fn run_version(flags: &UniversalFlags, cmd: VersionSubcommand) -> any
                         path: if nopath_flag {
                             None
                         } else {
-                            Some(replace_home_with_tilde(&moonutil::BINARIES.moonrun)?)
+                            Some(replace_home_with_tilde(
+                                &moonutil::toolchain::BINARIES.moonrun,
+                            )?)
                         },
                     },
                 ],

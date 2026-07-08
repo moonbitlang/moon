@@ -20,10 +20,10 @@ use anyhow::Context;
 use moonbuild_rupes_recta::{build_lower::WarningCondition, intent::UserIntent};
 use moonutil::{
     build_options::RunMode,
-    cli::UniversalFlags,
-    dirs::{PackageDirs, ProjectManifest},
+    cli_support::AutoSyncFlags,
+    cli_support::UniversalFlags,
     locks::FileLock,
-    mooncakes::sync::AutoSyncFlags,
+    project::{PackageDirs, ProjectManifest},
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
 };
 use std::path::Path;

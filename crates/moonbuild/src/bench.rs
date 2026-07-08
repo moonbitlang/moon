@@ -18,8 +18,8 @@
 
 use indexmap::IndexMap;
 use moonutil::constants::MOON_PKG_JSON;
+use moonutil::manifest::MoonModJSON;
 use moonutil::manifest::{write_module_json_to_file, write_package_json_to_file};
-use moonutil::module::MoonModJSON;
 use moonutil::package::{MoonPkgJSON, PkgJSONImport};
 use std::fs;
 use std::path::Path;

@@ -32,7 +32,7 @@ pub mod synth;
 
 pub use model::{DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage};
 use moonutil::constants::{PackageSourceFileKind, package_source_file_kind};
-use moonutil::dirs::ProjectManifest;
+use moonutil::project::ProjectManifest;
 
 use std::{
     path::{Path, PathBuf},
@@ -41,11 +41,11 @@ use std::{
 
 use indexmap::IndexSet;
 use log::{debug, info, trace};
-use moonutil::mooncakes::{
-    DirSyncResult, ModuleId, ModuleSource,
-    result::{ResolvedEnv, ResolvedModule, ResolvedRootModules},
-};
 use moonutil::package::MoonPkg;
+use moonutil::resolution::{
+    DirSyncResult, ModuleId, ModuleSource, ModuleSourceKind, ResolvedEnv, ResolvedModule,
+    ResolvedRootModules,
+};
 use moonutil::target::TargetBackend;
 use moonutil::{
     constants::{
@@ -56,7 +56,6 @@ use moonutil::{
         read_module_desc_file_in_dir, read_package_desc_file_from_path_with_supported_targets_decl,
         warn_if_shadowed_manifest, warn_known_shadowed_manifest,
     },
-    mooncakes::ModuleSourceKind,
     package::resolve_supported_targets,
     workspace::{canonical_workspace_module_dirs, read_workspace_file},
 };
@@ -510,8 +509,8 @@ fn discover_virtual_mbti(
 #[cfg(test)]
 mod tests {
     use moonutil::{
-        module::MoonMod,
-        mooncakes::{DirSyncResult, ModuleSource, result::ResolvedEnv},
+        manifest::MoonMod,
+        resolution::{DirSyncResult, ModuleSource, ResolvedEnv},
     };
 
     use super::discover_packages;

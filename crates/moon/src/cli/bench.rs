@@ -19,8 +19,8 @@
 use anyhow::Context;
 use moonutil::{
     build_options::TestIndexRange,
-    dirs::{PackageDirs, ProjectManifest},
-    mooncakes::sync::AutoSyncFlags,
+    cli_support::AutoSyncFlags,
+    project::{PackageDirs, ProjectManifest},
     target::{TargetBackend, lower_surface_targets},
 };
 use std::path::{Path, PathBuf};

@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
-use moonutil::mooncakes::RegistryConfig;
+use moonutil::registry::RegistryConfig;
 
 use super::UniversalFlags;
 
@@ -30,6 +30,6 @@ pub(crate) fn update_cli(cli: UniversalFlags, _cmd: UpdateSubcommand) -> anyhow:
         bail!("dry-run is not supported for update")
     }
     let registry_config = RegistryConfig::load();
-    let target_dir = moonutil::moon_dir::index();
+    let target_dir = moonutil::registry::index();
     mooncake::update::update(&target_dir, &registry_config)
 }

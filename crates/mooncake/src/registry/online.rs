@@ -27,7 +27,7 @@ use std::{
 use anyhow::bail;
 use indexmap::map::IndexMap;
 use moonutil::{
-    dependency::SourceDependencyInfo, mooncakes::ModuleName, scripts::execute_postadd_script,
+    dependency::SourceDependencyInfo, resolution::ModuleName, scripts::execute_postadd_script,
 };
 use reqwest::header::USER_AGENT;
 use semver::Version;
@@ -52,7 +52,7 @@ pub struct OnlineRegistry {
 impl OnlineRegistry {
     pub fn mooncakes_io() -> Self {
         OnlineRegistry {
-            index: moonutil::moon_dir::index(),
+            index: moonutil::registry::index(),
             url_base: "https://download.mooncakes.io/user".to_string(),
             cache: RefCell::new(HashMap::new()),
         }
@@ -250,7 +250,7 @@ impl OnlineRegistry {
 }
 
 fn cache_of(name: &ModuleName, version: &Version) -> std::path::PathBuf {
-    let cache_dir = moonutil::moon_dir::cache();
+    let cache_dir = moonutil::registry::cache();
 
     cache_dir
         .join(name.username.as_str())

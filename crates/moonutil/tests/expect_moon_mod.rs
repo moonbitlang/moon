@@ -19,9 +19,9 @@
 use std::path::PathBuf;
 
 use moonutil::manifest::{
+    MoonMod, MoonModJSON, MoonModJSONRules, MoonModRule, convert_module_to_mod_json,
     read_module_desc_file_in_dir, read_module_from_dsl, write_module_dsl_to_file,
 };
-use moonutil::module::{MoonMod, MoonModJSON, MoonModRule, convert_module_to_mod_json};
 use moonutil::package::SupportedTargetsConfig;
 use moonutil::target::TargetBackend;
 use semver::Version;
@@ -372,6 +372,49 @@ fn moon_mod_json_conversion_serializes_single_rule_as_object() {
         {
           "name": "example/mod",
           "deps": {},
+          "rule": {
+            "name": "rule1",
+            "command": "exe1"
+          }
+        }"#]]
+    .assert_eq(&actual);
+}
+
+#[test]
+fn manifest_facade_exposes_moon_mod_json_rules() {
+    let module_json = MoonModJSON {
+        name: "example/mod".to_string(),
+        version: None,
+        deps: None,
+        bin_deps: None,
+        readme: None,
+        repository: None,
+        license: None,
+        keywords: None,
+        description: None,
+        compile_flags: None,
+        link_flags: None,
+        checksum: None,
+        source: None,
+        rule: Some(MoonModJSONRules::Single(MoonModRule {
+            name: "rule1".to_string(),
+            command: "exe1".to_string(),
+        })),
+        ext: Default::default(),
+        warn_list: None,
+        include: None,
+        exclude: None,
+        scripts: None,
+        preferred_target: None,
+        supported_targets: None,
+        __moonbit_unstable_prebuild: None,
+    };
+
+    let actual = serde_json_lenient::to_string_pretty(&module_json).unwrap();
+
+    expect_test::expect![[r#"
+        {
+          "name": "example/mod",
           "rule": {
             "name": "rule1",
             "command": "exe1"

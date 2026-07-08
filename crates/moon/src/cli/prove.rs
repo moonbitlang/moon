@@ -24,12 +24,8 @@ use std::{
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode, user_warning::UserWarning};
 use moonutil::{
-    build_options::RunMode,
-    cli::UniversalFlags,
-    dirs::PackageDirs,
-    locks::FileLock,
-    mooncakes::{ModuleId, sync::AutoSyncFlags},
-    target::TargetBackend,
+    build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
+    locks::FileLock, project::PackageDirs, resolution::ModuleId, target::TargetBackend,
     test_metadata::DiagnosticLevel,
 };
 use serde::Deserialize;

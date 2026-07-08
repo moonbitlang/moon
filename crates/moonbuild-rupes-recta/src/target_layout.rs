@@ -32,7 +32,7 @@ use std::{
 use moonutil::{
     build_options::RunMode,
     cond_expr::OptLevel,
-    mooncakes::{ModuleName, ModuleSource, result::ResolvedEnv},
+    resolution::{ModuleName, ModuleSource, ResolvedEnv},
     target::TargetBackend,
 };
 
@@ -1130,11 +1130,11 @@ mod tests {
     use std::path::PathBuf;
 
     use indexmap::IndexSet;
-    use moonutil::mooncakes::{DEFAULT_VERSION, ModuleName, ModuleSource};
     use moonutil::{
         compiler_flags::{ARKind, CC, CCKind, Toolchain},
-        module::MoonMod,
+        manifest::MoonMod,
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
+        resolution::{DEFAULT_VERSION, ModuleName, ModuleSource},
     };
 
     use super::*;

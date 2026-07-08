@@ -28,7 +28,7 @@ use crate::{
     user_warning::UserWarning,
 };
 use log::info;
-use moonutil::mooncakes::result::ResolvedEnv;
+use moonutil::resolution::ResolvedEnv;
 use tracing::{Level, instrument};
 
 pub use model::{DepEdge, DepRelationship, SolveError};

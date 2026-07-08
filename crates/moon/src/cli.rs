@@ -69,9 +69,8 @@ use moonbuild::upgrade::UpgradeSubcommand;
 use mooncake::pkg::{
     add::AddSubcommand, install::InstallSubcommand, remove::RemoveSubcommand, tree::TreeSubcommand,
 };
-use moonutil::{
-    cli::UniversalFlags,
-    mooncakes::{LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand},
+use moonutil::cli_support::{
+    LoginSubcommand, PackageSubcommand, PublishSubcommand, RegisterSubcommand, UniversalFlags,
 };
 pub(crate) use new::*;
 pub(crate) use prove::*;
