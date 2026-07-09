@@ -584,11 +584,11 @@ struct Commandline {
     #[clap(long)]
     stack_size: Option<String>,
 
-    /// Experimental: sandbox moonbitlang/async runtime access using a TOML policy file.
+    /// Experimental: sandbox wasm runtime host access using a TOML policy file.
     #[clap(
         long,
         value_name = "PATH",
-        long_help = r#"Experimental: Sandbox moonbitlang/async and moonrun-owned __moonbit_*_unstable FFI access using a TOML policy file. WASI is not covered.
+        long_help = r#"Experimental: Sandbox wasm runtime host access using a TOML policy file. WASI is not covered.
 
 Supplying --policy enables deny-by-default mode: omitted or empty [fs], [net], and [env] sections deny that surface, and process spawning is disabled unless explicitly enabled.
 
@@ -610,7 +610,7 @@ Common allow-all policy:
 
 Filesystem roots are host paths. Relative roots are resolved relative to the policy file. "*" allows every host path on every platform.
 
-Environment values default to empty in policy mode. Use from_host for optional host variables, required_from_host for required host variables and secrets, and [env.set] for non-secret literals. [env.set] overrides copied host values.
+Environment values default to empty in sandbox policy mode. Use from_host for optional host variables, required_from_host for required host variables and secrets, and [env.set] for non-secret literals. [env.set] overrides copied host values.
 
 Network connect controls outbound sockets; bind controls local bind/listen addresses. Hostname connect rules also permit DNS lookup for those hostnames, so connect = ["api.deepseek.com:443"] does not require a separate dns entry. Bind rules must use IP addresses or *.
 
@@ -663,7 +663,7 @@ fn main() -> anyhow::Result<()> {
     let matches = Commandline::parse();
     let async_policy = Arc::new(match matches.policy.as_ref() {
         Some(path) => async_policy::AsyncPolicy::from_file(path).context(
-            "failed to load moonrun policy (experimental); run `moonrun --help` for policy format notes",
+            "failed to load sandbox policy (experimental); run `moonrun --help` for policy format notes",
         )?,
         None => async_policy::AsyncPolicy::allow_all(),
     });
