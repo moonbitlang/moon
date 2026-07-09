@@ -59,12 +59,21 @@ pub fn print_build_commands(
                 println!("  cwd: {}", replacer.normalize_context_path(&resolved_cwd));
             }
             if !build.env.is_empty() {
-                println!("  env: <set by MSVC discovery for cl.exe>");
+                println!("  env:");
+                for line in normalized_env_lines(&build.env, &replacer) {
+                    println!("    {line}");
+                }
             }
         }
     }
 
     try_debug_dump_build_graph_to_file(graph, default, source_dir);
+}
+
+fn normalized_env_lines(env: &[(String, String)], replacer: &PathNormalizer) -> Vec<String> {
+    env.iter()
+        .map(|(key, value)| format!("{key}={}", replacer.normalize_command_arg(value)))
+        .collect()
 }
 
 // FIXME: `PathNormalizer` is production-facing dry-run output formatting, not
@@ -391,7 +400,7 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId]) -> Vec<BuildId> {
 
 #[cfg(test)]
 mod tests {
-    use super::PathNormalizer;
+    use super::{PathNormalizer, normalized_env_lines};
 
     #[test]
     fn normalizes_known_tool_exe_suffix_without_touching_native_outputs() {
@@ -466,5 +475,27 @@ mod tests {
         let replacer = PathNormalizer::new(source_dir.path());
         assert_eq!(replacer.normalize_context_path(&cwd), "./pkg");
         assert_eq!(replacer.normalize_context_path(source_dir.path()), ".");
+    }
+
+    #[test]
+    fn renders_build_env_with_normalized_values() {
+        let replacer = PathNormalizer {
+            canonical: Some("/workspace".into()),
+            replace_table: vec![],
+            binary_file_name_table: vec![],
+            show_toolchain_root: false,
+            toolchain_root: "/toolchain".to_owned(),
+            moon_home: "/home".to_owned(),
+        };
+
+        let lines = normalized_env_lines(
+            &[
+                ("LIB".to_owned(), "C:\\SDK\\Lib".to_owned()),
+                ("INCLUDE".to_owned(), "/workspace/crt/include".to_owned()),
+            ],
+            &replacer,
+        );
+
+        assert_eq!(lines, ["LIB=C:/SDK/Lib", "INCLUDE=./crt/include"]);
     }
 }
