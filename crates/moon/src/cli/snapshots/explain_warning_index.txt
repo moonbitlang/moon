@@ -71,3 +71,6 @@
 0076	lexmatch_first_match	Using `lexmatch` with first-match semantics.
 0077	lexmatch_longest_match	Using `lexmatch` with longest-match semantics.
 0078	result_error_return	Using `Result[T, E]` where `E` is an error type.
+0079	implicit_impl_as_method	`impl` implicitly promoted as method
+0080	regex_match_missing_before	Missing `before` binding in `regex match`.
+0081	regex_match_missing_after	Missing `after` binding in `regex match`.

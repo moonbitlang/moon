@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-06-03.
+// Snapshot generated from `moonc check -warn-help` on 2026-07-09.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -405,6 +405,21 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "result_error_return",
         description: "Using `Result[T, E]` where `E` is an error type.",
         id: 78,
+    },
+    WarningEntry {
+        mnemonic: "implicit_impl_as_method",
+        description: "`impl` implicitly promoted as method",
+        id: 79,
+    },
+    WarningEntry {
+        mnemonic: "regex_match_missing_before",
+        description: "Missing `before` binding in `regex match`.",
+        id: 80,
+    },
+    WarningEntry {
+        mnemonic: "regex_match_missing_after",
+        description: "Missing `after` binding in `regex match`.",
+        id: 81,
     },
 ];
 
