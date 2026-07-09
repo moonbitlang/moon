@@ -104,6 +104,7 @@ pub fn f() -> Unit {{
             let pkg = MoonPkgJSON {
                 name: None,
                 is_main: None,
+                pkgtype: None,
                 import: if import.is_empty() {
                     None
                 } else {
@@ -206,6 +207,7 @@ pub fn write(config: &Config, base_dir: &Path) {
     let pkg = MoonPkgJSON {
         name: None,
         is_main: Some(true),
+        pkgtype: None,
         import: if import.is_empty() {
             None
         } else {

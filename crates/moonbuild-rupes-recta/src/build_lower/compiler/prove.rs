@@ -74,7 +74,7 @@ impl<'a> CmdlineAbstraction for MooncProve<'a> {
             args.push("-emit-only".to_string());
         }
         self.required.add_package_config(args);
-        self.defaults.add_is_main(args);
+        self.defaults.add_pkgtype(args);
         if self.single_file {
             args.push("-single-file".to_string());
         }

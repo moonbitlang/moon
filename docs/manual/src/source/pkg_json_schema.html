@@ -82,13 +82,14 @@
       ]
     },
     "is-main": {
-      "description": "Specify whether this package is a main package or not",
+      "description": "Specify whether this package is a main package or not.\n\n**Deprecated:** use `pkgtype(kind: \"executable\")` instead.",
       "type": [
         "boolean",
         "null"
       ]
     },
     "link": {
+      "description": "Link configuration for the package.\n\nThe boolean form `link: true` (force-link a non-main library) is **deprecated**: use `pkgtype(kind: \"foreign_library\")` instead. The structured form `link: { ... }` remains supported as link configuration.",
       "anyOf": [
         {
           "$ref": "#/definitions/BoolOrLink"
@@ -129,6 +130,17 @@
       "items": {
         "type": "string"
       }
+    },
+    "pkgtype": {
+      "description": "The kind of this package: `library` (default), `executable`, or `foreign_library`. Declared via `pkgtype(kind: \"...\")` in `moon.pkg`; supersedes the deprecated `is-main` and `link: true` flags.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/PkgType"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "pre-build": {
       "description": "Command for moon generate",
@@ -259,6 +271,7 @@
       "type": "object",
       "properties": {
         "exports": {
+          "description": "*Deprecated:** use the `#export_name` attribute in MoonBit source instead.",
           "type": [
             "array",
             "null"
@@ -407,7 +420,7 @@
           ]
         },
         "exports": {
-          "description": "Function exports for the final native executable",
+          "description": "Function exports for the final native executable.\n\n**Deprecated:** use the `#export_name` attribute in MoonBit source instead.",
           "type": [
             "array",
             "null"
@@ -438,6 +451,15 @@
           ]
         }
       }
+    },
+    "PackageKind": {
+      "description": "The kind of a package, declared via `pkgtype(kind: \"...\")` in `moon.pkg`.\n\nThis supersedes the deprecated `is-main` and `link: true` flags: - `library` (the default): a normal library, emits a `.core` consumed by other MoonBit packages. - `executable`: has a `main` and links to a runnable artifact (equivalent to the deprecated `is-main: true`). - `foreign_library`: a non-main library force-linked into a standalone, foreign-consumable artifact (equivalent to the deprecated `link: true`). Not yet supported on the native/LLVM backends.",
+      "type": "string",
+      "enum": [
+        "library",
+        "executable",
+        "foreign_library"
+      ]
     },
     "PkgJSONImport": {
       "anyOf": [
@@ -497,6 +519,18 @@
           }
         }
       ]
+    },
+    "PkgType": {
+      "description": "The `pkgtype(kind: \"...\")` declaration in `moon.pkg`.",
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/PackageKind"
+        }
+      }
     },
     "RegexBackend": {
       "type": "string",
@@ -578,6 +612,7 @@
           ]
         },
         "exports": {
+          "description": "*Deprecated:** use the `#export_name` attribute in MoonBit source instead.",
           "type": [
             "array",
             "null"
@@ -645,6 +680,7 @@
           ]
         },
         "exports": {
+          "description": "*Deprecated:** use the `#export_name` attribute in MoonBit source instead.",
           "type": [
             "array",
             "null"
