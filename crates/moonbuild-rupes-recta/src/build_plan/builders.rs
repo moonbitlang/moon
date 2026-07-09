@@ -80,7 +80,7 @@ impl<'a> BuildPlanConstructor<'a> {
     fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
         if self.build_env.native_mode.direct_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             err.context(
-                "Windows MSVC native backend requires an MSVC compiler/linker driver such as cl.exe or clang-cl.exe",
+                "Windows MSVC direct object native target requires an MSVC compiler/linker driver such as cl.exe or clang-cl.exe",
             )
         } else if self.build_env.native_mode.direct_target().is_some() {
             err.context(
@@ -97,7 +97,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         let warning = UserWarning::warn(
-            "MOON_CC is ignored for Windows MSVC native backend because it is not a cl-compatible driver; set MOON_CC to cl.exe or clang-cl.exe to override MSVC discovery.",
+            "MOON_CC is ignored for Windows MSVC direct object native target because it is not a cl-compatible driver; set MOON_CC to cl.exe or clang-cl.exe to override MSVC discovery.",
         );
         if !self.user_warnings.contains(&warning) {
             self.user_warnings.push(warning);

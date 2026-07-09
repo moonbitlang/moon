@@ -36,7 +36,7 @@ use crate::{
 use moonutil::toolchain::BINARIES;
 
 use super::{
-    BuildOptions, CommandArgMap, Commandline, LoweringError,
+    BuildOptions, CommandArgMap, LoweringError,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
@@ -319,7 +319,7 @@ impl<'a> LoweringContext<'a> {
         let ins = build_ins(&mut self.graph, ins);
 
         let output_paths = action_products.output_paths();
-        if let Commandline::Args(args) = &cmd.commandline {
+        if let Some(args) = cmd.commandline.args() {
             for output_path in &output_paths {
                 self.command_args_by_output
                     .insert(output_path.clone(), args.clone());
@@ -338,6 +338,8 @@ impl<'a> LoweringContext<'a> {
             outs,
         );
         build.cmdline = Some(cmd.commandline.to_n2_string());
+        build.cwd = cmd.commandline.cwd().map(|cwd| cwd.display().to_string());
+        build.env = cmd.commandline.env().to_vec();
         build.desc = Some(self.plan.human_desc(id, self.modules, self.packages));
         // n2 can't capture and replay command outputs. this is a workaround to
         // avoid losing warnings from `moonc`. According to legacy code, this

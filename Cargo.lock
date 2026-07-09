@@ -1792,7 +1792,7 @@ dependencies = [
 [[package]]
 name = "n2"
 version = "0.1.5"
-source = "git+https://github.com/moonbitlang/n2.git?rev=3f3eb821ba064a91076aa42042b2d376a2a11bce#3f3eb821ba064a91076aa42042b2d376a2a11bce"
+source = "git+https://github.com/moonbitlang/n2.git?rev=e070bc9758d39dd37e045be25351e6a256fa98c1#e070bc9758d39dd37e045be25351e6a256fa98c1"
 dependencies = [
  "anyhow",
  "argh",

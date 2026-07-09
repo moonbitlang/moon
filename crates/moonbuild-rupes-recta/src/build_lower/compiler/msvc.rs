@@ -22,28 +22,11 @@ use std::path::Path;
 
 use moonutil::compiler_flags::{MsvcCrtPolicy, Toolchain, WINDOWS_MSVC_DEFAULT_LIBS};
 
-pub(crate) fn add_environment_include_paths(toolchain: &Toolchain, command: &mut Vec<String>) {
-    let Some(environment) = toolchain.msvc_environment() else {
-        return;
-    };
-    command.extend(
-        environment
-            .include_paths
-            .iter()
-            .map(|path| format!("/I{}", path.display())),
-    );
-}
-
-fn add_environment_lib_paths(toolchain: &Toolchain, command: &mut Vec<String>) {
-    let Some(environment) = toolchain.msvc_environment() else {
-        return;
-    };
-    command.extend(
-        environment
-            .lib_paths
-            .iter()
-            .map(|path| format!("/LIBPATH:{}", path.display())),
-    );
+pub(crate) fn command_env(toolchain: &Toolchain) -> Vec<(String, String)> {
+    toolchain
+        .msvc_environment()
+        .map(|environment| environment.command_env().to_vec())
+        .unwrap_or_default()
 }
 
 pub(crate) fn compile_runtime_command(
@@ -54,7 +37,7 @@ pub(crate) fn compile_runtime_command(
     crt: MsvcCrtPolicy,
 ) -> Vec<String> {
     let mut command = vec![
-        toolchain.cc().cc_path.clone(),
+        toolchain.cc_command_path(),
         "/nologo".to_string(),
         "/utf-8".to_string(),
         "/wd4819".to_string(),
@@ -65,7 +48,6 @@ pub(crate) fn compile_runtime_command(
         format!("/Fo{}", dest.display()),
         format!("/I{moon_include_path}"),
     ];
-    add_environment_include_paths(toolchain, &mut command);
     command.push(source.display().to_string());
     command
 }
@@ -78,7 +60,7 @@ pub(crate) fn link_executable_command(
     lib_path: &str,
 ) -> Vec<String> {
     let mut command = vec![
-        toolchain.cc().cc_path.clone(),
+        toolchain.cc_command_path(),
         "/nologo".to_string(),
         format!("/Fe{dest}"),
     ];
@@ -89,7 +71,6 @@ pub(crate) fn link_executable_command(
         "/subsystem:console".to_string(),
         format!("/LIBPATH:{lib_path}"),
     ]);
-    add_environment_lib_paths(toolchain, &mut command);
     command.extend(user_link_flags.iter().cloned());
     command.extend(WINDOWS_MSVC_DEFAULT_LIBS.iter().map(|lib| lib.to_string()));
     command
@@ -114,13 +95,15 @@ mod tests {
         })
         .with_msvc_environment(MsvcEnvironment {
             cl_exe: PathBuf::from("cl.exe"),
-            include_paths: vec![PathBuf::from("crt/include"), PathBuf::from("sdk/include")],
-            lib_paths: vec![PathBuf::from("crt/lib"), PathBuf::from("sdk/lib")],
+            command_env: vec![
+                ("INCLUDE".to_string(), "crt/include;sdk/include".to_string()),
+                ("LIB".to_string(), "crt/lib;sdk/lib".to_string()),
+            ],
         })
     }
 
     #[test]
-    fn runtime_compile_command_includes_msvc_environment_paths() {
+    fn runtime_compile_command_uses_command_env_for_msvc_environment() {
         let command = compile_runtime_command(
             &fake_msvc_toolchain(),
             Path::new("runtime.c"),
@@ -129,8 +112,6 @@ mod tests {
             MsvcCrtPolicy::StaticMt,
         );
 
-        assert!(command.iter().any(|arg| arg == "/Icrt/include"));
-        assert!(command.iter().any(|arg| arg == "/Isdk/include"));
         assert!(command.iter().any(|arg| arg == "/Imoon/include"));
         assert!(
             command
@@ -140,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn executable_link_command_includes_msvc_environment_paths_and_default_libs() {
+    fn executable_link_command_uses_command_env_for_msvc_environment() {
         let command = link_executable_command(
             &fake_msvc_toolchain(),
             &["main.obj".to_string(), "runtime.obj".to_string()],
@@ -149,8 +130,6 @@ mod tests {
             "moon/lib",
         );
 
-        assert!(command.iter().any(|arg| arg == "/LIBPATH:crt/lib"));
-        assert!(command.iter().any(|arg| arg == "/LIBPATH:sdk/lib"));
         assert!(command.iter().any(|arg| arg == "/LIBPATH:moon/lib"));
         assert!(command.iter().any(|arg| arg == "custom.lib"));
         assert!(command.iter().any(|arg| arg == "libcmt.lib"));

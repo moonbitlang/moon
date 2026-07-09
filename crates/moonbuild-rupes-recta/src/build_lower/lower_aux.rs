@@ -170,56 +170,63 @@ impl<'a> super::LoweringContext<'a> {
 
         let runtime_toolchain = &info.effective_native_toolchain;
         let resolved_cc = runtime_toolchain.cc().clone();
-        let cc_cmd = if let Some(crt) = runtime_toolchain.msvc_crt_policy() {
-            compiler::msvc::compile_runtime_command(
-                runtime_toolchain,
-                &runtime_c_path,
-                &artifact_path,
-                &self.opt.compiler_paths().include_path,
-                crt,
+        let (cc_cmd, command_env) = if let Some(crt) = runtime_toolchain.msvc_crt_policy() {
+            (
+                compiler::msvc::compile_runtime_command(
+                    runtime_toolchain,
+                    &runtime_c_path,
+                    &artifact_path,
+                    &self.opt.compiler_paths().include_path,
+                    crt,
+                )
+                .into(),
+                compiler::msvc::command_env(runtime_toolchain),
             )
-            .into()
         } else {
             let use_simdutf = !use_shared_runtime
                 && resolved_cc.can_use_simdutf()
                 && self.opt.compiler_paths().simdutf_object_paths().is_some();
 
-            make_cc_command_resolved(
-                resolved_cc,
-                CCConfigBuilder::default()
-                    .no_sys_header(true)
-                    .output_ty(output_ty)
-                    .opt_level(CCOptLevel::Speed)
-                    .debug_info(true)
-                    .allow_stacktrace(
-                        self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
-                    )
-                    .define_tinyc_macro(use_shared_runtime)
-                    .preserve_frame_pointer(use_shared_runtime)
-                    .link_moonbitrun(link_moonbitrun)
-                    .link_libbacktrace(output_ty == CCOutputType::SharedLib)
-                    .define_use_shared_runtime_macro(false)
-                    .use_simdutf(use_simdutf)
-                    .build()
-                    .expect("Failed to build CC configuration for runtime"),
-                &[] as &[&str],
-                [runtime_c_path.display().to_string()],
-                &self
-                    .artifact_paths
-                    .target_layout()
-                    .runtime_output_dir(self.opt.target_backend)
-                    .display()
-                    .to_string(),
-                Some(&artifact_path.display().to_string()),
-                self.opt.compiler_paths(),
+            (
+                make_cc_command_resolved(
+                    resolved_cc,
+                    CCConfigBuilder::default()
+                        .no_sys_header(true)
+                        .output_ty(output_ty)
+                        .opt_level(CCOptLevel::Speed)
+                        .debug_info(true)
+                        .allow_stacktrace(
+                            self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
+                        )
+                        .define_tinyc_macro(use_shared_runtime)
+                        .preserve_frame_pointer(use_shared_runtime)
+                        .link_moonbitrun(link_moonbitrun)
+                        .link_libbacktrace(output_ty == CCOutputType::SharedLib)
+                        .define_use_shared_runtime_macro(false)
+                        .use_simdutf(use_simdutf)
+                        .build()
+                        .expect("Failed to build CC configuration for runtime"),
+                    &[] as &[&str],
+                    [runtime_c_path.display().to_string()],
+                    &self
+                        .artifact_paths
+                        .target_layout()
+                        .runtime_output_dir(self.opt.target_backend)
+                        .display()
+                        .to_string(),
+                    Some(&artifact_path.display().to_string()),
+                    self.opt.compiler_paths(),
+                )
+                .into(),
+                Vec::new(),
             )
-            .into()
         };
 
         BuildCommand {
             extra_inputs: vec![runtime_c_path],
             commandline: cc_cmd,
         }
+        .with_env(command_env)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products))]
@@ -306,8 +313,6 @@ impl<'a> super::LoweringContext<'a> {
             BINARIES.moonbuild.display().to_string(),
             "tool".to_string(),
             "exec".to_string(),
-            "--cwd".to_string(),
-            info.cwd.display().to_string(),
             "--shell".to_string(),
             info.command.clone(),
         ];
@@ -316,6 +321,7 @@ impl<'a> super::LoweringContext<'a> {
             commandline: commandline.into(),
             extra_inputs: info.resolved_inputs.clone(),
         }
+        .with_cwd(info.cwd.clone())
     }
 
     pub(super) fn lower_moon_lex_prebuild(&self, pkg: PackageId, idx: u32) -> BuildCommand {
