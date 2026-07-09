@@ -61,6 +61,34 @@ ported_fns! {
         INTERESTED_CONSOLE_CTRL_EVENT.store(mask, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
+
+    #[ported(
+        source = "src/internal/event_loop/signal.c",
+        original = "moonbitlang_async_set_console_control_handler"
+    )]
+    #[cfg(windows)]
+    pub(crate) fn set_console_control_handler(
+        add: bool,
+        completion_target: Option<(CompletionPort, usize)>,
+    ) -> AsyncHostResult<i32> {
+        use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
+
+        if add {
+            let completion_target = completion_target.ok_or(AsyncHostError::Badf)?;
+            *CONSOLE_COMPLETION_TARGET.lock().unwrap() = Some(completion_target);
+        }
+        if unsafe { SetConsoleCtrlHandler(Some(console_control_handler), i32::from(add)) } == 0 {
+            let error = last_native_error();
+            if add {
+                *CONSOLE_COMPLETION_TARGET.lock().unwrap() = None;
+            }
+            return Err(error);
+        }
+        if !add {
+            *CONSOLE_COMPLETION_TARGET.lock().unwrap() = None;
+        }
+        Ok(1)
+    }
 }
 
 pub(crate) fn get_signal_by_index(index: i32) -> i32 {
@@ -153,30 +181,6 @@ static INTERESTED_CONSOLE_CTRL_EVENT: std::sync::atomic::AtomicI32 =
 #[cfg(windows)]
 static CONSOLE_COMPLETION_TARGET: std::sync::Mutex<Option<(CompletionPort, usize)>> =
     std::sync::Mutex::new(None);
-
-#[cfg(windows)]
-pub(crate) fn set_console_control_handler(
-    add: bool,
-    completion_target: Option<(CompletionPort, usize)>,
-) -> AsyncHostResult<i32> {
-    use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
-
-    if add {
-        let completion_target = completion_target.ok_or(AsyncHostError::Badf)?;
-        *CONSOLE_COMPLETION_TARGET.lock().unwrap() = Some(completion_target);
-    }
-    if unsafe { SetConsoleCtrlHandler(Some(console_control_handler), i32::from(add)) } == 0 {
-        let error = last_native_error();
-        if add {
-            *CONSOLE_COMPLETION_TARGET.lock().unwrap() = None;
-        }
-        return Err(error);
-    }
-    if !add {
-        *CONSOLE_COMPLETION_TARGET.lock().unwrap() = None;
-    }
-    Ok(1)
-}
 
 #[cfg(windows)]
 unsafe extern "system" fn console_control_handler(ctrl_type: u32) -> i32 {

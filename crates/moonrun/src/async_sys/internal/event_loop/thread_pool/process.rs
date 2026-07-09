@@ -120,6 +120,7 @@ fn spawn_process_unix(
     for arg in args {
         argv_storage.push(unix_cstring(arg)?);
     }
+    let path = path.as_c_str();
     let mut argv = argv_storage
         .iter()
         .map(|arg| arg.as_ptr().cast_mut())
@@ -581,40 +582,6 @@ fn create_global_job_object() -> AsyncHostResult<Option<RawFile>> {
     Ok(Some(job))
 }
 
-#[cfg(windows)]
-fn windows_env_block(env: Vec<(OsString, OsString)>, inherit_env: bool) -> Vec<u16> {
-    use std::collections::BTreeMap;
-    use std::os::windows::ffi::OsStrExt;
-
-    let mut entries = BTreeMap::new();
-    if inherit_env {
-        for (key, value) in std::env::vars_os() {
-            entries.insert(windows_env_key(&key), (key, value));
-        }
-    }
-    for (key, value) in env {
-        entries.insert(windows_env_key(&key), (key, value));
-    }
-
-    let mut block = Vec::new();
-    for (_, (key, value)) in entries {
-        block.extend(key.encode_wide());
-        block.push(b'=' as u16);
-        block.extend(value.encode_wide());
-        block.push(0);
-    }
-    if block.is_empty() {
-        block.push(0);
-    }
-    block.push(0);
-    block
-}
-
-#[cfg(windows)]
-fn windows_env_key(key: &OsString) -> String {
-    key.to_string_lossy().to_ascii_uppercase()
-}
-
 #[cfg(unix)]
 fn wait_for_process(handle: Option<ResourceRef>, pid: i32) -> AsyncHostResult<i64> {
     #[cfg(not(target_os = "linux"))]
@@ -802,7 +769,7 @@ fn last_native_errno() -> i32 {
     unsafe { *libc::__error() }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

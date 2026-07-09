@@ -16,6 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(unix)]
 use std::ffi::OsString;
 
 use crate::async_host::{
@@ -403,6 +404,7 @@ fn unix_env_entry(
     Ok(OsString::from_vec(entry))
 }
 
+#[cfg(unix)]
 fn read_guest_os_string(
     context: &mut ImportContext<'_, '_>,
     ptr: i32,
@@ -411,22 +413,12 @@ fn read_guest_os_string(
     context.with_memory_mut(|memory| {
         let units = read_u16(memory, ptr, len)?;
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStringExt;
+        use std::os::unix::ffi::OsStringExt;
 
-            let value = char::decode_utf16(units)
-                .map(Result::unwrap)
-                .collect::<String>();
-            Ok(OsString::from_vec(value.into_bytes()))
-        }
-
-        #[cfg(windows)]
-        {
-            use std::os::windows::ffi::OsStringExt;
-
-            Ok(OsString::from_wide(&units))
-        }
+        let value = char::decode_utf16(units)
+            .map(Result::unwrap)
+            .collect::<String>();
+        Ok(OsString::from_vec(value.into_bytes()))
     })
 }
 
@@ -436,5 +428,5 @@ fn read_guest_u16(
     ptr: i32,
     len: i32,
 ) -> AsyncHostResult<Vec<u16>> {
-    context.with_memory_mut(|memory| Ok(read_u16(memory, ptr, len)?))
+    context.with_memory_mut(|memory| read_u16(memory, ptr, len))
 }

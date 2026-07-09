@@ -27,6 +27,7 @@
 //! scheduling and Rust owns the OS poller behind opaque poll handles.
 
 use std::collections::{HashMap, HashSet};
+#[cfg(unix)]
 use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 
@@ -1729,9 +1730,7 @@ impl AsyncHost {
 
     #[cfg(target_os = "macos")]
     pub(crate) fn poll_event_pid(&self, event_handle: u64) -> AsyncHostResult<i32> {
-        self.with_event(event_handle, |_, event| {
-            i32::try_from(poll::event_get_fd(event)).map_err(|_| AsyncHostError::Fault)
-        })
+        self.with_event(event_handle, |_, event| Ok(poll::event_get_fd(event)))
     }
 
     #[cfg(unix)]

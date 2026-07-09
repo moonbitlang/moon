@@ -67,15 +67,16 @@ ported_fns! {
     ) -> AsyncHostResult<i32> {
         #[cfg(windows)]
         {
-            use windows_sys::Win32::Foundation::ERROR_IO_PENDING;
-            use windows_sys::Win32::System::Threading::{GetExitCodeProcess, STILL_ACTIVE};
+            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, STILL_ACTIVE};
+            use windows_sys::Win32::System::Threading::GetExitCodeProcess;
 
+            let _ = pid;
             let handle = handle.ok_or(AsyncHostError::Badf)?;
             let mut code = 0;
             if unsafe { GetExitCodeProcess(handle, &mut code) } == 0 {
                 return Err(last_native_error());
             }
-            if code == STILL_ACTIVE {
+            if code == STILL_ACTIVE as u32 {
                 return Err(AsyncHostError::Native(ERROR_IO_PENDING as i32));
             }
             Ok(code as i32)
@@ -149,14 +150,17 @@ ported_fns! {
         original = "moonbitlang_async_terminate_process"
     )]
     #[cfg(windows)]
-    pub(crate) fn terminate_process(pid: i32, signal: i32) -> AsyncHostResult<()> {
-        use windows_sys::Win32::System::Console::GenerateConsoleCtrlEvent;
+    pub(crate) fn terminate_process(pid: i32, _signal: i32) -> AsyncHostResult<()> {
+        use windows_sys::Win32::System::Console::{GenerateConsoleCtrlEvent, CTRL_BREAK_EVENT};
 
-        if unsafe { GenerateConsoleCtrlEvent(signal as u32, pid as u32) } == 0 {
-            Err(last_native_error())
-        } else {
-            Ok(())
+        let pid = pid as u32;
+        // Windows only lets Ctrl-Break reliably target a process group created
+        // with CREATE_NEW_PROCESS_GROUP. The upstream C binding returns void and
+        // ignores failures, so keep graceful cancellation non-fatal here.
+        unsafe {
+            GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid);
         }
+        Ok(())
     }
 
     #[ported(
