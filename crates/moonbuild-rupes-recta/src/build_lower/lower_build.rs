@@ -493,6 +493,12 @@ impl<'a> LoweringContext<'a> {
             extra_inputs,
             commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
+        .with_env(
+            info.why3_env
+                .as_ref()
+                .map(|env| env.command_env())
+                .unwrap_or_default(),
+        )
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -573,6 +579,12 @@ impl<'a> LoweringContext<'a> {
             extra_inputs,
             commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
+        .with_env(
+            info.why3_env
+                .as_ref()
+                .map(|env| env.command_env())
+                .unwrap_or_default(),
+        )
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products, info))]

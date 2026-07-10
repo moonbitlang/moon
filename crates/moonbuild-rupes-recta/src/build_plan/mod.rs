@@ -313,6 +313,26 @@ impl BuildPlan {
     }
 }
 
+/// Why3 runtime directories supplied to proof commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Why3Environment {
+    data_dir: String,
+    lib_dir: String,
+}
+
+impl Why3Environment {
+    pub fn new(data_dir: String, lib_dir: String) -> Self {
+        Self { data_dir, lib_dir }
+    }
+
+    pub(crate) fn command_env(&self) -> Vec<(String, String)> {
+        vec![
+            ("WHY3DATA".to_string(), self.data_dir.clone()),
+            ("WHY3LIB".to_string(), self.lib_dir.clone()),
+        ]
+    }
+}
+
 /// Common information about a moonbit package being built
 #[derive(Debug)]
 pub struct BuildTargetInfo {
@@ -341,6 +361,9 @@ pub struct BuildTargetInfo {
 
     /// The Why3 configuration file to supply to proof commands.
     pub(crate) why3_config: Option<PathBuf>,
+
+    /// Why3 runtime directories to supply to proof commands.
+    pub(crate) why3_env: Option<Why3Environment>,
 
     /// Check the `.mi` file against the given target. Used in virtual packages.
     /// Also implies that the target must not generate a `.mi` file.
@@ -472,6 +495,9 @@ pub struct InputDirective {
 
     /// Use the given Why3 config file for `moon prove`.
     pub prove_why3_config: Option<PathBuf>,
+
+    /// Why3 runtime directories to use for `moon prove`.
+    pub prove_why3_env: Option<Why3Environment>,
 }
 
 /// Represents errors that may occur during build graph construction.

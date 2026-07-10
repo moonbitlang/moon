@@ -22,7 +22,10 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode, user_warning::UserWarning};
+use moonbuild_rupes_recta::{
+    build_plan::Why3Environment, intent::UserIntent, model::BuildPlanNode,
+    user_warning::UserWarning,
+};
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
     locks::FileLock, project::PackageDirs, resolution::ModuleId, target::TargetBackend,
@@ -132,7 +135,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         .map(canonicalize_why3_config)
         .transpose()?;
     let generated_why3_config_path = verif_dir.join("why3.conf");
-    let _why3_env = (!cli.dry_run)
+    let prove_why3_env = (!cli.dry_run)
         .then(configure_why3_environment)
         .transpose()?;
 
@@ -175,6 +178,7 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         &resolve_output,
         planning_context.target_backend(),
         prove_why3_config.as_deref(),
+        prove_why3_env,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
@@ -218,9 +222,11 @@ fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
     prove_why3_config: Option<&Path>,
+    prove_why3_env: Option<Why3Environment>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let directive = moonbuild_rupes_recta::build_plan::InputDirective {
         prove_why3_config: prove_why3_config.map(Path::to_path_buf),
+        prove_why3_env,
         ..Default::default()
     };
 
@@ -276,21 +282,7 @@ fn canonicalize_why3_config(path: &Path) -> anyhow::Result<PathBuf> {
         .with_context(|| format!("failed to resolve why3 config `{}`", path.display()))
 }
 
-struct ScopedWhy3Env {
-    prev_data: Option<OsString>,
-    prev_lib: Option<OsString>,
-}
-
-impl Drop for ScopedWhy3Env {
-    fn drop(&mut self) {
-        unsafe {
-            restore_env_var("WHY3DATA", self.prev_data.as_ref());
-            restore_env_var("WHY3LIB", self.prev_lib.as_ref());
-        }
-    }
-}
-
-fn configure_why3_environment() -> anyhow::Result<ScopedWhy3Env> {
+fn configure_why3_environment() -> anyhow::Result<Why3Environment> {
     let why3 = which::which("why3").map_err(|_| {
         anyhow::anyhow!(
             "failed to locate `why3` required by `moon prove`; install Why3 1.7.2 preferably via opam, and ensure `why3` is available on PATH"
@@ -305,15 +297,10 @@ fn configure_why3_environment() -> anyhow::Result<ScopedWhy3Env> {
     let why3_lib =
         why3_lib_env.map_or_else(|| query_why3_path(&why3, "--print-libdir", "library"), Ok)?;
 
-    unsafe {
-        std::env::set_var("WHY3DATA", &why3_data);
-        std::env::set_var("WHY3LIB", &why3_lib);
-    }
-
-    Ok(ScopedWhy3Env {
-        prev_data,
-        prev_lib,
-    })
+    Ok(Why3Environment::new(
+        why3_env_path_string("WHY3DATA", why3_data)?,
+        why3_env_path_string("WHY3LIB", why3_lib)?,
+    ))
 }
 
 fn resolve_why3_env_path(
@@ -370,11 +357,18 @@ fn validate_why3_path(path: &Path, kind: &str, source: &str) -> anyhow::Result<(
     Ok(())
 }
 
-unsafe fn restore_env_var(key: &str, value: Option<&OsString>) {
-    if let Some(value) = value {
-        unsafe { std::env::set_var(key, value) };
-    } else {
-        unsafe { std::env::remove_var(key) };
+fn why3_env_path_string(key: &str, value: PathBuf) -> anyhow::Result<String> {
+    // n2's per-command environment representation stores names and values as
+    // `String`, so command-scoped Why3 paths must be valid Unicode. The old
+    // process-wide `set_var` implementation accepted arbitrary `OsString`
+    // paths on Unix; rejecting those paths here is an accepted compatibility
+    // limitation rather than silently changing them with a lossy conversion.
+    match value.into_os_string().into_string() {
+        Ok(value) => Ok(value),
+        Err(value) => bail!(
+            "`{key}` path `{}` is not valid Unicode",
+            PathBuf::from(value).display()
+        ),
     }
 }
 

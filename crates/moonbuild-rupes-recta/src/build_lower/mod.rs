@@ -405,7 +405,7 @@ mod tests {
     use crate::{
         build_plan::{
             BuildCStubsInfo, BuildPlan, BuildRuntimeInfo, BuildTargetInfo, FileDependencyKind,
-            LinkCoreInfo, MakeExecutableInfo, PlanArtifactNeed,
+            LinkCoreInfo, MakeExecutableInfo, PlanArtifactNeed, Why3Environment,
         },
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
@@ -559,6 +559,7 @@ mod tests {
             specified_no_mi: false,
             patch_file: None,
             why3_config: None,
+            why3_env: None,
             check_mi_against: None,
             value_tracing: false,
         }
@@ -611,6 +612,85 @@ mod tests {
         command
             .iter()
             .any(|arg| arg.replace('\\', "/").ends_with(suffix))
+    }
+
+    fn lowered_proof_command_environment(
+        node_for_target: fn(BuildTarget) -> BuildPlanNode,
+    ) -> Vec<(String, String)> {
+        let (resolve_output, target) = single_package_resolve_output();
+        let mut info = build_target_info();
+        info.why3_env = Some(Why3Environment::new(
+            "why3/share".to_string(),
+            "why3/lib".to_string(),
+        ));
+
+        let mut plan = BuildPlan::default();
+        plan.test_add_node(node_for_target(target));
+        plan.test_insert_build_target_info(target, info);
+
+        let artifact_paths = ArtifactPathResolver::new(
+            TargetLayout::new(
+                PathBuf::from("_build"),
+                TargetLayoutMode::Workspace,
+                OptLevel::Debug,
+                RunMode::Prove,
+            ),
+            None,
+        );
+        let native_mode = NativeBackendMode::GeneratedC;
+        let target_backend = RunBackend::WasmGC;
+        let options = BuildOptions {
+            artifact_paths,
+            target_backend,
+            native_mode: native_mode.clone(),
+            selected_backend: SelectedBackend::new(target_backend, &native_mode, false),
+            opt_level: OptLevel::Debug,
+            action: RunMode::Prove,
+            debug_symbols: false,
+            enable_coverage: false,
+            output_wat: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            info_no_alias: false,
+            wasi_link: false,
+            stdlib_path: None,
+            lowering_environment: LoweringEnvironment::default(),
+        };
+
+        let action_plan = plan.build_action_plan();
+        let lowered = lower_build_plan(&resolve_output, &action_plan, &options)
+            .expect("lowering should succeed");
+        let mut builds = lowered.build_graph.builds.iter();
+        let build = builds.next().expect("proof command should be lowered");
+        assert!(
+            builds.next().is_none(),
+            "expected exactly one proof command"
+        );
+        build.env.clone()
+    }
+
+    fn expected_why3_environment() -> Vec<(String, String)> {
+        vec![
+            ("WHY3DATA".to_string(), "why3/share".to_string()),
+            ("WHY3LIB".to_string(), "why3/lib".to_string()),
+        ]
+    }
+
+    #[test]
+    fn lowered_prove_command_carries_complete_why3_environment() {
+        assert_eq!(
+            lowered_proof_command_environment(BuildPlanNode::Prove),
+            expected_why3_environment()
+        );
+    }
+
+    #[test]
+    fn lowered_emit_proof_command_carries_complete_why3_environment() {
+        assert_eq!(
+            lowered_proof_command_environment(BuildPlanNode::EmitProof),
+            expected_why3_environment()
+        );
     }
 
     #[test]

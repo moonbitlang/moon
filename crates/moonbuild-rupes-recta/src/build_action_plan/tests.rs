@@ -41,6 +41,7 @@ fn target_info() -> BuildTargetInfo {
         specified_no_mi: false,
         patch_file: None,
         why3_config: None,
+        why3_env: None,
         check_mi_against: None,
         value_tracing: false,
     }

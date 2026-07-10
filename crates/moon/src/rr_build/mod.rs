@@ -212,6 +212,7 @@ pub fn build_patch_directive_for_package(
         specify_patch_file: patch_directive,
         value_tracing,
         prove_why3_config: None,
+        prove_why3_env: None,
     })
 }
 
