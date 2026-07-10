@@ -337,8 +337,8 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
-        let native_target = match target_backend {
-            TargetBackend::Native => NativeTarget::from_env_for_host(),
+        let native_target = match (target_backend, self.opt_level) {
+            (TargetBackend::Native, BuildProfile::Debug) => NativeTarget::from_env_for_host(),
             _ => None,
         };
         info!("New native target: {:?}", native_target);
