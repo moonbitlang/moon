@@ -122,6 +122,49 @@ jobs:
           mdbook build docs/manual
           mdbook build docs/manual-zh
 
+  # Build once per OS so the core shards can share the exact same tools.
+  build-core-test-tools:
+    needs: [typo-check, license-header-check]
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Configure git
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@1.90.0
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build moon and moonrun
+        run: cargo build --bin moon --bin moonrun
+
+      - name: Package tools (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: tar -C target/debug -cf moon-tools.tar moon moonrun
+
+      - name: Package tools (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: tar -C target/debug -cf moon-tools.tar moon.exe moonrun.exe
+
+      - name: Upload tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: moon-core-test-tools-${{ matrix.os }}
+          path: moon-tools.tar
+          if-no-files-found: error
+          retention-days: 1
+
   nightly-test:
     needs: [typo-check, license-header-check]
     strategy:
@@ -193,14 +236,19 @@ jobs:
         run: cargo build -p xtask
 
       - name: Run tests
+        env:
+          MOON_TEST_MOON_BIN: ${{ github.workspace }}/target/debug/moon${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          MOON_TEST_MOONRUN_BIN: ${{ github.workspace }}/target/debug/moonrun${{ matrix.os == 'windows-latest' && '.exe' || '' }}
         run: cargo test
 
       - name: Auxiliary checks
         if: matrix.os == 'ubuntu-latest'
         run: cargo xtask ci
 
-      - name: Test core (Unix)
-        if: ${{ matrix.os != 'windows-latest' }}
+      # Keep core testing in the existing macOS job because hosted macOS
+      # runners are scarce. Linux and Windows use the sharded jobs below.
+      - name: Test core (macOS)
+        if: ${{ matrix.os == 'macos-latest' }}
         env:
           MOONRUN_OVERRIDE: ${{ github.workspace }}/target/debug/moonrun
         run: |
@@ -221,55 +269,124 @@ jobs:
       #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm
       #     cargo run --bin moon -- -C ~/.moon/lib/core test --target llvm --release
 
-  nightly-test-core-windows:
-    needs: [typo-check, license-header-check]
-    runs-on: windows-latest
+  nightly-test-core:
+    needs: build-core-test-tools
+    name: core test (${{ matrix.os }}, ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        # Native release compilation dominates the core suite, so keep it in
+        # its own shard and group the shorter non-native release targets.
+        shard:
+          - debug-all
+          - release-nonnative
+          - release-native
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Configure git
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - uses: dtolnay/rust-toolchain@1.90.0
-        with:
-          components: rustfmt, clippy
-
-      - name: Cargo cache
-        uses: Swatinem/rust-cache@v2
-
       - name: install MoonBit(Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
         run: |
           $env:MOONBIT_INSTALL_VERSION="nightly"
           Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
           "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-          "$env:GITHUB_WORKSPACE\target\debug" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - name: Build
-        run: cargo build
+      - name: install MoonBit(Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash -s nightly
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      - name: Set built binary to PATH (Windows)
-        run: Add-Content $env:GITHUB_PATH "$env:GITHUB_WORKSPACE\target\debug"
+      - name: Download tools
+        uses: actions/download-artifact@v4
+        with:
+          name: moon-core-test-tools-${{ matrix.os }}
 
-      - name: Versions
-        run: cargo run --bin moon -- version --all
+      - name: Extract tools (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: |
+          mkdir tools
+          tar -C tools -xf moon-tools.tar
+
+      - name: Extract tools (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path tools
+          tar -C tools -xf moon-tools.tar
+
+      - name: Versions (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}/tools/moonrun
+        run: ./tools/moon version --all
+
+      - name: Versions (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}\tools\moonrun.exe
+        run: '& "$env:GITHUB_WORKSPACE\tools\moon.exe" version --all'
+
+      - name: Bundle core (Unix)
+        if: ${{ matrix.os != 'windows-latest' }}
+        run: ./tools/moon -C ~/.moon/lib/core bundle --all
 
       - name: Bundle core (Windows)
-        run: cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" bundle --all
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: '& "$env:GITHUB_WORKSPACE\tools\moon.exe" -C "$env:USERPROFILE\.moon\lib\core" bundle --all'
 
-      - name: Test core (Windows)
+      - name: Test core debug targets (Unix)
+        if: ${{ matrix.os != 'windows-latest' && matrix.shard == 'debug-all' }}
         env:
-          MOONRUN_OVERRIDE: ${{ github.workspace }}\target\debug\moonrun.exe
+          MOONRUN_OVERRIDE: ${{ github.workspace }}/tools/moonrun
+        run: ./tools/moon -C ~/.moon/lib/core test --target all
+
+      - name: Test core release non-native targets (Unix)
+        if: ${{ matrix.os != 'windows-latest' && matrix.shard == 'release-nonnative' }}
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}/tools/moonrun
         run: |
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --target native
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm-gc
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target js
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm
-          cargo run --bin moon -- -C "$env:USERPROFILE\.moon\lib\core" test --release --target native
+          ./tools/moon -C ~/.moon/lib/core test --release --target wasm-gc
+          ./tools/moon -C ~/.moon/lib/core test --release --target js
+          ./tools/moon -C ~/.moon/lib/core test --release --target wasm
+
+      - name: Test core release native target (Unix)
+        if: ${{ matrix.os != 'windows-latest' && matrix.shard == 'release-native' }}
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}/tools/moonrun
+        run: ./tools/moon -C ~/.moon/lib/core test --release --target native
+
+      - name: Test core debug targets (Windows)
+        if: ${{ matrix.os == 'windows-latest' && matrix.shard == 'debug-all' }}
+        shell: pwsh
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}\tools\moonrun.exe
+        run: '& "$env:GITHUB_WORKSPACE\tools\moon.exe" -C "$env:USERPROFILE\.moon\lib\core" test --target all'
+
+      - name: Test core release non-native targets (Windows)
+        if: ${{ matrix.os == 'windows-latest' && matrix.shard == 'release-nonnative' }}
+        shell: pwsh
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}\tools\moonrun.exe
+        run: |
+          & "$env:GITHUB_WORKSPACE\tools\moon.exe" -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm-gc
+          & "$env:GITHUB_WORKSPACE\tools\moon.exe" -C "$env:USERPROFILE\.moon\lib\core" test --release --target js
+          & "$env:GITHUB_WORKSPACE\tools\moon.exe" -C "$env:USERPROFILE\.moon\lib\core" test --release --target wasm
+
+      - name: Test core release native target (Windows)
+        if: ${{ matrix.os == 'windows-latest' && matrix.shard == 'release-native' }}
+        shell: pwsh
+        env:
+          MOONRUN_OVERRIDE: ${{ github.workspace }}\tools\moonrun.exe
+        run: '& "$env:GITHUB_WORKSPACE\tools\moon.exe" -C "$env:USERPROFILE\.moon\lib\core" test --release --target native'
 
       # LLVM is currently disabled because it doesn't exist on non-bleeding channels.
       # TODO: Add this back when we add LLVM to nightly

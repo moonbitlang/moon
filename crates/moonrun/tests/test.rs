@@ -28,6 +28,10 @@ fn moon_cmd() -> snapbox::cmd::Command {
 fn moon_bin() -> &'static PathBuf {
     static MOON_BIN: OnceLock<PathBuf> = OnceLock::new();
     MOON_BIN.get_or_init(|| {
+        if let Some(path) = std::env::var_os("MOON_TEST_MOON_BIN") {
+            return PathBuf::from(path);
+        }
+
         let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moon/Cargo.toml");
         escargot::CargoBuild::new()
             .manifest_path(manifest_path)

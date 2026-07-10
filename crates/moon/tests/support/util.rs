@@ -37,6 +37,10 @@ pub(crate) fn moon_bin() -> PathBuf {
 pub(crate) fn moonrun_bin() -> PathBuf {
     MOONRUN_BIN
         .get_or_init(|| {
+            if let Some(path) = std::env::var_os("MOON_TEST_MOONRUN_BIN") {
+                return PathBuf::from(path);
+            }
+
             escargot::CargoBuild::new()
                 .manifest_path(
                     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../moonrun/Cargo.toml"),
