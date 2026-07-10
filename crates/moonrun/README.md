@@ -27,7 +27,8 @@ By default, running `moonrun` without `--policy` preserves existing behavior.
 Supplying `--policy <path>` enables an experimental policy system and switches
 supported moonrun-owned host surfaces into sandbox mode. The policy is
 deny-by-default: omitted or empty `[fs]`, `[net]`, and `[env]` sections deny
-that surface. Add entries only for the access the program should have. The
+that surface, and process spawning is disabled unless explicitly enabled. Add
+entries only for the access the program should have. The
 policy covers `moonbitlang/async` and moonrun's own `__moonbit_*_unstable` FFI
 surfaces. It does not apply to WASI
 (`wasi_snapshot_preview1` / `__moonbit_wasi_unstable`).
@@ -53,6 +54,9 @@ write = ["*"]
 dns = ["*"]
 connect = ["*:*"]
 bind = ["*:*"]
+
+[process]
+spawn = true
 ```
 
 The simplest way to preserve legacy allow-all behavior is still to run without
@@ -73,6 +77,12 @@ selected host variables if present, `required_from_host` to require selected
 host variables, and `[env.set]` for literal values. `[env.set]` overrides values
 copied from the host. Do not put secrets directly in the policy file; pass them
 by name through `from_host` or `required_from_host`.
+
+Process spawning is disabled unless `[process] spawn = true` is present. This
+is a coarse escape hatch: a native child receives the host user's ambient
+filesystem, network, and process access. The `[fs]` and `[net]` sections do not
+sandbox child processes. PID-based process operations are restricted to
+children spawned by the current moonrun instance while policy mode is active.
 
 ```toml
 [env]

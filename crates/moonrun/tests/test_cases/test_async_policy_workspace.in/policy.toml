@@ -22,3 +22,6 @@ MOONRUN_POLICY_ENV = "configured by policy"
 [fs]
 read = ["allowed"]
 write = ["allowed"]
+
+[process]
+spawn = true

@@ -113,6 +113,7 @@ pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {
             "moonbitlang_async_event_bus_create"
                 | "moonbitlang_async_event_bus_destroy"
                 | "moonbitlang_async_event_bus_register"
+                | "moonbitlang_async_event_bus_register_pid"
                 | "moonbitlang_async_event_bus_wait"
                 | "moonbitlang_async_event_list_get"
                 | "moonbitlang_async_event_get_fd"

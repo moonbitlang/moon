@@ -19,7 +19,7 @@
 use std::ffi::OsString;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, read_u16};
-use crate::async_sys::internal::event_loop::thread_pool::{self, ResourceClass};
+use crate::async_sys::internal::event_loop::thread_pool::{self, ResourceClass, ResourceRef};
 
 use super::context::ImportContext;
 use super::provenance::ported_imports;
@@ -420,11 +420,172 @@ pub(super) fn make_getaddrinfo_job(
     }
 }
 
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn make_spawn_job_unix(
+    context: &mut ImportContext<'_, '_>,
+    path: i32,
+    path_len: i32,
+    args: u64,
+    env: u64,
+    inherited_env_entry_count: i32,
+    stdin: u64,
+    stdout: u64,
+    stderr: u64,
+    cwd: i32,
+    cwd_len: i32,
+    has_cwd: i32,
+) -> AsyncHostResult<u64> {
+    let _ = inherited_env_entry_count;
+    let args = context.host.clone_process_argv(args)?;
+    let env = context.host.clone_process_env(env)?;
+    let path = read_guest_os_string(context, path, path_len)?;
+    let cwd = if has_cwd == 0 {
+        None
+    } else {
+        Some(read_guest_os_string(context, cwd, cwd_len)?)
+    };
+    let stdin = optional_resource(context, stdin)?;
+    let stdout = optional_resource(context, stdout)?;
+    let stderr = optional_resource(context, stderr)?;
+    let options = thread_pool::SpawnOptions {
+        child_signal_mask: context.host.thread_pool_child_signal_mask()?,
+    };
+    context.host.insert_job(thread_pool::make_spawn_job_unix(
+        path,
+        args,
+        env,
+        stdin,
+        stdout,
+        stderr,
+        cwd,
+        options,
+    ))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn make_spawn_job_windows(
+    context: &mut ImportContext<'_, '_>,
+    command_line: i32,
+    command_line_len: i32,
+    env: u64,
+    stdin: u64,
+    stdout: u64,
+    stderr: u64,
+    cwd: i32,
+    cwd_len: i32,
+    has_cwd: i32,
+    no_console_window: i32,
+    is_orphan: i32,
+) -> AsyncHostResult<u64> {
+    let env = context.host.clone_process_env(env)?;
+    let command_line = read_guest_os_string(context, command_line, command_line_len)?;
+    let cwd = if has_cwd == 0 {
+        None
+    } else {
+        Some(read_guest_os_string(context, cwd, cwd_len)?)
+    };
+    let stdin = optional_resource(context, stdin)?;
+    let stdout = optional_resource(context, stdout)?;
+    let stderr = optional_resource(context, stderr)?;
+    let options = thread_pool::SpawnOptions {
+        no_console_window: no_console_window != 0,
+        is_orphan: is_orphan != 0,
+    };
+    context.host.insert_job(thread_pool::make_spawn_job_windows(
+        command_line,
+        env,
+        stdin,
+        stdout,
+        stderr,
+        cwd,
+        options,
+    ))
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn get_spawn_job_result_handle(
+    context: &mut ImportContext<'_, '_>,
+    job: u64,
+) -> AsyncHostResult<u64> {
+    context.host.get_spawn_job_result_handle(job)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+pub(super) fn make_wait_for_process_job(
+    context: &mut ImportContext<'_, '_>,
+    handle: u64,
+    pid: i32,
+) -> AsyncHostResult<u64> {
+    let tracked_pid = context.host.process_handle_pid(handle)?;
+    let handle = optional_resource(context, handle)?;
+    #[cfg(unix)]
+    let defer_reap = context.host.policy().has_process_policy();
+    context
+        .host
+        .insert_job(thread_pool::make_wait_for_process_job(
+            handle,
+            tracked_pid,
+            pid,
+            #[cfg(unix)]
+            defer_reap,
+        )?)
+}
+
+#[ported(source = "src/internal/event_loop/thread_pool.c")]
+#[cfg(unix)]
+pub(super) fn make_sigwait_job(
+    context: &mut ImportContext<'_, '_>,
+    signals: i32,
+    signals_len: i32,
+) -> AsyncHostResult<u64> {
+    let signals =
+        context.with_memory_mut(|memory| read_i32_array(memory, signals, signals_len))?;
+    let notifier = context.host.thread_pool_notifier()?;
+    context
+        .host
+        .insert_job(thread_pool::make_sigwait_job(signals, notifier))
+}
+
+fn optional_resource(
+    context: &mut ImportContext<'_, '_>,
+    handle: u64,
+) -> AsyncHostResult<Option<ResourceRef>> {
+    if handle == crate::async_host::INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
+        Ok(None)
+    } else {
+        context.host.resource(handle).map(Some)
+    }
+}
+
 pub(super) fn get_getaddrinfo_result(
     context: &mut ImportContext<'_, '_>,
     job: u64,
 ) -> AsyncHostResult<u64> {
     context.host.get_getaddrinfo_result(job)
+}
+
+#[cfg(unix)]
+fn read_i32_array(
+    memory: &(impl GuestMemory + ?Sized),
+    offset: i32,
+    len: i32,
+) -> AsyncHostResult<Vec<i32>> {
+    let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
+    let byte_len = len
+        .checked_mul(std::mem::size_of::<i32>())
+        .ok_or(AsyncHostError::Fault)?;
+    let bytes = memory.read_exact(
+        offset,
+        i32::try_from(byte_len).map_err(|_| AsyncHostError::Fault)?,
+    )?;
+    Ok(bytes
+        .chunks_exact(std::mem::size_of::<i32>())
+        .map(|chunk| i32::from_le_bytes(chunk.try_into().unwrap()))
+        .collect())
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]

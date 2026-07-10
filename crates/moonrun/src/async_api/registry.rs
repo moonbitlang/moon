@@ -25,8 +25,8 @@ use super::context::{
 #[cfg(test)]
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
 use super::{
-    c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, runtime,
-    socket, stdio, thread_pool, time, tls,
+    c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, process,
+    runtime, signal, socket, stdio, thread_pool, time, tls,
 };
 
 pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
@@ -296,11 +296,23 @@ declare_async_imports! {
         read_only: i32,
     ) -> i32 => "event_bus/register";
 
+    #[cfg(target_os = "macos")]
+    ported event_bus::register_pid(bus: u64, pid: i32) -> i32 => "event_bus/register_pid";
+
+    #[cfg(not(target_os = "macos"))]
+    fake event_bus::register_pid(bus: u64, pid: i32) -> i32 => "event_bus/register_pid";
+
     ported event_bus::wait(bus: u64, timeout_ms: i32) -> i32 => "event_bus/wait";
 
     ported event_bus::get_event(bus: u64, index: i32) -> u64 => "event_bus/get_event";
 
     ported event_bus::event_fd(event: u64) -> u64 => "event_bus/event_fd";
+
+    #[cfg(target_os = "macos")]
+    ported event_bus::event_pid(event: u64) -> i32 => "event_bus/event_pid";
+
+    #[cfg(not(target_os = "macos"))]
+    fake event_bus::event_pid(event: u64) -> i32 => "event_bus/event_pid";
 
     #[cfg(unix)]
     ported event_bus::event_events(event: u64) -> i32 => "event_bus/event_events/unix";
@@ -388,6 +400,21 @@ declare_async_imports! {
     helper fd_util::invalid_fd() -> u64 => "fd_util/invalid_fd";
 
     helper stdio::get_stdio_handle(id: i32) -> u64 => "stdio/get_stdio_handle";
+
+    helper signal::get_signal_by_index(index: i32) -> i32 => "signal/get_signal_by_index";
+
+    ported signal::set_global_cancellation_signals(
+        all_signals: i32,
+        all_signals_len: i32,
+        signals: i32,
+        signals_len: i32,
+    ) -> void => "signal/set_global_cancellation_signals";
+
+    #[cfg(windows)]
+    ported signal::set_console_control_handler(add: i32) -> i32 => "signal/set_console_control_handler";
+
+    #[cfg(unix)]
+    fake signal::set_console_control_handler(add: i32) -> i32 => "signal/set_console_control_handler";
 
     ported fd_util::kind_of_fd(fd: u64) -> i32 => "fd_util/kind_of_fd";
 
@@ -969,6 +996,147 @@ declare_async_imports! {
     ported thread_pool::make_getaddrinfo_job(host: i32, host_len: i32) -> u64 => "thread_pool/make_getaddrinfo_job";
 
     helper thread_pool::get_getaddrinfo_result(job: u64) -> u64 => "thread_pool/get_getaddrinfo_result";
+
+    #[cfg(unix)]
+    ported thread_pool::make_spawn_job_unix(
+        path: i32,
+        path_len: i32,
+        args: u64,
+        env: u64,
+        inherited_env_entry_count: i32,
+        stdin: u64,
+        stdout: u64,
+        stderr: u64,
+        cwd: i32,
+        cwd_len: i32,
+        has_cwd: i32,
+    ) -> u64 => "thread_pool/make_spawn_job/unix";
+
+    #[cfg(windows)]
+    fake thread_pool::make_spawn_job_unix(
+        path: i32,
+        path_len: i32,
+        args: u64,
+        env: u64,
+        inherited_env_entry_count: i32,
+        stdin: u64,
+        stdout: u64,
+        stderr: u64,
+        cwd: i32,
+        cwd_len: i32,
+        has_cwd: i32,
+    ) -> u64 => "thread_pool/make_spawn_job/unix";
+
+    #[cfg(windows)]
+    ported thread_pool::make_spawn_job_windows(
+        command_line: i32,
+        command_line_len: i32,
+        env: u64,
+        stdin: u64,
+        stdout: u64,
+        stderr: u64,
+        cwd: i32,
+        cwd_len: i32,
+        has_cwd: i32,
+        no_console_window: i32,
+        is_orphan: i32,
+    ) -> u64 => "thread_pool/make_spawn_job/windows";
+
+    #[cfg(unix)]
+    fake thread_pool::make_spawn_job_windows(
+        command_line: i32,
+        command_line_len: i32,
+        env: u64,
+        stdin: u64,
+        stdout: u64,
+        stderr: u64,
+        cwd: i32,
+        cwd_len: i32,
+        has_cwd: i32,
+        no_console_window: i32,
+        is_orphan: i32,
+    ) -> u64 => "thread_pool/make_spawn_job/windows";
+
+    ported thread_pool::get_spawn_job_result_handle(job: u64) -> u64 => "thread_pool/get_spawn_job_result_handle";
+
+    ported thread_pool::make_wait_for_process_job(handle: u64, pid: i32) -> u64 => "thread_pool/make_wait_for_process_job";
+
+    #[cfg(unix)]
+    ported thread_pool::make_sigwait_job(signals: i32, signals_len: i32) -> u64 => "thread_pool/make_sigwait_job";
+
+    #[cfg(windows)]
+    fake thread_pool::make_sigwait_job(signals: i32, signals_len: i32) -> u64 => "thread_pool/make_sigwait_job";
+
+    helper process::get_curr_env() -> u64 => "process/get_curr_env";
+
+    helper process::env_block_length(env: u64) -> i32 => "process/env_block_length";
+
+    helper process::allocate_env_block(size: i32) -> u64 => "process/allocate_env_block";
+
+    helper process::free_env(env: u64) -> void => "process/free_env";
+
+    helper process::write_env_block(dst: u64, src: u64) -> void => "process/write_env_block";
+
+    helper process::env_block_add_entry(
+        env: u64,
+        index_or_offset: i32,
+        key: i32,
+        key_len: i32,
+        value: i32,
+        value_len: i32,
+    ) -> void => "process/env_block_add_entry";
+
+    #[cfg(unix)]
+    helper process::make_argv_array_unix(len: i32) -> u64 => "process/make_argv_array/unix";
+
+    #[cfg(windows)]
+    fake process::make_argv_array_unix(len: i32) -> u64 => "process/make_argv_array/unix";
+
+    #[cfg(unix)]
+    helper process::free_argv(argv: u64) -> void => "process/free_argv";
+
+    #[cfg(windows)]
+    fake process::free_argv(argv: u64) -> void => "process/free_argv";
+
+    #[cfg(unix)]
+    helper process::argv_array_add_encoded_entry_unix(
+        argv: u64,
+        index: i32,
+        arg: i32,
+        arg_len: i32,
+    ) -> void => "process/argv_array_add_encoded_entry/unix";
+
+    #[cfg(windows)]
+    fake process::argv_array_add_encoded_entry_unix(
+        argv: u64,
+        index: i32,
+        arg: i32,
+        arg_len: i32,
+    ) -> void => "process/argv_array_add_encoded_entry/unix";
+
+    #[cfg(unix)]
+    helper process::argv_array_add_entry_unix(
+        argv: u64,
+        index: i32,
+        arg: i32,
+        arg_len: i32,
+    ) -> void => "process/argv_array_add_entry/unix";
+
+    #[cfg(windows)]
+    fake process::argv_array_add_entry_unix(
+        argv: u64,
+        index: i32,
+        arg: i32,
+        arg_len: i32,
+    ) -> void => "process/argv_array_add_entry/unix";
+
+    helper process::open_pid_handle(pid: i32) -> u64 => "process/open_pid_handle";
+
+    ported process::get_process_result(handle: u64, pid: i32, out: i32) -> i32 => "process/get_process_result";
+
+    ported process::terminate(pid: i32, signal: i32) -> void => "process/terminate";
+
+    ported process::kill(pid: i32) -> void => "process/kill";
 }
 
 #[cfg(test)]
@@ -983,8 +1151,10 @@ fn async_api_ported_imports() -> Vec<PortedImport> {
     imports.extend_from_slice(io::PORTED_IMPORTS);
     imports.extend_from_slice(env_util::PORTED_IMPORTS);
     imports.extend_from_slice(c_buffer::PORTED_IMPORTS);
+    imports.extend_from_slice(signal::PORTED_IMPORTS);
     imports.extend_from_slice(socket::PORTED_IMPORTS);
     imports.extend_from_slice(tls::PORTED_IMPORTS);
+    imports.extend_from_slice(process::PORTED_IMPORTS);
     imports
 }
 
@@ -1094,9 +1264,11 @@ mod tests {
             "event_bus/create",
             "event_bus/destroy",
             "event_bus/register",
+            "event_bus/register_pid",
             "event_bus/wait",
             "event_bus/get_event",
             "event_bus/event_fd",
+            "event_bus/event_pid",
             "event_bus/event_events/unix",
             "event_bus/event_io_result/windows",
             "event_bus/event_bytes_transferred/windows",

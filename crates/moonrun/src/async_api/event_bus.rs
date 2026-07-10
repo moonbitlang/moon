@@ -58,6 +58,12 @@ pub(super) const PORTED_IMPORTS: &[PortedImport] = &[
         "register",
         "moonbitlang_async_event_bus_register",
     ),
+    #[cfg(target_os = "macos")]
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "register_pid",
+        "moonbitlang_async_event_bus_register_pid",
+    ),
     ported_from(
         EVENT_BUS_SOURCES,
         "wait",
@@ -71,6 +77,12 @@ pub(super) const PORTED_IMPORTS: &[PortedImport] = &[
     ported_from(
         EVENT_BUS_SOURCES,
         "event_fd",
+        "moonbitlang_async_event_get_fd",
+    ),
+    #[cfg(target_os = "macos")]
+    ported_from(
+        EVENT_BUS_SOURCES,
+        "event_pid",
         "moonbitlang_async_event_get_fd",
     ),
     #[cfg(unix)]
@@ -124,6 +136,17 @@ pub(super) fn register(
     poll_errno_result(context, context.host.poll_register(bus, fd, read_only != 0))
 }
 
+#[cfg(target_os = "macos")]
+pub(super) fn register_pid(context: &mut ImportContext<'_, '_>, bus: u64, pid: i32) -> i32 {
+    match context.host.poll_register_pid(bus, pid) {
+        Ok(result) => result,
+        Err(error) => {
+            context.host.record_error(error);
+            -1
+        }
+    }
+}
+
 pub(super) fn wait(context: &mut ImportContext<'_, '_>, bus: u64, timeout_ms: i32) -> i32 {
     match context.host.poll_wait(bus, timeout_ms) {
         Ok(n) => n,
@@ -144,6 +167,11 @@ pub(super) fn get_event(
 
 pub(super) fn event_fd(context: &mut ImportContext<'_, '_>, event: u64) -> AsyncHostResult<u64> {
     context.host.poll_event_fd(event)
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn event_pid(context: &mut ImportContext<'_, '_>, event: u64) -> AsyncHostResult<i32> {
+    context.host.poll_event_pid(event)
 }
 
 #[cfg(unix)]

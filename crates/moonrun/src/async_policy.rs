@@ -42,6 +42,7 @@ pub(crate) struct AsyncPolicy {
     fs: Option<FsPolicy>,
     net: Option<NetPolicy>,
     env: Option<EnvPolicy>,
+    process: Option<bool>,
 }
 
 impl AsyncPolicy {
@@ -50,6 +51,7 @@ impl AsyncPolicy {
             fs: None,
             net: None,
             env: None,
+            process: None,
         }
     }
 
@@ -67,6 +69,7 @@ impl AsyncPolicy {
             )?),
             net: Some(NetPolicy::from_config(config.net.unwrap_or_default())?),
             env: Some(EnvPolicy::from_config(config.env.unwrap_or_default())?),
+            process: Some(config.process.unwrap_or_default().spawn),
         })
     }
 
@@ -237,6 +240,17 @@ impl AsyncPolicy {
         self.env_policy().is_some()
     }
 
+    pub(crate) fn spawn_process(&self) -> AsyncHostResult<()> {
+        match self.process {
+            None | Some(true) => Ok(()),
+            Some(false) => Err(crate::async_host::AsyncHostError::PermissionDenied),
+        }
+    }
+
+    pub(crate) fn has_process_policy(&self) -> bool {
+        self.process.is_some()
+    }
+
     pub(crate) fn set_env_var(&self, name: String, value: String) {
         if let Some(env) = self.env_policy() {
             env.set(name, value);
@@ -304,6 +318,7 @@ mod tests {
                 fs: None,
                 net: Some(Default::default()),
                 env: None,
+                process: None,
             },
             tmp.path(),
         )
@@ -329,6 +344,7 @@ mod tests {
                 fs: Some(Default::default()),
                 net: None,
                 env: None,
+                process: None,
             },
             tmp.path(),
         )
@@ -369,6 +385,7 @@ mod tests {
                 }),
                 net: None,
                 env: None,
+                process: None,
             },
             tmp.path(),
         )
@@ -388,6 +405,7 @@ mod tests {
                 fs: None,
                 net: Some(Default::default()),
                 env: None,
+                process: None,
             },
             tmp.path(),
         )
@@ -407,6 +425,7 @@ mod tests {
                 fs: None,
                 net: None,
                 env: None,
+                process: None,
             },
             tmp.path(),
         )
@@ -414,6 +433,37 @@ mod tests {
 
         assert!(policy.env_vars().is_empty());
         assert!(!policy.env_var_exists("PATH"));
+    }
+
+    #[test]
+    fn no_policy_leaves_process_spawning_unrestricted() {
+        AsyncPolicy::allow_all().spawn_process().unwrap();
+    }
+
+    #[test]
+    fn missing_process_section_denies_spawning_in_policy_mode() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy = AsyncPolicy::from_config(PolicyConfig::default(), tmp.path()).unwrap();
+
+        assert_eq!(
+            policy.spawn_process(),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn process_section_can_allow_spawning() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy = AsyncPolicy::from_config(
+            PolicyConfig {
+                process: Some(config::ProcessConfig { spawn: true }),
+                ..PolicyConfig::default()
+            },
+            tmp.path(),
+        )
+        .unwrap();
+
+        policy.spawn_process().unwrap();
     }
 
     fn ipv4_addr(ip: Ipv4Addr, port: u16) -> Box<[u8]> {

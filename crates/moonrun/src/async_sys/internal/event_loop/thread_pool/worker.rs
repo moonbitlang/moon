@@ -23,6 +23,8 @@ use std::thread::JoinHandle;
 use crate::async_host::AsyncHostError;
 use crate::async_host::{AsyncHostResult, HandleKey};
 use crate::async_sys::ported_fns;
+#[cfg(unix)]
+use std::os::unix::thread::JoinHandleExt;
 
 use super::Job;
 
@@ -55,6 +57,7 @@ pub(crate) struct HostWorkerJobResult {
 #[derive(Debug)]
 struct HostWorkerState {
     job: Option<HostWorkerJob>,
+    running: Option<HostWorkerJob>,
     waiting: bool,
     terminating: bool,
 }
@@ -118,6 +121,7 @@ impl HostWorkerHandle {
         let shared = Arc::new(HostWorkerShared {
             state: Mutex::new(HostWorkerState {
                 job: Some(init_job),
+                running: None,
                 waiting: false,
                 terminating: false,
             }),
@@ -128,9 +132,12 @@ impl HostWorkerHandle {
         let thread_id = Arc::new(Mutex::new(None));
         #[cfg(unix)]
         let worker_thread_id = Arc::clone(&thread_id);
+        #[cfg(unix)]
+        let parent_signal_mask = crate::async_sys::signal::set_worker_thread_signal_mask().ok();
         let thread = std::thread::spawn(move || {
             #[cfg(unix)]
             {
+                let _ = crate::async_sys::signal::set_worker_thread_signal_mask();
                 *worker_thread_id.lock().unwrap() = Some(unsafe { libc::pthread_self() });
             }
 
@@ -146,10 +153,15 @@ impl HostWorkerHandle {
                 let Some(job) = job else {
                     break;
                 };
+                {
+                    let mut state = worker_shared.state.lock().unwrap();
+                    state.running = Some(job);
+                }
                 let result = run_job(job);
 
                 let terminating = {
                     let mut state = worker_shared.state.lock().unwrap();
+                    state.running = None;
                     if !state.terminating && state.job.is_none() {
                         state.waiting = true;
                     }
@@ -170,6 +182,14 @@ impl HostWorkerHandle {
                 *worker_thread_id.lock().unwrap() = None;
             }
         });
+        #[cfg(unix)]
+        {
+            *thread_id.lock().unwrap() = Some(thread.as_pthread_t());
+            if let Some(parent_signal_mask) = parent_signal_mask {
+                let _ =
+                    crate::async_sys::signal::restore_thread_pool_signal_mask(&parent_signal_mask);
+            }
+        }
         Self {
             shared,
             thread: Some(thread),
@@ -194,6 +214,12 @@ impl HostWorkerHandle {
 
     pub(crate) fn enter_idle(&self) -> Option<HostWorkerJob> {
         self.shared.state.lock().unwrap().job.take()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn cancellable_job(&self) -> Option<HostWorkerJob> {
+        let state = self.shared.state.lock().unwrap();
+        state.running.or(state.job)
     }
 
     pub(crate) fn cancel(&self) -> AsyncHostResult<i32> {
@@ -293,6 +319,11 @@ ported_fns! {
     pub(crate) fn free_worker(mut worker: HostWorkerHandle) -> Option<HostWorkerJob> {
         worker.join()
     }
+}
+
+#[cfg(windows)]
+pub(crate) fn worker_cancellable_job(worker: &HostWorkerHandle) -> Option<HostWorkerJob> {
+    worker.cancellable_job()
 }
 
 #[cfg(test)]

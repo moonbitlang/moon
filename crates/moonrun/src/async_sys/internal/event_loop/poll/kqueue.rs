@@ -90,6 +90,40 @@ ported_fns! {
 
     #[ported(
         source = "src/internal/event_loop/kqueue.c",
+        original = "moonbitlang_async_event_bus_register_pid"
+    )]
+    pub(crate) fn poll_register_pid(instance: &PollInstance, pid: i32) -> AsyncHostResult<i32> {
+        let flags = libc::EV_ADD;
+        #[cfg(target_os = "macos")]
+        let fflags = libc::NOTE_EXITSTATUS;
+        #[cfg(not(target_os = "macos"))]
+        let fflags = libc::NOTE_EXIT;
+        let event = new_kevent(pid as libc::uintptr_t, libc::EVFILT_PROC, flags, fflags, 0);
+        let ret = unsafe {
+            libc::kevent(
+                instance.fd,
+                &event,
+                1,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null(),
+            )
+        };
+
+        if ret >= 0 {
+            Ok(1)
+        } else {
+            let errno = last_errno();
+            if errno == libc::ESRCH {
+                Ok(0)
+            } else {
+                Err(AsyncHostError::Native(errno))
+            }
+        }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/kqueue.c",
         original = "moonbitlang_async_event_bus_wait"
     )]
     pub(crate) fn poll_wait(instance: &mut PollInstance, timeout: i32) -> AsyncHostResult<i32> {

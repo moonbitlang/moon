@@ -28,6 +28,7 @@ pub(super) struct PolicyConfig {
     pub(super) fs: Option<FsConfig>,
     pub(super) net: Option<NetConfig>,
     pub(super) env: Option<EnvConfig>,
+    pub(super) process: Option<ProcessConfig>,
 }
 
 #[derive(Default, Deserialize)]
@@ -61,6 +62,13 @@ pub(super) struct EnvConfig {
     pub(super) set: BTreeMap<String, String>,
 }
 
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ProcessConfig {
+    #[serde(default)]
+    pub(super) spawn: bool,
+}
+
 impl PolicyConfig {
     pub(super) fn from_file(path: &Path) -> anyhow::Result<Self> {
         let contents = std::fs::read_to_string(path)
@@ -91,6 +99,24 @@ APP_ENV = "test"
         let env = config.env.unwrap();
 
         assert_eq!(env.set.get("APP_ENV").map(String::as_str), Some("test"));
+    }
+
+    #[test]
+    fn parses_process_spawn_permission() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(
+            &policy_file,
+            r#"
+[process]
+spawn = true
+"#,
+        )
+        .unwrap();
+
+        let config = PolicyConfig::from_file(&policy_file).unwrap();
+
+        assert!(config.process.unwrap().spawn);
     }
 
     #[test]

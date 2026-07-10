@@ -1,0 +1,802 @@
+// moon: The build system and package manager for MoonBit.
+// Copyright (C) 2024 International Digital Economy Academy
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
+
+//! Process jobs ported from `moonbitlang/async/src/internal/event_loop/thread_pool.c`.
+
+use std::ffi::OsString;
+#[cfg(unix)]
+use std::ffi::{CStr, CString};
+
+use crate::async_host::{AsyncHostError, AsyncHostResult};
+use crate::async_sys::internal::fd_util;
+use crate::async_sys::ported_fns;
+
+#[cfg(any(windows, target_os = "linux"))]
+use super::Resource;
+use super::{OpenJobResource, ResourceRef, SpawnOptions};
+
+type RawFile = fd_util::stub::RawFd;
+
+ported_fns! {
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "spawn_job_worker"
+    )]
+    #[allow(clippy::too_many_arguments)]
+    #[cfg(unix)]
+    pub(super) fn run_spawn_job_unix(
+        path: OsString,
+        args: Vec<OsString>,
+        env: Vec<OsString>,
+        stdio: [Option<ResourceRef>; 3],
+        cwd: Option<OsString>,
+        options: SpawnOptions,
+        result: &mut Option<OpenJobResource>,
+    ) -> AsyncHostResult<i64> {
+        spawn_process_unix(
+            path,
+            args,
+            env,
+            stdio,
+            cwd,
+            options,
+            result,
+        )
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "spawn_job_worker"
+    )]
+    #[allow(clippy::too_many_arguments)]
+    #[cfg(windows)]
+    pub(super) fn run_spawn_job_windows(
+        command_line: OsString,
+        env: Vec<u16>,
+        stdio: [Option<ResourceRef>; 3],
+        cwd: Option<OsString>,
+        options: SpawnOptions,
+        result: &mut Option<OpenJobResource>,
+    ) -> AsyncHostResult<i64> {
+        spawn_process_windows(
+            command_line,
+            env,
+            stdio,
+            cwd,
+            options,
+            result,
+        )
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "wait_for_process_job_worker"
+    )]
+    pub(super) fn run_wait_for_process_job(
+        handle: Option<ResourceRef>,
+        pid: i32,
+        #[cfg(unix)] defer_reap: bool,
+        #[cfg(windows)] cancel: Option<ResourceRef>,
+    ) -> AsyncHostResult<i64> {
+        wait_for_process(
+            handle,
+            pid,
+            #[cfg(unix)]
+            defer_reap,
+            #[cfg(windows)]
+            cancel,
+        )
+    }
+}
+
+#[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
+fn spawn_process_unix(
+    path: OsString,
+    args: Vec<OsString>,
+    env: Vec<OsString>,
+    stdio: [Option<ResourceRef>; 3],
+    cwd: Option<OsString>,
+    options: SpawnOptions,
+    result: &mut Option<OpenJobResource>,
+) -> AsyncHostResult<i64> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = result;
+
+    let path = unix_cstring(path)?;
+    let mut argv_storage = Vec::with_capacity(args.len());
+    for arg in args {
+        argv_storage.push(unix_cstring(arg)?);
+    }
+    let path = path.as_c_str();
+    let mut argv = argv_storage
+        .iter()
+        .map(|arg| arg.as_ptr().cast_mut())
+        .collect::<Vec<_>>();
+    argv.push(std::ptr::null_mut());
+
+    let env_storage = unix_env(env)?;
+    let mut envp = env_storage
+        .iter()
+        .map(|entry| entry.as_ptr().cast_mut())
+        .collect::<Vec<_>>();
+    envp.push(std::ptr::null_mut());
+
+    let cwd = cwd.map(unix_cstring).transpose()?;
+    let stdio_fds = duplicate_stdio_fds(&stdio)?;
+
+    let mut attr = unsafe { std::mem::zeroed::<libc::posix_spawnattr_t>() };
+    let mut file_actions = unsafe { std::mem::zeroed::<libc::posix_spawn_file_actions_t>() };
+    let mut attr_initialized = false;
+    let mut file_actions_initialized = false;
+
+    let spawn_result = (|| -> Result<libc::pid_t, i32> {
+        check_spawn_errno(unsafe { libc::posix_spawnattr_init(&mut attr) })?;
+        attr_initialized = true;
+
+        let flags = (libc::POSIX_SPAWN_SETSIGMASK | libc::POSIX_SPAWN_SETSIGDEF) as libc::c_short;
+        check_spawn_errno(unsafe { libc::posix_spawnattr_setflags(&mut attr, flags) })?;
+
+        check_spawn_errno(unsafe {
+            libc::posix_spawnattr_setsigmask(&mut attr, &options.child_signal_mask)
+        })?;
+
+        let mut all_signals = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+        if unsafe { libc::sigfillset(&mut all_signals) } != 0 {
+            return Err(last_native_errno());
+        }
+        check_spawn_errno(unsafe { libc::posix_spawnattr_setsigdefault(&mut attr, &all_signals) })?;
+
+        check_spawn_errno(unsafe { libc::posix_spawn_file_actions_init(&mut file_actions) })?;
+        file_actions_initialized = true;
+        for (target, fd) in stdio_fds.iter().enumerate() {
+            if let Some(fd) = fd {
+                check_spawn_errno(unsafe {
+                    libc::posix_spawn_file_actions_adddup2(
+                        &mut file_actions,
+                        *fd,
+                        target as libc::c_int,
+                    )
+                })?;
+            }
+        }
+        if let Some(cwd) = cwd.as_ref() {
+            check_spawn_errno(add_chdir_file_action(&mut file_actions, cwd.as_c_str()))?;
+        }
+
+        let mut pid = 0;
+        let ret = if path.to_bytes().contains(&b'/') {
+            unsafe {
+                libc::posix_spawn(
+                    &mut pid,
+                    path.as_ptr(),
+                    &file_actions,
+                    &attr,
+                    argv.as_ptr(),
+                    envp.as_ptr(),
+                )
+            }
+        } else {
+            unsafe {
+                libc::posix_spawnp(
+                    &mut pid,
+                    path.as_ptr(),
+                    &file_actions,
+                    &attr,
+                    argv.as_ptr(),
+                    envp.as_ptr(),
+                )
+            }
+        };
+        check_spawn_errno(ret)?;
+        Ok(pid)
+    })();
+
+    if attr_initialized {
+        unsafe {
+            libc::posix_spawnattr_destroy(&mut attr);
+        }
+    }
+    if file_actions_initialized {
+        unsafe {
+            libc::posix_spawn_file_actions_destroy(&mut file_actions);
+        }
+    }
+    close_stdio_fds(&stdio_fds);
+
+    match spawn_result {
+        Ok(pid) => {
+            #[cfg(target_os = "linux")]
+            if let Ok(pidfd) = crate::async_sys::process::open_pid_handle(pid) {
+                *result = Some(OpenJobResource::Unpublished(Resource::new(pidfd)));
+            }
+            Ok(i64::from(pid))
+        }
+        Err(error) => Err(AsyncHostError::Native(error)),
+    }
+}
+
+#[cfg(unix)]
+fn unix_cstring(value: OsString) -> AsyncHostResult<CString> {
+    use std::os::unix::ffi::OsStrExt;
+
+    CString::new(value.as_os_str().as_bytes()).map_err(|_| AsyncHostError::Inval)
+}
+
+#[cfg(unix)]
+fn unix_env(env: Vec<OsString>) -> AsyncHostResult<Vec<CString>> {
+    let mut entries = Vec::new();
+    for entry in env {
+        entries.push(unix_cstring(entry)?);
+    }
+    Ok(entries)
+}
+
+#[cfg(unix)]
+fn duplicate_stdio_fds(stdio: &[Option<ResourceRef>; 3]) -> AsyncHostResult<[Option<RawFile>; 3]> {
+    let mut fds = [None, None, None];
+    for (index, resource) in stdio.iter().enumerate() {
+        let Some(resource) = resource else {
+            continue;
+        };
+        let fd = unsafe { libc::fcntl(resource.raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
+        if fd < 0 {
+            let error = last_native_error();
+            close_stdio_fds(&fds);
+            return Err(error);
+        }
+        fds[index] = Some(fd);
+    }
+    Ok(fds)
+}
+
+#[cfg(unix)]
+fn close_stdio_fds(fds: &[Option<RawFile>; 3]) {
+    for fd in fds.iter().flatten() {
+        unsafe {
+            libc::close(*fd);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn check_spawn_errno(ret: libc::c_int) -> Result<(), i32> {
+    if ret == 0 { Ok(()) } else { Err(ret) }
+}
+
+#[cfg(target_os = "linux")]
+fn add_chdir_file_action(
+    file_actions: *mut libc::posix_spawn_file_actions_t,
+    cwd: &CStr,
+) -> libc::c_int {
+    unsafe { libc::posix_spawn_file_actions_addchdir_np(file_actions, cwd.as_ptr()) }
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn posix_spawn_file_actions_addchdir_np(
+        file_actions: *mut libc::posix_spawn_file_actions_t,
+        cwd: *const libc::c_char,
+    ) -> libc::c_int;
+}
+
+#[cfg(target_os = "macos")]
+fn add_chdir_file_action(
+    file_actions: *mut libc::posix_spawn_file_actions_t,
+    cwd: &CStr,
+) -> libc::c_int {
+    unsafe { posix_spawn_file_actions_addchdir_np(file_actions, cwd.as_ptr()) }
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "macos"))))]
+fn add_chdir_file_action(
+    _file_actions: *mut libc::posix_spawn_file_actions_t,
+    _cwd: &CStr,
+) -> libc::c_int {
+    libc::ENOSYS
+}
+
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+fn spawn_process_windows(
+    command_line: OsString,
+    env_block: Vec<u16>,
+    stdio: [Option<ResourceRef>; 3],
+    cwd: Option<OsString>,
+    options: SpawnOptions,
+    result: &mut Option<OpenJobResource>,
+) -> AsyncHostResult<i64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    use windows_sys::Win32::System::Threading::{
+        CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
+        CreateProcessW, DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT,
+        InitializeProcThreadAttributeList, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+        PROC_THREAD_ATTRIBUTE_JOB_LIST, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
+        STARTUPINFOEXW, TerminateProcess, UpdateProcThreadAttribute,
+    };
+
+    let mut command_line = command_line.encode_wide().collect::<Vec<_>>();
+    command_line.push(0);
+    let cwd = cwd.map(|cwd| {
+        let mut cwd = cwd.encode_wide().collect::<Vec<_>>();
+        cwd.push(0);
+        cwd
+    });
+    let job_object = if options.is_orphan {
+        None
+    } else {
+        global_job_object()?
+    };
+
+    let std_handles = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE];
+    let mut inherited_handles = Vec::with_capacity(std_handles.len());
+    for (resource, std_handle) in stdio.iter().zip(std_handles) {
+        let raw_result = if let Some(resource) = resource {
+            Ok(resource.raw_fd())
+        } else {
+            let raw = unsafe { GetStdHandle(std_handle) };
+            if raw.is_null() || raw == INVALID_HANDLE_VALUE {
+                Err(last_native_error())
+            } else {
+                Ok(raw)
+            }
+        };
+        let raw = match raw_result {
+            Ok(raw) => raw,
+            Err(error) => {
+                close_handles(&inherited_handles);
+                return Err(error);
+            }
+        };
+        match duplicate_inheritable_handle(raw) {
+            Ok(handle) => inherited_handles.push(handle),
+            Err(error) => {
+                close_handles(&inherited_handles);
+                return Err(error);
+            }
+        }
+    }
+
+    let mut startup_info = unsafe { std::mem::zeroed::<STARTUPINFOEXW>() };
+    startup_info.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+    startup_info.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    startup_info.StartupInfo.hStdInput = inherited_handles[0];
+    startup_info.StartupInfo.hStdOutput = inherited_handles[1];
+    startup_info.StartupInfo.hStdError = inherited_handles[2];
+
+    let attr_count = if job_object.is_some() { 2 } else { 1 };
+    let mut attrs_size = 0;
+    unsafe {
+        InitializeProcThreadAttributeList(std::ptr::null_mut(), attr_count, 0, &mut attrs_size);
+    }
+    let mut attrs = vec![0usize; attrs_size.div_ceil(std::mem::size_of::<usize>())];
+    startup_info.lpAttributeList = attrs.as_mut_ptr().cast();
+    if unsafe {
+        InitializeProcThreadAttributeList(
+            startup_info.lpAttributeList,
+            attr_count,
+            0,
+            &mut attrs_size,
+        )
+    } == 0
+    {
+        let error = last_native_error();
+        close_handles(&inherited_handles);
+        return Err(error);
+    }
+
+    if unsafe {
+        UpdateProcThreadAttribute(
+            startup_info.lpAttributeList,
+            0,
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+            inherited_handles.as_ptr().cast(),
+            inherited_handles.len() * std::mem::size_of::<HANDLE>(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        let error = last_native_error();
+        unsafe {
+            DeleteProcThreadAttributeList(startup_info.lpAttributeList);
+        }
+        close_handles(&inherited_handles);
+        return Err(error);
+    }
+
+    let job_list = job_object.map(|job_object| [job_object as HANDLE]);
+    let job_list_attr_used = if let Some(job_list) = job_list.as_ref() {
+        (unsafe {
+            UpdateProcThreadAttribute(
+                startup_info.lpAttributeList,
+                0,
+                PROC_THREAD_ATTRIBUTE_JOB_LIST as usize,
+                job_list.as_ptr().cast(),
+                std::mem::size_of_val(job_list),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        }) != 0
+    } else {
+        false
+    };
+
+    let mut process_info = unsafe { std::mem::zeroed::<PROCESS_INFORMATION>() };
+    let mut create_flags =
+        CREATE_NEW_PROCESS_GROUP | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT;
+    if options.no_console_window {
+        create_flags |= CREATE_NO_WINDOW;
+    }
+    if job_object.is_some() && !job_list_attr_used {
+        create_flags |= CREATE_SUSPENDED;
+    }
+    let created = unsafe {
+        CreateProcessW(
+            std::ptr::null(),
+            command_line.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            1,
+            create_flags,
+            env_block.as_ptr().cast(),
+            cwd.as_ref().map_or(std::ptr::null(), |cwd| cwd.as_ptr()),
+            (&raw mut startup_info.StartupInfo).cast(),
+            &mut process_info,
+        )
+    };
+    let create_error = if created == 0 {
+        Some(last_native_error())
+    } else {
+        None
+    };
+
+    unsafe {
+        DeleteProcThreadAttributeList(startup_info.lpAttributeList);
+    }
+    close_handles(&inherited_handles);
+
+    if let Some(error) = create_error {
+        return Err(error);
+    }
+
+    if let Some(job_object) = job_object
+        && !job_list_attr_used
+    {
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+
+        if unsafe { AssignProcessToJobObject(job_object, process_info.hProcess) } == 0 {
+            let error = last_native_error();
+            unsafe {
+                TerminateProcess(process_info.hProcess, 1);
+                CloseHandle(process_info.hThread);
+                CloseHandle(process_info.hProcess);
+            }
+            return Err(error);
+        }
+        if unsafe { ResumeThread(process_info.hThread) } == u32::MAX {
+            let error = last_native_error();
+            unsafe {
+                TerminateProcess(process_info.hProcess, 1);
+                CloseHandle(process_info.hThread);
+                CloseHandle(process_info.hProcess);
+            }
+            return Err(error);
+        }
+    }
+
+    unsafe {
+        CloseHandle(process_info.hThread);
+    }
+    *result = Some(OpenJobResource::Unpublished(Resource::new(
+        process_info.hProcess,
+    )));
+    Ok(i64::from(process_info.dwProcessId))
+}
+
+#[cfg(windows)]
+fn global_job_object() -> AsyncHostResult<Option<RawFile>> {
+    static GLOBAL_JOB_OBJECT: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    static GLOBAL_JOB_OBJECT_INIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    if let Some(handle) = GLOBAL_JOB_OBJECT.get() {
+        return Ok(handle.map(|handle| handle as RawFile));
+    }
+
+    let _init = GLOBAL_JOB_OBJECT_INIT.lock().unwrap();
+    if let Some(handle) = GLOBAL_JOB_OBJECT.get() {
+        return Ok(handle.map(|handle| handle as RawFile));
+    }
+
+    let handle = create_global_job_object()?;
+    let _ = GLOBAL_JOB_OBJECT.set(handle.map(|handle| handle as usize));
+    Ok(handle)
+}
+
+#[cfg(windows)]
+fn create_global_job_object() -> AsyncHostResult<Option<RawFile>> {
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED};
+    use windows_sys::Win32::System::JobObjects::{
+        CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectExtendedLimitInformation, SetInformationJobObject,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    let job = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
+    if job.is_null() {
+        return Err(last_native_error());
+    }
+
+    let mut info = unsafe { std::mem::zeroed::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() };
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_BREAKAWAY_OK
+        | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK
+        | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+    if unsafe {
+        SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            (&raw const info).cast(),
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+    } == 0
+    {
+        let error = last_native_error();
+        unsafe {
+            CloseHandle(job);
+        }
+        return Err(error);
+    }
+
+    if unsafe {
+        windows_sys::Win32::System::JobObjects::AssignProcessToJobObject(job, GetCurrentProcess())
+    } == 0
+    {
+        let error = last_native_error();
+        unsafe {
+            CloseHandle(job);
+        }
+        if error.errno() == ERROR_ACCESS_DENIED as i32 {
+            return Ok(None);
+        }
+        return Err(error);
+    }
+
+    Ok(Some(job))
+}
+
+#[cfg(unix)]
+fn wait_for_process(
+    handle: Option<ResourceRef>,
+    pid: i32,
+    defer_reap: bool,
+) -> AsyncHostResult<i64> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = handle;
+
+    #[cfg(target_os = "linux")]
+    if let Some(handle) = handle {
+        return wait_for_process_pidfd(handle.raw_fd(), defer_reap);
+    }
+    wait_for_process_pid(pid, defer_reap)
+}
+
+#[cfg(target_os = "linux")]
+fn wait_for_process_pidfd(pidfd: RawFile, defer_reap: bool) -> AsyncHostResult<i64> {
+    let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+    // Policy mode reaps only after atomically revoking PID authority.
+    let flags = libc::WEXITED | if defer_reap { libc::WNOWAIT } else { 0 };
+    if unsafe { libc::waitid(libc::P_PIDFD, pidfd as libc::id_t, &mut siginfo, flags) } < 0 {
+        return Err(last_native_error());
+    }
+    Ok(i64::from(unsafe { siginfo.si_status() }))
+}
+
+#[cfg(unix)]
+fn wait_for_process_pid(pid: i32, defer_reap: bool) -> AsyncHostResult<i64> {
+    if !defer_reap {
+        let mut status = 0;
+        let ret = unsafe { libc::waitpid(pid, &mut status, 0) };
+        if ret < 0 {
+            return Err(last_native_error());
+        }
+        if ret != pid {
+            return Err(AsyncHostError::Inval);
+        }
+        return if libc::WIFEXITED(status) {
+            Ok(i64::from(libc::WEXITSTATUS(status)))
+        } else if libc::WIFSIGNALED(status) {
+            Ok(i64::from(libc::WTERMSIG(status)))
+        } else {
+            Ok(1)
+        };
+    }
+    let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+    // The host reaps after atomically revoking policy PID authority.
+    if unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut siginfo,
+            libc::WEXITED | libc::WNOWAIT,
+        )
+    } < 0
+    {
+        return Err(last_native_error());
+    }
+    if unsafe { siginfo.si_pid() } != pid {
+        return Err(AsyncHostError::Inval);
+    }
+    Ok(i64::from(unsafe { siginfo.si_status() }))
+}
+
+#[cfg(windows)]
+pub(super) fn make_wait_for_process_cancel() -> AsyncHostResult<Resource> {
+    use windows_sys::Win32::System::Threading::CreateEventW;
+
+    let cancel = unsafe { CreateEventW(std::ptr::null(), 0, 0, std::ptr::null()) };
+    if cancel.is_null() {
+        Err(last_native_error())
+    } else {
+        Ok(Resource::new(cancel))
+    }
+}
+
+#[cfg(windows)]
+pub(super) fn cancel_wait_for_process(cancel: &ResourceRef) -> AsyncHostResult<()> {
+    use windows_sys::Win32::System::Threading::SetEvent;
+
+    if unsafe { SetEvent(cancel.raw_fd()) } == 0 {
+        Err(last_native_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn wait_for_process(
+    handle: Option<ResourceRef>,
+    pid: i32,
+    cancel: Option<ResourceRef>,
+) -> AsyncHostResult<i64> {
+    let cancel = cancel.ok_or(AsyncHostError::Badf)?;
+    if let Some(handle) = handle {
+        return wait_for_process_handle(handle.raw_fd(), &cancel);
+    }
+
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    let handle = unsafe {
+        OpenProcess(
+            SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid as u32,
+        )
+    };
+    if handle.is_null() {
+        return Err(last_native_error());
+    }
+    let result = wait_for_process_handle(handle, &cancel);
+    unsafe {
+        CloseHandle(handle);
+    }
+    result
+}
+
+#[cfg(windows)]
+fn wait_for_process_handle(handle: RawFile, cancel: &ResourceRef) -> AsyncHostResult<i64> {
+    use windows_sys::Win32::Foundation::{
+        ERROR_OPERATION_ABORTED, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, INFINITE, WaitForMultipleObjects, WaitForSingleObject,
+    };
+
+    let handles = [handle, cancel.raw_fd()];
+    let wait = unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) };
+    if wait == WAIT_OBJECT_0 + 1 {
+        match unsafe { WaitForSingleObject(handle, 0) } {
+            WAIT_OBJECT_0 => {}
+            WAIT_TIMEOUT => return Err(AsyncHostError::Native(ERROR_OPERATION_ABORTED as i32)),
+            WAIT_FAILED => return Err(last_native_error()),
+            _ => return Err(last_native_error()),
+        }
+    } else if wait == WAIT_FAILED || wait != WAIT_OBJECT_0 {
+        return Err(last_native_error());
+    }
+    let mut code = 0;
+    if unsafe { GetExitCodeProcess(handle, &mut code) } == 0 {
+        return Err(last_native_error());
+    }
+    Ok(i64::from(code))
+}
+
+#[cfg(windows)]
+fn duplicate_inheritable_handle(raw: RawFile) -> AsyncHostResult<RawFile> {
+    use windows_sys::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE};
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    let process = unsafe { GetCurrentProcess() };
+    let mut duplicate: HANDLE = std::ptr::null_mut();
+    if unsafe {
+        DuplicateHandle(
+            process,
+            raw,
+            process,
+            &mut duplicate,
+            0,
+            1,
+            DUPLICATE_SAME_ACCESS,
+        )
+    } == 0
+    {
+        Err(last_native_error())
+    } else {
+        Ok(duplicate)
+    }
+}
+
+#[cfg(windows)]
+fn close_handles(handles: &[RawFile]) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+
+    for handle in handles {
+        unsafe {
+            CloseHandle(*handle);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn last_native_error() -> AsyncHostError {
+    AsyncHostError::Native(unsafe { windows_sys::Win32::Foundation::GetLastError() as i32 })
+}
+
+#[cfg(unix)]
+fn last_native_error() -> AsyncHostError {
+    AsyncHostError::Native(last_native_errno())
+}
+
+#[cfg(target_os = "linux")]
+fn last_native_errno() -> i32 {
+    unsafe { *libc::__errno_location() }
+}
+
+#[cfg(target_os = "macos")]
+fn last_native_errno() -> i32 {
+    unsafe { *libc::__error() }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_for_unknown_process_reports_native_error() {
+        let err = run_wait_for_process_job(None, -1, false).unwrap_err();
+        assert!(matches!(err, AsyncHostError::Native(_)));
+    }
+}
