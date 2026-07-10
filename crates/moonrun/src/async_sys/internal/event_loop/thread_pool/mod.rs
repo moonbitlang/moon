@@ -44,7 +44,7 @@ pub(crate) use jobs::{
     make_remove_job, make_rename_job, make_rmdir_job, make_sleep_job, make_symlink_job,
     make_wait_for_process_job, make_write_job, open_job_get_dev_id, open_job_get_fd,
     open_job_get_file_id, open_job_get_kind, open_job_result, open_job_result_mut,
-    set_spawn_job_result, take_open_job_result, take_spawn_job_result,
+    set_spawn_job_result, take_spawn_job_result,
 };
 pub(crate) use runner::{get_file_time_result, get_read_result, run_host_job};
 pub(crate) use types::{

@@ -209,8 +209,9 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_, '_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    context.host.check_owned_child_pid(pid)?;
-    Ok(context.host.invalid_fd())
+    context
+        .host
+        .with_owned_child_pid(pid, || Ok(context.host.invalid_fd()))
 }
 
 #[ported(
@@ -222,11 +223,16 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_, '_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    context.host.check_owned_child_pid(pid)?;
-    match process::open_pid_handle(pid) {
-        Ok(handle) => Ok(context.host.insert_host_file_handle(handle)),
-        Err(error) if process::pidfd_open_is_unsupported(error) => Ok(context.host.invalid_fd()),
-        Err(error) => Err(error),
+    let handle = context.host.with_owned_child_pid(pid, || {
+        match process::open_pid_handle(pid) {
+            Ok(handle) => Ok(Some(handle)),
+            Err(error) if process::pidfd_open_is_unsupported(error) => Ok(None),
+            Err(error) => Err(error),
+        }
+    })?;
+    match handle {
+        Some(handle) => Ok(context.host.insert_host_process_handle(handle, pid)),
+        None => Ok(context.host.invalid_fd()),
     }
 }
 
@@ -239,8 +245,10 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_, '_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    context.host.check_owned_child_pid(pid)?;
-    process::open_pid_handle(pid).map(|handle| context.host.insert_host_file_handle(handle))
+    let handle = context
+        .host
+        .with_owned_child_pid(pid, || process::open_pid_handle(pid))?;
+    Ok(context.host.insert_host_process_handle(handle, pid))
 }
 
 #[ported(
@@ -254,24 +262,32 @@ pub(super) fn get_process_result(
     out: i32,
 ) -> i32 {
     let result = (|| {
-        // Windows wait completion revokes the PID; the opaque process handle
-        // remains the capability for this final status query.
-        #[cfg(unix)]
-        context.host.check_owned_child_pid(pid)?;
-        let handle = if handle == INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
+        let handle_id = if handle == INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
             None
         } else {
-            Some(context.host.resource(handle)?.raw_fd())
+            Some(handle)
         };
+        let resource = handle_id
+            .map(|handle| context.host.resource(handle))
+            .transpose()?;
+        let raw_handle = resource.as_ref().map(|resource| resource.raw_fd());
+        #[cfg(unix)]
+        let code = context.host.finish_owned_child(pid, handle_id, || {
+            process::get_process_result(raw_handle, pid)
+        })?;
         #[cfg(windows)]
-        if context.host.policy().has_process_policy() {
-            let handle = handle.ok_or(AsyncHostError::Badf)?;
-            if process::process_id_from_handle(handle)? != pid {
-                return Err(AsyncHostError::PermissionDenied);
-            }
-        }
-        let code = process::get_process_result(handle, pid)?;
-        context.host.forget_owned_child_pid(pid);
+        let code = {
+            let handle_id = handle_id.ok_or(AsyncHostError::Badf)?;
+            let raw_handle = raw_handle.ok_or(AsyncHostError::Badf)?;
+            context.host.finish_process_handle(pid, handle_id, || {
+                if context.host.policy().has_process_policy()
+                    && process::process_id_from_handle(raw_handle)? != pid
+                {
+                    return Err(AsyncHostError::PermissionDenied);
+                }
+                process::get_process_result(Some(raw_handle), pid)
+            })?
+        };
         context.with_memory_mut(|memory| memory.write_exact(out, &code.to_le_bytes()))
     })();
     match result {
@@ -293,8 +309,10 @@ pub(super) fn terminate(
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
-    context.host.check_owned_child_pid(pid)?;
-    process::terminate_process(pid, signal)
+    context.host.with_owned_child_pid(pid, || {
+        let _ = process::terminate_process(pid, signal);
+        Ok(())
+    })
 }
 
 #[ported(
@@ -307,8 +325,10 @@ pub(super) fn terminate(
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
-    context.host.check_owned_child_pid(pid)?;
-    process::terminate_process(pid, signal)
+    context.host.with_owned_child_pid(pid, || {
+        let _ = process::terminate_process(pid, signal);
+        Ok(())
+    })
 }
 
 #[ported(
@@ -317,8 +337,10 @@ pub(super) fn terminate(
 )]
 #[cfg(unix)]
 pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
-    context.host.check_owned_child_pid(pid)?;
-    process::kill_process(pid)
+    context.host.with_owned_child_pid(pid, || {
+        let _ = process::kill_process(pid);
+        Ok(())
+    })
 }
 
 #[ported(
@@ -327,8 +349,10 @@ pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostRe
 )]
 #[cfg(windows)]
 pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
-    context.host.check_owned_child_pid(pid)?;
-    process::kill_process(pid)
+    context.host.with_owned_child_pid(pid, || {
+        let _ = process::kill_process(pid);
+        Ok(())
+    })
 }
 }
 

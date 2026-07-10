@@ -520,10 +520,19 @@ pub(super) fn make_wait_for_process_job(
     handle: u64,
     pid: i32,
 ) -> AsyncHostResult<u64> {
+    let tracked_pid = context.host.process_handle_pid(handle)?;
     let handle = optional_resource(context, handle)?;
+    #[cfg(unix)]
+    let defer_reap = context.host.policy().has_process_policy();
     context
         .host
-        .insert_job(thread_pool::make_wait_for_process_job(handle, pid)?)
+        .insert_job(thread_pool::make_wait_for_process_job(
+            handle,
+            tracked_pid,
+            pid,
+            #[cfg(unix)]
+            defer_reap,
+        )?)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]

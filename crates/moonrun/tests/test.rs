@@ -573,7 +573,11 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
         .arg(&process_env_wasm)
         .assert()
         .success()
-        .stdout_eq("configured by policy|\n");
+        .stdout_eq(if cfg!(windows) {
+            "MOONRUN_POLICY_ENV=configured by policy\n"
+        } else {
+            "configured by policy|\n"
+        });
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())

@@ -90,11 +90,14 @@ ported_fns! {
     pub(super) fn run_wait_for_process_job(
         handle: Option<ResourceRef>,
         pid: i32,
+        #[cfg(unix)] defer_reap: bool,
         #[cfg(windows)] cancel: Option<ResourceRef>,
     ) -> AsyncHostResult<i64> {
         wait_for_process(
             handle,
             pid,
+            #[cfg(unix)]
+            defer_reap,
             #[cfg(windows)]
             cancel,
         )
@@ -583,51 +586,68 @@ fn create_global_job_object() -> AsyncHostResult<Option<RawFile>> {
 }
 
 #[cfg(unix)]
-fn wait_for_process(handle: Option<ResourceRef>, pid: i32) -> AsyncHostResult<i64> {
+fn wait_for_process(
+    handle: Option<ResourceRef>,
+    pid: i32,
+    defer_reap: bool,
+) -> AsyncHostResult<i64> {
     #[cfg(not(target_os = "linux"))]
     let _ = handle;
 
     #[cfg(target_os = "linux")]
     if let Some(handle) = handle {
-        return wait_for_process_pidfd(handle.raw_fd());
+        return wait_for_process_pidfd(handle.raw_fd(), defer_reap);
     }
-    wait_for_process_pid(pid)
+    wait_for_process_pid(pid, defer_reap)
 }
 
 #[cfg(target_os = "linux")]
-fn wait_for_process_pidfd(pidfd: RawFile) -> AsyncHostResult<i64> {
+fn wait_for_process_pidfd(pidfd: RawFile, defer_reap: bool) -> AsyncHostResult<i64> {
     let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
-    if unsafe {
-        libc::waitid(
-            libc::P_PIDFD,
-            pidfd as libc::id_t,
-            &mut siginfo,
-            libc::WEXITED,
-        )
-    } < 0
-    {
+    // Policy mode reaps only after atomically revoking PID authority.
+    let flags = libc::WEXITED | if defer_reap { libc::WNOWAIT } else { 0 };
+    if unsafe { libc::waitid(libc::P_PIDFD, pidfd as libc::id_t, &mut siginfo, flags) } < 0 {
         return Err(last_native_error());
     }
     Ok(i64::from(unsafe { siginfo.si_status() }))
 }
 
 #[cfg(unix)]
-fn wait_for_process_pid(pid: i32) -> AsyncHostResult<i64> {
-    let mut status = 0;
-    let ret = unsafe { libc::waitpid(pid, &mut status, 0) };
-    if ret < 0 {
+fn wait_for_process_pid(pid: i32, defer_reap: bool) -> AsyncHostResult<i64> {
+    if !defer_reap {
+        let mut status = 0;
+        let ret = unsafe { libc::waitpid(pid, &mut status, 0) };
+        if ret < 0 {
+            return Err(last_native_error());
+        }
+        if ret != pid {
+            return Err(AsyncHostError::Inval);
+        }
+        return if libc::WIFEXITED(status) {
+            Ok(i64::from(libc::WEXITSTATUS(status)))
+        } else if libc::WIFSIGNALED(status) {
+            Ok(i64::from(libc::WTERMSIG(status)))
+        } else {
+            Ok(1)
+        };
+    }
+    let mut siginfo = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+    // The host reaps after atomically revoking policy PID authority.
+    if unsafe {
+        libc::waitid(
+            libc::P_PID,
+            pid as libc::id_t,
+            &mut siginfo,
+            libc::WEXITED | libc::WNOWAIT,
+        )
+    } < 0
+    {
         return Err(last_native_error());
     }
-    if ret != pid {
+    if unsafe { siginfo.si_pid() } != pid {
         return Err(AsyncHostError::Inval);
     }
-    if libc::WIFEXITED(status) {
-        Ok(i64::from(libc::WEXITSTATUS(status)))
-    } else if libc::WIFSIGNALED(status) {
-        Ok(i64::from(libc::WTERMSIG(status)))
-    } else {
-        Ok(1)
-    }
+    Ok(i64::from(unsafe { siginfo.si_status() }))
 }
 
 #[cfg(windows)]
@@ -776,7 +796,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn wait_for_unknown_process_reports_native_error() {
-        let err = run_wait_for_process_job(None, -1).unwrap_err();
+        let err = run_wait_for_process_job(None, -1, false).unwrap_err();
         assert!(matches!(err, AsyncHostError::Native(_)));
     }
 }

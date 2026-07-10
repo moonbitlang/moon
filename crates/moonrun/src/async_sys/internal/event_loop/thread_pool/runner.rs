@@ -174,12 +174,17 @@ pub(crate) fn run_host_job(job: &mut Job) {
         ),
         JobPayload::WaitForProcess {
             handle,
+            tracked_pid: _,
             pid,
+            #[cfg(unix)]
+            defer_reap,
             #[cfg(windows)]
             cancel,
         } => run_wait_for_process_job(
             handle.take(),
             *pid,
+            #[cfg(unix)]
+            *defer_reap,
             #[cfg(windows)]
             cancel.take(),
         ),

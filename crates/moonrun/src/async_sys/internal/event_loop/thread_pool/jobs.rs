@@ -451,11 +451,16 @@ ported_fns! {
     )]
     pub(crate) fn make_wait_for_process_job(
         handle: Option<ResourceRef>,
+        tracked_pid: Option<i32>,
         pid: i32,
+        #[cfg(unix)] defer_reap: bool,
     ) -> AsyncHostResult<Job> {
         Ok(Job::new(JobPayload::WaitForProcess {
             handle,
+            tracked_pid,
             pid,
+            #[cfg(unix)]
+            defer_reap,
             #[cfg(windows)]
             cancel: Some(Arc::new(super::process::make_wait_for_process_cancel()?)),
         }))
@@ -512,20 +517,13 @@ pub(crate) fn open_job_result_mut(job: &mut Job) -> AsyncHostResult<&mut OpenJob
     }
 }
 
-pub(crate) fn take_open_job_result(job: &mut Job) -> Option<OpenJobResult> {
-    match job.payload_mut() {
-        JobPayload::Open { result, .. } => result.take(),
-        _ => None,
-    }
-}
-
-pub(crate) fn take_spawn_job_result(job: &mut Job) -> Option<OpenJobResource> {
+pub(crate) fn take_spawn_job_result(job: &mut Job) -> AsyncHostResult<Option<OpenJobResource>> {
     match job.payload_mut() {
         #[cfg(unix)]
-        JobPayload::SpawnUnix { result, .. } => result.take(),
+        JobPayload::SpawnUnix { result, .. } => Ok(result.take()),
         #[cfg(windows)]
-        JobPayload::SpawnWindows { result, .. } => result.take(),
-        _ => None,
+        JobPayload::SpawnWindows { result, .. } => Ok(result.take()),
+        _ => Err(AsyncHostError::Badf),
     }
 }
 

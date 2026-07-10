@@ -74,6 +74,18 @@ pub(crate) type HostProcessEnv = Arc<Mutex<Vec<Option<OsString>>>>;
 #[cfg(windows)]
 pub(crate) type HostProcessEnv = Arc<Mutex<Vec<u16>>>;
 
+#[derive(Default)]
+struct ProcessPolicyState {
+    // PID authority and stable-handle provenance must change atomically.
+    inner: Mutex<ProcessPolicyStateInner>,
+}
+
+#[derive(Default)]
+struct ProcessPolicyStateInner {
+    owned_child_pids: HashSet<i32>,
+    process_handle_pids: HashMap<HostHandle, i32>,
+}
+
 #[cfg(unix)]
 mod native_errno {
     pub(crate) const BADF: i32 = libc::EBADF;
@@ -1188,7 +1200,7 @@ pub(crate) struct AsyncHost {
     process_argvs: Mutex<SecondaryMap<HandleKey, HostProcessArgv>>,
     process_envs: Mutex<SecondaryMap<HandleKey, HostProcessEnv>>,
     // The unrestricted path leaves this absent, avoiding registry allocation and locking.
-    owned_child_pids: Option<Arc<Mutex<HashSet<i32>>>>,
+    process_policy_state: Option<Arc<ProcessPolicyState>>,
     #[cfg(windows)]
     io_results: Mutex<IoResultTable>,
     jobs: Arc<Mutex<JobTable>>,
@@ -1210,9 +1222,9 @@ impl Default for AsyncHost {
 
 impl AsyncHost {
     pub(crate) fn new(policy: Arc<AsyncPolicy>) -> Self {
-        let owned_child_pids = policy
+        let process_policy_state = policy
             .has_process_policy()
-            .then(|| Arc::new(Mutex::new(HashSet::new())));
+            .then(|| Arc::new(ProcessPolicyState::default()));
         Self {
             policy,
             errno: Mutex::new(0),
@@ -1221,7 +1233,7 @@ impl AsyncHost {
             #[cfg(unix)]
             process_argvs: Mutex::new(SecondaryMap::new()),
             process_envs: Mutex::new(SecondaryMap::new()),
-            owned_child_pids,
+            process_policy_state,
             #[cfg(windows)]
             io_results: Mutex::new(IoResultTable::default()),
             jobs: Arc::new(Mutex::new(JobTable::default())),
@@ -1269,8 +1281,8 @@ impl AsyncHost {
 
     fn restore_job(&self, key: HandleKey, job: Job) -> AsyncHostResult<()> {
         let result = { self.jobs.lock().unwrap().restore_job(key, job) };
-        if let Some(mut job) = result {
-            self.discard_job_results(&mut job);
+        if let Some(job) = result {
+            Self::revoke_unclaimed_spawn(self.process_policy_state.as_deref(), &job);
             Err(AsyncHostError::Badf)
         } else {
             Ok(())
@@ -1298,14 +1310,34 @@ impl AsyncHost {
         self.running_job_cancellations.lock().unwrap().remove(&key);
     }
 
-    fn discard_job_results(&self, job: &mut Job) {
-        if let Some(result) = thread_pool::take_open_job_result(job)
-            && let OpenJobResource::Published(fd) = result.resource
-        {
-            let _ = self.handles.lock().unwrap().remove_resource(fd);
+    fn revoke_unclaimed_spawn(process_policy_state: Option<&ProcessPolicyState>, job: &Job) {
+        let Some(state) = process_policy_state else {
+            return;
+        };
+        if job.err() != 0 || job.ret() < 0 {
+            return;
         }
-        if let Some(OpenJobResource::Published(fd)) = thread_pool::take_spawn_job_result(job) {
-            let _ = self.handles.lock().unwrap().remove_resource(fd);
+        let unclaimed = match job.payload() {
+            #[cfg(unix)]
+            JobPayload::SpawnUnix { result, .. } => {
+                !matches!(result, Some(OpenJobResource::Published(_)))
+            }
+            #[cfg(windows)]
+            JobPayload::SpawnWindows { result, .. } => {
+                !matches!(result, Some(OpenJobResource::Published(_)))
+            }
+            _ => false,
+        };
+        if unclaimed {
+            let pid = job.ret() as i32;
+            let mut state = state.inner.lock().unwrap();
+            if !state
+                .process_handle_pids
+                .values()
+                .any(|tracked_pid| *tracked_pid == pid)
+            {
+                state.owned_child_pids.remove(&pid);
+            }
         }
     }
 
@@ -1554,18 +1586,19 @@ impl AsyncHost {
 
     #[cfg(target_os = "macos")]
     pub(crate) fn poll_register_pid(&self, poll_handle: u64, pid: i32) -> AsyncHostResult<i32> {
-        self.check_owned_child_pid(pid)?;
-        let poll_key = self.handles.lock().unwrap().poll(poll_handle)?;
-        let poll = Arc::clone(
-            self.polls
-                .lock()
-                .unwrap()
-                .polls
-                .get(poll_key)
-                .ok_or(AsyncHostError::Badf)?,
-        );
-        let poll = poll.lock().unwrap();
-        poll::poll_register_pid(&poll.instance, pid)
+        self.with_owned_child_pid(pid, || {
+            let poll_key = self.handles.lock().unwrap().poll(poll_handle)?;
+            let poll = Arc::clone(
+                self.polls
+                    .lock()
+                    .unwrap()
+                    .polls
+                    .get(poll_key)
+                    .ok_or(AsyncHostError::Badf)?,
+            );
+            let poll = poll.lock().unwrap();
+            poll::poll_register_pid(&poll.instance, pid)
+        })
     }
 
     pub(crate) fn poll_wait(&self, poll_handle: u64, timeout_ms: i32) -> AsyncHostResult<i32> {
@@ -1867,6 +1900,9 @@ impl AsyncHost {
                 self.workers.lock().unwrap().remove(key)
             })
             .collect::<Vec<_>>();
+        for worker in &workers {
+            let _ = self.cancel_host_worker(worker);
+        }
         for worker in workers {
             if let Some(replaced_job) = thread_pool::free_worker(worker) {
                 #[cfg(windows)]
@@ -2063,8 +2099,8 @@ impl AsyncHost {
     pub(crate) fn process_env_write_block(&self, dst: u64, src: u64) -> AsyncHostResult<()> {
         let dst = self.process_env(dst)?;
         let src = self.process_env(src)?;
+        let src = src.lock().unwrap().clone();
         let mut dst = dst.lock().unwrap();
-        let src = src.lock().unwrap();
         if dst.len() < src.len() {
             return Err(AsyncHostError::Fault);
         }
@@ -2078,8 +2114,8 @@ impl AsyncHost {
     pub(crate) fn process_env_write_block(&self, dst: u64, src: u64) -> AsyncHostResult<()> {
         let dst = self.process_env(dst)?;
         let src = self.process_env(src)?;
+        let src = src.lock().unwrap().clone();
         let mut dst = dst.lock().unwrap();
-        let src = src.lock().unwrap();
         let src_len = src.len().checked_sub(1).ok_or(AsyncHostError::Fault)?;
         if dst.len() <= src_len {
             return Err(AsyncHostError::Fault);
@@ -2196,13 +2232,21 @@ impl AsyncHost {
 
     pub(crate) fn free_job(&self, handle: u64) -> AsyncHostResult<()> {
         let key = self.handles.lock().unwrap().remove_job(handle)?;
-        self.jobs
+        let state = self
+            .jobs
             .lock()
             .unwrap()
             .jobs
             .remove(key)
-            .map(|_| ())
             .ok_or(AsyncHostError::Badf)?;
+        match state {
+            HostJobState::Ready(job)
+            | HostJobState::Queued(job)
+            | HostJobState::ResultReady(job) => {
+                Self::revoke_unclaimed_spawn(self.process_policy_state.as_deref(), &job);
+            }
+            HostJobState::Running => {}
+        }
         Ok(())
     }
 
@@ -2288,8 +2332,10 @@ impl AsyncHost {
         let key = self.handles.lock().unwrap().job(handle)?;
         let mut jobs = self.jobs.lock().unwrap();
         let job = jobs.visible_job_mut(key)?;
-        let Some(result) = thread_pool::take_spawn_job_result(job) else {
-            return Ok(self.invalid_fd());
+        let Some(result) = thread_pool::take_spawn_job_result(job)? else {
+            let fd = self.invalid_fd();
+            thread_pool::set_spawn_job_result(job, OpenJobResource::Published(fd))?;
+            return Ok(fd);
         };
         let resource = match result {
             OpenJobResource::Published(fd) => {
@@ -2298,7 +2344,11 @@ impl AsyncHost {
             }
             OpenJobResource::Unpublished(resource) => resource,
         };
+        let process_pid = self.process_policy_state.as_ref().map(|_| job.ret() as i32);
         let fd = self.handles.lock().unwrap().insert_resource(resource);
+        if let Some(pid) = process_pid {
+            self.track_process_handle(fd, pid);
+        }
         thread_pool::set_spawn_job_result(job, OpenJobResource::Published(fd))?;
         thread_pool::get_spawn_job_result_handle(job)
     }
@@ -2351,6 +2401,7 @@ impl AsyncHost {
             }
             handles.remove_resource(handle)?
         };
+        self.untrack_process_handle(handle);
         let raw_fd = file.raw_fd();
         let polls = self
             .polls
@@ -2419,13 +2470,122 @@ impl AsyncHost {
         &self.policy
     }
 
+    #[cfg(test)]
     pub(crate) fn check_owned_child_pid(&self, pid: i32) -> AsyncHostResult<()> {
-        Self::check_owned_child_pid_in(self.owned_child_pids.as_deref(), pid)
+        Self::check_owned_child_pid_in(self.process_policy_state.as_deref(), pid)
     }
 
-    pub(crate) fn forget_owned_child_pid(&self, pid: i32) {
-        if let Some(owned_child_pids) = self.owned_child_pids.as_deref() {
-            owned_child_pids.lock().unwrap().remove(&pid);
+    pub(crate) fn with_owned_child_pid<T>(
+        &self,
+        pid: i32,
+        f: impl FnOnce() -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        let Some(state) = self.process_policy_state.as_deref() else {
+            return f();
+        };
+        let state = state.inner.lock().unwrap();
+        if !state.owned_child_pids.contains(&pid) {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        f()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn finish_owned_child<T>(
+        &self,
+        pid: i32,
+        handle: Option<HostHandle>,
+        f: impl FnOnce() -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        let Some(state) = self.process_policy_state.as_deref() else {
+            return f();
+        };
+        let mut state = state.inner.lock().unwrap();
+        if !state.owned_child_pids.contains(&pid)
+            || handle.is_some_and(|handle| state.process_handle_pids.get(&handle) != Some(&pid))
+        {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        let result = f()?;
+        state.owned_child_pids.remove(&pid);
+        Ok(result)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn finish_process_handle<T>(
+        &self,
+        pid: i32,
+        handle: HostHandle,
+        f: impl FnOnce() -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        let Some(state) = self.process_policy_state.as_deref() else {
+            return f();
+        };
+        let mut state = state.inner.lock().unwrap();
+        if state.process_handle_pids.get(&handle) != Some(&pid) {
+            return Err(AsyncHostError::PermissionDenied);
+        }
+        let result = f()?;
+        state.owned_child_pids.remove(&pid);
+        Ok(result)
+    }
+
+    pub(crate) fn process_handle_pid(&self, handle: HostHandle) -> AsyncHostResult<Option<i32>> {
+        let Some(state) = self.process_policy_state.as_deref() else {
+            return Ok(None);
+        };
+        if handle == INVALID_HOST_HANDLE || handle == self.invalid_fd() {
+            return Ok(None);
+        }
+        state
+            .inner
+            .lock()
+            .unwrap()
+            .process_handle_pids
+            .get(&handle)
+            .copied()
+            .map(Some)
+            .ok_or(AsyncHostError::PermissionDenied)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn check_process_handle_pid(
+        &self,
+        handle: HostHandle,
+        pid: i32,
+    ) -> AsyncHostResult<()> {
+        let Some(state) = self.process_policy_state.as_deref() else {
+            return Ok(());
+        };
+        if state.inner.lock().unwrap().process_handle_pids.get(&handle) == Some(&pid) {
+            Ok(())
+        } else {
+            Err(AsyncHostError::PermissionDenied)
+        }
+    }
+
+    fn track_process_handle(&self, handle: HostHandle, pid: i32) {
+        if let Some(state) = self.process_policy_state.as_deref() {
+            state
+                .inner
+                .lock()
+                .unwrap()
+                .process_handle_pids
+                .insert(handle, pid);
+        }
+    }
+
+    fn untrack_process_handle(&self, handle: HostHandle) {
+        if let Some(state) = self.process_policy_state.as_deref() {
+            let mut state = state.inner.lock().unwrap();
+            if let Some(pid) = state.process_handle_pids.remove(&handle)
+                && !state
+                    .process_handle_pids
+                    .values()
+                    .any(|tracked_pid| *tracked_pid == pid)
+            {
+                state.owned_child_pids.remove(&pid);
+            }
         }
     }
 
@@ -2449,11 +2609,14 @@ impl AsyncHost {
     }
 
     #[cfg(any(windows, target_os = "linux"))]
-    pub(crate) fn insert_host_file_handle(&self, raw_fd: RawFd) -> HostHandle {
-        self.handles
+    pub(crate) fn insert_host_process_handle(&self, raw_fd: RawFd, pid: i32) -> HostHandle {
+        let handle = self
+            .handles
             .lock()
             .unwrap()
-            .insert_resource(Resource::new(raw_fd))
+            .insert_resource(Resource::new(raw_fd));
+        self.track_process_handle(handle, pid);
+        handle
     }
 
     pub(crate) fn resource(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
@@ -3169,26 +3332,28 @@ impl AsyncHost {
     pub(crate) fn run_job(&self, handle: u64) -> AsyncHostResult<()> {
         let key = self.handles.lock().unwrap().job(handle)?;
         let mut job = self.jobs.lock().unwrap().take_ready_job(key)?;
-        Self::run_policy_checked_job(&self.policy, self.owned_child_pids.as_deref(), &mut job);
+        Self::run_policy_checked_job(&self.policy, self.process_policy_state.as_deref(), &mut job);
         self.restore_job(key, job)
     }
 
     fn run_policy_checked_job(
         policy: &AsyncPolicy,
-        owned_child_pids: Option<&Mutex<HashSet<i32>>>,
+        process_policy_state: Option<&ProcessPolicyState>,
         job: &mut Job,
     ) {
-        if let Err(error) = Self::check_job_policy(policy, owned_child_pids, job) {
+        if let Err(error) = Self::check_job_policy(policy, process_policy_state, job) {
             job.set_err(error.errno());
             return;
         }
         thread_pool::run_host_job(job);
-        Self::update_owned_child_pids(owned_child_pids, job);
+        if let Err(error) = Self::update_owned_child_pids(process_policy_state, job) {
+            job.set_err(error.errno());
+        }
     }
 
     fn check_job_policy(
         policy: &AsyncPolicy,
-        owned_child_pids: Option<&Mutex<HashSet<i32>>>,
+        process_policy_state: Option<&ProcessPolicyState>,
         job: &Job,
     ) -> AsyncHostResult<()> {
         match job.payload() {
@@ -3244,52 +3409,97 @@ impl AsyncHost {
             JobPayload::SpawnUnix { .. } => policy.spawn_process(),
             #[cfg(windows)]
             JobPayload::SpawnWindows { .. } => policy.spawn_process(),
-            JobPayload::WaitForProcess { pid, .. } => {
-                Self::check_owned_child_pid_in(owned_child_pids, *pid)
+            JobPayload::WaitForProcess {
+                handle,
+                tracked_pid,
+                pid,
+                ..
+            } => {
+                let Some(state) = process_policy_state else {
+                    return Ok(());
+                };
+                Self::check_owned_child_pid_in(Some(state), *pid)?;
+                match (handle.is_some(), *tracked_pid) {
+                    (false, None) => Ok(()),
+                    (true, Some(tracked_pid)) if tracked_pid == *pid => Ok(()),
+                    _ => Err(AsyncHostError::PermissionDenied),
+                }
             }
             _ => Ok(()),
         }
     }
 
     fn check_owned_child_pid_in(
-        owned_child_pids: Option<&Mutex<HashSet<i32>>>,
+        process_policy_state: Option<&ProcessPolicyState>,
         pid: i32,
     ) -> AsyncHostResult<()> {
-        let Some(owned_child_pids) = owned_child_pids else {
+        let Some(state) = process_policy_state else {
             return Ok(());
         };
-        if owned_child_pids.lock().unwrap().contains(&pid) {
+        if state.inner.lock().unwrap().owned_child_pids.contains(&pid) {
             Ok(())
         } else {
             Err(AsyncHostError::PermissionDenied)
         }
     }
 
-    fn update_owned_child_pids(owned_child_pids: Option<&Mutex<HashSet<i32>>>, job: &Job) {
-        let Some(owned_child_pids) = owned_child_pids else {
-            return;
-        };
+    fn update_owned_child_pids(
+        process_policy_state: Option<&ProcessPolicyState>,
+        job: &Job,
+    ) -> AsyncHostResult<()> {
         if job.err() != 0 {
-            return;
+            return Ok(());
         }
         match job.payload() {
             #[cfg(unix)]
             JobPayload::SpawnUnix { .. } => {
-                if let Ok(pid) = i32::try_from(job.ret()) {
-                    owned_child_pids.lock().unwrap().insert(pid);
+                if job.ret() >= 0
+                    && let Some(state) = process_policy_state
+                {
+                    state
+                        .inner
+                        .lock()
+                        .unwrap()
+                        .owned_child_pids
+                        .insert(job.ret() as i32);
                 }
             }
             #[cfg(windows)]
             JobPayload::SpawnWindows { .. } => {
-                if let Ok(pid) = i32::try_from(job.ret()) {
-                    owned_child_pids.lock().unwrap().insert(pid);
+                if job.ret() >= 0
+                    && let Some(state) = process_policy_state
+                {
+                    state
+                        .inner
+                        .lock()
+                        .unwrap()
+                        .owned_child_pids
+                        .insert(job.ret() as i32);
                 }
             }
-            JobPayload::WaitForProcess { pid, .. } => {
-                owned_child_pids.lock().unwrap().remove(pid);
+            JobPayload::WaitForProcess {
+                pid,
+                #[cfg(unix)]
+                defer_reap,
+                ..
+            } => {
+                if let Some(state) = process_policy_state {
+                    let mut state = state.inner.lock().unwrap();
+                    #[cfg(unix)]
+                    if *defer_reap {
+                        crate::async_sys::process::reap_process(*pid)?;
+                    }
+                    state.owned_child_pids.remove(pid);
+                } else {
+                    #[cfg(unix)]
+                    if *defer_reap {
+                        crate::async_sys::process::reap_process(*pid)?;
+                    }
+                }
             }
             _ => {}
         }
+        Ok(())
     }
 
     fn check_file_metadata_policy(
@@ -3454,6 +3664,7 @@ impl AsyncHost {
             .remove(worker_key)
             .ok_or(AsyncHostError::Badf)?;
         self.handles.lock().unwrap().remove_worker(worker_handle)?;
+        let _ = self.cancel_host_worker(&worker);
         if let Some(replaced_job) = thread_pool::free_worker(worker) {
             #[cfg(windows)]
             self.unregister_worker_job_cancel(replaced_job.job_key);
@@ -3466,6 +3677,10 @@ impl AsyncHost {
         let worker_key = self.handles.lock().unwrap().worker(worker_handle)?;
         let workers = self.workers.lock().unwrap();
         let worker = workers.get(worker_key).ok_or(AsyncHostError::Badf)?;
+        self.cancel_host_worker(worker)
+    }
+
+    fn cancel_host_worker(&self, worker: &HostWorkerHandle) -> AsyncHostResult<i32> {
         #[cfg(windows)]
         {
             if let Some(running_job) = thread_pool::worker_cancellable_job(worker) {
@@ -3886,7 +4101,8 @@ impl AsyncHost {
         #[cfg(windows)]
         let running_job_cancellations = Arc::clone(&self.running_job_cancellations);
         let policy = Arc::clone(&self.policy);
-        let owned_child_pids = self.owned_child_pids.clone();
+        let process_policy_state_for_runner = self.process_policy_state.clone();
+        let process_policy_state_for_completion = self.process_policy_state.clone();
         thread_pool::spawn_worker(
             init_job,
             move |worker_job| {
@@ -3902,7 +4118,11 @@ impl AsyncHost {
                         .remove(&worker_job.job_key);
                     return None;
                 };
-                Self::run_policy_checked_job(&policy, owned_child_pids.as_deref(), &mut job);
+                Self::run_policy_checked_job(
+                    &policy,
+                    process_policy_state_for_runner.as_deref(),
+                    &mut job,
+                );
                 #[cfg(windows)]
                 {
                     running_job_cancellations
@@ -3915,10 +4135,16 @@ impl AsyncHost {
             move |worker_job| {
                 let completion_id = worker_job.completion_id;
                 if let Some(job) = worker_job.job {
-                    let _ = jobs_for_completion
+                    let discarded = jobs_for_completion
                         .lock()
                         .unwrap()
                         .restore_job(worker_job.job_key, job);
+                    if let Some(job) = discarded {
+                        Self::revoke_unclaimed_spawn(
+                            process_policy_state_for_completion.as_deref(),
+                            &job,
+                        );
+                    }
                 }
                 // Even if cancellation discarded the job handle, the event loop
                 // still needs the completion to move the worker out of running.
@@ -4160,7 +4386,7 @@ mod tests {
     fn no_policy_does_not_allocate_child_ownership_tracking() {
         let host = AsyncHost::default();
 
-        assert!(host.owned_child_pids.is_none());
+        assert!(host.process_policy_state.is_none());
         host.check_owned_child_pid(i32::MAX).unwrap();
     }
 
@@ -4197,7 +4423,7 @@ mod tests {
         host.run_job(spawn_job).unwrap();
 
         assert_eq!(host.job_get_err(spawn_job).unwrap(), 0);
-        let pid = i32::try_from(host.job_get_ret(spawn_job).unwrap()).unwrap();
+        let pid = host.job_get_ret(spawn_job).unwrap() as i32;
         host.check_owned_child_pid(pid).unwrap();
         let process_handle = host.get_spawn_job_result_handle(spawn_job).unwrap();
         let process_resource = if process_handle == host.invalid_fd() {
@@ -4205,6 +4431,10 @@ mod tests {
         } else {
             Some(host.resource(process_handle).unwrap())
         };
+        let process_handle_pid = host.process_handle_pid(process_handle).unwrap();
+        if process_resource.is_some() {
+            assert_eq!(process_handle_pid, Some(pid));
+        }
         #[cfg(windows)]
         assert_eq!(
             crate::async_sys::process::process_id_from_handle(
@@ -4214,7 +4444,16 @@ mod tests {
             pid
         );
         let wait_job = host
-            .insert_job(thread_pool::make_wait_for_process_job(process_resource, pid).unwrap())
+            .insert_job(
+                thread_pool::make_wait_for_process_job(
+                    process_resource,
+                    process_handle_pid,
+                    pid,
+                    #[cfg(unix)]
+                    true,
+                )
+                .unwrap(),
+            )
             .unwrap();
 
         host.run_job(wait_job).unwrap();
@@ -4226,6 +4465,151 @@ mod tests {
         );
         host.free_job(wait_job).unwrap();
         host.free_job(spawn_job).unwrap();
+    }
+
+    #[test]
+    fn process_policy_rejects_wait_handle_for_another_pid() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[process]\nspawn = true\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let checked_pid = 1001;
+        let tracked_pid = 1002;
+        let state = host.process_policy_state.as_deref().unwrap();
+        state
+            .inner
+            .lock()
+            .unwrap()
+            .owned_child_pids
+            .extend([checked_pid, tracked_pid]);
+        let [process_handle, other] = host.pipe(false, false).unwrap();
+        host.track_process_handle(process_handle, tracked_pid);
+        let process_resource = host.resource(process_handle).unwrap();
+
+        assert_eq!(
+            host.check_process_handle_pid(process_handle, checked_pid),
+            Err(AsyncHostError::PermissionDenied)
+        );
+        let wait_job = host
+            .insert_job(
+                thread_pool::make_wait_for_process_job(
+                    Some(process_resource),
+                    host.process_handle_pid(process_handle).unwrap(),
+                    checked_pid,
+                    #[cfg(unix)]
+                    true,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        host.run_job(wait_job).unwrap();
+
+        assert_eq!(
+            host.job_get_err(wait_job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        host.check_owned_child_pid(checked_pid).unwrap();
+        host.check_owned_child_pid(tracked_pid).unwrap();
+        host.free_job(wait_job).unwrap();
+        host.close_fd(process_handle).unwrap();
+        host.close_fd(other).unwrap();
+    }
+
+    #[test]
+    fn process_policy_revokes_pid_after_last_process_handle_closes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[process]\nspawn = true\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let pid = 1001;
+        host.process_policy_state
+            .as_deref()
+            .unwrap()
+            .inner
+            .lock()
+            .unwrap()
+            .owned_child_pids
+            .insert(pid);
+        let [first, second] = host.pipe(false, false).unwrap();
+        host.track_process_handle(first, pid);
+        host.track_process_handle(second, pid);
+
+        host.close_fd(first).unwrap();
+        host.check_owned_child_pid(pid).unwrap();
+        host.close_fd(second).unwrap();
+
+        assert_eq!(
+            host.check_owned_child_pid(pid),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn process_policy_revokes_unclaimed_spawn_result() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[process]\nspawn = true\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let pid = 1001;
+        let mut job = successful_process_job();
+        job.set_ret(i64::from(pid));
+        host.process_policy_state
+            .as_deref()
+            .unwrap()
+            .inner
+            .lock()
+            .unwrap()
+            .owned_child_pids
+            .insert(pid);
+        let job = host.insert_job(job).unwrap();
+
+        host.free_job(job).unwrap();
+
+        assert_eq!(
+            host.check_owned_child_pid(pid),
+            Err(AsyncHostError::PermissionDenied)
+        );
+    }
+
+    #[test]
+    fn get_spawn_result_rejects_non_spawn_job() {
+        let host = AsyncHost::default();
+        let job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
+
+        assert_eq!(
+            host.get_spawn_job_result_handle(job),
+            Err(AsyncHostError::Badf)
+        );
+        host.free_job(job).unwrap();
+    }
+
+    #[test]
+    fn process_env_block_can_copy_to_itself() {
+        let host = AsyncHost::default();
+        #[cfg(unix)]
+        let env = host.insert_process_env(vec![Some(OsString::from("A=B"))]);
+        #[cfg(windows)]
+        let env = host.insert_process_env(vec![b'A' as u16, b'=' as u16, b'B' as u16, 0, 0]);
+
+        host.process_env_write_block(env, env).unwrap();
+
+        host.free_process_env(env).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn process_policy_preserves_unsigned_windows_pid_bits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[process]\nspawn = true\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let mut job = successful_process_job();
+        job.set_ret(i64::from(0x8000_0000u32));
+
+        AsyncHost::update_owned_child_pids(host.process_policy_state.as_deref(), &job).unwrap();
+
+        host.check_owned_child_pid(i32::MIN).unwrap();
     }
 
     #[cfg(unix)]

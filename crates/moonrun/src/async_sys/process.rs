@@ -193,6 +193,19 @@ ported_fns! {
     }
 }
 
+#[cfg(unix)]
+pub(crate) fn reap_process(pid: i32) -> AsyncHostResult<()> {
+    let mut status = 0;
+    let ret = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
+    if ret < 0 {
+        Err(last_native_error())
+    } else if ret == pid {
+        Ok(())
+    } else {
+        Err(AsyncHostError::Native(libc::EAGAIN))
+    }
+}
+
 #[cfg(windows)]
 pub(crate) fn process_id_from_handle(
     handle: crate::async_sys::internal::fd_util::stub::RawFd,

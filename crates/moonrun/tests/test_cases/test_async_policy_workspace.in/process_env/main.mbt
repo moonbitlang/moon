@@ -31,10 +31,8 @@ fn host_platform() -> HostPlatform = "moonbitlang/async" "runtime/get_platform"
 async fn main {
   let (command, args) = if host_platform() is Windows {
     (
-      "powershell.exe",
-      [
-        "-NoProfile", "-Command", "[Console]::Out.Write($env:MOONRUN_POLICY_ENV + '|' + $env:MOONRUN_HIDDEN_ENV)",
-      ],
+      "cmd.exe",
+      ["/D", "/C", "set", "MOONRUN_"],
     )
   } else {
     (
@@ -47,7 +45,7 @@ async fn main {
     if code != 0 {
       abort("child exited with code \{code}")
     }
-    println(output.text())
+    println(output.text().trim(char_set="\n\r "))
   } catch {
     @os_error.OSError(_) as err if err.is_EACCES() => println("spawn denied")
     err => abort("unexpected process error: \{err}")

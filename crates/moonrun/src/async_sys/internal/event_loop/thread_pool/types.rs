@@ -439,7 +439,11 @@ pub(crate) enum JobPayload {
     },
     WaitForProcess {
         handle: Option<ResourceRef>,
+        // Host-derived identity for policy checks; never supplied by the guest.
+        tracked_pid: Option<i32>,
         pid: i32,
+        #[cfg(unix)]
+        defer_reap: bool,
         #[cfg(windows)]
         cancel: Option<ResourceRef>,
     },
