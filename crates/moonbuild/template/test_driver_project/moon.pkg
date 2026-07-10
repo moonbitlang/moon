@@ -6,6 +6,4 @@ import {
 
 warnings = "-unused_package"
 
-options(
-  "is-main": true,
-)
+pkgtype(kind: "executable")

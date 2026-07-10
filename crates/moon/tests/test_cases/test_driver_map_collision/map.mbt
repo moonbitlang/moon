@@ -1,0 +1,1 @@
+struct Map(Int)

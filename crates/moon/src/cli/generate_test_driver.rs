@@ -277,7 +277,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_WITH_BENCH_ARGS
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_with_bench_args_tests",
+                        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Map::default()) // REPLACE ME: moonbit_test_driver_internal_with_bench_args_tests",
                         &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
                     )
                     .as_str(),
@@ -288,7 +288,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_NO_ARGS
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_no_args_tests",
+                        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Map::default()) // REPLACE ME: moonbit_test_driver_internal_no_args_tests",
                         &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
                     )
                     .as_str(),
@@ -298,7 +298,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_WITH_ARGS
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_with_args_tests",
+                        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Map::default()) // REPLACE ME: moonbit_test_driver_internal_with_args_tests",
                         &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
                     )
                     .as_str(),
@@ -318,7 +318,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_NO_ARGS_ASYNC
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests",
+                        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Map::default()) // REPLACE ME: moonbit_test_driver_internal_async_tests",
                         &MooncGenTestInfo::section_to_mbt(&data.async_tests),
                     )
                     .as_str(),
@@ -328,7 +328,7 @@ fn generate_driver(
             template.push_str(
                 TEMPLATE_WITH_ARGS_ASYNC
                     .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args",
+                        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Map::default()) // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args",
                         &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
                     )
                     .as_str(),
@@ -418,4 +418,21 @@ fn test_base16() {
         expect!["28297b7d5b5d2e2b2d2a2f3d27225c7c7e5f3a"],
     );
     check("filename.mbt", expect!["66696c656e616d652e6d6274"]);
+}
+
+#[test]
+fn empty_test_sections_are_not_rendered() {
+    use indexmap::IndexMap;
+
+    let empty = IndexMap::new();
+    let data = MooncGenTestInfo {
+        no_args_tests: empty.clone(),
+        with_args_tests: empty.clone(),
+        with_bench_args_tests: empty.clone(),
+        async_tests: empty.clone(),
+        async_tests_with_args: empty,
+    };
+
+    let generated = generate_driver(&data, "username/test", false, false, None, None);
+    assert!(!generated.contains("REPLACE ME:"));
 }
