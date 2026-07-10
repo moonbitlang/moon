@@ -296,11 +296,15 @@ fn configure_why3_environment() -> anyhow::Result<ScopedWhy3Env> {
             "failed to locate `why3` required by `moon prove`; install Why3 1.7.2 preferably via opam, and ensure `why3` is available on PATH"
         )
     })?;
-    let why3_data = query_why3_path(&why3, "--print-datadir", "data")?;
-    let why3_lib = query_why3_path(&why3, "--print-libdir", "library")?;
-
     let prev_data = std::env::var_os("WHY3DATA");
     let prev_lib = std::env::var_os("WHY3LIB");
+    let why3_data_env = resolve_why3_env_path("WHY3DATA", prev_data.as_ref(), "data")?;
+    let why3_lib_env = resolve_why3_env_path("WHY3LIB", prev_lib.as_ref(), "library")?;
+    let why3_data =
+        why3_data_env.map_or_else(|| query_why3_path(&why3, "--print-datadir", "data"), Ok)?;
+    let why3_lib =
+        why3_lib_env.map_or_else(|| query_why3_path(&why3, "--print-libdir", "library"), Ok)?;
+
     unsafe {
         std::env::set_var("WHY3DATA", &why3_data);
         std::env::set_var("WHY3LIB", &why3_lib);
@@ -312,10 +316,31 @@ fn configure_why3_environment() -> anyhow::Result<ScopedWhy3Env> {
     })
 }
 
+fn resolve_why3_env_path(
+    var: &str,
+    env_value: Option<&OsString>,
+    kind: &str,
+) -> anyhow::Result<Option<PathBuf>> {
+    // Historically `moon prove` assumed Why3 was built and installed locally on
+    // each user's machine, so `why3 --print-*dir` was a reliable source of
+    // installation paths and user-provided WHY3DATA/WHY3LIB looked like stale
+    // environment pollution. With binary distribution, those compiled-in paths
+    // may point at the packager's layout instead: Why3's normal runtime lookup
+    // respects WHY3DATA/WHY3LIB, but `why3 --print-*dir` reports compile-time
+    // fixed values. In that model WHY3DATA and WHY3LIB are the intended runtime
+    // relocation mechanism, so explicit non-empty environment values must win
+    // and `why3 --print-*dir` is only a fallback for local/source installs.
+    if let Some(value) = env_value.filter(|value| !value.is_empty()) {
+        let path = PathBuf::from(value);
+        validate_why3_path(&path, kind, &format!("`{var}`"))?;
+        return Ok(Some(path));
+    }
+
+    Ok(None)
+}
+
 fn query_why3_path(why3: &Path, flag: &str, kind: &str) -> anyhow::Result<PathBuf> {
     let output = std::process::Command::new(why3)
-        .env_remove("WHY3DATA")
-        .env_remove("WHY3LIB")
         .arg(flag)
         .output()
         .with_context(|| format!("failed to run `why3 {flag}`"))?;
@@ -329,14 +354,20 @@ fn query_why3_path(why3: &Path, flag: &str, kind: &str) -> anyhow::Result<PathBu
     if path.as_os_str().is_empty() {
         bail!("`why3 {flag}` returned an empty {kind} path");
     }
+    validate_why3_path(&path, kind, &format!("`why3 {flag}`"))?;
+
+    Ok(path)
+}
+
+fn validate_why3_path(path: &Path, kind: &str, source: &str) -> anyhow::Result<()> {
     if !path.is_dir() {
         bail!(
-            "`why3 {flag}` returned a non-directory {kind} path `{}`",
+            "{source} resolved to a non-directory {kind} path `{}`",
             path.display()
         );
     }
 
-    Ok(path)
+    Ok(())
 }
 
 unsafe fn restore_env_var(key: &str, value: Option<&OsString>) {
@@ -845,6 +876,26 @@ mod tests {
     #[test]
     fn test_parse_solver_version_no_version() {
         assert_eq!(parse_solver_version("no version here"), None);
+    }
+
+    #[test]
+    fn test_resolve_why3_path_prefers_env_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let env_value = dir.path().as_os_str().to_os_string();
+        let path = resolve_why3_env_path("WHY3DATA", Some(&env_value), "data")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(path, dir.path());
+    }
+
+    #[test]
+    fn test_resolve_why3_path_rejects_invalid_env_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let env_value = dir.path().join("missing").into_os_string();
+        let err = resolve_why3_env_path("WHY3DATA", Some(&env_value), "data").unwrap_err();
+
+        assert!(format!("{err:#}").contains("`WHY3DATA` resolved to a non-directory data path"));
     }
 
     fn make_solver(name: &'static str, path: &str, version: &str) -> DetectedSolver {
