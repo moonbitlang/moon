@@ -621,9 +621,10 @@ fn test_moon_run_with_cli_args() {
 fn test_moon_run_single_file_dry_run() {
     let dir = TestDir::new("run_single_mbt_file.in");
 
-    let output = get_stdout(
+    let output = get_stdout_with_envs(
         &dir,
         ["run", "a/b/single.mbt", "--target", "native", "--dry-run"],
+        [("MOONBIT_NEW_NATIVE", "0")],
     )
     // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
     .replace(" -Wno-unused-value", "");
