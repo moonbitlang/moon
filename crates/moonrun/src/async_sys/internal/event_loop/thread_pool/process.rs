@@ -280,11 +280,43 @@ fn check_spawn_errno(ret: libc::c_int) -> Result<(), i32> {
 }
 
 #[cfg(target_os = "linux")]
+type PosixSpawnAddChdir =
+    unsafe extern "C" fn(*mut libc::posix_spawn_file_actions_t, *const libc::c_char) -> libc::c_int;
+
+#[cfg(target_os = "linux")]
 fn add_chdir_file_action(
     file_actions: *mut libc::posix_spawn_file_actions_t,
     cwd: &CStr,
 ) -> libc::c_int {
-    unsafe { libc::posix_spawn_file_actions_addchdir_np(file_actions, cwd.as_ptr()) }
+    static ADD_CHDIR: std::sync::OnceLock<Option<PosixSpawnAddChdir>> = std::sync::OnceLock::new();
+    let add_chdir = *ADD_CHDIR.get_or_init(|| {
+        // TODO: Link this function directly after Ubuntu 16.04 and 18.04
+        // support is dropped.
+        let symbol = unsafe {
+            libc::dlsym(
+                libc::RTLD_DEFAULT,
+                c"posix_spawn_file_actions_addchdir_np".as_ptr(),
+            )
+        };
+        if symbol.is_null() {
+            None
+        } else {
+            Some(unsafe { std::mem::transmute::<*mut libc::c_void, PosixSpawnAddChdir>(symbol) })
+        }
+    });
+    invoke_add_chdir_file_action(add_chdir, file_actions, cwd)
+}
+
+#[cfg(target_os = "linux")]
+fn invoke_add_chdir_file_action(
+    add_chdir: Option<PosixSpawnAddChdir>,
+    file_actions: *mut libc::posix_spawn_file_actions_t,
+    cwd: &CStr,
+) -> libc::c_int {
+    match add_chdir {
+        Some(add_chdir) => unsafe { add_chdir(file_actions, cwd.as_ptr()) },
+        None => libc::ENOSYS,
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -792,6 +824,15 @@ fn last_native_errno() -> i32 {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn missing_addchdir_api_reports_enosys() {
+        assert_eq!(
+            invoke_add_chdir_file_action(None, std::ptr::null_mut(), c"."),
+            libc::ENOSYS
+        );
+    }
 
     #[cfg(unix)]
     #[test]
