@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-07-09.
+// Snapshot generated from `moonc check -warn-help` on 2026-07-10.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -420,6 +420,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "regex_match_missing_after",
         description: "Missing `after` binding in `regex match`.",
         id: 81,
+    },
+    WarningEntry {
+        mnemonic: "ambiguous_braces",
+        description: "Ambiguous `{}` braces.",
+        id: 82,
     },
 ];
 
