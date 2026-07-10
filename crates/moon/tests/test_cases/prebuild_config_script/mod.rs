@@ -1,8 +1,8 @@
 use std::cell::OnceCell;
 
-use crate::{TestDir, assert_success, get_err_stderr, get_stdout_with_envs};
 #[cfg(unix)]
-use crate::{get_stdout, util};
+use crate::util;
+use crate::{TestDir, assert_success, get_err_stderr, get_stdout_with_envs};
 
 // Notice the two `this-is-added-by-config-script`
 #[test]
@@ -63,9 +63,10 @@ fn test_prebuild_config_common(dir: TestDir) {
 #[cfg(unix)]
 fn test_prebuild_config_tcc_rspfile_snapshot() {
     let dir = TestDir::new("prebuild_config_script/tcc_rspfile");
-    let stdout = get_stdout(
+    let stdout = get_stdout_with_envs(
         &dir,
         ["run", "src/main", "--target", "native", "--build-only"],
+        [("MOONBIT_NEW_NATIVE", "0")],
     );
     println!("{}", &stdout);
 

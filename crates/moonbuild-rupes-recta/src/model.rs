@@ -76,10 +76,25 @@ pub enum DirectNativeMode {
 
 impl NativeTarget {
     pub fn from_env_for_host() -> Option<Self> {
-        if std::env::var(ENV_MOONBIT_NEW_NATIVE).as_deref() != Ok("1") {
-            return None;
-        }
-        Self::from_host(std::env::consts::ARCH, std::env::consts::OS)
+        let env_value = std::env::var(ENV_MOONBIT_NEW_NATIVE).ok();
+        Self::from_host_with_new_native_env(
+            std::env::consts::ARCH,
+            std::env::consts::OS,
+            env_value.as_deref(),
+        )
+    }
+
+    fn from_host_with_new_native_env(
+        arch: &str,
+        os: &str,
+        env_value: Option<&str>,
+    ) -> Option<Self> {
+        let target = Self::from_host(arch, os)?;
+        let enabled = match target {
+            Self::Aarch64AppleDarwin => env_value != Some("0"),
+            Self::X86_64UnknownLinuxGnu | Self::X86_64PcWindowsMsvc => env_value == Some("1"),
+        };
+        enabled.then_some(target)
     }
 
     pub fn from_host(arch: &str, os: &str) -> Option<Self> {
@@ -638,6 +653,51 @@ mod tests {
             Some(NativeTarget::X86_64PcWindowsMsvc)
         );
         assert_eq!(NativeTarget::from_host("aarch64", "linux"), None);
+    }
+
+    #[test]
+    fn new_native_defaults_on_only_for_apple_silicon_macos() {
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("aarch64", "macos", None),
+            Some(NativeTarget::Aarch64AppleDarwin)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("aarch64", "macos", Some("1")),
+            Some(NativeTarget::Aarch64AppleDarwin)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("aarch64", "macos", Some("0")),
+            None
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("aarch64", "macos", Some("other")),
+            Some(NativeTarget::Aarch64AppleDarwin)
+        );
+
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "linux", None),
+            None
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "linux", Some("1")),
+            Some(NativeTarget::X86_64UnknownLinuxGnu)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "linux", Some("0")),
+            None
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "windows", None),
+            None
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "windows", Some("1")),
+            Some(NativeTarget::X86_64PcWindowsMsvc)
+        );
+        assert_eq!(
+            NativeTarget::from_host_with_new_native_env("x86_64", "macos", Some("1")),
+            None
+        );
     }
 
     #[test]

@@ -1,5 +1,6 @@
-use crate::{TestDir, build_graph::compare_graphs_with_replacements, snap_dry_run_graph};
+use crate::{TestDir, build_graph::compare_graphs_with_replacements, get_stdout_with_envs};
 use expect_test::expect_file;
+use moonbuild_debug::graph::ENV_VAR;
 
 #[track_caller]
 fn assert_dry_run_graph(
@@ -9,7 +10,14 @@ fn assert_dry_run_graph(
     expected: expect_test::ExpectFile,
 ) {
     let graph = dir.join(tmp_name);
-    snap_dry_run_graph(dir, args.iter().copied(), &graph);
+    get_stdout_with_envs(
+        dir,
+        args.iter().copied(),
+        [
+            (ENV_VAR.to_owned(), graph.to_string_lossy().into_owned()),
+            ("MOONBIT_NEW_NATIVE".to_owned(), "0".to_owned()),
+        ],
+    );
     compare_graphs_with_replacements(&graph, expected, |s| {
         // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
         *s = s.replace(" -Wno-unused-value", "");
@@ -35,7 +43,7 @@ fn test_use_cc_for_native_release() {
             ],
             expect_file!["cc_for_native_release/build_release_graph.jsonl.snap"],
         );
-        // if --release is not specified, it should not use cc
+        // Keep a debug-profile baseline for the generated-C backend.
         assert_dry_run_graph(
             &dir,
             "build_graph.jsonl",
@@ -73,7 +81,7 @@ fn test_use_cc_for_native_release() {
             ],
             expect_file!["cc_for_native_release/run_release_graph.jsonl.snap"],
         );
-        // if --release is not specified, it should not use cc
+        // Keep a debug-profile baseline for the generated-C backend.
         assert_dry_run_graph(
             &dir,
             "run_graph.jsonl",

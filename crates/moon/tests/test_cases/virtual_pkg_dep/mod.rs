@@ -4,11 +4,15 @@ use super::*;
 fn test_indirect_depend_virtual() {
     let dir = TestDir::new("virtual_pkg_dep/indirect_depend_virtual");
     // need to omit the command generated for cc, because it's platform dependent
-    let dry_run = get_stdout(&dir, ["run", "src/main", "--target", "native", "--dry-run"])
-        .lines()
-        .filter(|x| !(x.contains("cc") || x.contains("cl.exe")))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let dry_run = get_stdout_with_envs(
+        &dir,
+        ["run", "src/main", "--target", "native", "--dry-run"],
+        [("MOONBIT_NEW_NATIVE", "0")],
+    )
+    .lines()
+    .filter(|x| !(x.contains("cc") || x.contains("cl.exe")))
+    .collect::<Vec<_>>()
+    .join("\n");
 
     #[cfg(windows)]
     snapbox::assert_data_eq!(

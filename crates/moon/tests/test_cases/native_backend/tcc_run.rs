@@ -2,22 +2,25 @@ use crate::{TestDir, moon_process_cmd};
 use expect_test::expect_file;
 use walkdir::WalkDir;
 
-use super::unix_graph::assert_native_backend_graph_no_env;
+use super::unix_graph::assert_native_backend_graph;
 
 #[test]
 fn test_native_backend_tcc_run() {
     let dir = TestDir::new("native_backend/tcc_run");
-    assert_native_backend_graph_no_env(
+    let envs = &[("MOONBIT_NEW_NATIVE", "0")];
+    assert_native_backend_graph(
         &dir,
         "build_native_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
+        envs,
         expect_file!["tcc_run/build_native_graph.jsonl.snap"],
     );
 
-    assert_native_backend_graph_no_env(
+    assert_native_backend_graph(
         &dir,
         "test_native_graph.jsonl",
         &["test", "--target", "native", "--dry-run", "--sort-input"],
+        envs,
         if cfg!(target_os = "macos") {
             expect_file!["tcc_run/test_native_macos_graph.jsonl.snap"]
         } else {
@@ -34,7 +37,7 @@ fn test_native_tcc_run_when_moon_spawned_from_other_dir() {
 
     let output = moon_process_cmd(&spawn_dir)
         .env_remove("MOON_CC")
-        .env_remove("MOONBIT_NEW_NATIVE")
+        .env("MOONBIT_NEW_NATIVE", "0")
         .args([
             "--manifest-path",
             "../moon.work",

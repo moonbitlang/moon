@@ -107,14 +107,20 @@ fn test_native_backend_cc_flags_with_env_override() {
         &dir,
         "build_native_env_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
-        &[("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc")],
+        &[
+            ("MOONBIT_NEW_NATIVE", "0"),
+            ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+        ],
         expect_file!["cc_flags/build_native_env_graph.jsonl.snap"],
     );
     assert_native_backend_graph(
         &dir,
         "test_native_env_graph.jsonl",
         &["test", "--target", "native", "--dry-run", "--sort-input"],
-        &[("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc")],
+        &[
+            ("MOONBIT_NEW_NATIVE", "0"),
+            ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+        ],
         expect_file!["cc_flags/test_native_env_graph.jsonl.snap"],
     );
     assert_native_backend_graph(
@@ -128,7 +134,10 @@ fn test_native_backend_cc_flags_with_env_override() {
             "--dry-run",
             "--sort-input",
         ],
-        &[("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc")],
+        &[
+            ("MOONBIT_NEW_NATIVE", "0"),
+            ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+        ],
         expect_file!["cc_flags/run_native_env_graph.jsonl.snap"],
     );
     assert_native_backend_graph(
@@ -136,6 +145,7 @@ fn test_native_backend_cc_flags_with_env_override() {
         "build_native_env_paths_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
         &[
+            ("MOONBIT_NEW_NATIVE", "0"),
             (
                 "MOON_CC",
                 "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc",
@@ -152,6 +162,7 @@ fn test_native_backend_cc_flags_with_env_override() {
         "test_native_env_paths_graph.jsonl",
         &["test", "--target", "native", "--dry-run", "--sort-input"],
         &[
+            ("MOONBIT_NEW_NATIVE", "0"),
             (
                 "MOON_CC",
                 "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc",
@@ -175,6 +186,7 @@ fn test_native_backend_cc_flags_with_env_override() {
             "--sort-input",
         ],
         &[
+            ("MOONBIT_NEW_NATIVE", "0"),
             (
                 "MOON_CC",
                 "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc",
