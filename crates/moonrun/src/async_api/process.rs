@@ -254,12 +254,22 @@ pub(super) fn get_process_result(
     out: i32,
 ) -> i32 {
     let result = (|| {
+        // Windows wait completion revokes the PID; the opaque process handle
+        // remains the capability for this final status query.
+        #[cfg(unix)]
         context.host.check_owned_child_pid(pid)?;
         let handle = if handle == INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
             None
         } else {
             Some(context.host.resource(handle)?.raw_fd())
         };
+        #[cfg(windows)]
+        if context.host.policy().has_process_policy() {
+            let handle = handle.ok_or(AsyncHostError::Badf)?;
+            if process::process_id_from_handle(handle)? != pid {
+                return Err(AsyncHostError::PermissionDenied);
+            }
+        }
         let code = process::get_process_result(handle, pid)?;
         context.host.forget_owned_child_pid(pid);
         context.with_memory_mut(|memory| memory.write_exact(out, &code.to_le_bytes()))

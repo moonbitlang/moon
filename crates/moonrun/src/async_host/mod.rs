@@ -3285,7 +3285,6 @@ impl AsyncHost {
                     owned_child_pids.lock().unwrap().insert(pid);
                 }
             }
-            #[cfg(unix)]
             JobPayload::WaitForProcess { pid, .. } => {
                 owned_child_pids.lock().unwrap().remove(pid);
             }
@@ -4099,6 +4098,8 @@ fn raw_fd_key(fd: RawFd) -> isize {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use super::*;
 
     #[repr(align(2))]
@@ -4204,6 +4205,14 @@ mod tests {
         } else {
             Some(host.resource(process_handle).unwrap())
         };
+        #[cfg(windows)]
+        assert_eq!(
+            crate::async_sys::process::process_id_from_handle(
+                process_resource.as_ref().unwrap().raw_fd()
+            )
+            .unwrap(),
+            pid
+        );
         let wait_job = host
             .insert_job(thread_pool::make_wait_for_process_job(process_resource, pid).unwrap())
             .unwrap();
@@ -4211,20 +4220,10 @@ mod tests {
         host.run_job(wait_job).unwrap();
 
         assert_eq!(host.job_get_err(wait_job).unwrap(), 0);
-        #[cfg(unix)]
         assert_eq!(
             host.check_owned_child_pid(pid),
             Err(AsyncHostError::PermissionDenied)
         );
-        #[cfg(windows)]
-        {
-            host.check_owned_child_pid(pid).unwrap();
-            host.forget_owned_child_pid(pid);
-            assert_eq!(
-                host.check_owned_child_pid(pid),
-                Err(AsyncHostError::PermissionDenied)
-            );
-        }
         host.free_job(wait_job).unwrap();
         host.free_job(spawn_job).unwrap();
     }

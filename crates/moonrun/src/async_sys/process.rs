@@ -193,6 +193,18 @@ ported_fns! {
     }
 }
 
+#[cfg(windows)]
+pub(crate) fn process_id_from_handle(
+    handle: crate::async_sys::internal::fd_util::stub::RawFd,
+) -> AsyncHostResult<i32> {
+    let pid = unsafe { windows_sys::Win32::System::Threading::GetProcessId(handle) };
+    if pid == 0 {
+        Err(last_native_error())
+    } else {
+        Ok(pid as i32)
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub(crate) fn pidfd_open_is_unsupported(error: AsyncHostError) -> bool {
     matches!(error, AsyncHostError::Native(errno) if errno == libc::ENOSYS || errno == libc::EPERM)
