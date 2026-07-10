@@ -1113,10 +1113,12 @@ fn convert_pkgtype_derives_is_main_and_force_link() {
     for (kind, want_is_main, want_force_link) in cases {
         let src = format!(r#"pkgtype(kind: "{kind}")"#);
         let json = crate::moon_pkg::parse(&src).unwrap();
-        let (pkg, _) =
-            convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
+        let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
         assert_eq!(pkg.is_main, want_is_main, "is_main for kind {kind}");
-        assert_eq!(pkg.force_link, want_force_link, "force_link for kind {kind}");
+        assert_eq!(
+            pkg.force_link, want_force_link,
+            "force_link for kind {kind}"
+        );
     }
 }
 

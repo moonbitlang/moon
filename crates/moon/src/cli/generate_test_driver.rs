@@ -251,6 +251,33 @@ const TEMPLATE_WITH_BENCH_ARGS: &str = include_str!(concat!(
     "/../moonbuild/template/test_driver_project/template_with_bench_args.mbt"
 ));
 
+fn replace_template_initializer(template: &str, name: &str, replacement: &str) -> String {
+    let marker = format!("// REPLACE ME: {name}");
+    let mut markers = template.match_indices(&marker);
+    let marker_start = markers
+        .next()
+        .unwrap_or_else(|| panic!("missing test driver template marker `{marker}`"))
+        .0;
+    assert!(
+        markers.next().is_none(),
+        "test driver template marker `{marker}` appears more than once"
+    );
+
+    let line_start = template[..marker_start]
+        .rfind('\n')
+        .map_or(0, |position| position + 1);
+    let initializer_start = template[line_start..marker_start]
+        .rfind(" = ")
+        .map(|position| line_start + position + " = ".len())
+        .unwrap_or_else(|| panic!("test driver template marker `{marker}` has no initializer"));
+
+    let mut result = String::with_capacity(template.len() + replacement.len());
+    result.push_str(&template[..initializer_start]);
+    result.push_str(replacement);
+    result.push_str(&template[marker_start + marker.len()..]);
+    result
+}
+
 fn generate_driver(
     data: &MooncGenTestInfo,
     pkgname: &str,
@@ -274,65 +301,47 @@ fn generate_driver(
 
     if enable_bench {
         if has_bench_args {
-            template.push_str(
-                TEMPLATE_WITH_BENCH_ARGS
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_with_bench_args_tests",
-                        &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_WITH_BENCH_ARGS,
+                "moonbit_test_driver_internal_with_bench_args_tests",
+                &MooncGenTestInfo::section_to_mbt(&data.with_bench_args_tests),
+            ));
         }
     } else {
         if has_no_args {
-            template.push_str(
-                TEMPLATE_NO_ARGS
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_no_args_tests",
-                        &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_NO_ARGS,
+                "moonbit_test_driver_internal_no_args_tests",
+                &MooncGenTestInfo::section_to_mbt(&data.no_args_tests),
+            ));
         }
         if has_with_args {
-            template.push_str(
-                TEMPLATE_WITH_ARGS
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_with_args_tests",
-                        &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_WITH_ARGS,
+                "moonbit_test_driver_internal_with_args_tests",
+                &MooncGenTestInfo::section_to_mbt(&data.with_args_tests),
+            ));
         }
         if has_any_async {
-            template.push_str(
-                TEMPLATE_ASYNC_RUNTIME
-                    .replace(
-                        "0 // REPLACE ME: moonbit_test_driver_internal_max_concurrent_tests",
-                        &format!("{}", max_concurrent_tests.unwrap_or(10)),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_ASYNC_RUNTIME,
+                "moonbit_test_driver_internal_max_concurrent_tests",
+                &max_concurrent_tests.unwrap_or(10).to_string(),
+            ));
         }
         if has_no_args_async {
-            template.push_str(
-                TEMPLATE_NO_ARGS_ASYNC
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests",
-                        &MooncGenTestInfo::section_to_mbt(&data.async_tests),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_NO_ARGS_ASYNC,
+                "moonbit_test_driver_internal_async_tests",
+                &MooncGenTestInfo::section_to_mbt(&data.async_tests),
+            ));
         }
         if has_with_args_async {
-            template.push_str(
-                TEMPLATE_WITH_ARGS_ASYNC
-                    .replace(
-                        "{} // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args",
-                        &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
-                    )
-                    .as_str(),
-            );
+            template.push_str(&replace_template_initializer(
+                TEMPLATE_WITH_ARGS_ASYNC,
+                "moonbit_test_driver_internal_async_tests_with_args",
+                &MooncGenTestInfo::section_to_mbt(&data.async_tests_with_args),
+            ));
         }
     }
 
@@ -418,4 +427,31 @@ fn test_base16() {
         expect!["28297b7d5b5d2e2b2d2a2f3d27225c7c7e5f3a"],
     );
     check("filename.mbt", expect!["66696c656e616d652e6d6274"]);
+}
+
+#[test]
+fn empty_test_sections_are_not_rendered() {
+    use indexmap::IndexMap;
+
+    let empty = IndexMap::new();
+    let data = MooncGenTestInfo {
+        no_args_tests: empty.clone(),
+        with_args_tests: empty.clone(),
+        with_bench_args_tests: empty.clone(),
+        async_tests: empty.clone(),
+        async_tests_with_args: empty,
+    };
+
+    let generated = generate_driver(&data, "username/test", false, false, None, None);
+    assert!(!generated.contains("REPLACE ME:"));
+}
+
+#[test]
+fn test_driver_template_replacement_depends_only_on_marker() {
+    let template = "let value : Int = any_valid_placeholder() // REPLACE ME: generated_value\n";
+
+    assert_eq!(
+        replace_template_initializer(template, "generated_value", "42"),
+        "let value : Int = 42\n"
+    );
 }
