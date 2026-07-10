@@ -111,6 +111,49 @@ pub enum BoolOrLink {
     Link(Box<Link>),
 }
 
+/// The kind of a package, declared via `pkgtype(kind: "...")` in `moon.pkg`.
+///
+/// This supersedes the deprecated `is-main` and `link: true` flags:
+/// - `library` (the default): a normal library, emits a `.core` consumed by
+///   other MoonBit packages.
+/// - `executable`: has a `main` and links to a runnable artifact
+///   (equivalent to the deprecated `is-main: true`).
+/// - `foreign_library`: a non-main library force-linked into a standalone,
+///   foreign-consumable artifact (equivalent to the deprecated `link: true`).
+///   Not yet supported on the native/LLVM backends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PackageKind {
+    Library,
+    Executable,
+    ForeignLibrary,
+}
+
+impl PackageKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PackageKind::Library => "library",
+            PackageKind::Executable => "executable",
+            PackageKind::ForeignLibrary => "foreign_library",
+        }
+    }
+
+    /// The `(is_main, force_link)` this kind lowers to.
+    fn to_flags(self) -> (bool, bool) {
+        match self {
+            PackageKind::Library => (false, false),
+            PackageKind::Executable => (true, false),
+            PackageKind::ForeignLibrary => (false, true),
+        }
+    }
+}
+
+/// The `pkgtype(kind: "...")` declaration in `moon.pkg`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PkgType {
+    pub kind: PackageKind,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SubPackageInMoonPkgJSON {
     pub files: Vec<String>,
@@ -140,13 +183,21 @@ pub struct MoonPkgJSON {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 
-    /// Specify whether this package is a main package or not
+    /// Specify whether this package is a main package or not.
+    ///
+    /// **Deprecated:** use `pkgtype(kind: "executable")` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(alias = "is-main")]
     #[serde(alias = "is_main")]
     #[serde(rename(serialize = "is-main"))]
     #[schemars(rename = "is-main")]
     pub is_main: Option<bool>,
+
+    /// The kind of this package: `library` (default), `executable`, or
+    /// `foreign_library`. Declared via `pkgtype(kind: "...")` in `moon.pkg`;
+    /// supersedes the deprecated `is-main` and `link: true` flags.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pkgtype: Option<PkgType>,
 
     /// Specify whether this package is a sub package or not
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -179,6 +230,11 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "test-import-all")]
     pub test_import_all: Option<bool>,
 
+    /// Link configuration for the package.
+    ///
+    /// The boolean form `link: true` (force-link a non-main library) is
+    /// **deprecated**: use `pkgtype(kind: "foreign_library")` instead. The
+    /// structured form `link: { ... }` remains supported as link configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub link: Option<BoolOrLink>,
 
@@ -392,6 +448,7 @@ impl LinkDepItem {
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct WasmLinkConfig {
+    /// **Deprecated:** use the `#export_name` attribute in MoonBit source instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
 
@@ -428,7 +485,9 @@ pub struct WasmLinkConfig {
 #[serde(rename_all = "kebab-case")]
 pub struct NativeLinkConfig {
     // FIXME: We have no way to force link a native library when not `is_main`
-    /// Function exports for the final native executable
+    /// Function exports for the final native executable.
+    ///
+    /// **Deprecated:** use the `#export_name` attribute in MoonBit source instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
 
@@ -467,6 +526,7 @@ pub struct NativeLinkConfig {
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub struct WasmGcLinkConfig {
+    /// **Deprecated:** use the `#export_name` attribute in MoonBit source instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
 
@@ -494,6 +554,7 @@ pub struct WasmGcLinkConfig {
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 pub struct JsLinkConfig {
+    /// **Deprecated:** use the `#export_name` attribute in MoonBit source instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exports: Option<Vec<String>>,
 
@@ -728,6 +789,7 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         ("formatter", false),
         ("rule", true),
         ("supported_targets", false),
+        ("pkgtype", false),
     ]);
     let mut map = serde_json_lenient::Map::new();
     for (key, value) in dsl.iter() {
@@ -883,11 +945,12 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         ignore: formatter_cfg.ignore.unwrap_or_default(),
     };
 
-    let mut is_main = j.is_main.unwrap_or(false);
+    // Legacy `is-main`, including the deprecated `name == "main"` alias.
+    let mut legacy_is_main = j.is_main.unwrap_or(false);
     if let Some(name) = &j.name
         && name == "main"
     {
-        is_main = true;
+        legacy_is_main = true;
         if emit_warnings {
             eprintln!(
                 "{}",
@@ -897,10 +960,63 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
             );
         }
     }
-    let force_link = match &j.link {
+    // Legacy `force_link` from the boolean `link: true` (a structured
+    // `link: { ... }` config is not a force-link signal).
+    let legacy_force_link = match &j.link {
         None => false,
         Some(BoolOrLink::Bool(b)) => *b,
         Some(BoolOrLink::Link(_)) => false,
+    };
+
+    // `pkgtype` is the source of truth when present. The legacy `is-main` /
+    // `link: true` flags are honored only as a fallback during migration; an
+    // explicitly-set legacy flag that contradicts `pkgtype` is a hard error,
+    // while a redundant-but-consistent one only warns.
+    let (is_main, force_link) = match j.pkgtype.as_ref().map(|p| p.kind) {
+        Some(kind) => {
+            let (want_main, want_force_link) = kind.to_flags();
+            if let Some(is_main_flag) = j.is_main {
+                if is_main_flag != want_main {
+                    bail!(
+                        "`pkgtype(kind: \"{}\")` conflicts with `is-main: {}` in moon.pkg.",
+                        kind.as_str(),
+                        is_main_flag
+                    );
+                } else if emit_warnings {
+                    eprintln!(
+                        "{}",
+                        format!(
+                            "Warning: `is-main` is redundant with `pkgtype(kind: \"{}\")` in `moon.pkg`. `is-main` is deprecated; please remove it.",
+                            kind.as_str()
+                        )
+                        .yellow()
+                        .bold()
+                    );
+                }
+            }
+            if let Some(BoolOrLink::Bool(link_flag)) = &j.link {
+                if *link_flag != want_force_link {
+                    bail!(
+                        "`pkgtype(kind: \"{}\")` conflicts with `link: {}` in moon.pkg.",
+                        kind.as_str(),
+                        link_flag
+                    );
+                } else if emit_warnings {
+                    eprintln!(
+                        "{}",
+                        format!(
+                            "Warning: `link: {}` is redundant with `pkgtype(kind: \"{}\")` in `moon.pkg`. The boolean `link` is deprecated; please remove it.",
+                            link_flag,
+                            kind.as_str()
+                        )
+                        .yellow()
+                        .bold()
+                    );
+                }
+            }
+            (want_main, want_force_link)
+        }
+        None => (legacy_is_main, legacy_force_link),
     };
 
     let bin_target = j
@@ -985,6 +1101,94 @@ options(
         vec![Js]
     );
     assert_eq!(decl_kind, SupportedTargetsDeclKind::Expr);
+}
+
+#[test]
+fn convert_pkgtype_derives_is_main_and_force_link() {
+    let cases = [
+        ("library", false, false),
+        ("executable", true, false),
+        ("foreign_library", false, true),
+    ];
+    for (kind, want_is_main, want_force_link) in cases {
+        let src = format!(r#"pkgtype(kind: "{kind}")"#);
+        let json = crate::moon_pkg::parse(&src).unwrap();
+        let (pkg, _) =
+            convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
+        assert_eq!(pkg.is_main, want_is_main, "is_main for kind {kind}");
+        assert_eq!(pkg.force_link, want_force_link, "force_link for kind {kind}");
+    }
+}
+
+#[test]
+fn convert_pkgtype_defaults_to_library_when_absent() {
+    let json = crate::moon_pkg::parse("").unwrap();
+    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
+    assert!(!pkg.is_main);
+    assert!(!pkg.force_link);
+}
+
+#[test]
+fn convert_pkgtype_conflicts_with_is_main() {
+    let json = crate::moon_pkg::parse(
+        r#"
+pkgtype(kind: "library")
+options("is-main": true)
+"#,
+    )
+    .unwrap();
+    let err = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap_err();
+    assert!(
+        err.to_string().contains("conflicts with `is-main"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn convert_pkgtype_conflicts_with_link_bool() {
+    let json = crate::moon_pkg::parse(
+        r#"
+pkgtype(kind: "library")
+options("link": true)
+"#,
+    )
+    .unwrap();
+    let err = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap_err();
+    assert!(
+        err.to_string().contains("conflicts with `link"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn convert_pkgtype_accepts_redundant_consistent_flags() {
+    let json = crate::moon_pkg::parse(
+        r#"
+pkgtype(kind: "executable")
+options("is-main": true)
+"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
+    assert!(pkg.is_main);
+    assert!(!pkg.force_link);
+}
+
+#[test]
+fn convert_pkgtype_foreign_library_allows_structured_link() {
+    // A structured `link: { ... }` is pure config, not a force-link signal,
+    // so it must not conflict with `pkgtype`.
+    let json = crate::moon_pkg::parse(
+        r#"
+pkgtype(kind: "foreign_library")
+options("link": { "js": { "format": "esm" } })
+"#,
+    )
+    .unwrap();
+    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
+    assert!(!pkg.is_main);
+    assert!(pkg.force_link);
+    assert!(pkg.link.is_some());
 }
 
 #[test]

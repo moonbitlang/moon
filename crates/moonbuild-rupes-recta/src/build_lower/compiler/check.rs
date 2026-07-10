@@ -81,7 +81,7 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
         self.required.add_package_config(args);
 
         // is-main
-        self.defaults.add_is_main(args);
+        self.defaults.add_pkgtype(args);
 
         // Single file mode
         if self.single_file {

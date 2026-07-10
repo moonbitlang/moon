@@ -199,6 +199,18 @@ impl<'a> LoweringContext<'a> {
             // won't be rebuilt every time
         }
 
+        // Map the effective `is_main` (already accounts for test targets, which
+        // link their own `main`) plus force-link into the package kind moonc
+        // consumes via `-pkgtype`.
+        use moonutil::package::PackageKind;
+        let pkgtype = if is_main {
+            PackageKind::Executable
+        } else if pkg.raw.force_link {
+            PackageKind::ForeignLibrary
+        } else {
+            PackageKind::Library
+        };
+
         BuildCommonConfig {
             stdlib_core_file,
             error_format,
@@ -207,7 +219,7 @@ impl<'a> LoweringContext<'a> {
             patch_file,
             no_mi,
             workspace_root,
-            is_main,
+            pkgtype,
 
             check_mi,
             virtual_implementation,

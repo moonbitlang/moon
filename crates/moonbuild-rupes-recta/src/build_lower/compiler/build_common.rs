@@ -21,6 +21,7 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
+use moonutil::package::PackageKind;
 use moonutil::target::TargetBackend;
 
 use crate::build_lower::compiler::{
@@ -176,7 +177,7 @@ pub(crate) struct BuildCommonConfig<'a> {
     // Input files
 
     // Package configuration
-    pub is_main: bool,
+    pub pkgtype: PackageKind,
 
     // Standard library
     /// Pass [None] for no_std
@@ -205,7 +206,7 @@ impl<'a> Default for BuildCommonConfig<'a> {
             error_format: ErrorFormat::Regular,
             deny_warn: false,
             warn_config: WarnAlertConfig::Default,
-            is_main: false,
+            pkgtype: PackageKind::Library,
             stdlib_core_file: None,
             workspace_root: None,
             check_mi: None,
@@ -243,11 +244,10 @@ impl<'a> BuildCommonConfig<'a> {
         }
     }
 
-    /// Add is-main flag if applicable
-    pub(crate) fn add_is_main(&self, args: &mut Vec<String>) {
-        if self.is_main {
-            args.push("-is-main".to_string());
-        }
+    /// Add the package-kind flag: `-pkg-type {library|executable|foreign_library}`.
+    pub(crate) fn add_pkgtype(&self, args: &mut Vec<String>) {
+        args.push("-pkg-type".to_string());
+        args.push(self.pkgtype.as_str().to_string());
     }
 
     /// Add standard library path arguments
