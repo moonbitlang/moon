@@ -30,13 +30,38 @@ ported_imports! {
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(unix)]
 pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> u64 {
-    context.host.insert_process_env(current_unix_env())
+    let env = if context.host.policy().has_env_policy() {
+        context
+            .host
+            .policy()
+            .env_vars()
+            .into_iter()
+            .map(|(key, value)| Some(OsString::from(format!("{key}={value}"))))
+            .collect()
+    } else {
+        current_unix_env()
+    };
+    context.host.insert_process_env(env)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(windows)]
 pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
-    current_windows_env().map(|env| context.host.insert_process_env(env))
+    let env = if context.host.policy().has_env_policy() {
+        let mut block = Vec::new();
+        for (key, value) in context.host.policy().env_vars() {
+            block.extend(format!("{key}={value}").encode_utf16());
+            block.push(0);
+        }
+        if block.is_empty() {
+            block.push(0);
+        }
+        block.push(0);
+        block
+    } else {
+        current_windows_env()?
+    };
+    Ok(context.host.insert_process_env(env))
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_env_block_length")]
@@ -179,8 +204,12 @@ pub(super) fn argv_array_add_entry_unix(
 }
 
 #[cfg(all(unix, not(target_os = "linux")))]
-pub(super) fn open_pid_handle(context: &mut ImportContext<'_, '_>, _pid: i32) -> u64 {
-    context.host.invalid_fd()
+pub(super) fn open_pid_handle(
+    context: &mut ImportContext<'_, '_>,
+    pid: i32,
+) -> AsyncHostResult<u64> {
+    context.host.check_owned_child_pid(pid)?;
+    Ok(context.host.invalid_fd())
 }
 
 #[ported(
@@ -192,6 +221,7 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_, '_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
+    context.host.check_owned_child_pid(pid)?;
     match process::open_pid_handle(pid) {
         Ok(handle) => Ok(context.host.insert_host_file_handle(handle)),
         Err(error) if process::pidfd_open_is_unsupported(error) => Ok(context.host.invalid_fd()),
@@ -208,6 +238,7 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_, '_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
+    context.host.check_owned_child_pid(pid)?;
     process::open_pid_handle(pid).map(|handle| context.host.insert_host_file_handle(handle))
 }
 
@@ -222,12 +253,14 @@ pub(super) fn get_process_result(
     out: i32,
 ) -> i32 {
     let result = (|| {
+        context.host.check_owned_child_pid(pid)?;
         let handle = if handle == INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
             None
         } else {
             Some(context.host.resource(handle)?.raw_fd())
         };
         let code = process::get_process_result(handle, pid)?;
+        context.host.forget_owned_child_pid(pid);
         context.with_memory_mut(|memory| memory.write_exact(out, &code.to_le_bytes()))
     })();
     match result {
@@ -245,10 +278,11 @@ pub(super) fn get_process_result(
 )]
 #[cfg(unix)]
 pub(super) fn terminate(
-    _context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_>,
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
+    context.host.check_owned_child_pid(pid)?;
     process::terminate_process(pid, signal)
 }
 
@@ -258,10 +292,11 @@ pub(super) fn terminate(
 )]
 #[cfg(windows)]
 pub(super) fn terminate(
-    _context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_>,
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
+    context.host.check_owned_child_pid(pid)?;
     process::terminate_process(pid, signal)
 }
 
@@ -270,7 +305,8 @@ pub(super) fn terminate(
     original = "moonbitlang_async_kill_process"
 )]
 #[cfg(unix)]
-pub(super) fn kill(_context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
+pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
+    context.host.check_owned_child_pid(pid)?;
     process::kill_process(pid)
 }
 
@@ -279,7 +315,8 @@ pub(super) fn kill(_context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostR
     original = "moonbitlang_async_kill_process"
 )]
 #[cfg(windows)]
-pub(super) fn kill(_context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
+pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
+    context.host.check_owned_child_pid(pid)?;
     process::kill_process(pid)
 }
 }

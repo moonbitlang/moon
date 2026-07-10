@@ -189,8 +189,10 @@ fn test_moonrun_help_describes_policy_shape() {
     assert!(stdout.contains("deny-by-default mode"));
     assert!(stdout.contains("from_host = [\"*\"]"));
     assert!(stdout.contains("read = [\"*\"]"));
+    assert!(stdout.contains("spawn = true"));
     assert!(stdout.contains("connect = [\"api.deepseek.com:443\"]"));
     assert!(stdout.contains("Hostname connect rules also permit DNS lookup"));
+    assert!(stdout.contains("ambient filesystem, network, and process access"));
 }
 
 #[test]
@@ -531,6 +533,7 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
     let env_get_wasm = wasm_file("env_get");
     let env_mutate_wasm = wasm_file("env_mutate");
     let listen_implicit_bind_wasm = wasm_file("listen_implicit_bind");
+    let process_env_wasm = wasm_file("process_env");
     let policy_file = std::fs::canonicalize(dir.path().join("policy.toml")).unwrap();
     let deny_all_policy_file = std::fs::canonicalize(dir.path().join("deny-all.toml")).unwrap();
 
@@ -564,6 +567,16 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
+        .env("MOONRUN_HIDDEN_ENV", "host secret")
+        .arg("--policy")
+        .arg(&policy_file)
+        .arg(&process_env_wasm)
+        .assert()
+        .success()
+        .stdout_eq("configured by policy|\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
         .env("MOONRUN_POLICY_ENV", "host value")
         .arg("--policy")
         .arg(&deny_all_policy_file)
@@ -581,6 +594,15 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
         .assert()
         .success()
         .stdout_eq("listen denied\n");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .current_dir(dir.path())
+        .arg("--policy")
+        .arg(&deny_all_policy_file)
+        .arg(&process_env_wasm)
+        .assert()
+        .success()
+        .stdout_eq("spawn denied\n");
 
     let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())

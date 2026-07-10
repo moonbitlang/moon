@@ -115,12 +115,11 @@ fn spawn_process_unix(
     #[cfg(not(target_os = "linux"))]
     let _ = result;
 
-    let mut argv_storage = Vec::with_capacity(args.len() + 1);
-    argv_storage.push(unix_cstring(path)?);
+    let path = unix_cstring(path)?;
+    let mut argv_storage = Vec::with_capacity(args.len());
     for arg in args {
         argv_storage.push(unix_cstring(arg)?);
     }
-    let path = argv_storage[0].as_c_str();
     let mut argv = argv_storage
         .iter()
         .map(|arg| arg.as_ptr().cast_mut())
