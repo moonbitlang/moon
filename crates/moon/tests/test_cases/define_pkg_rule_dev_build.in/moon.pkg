@@ -12,6 +12,4 @@ rule(
   command: "cat $input >/dev/null && echo 'fn helper() -> Int { 42 }' > $output",
 )
 
-options(
-  "is-main": true,
-)
+pkgtype(kind: "executable")

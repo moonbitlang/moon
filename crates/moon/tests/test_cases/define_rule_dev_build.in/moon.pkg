@@ -2,6 +2,4 @@ dev_build(rule: "main_source", input: "input.txt", output: "main.mbt")
 
 dev_build(rule: "helper_source", input: "input.txt", output: "helper.mbt")
 
-options(
-  "is-main": true,
-)
+pkgtype(kind: "executable")
