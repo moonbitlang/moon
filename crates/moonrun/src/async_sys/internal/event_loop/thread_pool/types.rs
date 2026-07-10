@@ -21,6 +21,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::async_host::{AsyncHostResult, HostCBuffer};
+#[cfg(unix)]
+use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
 
 #[cfg(unix)]
@@ -33,6 +35,16 @@ use std::os::windows::io::{
 pub(crate) type ResourceHandle = u64;
 pub(crate) type HostHandle = ResourceHandle;
 pub(crate) type ResourceRef = Arc<Resource>;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SpawnOptions {
+    #[cfg(unix)]
+    pub(crate) child_signal_mask: libc::sigset_t,
+    #[cfg(windows)]
+    pub(crate) no_console_window: bool,
+    #[cfg(windows)]
+    pub(crate) is_orphan: bool,
+}
 
 #[cfg(unix)]
 type OwnedRawFile = OwnedFd;
@@ -405,6 +417,36 @@ pub(crate) enum JobPayload {
     GetAddrInfo {
         host: OsString,
         result: Option<Vec<Box<[u8]>>>,
+    },
+    #[cfg(unix)]
+    SpawnUnix {
+        path: OsString,
+        args: Vec<OsString>,
+        env: Vec<OsString>,
+        options: SpawnOptions,
+        stdio: [Option<ResourceRef>; 3],
+        cwd: Option<OsString>,
+        result: Option<OpenJobResource>,
+    },
+    #[cfg(windows)]
+    SpawnWindows {
+        command_line: OsString,
+        env: Vec<u16>,
+        options: SpawnOptions,
+        stdio: [Option<ResourceRef>; 3],
+        cwd: Option<OsString>,
+        result: Option<OpenJobResource>,
+    },
+    WaitForProcess {
+        handle: Option<ResourceRef>,
+        pid: i32,
+        #[cfg(windows)]
+        cancel: Option<ResourceRef>,
+    },
+    #[cfg(unix)]
+    Sigwait {
+        signals: Vec<i32>,
+        notifier: Arc<ThreadPoolCompletionNotifier>,
     },
 }
 

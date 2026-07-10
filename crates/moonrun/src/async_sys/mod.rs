@@ -26,6 +26,8 @@
 pub(crate) mod fs;
 pub(crate) mod internal;
 pub(crate) mod os_error;
+pub(crate) mod process;
+pub(crate) mod signal;
 pub(crate) mod socket;
 
 #[cfg(test)]
@@ -119,6 +121,8 @@ pub(crate) fn ported_symbols() -> Vec<PortedSymbol> {
     symbols.extend_from_slice(fs::dir::PORTED_SYMBOLS);
     symbols.extend_from_slice(fs::stub::PORTED_SYMBOLS);
     symbols.extend_from_slice(os_error::stub::PORTED_SYMBOLS);
+    symbols.extend_from_slice(process::PORTED_SYMBOLS);
+    symbols.extend_from_slice(signal::PORTED_SYMBOLS);
     symbols.extend_from_slice(socket::PORTED_SYMBOLS);
     symbols
 }

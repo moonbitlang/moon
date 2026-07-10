@@ -25,6 +25,13 @@ use super::fs::{
     run_open_job, run_read_job, run_readdir_job, run_remove_job, run_rename_job, run_rmdir_job,
     run_symlink_job, run_write_job,
 };
+#[cfg(unix)]
+use super::process::run_spawn_job_unix;
+#[cfg(windows)]
+use super::process::run_spawn_job_windows;
+use super::process::run_wait_for_process_job;
+#[cfg(unix)]
+use super::signal::run_sigwait_job;
 use super::sleep::run_sleep_job;
 use super::socket::{run_bind_job, run_getaddrinfo_job};
 use super::types::{Job, JobPayload};
@@ -131,6 +138,53 @@ pub(crate) fn run_host_job(job: &mut Job) {
             None => Err(AsyncHostError::Badf),
         },
         JobPayload::GetAddrInfo { host, result } => run_getaddrinfo_job(host.clone(), result),
+        #[cfg(unix)]
+        JobPayload::SpawnUnix {
+            path,
+            args,
+            env,
+            options,
+            stdio,
+            cwd,
+            result,
+        } => run_spawn_job_unix(
+            path.clone(),
+            args.clone(),
+            env.clone(),
+            stdio.clone(),
+            cwd.clone(),
+            *options,
+            result,
+        ),
+        #[cfg(windows)]
+        JobPayload::SpawnWindows {
+            command_line,
+            env,
+            options,
+            stdio,
+            cwd,
+            result,
+        } => run_spawn_job_windows(
+            command_line.clone(),
+            env.clone(),
+            stdio.clone(),
+            cwd.clone(),
+            *options,
+            result,
+        ),
+        JobPayload::WaitForProcess {
+            handle,
+            pid,
+            #[cfg(windows)]
+            cancel,
+        } => run_wait_for_process_job(
+            handle.take(),
+            *pid,
+            #[cfg(windows)]
+            cancel.take(),
+        ),
+        #[cfg(unix)]
+        JobPayload::Sigwait { signals, notifier } => run_sigwait_job(signals, notifier),
     };
 
     match result {
