@@ -59,10 +59,7 @@ fn check_watch_recovers_when_nested_watch_target_is_deleted() {
 
     let _watch_process = WatchProcess { child };
 
-    wait_for_watch_success(&rx, "initial check");
-    wait_for_watch_message(&rx, "watcher startup", |line| {
-        line.contains("Watcher loop started")
-    });
+    wait_for_initial_watch_ready(&rx);
     assert!(watch_target.exists());
 
     std::fs::remove_dir_all(&watch_target).expect("delete nested watch target");
@@ -83,6 +80,16 @@ test {
     assert!(watch_target.exists());
 }
 
+fn wait_for_initial_watch_ready(rx: &mpsc::Receiver<String>) {
+    let mut initial_check_succeeded = false;
+    let mut watcher_started = false;
+    wait_for_watch_message(rx, "initial watcher readiness", |line| {
+        initial_check_succeeded |= line.contains("Success, waiting for filesystem changes...");
+        watcher_started |= line.contains("Watcher loop started");
+        initial_check_succeeded && watcher_started
+    });
+}
+
 fn wait_for_watch_success(rx: &mpsc::Receiver<String>, phase: &str) {
     wait_for_watch_message(rx, phase, |line| {
         line.contains("Success, waiting for filesystem changes...")
@@ -92,7 +99,7 @@ fn wait_for_watch_success(rx: &mpsc::Receiver<String>, phase: &str) {
 fn wait_for_watch_message(
     rx: &mpsc::Receiver<String>,
     phase: &str,
-    matches: impl Fn(&str) -> bool,
+    mut matches: impl FnMut(&str) -> bool,
 ) {
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut output = Vec::new();
@@ -127,4 +134,16 @@ fn wait_for_watch_message(
             }
         }
     }
+}
+
+#[test]
+fn initial_watch_readiness_accepts_startup_before_check_success() {
+    let (tx, rx) = mpsc::channel();
+    tx.send("stderr: Watcher loop started (debounce = 100ms)".to_owned())
+        .unwrap();
+    tx.send("Success, waiting for filesystem changes...".to_owned())
+        .unwrap();
+    drop(tx);
+
+    wait_for_initial_watch_ready(&rx);
 }
