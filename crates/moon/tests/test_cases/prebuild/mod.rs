@@ -253,7 +253,7 @@ fn test_pre_build_mooncake_bin_shape() {
         .replace("\\\"", "\"")
         .replace('\\', "/");
 
-    let source_dir = dunce::canonicalize(&dir).unwrap();
+    let source_dir = std::fs::canonicalize(&dir).unwrap();
     let expected_path = source_dir
         .join(".mooncakes")
         .join(MOON_BIN_DIR)
