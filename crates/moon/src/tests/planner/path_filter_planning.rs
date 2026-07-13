@@ -74,7 +74,7 @@ fn build_path_spellings_select_the_same_root_package() {
     for path in [
         case_dir.join("A"),
         case_dir.join("A").join(""),
-        case_dir.join("A").join("hello.mbt"),
+        case_dir.join("A/hello.mbt"),
     ] {
         expect_build_packages(&fixture, &path, &["username/hello/A"]);
     }
@@ -90,7 +90,7 @@ fn check_path_spellings_select_the_same_root_package() {
     for path in [
         case_dir.join("A"),
         case_dir.join("A").join(""),
-        case_dir.join("A").join("hello.mbt"),
+        case_dir.join("A/hello.mbt"),
     ] {
         expect_check_packages(&fixture, &path, &["username/hello/A"]);
     }
@@ -106,7 +106,7 @@ fn bench_path_spellings_select_the_same_root_package() {
     for path in [
         case_dir.join("A"),
         case_dir.join("A").join(""),
-        case_dir.join("A").join("hello.mbt"),
+        case_dir.join("A/hello.mbt"),
     ] {
         expect_bench_packages(&fixture, &path, &["username/hello/A"]);
     }
