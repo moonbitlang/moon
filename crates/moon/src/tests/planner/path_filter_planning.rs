@@ -21,6 +21,7 @@ use super::fixture::{
     parse_check_command, planned_check_package_runs, planned_root_package_runs,
 };
 use moonutil::target::TargetBackend;
+use std::path::Path;
 
 fn expected_wasm_gc_packages(packages: &[&str]) -> Vec<PlannedPackageRun> {
     vec![PlannedPackageRun {
@@ -29,7 +30,8 @@ fn expected_wasm_gc_packages(packages: &[&str]) -> Vec<PlannedPackageRun> {
     }]
 }
 
-fn expect_build_packages(fixture: &PlanningFixture, path: &str, expected: &[&str]) {
+fn expect_build_packages(fixture: &PlanningFixture, path: &Path, expected: &[&str]) {
+    let path = path.to_str().expect("fixture path should be valid UTF-8");
     let (cli, cmd) = parse_build_command(&["build", path, "--dry-run", "--sort-input"]);
     let runs = fixture
         .plan_build_all_with_cli(&cli, &cmd)
@@ -40,7 +42,8 @@ fn expect_build_packages(fixture: &PlanningFixture, path: &str, expected: &[&str
     );
 }
 
-fn expect_check_packages(fixture: &PlanningFixture, path: &str, expected: &[&str]) {
+fn expect_check_packages(fixture: &PlanningFixture, path: &Path, expected: &[&str]) {
+    let path = path.to_str().expect("fixture path should be valid UTF-8");
     let (cli, cmd) = parse_check_command(&["check", path, "--dry-run", "--sort-input"]);
     let runs = fixture
         .plan_check_all_with_cli(&cli, &cmd)
@@ -51,7 +54,8 @@ fn expect_check_packages(fixture: &PlanningFixture, path: &str, expected: &[&str
     );
 }
 
-fn expect_bench_packages(fixture: &PlanningFixture, path: &str, expected: &[&str]) {
+fn expect_bench_packages(fixture: &PlanningFixture, path: &Path, expected: &[&str]) {
+    let path = path.to_str().expect("fixture path should be valid UTF-8");
     let (cli, cmd) = parse_bench_command(&["bench", path, "--dry-run", "--sort-input"]);
     let runs = fixture
         .plan_bench_all_with_cli(&cli, &cmd)
@@ -65,59 +69,47 @@ fn expect_bench_packages(fixture: &PlanningFixture, path: &str, expected: &[&str
 #[test]
 fn build_path_spellings_select_the_same_root_package() {
     let fixture = PlanningFixture::new("test_filter/test_filter").expect("fixture should resolve");
-    let case_dir = fixture.case_dir().display();
+    let case_dir = fixture.case_dir();
 
     for path in [
-        format!("{case_dir}/A"),
-        format!("{case_dir}/A/"),
-        format!("{case_dir}/A/hello.mbt"),
+        case_dir.join("A"),
+        case_dir.join("A").join(""),
+        case_dir.join("A").join("hello.mbt"),
     ] {
         expect_build_packages(&fixture, &path, &["username/hello/A"]);
     }
 
-    expect_build_packages(
-        &fixture,
-        &format!("{case_dir}/lib"),
-        &["username/hello/lib"],
-    );
+    expect_build_packages(&fixture, &case_dir.join("lib"), &["username/hello/lib"]);
 }
 
 #[test]
 fn check_path_spellings_select_the_same_root_package() {
     let fixture = PlanningFixture::new("test_filter/test_filter").expect("fixture should resolve");
-    let case_dir = fixture.case_dir().display();
+    let case_dir = fixture.case_dir();
 
     for path in [
-        format!("{case_dir}/A"),
-        format!("{case_dir}/A/"),
-        format!("{case_dir}/A/hello.mbt"),
+        case_dir.join("A"),
+        case_dir.join("A").join(""),
+        case_dir.join("A").join("hello.mbt"),
     ] {
         expect_check_packages(&fixture, &path, &["username/hello/A"]);
     }
 
-    expect_check_packages(
-        &fixture,
-        &format!("{case_dir}/lib"),
-        &["username/hello/lib"],
-    );
+    expect_check_packages(&fixture, &case_dir.join("lib"), &["username/hello/lib"]);
 }
 
 #[test]
 fn bench_path_spellings_select_the_same_root_package() {
     let fixture = PlanningFixture::new("test_filter/test_filter").expect("fixture should resolve");
-    let case_dir = fixture.case_dir().display();
+    let case_dir = fixture.case_dir();
 
     for path in [
-        format!("{case_dir}/A"),
-        format!("{case_dir}/A/"),
-        format!("{case_dir}/A/hello.mbt"),
+        case_dir.join("A"),
+        case_dir.join("A").join(""),
+        case_dir.join("A").join("hello.mbt"),
     ] {
         expect_bench_packages(&fixture, &path, &["username/hello/A"]);
     }
 
-    expect_bench_packages(
-        &fixture,
-        &format!("{case_dir}/lib"),
-        &["username/hello/lib"],
-    );
+    expect_bench_packages(&fixture, &case_dir.join("lib"), &["username/hello/lib"]);
 }
