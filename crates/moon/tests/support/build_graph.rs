@@ -135,16 +135,38 @@ pub(crate) fn compare_graphs_with_replacements(
 
 fn normalize_current_moon_binary(s: &mut String) {
     let moon = crate::util::moon_bin();
-    let moon = moon.to_string_lossy();
-    *s = s.replace(moon.as_ref(), "$MOON_HOME/bin/moon");
-    if let Some(moon_without_exe) = moon.strip_suffix(".exe") {
-        *s = s.replace(moon_without_exe, "$MOON_HOME/bin/moon");
+    let mut spellings = moonutil::path::canonical_path_spellings_for_comparison(&moon)
+        .into_iter()
+        .flat_map(|path| {
+            let without_exe =
+                (path.extension().is_some_and(|ext| ext == "exe")).then(|| path.with_extension(""));
+            std::iter::once(path).chain(without_exe)
+        })
+        .collect::<Vec<_>>();
+    spellings.sort_by_key(|path| std::cmp::Reverse(path.as_os_str().len()));
+
+    let mut redactions = snapbox::Redactions::new();
+    for path in spellings {
+        redactions
+            .insert("[MOON_TEST_CURRENT_MOON]", path)
+            .expect("valid moon binary redaction");
     }
-    let moon_with_forward_slashes = moon.replace('\\', "/");
-    *s = s.replace(moon_with_forward_slashes.as_str(), "$MOON_HOME/bin/moon");
-    if let Some(moon_without_exe) = moon_with_forward_slashes.strip_suffix(".exe") {
-        *s = s.replace(moon_without_exe, "$MOON_HOME/bin/moon");
-    }
+    *s = redactions
+        .redact(s)
+        .replace("[MOON_TEST_CURRENT_MOON]", "$MOON_HOME/bin/moon");
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn normalizes_verbatim_current_moon_binary_without_exe_suffix() {
+    let moon = std::fs::canonicalize(crate::util::moon_bin())
+        .expect("current moon test binary should exist")
+        .with_extension("");
+    let mut input = moon.to_string_lossy().replace('\\', "/");
+
+    normalize_current_moon_binary(&mut input);
+
+    assert_eq!(input, "$MOON_HOME/bin/moon");
 }
 
 fn transform_graph(graph: &mut BuildGraphDump, transform: impl Fn(&mut String)) {
