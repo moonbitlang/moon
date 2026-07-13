@@ -48,7 +48,7 @@ use moonbuild_rupes_recta::{
         RunBackend, TargetKind, TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
-    target_layout::{ArtifactPathResolver, TargetLayout},
+    target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
     user_warning::UserWarning,
 };
 use moonutil::{
@@ -966,8 +966,36 @@ pub fn execute_build(
         cfg,
         input,
         target_dir,
+        None,
         Box::new(|work| {
             // Want only the leaf output files, not all files including stdlib
+            for file_id in start_nodes {
+                work.want_file(file_id)?;
+            }
+            Ok(())
+        }),
+    )
+}
+
+/// Execute a test build.
+///
+/// Test builds may report diagnostics for generated drivers using their
+/// source-tree paths. The test build metadata lets the diagnostic processing
+/// stage resolve those paths through the target layout.
+pub fn execute_test_build(
+    cfg: &BuildConfig,
+    input: BuildInput,
+    target_dir: &Path,
+    build_meta: &BuildMeta,
+) -> anyhow::Result<N2RunStats> {
+    let start_nodes = input.graph.get_start_nodes();
+
+    execute_build_partial(
+        cfg,
+        input,
+        target_dir,
+        Some(build_meta),
+        Box::new(|work| {
             for file_id in start_nodes {
                 work.want_file(file_id)?;
             }
@@ -990,6 +1018,7 @@ pub fn execute_build_partial(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
+    build_meta: Option<&BuildMeta>,
     want_files: Box<WantFileFn>,
 ) -> anyhow::Result<N2RunStats> {
     // Ensure target directory exists
@@ -1023,20 +1052,13 @@ pub fn execute_build_partial(
         .unwrap();
 
     let result_catcher = Arc::new(Mutex::new(ResultCatcher::default()));
-    let mut prog_console: Box<dyn n2::progress::Progress> = match cfg.output_style {
-        OutputStyle::Raw => create_progress_console(
-            Some(Box::new(no_render_callback())),
-            cfg.verbose,
-            cfg.suppress_progress,
-        ),
-        OutputStyle::Fancy | OutputStyle::Json => create_progress_console(
-            Some(Box::new(capture_diagnostics_callback(Arc::clone(
-                &result_catcher,
-            )))),
-            cfg.verbose,
-            cfg.suppress_progress,
-        ),
-    };
+    let mut prog_console: Box<dyn n2::progress::Progress> = create_progress_console(
+        Some(Box::new(capture_diagnostics_callback(Arc::clone(
+            &result_catcher,
+        )))),
+        cfg.verbose,
+        cfg.suppress_progress,
+    );
     let mut work = n2::work::Work::new(
         build_graph,
         hashes,
@@ -1061,7 +1083,7 @@ pub fn execute_build_partial(
     let build_succeeded = res.is_some();
 
     let mut result_catcher = result_catcher.lock().unwrap();
-    process_captured_diagnostics(&mut result_catcher, cfg, build_succeeded);
+    process_captured_diagnostics(&mut result_catcher, cfg, build_succeeded, build_meta);
     let stats = N2RunStats {
         n_tasks_executed: res,
         n_errors: result_catcher.n_errors,
@@ -1071,9 +1093,7 @@ pub fn execute_build_partial(
     Ok(stats)
 }
 
-/// The callback function that catches diagnostics output. The output is
-/// expected to have json format. The captured diagnostics will be processed
-/// later.
+/// Capture compiler output from n2 so it can be processed after the build.
 fn capture_diagnostics_callback(catcher: Arc<Mutex<ResultCatcher>>) -> impl Fn(&str) {
     move |output: &str| {
         let mut catcher = catcher.lock().unwrap();
@@ -1086,17 +1106,6 @@ fn capture_diagnostics_callback(catcher: Arc<Mutex<ResultCatcher>>) -> impl Fn(&
     }
 }
 
-fn no_render_callback() -> impl Fn(&str) {
-    move |output: &str| {
-        output
-            .split('\n')
-            .filter(|it| !it.is_empty())
-            .for_each(|content| {
-                println!("{}", content);
-            });
-    }
-}
-
 fn should_render_non_diagnostic_build_output(cfg: &BuildConfig, build_succeeded: bool) -> bool {
     !(cfg.suppress_progress && build_succeeded)
 }
@@ -1105,21 +1114,75 @@ fn process_captured_diagnostics(
     catcher: &mut ResultCatcher,
     cfg: &BuildConfig,
     build_succeeded: bool,
+    build_meta: Option<&BuildMeta>,
 ) {
+    let captured = catcher.content_writer.iter().map(|content| {
+        let Some(meta) = build_meta else {
+            return content.to_owned();
+        };
+        let layout = meta.artifact_paths.target_layout();
+        let packages = &meta.resolve_output.pkg_dirs;
+        let backend = meta.target_backend.into();
+
+        if cfg.output_style.needs_moonc_json() {
+            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) else {
+                return content.to_owned();
+            };
+            let mut changed = false;
+            let mut diagnostics = vec![&mut value];
+            while let Some(diagnostic) = diagnostics.pop() {
+                let Some(object) = diagnostic.as_object_mut() else {
+                    continue;
+                };
+                if let Some(serde_json::Value::String(path)) = object.get_mut("path")
+                    && let Some(physical) = layout.generated_test_driver_diagnostic_path(
+                        packages,
+                        Path::new(path),
+                        backend,
+                    )
+                {
+                    *path = physical.to_string_lossy().into_owned();
+                    changed = true;
+                }
+                if let Some(serde_json::Value::Array(children)) = object.get_mut("children") {
+                    diagnostics.extend(children.iter_mut());
+                }
+            }
+            return if changed {
+                serde_json::to_string(&value).expect("diagnostic JSON should serialize")
+            } else {
+                content.to_owned()
+            };
+        }
+
+        let Some(prefix_start) = content.find(GENERATED_TEST_DRIVER_PREFIX) else {
+            return content.to_owned();
+        };
+        let Some(extension_end) = content[prefix_start..].find(".mbt") else {
+            return content.to_owned();
+        };
+        let path_end = prefix_start + extension_end + ".mbt".len();
+        let Some(physical) = layout.generated_test_driver_diagnostic_path(
+            packages,
+            Path::new(&content[..path_end]),
+            backend,
+        ) else {
+            return content.to_owned();
+        };
+        format!("{}{}", physical.display(), &content[path_end..])
+    });
+
     match cfg.output_style {
         OutputStyle::Json => {
             let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
-            for content in &catcher.content_writer {
-                match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
+            for content in captured {
+                match serde_json::from_str::<moonutil::render::MooncDiagnostic>(&content) {
                     Ok(d) => {
                         if diagnostic_is_generated_test_driver_warning(&d) {
                             continue;
                         }
                         let file_key = d.path.clone();
-                        by_file
-                            .entry(file_key)
-                            .or_default()
-                            .insert((d, content.clone()));
+                        by_file.entry(file_key).or_default().insert((d, content));
                     }
                     Err(_) => {
                         // Non-diagnostics output, just print as-is
@@ -1194,8 +1257,8 @@ fn process_captured_diagnostics(
         }
         OutputStyle::Fancy => {
             let mut by_file = BTreeMap::<String, BTreeSet<MooncDiagnostic>>::new();
-            for content in &catcher.content_writer {
-                match serde_json::from_str::<moonutil::render::MooncDiagnostic>(content) {
+            for content in captured {
+                match serde_json::from_str::<moonutil::render::MooncDiagnostic>(&content) {
                     Ok(d) => {
                         if diagnostic_is_generated_test_driver_warning(&d) {
                             continue;
@@ -1292,7 +1355,11 @@ fn process_captured_diagnostics(
                 }
             }
         }
-        OutputStyle::Raw => {}
+        OutputStyle::Raw => {
+            for content in captured {
+                println!("{content}");
+            }
+        }
     }
 }
 
@@ -1378,7 +1445,7 @@ mod tests {
             output_style: OutputStyle::Json,
             ..Default::default()
         };
-        process_captured_diagnostics(&mut catcher, &cfg, false);
+        process_captured_diagnostics(&mut catcher, &cfg, false, None);
 
         assert_eq!(catcher.n_warnings, 0);
         assert_eq!(catcher.n_errors, 1);

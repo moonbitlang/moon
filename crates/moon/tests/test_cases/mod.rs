@@ -115,6 +115,7 @@ mod target_backend;
 mod targets;
 mod test_dot_source;
 mod test_driver_dependencies;
+mod test_driver_diagnostics;
 mod test_driver_map_collision;
 mod test_error_report;
 mod test_exclude_001;
