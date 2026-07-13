@@ -4,7 +4,9 @@
 ///|
 let moonbit_test_driver_internal_async_tests : MoonBitTestDriverInternalTestMap[
   async () -> Unit,
-] = MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default()) // REPLACE ME: moonbit_test_driver_internal_async_tests
+] = MoonBitTestDriverInternalTestMap(
+  @moonbitlang/core/prelude.Default::default(),
+) // REPLACE ME: moonbit_test_driver_internal_async_tests
 
 ///|
 impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_Async_No_Args with fn run_test(

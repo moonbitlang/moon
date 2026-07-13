@@ -263,16 +263,14 @@ fn replace_template_initializer(template: &str, name: &str, replacement: &str) -
         "test driver template marker `{marker}` appears more than once"
     );
 
-    let line_start = template[..marker_start]
-        .rfind('\n')
-        .map_or(0, |position| position + 1);
-    let initializer_start = template[line_start..marker_start]
-        .rfind(" = ")
-        .map(|position| line_start + position + " = ".len())
+    let initializer_start = template[..marker_start]
+        .rfind('=')
+        .map(|position| position + 1)
         .unwrap_or_else(|| panic!("test driver template marker `{marker}` has no initializer"));
 
     let mut result = String::with_capacity(template.len() + replacement.len());
     result.push_str(&template[..initializer_start]);
+    result.push(' ');
     result.push_str(replacement);
     result.push_str(&template[marker_start + marker.len()..]);
     result
@@ -458,6 +456,36 @@ fn test_driver_template_replacement_depends_only_on_marker() {
         replace_template_initializer(template, "generated_value", "42"),
         "let value : Int = 42\n"
     );
+}
+
+#[test]
+fn formatted_test_driver_templates_have_replaceable_initializers() {
+    for (template, name) in [
+        (
+            TEMPLATE_NO_ARGS,
+            "moonbit_test_driver_internal_no_args_tests",
+        ),
+        (
+            TEMPLATE_WITH_ARGS,
+            "moonbit_test_driver_internal_with_args_tests",
+        ),
+        (
+            TEMPLATE_NO_ARGS_ASYNC,
+            "moonbit_test_driver_internal_async_tests",
+        ),
+        (
+            TEMPLATE_WITH_ARGS_ASYNC,
+            "moonbit_test_driver_internal_async_tests_with_args",
+        ),
+        (
+            TEMPLATE_WITH_BENCH_ARGS,
+            "moonbit_test_driver_internal_with_bench_args_tests",
+        ),
+    ] {
+        let replaced = replace_template_initializer(template, name, "Default::default()");
+        assert!(replaced.contains("] = Default::default()\n"));
+        assert!(!replaced.contains("REPLACE ME:"));
+    }
 }
 
 #[test]
