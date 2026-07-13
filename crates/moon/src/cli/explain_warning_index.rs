@@ -393,12 +393,12 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
     },
     WarningEntry {
         mnemonic: "lexmatch_first_match",
-        description: "Using `lexmatch` with first-match semantics.",
+        description: "Deprecated `lexmatch` with first-match semantics.",
         id: 76,
     },
     WarningEntry {
         mnemonic: "lexmatch_longest_match",
-        description: "Using `lexmatch` with longest-match semantics.",
+        description: "Deprecated `lexmatch` with longest-match semantics.",
         id: 77,
     },
     WarningEntry {

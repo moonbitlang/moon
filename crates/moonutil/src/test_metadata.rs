@@ -107,17 +107,23 @@ impl MbtTestInfo {
 }
 
 impl MooncGenTestInfo {
-    /// Convert part of the driver metadata into MoonBit declaraction code for
-    /// the test driver to use.
+    /// Convert part of the driver metadata into MoonBit declaration code for
+    /// the test driver to use. Files without tests are omitted to avoid
+    /// generating ambiguous empty map literals.
     pub fn section_to_mbt(section: &IndexMap<FileName, Vec<MbtTestInfo>>) -> String {
         use std::fmt::Write;
+
+        if section.values().all(Vec::is_empty) {
+            return "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default())"
+                .into();
+        }
 
         let mut result = String::new();
         let default_name = "";
 
         // Writing to string cannot fail, so unwrap() is safe here.
         writeln!(result, "{{").unwrap();
-        for (file, tests) in section {
+        for (file, tests) in section.iter().filter(|(_, tests)| !tests.is_empty()) {
             writeln!(result, "  \"{file}\": {{").unwrap();
             for test in tests {
                 // tests with #skip attribute are also included in the driver, they will
@@ -136,5 +142,47 @@ impl MooncGenTestInfo {
         writeln!(result, "}}").unwrap();
 
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use expect_test::expect;
+
+    use super::*;
+
+    #[test]
+    fn section_to_mbt_omits_files_without_tests() {
+        let section = IndexMap::from([
+            ("empty.mbt".into(), vec![]),
+            (
+                "tests.mbt".into(),
+                vec![MbtTestInfo {
+                    index: 2,
+                    func: "__test_tests_2".into(),
+                    name: Some("works".into()),
+                    line_number: Some(3),
+                    attrs: vec![],
+                }],
+            ),
+        ]);
+
+        expect![[r#"
+            {
+              "tests.mbt": {
+                2: (__test_tests_2, ["works"]),
+              },
+            }
+        "#]]
+        .assert_eq(&MooncGenTestInfo::section_to_mbt(&section));
+    }
+
+    #[test]
+    fn section_to_mbt_uses_default_when_all_files_are_omitted() {
+        expect!["MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default())"]
+            .assert_eq(&MooncGenTestInfo::section_to_mbt(&IndexMap::from([(
+                "empty.mbt".into(),
+                vec![],
+            )])));
     }
 }

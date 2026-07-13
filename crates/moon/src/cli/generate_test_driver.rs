@@ -263,16 +263,14 @@ fn replace_template_initializer(template: &str, name: &str, replacement: &str) -
         "test driver template marker `{marker}` appears more than once"
     );
 
-    let line_start = template[..marker_start]
-        .rfind('\n')
-        .map_or(0, |position| position + 1);
-    let initializer_start = template[line_start..marker_start]
-        .rfind(" = ")
-        .map(|position| line_start + position + " = ".len())
+    let initializer_start = template[..marker_start]
+        .rfind('=')
+        .map(|position| position + 1)
         .unwrap_or_else(|| panic!("test driver template marker `{marker}` has no initializer"));
 
     let mut result = String::with_capacity(template.len() + replacement.len());
     result.push_str(&template[..initializer_start]);
+    result.push(' ');
     result.push_str(replacement);
     result.push_str(&template[marker_start + marker.len()..]);
     result
@@ -371,6 +369,10 @@ fn generate_driver(
         .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
         .replace("// {COVERAGE_END}", &coverage_end_template);
 
+    adapt_core_references_for_package(template, pkgname)
+}
+
+fn adapt_core_references_for_package(template: String, pkgname: &str) -> String {
     if pkgname == MOONBITLANG_CORE_BUILTIN {
         template.replace(&format!("@{MOONBITLANG_CORE_PRELUDE}."), "")
     } else if pkgname.starts_with(MOONBITLANG_CORE) {
@@ -453,5 +455,54 @@ fn test_driver_template_replacement_depends_only_on_marker() {
     assert_eq!(
         replace_template_initializer(template, "generated_value", "42"),
         "let value : Int = 42\n"
+    );
+}
+
+#[test]
+fn formatted_test_driver_templates_have_replaceable_initializers() {
+    for (template, name) in [
+        (
+            TEMPLATE_NO_ARGS,
+            "moonbit_test_driver_internal_no_args_tests",
+        ),
+        (
+            TEMPLATE_WITH_ARGS,
+            "moonbit_test_driver_internal_with_args_tests",
+        ),
+        (
+            TEMPLATE_NO_ARGS_ASYNC,
+            "moonbit_test_driver_internal_async_tests",
+        ),
+        (
+            TEMPLATE_WITH_ARGS_ASYNC,
+            "moonbit_test_driver_internal_async_tests_with_args",
+        ),
+        (
+            TEMPLATE_WITH_BENCH_ARGS,
+            "moonbit_test_driver_internal_with_bench_args_tests",
+        ),
+    ] {
+        let replaced = replace_template_initializer(template, name, "Default::default()");
+        assert!(replaced.contains("] = Default::default()\n"));
+        assert!(!replaced.contains("REPLACE ME:"));
+    }
+}
+
+#[test]
+fn test_driver_default_reference_is_adapted_for_core_packages() {
+    const INITIALIZER: &str =
+        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default())";
+
+    assert_eq!(
+        adapt_core_references_for_package(INITIALIZER.into(), "username/test"),
+        INITIALIZER
+    );
+    assert_eq!(
+        adapt_core_references_for_package(INITIALIZER.into(), MOONBITLANG_CORE_PRELUDE),
+        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/builtin.Default::default())"
+    );
+    assert_eq!(
+        adapt_core_references_for_package(INITIALIZER.into(), MOONBITLANG_CORE_BUILTIN),
+        "MoonBitTestDriverInternalTestMap(Default::default())"
     );
 }
