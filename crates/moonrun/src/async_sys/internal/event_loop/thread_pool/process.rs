@@ -34,6 +34,9 @@ use crate::async_sys::ported_fns;
 use super::Resource;
 use super::{OpenJobResource, ResourceRef, SpawnOptions};
 
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+mod glibc_compat;
+
 type RawFile = fd_util::stub::RawFd;
 
 ported_fns! {
@@ -122,6 +125,32 @@ fn spawn_process_unix(
     #[cfg(not(target_os = "linux"))]
     let _ = result;
 
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    let posix_spawn_addchdir = match cwd.as_ref() {
+        Some(_) => resolve_posix_spawn_addchdir(),
+        None => None,
+    };
+
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    if let Some(cwd) = cwd.as_ref()
+        && posix_spawn_addchdir.is_none()
+    {
+        let pid = glibc_compat::spawn_with_command(
+            path,
+            args,
+            env,
+            stdio,
+            cwd.clone(),
+            options.child_signal_mask,
+            std::env::var_os("PATH"),
+        )
+        .map_err(AsyncHostError::Native)?;
+        if let Ok(pidfd) = crate::async_sys::process::open_pid_handle(pid) {
+            *result = Some(OpenJobResource::Unpublished(Resource::new(pidfd)));
+        }
+        return Ok(i64::from(pid));
+    }
+
     let path = unix_cstring(path)?;
     let mut argv_storage = Vec::with_capacity(args.len());
     for arg in args {
@@ -180,6 +209,13 @@ fn spawn_process_unix(
             }
         }
         if let Some(cwd) = cwd.as_ref() {
+            #[cfg(all(target_os = "linux", target_env = "gnu"))]
+            check_spawn_errno(invoke_add_chdir_file_action(
+                posix_spawn_addchdir,
+                &mut file_actions,
+                cwd.as_c_str(),
+            ))?;
+            #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
             check_spawn_errno(add_chdir_file_action(&mut file_actions, cwd.as_c_str()))?;
         }
 
@@ -287,15 +323,37 @@ fn check_spawn_errno(ret: libc::c_int) -> Result<(), i32> {
 type PosixSpawnAddChdir =
     unsafe extern "C" fn(*mut libc::posix_spawn_file_actions_t, *const libc::c_char) -> libc::c_int;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn resolve_posix_spawn_addchdir() -> Option<PosixSpawnAddChdir> {
+    static ADDCHDIR: std::sync::OnceLock<Option<PosixSpawnAddChdir>> = std::sync::OnceLock::new();
+
+    *ADDCHDIR.get_or_init(|| {
+        // glibc exposed this as an extension before the chdir action was
+        // standardized without the `_np` suffix.
+        for name in [
+            c"posix_spawn_file_actions_addchdir",
+            c"posix_spawn_file_actions_addchdir_np",
+        ] {
+            let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
+            if !symbol.is_null() {
+                // POSIX specifies that a symbol returned by dlsym may be
+                // converted to the corresponding function pointer.
+                return Some(unsafe {
+                    std::mem::transmute::<*mut libc::c_void, PosixSpawnAddChdir>(symbol)
+                });
+            }
+        }
+        None
+    })
+}
+
+#[cfg(all(target_os = "linux", not(target_env = "gnu")))]
 fn add_chdir_file_action(
     file_actions: *mut libc::posix_spawn_file_actions_t,
     cwd: &CStr,
 ) -> libc::c_int {
     static ADD_CHDIR: std::sync::OnceLock<Option<PosixSpawnAddChdir>> = std::sync::OnceLock::new();
     let add_chdir = *ADD_CHDIR.get_or_init(|| {
-        // TODO: Link this function directly after Ubuntu 16.04 and 18.04
-        // support is dropped.
         let symbol = unsafe {
             libc::dlsym(
                 libc::RTLD_DEFAULT,
