@@ -4,7 +4,7 @@
 ///|
 let moonbit_test_driver_internal_async_tests_with_args : MoonBitTestDriverInternalTestMap[
   async (@moonbitlang/core/test.Test) -> Unit,
-] = MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Map::default()) // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args
+] = MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default()) // REPLACE ME: moonbit_test_driver_internal_async_tests_with_args
 
 ///|
 #warnings("-unnecessary_annotation")

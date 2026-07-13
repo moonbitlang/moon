@@ -3,7 +3,7 @@
 ///|
 let moonbit_test_driver_internal_no_args_tests : MoonBitTestDriverInternalTestMap[
   () -> Unit raise,
-] = MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Map::default()) // REPLACE ME: moonbit_test_driver_internal_no_args_tests
+] = MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default()) // REPLACE ME: moonbit_test_driver_internal_no_args_tests
 
 ///|
 impl MoonBit_Test_Driver for MoonBit_Test_Driver_Internal_No_Args with fn run_test(

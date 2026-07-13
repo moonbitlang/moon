@@ -371,6 +371,10 @@ fn generate_driver(
         .replace("{END_MOONTEST}", MOON_TEST_DELIMITER_END)
         .replace("// {COVERAGE_END}", &coverage_end_template);
 
+    adapt_core_references_for_package(template, pkgname)
+}
+
+fn adapt_core_references_for_package(template: String, pkgname: &str) -> String {
     if pkgname == MOONBITLANG_CORE_BUILTIN {
         template.replace(&format!("@{MOONBITLANG_CORE_PRELUDE}."), "")
     } else if pkgname.starts_with(MOONBITLANG_CORE) {
@@ -453,5 +457,24 @@ fn test_driver_template_replacement_depends_only_on_marker() {
     assert_eq!(
         replace_template_initializer(template, "generated_value", "42"),
         "let value : Int = 42\n"
+    );
+}
+
+#[test]
+fn test_driver_default_reference_is_adapted_for_core_packages() {
+    const INITIALIZER: &str =
+        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/prelude.Default::default())";
+
+    assert_eq!(
+        adapt_core_references_for_package(INITIALIZER.into(), "username/test"),
+        INITIALIZER
+    );
+    assert_eq!(
+        adapt_core_references_for_package(INITIALIZER.into(), MOONBITLANG_CORE_PRELUDE),
+        "MoonBitTestDriverInternalTestMap(@moonbitlang/core/builtin.Default::default())"
+    );
+    assert_eq!(
+        adapt_core_references_for_package(INITIALIZER.into(), MOONBITLANG_CORE_BUILTIN),
+        "MoonBitTestDriverInternalTestMap(Default::default())"
     );
 }
