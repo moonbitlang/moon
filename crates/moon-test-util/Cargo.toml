@@ -30,3 +30,4 @@ tempfile.workspace = true
 which.workspace = true
 home.workspace = true
 regex.workspace = true
+moonutil.workspace = true

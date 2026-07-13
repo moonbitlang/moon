@@ -954,12 +954,9 @@ fn add_archiver_moonbitrun_with_warnings(
                 "Warning".yellow().bold(),
             );
         } else {
-            buf.push(
-                Path::new(&paths.lib_path)
-                    .join("libmoonbitrun.o")
-                    .display()
-                    .to_string(),
-            );
+            buf.push(crate::path::command_path(
+                &Path::new(&paths.lib_path).join("libmoonbitrun.o"),
+            ));
         }
     }
 }
@@ -1032,7 +1029,10 @@ fn add_linker_library_paths<P: AsRef<Path>>(
     if cc.is_gcc_like()
         && let Some(dyn_lib_path) = config.link_shared_runtime.as_ref()
     {
-        buf.push(format!("-L{}", dyn_lib_path.as_ref().display()));
+        buf.push(format!(
+            "-L{}",
+            crate::path::command_path(dyn_lib_path.as_ref())
+        ));
     }
 }
 
@@ -1081,12 +1081,9 @@ fn add_linker_moonbitrun_with_warnings(
                 "Warning".yellow().bold(),
             );
         } else {
-            buf.push(
-                Path::new(lpath)
-                    .join("libmoonbitrun.o")
-                    .display()
-                    .to_string(),
-            );
+            buf.push(crate::path::command_path(
+                &Path::new(lpath).join("libmoonbitrun.o"),
+            ));
         }
     }
 }
@@ -1102,7 +1099,10 @@ fn add_linker_common_libraries<P: AsRef<Path>>(
         }
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
             buf.push("-lruntime".to_string());
-            buf.push(format!("-Wl,-rpath,{}", dyn_lib_path.as_ref().display()));
+            buf.push(format!(
+                "-Wl,-rpath,{}",
+                crate::path::command_path(dyn_lib_path.as_ref())
+            ));
         }
     }
 }
@@ -1115,13 +1115,9 @@ fn add_linker_msvc_runtime<P: AsRef<Path>>(
 ) {
     if cc.is_msvc() {
         if let Some(dyn_lib_path) = config.link_shared_runtime.as_ref() {
-            buf.push(
-                dyn_lib_path
-                    .as_ref()
-                    .join("libruntime.lib")
-                    .display()
-                    .to_string(),
-            );
+            buf.push(crate::path::command_path(
+                &dyn_lib_path.as_ref().join("libruntime.lib"),
+            ));
         }
         buf.push("/link".to_string());
         buf.push(format!("/LIBPATH:{lpath}"));
@@ -1142,7 +1138,7 @@ where
     P: AsRef<Path>,
 {
     let resolved_cc = resolve_cc(&cc, user_cc.as_ref());
-    let lib_path = &MOON_DIRS.moon_lib_path.display().to_string();
+    let lib_path = MOON_DIRS.moon_lib_path.display().to_string();
     make_linker_command_resolved(
         resolved_cc,
         config,
@@ -1150,7 +1146,7 @@ where
         src,
         dest_dir,
         dest,
-        lib_path,
+        &lib_path,
     )
 }
 
@@ -1168,26 +1164,27 @@ where
     P: AsRef<Path>,
 {
     let mut buf = vec![cc.cc_path.clone()];
+    let lpath = crate::path::command_path(Path::new(lpath));
     add_linker_output_flags(&cc, &mut buf, &config, dest);
-    add_linker_library_paths(&cc, &mut buf, &config, lpath);
+    add_linker_library_paths(&cc, &mut buf, &config, &lpath);
     add_linker_intermediate_dir_flags(&cc, &mut buf, dest_dir);
     add_linker_shared_lib_flags(&cc, &mut buf, &config);
 
     // Linker compiler-specific flags
     add_linker_msvc_specific_flags(&cc, &mut buf);
 
-    add_linker_moonbitrun_with_warnings(&cc, &mut buf, &config, lpath);
+    add_linker_moonbitrun_with_warnings(&cc, &mut buf, &config, &lpath);
 
     buf.extend(src.iter().map(|s| s.as_ref().to_string()));
 
     add_linker_common_libraries(&cc, &mut buf, &config);
-    add_linker_msvc_runtime(&cc, &mut buf, &config, lpath);
+    add_linker_msvc_runtime(&cc, &mut buf, &config, &lpath);
 
     buf.extend(user_link_flags.iter().map(|s| s.as_ref().to_string()));
     if config.link_libbacktrace {
-        let libbacktrace_path = Path::new(lpath).join("libbacktrace.a");
+        let libbacktrace_path = Path::new(&lpath).join("libbacktrace.a");
         if libbacktrace_path.exists() {
-            buf.push(libbacktrace_path.display().to_string());
+            buf.push(crate::path::command_path(&libbacktrace_path));
         }
     }
 
@@ -1459,12 +1456,9 @@ fn add_cc_moonbitrun_with_warnings(
                 "Warning".yellow().bold(),
             );
         } else {
-            buf.push(
-                Path::new(&paths.lib_path)
-                    .join("libmoonbitrun.o")
-                    .display()
-                    .to_string(),
-            );
+            buf.push(crate::path::command_path(
+                &Path::new(&paths.lib_path).join("libmoonbitrun.o"),
+            ));
         }
     }
 }
@@ -1630,8 +1624,11 @@ where
     // Link-only flags should not affect compiler defaults.
     let has_user_flags = !cc_flags.is_empty();
 
+    let include_path = crate::path::command_path(Path::new(&paths.include_path));
+    let lib_path = crate::path::command_path(Path::new(&paths.lib_path));
+
     add_cc_output_flags(&cc, &mut buf, &config, dest);
-    add_cc_include_and_lib_paths(&cc, &mut buf, &paths.include_path, &paths.lib_path);
+    add_cc_include_and_lib_paths(&cc, &mut buf, &include_path, &lib_path);
     add_cc_intermediate_dir_flags(&cc, &mut buf, &config, intermediate_dir);
     add_cc_debug_flags(&cc, &mut buf, &config);
     add_cc_shared_lib_flags(&cc, &mut buf, &config);
@@ -1657,10 +1654,10 @@ where
     if config.link_libbacktrace && config.output_ty != OutputType::Object {
         let libbacktrace_path = Path::new(&paths.lib_path).join("libbacktrace.a");
         if libbacktrace_path.exists() {
-            buf.push(libbacktrace_path.display().to_string());
+            buf.push(crate::path::command_path(&libbacktrace_path));
         }
     }
-    add_cc_msvc_linker_flags(&cc, &mut buf, &config, &paths.lib_path);
+    add_cc_msvc_linker_flags(&cc, &mut buf, &config, &lib_path);
 
     buf
 }
@@ -1866,6 +1863,29 @@ mod tests {
             .position(|arg| arg == WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
             .expect("test command should force static runtime flag");
         assert!(mt_position > md_position);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn msvc_command_simplifies_short_verbatim_toolchain_paths() {
+        let paths = CompilerPaths {
+            include_path: r"\\?\C:\moon\include".to_string(),
+            lib_path: r"\\?\C:\moon\lib".to_string(),
+        };
+
+        let command = make_cc_command_resolved_with_link_flags(
+            fake_cc(CCKind::Msvc, None),
+            executable_cc_config(),
+            &[] as &[&str],
+            &[] as &[&str],
+            ["main.c"],
+            "build/main",
+            Some("build/main/main.exe"),
+            &paths,
+        );
+
+        assert!(command.iter().any(|arg| arg == r"/IC:\moon\include"));
+        assert!(command.iter().any(|arg| arg == r"/LIBPATH:C:\moon\lib"));
     }
 
     #[test]

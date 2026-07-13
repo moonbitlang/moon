@@ -189,7 +189,7 @@ impl PathNormalizer {
         let replace_table = all_moon_bins
             .iter()
             .flat_map(|(name, path)| {
-                moonutil::path::path_spellings_for_comparison(path)
+                moonutil::path::canonical_path_spellings_for_comparison(path)
                     .into_iter()
                     .map(|path| (path.to_string_lossy().into_owned(), name.to_string()))
             })
@@ -211,19 +211,19 @@ impl PathNormalizer {
             _ => toolchain_root != moon_home,
         };
 
-        let canonical_roots = std::fs::canonicalize(source_dir)
-            .map(|path| moonutil::path::path_spellings_for_comparison(&path))
-            .unwrap_or_default();
+        let canonical_roots = moonutil::path::canonical_path_spellings_for_comparison(source_dir);
         PathNormalizer {
             canonical_roots,
             replace_table,
             binary_file_name_table,
             show_toolchain_root,
-            toolchain_roots: moonutil::path::path_spellings_for_comparison(&toolchain_root)
-                .into_iter()
-                .map(|path| path.to_string_lossy().into_owned())
-                .collect(),
-            moon_home_roots: moonutil::path::path_spellings_for_comparison(&moon_home)
+            toolchain_roots: moonutil::path::canonical_path_spellings_for_comparison(
+                &toolchain_root,
+            )
+            .into_iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect(),
+            moon_home_roots: moonutil::path::canonical_path_spellings_for_comparison(&moon_home)
                 .into_iter()
                 .map(|path| path.to_string_lossy().into_owned())
                 .collect(),

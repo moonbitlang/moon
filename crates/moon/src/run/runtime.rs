@@ -58,16 +58,18 @@ pub(crate) fn command_for_with_moonrun_policy(
 
     match (backend, tcc_run) {
         (RunBackend::Wasm | RunBackend::WasmGC, _) => {
-            let mut cmd = Command::new(&*moonutil::toolchain::BINARIES.moonrun);
+            let mut cmd = Command::new(moonutil::path::command_path(
+                &moonutil::toolchain::BINARIES.moonrun,
+            ));
             if let Some(t) = test {
                 cmd.arg("--test-args");
                 cmd.arg(serde_json::to_string(t).unwrap());
             }
             if let Some(policy) = moonrun_policy {
                 cmd.arg("--policy");
-                cmd.arg(policy);
+                cmd.arg(moonutil::path::command_path(policy));
             }
-            cmd.arg(mbt_executable);
+            cmd.arg(moonutil::path::command_path(mbt_executable));
             cmd.arg("--");
             cmd
         }
@@ -80,9 +82,11 @@ pub(crate) fn command_for_with_moonrun_policy(
                     let _ = std::fs::write(js_dir_package_json, "{}");
                 }
             }
-            let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
+            let mut cmd = Command::new(moonutil::path::command_path(
+                &moonutil::toolchain::BINARIES.node_or_default(),
+            ));
             cmd.arg("--enable-source-maps");
-            cmd.arg(mbt_executable);
+            cmd.arg(moonutil::path::command_path(mbt_executable));
             if let Some(t) = test {
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
             }
@@ -90,15 +94,15 @@ pub(crate) fn command_for_with_moonrun_policy(
         }
         (RunBackend::Native, Some(tcc_run)) => {
             let tcc = tcc_run.internal_tcc();
-            let mut cmd = Command::new(tcc.cc_path());
-            cmd.arg(format!("@{}", mbt_executable.display()));
+            let mut cmd = Command::new(moonutil::path::command_path(Path::new(tcc.cc_path())));
+            cmd.arg(format!("@{}", moonutil::path::command_path(mbt_executable)));
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }
             cmd
         }
         (RunBackend::Native | RunBackend::Llvm, _) => {
-            let mut cmd = Command::new(mbt_executable);
+            let mut cmd = Command::new(moonutil::path::command_path(mbt_executable));
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());
             }

@@ -1647,6 +1647,13 @@ fn rr_test_from_plan(
                         .artifacts
                         .as_slice()
                 });
+            let want_file_ids = want_files
+                .map(|file_path| {
+                    build_graph
+                        .file_id_for_graph_path(file_path)
+                        .expect("File should exist in build graph")
+                })
+                .collect::<Vec<_>>();
 
             // Run the build
             let result = rr_build::execute_build_partial(
@@ -1656,11 +1663,7 @@ fn rr_test_from_plan(
                 Some(build_meta),
                 Box::new(|work| {
                     trace!("requesting rerun artifacts");
-                    for file_path in want_files {
-                        let file_path_str = file_path.to_string_lossy();
-                        let file = work
-                            .lookup(&file_path_str)
-                            .expect("File should exist in work");
+                    for file in want_file_ids {
                         work.want_file(file).context("Failed to want file")?;
                     }
                     Ok(())

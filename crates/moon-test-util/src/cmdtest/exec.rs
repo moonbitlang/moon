@@ -51,12 +51,22 @@ fn detected_toolchain_root() -> Option<PathBuf> {
     (bin_dir.file_name()? == "bin").then(|| bin_dir.parent().map(Path::to_path_buf))?
 }
 
+fn insert_path_redactions(
+    redactions: &mut snapbox::Redactions,
+    placeholder: &'static str,
+    path: &Path,
+) {
+    for path in moonutil::path::canonical_path_spellings_for_comparison(path) {
+        redactions
+            .insert(placeholder, path)
+            .expect("valid path redaction");
+    }
+}
+
 fn normalize_output(output: &str, workdir: &Path, toolchain_root: Option<&Path>) -> String {
     let mut redactions = snapbox::Redactions::new();
 
-    redactions
-        .insert("[WORK_DIR]", canonicalize_or_self(workdir))
-        .expect("valid WORK_DIR redaction");
+    insert_path_redactions(&mut redactions, "[WORK_DIR]", workdir);
 
     let moon_home = moon_home();
     let toolchain_root = toolchain_root
@@ -71,29 +81,24 @@ fn normalize_output(output: &str, workdir: &Path, toolchain_root: Option<&Path>)
     };
 
     if show_toolchain_root && let Some(toolchain_root) = &toolchain_root {
-        redactions
-            .insert(
-                "[MOON_TOOLCHAIN_ROOT]",
-                canonicalize_or_self(toolchain_root),
-            )
-            .expect("valid MOON_TOOLCHAIN_ROOT redaction");
+        insert_path_redactions(&mut redactions, "[MOON_TOOLCHAIN_ROOT]", toolchain_root);
     }
 
     if let Some(moon_home) = &moon_home {
-        redactions
-            .insert("[MOON_HOME]", canonicalize_or_self(moon_home))
-            .expect("valid MOON_HOME redaction");
+        insert_path_redactions(&mut redactions, "[MOON_HOME]", moon_home);
     }
 
-    let normalized = output
-        .replace("\\\\", "\\")
-        .replace("${WORK_DIR}", "[WORK_DIR]");
+    let normalized = output.replace("${WORK_DIR}", "[WORK_DIR]");
     let normalized = if show_toolchain_root {
         normalized.replace("$MOON_TOOLCHAIN_ROOT", "[MOON_TOOLCHAIN_ROOT]")
     } else {
         normalized
     };
     let normalized = normalized.replace("$MOON_HOME", "[MOON_HOME]");
+    let normalized = redactions.redact(&normalized);
+    // JSON strings escape backslashes. Redact before and after collapsing
+    // them so a verbatim `\\?\` prefix remains intact for exact matching.
+    let normalized = normalized.replace("\\\\", "\\");
 
     redactions.redact(&normalized).replace("\r\n", "\n")
 }
@@ -204,4 +209,28 @@ pub(crate) fn execute_command(
     };
 
     normalize_output(&actual, workdir, toolchain_root)
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::normalize_output;
+
+    #[test]
+    fn output_normalization_redacts_both_windows_path_spellings() {
+        let workdir = tempfile::tempdir().unwrap();
+        let canonical = std::fs::canonicalize(workdir.path()).unwrap();
+        let spellings = moonutil::path::path_spellings_for_comparison(&canonical);
+        assert_eq!(spellings.len(), 2);
+        let escaped = spellings[0].to_string_lossy().replace('\\', "\\\\");
+        let output = format!(
+            "{}\n{}\n{escaped}",
+            spellings[0].display(),
+            spellings[1].display()
+        );
+
+        assert_eq!(
+            normalize_output(&output, workdir.path(), None),
+            "[WORK_DIR]\n[WORK_DIR]\n[WORK_DIR]"
+        );
+    }
 }

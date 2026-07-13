@@ -1,31 +1,8 @@
 use super::*;
 
 fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) -> String {
-    let path_str = std::fs::canonicalize(dir)
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
-
     let json_content = std::fs::read_to_string(json_path).unwrap();
-
-    // Normalize Windows paths: replace backslashes with forward slashes
-    // In JSON, Windows paths are escaped (e.g., "C:\\Users\\..."), so we replace "\\" with "/"
-    // For the canonical path, we replace single "\" with "/"
-    let normalized_path = path_str.replace('\\', "/");
-    let normalized_json = json_content.replace("\\\\", "/");
-
-    // Replace the project path with $ROOT
-    let normalized_json = normalized_json.replace(&normalized_path, "$ROOT");
-
-    // Replace the MOON_HOME path with $MOON_HOME
-    normalized_json.replace(
-        &moonutil::toolchain::home()
-            .to_str()
-            .unwrap()
-            .replace('\\', "/"),
-        "$MOON_HOME",
-    )
+    replace_dir(&json_content, dir)
 }
 
 #[test]

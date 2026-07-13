@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::bail;
+use std::cmp::Reverse;
 use std::fmt::Debug;
 use std::{
     fmt::Formatter,
@@ -26,6 +27,15 @@ use std::{
 };
 
 use crate::constants::SUB_PKG_POSTFIX;
+
+/// Format an already-resolved path for an external command or tool input.
+///
+/// Short verbatim Windows paths are simplified for tools that do not accept
+/// the `\\?\` form. Paths that require verbatim syntax, including long paths,
+/// are left intact.
+pub fn command_path(path: &Path) -> String {
+    dunce::simplified(path).display().to_string()
+}
 
 /// Return platform spellings that can identify the same path in textual output.
 ///
@@ -44,6 +54,21 @@ pub fn path_spellings_for_comparison(path: &Path) -> Vec<PathBuf> {
     }
 
     vec![path]
+}
+
+/// Return textual spellings for both a path and its canonical filesystem path.
+///
+/// Longer spellings come first so callers doing textual replacement do not
+/// replace a legacy path embedded inside its verbatim Windows spelling.
+pub fn canonical_path_spellings_for_comparison(path: &Path) -> Vec<PathBuf> {
+    let mut paths = std::iter::once(path.to_path_buf())
+        .chain(fs::canonicalize(path).ok())
+        .flat_map(|path| path_spellings_for_comparison(&path))
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    paths.sort_by_key(|path| Reverse(path.as_os_str().len()));
+    paths
 }
 
 #[cfg(windows)]
@@ -80,6 +105,34 @@ fn comparison_spellings_cover_legacy_and_verbatim_windows_paths() {
             PathBuf::from(r"\\server\share\workspace"),
         ]
     );
+}
+
+#[test]
+fn command_path_keeps_relative_paths_relative() {
+    let path = Path::new("_build/debug/check/main.mi");
+
+    assert_eq!(command_path(path), path.display().to_string());
+}
+
+#[cfg(windows)]
+#[test]
+fn command_path_simplifies_short_verbatim_paths() {
+    assert_eq!(
+        command_path(Path::new(r"\\?\C:\workspace\src\main.mbt")),
+        r"C:\workspace\src\main.mbt"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn command_path_preserves_long_verbatim_paths() {
+    let path = PathBuf::from(format!(
+        r"\\?\C:\workspace{}\out.mi",
+        r"\segment".repeat(40)
+    ));
+    assert!(path.as_os_str().len() > 260);
+
+    assert_eq!(command_path(&path), path.display().to_string());
 }
 
 #[derive(Clone, Hash)]

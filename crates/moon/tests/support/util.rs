@@ -75,10 +75,7 @@ fn insert_path_redactions(
     placeholder: &'static str,
     path: &Path,
 ) {
-    let paths = std::iter::once(path.to_path_buf())
-        .chain(std::fs::canonicalize(path).ok())
-        .flat_map(|path| moonutil::path::path_spellings_for_comparison(&path));
-    for path in paths {
+    for path in moonutil::path::canonical_path_spellings_for_comparison(path) {
         redactions
             .insert(placeholder, path)
             .expect("valid path redaction");

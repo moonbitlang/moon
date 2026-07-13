@@ -43,7 +43,6 @@ indexmap.workspace = true
 shlex.workspace = true
 tracing.workspace = true
 regex.workspace = true
-dunce.workspace = true
 
 aho-corasick = "1.1.3"
 serde = { workspace = true, features = ["rc"] }

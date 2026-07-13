@@ -379,8 +379,12 @@ impl TargetLayout {
             return None;
         }
 
+        let reported_parent = reported.parent()?;
         let package = pkg_list.all_packages(false).find_map(|(_, package)| {
-            (reported.parent()? == package.root_path).then_some(package)
+            moonutil::path::canonical_path_spellings_for_comparison(&package.root_path)
+                .iter()
+                .any(|root| reported_parent == root)
+                .then_some(package)
         })?;
         Some(self.package_dir(&package.fqn, backend).join(filename))
     }

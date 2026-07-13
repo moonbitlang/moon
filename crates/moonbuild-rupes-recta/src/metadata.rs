@@ -86,7 +86,7 @@ pub fn gen_metadata_json(
     packages.sort_by(|x, y| (x.root.cmp(&y.root)).then_with(|| x.rel.cmp(&y.rel)));
 
     ModuleDBJSON {
-        source_dir: source_dir.to_string_lossy().into_owned(),
+        source_dir: moonutil::path::command_path(source_dir),
         packages,
         name,
         deps,
@@ -114,14 +114,20 @@ fn gen_package_json(
         file_metadatas(&pkg.raw, pkg.source_files.iter().map(|x| x.as_path()))
     {
         match test_kind {
-            crate::cond_comp::FileTestKind::NoTest => files.insert(path.to_owned(), cond),
-            crate::cond_comp::FileTestKind::Whitebox => wbtest_files.insert(path.to_owned(), cond),
-            crate::cond_comp::FileTestKind::Blackbox => test_files.insert(path.to_owned(), cond),
+            crate::cond_comp::FileTestKind::NoTest => {
+                files.insert(PathBuf::from(moonutil::path::command_path(path)), cond)
+            }
+            crate::cond_comp::FileTestKind::Whitebox => {
+                wbtest_files.insert(PathBuf::from(moonutil::path::command_path(path)), cond)
+            }
+            crate::cond_comp::FileTestKind::Blackbox => {
+                test_files.insert(PathBuf::from(moonutil::path::command_path(path)), cond)
+            }
         };
     }
     for path in &pkg.mbtp_files {
         files.insert(
-            path.to_owned(),
+            PathBuf::from(moonutil::path::command_path(path)),
             CompileCondition {
                 backend: TargetBackend::all().to_vec(),
                 optlevel: OptLevel::all().to_vec(),
@@ -131,10 +137,9 @@ fn gen_package_json(
     let mbt_md_files = pkg
         .mbt_md_files
         .iter()
-        .cloned()
         .map(|x| {
             (
-                x,
+                PathBuf::from(moonutil::path::command_path(x)),
                 CompileCondition {
                     backend: TargetBackend::all().to_vec(),
                     optlevel: OptLevel::all().to_vec(),
@@ -196,7 +201,7 @@ fn gen_package_json(
     PackageJSON {
         is_main: pkg.raw.is_main,
         is_third_party: !is_in_workspace,
-        root_path: pkg.root_path.to_string_lossy().into_owned(),
+        root_path: moonutil::path::command_path(&pkg.root_path),
         root: pkg.fqn.module().name().to_string(),
         rel: pkg.fqn.package().to_string(),
         files,
@@ -206,7 +211,7 @@ fn gen_package_json(
         deps,
         wbtest_deps,
         test_deps,
-        artifact: source_artifact.to_string_lossy().into_owned(),
+        artifact: moonutil::path::command_path(&source_artifact),
         check_command: check_commands.get(&source_artifact).cloned(),
         wbtest_check_command,
         test_check_command,
@@ -279,11 +284,6 @@ fn edge_to_alias_json(
     |(_this, dep, edge)| AliasJSON {
         path: ctx.pkg_dirs.get_package(dep.package).fqn.to_string(),
         alias: edge.short_alias.to_string(),
-        fspath: ctx
-            .pkg_dirs
-            .get_package(dep.package)
-            .root_path
-            .to_string_lossy()
-            .into_owned(),
+        fspath: moonutil::path::command_path(&ctx.pkg_dirs.get_package(dep.package).root_path),
     }
 }

@@ -392,7 +392,7 @@ pub fn lower_build_plan(
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     use indexmap::IndexSet;
     use moonutil::{
@@ -420,34 +420,6 @@ mod tests {
     };
 
     use super::*;
-
-    #[test]
-    fn command_path_keeps_relative_paths_relative() {
-        let path = Path::new("_build/debug/check/main.mi");
-
-        assert_eq!(command_path(path), path.display().to_string());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn command_path_simplifies_short_verbatim_paths() {
-        assert_eq!(
-            command_path(Path::new(r"\\?\C:\workspace\src\main.mbt")),
-            r"C:\workspace\src\main.mbt"
-        );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn command_path_preserves_long_verbatim_paths() {
-        let path = PathBuf::from(format!(
-            r"\\?\C:\workspace{}\out.mi",
-            r"\segment".repeat(40)
-        ));
-        assert!(path.as_os_str().len() > 260);
-
-        assert_eq!(command_path(&path), path.display().to_string());
-    }
 
     #[test]
     fn non_native_artifact_options_do_not_resolve_operating_system() {

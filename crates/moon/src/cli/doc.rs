@@ -72,7 +72,9 @@ pub(crate) fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result
 #[instrument(skip_all)]
 fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
     output.warn("`moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
-    let query_result = std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_ide)
+    let query_result = std::process::Command::new(moonutil::path::command_path(
+        &moonutil::toolchain::BINARIES.moon_ide,
+    ))
         .arg("doc")
         .arg(symbol)
         .stdout(std::process::Stdio::inherit())

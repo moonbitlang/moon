@@ -941,6 +941,15 @@ pub struct BuildInput {
     db_path: PathBuf,
 }
 
+impl BuildInput {
+    /// Look up the exact spelling registered in the graph. `Work::lookup`
+    /// applies n2's lexical normalizer, which does not preserve a Windows
+    /// verbatim prefix.
+    pub(crate) fn file_id_for_graph_path(&self, path: &Path) -> Option<n2::graph::FileId> {
+        self.graph.files.lookup(&path.to_string_lossy())
+    }
+}
+
 #[cfg(test)]
 impl BuildInput {
     pub(crate) fn graph_for_test(&self) -> &n2::graph::Graph {

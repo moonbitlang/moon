@@ -34,6 +34,7 @@ serde = { workspace = true, features = ["rc"] }
 serde_json_lenient.workspace = true
 clap.workspace = true
 dialoguer.workspace = true
+dunce.workspace = true
 semver.workspace = true
 fs4.workspace = true
 petgraph.workspace = true
