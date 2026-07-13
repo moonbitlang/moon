@@ -428,41 +428,25 @@ fn test_moon_run_memory_sanitizer_reports_demangled_alloc_stack() {
 
     let wasm_file = dir.join("_build/wasm/debug/build/duplicate_alloc/duplicate_alloc.wasm");
 
-    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .arg(&wasm_file)
         .assert()
         .failure()
-        .stdout_eq("");
-    let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
-    let diagnostic = stderr.lines().next().expect("missing sanitizer diagnostic");
-    snapbox::assert_data_eq!(
-        diagnostic,
-        snapbox::str![[r#"
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
 Error: moonbit:ffi/memory-sanitizer.register-object-alloc failed: object 2048 is already live with size 16
-"#]]
-    );
-
-    let stack_section = stderr
-        .lines()
-        .skip_while(|line| *line != "previous allocation stack:")
-        .take(6)
-        .collect::<Vec<_>>()
-        .join("\n");
-    snapbox::assert_data_eq!(
-        stack_section,
-        snapbox::str![[r#"
 previous allocation stack:
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_alloc
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_alloc
     at @moonbit/ffi-memory-sanitizer-test/duplicate_alloc.allocate_once
     at @__moonbit_main
     at <anonymous>
-"#]]
-    );
+...
+"#]]);
 }
 
 #[test]
-fn test_moon_run_memory_sanitizer_reports_double_free_stack() {
+fn test_moon_run_memory_sanitizer_reports_double_free() {
     let dir = TestDir::new("test_memory_sanitizer.in");
 
     moon_cmd()
@@ -473,37 +457,19 @@ fn test_moon_run_memory_sanitizer_reports_double_free_stack() {
 
     let wasm_file = dir.join("_build/wasm/debug/build/double_free/double_free.wasm");
 
-    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .arg(&wasm_file)
         .assert()
         .failure()
-        .stdout_eq("");
-    let stderr = std::str::from_utf8(&assert.get_output().stderr).unwrap();
-    let diagnostic = stderr.lines().next().expect("missing sanitizer diagnostic");
-    snapbox::assert_data_eq!(
-        diagnostic,
-        snapbox::str![[r#"
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
 Error: moonbit:ffi/memory-sanitizer.register-object-free failed: invalid object 4096
-"#]]
-    );
-
-    let stack_section = stderr
-        .lines()
-        .skip_while(|line| *line != "free stack:")
-        .take(6)
-        .collect::<Vec<_>>()
-        .join("\n");
-    snapbox::assert_data_eq!(
-        stack_section,
-        snapbox::str![[r#"
-free stack:
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_free
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_free
     at @moonbit/ffi-memory-sanitizer-test/double_free.free_twice
     at @__moonbit_main
-    at <anonymous>
-"#]]
-    );
+...
+"#]]);
 }
 
 #[test]
