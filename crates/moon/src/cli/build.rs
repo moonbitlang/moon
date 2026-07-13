@@ -134,7 +134,7 @@ fn run_build_internal(
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<i32> {
-    let f = |watch: bool| {
+    let f = |watch: bool, target_dir: &Path| {
         run_build_rr(
             cli,
             cmd,
@@ -148,9 +148,14 @@ fn run_build_internal(
     };
 
     if cmd.watch {
-        watching(|| f(true), source_dir, source_dir, target_dir)
+        watching(
+            |target_dir| f(true, target_dir),
+            source_dir,
+            source_dir,
+            target_dir,
+        )
     } else {
-        f(false).map(|output| if output.ok { 0 } else { 1 })
+        f(false, target_dir).map(|output| if output.ok { 0 } else { 1 })
     }
 }
 

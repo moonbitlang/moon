@@ -433,7 +433,7 @@ fn run_check_normal_internal(
             )
         })?;
         watching(
-            || run_once(true, &watch_target),
+            |target_dir| run_once(true, target_dir),
             source_dir,
             source_dir,
             &watch_target,

@@ -48,11 +48,10 @@ struct AdditionalWatchPaths {
     watched_paths: HashSet<PathBuf>,
 }
 
-/// Run a watcher that watches on `watch_dir`, and calls `run` when a file
-/// changes. The watcher ignores changes in `original_target_dir`, and will
-/// repopulate `target_dir` if it is deleted.
+/// Watch `watch_dir` and call `run` with `target_dir` when a relevant file
+/// changes. The watcher recreates the same `target_dir` if it is deleted.
 pub(crate) fn watching(
-    run: impl Fn() -> anyhow::Result<WatchOutput>,
+    run: impl Fn(&Path) -> anyhow::Result<WatchOutput>,
     watch_dir: &Path,
     source_dir: &Path,
     target_dir: &Path,
@@ -63,7 +62,7 @@ pub(crate) fn watching(
         target_dir = %target_dir.display(),
         "Initial run before starting watcher"
     );
-    let mut additional_paths = run_and_print(&run);
+    let mut additional_paths = run_and_print(|| run(target_dir));
 
     // Setup watcher
     let (tx, rx) = std::sync::mpsc::channel();
@@ -153,7 +152,7 @@ pub(crate) fn watching(
                 }
                 Ok(true) => {
                     debug!("Rerun triggered; executing task");
-                    additional_paths = run_and_print(&run);
+                    additional_paths = run_and_print(|| run(target_dir));
                 }
             }
         }
