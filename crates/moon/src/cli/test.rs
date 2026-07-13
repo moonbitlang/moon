@@ -1653,6 +1653,7 @@ fn rr_test_from_plan(
                 &built.build_config,
                 build_graph,
                 target_dir,
+                Some(build_meta),
                 Box::new(|work| {
                     trace!("requesting rerun artifacts");
                     for file_path in want_files {
@@ -1759,7 +1760,7 @@ fn execute_test_build_from_plan(
 
     // since n2 build consumes the graph, we back it up for reruns
     let build_graph_backup = cmd.update.then(|| build_graph.clone());
-    let result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
+    let result = rr_build::execute_test_build(&build_config, build_graph, target_dir, build_meta)?;
     debug!(
         success = result.successful(),
         exit_code = result.return_code_for_success(),

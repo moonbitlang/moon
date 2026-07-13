@@ -341,71 +341,6 @@ impl MooncDiagnostic {
         Some(kind)
     }
 
-    pub fn render(
-        content: &str,
-        use_fancy: bool,
-        check_patch_file: Option<PathBuf>,
-        explain: bool,
-        render_no_loc_level: DiagnosticLevel,
-        source_dir: &Path,
-        target_dir: &Path,
-    ) -> Option<ReportKind<'static>> {
-        let bail_print_original = || {
-            eprintln!("{content}");
-            None
-        };
-        let mut diagnostic = match serde_json_lenient::from_str::<MooncDiagnostic>(content) {
-            Ok(d) => d,
-            Err(_) => bail_print_original()?,
-        };
-
-        // a workaround for rendering the diagnostaic and error in generated test driver file correctly
-        'fail_to_get_source: {
-            if diagnostic.path.contains("__generated_driver_for_") {
-                let Ok(file) = crate::manifest::read_module_desc_file_in_dir(source_dir) else {
-                    error!(
-                        "when working around driver file path issue, failed to read module.desc file in source dir: {}",
-                        source_dir.display()
-                    );
-                    break 'fail_to_get_source;
-                };
-                let source = file.source;
-                let source_code_dir = match source {
-                    Some(source) => source_dir.join(source),
-                    None => source_dir.to_owned(),
-                };
-
-                // Normalize source dir. Work around when `source_dir` ends with `.`
-                let Ok(source_code_dir) = dunce::canonicalize(&source_code_dir) else {
-                    warn!(
-                        "when working around driver file path issue, failed to canonicalize source code dir: {}",
-                        source_code_dir.display()
-                    );
-                    break 'fail_to_get_source;
-                };
-                let diag_path: &Path = diagnostic.path.as_ref();
-                let Ok(rel_path) = diag_path.strip_prefix(&source_code_dir) else {
-                    warn!(
-                        "when working around driver file path issue, failed to strip prefix {} from {}",
-                        source_code_dir.display(),
-                        diag_path.display()
-                    );
-                    break 'fail_to_get_source;
-                };
-
-                let mbt_file_path = target_dir.join(rel_path);
-                diagnostic.path = mbt_file_path.display().to_string();
-            }
-        }
-
-        diagnostic.render_diagnostics(
-            use_fancy,
-            check_patch_file.as_ref(),
-            explain,
-            render_no_loc_level,
-        )
-    }
-
     fn get_content_and_filename_from_diagnostic_patch_file(
         patch_file: &Path,
         diagnostic_location_path: &str,
@@ -443,10 +378,9 @@ impl MooncDiagnostic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
-    fn render_accepts_no_location_diagnostic_json() {
+    fn render_diagnostics_accepts_no_location_diagnostic_json() {
         // Stable compiler repro: run `moonc check` on any valid `.mbt` file and
         // pass that same existing non-`.mi` file to `-check-mi`. This emits a
         // no-location diagnostic with `path: ""` and `loc: "0:0-0:0"`.
@@ -455,15 +389,7 @@ mod tests {
         let diagnostic = serde_json_lenient::from_str::<MooncDiagnostic>(diagnostic_json).unwrap();
         assert!(diagnostic.path.is_empty());
 
-        let rendered = MooncDiagnostic::render(
-            diagnostic_json,
-            false,
-            None,
-            false,
-            DiagnosticLevel::Error,
-            Path::new("."),
-            Path::new("."),
-        );
+        let rendered = diagnostic.render_diagnostics(false, None, false, DiagnosticLevel::Error);
 
         assert!(rendered.is_some());
     }

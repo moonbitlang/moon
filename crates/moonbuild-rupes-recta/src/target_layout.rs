@@ -50,6 +50,7 @@ const CORE_EXTENSION: &str = ".core";
 const MI_EXTENSION: &str = ".mi";
 /// Implementation packages generate a dummy mi file so they are not rebuilt every time.
 const IMPL_MI_EXTENSION: &str = ".impl.mi";
+pub const GENERATED_TEST_DRIVER_PREFIX: &str = "__generated_driver_for";
 
 #[derive(Clone, Copy, Debug)]
 pub enum ExecutableArtifact {
@@ -358,11 +359,30 @@ impl TargetLayout {
     ) -> PathBuf {
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
-        base_dir.push(format!(
-            "__generated_driver_for{}.mbt",
-            build_kind_suffix_filename(target.kind)
-        ));
+        base_dir.push(generated_test_driver_filename(target.kind));
         base_dir
+    }
+
+    /// Maps a compiler-reported generated test driver path into this target
+    /// layout. moonc reports the driver under the package's source directory.
+    pub fn generated_test_driver_diagnostic_path(
+        &self,
+        pkg_list: &DiscoverResult,
+        reported: &Path,
+        backend: TargetBackend,
+    ) -> Option<PathBuf> {
+        let filename = reported.file_name()?;
+        if !filename
+            .to_string_lossy()
+            .starts_with(GENERATED_TEST_DRIVER_PREFIX)
+        {
+            return None;
+        }
+
+        let package = pkg_list.all_packages(false).find_map(|(_, package)| {
+            (reported.parent()? == package.root_path).then_some(package)
+        })?;
+        Some(self.package_dir(&package.fqn, backend).join(filename))
     }
 
     pub fn generated_test_driver_metadata(
@@ -1087,6 +1107,13 @@ fn build_kind_suffix_filename(kind: TargetKind) -> &'static str {
     }
 }
 
+fn generated_test_driver_filename(kind: TargetKind) -> String {
+    format!(
+        "{GENERATED_TEST_DRIVER_PREFIX}{}.mbt",
+        build_kind_suffix_filename(kind)
+    )
+}
+
 /// Returns the file extension for static libraries on the given OS.
 fn static_library_ext(os: OperatingSystem) -> &'static str {
     match os {
@@ -1372,6 +1399,28 @@ mod tests {
         assert_eq!(
             layout.package_dir(&dep_pkg, TargetBackend::WasmGC),
             PathBuf::from("_build/wasm-gc/debug/build/username/world/v2/lib"),
+        );
+    }
+
+    #[test]
+    fn generated_test_driver_diagnostic_path_follows_the_target_layout() {
+        let (packages, modules, _) = package_fixture("ffi");
+        let layout = layout(TargetLayoutMode::Mono {
+            main_module: modules.module_source(modules.input_module_ids()[0]).clone(),
+        });
+        let reported = PathBuf::from("ffi/__generated_driver_for_internal_test.mbt");
+
+        let physical = layout.generated_test_driver_diagnostic_path(
+            &packages,
+            &reported,
+            TargetBackend::WasmGC,
+        );
+
+        assert_eq!(
+            physical,
+            Some(PathBuf::from(
+                "_build/wasm-gc/debug/build/ffi/__generated_driver_for_internal_test.mbt"
+            ))
         );
     }
 
