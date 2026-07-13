@@ -482,11 +482,10 @@ fn try_detect_solver(spec: &SolverSpec) -> Option<DetectedSolver> {
     })
 }
 
-fn escape_windows_path(s: &str) -> String {
-    // Why3 configuration strings treat backslashes as escapes. Keep the native
-    // Windows path spelling instead of normalizing to `/`, so the generated
-    // prover path stays the exact executable path returned by PATH/env lookup.
-    s.replace('\\', "\\\\")
+fn normalize_why3_config_path(s: &str) -> String {
+    // Why3 configuration strings treat backslashes as escapes. Emit paths with
+    // `/` separators consistently so Windows paths do not need double escaping.
+    s.replace('\\', "/")
 }
 
 fn generate_why3_config(solvers: &[DetectedSolver]) -> String {
@@ -505,7 +504,7 @@ fn generate_why3_config(solvers: &[DetectedSolver]) -> String {
              path = \"{}\"\n\
              version = \"{}\"\n",
             solver.name,
-            escape_windows_path(&solver.path),
+            normalize_why3_config_path(&solver.path),
             solver.version,
         ));
     }
@@ -917,10 +916,10 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_config_escapes_windows_solver_path() {
+    fn test_generate_config_normalizes_windows_solver_path() {
         let solvers = vec![make_solver("Z3", r"C:\Users\guest\bin\z3.exe", "4.16.0")];
         let config = generate_why3_config(&solvers);
-        assert!(config.contains(r#"path = "C:\\Users\\guest\\bin\\z3.exe""#));
+        assert!(config.contains(r#"path = "C:/Users/guest/bin/z3.exe""#));
     }
 
     #[test]
