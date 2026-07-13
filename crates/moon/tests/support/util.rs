@@ -85,8 +85,10 @@ fn insert_path_redactions(
 fn replace_known_paths(mut output: String, known_paths: &[(PathBuf, String)]) -> String {
     for (path, replacement) in known_paths {
         let mut redactions = snapbox::Redactions::new();
-        insert_path_redactions(&mut redactions, "[PATH]", path);
-        output = redactions.redact(&output).replace("[PATH]", replacement);
+        insert_path_redactions(&mut redactions, "[MOON_TEST_KNOWN_PATH]", path);
+        output = redactions
+            .redact(&output)
+            .replace("[MOON_TEST_KNOWN_PATH]", replacement);
     }
     output
 }
@@ -248,6 +250,16 @@ mod tests {
         assert_eq!(
             replace_dir(&output, dir.path()),
             "moonc check $ROOT/b/hello.mbt -pkg-sources username/b:$ROOT/b -workspace-path $ROOT/b"
+        );
+    }
+
+    #[test]
+    fn replace_dir_preserves_cli_path_metavariables() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert_eq!(
+            replace_dir("Usage: moon test --release [PATH]...", dir.path()),
+            "Usage: moon test --release [PATH]..."
         );
     }
 
