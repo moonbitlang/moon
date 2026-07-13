@@ -1714,7 +1714,11 @@ fn handle_build_command_new(
             let (_argv0, rest) = split_argv0_windows(&reconstructed);
             // This is safe because '"' is not a valid path character on Windows,
             // and the original argv[0] must be a path-like string.
-            reconstructed = format!("powershell \"{}\" {}", new_argv0.display(), rest);
+            reconstructed = format!(
+                "powershell \"{}\" {}",
+                crate::command_path(&new_argv0),
+                rest
+            );
         }
     }
 

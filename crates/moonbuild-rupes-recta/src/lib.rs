@@ -101,6 +101,17 @@
 
 #![warn(clippy::unwrap_used)] // We prefer clear panic messages
 
+use std::path::Path;
+
+/// Format an already-resolved path for an external command.
+///
+/// Short verbatim Windows paths are simplified for tools that do not accept
+/// the `\\?\` form. Paths that require verbatim syntax, including long paths,
+/// are left intact.
+pub(crate) fn command_path(path: &Path) -> String {
+    dunce::simplified(path).display().to_string()
+}
+
 pub mod build_action_plan;
 pub mod build_lower;
 pub mod build_plan;

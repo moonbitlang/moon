@@ -18,12 +18,7 @@
 
 //! Lowers the normalized action plan into `n2`'s build graph.
 
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-    str::FromStr,
-    sync::OnceLock,
-};
+use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
 
 use log::{debug, info};
 use moonutil::{
@@ -55,16 +50,8 @@ pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
 pub(crate) use backend::{CExecutableRealization, CStubLibraryRealization, SelectedBackend};
 
+use crate::command_path;
 use context::LoweringContext;
-
-/// Format an already-resolved path for an external command.
-///
-/// Short verbatim Windows paths are simplified for tools that do not accept
-/// the `\\?\` form. Paths that require verbatim syntax, including long paths,
-/// are left intact.
-fn command_path(path: &Path) -> String {
-    dunce::simplified(path).display().to_string()
-}
 
 /// Lazily resolved host/toolchain facts used during lowering.
 ///
@@ -439,6 +426,27 @@ mod tests {
         let path = Path::new("_build/debug/check/main.mi");
 
         assert_eq!(command_path(path), path.display().to_string());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_path_simplifies_short_verbatim_paths() {
+        assert_eq!(
+            command_path(Path::new(r"\\?\C:\workspace\src\main.mbt")),
+            r"C:\workspace\src\main.mbt"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_path_preserves_long_verbatim_paths() {
+        let path = PathBuf::from(format!(
+            r"\\?\C:\workspace{}\out.mi",
+            r"\segment".repeat(40)
+        ));
+        assert!(path.as_os_str().len() > 260);
+
+        assert_eq!(command_path(&path), path.display().to_string());
     }
 
     #[test]
