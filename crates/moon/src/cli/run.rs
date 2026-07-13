@@ -319,8 +319,8 @@ fn reject_manifest_path_for_run(cli: &UniversalFlags) -> anyhow::Result<()> {
 }
 
 fn resolve_run_start_dir(input: &str) -> anyhow::Result<std::path::PathBuf> {
-    let input_path =
-        dunce::canonicalize(input).with_context(|| format!("failed to resolve path `{input}`"))?;
+    let input_path = std::fs::canonicalize(input)
+        .with_context(|| format!("failed to resolve path `{input}`"))?;
     if input_path.is_dir() {
         Ok(input_path)
     } else {
@@ -339,8 +339,8 @@ fn build_wasm_file_executable_from_arg(
         .package_or_mbt_file
         .as_deref()
         .expect("wasm run from arg requires a positional input path");
-    let wasm_path =
-        dunce::canonicalize(input).with_context(|| format!("failed to resolve path `{input}`"))?;
+    let wasm_path = std::fs::canonicalize(input)
+        .with_context(|| format!("failed to resolve path `{input}`"))?;
     if !wasm_path.is_file() {
         bail!("`{}` is not a file", input);
     }

@@ -7,7 +7,7 @@ use moonbuild_debug::graph::ENV_VAR;
 #[test]
 fn dummy_core_writes_packages_json_for_selected_target() {
     let test_dir = TestDir::new("dummy_core");
-    let dir = dunce::canonicalize(test_dir.as_ref()).unwrap();
+    let dir = std::fs::canonicalize(test_dir.as_ref()).unwrap();
 
     moon_cmd(&dir)
         .args(["check", "--sort-input"])
@@ -36,7 +36,7 @@ fn dummy_core_writes_packages_json_for_selected_target() {
 #[test]
 fn dummy_core_bundle_dry_run_matches_snapshots() {
     let test_dir = TestDir::new("dummy_core");
-    let dir = dunce::canonicalize(test_dir.as_ref()).unwrap();
+    let dir = std::fs::canonicalize(test_dir.as_ref()).unwrap();
 
     let test_coverage_dry_run_dump_file = test_dir.join("test_coverage.jsonl");
     get_stdout_with_envs(

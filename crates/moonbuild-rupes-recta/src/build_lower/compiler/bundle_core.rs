@@ -21,7 +21,7 @@
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
-use crate::build_lower::compiler::CmdlineAbstraction;
+use crate::build_lower::compiler::{CmdlineAbstraction, command_path};
 
 /// Abstraction for `moonc bundle-core`.
 ///
@@ -58,12 +58,12 @@ impl<'a> CmdlineAbstraction for MooncBundleCore<'a> {
 
         // Input core files (in order)
         for core_dep in self.core_deps {
-            args.push(core_dep.display().to_string());
+            args.push(command_path(core_dep));
         }
 
         // Output file
         args.push("-o".to_string());
-        args.push(self.output_path.display().to_string());
+        args.push(command_path(&self.output_path));
 
         // Extra arguments
         for arg in self.extra_args {

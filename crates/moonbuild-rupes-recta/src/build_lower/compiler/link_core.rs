@@ -25,7 +25,7 @@ use moonutil::package::{ImportMemory, JsFormat, MemoryLimits};
 use moonutil::target::TargetBackend;
 
 use crate::build_lower::compiler::{
-    CmdlineAbstraction, CompilationFlags, CompiledPackageName, PackageSource,
+    CmdlineAbstraction, CompilationFlags, CompiledPackageName, PackageSource, command_path,
 };
 use crate::model::NativeTarget;
 
@@ -133,7 +133,7 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // Core dependencies (input files) first
         for core_dep in self.core_deps {
-            args.push(core_dep.to_string_lossy().into_owned());
+            args.push(command_path(core_dep));
         }
 
         // Main package specification
@@ -142,7 +142,7 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // Output file
         args.push("-o".to_string());
-        args.push(self.output_path.display().to_string());
+        args.push(command_path(&self.output_path));
 
         if self.test_mode {
             args.push("-test-mode".to_string());
@@ -150,7 +150,7 @@ impl CmdlineAbstraction for MooncLinkCore<'_> {
 
         // Package configuration path
         args.push("-pkg-config-path".to_string());
-        args.push(self.pkg_config_path.display().to_string());
+        args.push(command_path(&self.pkg_config_path));
 
         // Package sources (using existing to_arg method)
         for pkg_source in self.package_sources {

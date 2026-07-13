@@ -192,7 +192,7 @@ mod tests {
             .source_tgt_dir
             .manifest_path
             .as_ref()
-            .map(dunce::canonicalize)
+            .map(std::fs::canonicalize)
             .unwrap()
             .unwrap();
         let expected_manifest_path = member.join(MOON_MOD);
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(cli.source_tgt_dir.cwd, None);
         assert_eq!(
             actual_manifest_path,
-            dunce::canonicalize(expected_manifest_path).unwrap()
+            std::fs::canonicalize(expected_manifest_path).unwrap()
         );
         assert_eq!(cli.source_tgt_dir.target_dir, None);
     }
@@ -236,7 +236,7 @@ mod tests {
             .source_tgt_dir
             .manifest_path
             .as_ref()
-            .map(dunce::canonicalize)
+            .map(std::fs::canonicalize)
             .unwrap()
             .unwrap();
         let expected_manifest_path = member.join(MOON_MOD_JSON);
@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(cli.source_tgt_dir.cwd, None);
         assert_eq!(
             actual_manifest_path,
-            dunce::canonicalize(expected_manifest_path).unwrap()
+            std::fs::canonicalize(expected_manifest_path).unwrap()
         );
         assert_eq!(cli.source_tgt_dir.target_dir, None);
     }

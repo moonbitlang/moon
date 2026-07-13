@@ -139,7 +139,7 @@ fn upgrade_home() -> Result<PathBuf> {
     let home = toolchain::home();
     let toolchain_root = toolchain::toolchain_root();
     let canonicalize =
-        |path: &Path| dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
 
     if canonicalize(&home) != canonicalize(&toolchain_root) {
         bail!(

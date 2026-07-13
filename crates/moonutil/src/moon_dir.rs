@@ -59,7 +59,7 @@ pub fn is_toolchain_root(root: &Path) -> bool {
 
 fn infer_toolchain_root_from_exe(current_exe: &Path) -> Option<PathBuf> {
     let current_exe =
-        dunce::canonicalize(current_exe).unwrap_or_else(|_| current_exe.to_path_buf());
+        std::fs::canonicalize(current_exe).unwrap_or_else(|_| current_exe.to_path_buf());
     let bin_dir = current_exe.parent()?;
     if bin_dir.file_name().is_none_or(|name| name != "bin") {
         return None;
@@ -333,7 +333,7 @@ fn infers_toolchain_root_from_exe_only_for_valid_toolchain_layout() {
     std::fs::write(&moon, []).unwrap();
     assert_eq!(
         infer_toolchain_root_from_exe(&moon).unwrap(),
-        dunce::canonicalize(&dir).unwrap()
+        std::fs::canonicalize(&dir).unwrap()
     );
 
     let invalid_root = std::env::temp_dir().join(format!(

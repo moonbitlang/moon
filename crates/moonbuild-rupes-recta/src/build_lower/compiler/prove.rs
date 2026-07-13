@@ -20,7 +20,7 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use crate::build_lower::compiler::{
-    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, DepProof,
+    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, DepProof, command_path,
 };
 
 /// Abstraction for `moonc prove`.
@@ -50,22 +50,19 @@ impl<'a> CmdlineAbstraction for MooncProve<'a> {
         self.defaults.add_warning_options(args);
         args.extend([
             "-whyml-output-path".to_string(),
-            self.whyml_out.display().to_string(),
+            command_path(&self.whyml_out),
         ]);
         if let Some(proof_report_out) = &self.proof_report_out {
             args.extend([
                 "-proof-report-output-path".to_string(),
-                proof_report_out.display().to_string(),
+                command_path(proof_report_out),
             ]);
         }
         if let Some(why3_config) = &self.why3_config {
-            args.extend([
-                "-why3-config".to_string(),
-                why3_config.display().to_string(),
-            ]);
+            args.extend(["-why3-config".to_string(), command_path(why3_config)]);
         }
         for loadpath in &self.why3_loadpaths {
-            args.extend(["-why3-loadpath".to_string(), loadpath.display().to_string()]);
+            args.extend(["-why3-loadpath".to_string(), command_path(loadpath)]);
         }
         for dep_proof in &self.dep_proofs {
             args.extend(["-dep-proof".to_string(), dep_proof.to_arg()]);

@@ -99,7 +99,7 @@ pub fn use_workspace(workspace_root: &Path, paths: &[PathBuf], quiet: bool) -> a
             } else {
                 workspace_root.join(use_path)
             };
-            let member_dir = dunce::canonicalize(&member_dir).with_context(|| {
+            let member_dir = std::fs::canonicalize(&member_dir).with_context(|| {
                 format!(
                     "failed to resolve workspace member `{}` from `{}`",
                     use_path.display(),
@@ -174,7 +174,7 @@ pub fn sync_workspace(source_dir: &Path, quiet: bool) -> anyhow::Result<i32> {
 }
 
 fn resolve_workspace_member(path: &Path) -> anyhow::Result<PathBuf> {
-    let member_dir = dunce::canonicalize(path)
+    let member_dir = std::fs::canonicalize(path)
         .with_context(|| format!("failed to resolve workspace member `{}`", path.display()))?;
     if !member_dir.is_dir() {
         bail!("workspace member `{}` is not a directory", path.display());

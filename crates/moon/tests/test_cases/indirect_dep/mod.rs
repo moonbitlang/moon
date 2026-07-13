@@ -1,7 +1,7 @@
 use super::*;
 
 fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) -> String {
-    let path_str = dunce::canonicalize(dir)
+    let path_str = std::fs::canonicalize(dir)
         .unwrap()
         .to_str()
         .unwrap()

@@ -19,7 +19,7 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::CmdlineAbstraction;
+use crate::build_lower::compiler::{CmdlineAbstraction, command_path};
 
 /// Wrapper for the external `mooninfo` tool.
 ///
@@ -45,10 +45,10 @@ impl<'a> CmdlineAbstraction for Mooninfo<'a> {
         args.push("-format=text".into());
 
         // 2. input mi path (positional)
-        args.push(self.mi_in.display().to_string());
+        args.push(command_path(&self.mi_in));
 
         // 3. output as single -o=<path>
-        args.push(format!("-o={}", self.out.display()));
+        args.push(format!("-o={}", command_path(&self.out)));
 
         // 4. optional -no-alias
         if self.no_alias {

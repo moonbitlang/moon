@@ -17,5 +17,5 @@
 # For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 disallowed-methods = [
-    { path = "std::path::Path::canonicalize", reason = "Please use dunce::canonicalize" },
+    { path = "dunce::canonicalize", reason = "Use std::fs::canonicalize internally and dunce::simplified only when constructing external command lines" },
 ]

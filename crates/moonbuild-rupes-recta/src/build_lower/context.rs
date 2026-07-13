@@ -36,7 +36,7 @@ use crate::{
 use moonutil::toolchain::BINARIES;
 
 use super::{
-    BuildOptions, CommandArgMap, LoweringError,
+    BuildOptions, CommandArgMap, LoweringError, command_path,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
@@ -338,7 +338,7 @@ impl<'a> LoweringContext<'a> {
             outs,
         );
         build.cmdline = Some(cmd.commandline.to_n2_string());
-        build.cwd = cmd.commandline.cwd().map(|cwd| cwd.display().to_string());
+        build.cwd = cmd.commandline.cwd().map(|cwd| command_path(cwd));
         build.env = cmd.commandline.env().to_vec();
         build.desc = Some(self.plan.human_desc(id, self.modules, self.packages));
         // n2 can't capture and replay command outputs. this is a workaround to

@@ -272,7 +272,7 @@ fn calc_user_intent(
 }
 
 fn canonicalize_why3_config(path: &Path) -> anyhow::Result<PathBuf> {
-    dunce::canonicalize(path)
+    std::fs::canonicalize(path)
         .with_context(|| format!("failed to resolve why3 config `{}`", path.display()))
 }
 

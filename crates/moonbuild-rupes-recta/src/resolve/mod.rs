@@ -423,7 +423,7 @@ pub fn resolve_single_file_project(
     run_mode: bool,
 ) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
     // Canonicalize input and classify by suffix first.
-    let source_file = dunce::canonicalize(file)
+    let source_file = std::fs::canonicalize(file)
         .context("Failed to resolve the file path")
         .map_err(ResolveError::SingleFileParseError)?;
     let source_dir = source_file

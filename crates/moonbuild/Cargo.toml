@@ -34,7 +34,6 @@ serde.workspace = true
 serde_json_lenient.workspace = true
 anyhow.workspace = true
 colored.workspace = true
-dunce.workspace = true
 indexmap.workspace = true
 petgraph.workspace = true
 walkdir.workspace = true

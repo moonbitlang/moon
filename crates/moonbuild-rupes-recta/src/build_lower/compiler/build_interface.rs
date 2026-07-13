@@ -21,7 +21,9 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::{CmdlineAbstraction, CompiledPackageName, MiDependency};
+use crate::build_lower::compiler::{
+    CmdlineAbstraction, CompiledPackageName, MiDependency, command_path,
+};
 
 /// Command-line abstraction for `moonc build-interface`.
 ///
@@ -75,8 +77,8 @@ impl CmdlineAbstraction for MooncBuildInterface<'_> {
         args.push("build-interface".into());
 
         // Input and output paths
-        args.push(self.mbti_input.display().to_string());
-        args.extend(["-o".to_string(), self.mi_output.display().to_string()]);
+        args.push(command_path(&self.mbti_input));
+        args.extend(["-o".to_string(), command_path(&self.mi_output)]);
 
         // Interface dependencies
         for dep in self.mi_deps {
@@ -87,14 +89,18 @@ impl CmdlineAbstraction for MooncBuildInterface<'_> {
         args.extend(["-pkg".to_string(), self.package_name.to_string()]);
         args.extend([
             "-pkg-sources".to_string(),
-            format!("{}:{}", self.package_name, self.package_source.display()),
+            format!(
+                "{}:{}",
+                self.package_name,
+                command_path(&self.package_source)
+            ),
         ]);
 
         // Virtual packages always require this flag
         args.push("-virtual".to_string());
 
         if let Some(stdlib) = &self.stdlib_core_file {
-            args.extend(["-std-path".to_string(), stdlib.display().to_string()]);
+            args.extend(["-std-path".to_string(), command_path(stdlib)]);
         }
 
         if self.json_errors {

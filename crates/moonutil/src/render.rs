@@ -180,7 +180,7 @@ impl SourceMap {
             })
             .ok()?;
         let mapping = &self.mappings[index];
-        let path = dunce::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
+        let path = std::fs::canonicalize(base_path.parent()?.join(&mapping.source)).ok()?;
         Some((
             path,
             offset - mapping.generated_offset + mapping.original_offset,

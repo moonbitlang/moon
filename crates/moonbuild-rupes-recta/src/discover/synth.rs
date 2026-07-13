@@ -139,7 +139,7 @@ pub fn build_synth_single_file_package(
     };
 
     // Assign file to appropriate list
-    let file_path = dunce::canonicalize(file).expect("Failed to canonicalize single-file input");
+    let file_path = std::fs::canonicalize(file).expect("Failed to canonicalize single-file input");
     let files = vec![file_path.clone()];
     let (source_files, mbt_md_files) = if file_path.extension().is_some_and(|x| x == "md") {
         (Vec::new(), files)

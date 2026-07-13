@@ -21,7 +21,7 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::CmdlineAbstraction;
+use crate::build_lower::compiler::{CmdlineAbstraction, command_path};
 
 /// Abstraction for `moondoc` documentation generation command.
 ///
@@ -66,21 +66,21 @@ impl<'a> MoondocCommand<'a> {
 impl<'a> CmdlineAbstraction for MoondocCommand<'a> {
     fn to_args(&self, args: &mut Vec<String>) {
         // Source directory (positional argument, first)
-        args.push(self.source_dir.display().to_string());
+        args.push(command_path(&self.source_dir));
 
         // Output directory
         args.push("-o".to_string());
-        args.push(self.output_dir.display().to_string());
+        args.push(command_path(&self.output_dir));
 
         // Standard library path
         if let Some(std_path) = &self.std_path {
             args.push("-std-path".to_string());
-            args.push(std_path.display().to_string());
+            args.push(command_path(std_path));
         }
 
         // Packages metadata file
         args.push("-packages-json".to_string());
-        args.push(self.packages_json.display().to_string());
+        args.push(command_path(&self.packages_json));
 
         // Serve mode (optional)
         if self.serve_mode {

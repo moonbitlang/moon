@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 
 use moonutil::{target::TargetBackend, test_metadata::DriverKind};
 
-use crate::build_lower::compiler::CmdlineAbstraction;
+use crate::build_lower::compiler::{CmdlineAbstraction, command_path};
 
 /// Commandline arguments to `moon generate-test-driver`.
 ///
@@ -84,26 +84,26 @@ impl<'a> CmdlineAbstraction for MoonGenTestDriver<'a> {
         // Output files
         args.extend([
             "--output-driver".to_string(),
-            self.output_driver.display().to_string(),
+            command_path(&self.output_driver),
         ]);
         args.extend([
             "--output-metadata".to_string(),
-            self.output_metadata.display().to_string(),
+            command_path(&self.output_metadata),
         ]);
 
         // Input files
         for file in self.files {
-            args.push(file.display().to_string());
+            args.push(command_path(file));
         }
 
         // Doctest-only files
         for file in self.doctest_only_files {
-            args.extend(["--doctest-only".to_string(), file.display().to_string()]);
+            args.extend(["--doctest-only".to_string(), command_path(file)]);
         }
 
         // Patch file
         if let Some(patch_file) = &self.patch_file {
-            args.extend(["--patch-file".to_string(), patch_file.display().to_string()]);
+            args.extend(["--patch-file".to_string(), command_path(patch_file)]);
         }
 
         // Configuration

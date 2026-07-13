@@ -31,8 +31,9 @@ pub(super) mod msvc;
 mod prove;
 
 use std::borrow::Cow;
-use std::ffi::OsStr;
 use std::path::Path;
+
+pub(super) use super::command_path;
 
 use crate::model::TargetKind;
 use crate::pkg_name::PackageFQN;
@@ -74,10 +75,11 @@ pub(super) struct MiDependency<'a> {
 
 impl<'a> MiDependency<'a> {
     pub(super) fn to_alias_arg(&self) -> String {
+        let path = command_path(&self.path);
         if let Some(alias) = &self.alias {
-            format!("{}:{}", self.path.display(), alias)
+            format!("{path}:{alias}")
         } else {
-            format!("{}:{}", self.path.display(), self.path.display())
+            format!("{path}:{path}")
         }
     }
 
@@ -170,7 +172,7 @@ pub(super) struct PackageSource<'a> {
 
 impl<'a> PackageSource<'a> {
     pub(super) fn to_arg(&self) -> String {
-        format!("{}:{}", self.package_name, self.source_dir.display())
+        format!("{}:{}", self.package_name, command_path(&self.source_dir))
     }
 }
 
@@ -233,8 +235,8 @@ pub(super) trait CmdlineAbstraction {
     fn to_args(&self, args: &mut Vec<String>);
 
     /// Build the full command with executable and arguments.
-    fn build_command(&self, executable: impl AsRef<OsStr>) -> Vec<String> {
-        let mut args = vec![executable.as_ref().to_string_lossy().into_owned()];
+    fn build_command(&self, executable: &Path) -> Vec<String> {
+        let mut args = vec![command_path(executable)];
         self.to_args(&mut args);
         args
     }

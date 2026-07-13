@@ -286,7 +286,7 @@ fn run_check_for_single_file_rr(
         .path
         .first()
         .context("standalone single-file `moon check` expects exactly one `PATH`")?;
-    let single_file_path = dunce::canonicalize(path)
+    let single_file_path = std::fs::canonicalize(path)
         .with_context(|| format!("failed to resolve file path `{}`", path.display()))?;
     std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 

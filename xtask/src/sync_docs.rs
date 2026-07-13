@@ -27,8 +27,8 @@ pub(crate) fn run(path: &Path) -> anyhow::Result<()> {
 
     let moonbit_docs_moon_dir = path.join("next").join("toolchain").join("moon");
 
-    let from = dunce::canonicalize(moon_manual_dir.join("commands.md")).unwrap();
-    let to = dunce::canonicalize(moonbit_docs_moon_dir.join("commands.md")).unwrap();
+    let from = std::fs::canonicalize(moon_manual_dir.join("commands.md")).unwrap();
+    let to = std::fs::canonicalize(moonbit_docs_moon_dir.join("commands.md")).unwrap();
     process_commands(&from, &to)
 }
 

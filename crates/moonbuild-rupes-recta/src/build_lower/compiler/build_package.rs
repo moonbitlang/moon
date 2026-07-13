@@ -22,7 +22,7 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use crate::build_lower::compiler::{
-    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, CompilationFlags,
+    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, CompilationFlags, command_path,
 };
 
 /// Abstraction for `moonc build-package`.
@@ -72,7 +72,7 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
         self.defaults.add_warning_options(args);
 
         // Output
-        args.extend(["-o".to_string(), self.core_out.display().to_string()]);
+        args.extend(["-o".to_string(), command_path(&self.core_out)]);
 
         // Package configuration
         self.required.add_package_config(args);

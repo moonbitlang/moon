@@ -773,7 +773,7 @@ pub fn apply_snapshot<'a>(
         let filename = snapshot.loc.filename;
         let actual = snapshot.actual.clone();
         let expect_file = &snapshot.expect_file;
-        let expect_file = dunce::canonicalize(PathBuf::from(&filename))
+        let expect_file = std::fs::canonicalize(PathBuf::from(&filename))
             .unwrap()
             .parent()
             .unwrap()
@@ -979,7 +979,7 @@ pub fn snapshot_eq(
     let filename = snapshot.loc.filename;
     let actual = snapshot.actual.clone();
     let expect_file = &snapshot.expect_file;
-    let expect_file = dunce::canonicalize(PathBuf::from(&filename))
+    let expect_file = std::fs::canonicalize(PathBuf::from(&filename))
         .unwrap()
         .parent()
         .unwrap()
@@ -1008,7 +1008,7 @@ pub fn render_snapshot_fail(
     let loc = snapshot.loc;
     let actual = snapshot.actual.clone();
     let expect_file = &snapshot.expect_file;
-    let expect_file = dunce::canonicalize(PathBuf::from(&loc.filename))
+    let expect_file = std::fs::canonicalize(PathBuf::from(&loc.filename))
         .unwrap()
         .parent()
         .unwrap()

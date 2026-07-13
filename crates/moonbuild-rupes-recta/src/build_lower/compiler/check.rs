@@ -21,7 +21,9 @@
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::build_lower::compiler::{BuildCommonConfig, BuildCommonInput, CmdlineAbstraction};
+use crate::build_lower::compiler::{
+    BuildCommonConfig, BuildCommonInput, CmdlineAbstraction, command_path,
+};
 
 /// Abstraction for `moonc check`.
 ///
@@ -74,7 +76,7 @@ impl<'a> CmdlineAbstraction for MooncCheck<'a> {
 
         // Output
         if !self.defaults.no_mi {
-            args.extend(["-o".to_string(), self.mi_out.display().to_string()]);
+            args.extend(["-o".to_string(), command_path(&self.mi_out)]);
         }
 
         // Package configuration

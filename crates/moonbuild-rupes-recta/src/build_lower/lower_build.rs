@@ -57,7 +57,7 @@ use crate::{
 };
 
 use super::{
-    BuildCommand, Commandline, compiler,
+    BuildCommand, Commandline, command_path, compiler,
     context::{ActionProducts, LoweringContext},
 };
 
@@ -430,7 +430,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
+            commandline: cmd.build_command(&BINARIES.moonc).into(),
         }
     }
 
@@ -491,7 +491,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
+            commandline: cmd.build_command(&BINARIES.moonc).into(),
         }
     }
 
@@ -571,7 +571,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
+            commandline: cmd.build_command(&BINARIES.moonc).into(),
         }
     }
 
@@ -676,7 +676,7 @@ impl<'a> LoweringContext<'a> {
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
         BuildCommand {
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
+            commandline: cmd.build_command(&BINARIES.moonc).into(),
             extra_inputs,
         }
     }
@@ -794,7 +794,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
+            commandline: cmd.build_command(&BINARIES.moonc).into(),
         }
     }
 
@@ -933,18 +933,20 @@ impl<'a> LoweringContext<'a> {
         let intermediate_dir = self
             .artifact_paths
             .target_layout()
-            .package_dir(&package.fqn, self.opt.target_backend.into())
-            .display()
-            .to_string();
+            .package_dir(&package.fqn, self.opt.target_backend.into());
+
+        let input_file_arg = command_path(input_file);
+        let intermediate_dir_arg = command_path(&intermediate_dir);
+        let output_file_arg = command_path(&output_file);
 
         let cc_cmd = make_cc_command_resolved_for_toolchain(
             &info.effective_native_toolchain,
             config,
             &info.cc_flags,
             &[] as &[&str],
-            [input_file.display().to_string()],
-            &intermediate_dir,
-            Some(&output_file.display().to_string()),
+            [input_file_arg],
+            &intermediate_dir_arg,
+            Some(&output_file_arg),
             self.opt.compiler_paths(),
         );
 
@@ -1006,14 +1008,17 @@ impl<'a> LoweringContext<'a> {
             .expect("Failed to build archiver configuration");
 
         let cc = info.effective_native_toolchain.cc().clone();
+        let object_file_args = object_files
+            .iter()
+            .map(|path| command_path(path))
+            .collect::<Vec<_>>();
+        let archive_arg = command_path(&archive);
+
         let archiver_cmd = make_archiver_command_resolved(
             cc,
             config,
-            &object_files
-                .iter()
-                .map(|s| s.to_string_lossy())
-                .collect::<Vec<_>>(),
-            &archive.display().to_string(),
+            &object_file_args,
+            &archive_arg,
             self.opt.compiler_paths(),
         );
 
@@ -1033,9 +1038,7 @@ impl<'a> LoweringContext<'a> {
     ) -> BuildCommand {
         let dest_dir = dylib_out
             .parent()
-            .expect("c stub dylib should have a parent directory")
-            .display()
-            .to_string();
+            .expect("c stub dylib should have a parent directory");
 
         // Track libruntime.{DYN_EXT} as a dependency but do not pass it as a direct linker src.
         // Legacy adds runtime into build inputs then links via -lruntime using link_shared_runtime.
@@ -1058,18 +1061,17 @@ impl<'a> LoweringContext<'a> {
             .expect("Failed to build LinkerConfig for C stub dylib");
 
         // Sources: only object files; runtime handled via link_shared_runtime (-lruntime + rpath)
-        let sources: Vec<String> = object_files
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect();
+        let source_args: Vec<String> = object_files.iter().map(|path| command_path(path)).collect();
+        let dest_dir_arg = command_path(dest_dir);
+        let dylib_out_arg = command_path(&dylib_out);
 
         let cc_cmd = make_linker_command_resolved(
             cc,
             lcfg,
             &info.link_flags,
-            &sources,
-            &dest_dir,
-            &dylib_out.display().to_string(),
+            &source_args,
+            &dest_dir_arg,
+            &dylib_out_arg,
             &self.opt.compiler_paths().lib_path,
         );
 
@@ -1203,28 +1205,30 @@ impl<'a> LoweringContext<'a> {
             .build()
             .expect("Failed to build CC configuration for executable");
 
-        let dest = products.single_output_path().display().to_string();
+        let dest = products.single_output_path();
 
         // This directory is used for MSVC to place intermediate files.
         // Each package should use their own to minimize conflicts.
-        let pkg_dir = self
-            .artifact_paths
-            .target_layout()
-            .package_dir(
-                &self.get_package(target).fqn,
-                self.opt.target_backend.into(),
-            )
-            .display()
-            .to_string();
+        let pkg_dir = self.artifact_paths.target_layout().package_dir(
+            &self.get_package(target).fqn,
+            self.opt.target_backend.into(),
+        );
+
+        let source_args = sources
+            .iter()
+            .map(|path| command_path(path))
+            .collect::<Vec<_>>();
+        let pkg_dir_arg = command_path(&pkg_dir);
+        let dest_arg = command_path(&dest);
 
         let cc_cmd = make_cc_command_resolved_for_toolchain(
             &info.effective_native_toolchain,
             config,
             &info.c_flags,
             &info.link_flags,
-            sources.iter().map(|x| x.display().to_string()),
-            &pkg_dir,
-            Some(&dest),
+            &source_args,
+            &pkg_dir_arg,
+            Some(&dest_arg),
             self.opt.compiler_paths(),
         );
 
@@ -1234,7 +1238,7 @@ impl<'a> LoweringContext<'a> {
             && self.opt.debug_symbols
             && self.opt.os() == OperatingSystem::MacOS
         {
-            commandline_with_dsymutil(&cc_cmd, &dest)
+            commandline_with_dsymutil(&cc_cmd, &dest_arg)
         } else {
             cc_cmd.into()
         };
@@ -1266,17 +1270,12 @@ impl<'a> LoweringContext<'a> {
         };
         sources.extend(simdutf_objects.iter().cloned());
 
-        let dest = products.single_output_path().display().to_string();
+        let dest = products.single_output_path();
 
-        let pkg_dir = self
-            .artifact_paths
-            .target_layout()
-            .package_dir(
-                &self.get_package(target).fqn,
-                self.opt.target_backend.into(),
-            )
-            .display()
-            .to_string();
+        let pkg_dir = self.artifact_paths.target_layout().package_dir(
+            &self.get_package(target).fqn,
+            self.opt.target_backend.into(),
+        );
 
         let config = LinkerConfigBuilder::<&Path>::default()
             .link_moonbitrun(true)
@@ -1287,8 +1286,10 @@ impl<'a> LoweringContext<'a> {
 
         let source_args = sources
             .iter()
-            .map(|path| path.display().to_string())
+            .map(|path| command_path(path))
             .collect::<Vec<_>>();
+        let pkg_dir_arg = command_path(&pkg_dir);
+        let dest_arg = command_path(&dest);
         let run_dsymutil = should_run_new_native_dsymutil(
             self.opt.native_mode.direct_target(),
             self.opt.debug_symbols,
@@ -1300,7 +1301,7 @@ impl<'a> LoweringContext<'a> {
                 &info.effective_native_toolchain,
                 &source_args,
                 &info.link_flags,
-                &dest,
+                &dest_arg,
                 &self.opt.compiler_paths().lib_path,
             )
             .into()
@@ -1310,12 +1311,12 @@ impl<'a> LoweringContext<'a> {
                 config,
                 &info.link_flags,
                 &source_args,
-                &pkg_dir,
-                &dest,
+                &pkg_dir_arg,
+                &dest_arg,
                 &self.opt.compiler_paths().lib_path,
             );
             if run_dsymutil {
-                commandline_with_dsymutil(&linker_cmd, &dest)
+                commandline_with_dsymutil(&linker_cmd, &dest_arg)
             } else {
                 linker_cmd.into()
             }
@@ -1356,7 +1357,7 @@ impl<'a> LoweringContext<'a> {
             cfg,
             &[] as &[&str], // no user flags
             &info.link_flags,
-            sources.iter().map(|x| x.to_string_lossy().into_owned()),
+            sources.iter().map(|path| command_path(path)),
             "", // TCC is not MSVC, no need to set special dest dir
             None,
             self.opt.compiler_paths(),
@@ -1367,7 +1368,7 @@ impl<'a> LoweringContext<'a> {
         let c_file = products.single_dependency_path_matching(|product| {
             matches!(product, BuildProduct::LinkedCore { .. })
         });
-        cmdline.push(c_file.display().to_string());
+        cmdline.push(command_path(&c_file));
 
         // Note: at this point, we have our TCC command.
         // However, this command should be executed when the user runs the final
@@ -1375,18 +1376,14 @@ impl<'a> LoweringContext<'a> {
         // a response file so that `tcc` will run it later.
         //
         // We have a tool for this: `moon tool write-tcc-rsp-file <out> <args...>`
-        let moonbuild = BINARIES
-            .moonbuild
-            .to_str()
-            .expect("moonbuild path is valid UTF-8");
         let mut rsp_cmdline = vec![
-            moonbuild.to_string(),
+            command_path(&BINARIES.moonbuild),
             "tool".to_string(),
             "write-tcc-rsp-file".to_string(),
         ];
         let rsp_path = products.single_output_path();
 
-        rsp_cmdline.push(rsp_path.display().to_string());
+        rsp_cmdline.push(command_path(&rsp_path));
         rsp_cmdline.extend(cmdline.into_iter().skip(1)); // skip original `tcc` command
 
         BuildCommand {
@@ -1436,7 +1433,7 @@ impl<'a> LoweringContext<'a> {
         BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
             extra_inputs: vec![mbti_path.clone()],
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
+            commandline: cmd.build_command(&BINARIES.moonc).into(),
         }
     }
 

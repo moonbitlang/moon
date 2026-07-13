@@ -1,0 +1,121 @@
+use super::*;
+use std::{
+    os::windows::ffi::OsStrExt,
+    path::{Component, Path, PathBuf, Prefix},
+};
+
+const LEGACY_PATH_LIMIT: usize = 260;
+
+fn windows_path_len(path: &Path) -> usize {
+    path.as_os_str().encode_wide().count()
+}
+
+fn has_verbatim_prefix(path: &Path) -> bool {
+    matches!(
+        path.components().next(),
+        Some(Component::Prefix(prefix))
+            if matches!(
+                prefix.kind(),
+                Prefix::Verbatim(_) | Prefix::VerbatimDisk(_) | Prefix::VerbatimUNC(_, _)
+            )
+    )
+}
+
+fn write_file(path: &Path, contents: &str) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(path, contents).unwrap();
+}
+
+#[test]
+fn check_supports_artifacts_beyond_the_legacy_path_limit() {
+    let dir = TestDir::new_empty();
+    let root = dir.as_ref();
+    assert!(
+        windows_path_len(&root.join("_build")) < LEGACY_PATH_LIMIT,
+        "the test needs a shallow target root"
+    );
+
+    let mut package_rel = PathBuf::new();
+    // Keep the inputs below the legacy limit while making the package deep
+    // enough for the `_build` artifact to cross it.
+    for index in 0.. {
+        let next = package_rel.join(format!("segment{index:02}"));
+        if windows_path_len(&root.join(&next).join("moon.pkg.json")) >= LEGACY_PATH_LIMIT {
+            break;
+        }
+        package_rel = next;
+    }
+
+    let package_dir = root.join(&package_rel);
+    let package_manifest = package_dir.join("moon.pkg.json");
+    let source_file = package_dir.join("lib.mbt");
+    assert!(
+        windows_path_len(&package_manifest) < LEGACY_PATH_LIMIT,
+        "the package manifest must remain addressable as a legacy path"
+    );
+    assert!(
+        windows_path_len(&source_file) < LEGACY_PATH_LIMIT,
+        "the source file must remain addressable as a legacy path"
+    );
+
+    write_file(
+        &root.join("moon.mod.json"),
+        r#"{
+  "name": "test/long-path"
+}
+"#,
+    );
+    write_file(&package_manifest, "{}\n");
+    write_file(&source_file, "pub fn answer() -> Int { 42 }\n");
+
+    let dry_run = moon_cmd(&dir)
+        .args(["check", "--dry-run", "--nostd", "--sort-input"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let dry_run = String::from_utf8(dry_run).expect("dry-run output should be UTF-8");
+    let command_args = dry_run
+        .lines()
+        .find_map(|line| {
+            let args = moonutil::shlex::split_native(line);
+            args.windows(2).any(|pair| pair[0] == "-o").then_some(args)
+        })
+        .expect("dry run should expose the compiler command");
+    let source_arg = command_args
+        .iter()
+        .map(Path::new)
+        .find(|path| path.file_name().is_some_and(|name| name == "lib.mbt"))
+        .expect("dry run should expose the source path");
+    assert!(
+        !has_verbatim_prefix(source_arg),
+        "short source path should be simplified at the command boundary: {}",
+        source_arg.display()
+    );
+
+    let output_path = command_args
+        .windows(2)
+        .find(|pair| pair[0] == "-o")
+        .map(|pair| PathBuf::from(&pair[1]))
+        .expect("dry run should expose the package artifact after `-o`");
+    let output_path = if output_path.is_absolute() {
+        output_path
+    } else {
+        root.join(output_path)
+    };
+    assert!(
+        windows_path_len(&output_path) > LEGACY_PATH_LIMIT,
+        "artifact path should exceed the legacy limit: {}",
+        output_path.display()
+    );
+    assert!(
+        has_verbatim_prefix(&output_path),
+        "long artifact path should retain verbatim syntax: {}",
+        output_path.display()
+    );
+
+    moon_cmd(&dir).args(["check", "--nostd"]).assert().success();
+}

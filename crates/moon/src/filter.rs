@@ -38,7 +38,7 @@ use crate::user_diagnostics::UserDiagnostics;
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
 pub(crate) fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf, Option<String>)> {
-    let input_path = dunce::canonicalize(path).with_context(|| {
+    let input_path = std::fs::canonicalize(path).with_context(|| {
         format!(
             "Failed to canonicalize input filter directory `{}`",
             path.display()
@@ -576,7 +576,7 @@ mod tests {
     }
 
     fn canonical(path: impl AsRef<Path>) -> PathBuf {
-        dunce::canonicalize(path).unwrap()
+        std::fs::canonicalize(path).unwrap()
     }
 
     fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ResolveOutput {

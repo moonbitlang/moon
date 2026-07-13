@@ -296,7 +296,7 @@ pub(super) fn install_from_local(
     install_dir: &Path,
     install_all: bool,
 ) -> anyhow::Result<i32> {
-    let input_path = dunce::canonicalize(local_path).with_context(|| {
+    let input_path = std::fs::canonicalize(local_path).with_context(|| {
         format!(
             "Path `{}` does not exist or cannot be resolved",
             local_path.display()
@@ -423,14 +423,14 @@ pub(super) fn install_from_git(
         );
     }
 
-    let target_path = dunce::canonicalize(&target_path).with_context(|| {
+    let target_path = std::fs::canonicalize(&target_path).with_context(|| {
         format!(
             "Path `{}` cannot be resolved in the repository",
             path_in_repo.unwrap_or("")
         )
     })?;
     let clone_dir =
-        dunce::canonicalize(clone_dir).context("Failed to resolve cloned repository")?;
+        std::fs::canonicalize(clone_dir).context("Failed to resolve cloned repository")?;
     if !target_path.starts_with(&clone_dir) {
         bail!(
             "Path `{}` escapes repository root",
@@ -468,7 +468,7 @@ fn build_and_install_packages(
     install_dir: &Path,
     filter: PackageFilter,
 ) -> anyhow::Result<i32> {
-    let module_dir = dunce::canonicalize(module_dir).with_context(|| {
+    let module_dir = std::fs::canonicalize(module_dir).with_context(|| {
         format!(
             "Failed to resolve module directory `{}`",
             module_dir.display()

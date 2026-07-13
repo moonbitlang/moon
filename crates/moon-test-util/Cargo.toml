@@ -24,7 +24,6 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-dunce.workspace = true
 ignore.workspace = true
 snapbox = { workspace = true, features = ["regex"] }
 tempfile.workspace = true

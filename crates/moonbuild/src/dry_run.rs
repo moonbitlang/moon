@@ -105,14 +105,14 @@ impl PathNormalizer {
         let toolchain_root = toolchain_root();
         let moon_home = home();
         let show_toolchain_root = match (
-            dunce::canonicalize(&toolchain_root),
-            dunce::canonicalize(&moon_home),
+            std::fs::canonicalize(&toolchain_root),
+            std::fs::canonicalize(&moon_home),
         ) {
             (Ok(toolchain_root), Ok(moon_home)) => toolchain_root != moon_home,
             _ => toolchain_root != moon_home,
         };
 
-        let canonical = dunce::canonicalize(source_dir).ok();
+        let canonical = std::fs::canonicalize(source_dir).ok();
         PathNormalizer {
             canonical,
             replace_table,
@@ -174,7 +174,7 @@ impl PathNormalizer {
     }
 
     pub fn normalize_context_path(&self, path: &Path) -> String {
-        let normalized_path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let normalized_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         self.normalize_path(&normalized_path.to_string_lossy())
     }
 

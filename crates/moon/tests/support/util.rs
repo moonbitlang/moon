@@ -57,7 +57,7 @@ pub(crate) fn toolchain_root_for_tests() -> PathBuf {
         return PathBuf::from(path);
     }
 
-    let moonc = dunce::canonicalize(&*moonutil::toolchain::BINARIES.moonc)
+    let moonc = std::fs::canonicalize(&*moonutil::toolchain::BINARIES.moonc)
         .unwrap_or(moonutil::toolchain::BINARIES.moonc.clone());
     if let Some(bin_dir) = moonc.parent()
         && bin_dir.file_name().is_some_and(|name| name == "bin")
@@ -90,7 +90,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     } else {
         s
     };
-    let path_str1 = dunce::canonicalize(dir)
+    let path_str1 = std::fs::canonicalize(dir)
         .unwrap()
         .to_str()
         .unwrap()
@@ -103,8 +103,8 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     let toolchain_root = toolchain_root_for_tests();
     let moon_home = moonutil::toolchain::home();
     let show_toolchain_root = match (
-        dunce::canonicalize(&toolchain_root),
-        dunce::canonicalize(&moon_home),
+        std::fs::canonicalize(&toolchain_root),
+        std::fs::canonicalize(&moon_home),
     ) {
         (Ok(toolchain_root), Ok(moon_home)) => toolchain_root != moon_home,
         _ => toolchain_root != moon_home,
@@ -124,7 +124,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
             let s = s.replace(raw.as_ref(), replacement);
             let s = s.replace(raw.replace('\\', "/").as_str(), replacement);
 
-            match dunce::canonicalize(path) {
+            match std::fs::canonicalize(path) {
                 Ok(path) => {
                     let path = path.to_string_lossy();
                     let s = s.replace(path.as_ref(), replacement);
@@ -137,7 +137,7 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         s
     };
     let s = s.replace(
-        dunce::canonicalize(moon_home).unwrap().to_str().unwrap(),
+        std::fs::canonicalize(moon_home).unwrap().to_str().unwrap(),
         "$MOON_HOME",
     );
     let s = if let Ok(toolchain) = compiler_flags::default_native_toolchain(None) {
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn replace_dir_replaces_forward_slash_root_paths() {
         let dir = tempfile::tempdir().unwrap();
-        let canonical = dunce::canonicalize(dir.path()).unwrap();
+        let canonical = std::fs::canonicalize(dir.path()).unwrap();
         let root = canonical.to_str().unwrap().replace('\\', "/");
         let output = format!(
             "moonc check {root}/b/hello.mbt -pkg-sources username/b:{root}/b -workspace-path {root}/b"

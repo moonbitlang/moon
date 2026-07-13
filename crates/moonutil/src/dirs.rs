@@ -116,7 +116,7 @@ impl SourceTargetDirs {
         &self,
         source_root: impl AsRef<Path>,
     ) -> Result<PackageDirs, PackageDirsError> {
-        let source_dir = dunce::canonicalize(source_root.as_ref())
+        let source_dir = std::fs::canonicalize(source_root.as_ref())
             .context("failed to resolve source directory")
             .map_err(PackageDirsError::from)?;
         let target_dir = self.resolve_target_dir(&source_dir)?;
@@ -149,7 +149,7 @@ impl SourceTargetDirs {
     ) -> Result<SingleFilePackageDirs, PackageDirsError> {
         // This only builds the synthetic package directories. Whether a command
         // may fall back to single-file mode depends on that command's argv.
-        let file_path = dunce::canonicalize(file_path.as_ref())
+        let file_path = std::fs::canonicalize(file_path.as_ref())
             .with_context(|| {
                 format!(
                     "failed to resolve file path `{}`",
@@ -198,7 +198,7 @@ impl SourceTargetDirs {
         let start_dir = std::env::current_dir()
             .context("failed to get current directory")
             .map_err(PackageDirsError::from)?;
-        dunce::canonicalize(start_dir)
+        std::fs::canonicalize(start_dir)
             .context("failed to resolve current directory")
             .map_err(PackageDirsError::from)
     }
@@ -213,7 +213,7 @@ impl SourceTargetDirs {
                 .context("failed to create target directory")
                 .map_err(PackageDirsError::from)?;
         }
-        dunce::canonicalize(target_dir)
+        std::fs::canonicalize(target_dir)
             .context("failed to set target directory")
             .map_err(PackageDirsError::from)
     }
@@ -426,7 +426,7 @@ impl ProjectQuery {
         start_dir: &Path,
         workspace_env: WorkspaceEnv,
     ) -> Result<Self, PackageDirsError> {
-        let start_dir = dunce::canonicalize(start_dir)
+        let start_dir = std::fs::canonicalize(start_dir)
             .with_context(|| {
                 format!(
                     "failed to resolve source directory `{}`",
@@ -447,7 +447,7 @@ impl ProjectQuery {
         let workspace = match &workspace_env {
             WorkspaceEnv::Off => None,
             WorkspaceEnv::Pinned(workspace_path) => {
-                let manifest_path = dunce::canonicalize(workspace_path)
+                let manifest_path = std::fs::canonicalize(workspace_path)
                     .context("failed to resolve pinned workspace path")
                     .map_err(PackageDirsError::from)?;
                 let root = manifest_root(&manifest_path).map_err(PackageDirsError::from)?;
@@ -739,7 +739,7 @@ impl ProjectQuery {
                 .context("failed to create target directory")
                 .map_err(PackageDirsError::from)?;
         }
-        dunce::canonicalize(target_dir)
+        std::fs::canonicalize(target_dir)
             .context("failed to set target directory")
             .map_err(PackageDirsError::from)
     }
@@ -889,7 +889,7 @@ fn parse_workspace_env(
 }
 
 fn canonicalize_workspace_env_path(path: PathBuf) -> anyhow::Result<PathBuf> {
-    let path = dunce::canonicalize(&path)
+    let path = std::fs::canonicalize(&path)
         .with_context(|| format!("failed to resolve MOON_WORK path `{}`", path.display()))?;
 
     if path.is_dir() {
@@ -946,7 +946,7 @@ fn manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
 fn deprecated_manifest_override_from_path(
     manifest_path: &Path,
 ) -> anyhow::Result<ExplicitManifestOverride> {
-    let manifest_path = dunce::canonicalize(manifest_path).with_context(|| {
+    let manifest_path = std::fs::canonicalize(manifest_path).with_context(|| {
         format!(
             "failed to resolve manifest path `{}`",
             manifest_path.display()
@@ -1047,7 +1047,7 @@ mod tests {
     }
 
     fn canonical(path: impl AsRef<Path>) -> PathBuf {
-        dunce::canonicalize(path).unwrap()
+        std::fs::canonicalize(path).unwrap()
     }
 
     fn write_json_module(path: &Path, name: &str) {

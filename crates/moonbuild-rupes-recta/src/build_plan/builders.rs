@@ -1705,7 +1705,7 @@ fn handle_build_command_new(
     // For windows, we also need to check if the resolved path with `.ps1` exists.
     #[cfg(windows)]
     if is_relative {
-        let resolved_path_ps1 = dunce::canonicalize(mod_source.join(format!("{}.ps1", argv0)));
+        let resolved_path_ps1 = std::fs::canonicalize(mod_source.join(format!("{}.ps1", argv0)));
         if let Ok(new_argv0) = resolved_path_ps1
             && new_argv0.is_file()
         {

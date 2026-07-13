@@ -1450,7 +1450,7 @@ fn test_bench4() {
         ],
     );
 
-    let trace_file = dunce::canonicalize(dir.join("./trace.json")).unwrap();
+    let trace_file = std::fs::canonicalize(dir.join("./trace.json")).unwrap();
     let t = std::fs::read_to_string(trace_file).unwrap();
     assert!(t.contains("moonbit::build::read"));
     assert!(t.contains(r#""name":"work.run""#));

@@ -490,7 +490,7 @@ fn resolve_pkg(
             root.display()
         );
         let dep_path = root.join(path);
-        let dep_path = dunce::canonicalize(&dep_path).map_err(|err| {
+        let dep_path = std::fs::canonicalize(&dep_path).map_err(|err| {
             ResolverError::Other(anyhow!(
                 "While resolving local dependency `{}` for module `{}` at path `{}`: {}",
                 pkg_name,

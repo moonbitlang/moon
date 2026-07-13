@@ -36,7 +36,7 @@ use crate::{
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
 
-use super::{BuildCommand, compiler, context::ActionProducts};
+use super::{BuildCommand, command_path, compiler, context::ActionProducts};
 
 impl<'a> super::LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -98,7 +98,7 @@ impl<'a> super::LoweringContext<'a> {
             max_concurrent_tests: package.raw.max_concurrent_tests,
         };
 
-        let commandline = cmd.build_command(&*BINARIES.moonbuild);
+        let commandline = cmd.build_command(&BINARIES.moonbuild);
 
         // The generated driver embeds moon's private test-driver protocol, so
         // cached driver artifacts must invalidate when the moon binary changes.
@@ -146,7 +146,7 @@ impl<'a> super::LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
+            commandline: cmd.build_command(&BINARIES.moonc).into(),
         }
     }
 
@@ -186,35 +186,39 @@ impl<'a> super::LoweringContext<'a> {
             let use_simdutf = !use_shared_runtime
                 && resolved_cc.can_use_simdutf()
                 && self.opt.compiler_paths().simdutf_object_paths().is_some();
+            let config = CCConfigBuilder::default()
+                .no_sys_header(true)
+                .output_ty(output_ty)
+                .opt_level(CCOptLevel::Speed)
+                .debug_info(true)
+                .allow_stacktrace(
+                    self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
+                )
+                .define_tinyc_macro(use_shared_runtime)
+                .preserve_frame_pointer(use_shared_runtime)
+                .link_moonbitrun(link_moonbitrun)
+                .link_libbacktrace(output_ty == CCOutputType::SharedLib)
+                .define_use_shared_runtime_macro(false)
+                .use_simdutf(use_simdutf)
+                .build()
+                .expect("Failed to build CC configuration for runtime");
+            let runtime_output_dir = self
+                .artifact_paths
+                .target_layout()
+                .runtime_output_dir(self.opt.target_backend);
+
+            let runtime_c_arg = command_path(&runtime_c_path);
+            let runtime_output_dir_arg = command_path(&runtime_output_dir);
+            let artifact_arg = command_path(&artifact_path);
 
             (
                 make_cc_command_resolved(
                     resolved_cc,
-                    CCConfigBuilder::default()
-                        .no_sys_header(true)
-                        .output_ty(output_ty)
-                        .opt_level(CCOptLevel::Speed)
-                        .debug_info(true)
-                        .allow_stacktrace(
-                            self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
-                        )
-                        .define_tinyc_macro(use_shared_runtime)
-                        .preserve_frame_pointer(use_shared_runtime)
-                        .link_moonbitrun(link_moonbitrun)
-                        .link_libbacktrace(output_ty == CCOutputType::SharedLib)
-                        .define_use_shared_runtime_macro(false)
-                        .use_simdutf(use_simdutf)
-                        .build()
-                        .expect("Failed to build CC configuration for runtime"),
+                    config,
                     &[] as &[&str],
-                    [runtime_c_path.display().to_string()],
-                    &self
-                        .artifact_paths
-                        .target_layout()
-                        .runtime_output_dir(self.opt.target_backend)
-                        .display()
-                        .to_string(),
-                    Some(&artifact_path.display().to_string()),
+                    [runtime_c_arg],
+                    &runtime_output_dir_arg,
+                    Some(&artifact_arg),
                     self.opt.compiler_paths(),
                 )
                 .into(),
@@ -262,7 +266,7 @@ impl<'a> super::LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(&*BINARIES.mooninfo).into(),
+            commandline: cmd.build_command(&BINARIES.mooninfo).into(),
         }
     }
 
@@ -299,7 +303,7 @@ impl<'a> super::LoweringContext<'a> {
         );
 
         BuildCommand {
-            commandline: cmd.build_command(&*BINARIES.moondoc).into(),
+            commandline: cmd.build_command(&BINARIES.moondoc).into(),
             extra_inputs: vec![packages_json],
         }
     }
@@ -310,7 +314,7 @@ impl<'a> super::LoweringContext<'a> {
         // Ideally we can do this ourselves, but n2 does it anyway so we don't bother.
 
         let commandline = vec![
-            BINARIES.moonbuild.display().to_string(),
+            command_path(&BINARIES.moonbuild),
             "tool".to_string(),
             "exec".to_string(),
             "--shell".to_string(),
@@ -334,12 +338,12 @@ impl<'a> super::LoweringContext<'a> {
         let output = mbtlex_path.with_extension("mbt");
 
         let commandline = vec![
-            BINARIES.moonrun.display().to_string(),
-            BINARIES.moonlex.display().to_string(),
+            command_path(&BINARIES.moonrun),
+            command_path(&BINARIES.moonlex),
             "--".into(),
-            mbtlex_path.display().to_string(),
+            command_path(&mbtlex_path),
             "-o".into(),
-            output.display().to_string(),
+            command_path(&output),
         ];
 
         BuildCommand {
@@ -358,12 +362,12 @@ impl<'a> super::LoweringContext<'a> {
         let output = mby_path.with_extension("mbt");
 
         let commandline = vec![
-            BINARIES.moonrun.display().to_string(),
-            BINARIES.moonyacc.display().to_string(),
+            command_path(&BINARIES.moonrun),
+            command_path(&BINARIES.moonyacc),
             "--".into(),
-            mby_path.display().to_string(),
+            command_path(&mby_path),
             "-o".into(),
-            output.display().to_string(),
+            command_path(&output),
         ];
 
         BuildCommand {

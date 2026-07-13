@@ -76,7 +76,7 @@ impl PlanningFixture {
         let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
         // These planner tests only inspect graph construction, so they can use
         // the checked-in fixture directly without copying it to a temp directory.
-        let fixture_dir = dunce::canonicalize(case_root.join(case))?;
+        let fixture_dir = std::fs::canonicalize(case_root.join(case))?;
         let project = SourceTargetDirs {
             cwd: None,
             manifest_path: None,

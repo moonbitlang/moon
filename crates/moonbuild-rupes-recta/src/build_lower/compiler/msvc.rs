@@ -22,6 +22,8 @@ use std::path::Path;
 
 use moonutil::compiler_flags::{MsvcCrtPolicy, Toolchain, WINDOWS_MSVC_DEFAULT_LIBS};
 
+use super::command_path;
+
 pub(crate) fn command_env(toolchain: &Toolchain) -> Vec<(String, String)> {
     toolchain
         .msvc_environment()
@@ -45,10 +47,10 @@ pub(crate) fn compile_runtime_command(
         "/Z7".to_string(),
         "/O2".to_string(),
         crt.compiler_flag().to_string(),
-        format!("/Fo{}", dest.display()),
-        format!("/I{moon_include_path}"),
+        format!("/Fo{}", command_path(dest)),
+        format!("/I{}", command_path(Path::new(moon_include_path))),
     ];
-    command.push(source.display().to_string());
+    command.push(command_path(source));
     command
 }
 
@@ -69,7 +71,7 @@ pub(crate) fn link_executable_command(
     command.extend([
         "/nologo".to_string(),
         "/subsystem:console".to_string(),
-        format!("/LIBPATH:{lib_path}"),
+        format!("/LIBPATH:{}", command_path(Path::new(lib_path))),
     ]);
     command.extend(user_link_flags.iter().cloned());
     command.extend(WINDOWS_MSVC_DEFAULT_LIBS.iter().map(|lib| lib.to_string()));

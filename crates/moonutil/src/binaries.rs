@@ -40,7 +40,7 @@ fn moon_bin(binary_name: &str, env_var: &str) -> PathBuf {
             .and_then(|name| name.to_str())
             .is_some_and(|name| name == "moon" || name == "moon.exe")
     {
-        return dunce::canonicalize(&current_exe).unwrap_or(current_exe);
+        return std::fs::canonicalize(&current_exe).unwrap_or(current_exe);
     }
 
     // Try to find in the resolved toolchain root.

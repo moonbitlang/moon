@@ -1558,7 +1558,6 @@ dependencies = [
  "ctrlc",
  "derive_builder",
  "dialoguer",
- "dunce",
  "escargot",
  "expect-test",
  "home",
@@ -1602,7 +1601,6 @@ name = "moon-test-util"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dunce",
  "home",
  "ignore",
  "regex",
@@ -1624,7 +1622,6 @@ dependencies = [
  "colored",
  "ctrlc",
  "dialoguer",
- "dunce",
  "expect-test",
  "handlebars",
  "home",
@@ -1665,7 +1662,6 @@ name = "moonbuild-debug"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "dunce",
  "moonutil",
  "n2",
  "serde",
@@ -1707,7 +1703,6 @@ dependencies = [
  "clap",
  "colored",
  "dialoguer",
- "dunce",
  "expect-test",
  "form_urlencoded",
  "indexmap",
@@ -1763,7 +1758,6 @@ dependencies = [
  "colored",
  "derive_builder",
  "dialoguer",
- "dunce",
  "expect-test",
  "find-msvc-tools",
  "fs4",
@@ -3850,7 +3844,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "dunce",
  "serde",
  "serde_json",
  "toml",

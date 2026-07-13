@@ -308,12 +308,12 @@ fn path_matches(paths: &HashSet<PathBuf>, path: &Path) -> bool {
 }
 
 fn normalize_watch_path(path: &Path) -> PathBuf {
-    if let Ok(canonical) = dunce::canonicalize(path) {
+    if let Ok(canonical) = std::fs::canonicalize(path) {
         return canonical;
     }
 
     if let (Some(parent), Some(filename)) = (path.parent(), path.file_name())
-        && let Ok(canonical_parent) = dunce::canonicalize(parent)
+        && let Ok(canonical_parent) = std::fs::canonicalize(parent)
     {
         return canonical_parent.join(filename);
     }
@@ -569,7 +569,7 @@ mod tests {
             &[event],
             &AdditionalWatchPaths {
                 ignored_paths: HashSet::new(),
-                watched_paths: HashSet::from_iter([dunce::canonicalize(file).unwrap()]),
+                watched_paths: HashSet::from_iter([std::fs::canonicalize(file).unwrap()]),
             },
         )
         .unwrap();
@@ -624,7 +624,7 @@ mod tests {
             root,
             &[event],
             &AdditionalWatchPaths {
-                ignored_paths: HashSet::from_iter([dunce::canonicalize(file).unwrap()]),
+                ignored_paths: HashSet::from_iter([std::fs::canonicalize(file).unwrap()]),
                 watched_paths: HashSet::new(),
             },
         )

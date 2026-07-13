@@ -52,7 +52,7 @@ fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
 }
 
 pub fn t(file: &Path, moon_bin: &Path, update: bool, toolchain_root: Option<&Path>) -> i32 {
-    let p = dunce::canonicalize(file).unwrap();
+    let p = std::fs::canonicalize(file).unwrap();
     let tmpdir = tempfile::tempdir().unwrap();
     let folder_name = p
         .parent()
@@ -64,7 +64,7 @@ pub fn t(file: &Path, moon_bin: &Path, update: bool, toolchain_root: Option<&Pat
         .unwrap()
         .as_os_str();
     copy(file.parent().unwrap(), &tmpdir.path().join(folder_name)).unwrap();
-    let workdir = dunce::canonicalize(tmpdir.path().join(folder_name)).unwrap();
+    let workdir = std::fs::canonicalize(tmpdir.path().join(folder_name)).unwrap();
 
     let items = parse::parse(file);
     let mut result: Vec<parse::Block> = vec![];

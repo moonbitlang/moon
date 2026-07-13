@@ -130,7 +130,7 @@ pub fn canonical_workspace_module_dirs(
         } else {
             workspace_root.join(use_path)
         };
-        let path = dunce::canonicalize(&path).with_context(|| {
+        let path = std::fs::canonicalize(&path).with_context(|| {
             format!(
                 "failed to resolve workspace member `{}` from `{}`",
                 use_path.display(),

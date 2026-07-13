@@ -50,7 +50,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
         .join("whitespace_test.in");
     copy(&dir, &path_with_space)?;
 
-    let canon = dunce::canonicalize(tmp_dir.path())?;
+    let canon = std::fs::canonicalize(tmp_dir.path())?;
     let prefix = canon.as_path().display().to_string().replace('\\', "/");
 
     let build_graph = path_with_space.join("build_graph.jsonl");
