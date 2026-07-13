@@ -75,8 +75,8 @@ cargo install --path ./crates/moon --debug --offline
       binary
     - `src/cli/generate_test_driver.rs`: as the name suggests
   - `src/rr_build`: integration with the Rupes Recta build engine
-  - `tests/test_cases/mod.rs`: all end-to-end tests are located in
-    this file
+  - `tests/test_cases`: end-to-end tests organized into modules by purpose;
+    `mod.rs` contains their shared imports and module registrations
 
 - `crates/moonbuild-rupes-recta`: the new build graph generation engine (now default)
   - `src/build_lower`: lowers resolved modules to n2 build commands
