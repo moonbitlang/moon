@@ -80,12 +80,12 @@ fn normalized_env_lines(env: &[(String, String)], replacer: &PathNormalizer) -> 
 // moonbuild debug support. Move it to a non-debug utility module after
 // `moonbuild-debug` is no longer needed on production dependency paths.
 pub struct PathNormalizer {
-    canonical: Option<PathBuf>,
+    canonical_roots: Vec<PathBuf>,
     replace_table: Vec<(String, String)>,
     binary_file_name_table: Vec<(String, String)>,
     show_toolchain_root: bool,
-    toolchain_root: String,
-    moon_home: String,
+    toolchain_roots: Vec<String>,
+    moon_home_roots: Vec<String>,
 }
 
 impl PathNormalizer {
@@ -93,7 +93,11 @@ impl PathNormalizer {
         let all_moon_bins = moonutil::toolchain::BINARIES.all_moon_bins();
         let replace_table = all_moon_bins
             .iter()
-            .map(|(name, path)| (path.to_string_lossy().into_owned(), name.to_string()))
+            .flat_map(|(name, path)| {
+                moonutil::path::path_spellings_for_comparison(path)
+                    .into_iter()
+                    .map(|path| (path.to_string_lossy().into_owned(), name.to_string()))
+            })
             .collect();
         let binary_file_name_table = all_moon_bins
             .iter()
@@ -112,14 +116,22 @@ impl PathNormalizer {
             _ => toolchain_root != moon_home,
         };
 
-        let canonical = std::fs::canonicalize(source_dir).ok();
+        let canonical_roots = std::fs::canonicalize(source_dir)
+            .map(|path| moonutil::path::path_spellings_for_comparison(&path))
+            .unwrap_or_default();
         PathNormalizer {
-            canonical,
+            canonical_roots,
             replace_table,
             binary_file_name_table,
             show_toolchain_root,
-            toolchain_root: toolchain_root.to_string_lossy().into_owned(),
-            moon_home: moon_home.to_string_lossy().into_owned(),
+            toolchain_roots: moonutil::path::path_spellings_for_comparison(&toolchain_root)
+                .into_iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+            moon_home_roots: moonutil::path::path_spellings_for_comparison(&moon_home)
+                .into_iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
         }
     }
 
@@ -134,7 +146,7 @@ impl PathNormalizer {
 
     pub fn normalize_command_arg(&self, s: &str) -> String {
         let mut s = s.to_owned();
-        if let Some(canonical) = &self.canonical {
+        for canonical in &self.canonical_roots {
             let prefix = canonical.to_string_lossy();
             let prefix_str = prefix.as_ref();
             let with_sep = format!("{prefix_str}{}", std::path::MAIN_SEPARATOR);
@@ -146,9 +158,13 @@ impl PathNormalizer {
             s = s.replace(from, to);
         }
         if self.show_toolchain_root {
-            s = s.replace(&self.toolchain_root, "$MOON_TOOLCHAIN_ROOT");
+            for toolchain_root in &self.toolchain_roots {
+                s = s.replace(toolchain_root, "$MOON_TOOLCHAIN_ROOT");
+            }
         }
-        s = s.replace(&self.moon_home, "$MOON_HOME");
+        for moon_home in &self.moon_home_roots {
+            s = s.replace(moon_home, "$MOON_HOME");
+        }
         s = s.replace('\\', "/");
         s = self.normalize_binary_file_name(s);
 
@@ -157,16 +173,22 @@ impl PathNormalizer {
 
     pub fn normalize_path(&self, path: &str) -> String {
         let path_obj = Path::new(path);
-        if let Some(canonical) = &self.canonical
-            && let Ok(stripped) = path_obj.strip_prefix(canonical)
+        if let Some(stripped) = self
+            .canonical_roots
+            .iter()
+            .find_map(|canonical| path_obj.strip_prefix(canonical).ok())
         {
             return Self::relative_from_path(stripped);
         }
         let mut path = path.to_owned();
         if self.show_toolchain_root {
-            path = path.replace(&self.toolchain_root, "$MOON_TOOLCHAIN_ROOT");
+            for toolchain_root in &self.toolchain_roots {
+                path = path.replace(toolchain_root, "$MOON_TOOLCHAIN_ROOT");
+            }
         }
-        path = path.replace(&self.moon_home, "$MOON_HOME");
+        for moon_home in &self.moon_home_roots {
+            path = path.replace(moon_home, "$MOON_HOME");
+        }
         path = path.replace('\\', "/");
         path = self.normalize_binary_file_name(path);
 
@@ -405,12 +427,12 @@ mod tests {
     #[test]
     fn normalizes_known_tool_exe_suffix_without_touching_native_outputs() {
         let replacer = PathNormalizer {
-            canonical: None,
+            canonical_roots: vec![],
             replace_table: vec![],
             binary_file_name_table: vec![("moonc.exe".to_owned(), "moonc".to_owned())],
             show_toolchain_root: true,
-            toolchain_root: "$MOON_TOOLCHAIN_ROOT".to_owned(),
-            moon_home: "$MOON_HOME".to_owned(),
+            toolchain_roots: vec!["$MOON_TOOLCHAIN_ROOT".to_owned()],
+            moon_home_roots: vec!["$MOON_HOME".to_owned()],
         };
 
         assert_eq!(replacer.normalize_command_arg("moonc.exe"), "moonc");
@@ -427,12 +449,12 @@ mod tests {
     #[test]
     fn keeps_moon_home_when_roots_match() {
         let replacer = PathNormalizer {
-            canonical: None,
+            canonical_roots: vec![],
             replace_table: vec![],
             binary_file_name_table: vec![],
             show_toolchain_root: false,
-            toolchain_root: "/tmp/.moon".to_owned(),
-            moon_home: "/tmp/.moon".to_owned(),
+            toolchain_roots: vec!["/tmp/.moon".to_owned()],
+            moon_home_roots: vec!["/tmp/.moon".to_owned()],
         };
 
         assert_eq!(
@@ -448,12 +470,12 @@ mod tests {
     #[test]
     fn keeps_toolchain_root_distinct_when_needed() {
         let replacer = PathNormalizer {
-            canonical: None,
+            canonical_roots: vec![],
             replace_table: vec![],
             binary_file_name_table: vec![],
             show_toolchain_root: true,
-            toolchain_root: "/tmp/toolchain".to_owned(),
-            moon_home: "/tmp/home".to_owned(),
+            toolchain_roots: vec!["/tmp/toolchain".to_owned()],
+            moon_home_roots: vec!["/tmp/home".to_owned()],
         };
 
         assert_eq!(
@@ -463,6 +485,34 @@ mod tests {
         assert_eq!(
             replacer.normalize_path("/tmp/toolchain/bin/moonc"),
             "$MOON_TOOLCHAIN_ROOT/bin/moonc"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalizes_verbatim_and_legacy_windows_paths_against_the_same_root() {
+        let replacer = PathNormalizer {
+            canonical_roots: moonutil::path::path_spellings_for_comparison(std::path::Path::new(
+                r"\\?\C:\workspace",
+            )),
+            replace_table: vec![],
+            binary_file_name_table: vec![],
+            show_toolchain_root: false,
+            toolchain_roots: vec![],
+            moon_home_roots: vec![],
+        };
+
+        assert_eq!(
+            replacer.normalize_path(r"\\?\C:\workspace\_build\out.core"),
+            "./_build/out.core"
+        );
+        assert_eq!(
+            replacer.normalize_path(r"C:\workspace\_build\out.core"),
+            "./_build/out.core"
+        );
+        assert_eq!(
+            replacer.normalize_command_arg(r"C:\workspace\src\main.mbt"),
+            "./src/main.mbt"
         );
     }
 
@@ -480,12 +530,12 @@ mod tests {
     #[test]
     fn renders_build_env_with_normalized_values() {
         let replacer = PathNormalizer {
-            canonical: Some("/workspace".into()),
+            canonical_roots: vec!["/workspace".into()],
             replace_table: vec![],
             binary_file_name_table: vec![],
             show_toolchain_root: false,
-            toolchain_root: "/toolchain".to_owned(),
-            moon_home: "/home".to_owned(),
+            toolchain_roots: vec!["/toolchain".to_owned()],
+            moon_home_roots: vec!["/home".to_owned()],
         };
 
         let lines = normalized_env_lines(

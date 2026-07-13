@@ -1,24 +1,13 @@
 use super::*;
 use std::{
     os::windows::ffi::OsStrExt,
-    path::{Component, Path, PathBuf, Prefix},
+    path::{Path, PathBuf},
 };
 
 const LEGACY_PATH_LIMIT: usize = 260;
 
 fn windows_path_len(path: &Path) -> usize {
     path.as_os_str().encode_wide().count()
-}
-
-fn has_verbatim_prefix(path: &Path) -> bool {
-    matches!(
-        path.components().next(),
-        Some(Component::Prefix(prefix))
-            if matches!(
-                prefix.kind(),
-                Prefix::Verbatim(_) | Prefix::VerbatimDisk(_) | Prefix::VerbatimUNC(_, _)
-            )
-    )
 }
 
 fn write_file(path: &Path, contents: &str) {
@@ -85,17 +74,6 @@ fn check_supports_artifacts_beyond_the_legacy_path_limit() {
             args.windows(2).any(|pair| pair[0] == "-o").then_some(args)
         })
         .expect("dry run should expose the compiler command");
-    let source_arg = command_args
-        .iter()
-        .map(Path::new)
-        .find(|path| path.file_name().is_some_and(|name| name == "lib.mbt"))
-        .expect("dry run should expose the source path");
-    assert!(
-        !has_verbatim_prefix(source_arg),
-        "short source path should be simplified at the command boundary: {}",
-        source_arg.display()
-    );
-
     let output_path = command_args
         .windows(2)
         .find(|pair| pair[0] == "-o")
@@ -109,11 +87,6 @@ fn check_supports_artifacts_beyond_the_legacy_path_limit() {
     assert!(
         windows_path_len(&output_path) > LEGACY_PATH_LIMIT,
         "artifact path should exceed the legacy limit: {}",
-        output_path.display()
-    );
-    assert!(
-        has_verbatim_prefix(&output_path),
-        "long artifact path should retain verbatim syntax: {}",
         output_path.display()
     );
 

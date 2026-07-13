@@ -27,6 +27,61 @@ use std::{
 
 use crate::constants::SUB_PKG_POSTFIX;
 
+/// Return platform spellings that can identify the same path in textual output.
+///
+/// Windows build graphs may contain both verbatim paths retained internally and
+/// legacy paths simplified at external command boundaries. The alternate form
+/// is only intended for comparison and normalization; it may not be usable for
+/// filesystem access when the path exceeds legacy Windows limits.
+pub fn path_spellings_for_comparison(path: &Path) -> Vec<PathBuf> {
+    let path = path.to_path_buf();
+
+    #[cfg(windows)]
+    if let Some(legacy) = legacy_windows_spelling(&path) {
+        // Keep the verbatim form first because it contains the legacy spelling
+        // as a suffix when these are used as textual match keys.
+        return vec![path, legacy];
+    }
+
+    vec![path]
+}
+
+#[cfg(windows)]
+fn legacy_windows_spelling(path: &Path) -> Option<PathBuf> {
+    use std::path::Prefix;
+
+    let mut components = path.components();
+    let Component::Prefix(prefix) = components.next()? else {
+        return None;
+    };
+    let mut legacy = match prefix.kind() {
+        Prefix::VerbatimDisk(drive) => PathBuf::from(format!("{}:", char::from(drive))),
+        Prefix::VerbatimUNC(server, share) => PathBuf::from(r"\\").join(server).join(share),
+        _ => return None,
+    };
+    legacy.extend(components);
+    Some(legacy)
+}
+
+#[cfg(windows)]
+#[test]
+fn comparison_spellings_cover_legacy_and_verbatim_windows_paths() {
+    assert_eq!(
+        path_spellings_for_comparison(Path::new(r"\\?\C:\workspace\src")),
+        [
+            PathBuf::from(r"\\?\C:\workspace\src"),
+            PathBuf::from(r"C:\workspace\src"),
+        ]
+    );
+    assert_eq!(
+        path_spellings_for_comparison(Path::new(r"\\?\UNC\server\share\workspace")),
+        [
+            PathBuf::from(r"\\?\UNC\server\share\workspace"),
+            PathBuf::from(r"\\server\share\workspace"),
+        ]
+    );
+}
+
 #[derive(Clone, Hash)]
 pub struct PathComponent {
     pub components: Vec<String>,

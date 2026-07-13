@@ -70,36 +70,55 @@ pub(crate) fn toolchain_root_for_tests() -> PathBuf {
     moonutil::toolchain::toolchain_root()
 }
 
+fn insert_path_redactions(
+    redactions: &mut snapbox::Redactions,
+    placeholder: &'static str,
+    path: &Path,
+) {
+    let paths = std::iter::once(path.to_path_buf())
+        .chain(std::fs::canonicalize(path).ok())
+        .flat_map(|path| moonutil::path::path_spellings_for_comparison(&path));
+    for path in paths {
+        redactions
+            .insert(placeholder, path)
+            .expect("valid path redaction");
+    }
+}
+
+fn replace_known_paths(mut output: String, known_paths: &[(PathBuf, String)]) -> String {
+    for (path, replacement) in known_paths {
+        let mut redactions = snapbox::Redactions::new();
+        insert_path_redactions(&mut redactions, "[PATH]", path);
+        output = redactions.redact(&output).replace("[PATH]", replacement);
+    }
+    output
+}
+
 pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
-    let s = s.replace("\\\\", "\\");
-    let s = moonutil::toolchain::BINARIES.all_moon_bins().iter().fold(
-        s.to_string(),
-        |s, (name, path)| {
-            let path = match *name {
+    let mut known_paths = moonutil::toolchain::BINARIES
+        .all_moon_bins()
+        .into_iter()
+        .map(|(name, path)| {
+            let path = match name {
                 #[allow(deprecated)]
                 "moon" | "moonrun" => snapbox::cmd::cargo_bin(name),
-                _ => path.clone(),
+                _ => path,
             };
-            s.replace(path.to_string_lossy().as_ref(), name)
-        },
-    );
-    let s = if let Some(path) = MOONRUN_BIN.get() {
-        let path = path.to_string_lossy();
-        let s = s.replace(path.as_ref(), "moonrun");
-        s.replace(path.replace('\\', "/").as_str(), "moonrun")
-    } else {
-        s
-    };
-    let path_str1 = std::fs::canonicalize(dir)
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
-    let path_str2 = path_str1.replace('\\', "/");
-    // for something like "{...\"loc\":{\"path\":\"C:\\\\Users\\\\runneradmin\\\\AppData\\\\Local\\\\Temp\\\\.tmpP0u4VZ\\\\main\\\\main.mbt\"...\r\n" on windows
-    // https://github.com/moonbitlang/moon/actions/runs/10092428950/job/27906057649#step:13:149
-    let s = s.replace(&path_str1, "$ROOT");
-    let s = s.replace(&path_str2, "$ROOT");
+            (path, name.to_owned())
+        })
+        .collect::<Vec<_>>();
+    if let Some(path) = MOONRUN_BIN.get() {
+        known_paths.push((path.clone(), "moonrun".to_owned()));
+    }
+    if let Ok(toolchain) = compiler_flags::default_native_toolchain(None) {
+        let cc = toolchain.cc();
+        known_paths.extend([
+            (PathBuf::from(&cc.ar_path), cc.ar_name().to_owned()),
+            (PathBuf::from(&cc.cc_path), cc.cc_name().to_owned()),
+        ]);
+    }
+    known_paths.push((moon_bin(), "moon".to_owned()));
+
     let toolchain_root = toolchain_root_for_tests();
     let moon_home = moonutil::toolchain::home();
     let show_toolchain_root = match (
@@ -109,52 +128,31 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
         (Ok(toolchain_root), Ok(moon_home)) => toolchain_root != moon_home,
         _ => toolchain_root != moon_home,
     };
-    let s = if show_toolchain_root {
-        [
-            (toolchain_root.join("bin"), "$MOON_TOOLCHAIN_ROOT/bin"),
-            (
-                toolchain_root.join("include"),
-                "$MOON_TOOLCHAIN_ROOT/include",
-            ),
-            (toolchain_root.join("lib"), "$MOON_TOOLCHAIN_ROOT/lib"),
-        ]
-        .into_iter()
-        .fold(s, |s, (path, replacement)| {
-            let raw = path.to_string_lossy();
-            let s = s.replace(raw.as_ref(), replacement);
-            let s = s.replace(raw.replace('\\', "/").as_str(), replacement);
 
-            match std::fs::canonicalize(path) {
-                Ok(path) => {
-                    let path = path.to_string_lossy();
-                    let s = s.replace(path.as_ref(), replacement);
-                    s.replace(path.replace('\\', "/").as_str(), replacement)
-                }
-                Err(_) => s,
-            }
-        })
-    } else {
-        s
-    };
-    let s = s.replace(
-        std::fs::canonicalize(moon_home).unwrap().to_str().unwrap(),
-        "$MOON_HOME",
-    );
-    let s = if let Ok(toolchain) = compiler_flags::default_native_toolchain(None) {
-        let cc = toolchain.cc();
-        let s = s.replace(&cc.ar_path, cc.ar_name());
-        s.replace(&cc.cc_path, cc.cc_name())
-    } else {
-        s
-    };
-    let s = s.replace(moon_bin().to_string_lossy().as_ref(), "moon");
-    let s = s.replace("moon.exe", "moon");
-    let s = moonutil::toolchain::BINARIES
-        .node
-        .as_ref()
-        .map(|node| s.replace(node.to_string_lossy().as_ref(), "node"))
-        .unwrap_or(s);
-    s.replace("\r\n", "\n").replace('\\', "/")
+    let mut path_redactions = snapbox::Redactions::new();
+    insert_path_redactions(&mut path_redactions, "[ROOT]", dir.as_ref());
+    if show_toolchain_root {
+        insert_path_redactions(
+            &mut path_redactions,
+            "[MOON_TOOLCHAIN_ROOT]",
+            &toolchain_root,
+        );
+    }
+    insert_path_redactions(&mut path_redactions, "[MOON_HOME]", &moon_home);
+
+    let output = replace_known_paths(s.to_owned(), &known_paths);
+    let output = path_redactions.redact(&output);
+    // JSON diagnostics escape backslashes. Collapse them only after redacting
+    // ordinary paths so a verbatim `\\?\` prefix is not damaged.
+    let output = output.replace("\\\\", "\\");
+    let output = replace_known_paths(output, &known_paths);
+    let output = path_redactions.redact(&output);
+    let output = output
+        .replace("[ROOT]", "$ROOT")
+        .replace("[MOON_TOOLCHAIN_ROOT]", "$MOON_TOOLCHAIN_ROOT")
+        .replace("[MOON_HOME]", "$MOON_HOME")
+        .replace("moon.exe", "moon");
+    snapbox::filter::normalize_paths(&snapbox::filter::normalize_lines(&output))
 }
 
 pub(crate) fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
@@ -253,6 +251,26 @@ mod tests {
         assert_eq!(
             replace_dir(&output, dir.path()),
             "moonc check $ROOT/b/hello.mbt -pkg-sources username/b:$ROOT/b -workspace-path $ROOT/b"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn replace_dir_redacts_both_windows_path_spellings_and_json_escaping() {
+        let dir = tempfile::tempdir().unwrap();
+        let canonical_file = std::fs::canonicalize(dir.path()).unwrap().join("main.mbt");
+        let spellings = moonutil::path::path_spellings_for_comparison(&canonical_file);
+        assert_eq!(spellings.len(), 2);
+        let escaped = spellings[0].to_string_lossy().replace('\\', "\\\\");
+        let output = format!(
+            "{}\n{}\n{escaped}",
+            spellings[0].display(),
+            spellings[1].display()
+        );
+
+        assert_eq!(
+            replace_dir(&output, dir.path()),
+            "$ROOT/main.mbt\n$ROOT/main.mbt\n$ROOT/main.mbt"
         );
     }
 
