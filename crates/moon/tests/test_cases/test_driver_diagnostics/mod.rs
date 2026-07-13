@@ -1,67 +1,66 @@
 use crate::{TestDir, moon_cmd};
 
-fn failed_test_output(dir: &TestDir, args: &[&str]) -> String {
-    let assert = moon_cmd(dir).args(args).assert().failure();
-    let output = assert.get_output();
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    )
-    .replace('\\', "/")
-}
-
-fn assert_uses_physical_driver_path(output: &str, target_dir: &str) {
-    let driver_path =
-        format!("{target_dir}/wasm-gc/debug/test/__generated_driver_for_internal_test.mbt");
-    assert!(
-        output.contains(&driver_path),
-        "diagnostic should use the generated driver's physical path:\n{output}"
-    );
-    assert!(
-        !output.contains("failed to read file"),
-        "generated driver should be available to the diagnostic renderer:\n{output}"
-    );
-}
-
 #[test]
-fn generated_driver_diagnostics_use_the_physical_path() {
+fn rendered_generated_driver_diagnostic_uses_the_physical_path() {
     let dir = TestDir::new("test_driver_diagnostics");
-    let fancy = failed_test_output(
-        &dir,
-        &[
+    moon_cmd(&dir)
+        .args([
             "test",
             "--target",
             "wasm-gc",
             "--target-dir",
             "fancy-target",
-        ],
-    );
-    assert_uses_physical_driver_path(&fancy, "fancy-target");
+        ])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: [4051]
+     ╭─[ [..]/fancy-target/wasm-gc/debug/test/__generated_driver_for_internal_test.mbt:123:13 ]
+     │
+ 123 │ priv struct MoonBitTestDriverInternalTestMap[F](
+...
+"#]]);
+}
 
-    let raw = failed_test_output(
-        &dir,
-        &[
+#[test]
+fn raw_generated_driver_diagnostic_uses_the_physical_path() {
+    let dir = TestDir::new("test_driver_diagnostics");
+    moon_cmd(&dir)
+        .args([
             "test",
             "--target",
             "wasm-gc",
             "--target-dir",
             "raw-target",
             "--no-render",
-        ],
-    );
-    assert_uses_physical_driver_path(&raw, "raw-target");
+        ])
+        .assert()
+        .failure()
+        .stdout_eq(snapbox::str![[r#"
+[..]/raw-target/wasm-gc/debug/test/__generated_driver_for_internal_test.mbt:123:13-123:45 [E4051] The type MoonBitTestDriverInternalTestMap is declared twice: it was previously defined at [..]/collision.mbt:2:1.
+...
+"#]])
+        .stderr_eq("");
+}
 
-    let json = failed_test_output(
-        &dir,
-        &[
+#[test]
+fn json_generated_driver_diagnostic_uses_the_physical_path() {
+    let dir = TestDir::new("test_driver_diagnostics");
+    moon_cmd(&dir)
+        .args([
             "test",
             "--target",
             "wasm-gc",
             "--target-dir",
             "json-target",
             "--output-json",
-        ],
-    );
-    assert_uses_physical_driver_path(&json, "json-target");
+        ])
+        .assert()
+        .failure()
+        .stdout_eq(snapbox::str![[r#"
+{"$message_type":"diagnostic","level":"error","error_code":4051,"path":"[..]json-target[..]wasm-gc[..]debug[..]test[..]__generated_driver_for_internal_test.mbt","loc":"123:13-123:45","message":"The type MoonBitTestDriverInternalTestMap is declared twice: it was previously defined at [..]collision.mbt:2:1.","context":""}
+...
+"#]])
+        .stderr_eq("");
 }
