@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-07-10.
+// Snapshot generated from `moonc check -warn-help` on 2026-07-14.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -425,6 +425,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "ambiguous_braces",
         description: "Ambiguous `{}` braces.",
         id: 82,
+    },
+    WarningEntry {
+        mnemonic: "type_param_method",
+        description: "Calling method of type parameter in a deprecated way.",
+        id: 83,
     },
 ];
 

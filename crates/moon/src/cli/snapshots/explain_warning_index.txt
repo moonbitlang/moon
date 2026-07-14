@@ -75,3 +75,4 @@
 0080	regex_match_missing_before	Missing `before` binding in `regex match`.
 0081	regex_match_missing_after	Missing `after` binding in `regex match`.
 0082	ambiguous_braces	Ambiguous `{}` braces.
+0083	type_param_method	Calling method of type parameter in a deprecated way.
