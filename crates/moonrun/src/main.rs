@@ -361,7 +361,7 @@ fn init_env(
     wasm_file_name: &str,
     args: &[String],
     async_policy: Arc<async_policy::AsyncPolicy>,
-) -> memory_sanitizer_api::MemorySanitizer {
+) {
     let global_proxy = scope.get_current_context().global(scope);
 
     let print_env_box = Box::<PrintEnv>::default();
@@ -395,12 +395,6 @@ fn init_env(
         let async_runtime = global_proxy.child(scope, async_api::MOONBIT_ASYNC_MODULE);
         async_api::init_env(async_runtime, scope, dtors, Arc::clone(&async_policy));
     }
-
-    let memory_sanitizer = {
-        let memory_sanitizer =
-            global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
-        memory_sanitizer_api::init_env(memory_sanitizer, scope)
-    };
 
     {
         let wasi = global_proxy.child(scope, "__moonbit_wasi_unstable");
@@ -445,8 +439,6 @@ fn init_env(
         sys.set_func(scope, "exit", exit);
         sys.set_func(scope, "is_windows", is_windows);
     }
-
-    memory_sanitizer
 }
 
 fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::ScriptOrigin<'s> {
@@ -512,8 +504,14 @@ fn wasm_mode(
             global_proxy.set(scope, bytes_key, u8arr.cast());
         }
     }
+    let memory_sanitizer = memory_sanitizer_api::MemorySanitizer::default();
+
     let mut dtors = Vec::new();
-    let memory_sanitizer = init_env(&mut dtors, scope, &wasm_file_name, args, async_policy);
+    init_env(&mut dtors, scope, &wasm_file_name, args, async_policy);
+
+    let memory_sanitizer_imports =
+        global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
+    memory_sanitizer_api::init_env(memory_sanitizer_imports, scope, &memory_sanitizer);
 
     if let Some(ref test_args) = test_args {
         let test_args = serde_json_lenient::from_str::<TestArgs>(test_args).unwrap();
@@ -546,7 +544,7 @@ fn wasm_mode(
 
     script.run(scope);
     drop(dtors);
-    memory_sanitizer.check_for_leaks_if_enabled()?;
+    memory_sanitizer.check_for_leaks()?;
     Ok(())
 }
 

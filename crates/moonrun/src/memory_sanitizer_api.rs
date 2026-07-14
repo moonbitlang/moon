@@ -20,12 +20,12 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
+use std::fmt::Write as _;
 use std::rc::Rc;
 
 use crate::v8_builder::ObjectExt;
 
 pub(crate) const MEMORY_SANITIZER_MODULE: &str = "moonbit:ffi/memory-sanitizer";
-const MEMORY_SANITIZER_ENV: &str = "MOONBIT_MEMORY_SANITIZER";
 
 #[derive(Debug)]
 struct ObjectRecord {
@@ -91,69 +91,38 @@ struct MemorySanitizerContext {
     state: RefCell<MemorySanitizerState>,
 }
 
+#[derive(Default)]
 pub(crate) struct MemorySanitizer {
     context: Box<MemorySanitizerContext>,
 }
 
 impl MemorySanitizer {
-    pub(crate) fn check_for_leaks_if_enabled(&self) -> Result<(), MemoryLeakError> {
-        if std::env::var_os(MEMORY_SANITIZER_ENV).is_none() {
-            return Ok(());
-        }
-
+    pub(crate) fn check_for_leaks(&self) -> anyhow::Result<()> {
         let state = self.context.state.borrow();
         if state.live.is_empty() {
             return Ok(());
         }
 
-        Err(MemoryLeakError {
-            objects: state
-                .live
-                .iter()
-                .map(|(&ptr, record)| LeakedObject {
-                    ptr,
-                    size: record.size,
-                    alloc_stack: record.alloc_stack.as_ref().clone(),
-                })
-                .collect(),
-        })
-    }
-}
-
-#[derive(Debug)]
-struct LeakedObject {
-    ptr: u32,
-    size: u32,
-    alloc_stack: SanitizerStack,
-}
-
-#[derive(Debug)]
-pub(crate) struct MemoryLeakError {
-    objects: Vec<LeakedObject>,
-}
-
-impl std::fmt::Display for MemoryLeakError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let total_size: u64 = self
-            .objects
-            .iter()
+        let total_size: u64 = state
+            .live
+            .values()
             .map(|object| u64::from(object.size))
             .sum();
-        write!(
-            f,
+        let mut report = format!(
             "moonrun memory sanitizer detected {} leaked object{} ({total_size} bytes)",
-            self.objects.len(),
-            if self.objects.len() == 1 { "" } else { "s" }
-        )?;
-        for object in &self.objects {
-            write!(f, "\nleaked object {} ({} bytes)", object.ptr, object.size)?;
-            object.alloc_stack.write_to(f, "allocation stack")?;
+            state.live.len(),
+            if state.live.len() == 1 { "" } else { "s" }
+        );
+        for (&ptr, object) in &state.live {
+            write!(&mut report, "\nleaked object {ptr} ({} bytes)", object.size).unwrap();
+            object
+                .alloc_stack
+                .write_to(&mut report, "allocation stack")
+                .unwrap();
         }
-        Ok(())
+        Err(anyhow::anyhow!(report))
     }
 }
-
-impl std::error::Error for MemoryLeakError {}
 
 #[derive(Debug)]
 enum MemorySanitizerError {
@@ -188,10 +157,9 @@ impl std::fmt::Display for MemorySanitizerError {
 pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
-) -> MemorySanitizer {
-    let context = Box::<MemorySanitizerContext>::default();
-    let context_ptr = &*context as *const MemorySanitizerContext;
-
+    memory_sanitizer: &MemorySanitizer,
+) {
+    let context_ptr = &*memory_sanitizer.context as *const MemorySanitizerContext;
     register_func(
         obj,
         scope,
@@ -207,8 +175,6 @@ pub(crate) fn init_env<'s>(
         context_ptr,
     );
     register_func(obj, scope, "object-is-valid", object_is_valid, context_ptr);
-
-    MemorySanitizer { context }
 }
 
 fn register_func<'s>(
@@ -282,7 +248,7 @@ fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s MemoryS
     unsafe { &*(ptr as *const MemorySanitizerContext) }
 }
 
-#[derive(Debug, Clone, Default, Eq, Hash, PartialEq)]
+#[derive(Debug, Default, Eq, Hash, PartialEq)]
 struct SanitizerStack {
     frames: Vec<SanitizerStackFrame>,
 }
@@ -301,7 +267,7 @@ impl SanitizerStack {
         Self { frames }
     }
 
-    fn write_to(&self, f: &mut std::fmt::Formatter<'_>, title: &str) -> std::fmt::Result {
+    fn write_to(&self, f: &mut impl std::fmt::Write, title: &str) -> std::fmt::Result {
         if self.frames.is_empty() {
             return Ok(());
         }
@@ -321,7 +287,7 @@ impl SanitizerStack {
     }
 }
 
-#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+#[derive(Debug, Eq, Hash, PartialEq)]
 struct SanitizerStackFrame {
     raw_function: String,
     is_wasm: bool,
