@@ -18,7 +18,7 @@ fn write_file(path: &Path, contents: &str) {
 }
 
 #[test]
-fn check_supports_artifacts_beyond_the_legacy_path_limit() {
+fn toolchain_commands_handle_artifacts_beyond_the_legacy_path_limit() {
     let dir = TestDir::new_empty();
     let root = dir.as_ref();
     assert!(
@@ -56,8 +56,26 @@ fn check_supports_artifacts_beyond_the_legacy_path_limit() {
 }
 "#,
     );
-    write_file(&package_manifest, "{}\n");
-    write_file(&source_file, "pub fn answer() -> Int { 42 }\n");
+    write_file(
+        &package_manifest,
+        r#"{
+  "is-main": true
+}
+"#,
+    );
+    write_file(
+        &source_file,
+        r#"pub fn answer() -> Int { 42 }
+
+fn main {
+  println(answer())
+}
+
+test "answer" {
+  inspect(answer(), content="42")
+}
+"#,
+    );
 
     let dry_run = moon_cmd(&dir)
         .args(["check", "--dry-run", "--sort-input"])
@@ -90,5 +108,32 @@ fn check_supports_artifacts_beyond_the_legacy_path_limit() {
         output_path.display()
     );
 
-    moon_cmd(&dir).arg("check").assert().success();
+    for command in [
+        "fmt", "check", "build", "test", "run", "bundle", "info", "doc",
+    ] {
+        moon_cmd(&dir).arg("clean").assert().success();
+        moon_cmd(&dir).arg(command).assert().success();
+    }
+
+    for command in ["check", "info"] {
+        moon_cmd(&dir).arg("clean").assert().success();
+        moon_cmd(&dir)
+            .args([command, "--target", "native"])
+            .assert()
+            .success();
+    }
+
+    // MSVC cannot open long paths in either legacy or verbatim form. Keep the
+    // real commands covered so that limitation becomes visible if it changes.
+    for command in ["build", "test"] {
+        moon_cmd(&dir).arg("clean").assert().success();
+        moon_cmd(&dir)
+            .args([command, "--target", "native", "--dry-run"])
+            .assert()
+            .success();
+        moon_cmd(&dir)
+            .args([command, "--target", "native"])
+            .assert()
+            .failure();
+    }
 }
