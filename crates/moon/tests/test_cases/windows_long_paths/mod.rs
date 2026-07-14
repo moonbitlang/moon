@@ -60,7 +60,7 @@ fn check_supports_artifacts_beyond_the_legacy_path_limit() {
     write_file(&source_file, "pub fn answer() -> Int { 42 }\n");
 
     let dry_run = moon_cmd(&dir)
-        .args(["check", "--dry-run", "--nostd", "--sort-input"])
+        .args(["check", "--dry-run", "--sort-input"])
         .assert()
         .success()
         .get_output()
@@ -90,5 +90,5 @@ fn check_supports_artifacts_beyond_the_legacy_path_limit() {
         output_path.display()
     );
 
-    moon_cmd(&dir).args(["check", "--nostd"]).assert().success();
+    moon_cmd(&dir).arg("check").assert().success();
 }
