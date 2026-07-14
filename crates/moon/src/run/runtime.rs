@@ -82,6 +82,14 @@ pub(crate) fn command_for_with_moonrun_policy(
             }
             let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
             cmd.arg("--enable-source-maps");
+            #[cfg(windows)]
+            {
+                // Affected Node.js versions reject extended-path entry points:
+                // https://github.com/nodejs/node/issues/62446
+                // Only simplify paths whose ordinary spelling remains valid.
+                cmd.arg(moonutil::path::command_path(mbt_executable));
+            }
+            #[cfg(not(windows))]
             cmd.arg(mbt_executable);
             if let Some(t) = test {
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
@@ -104,6 +112,36 @@ pub(crate) fn command_for_with_moonrun_policy(
             }
             cmd
         }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::{ffi::OsStr, path::PathBuf};
+
+    #[test]
+    fn node_simplifies_only_short_extended_entry_paths() {
+        let short = Path::new(r"\\?\C:\workspace\_build\js\main.js");
+        let command = command_for(RunBackend::Js, None, short, None);
+        assert_eq!(
+            command.as_std().get_args().collect::<Vec<_>>(),
+            [
+                OsStr::new("--enable-source-maps"),
+                OsStr::new(r"C:\workspace\_build\js\main.js"),
+            ]
+        );
+
+        let long = PathBuf::from(format!(
+            r"\\?\C:\workspace\{}main.js",
+            "segment\\".repeat(40)
+        ));
+        assert!(long.to_string_lossy().len() >= 260);
+        let command = command_for(RunBackend::Js, None, &long, None);
+        assert_eq!(
+            command.as_std().get_args().collect::<Vec<_>>(),
+            [OsStr::new("--enable-source-maps"), long.as_os_str()]
+        );
     }
 }
 
