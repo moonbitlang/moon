@@ -492,9 +492,9 @@ mod tests {
     #[test]
     fn normalizes_verbatim_and_legacy_windows_paths_against_the_same_root() {
         let replacer = PathNormalizer {
-            canonical_roots: moonutil::path::path_spellings_for_comparison(std::path::Path::new(
-                r"\\?\C:\workspace",
-            )),
+            canonical_roots: moonutil::path::canonical_path_spellings_for_comparison(
+                std::path::Path::new(r"\\?\C:\workspace"),
+            ),
             replace_table: vec![],
             binary_file_name_table: vec![],
             show_toolchain_root: false,

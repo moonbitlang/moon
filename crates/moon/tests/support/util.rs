@@ -70,23 +70,11 @@ pub(crate) fn toolchain_root_for_tests() -> PathBuf {
     moonutil::toolchain::toolchain_root()
 }
 
-fn insert_path_redactions(
-    redactions: &mut snapbox::Redactions,
-    placeholder: &'static str,
-    path: &Path,
-) {
-    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    for path in moonutil::path::path_spellings_for_comparison(&canonical) {
-        redactions
-            .insert(placeholder, path)
-            .expect("valid path redaction");
-    }
-}
-
 fn replace_known_paths(mut output: String, known_paths: &[(PathBuf, String)]) -> String {
     for (path, replacement) in known_paths {
         let mut redactions = snapbox::Redactions::new();
-        insert_path_redactions(&mut redactions, "[MOON_TEST_KNOWN_PATH]", path);
+        moon_test_util::insert_path_redaction(&mut redactions, "[MOON_TEST_KNOWN_PATH]", path)
+            .expect("valid known path redaction");
         output = redactions
             .redact(&output)
             .replace("[MOON_TEST_KNOWN_PATH]", replacement);
@@ -130,15 +118,18 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     };
 
     let mut path_redactions = snapbox::Redactions::new();
-    insert_path_redactions(&mut path_redactions, "[ROOT]", dir.as_ref());
+    moon_test_util::insert_path_redaction(&mut path_redactions, "[ROOT]", dir.as_ref())
+        .expect("valid ROOT redaction");
     if show_toolchain_root {
-        insert_path_redactions(
+        moon_test_util::insert_path_redaction(
             &mut path_redactions,
             "[MOON_TOOLCHAIN_ROOT]",
             &toolchain_root,
-        );
+        )
+        .expect("valid MOON_TOOLCHAIN_ROOT redaction");
     }
-    insert_path_redactions(&mut path_redactions, "[MOON_HOME]", &moon_home);
+    moon_test_util::insert_path_redaction(&mut path_redactions, "[MOON_HOME]", &moon_home)
+        .expect("valid MOON_HOME redaction");
 
     let output = replace_known_paths(s.to_owned(), &known_paths);
     let output = path_redactions.redact(&output);
@@ -269,14 +260,13 @@ mod tests {
     fn replace_dir_redacts_both_windows_path_spellings_and_json_escaping() {
         let dir = tempfile::tempdir().unwrap();
         let canonical_file = std::fs::canonicalize(dir.path()).unwrap().join("main.mbt");
-        let spellings = moonutil::path::path_spellings_for_comparison(&canonical_file);
-        assert_eq!(spellings.len(), 2);
-        let escaped = spellings[0].to_string_lossy().replace('\\', "\\\\");
-        let output = format!(
-            "{}\n{}\n{escaped}",
-            spellings[0].display(),
-            spellings[1].display()
-        );
+        let legacy = canonical_file
+            .to_string_lossy()
+            .strip_prefix(r"\\?\")
+            .unwrap()
+            .to_owned();
+        let escaped = canonical_file.to_string_lossy().replace('\\', "\\\\");
+        let output = format!("{}\n{}\n{escaped}", canonical_file.display(), legacy,);
 
         assert_eq!(
             replace_dir(&output, dir.path()),

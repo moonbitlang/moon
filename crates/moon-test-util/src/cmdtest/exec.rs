@@ -51,23 +51,11 @@ fn detected_toolchain_root() -> Option<PathBuf> {
     (bin_dir.file_name()? == "bin").then(|| bin_dir.parent().map(Path::to_path_buf))?
 }
 
-fn insert_path_redactions(
-    redactions: &mut snapbox::Redactions,
-    placeholder: &'static str,
-    path: &Path,
-) {
-    let canonical = canonicalize_or_self(path);
-    for path in moonutil::path::path_spellings_for_comparison(&canonical) {
-        redactions
-            .insert(placeholder, path)
-            .expect("valid path redaction");
-    }
-}
-
 fn normalize_output(output: &str, workdir: &Path, toolchain_root: Option<&Path>) -> String {
     let mut redactions = snapbox::Redactions::new();
 
-    insert_path_redactions(&mut redactions, "[WORK_DIR]", workdir);
+    crate::insert_path_redaction(&mut redactions, "[WORK_DIR]", workdir)
+        .expect("valid WORK_DIR redaction");
 
     let moon_home = moon_home();
     let toolchain_root = toolchain_root
@@ -82,11 +70,13 @@ fn normalize_output(output: &str, workdir: &Path, toolchain_root: Option<&Path>)
     };
 
     if show_toolchain_root && let Some(toolchain_root) = &toolchain_root {
-        insert_path_redactions(&mut redactions, "[MOON_TOOLCHAIN_ROOT]", toolchain_root);
+        crate::insert_path_redaction(&mut redactions, "[MOON_TOOLCHAIN_ROOT]", toolchain_root)
+            .expect("valid MOON_TOOLCHAIN_ROOT redaction");
     }
 
     if let Some(moon_home) = &moon_home {
-        insert_path_redactions(&mut redactions, "[MOON_HOME]", moon_home);
+        crate::insert_path_redaction(&mut redactions, "[MOON_HOME]", moon_home)
+            .expect("valid MOON_HOME redaction");
     }
 
     let normalized = output.replace("${WORK_DIR}", "[WORK_DIR]");
@@ -220,14 +210,13 @@ mod tests {
     fn output_normalization_redacts_both_windows_path_spellings() {
         let workdir = tempfile::tempdir().unwrap();
         let canonical = std::fs::canonicalize(workdir.path()).unwrap();
-        let spellings = moonutil::path::path_spellings_for_comparison(&canonical);
-        assert_eq!(spellings.len(), 2);
-        let escaped = spellings[0].to_string_lossy().replace('\\', "\\\\");
-        let output = format!(
-            "{}\n{}\n{escaped}",
-            spellings[0].display(),
-            spellings[1].display()
-        );
+        let legacy = canonical
+            .to_string_lossy()
+            .strip_prefix(r"\\?\")
+            .unwrap()
+            .to_owned();
+        let escaped = canonical.to_string_lossy().replace('\\', "\\\\");
+        let output = format!("{}\n{}\n{escaped}", canonical.display(), legacy,);
 
         assert_eq!(
             normalize_output(&output, workdir.path(), None),

@@ -37,21 +37,6 @@ pub fn command_path(path: &Path) -> String {
     dunce::simplified(path).display().to_string()
 }
 
-/// Return a path and the spelling used at command boundaries, if different.
-///
-/// Windows build graphs may contain both verbatim paths retained internally and
-/// legacy paths simplified at external command boundaries.
-pub fn path_spellings_for_comparison(path: &Path) -> Vec<PathBuf> {
-    let simplified = dunce::simplified(path);
-    if simplified == path {
-        vec![path.to_path_buf()]
-    } else {
-        // Keep the verbatim form first because it contains the legacy spelling
-        // as a suffix when these are used as textual match keys.
-        vec![path.to_path_buf(), simplified.to_path_buf()]
-    }
-}
-
 /// Return textual spellings for both a path and its canonical filesystem path.
 ///
 /// Longer spellings come first so callers doing textual replacement do not
@@ -59,7 +44,14 @@ pub fn path_spellings_for_comparison(path: &Path) -> Vec<PathBuf> {
 pub fn canonical_path_spellings_for_comparison(path: &Path) -> Vec<PathBuf> {
     let mut paths = std::iter::once(path.to_path_buf())
         .chain(fs::canonicalize(path).ok())
-        .flat_map(|path| path_spellings_for_comparison(&path))
+        .flat_map(|path| {
+            let simplified = dunce::simplified(&path).to_path_buf();
+            if simplified == path {
+                vec![path]
+            } else {
+                vec![path, simplified]
+            }
+        })
         .collect::<Vec<_>>();
     paths.sort();
     paths.dedup();
@@ -71,14 +63,14 @@ pub fn canonical_path_spellings_for_comparison(path: &Path) -> Vec<PathBuf> {
 #[test]
 fn comparison_spellings_match_command_boundary_simplification() {
     assert_eq!(
-        path_spellings_for_comparison(Path::new(r"\\?\C:\workspace\src")),
+        canonical_path_spellings_for_comparison(Path::new(r"\\?\C:\workspace\src")),
         [
             PathBuf::from(r"\\?\C:\workspace\src"),
             PathBuf::from(r"C:\workspace\src"),
         ]
     );
     assert_eq!(
-        path_spellings_for_comparison(Path::new(r"\\?\UNC\server\share\workspace")),
+        canonical_path_spellings_for_comparison(Path::new(r"\\?\UNC\server\share\workspace")),
         [PathBuf::from(r"\\?\UNC\server\share\workspace")]
     );
 }

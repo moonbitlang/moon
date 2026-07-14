@@ -138,15 +138,15 @@ fn normalize_current_moon_binary(s: &mut String) {
     let moon = std::fs::canonicalize(&moon).unwrap_or(moon);
 
     let mut redactions = snapbox::Redactions::new();
-    for path in moonutil::path::path_spellings_for_comparison(&moon) {
-        redactions
-            .insert("[MOON_TEST_CURRENT_MOON]", path.clone())
-            .expect("valid moon binary redaction");
-        if path.extension().is_some_and(|ext| ext == "exe") {
-            redactions
-                .insert("[MOON_TEST_CURRENT_MOON]", path.with_extension(""))
-                .expect("valid moon binary redaction");
-        }
+    moon_test_util::insert_path_redaction(&mut redactions, "[MOON_TEST_CURRENT_MOON]", &moon)
+        .expect("valid moon binary redaction");
+    if moon.extension().is_some_and(|ext| ext == "exe") {
+        moon_test_util::insert_path_redaction(
+            &mut redactions,
+            "[MOON_TEST_CURRENT_MOON]",
+            &moon.with_extension(""),
+        )
+        .expect("valid moon binary redaction");
     }
     *s = redactions
         .redact(s)

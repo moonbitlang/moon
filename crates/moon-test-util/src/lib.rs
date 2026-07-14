@@ -19,3 +19,51 @@
 pub mod cmdtest;
 pub mod stack_trace;
 pub mod test_dir;
+
+pub fn insert_path_redaction(
+    redactions: &mut snapbox::Redactions,
+    placeholder: &'static str,
+    path: &std::path::Path,
+) -> snapbox::assert::Result<()> {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+
+    #[cfg(windows)]
+    {
+        let canonical = canonical.to_string_lossy();
+        let path = canonical.strip_prefix(r"\\?\").unwrap_or(&canonical);
+        redactions.insert(placeholder, std::path::PathBuf::from(path))?;
+        redactions.insert(
+            placeholder,
+            std::path::PathBuf::from(format!(r"\\?\{path}")),
+        )
+    }
+
+    #[cfg(not(windows))]
+    redactions.insert(placeholder, canonical)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn snapbox_redacts_the_longer_windows_path_spelling_first() {
+        let mut redactions = snapbox::Redactions::new();
+        redactions
+            .insert("[ROOT]", std::path::PathBuf::from(r"C:\workspace\source"))
+            .unwrap();
+        redactions
+            .insert(
+                "[ROOT]",
+                std::path::PathBuf::from(r"\\?\C:\workspace\source"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            redactions.redact(r"\\?\C:\workspace\source\main.mbt"),
+            r"[ROOT]\main.mbt"
+        );
+        assert_eq!(
+            redactions.redact("//?/C:/workspace/source/main.mbt"),
+            "[ROOT]/main.mbt"
+        );
+    }
+}
