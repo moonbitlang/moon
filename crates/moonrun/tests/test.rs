@@ -19,6 +19,7 @@
 use std::{path::PathBuf, sync::OnceLock};
 
 const MOONBIT_ASYNC_CHECK_FD_LEAK: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
+const MOONBIT_MEMORY_SANITIZER: &str = "MOONBIT_MEMORY_SANITIZER";
 
 fn moon_cmd() -> snapbox::cmd::Command {
     snapbox::cmd::Command::new(moon_bin())
@@ -410,6 +411,7 @@ fn test_moon_run_with_memory_sanitizer_imports() {
     let wasm_file = dir.join("_build/wasm/debug/build/main/main.wasm");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env(MOONBIT_MEMORY_SANITIZER, "1")
         .arg(&wasm_file)
         .assert()
         .success()
@@ -468,6 +470,58 @@ Error: moonbit:ffi/memory-sanitizer.register-object-free failed: invalid object 
     at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_free
     at @moonbit/ffi-memory-sanitizer-test/double_free.free_twice
     at @__moonbit_main
+...
+"#]]);
+}
+
+#[test]
+fn test_moon_run_memory_sanitizer_leak_reporting_is_opt_in() {
+    let dir = TestDir::new("test_memory_sanitizer.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/leak/leak.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env_remove(MOONBIT_MEMORY_SANITIZER)
+        .arg(&wasm_file)
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
+fn test_moon_run_memory_sanitizer_reports_leaked_object() {
+    let dir = TestDir::new("test_memory_sanitizer.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/leak/leak.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .env(MOONBIT_MEMORY_SANITIZER, "1")
+        .arg(&wasm_file)
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: moonrun memory sanitizer detected 1 leaked object (16 bytes)
+leaked object 8192 (16 bytes)
+allocation stack:
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_alloc
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_alloc
+    at @moonbit/ffi-memory-sanitizer-test/leak.leak_object
+    at @__moonbit_main
+    at <anonymous>
 ...
 "#]]);
 }
