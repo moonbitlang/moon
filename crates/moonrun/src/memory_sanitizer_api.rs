@@ -18,9 +18,9 @@
 
 //! Host-side `moonbit:ffi/memory-sanitizer` imports.
 
-use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashSet};
+use std::fmt::Write as _;
 use std::rc::Rc;
 
 use crate::v8_builder::ObjectExt;
@@ -91,6 +91,39 @@ struct MemorySanitizerContext {
     state: RefCell<MemorySanitizerState>,
 }
 
+#[derive(Default)]
+pub(crate) struct MemorySanitizer {
+    context: Box<MemorySanitizerContext>,
+}
+
+impl MemorySanitizer {
+    pub(crate) fn check_for_leaks(&self) -> anyhow::Result<()> {
+        let state = self.context.state.borrow();
+        if state.live.is_empty() {
+            return Ok(());
+        }
+
+        let total_size: u64 = state
+            .live
+            .values()
+            .map(|object| u64::from(object.size))
+            .sum();
+        let mut report = format!(
+            "moonrun memory sanitizer detected {} leaked object{} ({total_size} bytes)",
+            state.live.len(),
+            if state.live.len() == 1 { "" } else { "s" }
+        );
+        for (&ptr, object) in &state.live {
+            write!(&mut report, "\nleaked object {ptr} ({} bytes)", object.size).unwrap();
+            object
+                .alloc_stack
+                .write_to(&mut report, "allocation stack")
+                .unwrap();
+        }
+        Err(anyhow::anyhow!(report))
+    }
+}
+
 #[derive(Debug)]
 enum MemorySanitizerError {
     BadArgument,
@@ -124,12 +157,9 @@ impl std::fmt::Display for MemorySanitizerError {
 pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
     scope: &mut v8::HandleScope<'s>,
-    dtors: &mut Vec<Box<dyn Any>>,
+    memory_sanitizer: &MemorySanitizer,
 ) {
-    let context = Box::<MemorySanitizerContext>::default();
-    let context_ptr = &*context as *const MemorySanitizerContext;
-    dtors.push(context);
-
+    let context_ptr = &*memory_sanitizer.context as *const MemorySanitizerContext;
     register_func(
         obj,
         scope,
@@ -237,7 +267,7 @@ impl SanitizerStack {
         Self { frames }
     }
 
-    fn write_to(&self, f: &mut std::fmt::Formatter<'_>, title: &str) -> std::fmt::Result {
+    fn write_to(&self, f: &mut impl std::fmt::Write, title: &str) -> std::fmt::Result {
         if self.frames.is_empty() {
             return Ok(());
         }

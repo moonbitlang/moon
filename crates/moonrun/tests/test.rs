@@ -473,6 +473,36 @@ Error: moonbit:ffi/memory-sanitizer.register-object-free failed: invalid object 
 }
 
 #[test]
+fn test_moon_run_memory_sanitizer_reports_leaks() {
+    let dir = TestDir::new("test_memory_sanitizer.in");
+
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let wasm_file = dir.join("_build/wasm/debug/build/leak/leak.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(&wasm_file)
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+Error: moonrun memory sanitizer detected 1 leaked object (16 bytes)
+leaked object 8192 (16 bytes)
+allocation stack:
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.host_register_object_alloc
+    at @moonbit/ffi-memory-sanitizer-test/memory_sanitizer.register_object_alloc
+    at @moonbit/ffi-memory-sanitizer-test/leak.leak_object
+    at @__moonbit_main
+    at <anonymous>
+...
+"#]]);
+}
+
+#[test]
 fn test_moon_run_async_policy_with_workspace_async_fs() {
     let case_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/test_cases");
     let case_dir = case_root.join("test_async_policy_workspace.in");

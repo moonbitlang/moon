@@ -20,6 +20,13 @@ To run a WebAssembly file:
 ./target/debug/moonrun path/to/your/file.wasm
 ```
 
+## Memory Leak Reporting
+
+When a program uses `moonbit:ffi/memory-sanitizer`, `moonrun` reports objects
+that were registered but not freed before the program returned. A detected leak
+is written to stderr with its allocation stack and makes `moonrun` exit
+unsuccessfully.
+
 ## Experimental Policy
 
 By default, running `moonrun` without `--policy` preserves existing behavior.

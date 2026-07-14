@@ -397,12 +397,6 @@ fn init_env(
     }
 
     {
-        let memory_sanitizer =
-            global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
-        memory_sanitizer_api::init_env(memory_sanitizer, scope, dtors);
-    }
-
-    {
         let wasi = global_proxy.child(scope, "__moonbit_wasi_unstable");
         wasi_api::init_env(wasi, scope, wasm_file_name, args, dtors);
     }
@@ -510,8 +504,14 @@ fn wasm_mode(
             global_proxy.set(scope, bytes_key, u8arr.cast());
         }
     }
+    let memory_sanitizer = memory_sanitizer_api::MemorySanitizer::default();
+
     let mut dtors = Vec::new();
     init_env(&mut dtors, scope, &wasm_file_name, args, async_policy);
+
+    let memory_sanitizer_imports =
+        global_proxy.child(scope, memory_sanitizer_api::MEMORY_SANITIZER_MODULE);
+    memory_sanitizer_api::init_env(memory_sanitizer_imports, scope, &memory_sanitizer);
 
     if let Some(ref test_args) = test_args {
         let test_args = serde_json_lenient::from_str::<TestArgs>(test_args).unwrap();
@@ -544,6 +544,7 @@ fn wasm_mode(
 
     script.run(scope);
     drop(dtors);
+    memory_sanitizer.check_for_leaks()?;
     Ok(())
 }
 
