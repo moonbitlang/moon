@@ -29,21 +29,50 @@ pub fn insert_path_redaction(
 
     #[cfg(windows)]
     {
-        let canonical = canonical.to_string_lossy();
-        let path = canonical.strip_prefix(r"\\?\").unwrap_or(&canonical);
-        redactions.insert(placeholder, std::path::PathBuf::from(path))?;
-        redactions.insert(
-            placeholder,
-            std::path::PathBuf::from(format!(r"\\?\{path}")),
-        )
+        for spelling in [path, canonical.as_path()] {
+            let spelling = spelling.to_string_lossy();
+            let spelling = spelling.strip_prefix(r"\\?\").unwrap_or(&spelling);
+            redactions.insert(placeholder, std::path::PathBuf::from(spelling))?;
+            redactions.insert(
+                placeholder,
+                std::path::PathBuf::from(format!(r"\\?\{spelling}")),
+            )?;
+        }
+        Ok(())
     }
 
     #[cfg(not(windows))]
-    redactions.insert(placeholder, canonical)
+    {
+        redactions.insert(placeholder, path.to_path_buf())?;
+        redactions.insert(placeholder, canonical)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn path_redaction_matches_a_symlink_and_its_target() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        let link = dir.path().join("link");
+        std::fs::write(&target, "").unwrap();
+        symlink(&target, &link).unwrap();
+
+        let mut redactions = snapbox::Redactions::new();
+        super::insert_path_redaction(&mut redactions, "[FILE]", &link).unwrap();
+        assert_eq!(
+            redactions.redact(&format!(
+                "{}\n{}",
+                link.display(),
+                std::fs::canonicalize(&link).unwrap().display()
+            )),
+            "[FILE]\n[FILE]"
+        );
+    }
+
     #[test]
     fn snapbox_redacts_the_longer_windows_path_spelling_first() {
         let mut redactions = snapbox::Redactions::new();
