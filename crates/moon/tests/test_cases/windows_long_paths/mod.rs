@@ -108,12 +108,17 @@ test "answer" {
         output_path.display()
     );
 
-    for command in [
-        "fmt", "check", "build", "test", "run", "bundle", "info", "doc",
-    ] {
+    for command in ["fmt", "check", "build", "test", "bundle", "info", "doc"] {
         moon_cmd(&dir).arg("clean").assert().success();
         moon_cmd(&dir).arg(command).assert().success();
     }
+
+    moon_cmd(&dir).arg("clean").assert().success();
+    moon_cmd(&dir)
+        .arg("run")
+        .arg(&package_rel)
+        .assert()
+        .success();
 
     for command in ["check", "info"] {
         moon_cmd(&dir).arg("clean").assert().success();
