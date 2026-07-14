@@ -120,6 +120,22 @@ test "answer" {
         .assert()
         .success();
 
+    moon_cmd(&dir).arg("clean").assert().success();
+    let js_run = moon_cmd(&dir)
+        .arg("run")
+        .arg(&package_rel)
+        .args(["--target", "js"])
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let js_run = String::from_utf8(js_run).expect("Node stderr should be UTF-8");
+    // Affected Node.js versions reject valid extended-path entry points. Keep
+    // the exact regression visible so a future upstream fix changes this test.
+    // https://github.com/nodejs/node/issues/62446
+    assert!(js_run.contains("EISDIR") && js_run.contains("lstat 'C:'"));
+
     for command in ["check", "info"] {
         moon_cmd(&dir).arg("clean").assert().success();
         moon_cmd(&dir)
