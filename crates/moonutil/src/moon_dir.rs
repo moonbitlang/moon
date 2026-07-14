@@ -121,6 +121,14 @@ pub fn lib() -> PathBuf {
     toolchain_root().join("lib")
 }
 
+pub fn why3_datadir() -> PathBuf {
+    lib().join("why3").join("share").join("why3")
+}
+
+pub fn why3_libdir() -> PathBuf {
+    lib().join("why3").join("lib").join("why3")
+}
+
 pub fn core() -> PathBuf {
     let env_var = std::env::var_os("MOON_CORE_OVERRIDE");
     if let Some(path) = env_var {
@@ -256,6 +264,8 @@ fn test_moon_dir() {
         bin(),
         include(),
         lib(),
+        why3_datadir(),
+        why3_libdir(),
         core_bundle(TargetBackend::default()),
     ];
     dbg!(&toolchain_dirs);
@@ -274,6 +284,8 @@ fn test_moon_dir() {
             "bin",
             "include",
             "lib",
+            "lib|why3|share|why3",
+            "lib|why3|lib|why3",
             "lib|core|_build|wasm-gc|release|bundle",
         ]
     "#]]
