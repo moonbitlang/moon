@@ -56,7 +56,8 @@ fn insert_path_redactions(
     placeholder: &'static str,
     path: &Path,
 ) {
-    for path in moonutil::path::canonical_path_spellings_for_comparison(path) {
+    let canonical = canonicalize_or_self(path);
+    for path in moonutil::path::path_spellings_for_comparison(&canonical) {
         redactions
             .insert(placeholder, path)
             .expect("valid path redaction");

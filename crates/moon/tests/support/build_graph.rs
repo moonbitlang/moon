@@ -135,21 +135,18 @@ pub(crate) fn compare_graphs_with_replacements(
 
 fn normalize_current_moon_binary(s: &mut String) {
     let moon = crate::util::moon_bin();
-    let mut spellings = moonutil::path::canonical_path_spellings_for_comparison(&moon)
-        .into_iter()
-        .flat_map(|path| {
-            let without_exe =
-                (path.extension().is_some_and(|ext| ext == "exe")).then(|| path.with_extension(""));
-            std::iter::once(path).chain(without_exe)
-        })
-        .collect::<Vec<_>>();
-    spellings.sort_by_key(|path| std::cmp::Reverse(path.as_os_str().len()));
+    let moon = std::fs::canonicalize(&moon).unwrap_or(moon);
 
     let mut redactions = snapbox::Redactions::new();
-    for path in spellings {
+    for path in moonutil::path::path_spellings_for_comparison(&moon) {
         redactions
-            .insert("[MOON_TEST_CURRENT_MOON]", path)
+            .insert("[MOON_TEST_CURRENT_MOON]", path.clone())
             .expect("valid moon binary redaction");
+        if path.extension().is_some_and(|ext| ext == "exe") {
+            redactions
+                .insert("[MOON_TEST_CURRENT_MOON]", path.with_extension(""))
+                .expect("valid moon binary redaction");
+        }
     }
     *s = redactions
         .redact(s)

@@ -1649,6 +1649,9 @@ fn rr_test_from_plan(
                 });
             let want_file_ids = want_files
                 .map(|file_path| {
+                    // Resolve the exact graph spelling before moving the graph
+                    // into n2. `Work::lookup` lexically normalizes `\\?\` and
+                    // therefore cannot look up verbatim Windows paths.
                     build_graph
                         .file_id_for_graph_path(file_path)
                         .expect("File should exist in build graph")
