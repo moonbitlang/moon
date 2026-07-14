@@ -1626,7 +1626,7 @@ fn handle_build_command_new(
 
     let mut reconstructed = String::new();
 
-    let moon_bin_path = BINARIES.moonbuild.to_string_lossy();
+    let moon_bin_path = crate::command_path(&BINARIES.moonbuild);
 
     let command = if let Some(command) = command.strip_prefix(":embed ") {
         reconstructed.push_str(&format!("{} tool embed ", moon_bin_path));
@@ -1648,15 +1648,15 @@ fn handle_build_command_new(
         match magic.pattern().as_usize() {
             // $mooncake_bin => <project .mooncakes dir>/__moonbin__
             0 => {
-                write!(reconstructed, "{}", mooncake_bin_dir.display()).expect("write can't fail");
+                reconstructed.push_str(&crate::command_path(mooncake_bin_dir));
             }
             // $mod_dir => <mod_source>
             1 => {
-                write!(reconstructed, "{}", mod_source.display()).expect("write can't fail");
+                reconstructed.push_str(&crate::command_path(mod_source));
             }
             // $pkg_dir => <pkg_source>
             2 => {
-                write!(reconstructed, "{}", pkg_source.display()).expect("write can't fail");
+                reconstructed.push_str(&crate::command_path(pkg_source));
             }
             // $input => (existing)<input_1>, <input_2>, ...
             3 => {
@@ -1835,6 +1835,27 @@ mod tests {
         assert_eq!(
             command,
             "generate --inputs ./src/lib/input.txt ./src/assets/second.txt --outputs ./src/lib/generated.mbt ./src/lib/generated_2.mbt"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn handle_build_command_simplifies_absolute_shell_paths() {
+        let command = handle_build_command_new(
+            ":embed --bin $mooncake_bin --mod $mod_dir --pkg $pkg_dir",
+            Path::new(r"\\?\C:\workspace"),
+            Path::new(r"\\?\C:\workspace\.mooncakes\__moonbin__"),
+            Path::new(r"\\?\C:\workspace\src\lib"),
+            &[],
+            &[],
+        );
+
+        assert_eq!(
+            command,
+            format!(
+                r"{} tool embed --bin C:\workspace\.mooncakes\__moonbin__ --mod C:\workspace --pkg C:\workspace\src\lib",
+                crate::command_path(&BINARIES.moonbuild)
+            )
         );
     }
 

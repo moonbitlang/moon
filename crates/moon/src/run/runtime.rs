@@ -65,9 +65,9 @@ pub(crate) fn command_for_with_moonrun_policy(
             }
             if let Some(policy) = moonrun_policy {
                 cmd.arg("--policy");
-                cmd.arg(moonutil::path::command_path(policy));
+                cmd.arg(policy);
             }
-            cmd.arg(moonutil::path::command_path(mbt_executable));
+            cmd.arg(mbt_executable);
             cmd.arg("--");
             cmd
         }
@@ -82,7 +82,7 @@ pub(crate) fn command_for_with_moonrun_policy(
             }
             let mut cmd = Command::new(moonutil::toolchain::BINARIES.node_or_default());
             cmd.arg("--enable-source-maps");
-            cmd.arg(moonutil::path::command_path(mbt_executable));
+            cmd.arg(mbt_executable);
             if let Some(t) = test {
                 cmd.arg(serde_json::to_string(t).expect("Failed to serialize test args"));
             }
@@ -104,5 +104,38 @@ pub(crate) fn command_for_with_moonrun_policy(
             }
             cmd
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::{
+        ffi::{OsStr, OsString},
+        os::unix::ffi::OsStringExt,
+        path::PathBuf,
+    };
+
+    #[test]
+    fn direct_runtime_arguments_preserve_non_utf8_paths() {
+        let executable = PathBuf::from(OsString::from_vec(b"/tmp/main-\xff.wasm".to_vec()));
+        let policy = PathBuf::from(OsString::from_vec(b"/tmp/policy-\xff.json".to_vec()));
+        let command = command_for_with_moonrun_policy(
+            RunBackend::Wasm,
+            None,
+            &executable,
+            None,
+            Some(&policy),
+        );
+
+        assert_eq!(
+            command.as_std().get_args().collect::<Vec<_>>(),
+            [
+                OsStr::new("--policy"),
+                policy.as_os_str(),
+                executable.as_os_str(),
+                OsStr::new("--"),
+            ]
+        );
     }
 }

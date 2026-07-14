@@ -65,9 +65,12 @@ pub fn gen_all_pkgs_json(
             let pkg = resolve_output.pkg_dirs.get_package(id);
             let root = pkg.fqn.module().name().to_string();
             let rel = pkg.fqn.package().to_string();
-            let artifact = metadata_source_mi_path(resolve_output, artifact_paths, id, backend)
-                .to_string_lossy()
-                .into_owned();
+            let artifact = moonutil::path::command_path(&metadata_source_mi_path(
+                resolve_output,
+                artifact_paths,
+                id,
+                backend,
+            ));
             PackageArtifactJSON {
                 root,
                 rel,

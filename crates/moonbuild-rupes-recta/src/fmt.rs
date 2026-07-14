@@ -41,6 +41,7 @@ use moonutil::{
     cond_expr::OptLevel,
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK},
     manifest::validate_module_dsl_deps,
+    path::command_path,
 };
 use n2::graph::Build;
 
@@ -220,13 +221,13 @@ fn format_moon_mod_dsl(
 ) -> anyhow::Result<()> {
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonbuild),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            moon_mod.to_string_lossy().into_owned(),
+            command_path(moon_mod),
             "--new".into(),
-            target_moon_mod.to_string_lossy().into_owned(),
+            command_path(target_moon_mod),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -246,11 +247,11 @@ fn format_moon_mod_dsl(
         graph.add_build(build)?;
     } else {
         let fmt_cmd = [
-            BINARIES.moonfmt.to_string_lossy().into_owned(),
-            moon_mod.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonfmt),
+            command_path(moon_mod),
             "-w".into(),
             "-o".into(),
-            target_moon_mod.to_string_lossy().into_owned(),
+            command_path(target_moon_mod),
         ];
 
         let ins = build_ins(graph, [moon_mod]);
@@ -283,13 +284,13 @@ fn format_moon_mod_json_migrate(
 
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonbuild),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            moon_mod_json.to_string_lossy().into_owned(),
+            command_path(moon_mod_json),
             "--new".into(),
-            target_moon_mod.to_string_lossy().into_owned(),
+            command_path(target_moon_mod),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -312,10 +313,10 @@ fn format_moon_mod_json_migrate(
         graph.add_build(build)?;
     } else {
         let fmt_cmd = [
-            BINARIES.moonfmt.to_string_lossy().into_owned(),
-            moon_mod_json.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonfmt),
+            command_path(moon_mod_json),
             "-o".into(),
-            target_moon_mod.to_string_lossy().into_owned(),
+            command_path(target_moon_mod),
         ];
 
         let ins = build_ins(graph, [moon_mod_json]);
@@ -335,14 +336,14 @@ fn format_moon_mod_json_migrate(
                 "cmd".into(),
                 "/c".into(),
                 "copy".into(),
-                target_moon_mod.to_string_lossy().into_owned(),
-                moon_mod.to_string_lossy().into_owned(),
+                command_path(target_moon_mod),
+                command_path(moon_mod),
             ]
         } else {
             vec![
                 "cp".into(),
-                target_moon_mod.to_string_lossy().into_owned(),
-                moon_mod.to_string_lossy().into_owned(),
+                command_path(target_moon_mod),
+                command_path(moon_mod),
             ]
         };
 
@@ -363,10 +364,10 @@ fn format_moon_mod_json_migrate(
                 "cmd".into(),
                 "/c".into(),
                 "del".into(),
-                moon_mod_json.to_string_lossy().into_owned(),
+                command_path(moon_mod_json),
             ]
         } else {
-            vec!["rm".into(), moon_mod_json.to_string_lossy().into_owned()]
+            vec!["rm".into(), command_path(moon_mod_json)]
         };
 
         let ins = build_ins(graph, [moon_mod]);
@@ -465,19 +466,17 @@ fn format_node(
     pkg: &DiscoveredPackage,
     file: &Path,
 ) -> anyhow::Result<()> {
-    let out_file = layout
-        .format_artifact_path(&pkg.fqn, file.file_name().expect("Should have filename"))
-        .to_string_lossy()
-        .into_owned();
+    let out_file =
+        layout.format_artifact_path(&pkg.fqn, file.file_name().expect("Should have filename"));
     let cmd: Vec<String> = if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonbuild),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            file.to_string_lossy().into_owned(),
+            command_path(file),
             "--new".into(),
-            out_file.clone(),
+            command_path(&out_file),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -486,11 +485,11 @@ fn format_node(
         cmd
     } else {
         let mut cmd = vec![
-            BINARIES.moonfmt.to_string_lossy().into_owned(),
-            file.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonfmt),
+            command_path(file),
             "-w".into(),
             "-o".into(),
-            out_file.clone(),
+            command_path(&out_file),
         ];
         cmd.extend_from_slice(&cfg.extra_args);
         cmd
@@ -522,13 +521,13 @@ fn format_moon_work_dsl(
 ) -> anyhow::Result<()> {
     if cfg.check_only || cfg.warn_only {
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonbuild),
             "tool".into(),
             "format-workspace".into(),
             "--old".into(),
-            moon_work.to_string_lossy().into_owned(),
+            command_path(moon_work),
             "--new".into(),
-            target_moon_work.to_string_lossy().into_owned(),
+            command_path(target_moon_work),
             "--check".into(),
         ];
         if cfg.warn_only {
@@ -546,18 +545,18 @@ fn format_moon_work_dsl(
         graph.add_build(build)?;
     } else {
         let fmt_cmd: Vec<String> = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonbuild),
             "tool".into(),
             "format-workspace".into(),
             "--old".into(),
-            moon_work.to_string_lossy().into_owned(),
+            command_path(moon_work),
             "--write".into(),
             "--new".into(),
-            target_moon_work.to_string_lossy().into_owned(),
+            command_path(target_moon_work),
         ];
 
         let ins = build_ins(graph, [moon_work]);
-        let outs = build_outs(graph, [target_moon_work.to_string_lossy().into_owned()]);
+        let outs = build_outs(graph, [target_moon_work]);
         let mut build = Build::new(build_n2_fileloc("format moon.work"), ins, outs);
         build.cmdline = Some(moonutil::shlex::join_native(
             fmt_cmd.iter().map(|x| x.as_str()),
@@ -637,13 +636,13 @@ fn format_moon_pkg_dsl(
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonbuild),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            moon_pkg.to_string_lossy().into_owned(),
+            command_path(moon_pkg),
             "--new".into(),
-            target_moon_pkg.to_string_lossy().into_owned(),
+            command_path(target_moon_pkg),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -665,11 +664,11 @@ fn format_moon_pkg_dsl(
         // Format moon.pkg - use -w to write back to source and -o to target
         // This is consistent with how .mbt files are formatted
         let fmt_cmd: Vec<String> = vec![
-            BINARIES.moonfmt.to_string_lossy().into_owned(),
-            moon_pkg.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonfmt),
+            command_path(moon_pkg),
             "-w".into(),
             "-o".into(),
-            target_moon_pkg.to_string_lossy().into_owned(),
+            command_path(target_moon_pkg),
         ];
 
         let ins = build_ins(graph, [moon_pkg]);
@@ -714,13 +713,13 @@ fn format_moon_pkg_json_migrate(
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare
         let mut cmd = vec![
-            BINARIES.moonbuild.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonbuild),
             "tool".into(),
             "format-and-diff".into(),
             "--old".into(),
-            moon_pkg_json.to_string_lossy().into_owned(),
+            command_path(moon_pkg_json),
             "--new".into(),
-            target_moon_pkg.to_string_lossy().into_owned(),
+            command_path(target_moon_pkg),
         ];
         if cfg.warn_only {
             cmd.push("--warn".into());
@@ -741,14 +740,14 @@ fn format_moon_pkg_json_migrate(
     } else {
         // Step 1: Format moon.pkg.json to target directory
         let fmt_cmd: Vec<String> = vec![
-            BINARIES.moonfmt.to_string_lossy().into_owned(),
-            moon_pkg_json.to_string_lossy().into_owned(),
+            command_path(&BINARIES.moonfmt),
+            command_path(moon_pkg_json),
             "-o".into(),
-            target_moon_pkg.to_string_lossy().into_owned(),
+            command_path(target_moon_pkg),
         ];
 
         let ins = build_ins(graph, [moon_pkg_json]);
-        let outs = build_outs(graph, [target_moon_pkg.to_string_lossy().into_owned()]);
+        let outs = build_outs(graph, [target_moon_pkg]);
         let mut build = Build::new(
             build_n2_fileloc(format!("format moon.pkg.json {}", pkg.fqn)),
             ins,
@@ -765,19 +764,19 @@ fn format_moon_pkg_json_migrate(
                 "cmd".into(),
                 "/c".into(),
                 "copy".into(),
-                target_moon_pkg.to_string_lossy().into_owned(),
-                moon_pkg.to_string_lossy().into_owned(),
+                command_path(target_moon_pkg),
+                command_path(moon_pkg),
             ]
         } else {
             vec![
                 "cp".into(),
-                target_moon_pkg.to_string_lossy().into_owned(),
-                moon_pkg.to_string_lossy().into_owned(),
+                command_path(target_moon_pkg),
+                command_path(moon_pkg),
             ]
         };
 
         let ins = build_ins(graph, [target_moon_pkg]);
-        let outs = build_outs(graph, [moon_pkg.to_string_lossy().into_owned()]);
+        let outs = build_outs(graph, [moon_pkg]);
         let mut build = Build::new(
             build_n2_fileloc(format!("copy moon.pkg {}", pkg.fqn)),
             ins,
@@ -794,10 +793,10 @@ fn format_moon_pkg_json_migrate(
                 "cmd".into(),
                 "/c".into(),
                 "del".into(),
-                moon_pkg_json.to_string_lossy().into_owned(),
+                command_path(moon_pkg_json),
             ]
         } else {
-            vec!["rm".into(), moon_pkg_json.to_string_lossy().into_owned()]
+            vec!["rm".into(), command_path(moon_pkg_json)]
         };
 
         let ins = build_ins(graph, [moon_pkg]);
