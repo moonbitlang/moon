@@ -804,40 +804,7 @@ mod tests {
     use std::{
         ffi::OsString,
         path::{Path, PathBuf},
-        time::{SystemTime, UNIX_EPOCH},
     };
-
-    struct TestProject {
-        root: PathBuf,
-    }
-
-    impl TestProject {
-        fn new() -> Self {
-            let root = std::env::temp_dir().join(format!(
-                "moonutil-dirs-{}",
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            std::fs::create_dir_all(&root).unwrap();
-            Self { root }
-        }
-
-        fn path(&self) -> &Path {
-            &self.root
-        }
-
-        fn join(&self, path: impl AsRef<Path>) -> PathBuf {
-            self.root.join(path)
-        }
-    }
-
-    impl Drop for TestProject {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.root);
-        }
-    }
 
     fn write_file(path: &Path, content: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -861,24 +828,24 @@ mod tests {
         );
     }
 
-    fn nested_workspace_under_unrelated_module() -> TestProject {
-        let project = TestProject::new();
-        write_json_module(&project.join("outer"), "alice/outer");
+    fn nested_workspace_under_unrelated_module() -> tempfile::TempDir {
+        let project = tempfile::tempdir().expect("create test project");
+        write_json_module(&project.path().join("outer"), "alice/outer");
         write_file(
-            &project.join("outer/ws/moon.work"),
+            &project.path().join("outer/ws/moon.work"),
             r#"members = [
   "./app",
 ]
 "#,
         );
-        write_json_module(&project.join("outer/ws/app"), "alice/app");
+        write_json_module(&project.path().join("outer/ws/app"), "alice/app");
         project
     }
 
     #[test]
     fn mooncakes_dir_comes_from_source_even_with_custom_target() {
-        let project = TestProject::new();
-        let target = project.join("tmp-target");
+        let project = tempfile::tempdir().expect("create test project");
+        let target = project.path().join("tmp-target");
         let dirs = SourceTargetDirs {
             cwd: None,
             target_dir: Some(target),
@@ -890,9 +857,9 @@ mod tests {
 
     #[test]
     fn auto_selection_preserves_dsl_module_manifest_path() {
-        let project = TestProject::new();
+        let project = tempfile::tempdir().expect("create test project");
         write_file(
-            &project.join(MOON_MOD),
+            &project.path().join(MOON_MOD),
             r#"name = "alice/app"
 
 version = "0.1.0"
@@ -907,12 +874,12 @@ version = "0.1.0"
         let ProjectContext::Module { manifest_path, .. } = selection else {
             panic!("expected module context");
         };
-        assert_eq!(manifest_path, canonical(project.join(MOON_MOD)));
+        assert_eq!(manifest_path, canonical(project.path().join(MOON_MOD)));
     }
 
     #[test]
     fn project_probe_reports_not_found_without_project() {
-        let project = TestProject::new();
+        let project = tempfile::tempdir().expect("create test project");
         let mut query =
             project_query_from_start_dir(project.path().to_path_buf(), &WorkspaceEnv::Auto)
                 .unwrap();
@@ -929,10 +896,10 @@ version = "0.1.0"
     #[test]
     fn pinned_workspace_root_under_unrelated_outer_module_succeeds() {
         let project = nested_workspace_under_unrelated_module();
-        let workspace_path = canonical(project.join("outer/ws/moon.work"));
+        let workspace_path = canonical(project.path().join("outer/ws/moon.work"));
 
         let selection = resolve_project_context_from_start_dir(
-            project.join("outer/ws"),
+            project.path().join("outer/ws"),
             &WorkspaceEnv::Pinned(workspace_path.clone()),
         )
         .unwrap();
@@ -945,7 +912,7 @@ version = "0.1.0"
         else {
             panic!("expected workspace context");
         };
-        assert_eq!(root, canonical(project.join("outer/ws")));
+        assert_eq!(root, canonical(project.path().join("outer/ws")));
         assert_eq!(selected_module, None);
         assert_eq!(manifest_path, workspace_path);
     }
@@ -953,11 +920,11 @@ version = "0.1.0"
     #[test]
     fn pinned_workspace_rejects_unlisted_module_under_workspace_root() {
         let project = nested_workspace_under_unrelated_module();
-        let workspace_path = canonical(project.join("outer/ws/moon.work"));
-        write_json_module(&project.join("outer/ws/tools"), "alice/tools");
+        let workspace_path = canonical(project.path().join("outer/ws/moon.work"));
+        write_json_module(&project.path().join("outer/ws/tools"), "alice/tools");
 
         let err = resolve_project_context_from_start_dir(
-            project.join("outer/ws/tools"),
+            project.path().join("outer/ws/tools"),
             &WorkspaceEnv::Pinned(workspace_path.clone()),
         )
         .unwrap_err();
@@ -965,17 +932,18 @@ version = "0.1.0"
         assert!(matches!(
             err,
             PackageDirsError::PinnedWorkspaceDoesNotApply { workspace, module }
-                if workspace == workspace_path && module == canonical(project.join("outer/ws/tools"))
+                if workspace == workspace_path
+                    && module == canonical(project.path().join("outer/ws/tools"))
         ));
     }
 
     #[test]
     fn pinned_workspace_rejects_unlisted_module_outside_workspace_root() {
         let project = nested_workspace_under_unrelated_module();
-        let workspace_path = canonical(project.join("outer/ws/moon.work"));
+        let workspace_path = canonical(project.path().join("outer/ws/moon.work"));
 
         let err = resolve_project_context_from_start_dir(
-            project.join("outer"),
+            project.path().join("outer"),
             &WorkspaceEnv::Pinned(workspace_path.clone()),
         )
         .unwrap_err();
@@ -983,7 +951,7 @@ version = "0.1.0"
         assert!(matches!(
             err,
             PackageDirsError::PinnedWorkspaceDoesNotApply { workspace, module }
-                if workspace == workspace_path && module == canonical(project.join("outer"))
+                if workspace == workspace_path && module == canonical(project.path().join("outer"))
         ));
     }
 
