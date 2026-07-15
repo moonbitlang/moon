@@ -254,11 +254,9 @@ fn test_pre_build_mooncake_bin_shape() {
         .replace('\\', "/");
 
     let source_dir = std::fs::canonicalize(&dir).unwrap();
-    let expected_path = source_dir
-        .join(".mooncakes")
-        .join(MOON_BIN_DIR)
-        .to_string_lossy()
-        .replace('\\', "/");
+    let expected_path =
+        moonutil::path::command_path(&source_dir.join(".mooncakes").join(MOON_BIN_DIR))
+            .replace('\\', "/");
 
     assert_eq!(actual_path, expected_path);
 }
