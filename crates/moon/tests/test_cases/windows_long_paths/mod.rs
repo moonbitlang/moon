@@ -142,6 +142,17 @@ fn records_toolchain_behavior_beyond_the_legacy_path_limit() {
         ("run (native)", vec!["run", package, "--target", "native"]),
     ];
 
+    let mut redactions = snapbox::Redactions::new();
+    for (placeholder, path) in [
+        ("[ROOT]", case.dir.as_ref().to_path_buf()),
+        ("[TOOLCHAIN]", toolchain_root_for_tests()),
+    ] {
+        redactions.insert(placeholder, path.clone()).unwrap();
+        if let Ok(canonical) = std::fs::canonicalize(path) {
+            redactions.insert(placeholder, canonical).unwrap();
+        }
+    }
+
     let mut observed = String::new();
     for (label, args) in commands {
         let target_dir = case.dir.join("_build");
@@ -150,41 +161,80 @@ fn records_toolchain_behavior_beyond_the_legacy_path_limit() {
         }
 
         let output = moon_process_cmd(&case.dir)
+            .env("NO_COLOR", "1")
             .args(args)
             .output()
             .expect("moon command should start");
-        writeln!(
-            observed,
-            "{label}: {}",
-            if output.status.success() {
-                "success"
-            } else {
-                "failure"
-            }
-        )
-        .unwrap();
+        writeln!(observed, "## {label}").unwrap();
+        match output.status.code() {
+            Some(code) => writeln!(observed, "exit code: {code}").unwrap(),
+            None => writeln!(observed, "terminated without an exit code").unwrap(),
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !stdout.trim().is_empty() {
+            writeln!(observed, "stdout:").unwrap();
+            writeln!(observed, "{}", stdout.trim_end()).unwrap();
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.trim().is_empty() {
+            writeln!(observed, "stderr:").unwrap();
+            writeln!(observed, "{}", stderr.trim_end()).unwrap();
+        }
+        writeln!(observed).unwrap();
     }
 
-    // This is intentionally a behavior snapshot, including known failures.
-    // Follow-up fixes should change only the affected line to `success`.
-    snapbox::assert_data_eq!(
+    // This is intentionally a behavior snapshot, including known failures and
+    // their diagnostics. Follow-up fixes should update only the affected section.
+    snapbox::Assert::new().redact_with(redactions).eq(
         observed,
         snapbox::str![[r#"
-fmt: success
-check: failure
-info: failure
-build: failure
-test: failure
-bundle: failure
-doc: failure
-run (wasm-gc): failure
-run (js): failure
-test (js): failure
-check (native): failure
-info (native): failure
-build (native): failure
-test (native): failure
-run (native): failure
+## fmt
+exit code: 0
+
+## check
+exit code: 1
+
+## info
+exit code: 1
+
+## build
+exit code: 1
+
+## test
+exit code: 1
+
+## bundle
+exit code: 1
+
+## doc
+exit code: 1
+
+## run (wasm-gc)
+exit code: 1
+
+## run (js)
+exit code: 1
+
+## test (js)
+exit code: 1
+
+## check (native)
+exit code: 1
+
+## info (native)
+exit code: 1
+
+## build (native)
+exit code: 1
+
+## test (native)
+exit code: 1
+
+## run (native)
+exit code: 1
+
 "#]],
     );
 }
