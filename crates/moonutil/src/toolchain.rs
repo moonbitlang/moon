@@ -27,5 +27,5 @@ pub use crate::binaries::{BINARIES, CachedBinaries};
 pub use crate::moon_dir::{
     MOON_DIRS, MoonDirs, RESERVED_BIN_NAMES, abort_core_in, abort_mi_in, bin, core, core_bundle,
     core_bundle_in, core_core, core_core_in, core_package_mi_in, home, include, is_toolchain_root,
-    lib, toolchain_root, user_bin,
+    lib, toolchain_root, user_bin, why3_datadir, why3_libdir,
 };
