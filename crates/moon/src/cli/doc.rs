@@ -165,13 +165,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     // before executing the build
     rr_build::generate_all_pkgs_json(&build_meta)?;
     // Generate metadata for `moondoc`
-    rr_build::generate_metadata(
-        &source_dir,
-        &target_dir,
-        &build_meta,
-        &build_graph,
-        None,
-    )?;
+    rr_build::generate_metadata(&source_dir, &target_dir, &build_meta, &build_graph, None)?;
 
     // Execute the build
     let cfg = BuildConfig::from_flags(
