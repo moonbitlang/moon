@@ -17,6 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::{OsStr, OsString};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::event_loop::thread_pool::Resource;
@@ -140,11 +144,19 @@ fn unlock_file_from_native_stub(handle: RawFileHandle) -> AsyncHostResult<()> {
 }
 
 pub(crate) fn try_lock_acquired_file(file: &Resource, exclusive: bool) -> AsyncHostResult<()> {
-    try_lock_file(file.raw_fd(), exclusive)
+    #[cfg(unix)]
+    let handle = file.as_file()?.as_raw_fd();
+    #[cfg(windows)]
+    let handle = file.as_file()?.as_raw_handle();
+    try_lock_file(handle, exclusive)
 }
 
 pub(crate) fn unlock_acquired_file(file: &Resource) -> AsyncHostResult<()> {
-    unlock_file(file.raw_fd())
+    #[cfg(unix)]
+    let handle = file.as_file()?.as_raw_fd();
+    #[cfg(windows)]
+    let handle = file.as_file()?.as_raw_handle();
+    unlock_file(handle)
 }
 
 #[cfg(unix)]

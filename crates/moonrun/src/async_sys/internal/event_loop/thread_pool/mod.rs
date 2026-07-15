@@ -48,7 +48,7 @@ pub(crate) use jobs::{
 };
 pub(crate) use runner::{get_file_time_result, get_read_result, run_host_job};
 pub(crate) use types::{
-    FileTimeResult, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, Resource,
+    FileRef, FileTimeResult, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, Resource,
     ResourceClass, ResourceRef, ResourceTable, SpawnOptions,
 };
 #[cfg(windows)]

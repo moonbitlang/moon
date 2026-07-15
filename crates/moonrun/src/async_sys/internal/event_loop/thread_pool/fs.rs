@@ -20,6 +20,10 @@
 //! `moonbitlang/async/src/internal/event_loop/thread_pool.c`.
 
 use std::ffi::OsString;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, HostCBuffer};
 use crate::async_sys::internal::fd_util;
@@ -28,6 +32,16 @@ use crate::async_sys::ported_fns;
 use super::{FileTimeResult, OpenJobResource, OpenJobResult, Resource};
 
 type RawFile = fd_util::stub::RawFd;
+
+#[cfg(unix)]
+fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
+    Ok(file.as_file()?.as_raw_fd())
+}
+
+#[cfg(windows)]
+fn raw_file_handle(file: &Resource) -> AsyncHostResult<RawFile> {
+    Ok(file.as_file()?.as_raw_handle())
+}
 
 ported_fns! {
     #[ported(
@@ -75,7 +89,7 @@ ported_fns! {
         result: &mut Option<Vec<u8>>,
     ) -> AsyncHostResult<i64> {
         let mut buf = vec![0; usize::try_from(len).map_err(|_| AsyncHostError::Fault)?];
-        let n = read_from_native_file(file.raw_fd(), &mut buf, position)?;
+        let n = read_from_native_file(raw_file_handle(file)?, &mut buf, position)?;
         buf.truncate(n);
         *result = Some(buf);
         Ok(n as i64)
@@ -90,7 +104,7 @@ ported_fns! {
         data: &[u8],
         position: i64,
     ) -> AsyncHostResult<i64> {
-        let n = write_to_native_file(file.raw_fd(), data, position)?;
+        let n = write_to_native_file(raw_file_handle(file)?, data, position)?;
         Ok(n as i64)
     }
 
@@ -114,7 +128,7 @@ ported_fns! {
         file: &Resource,
         result: &mut i64,
     ) -> AsyncHostResult<i64> {
-        *result = file_size(file.raw_fd())?;
+        *result = file_size(raw_file_handle(file)?)?;
         Ok(0)
     }
 
@@ -126,7 +140,7 @@ ported_fns! {
         file: &Resource,
         result: &mut Option<FileTimeResult>,
     ) -> AsyncHostResult<i64> {
-        *result = Some(FileTimeResult::new(file_time(file.raw_fd())?));
+        *result = Some(FileTimeResult::new(file_time(raw_file_handle(file)?)?));
         Ok(0)
     }
 
@@ -172,7 +186,7 @@ ported_fns! {
         file: &Resource,
         only_data: bool,
     ) -> AsyncHostResult<i64> {
-        sync_native_file(file.raw_fd(), only_data)?;
+        sync_native_file(raw_file_handle(file)?, only_data)?;
         Ok(0)
     }
 
@@ -184,7 +198,7 @@ ported_fns! {
         file: &Resource,
         exclusive: bool,
     ) -> AsyncHostResult<i64> {
-        lock_native_file(file.raw_fd(), exclusive)?;
+        lock_native_file(raw_file_handle(file)?, exclusive)?;
         Ok(0)
     }
 
@@ -625,7 +639,10 @@ fn file_kind_by_path(
         libc::AT_SYMLINK_NOFOLLOW
     };
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    let parent = parent.map(Resource::raw_fd).unwrap_or(libc::AT_FDCWD);
+    let parent = match parent {
+        Some(parent) => raw_file_handle(parent)?,
+        None => libc::AT_FDCWD,
+    };
     let ret = unsafe { libc::fstatat(parent, path.as_ptr(), stat.as_mut_ptr(), flags) };
     if ret < 0 {
         Err(last_native_error())
@@ -783,7 +800,7 @@ fn rmdir_native_path(path: OsString) -> AsyncHostResult<()> {
 
 #[cfg(all(unix, target_os = "linux"))]
 fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
-    let fd = file.raw_fd();
+    let fd = raw_file_handle(file)?;
     if restart && unsafe { libc::lseek(fd, 0, libc::SEEK_SET) } < 0 {
         return Err(last_native_error());
     }
@@ -799,7 +816,7 @@ fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostR
 
 #[cfg(all(unix, target_os = "macos"))]
 fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostResult<i64> {
-    let fd = file.raw_fd();
+    let fd = raw_file_handle(file)?;
     if restart && unsafe { libc::lseek(fd, 0, libc::SEEK_SET) } < 0 {
         return Err(last_native_error());
     }
@@ -1096,7 +1113,8 @@ fn resolve_windows_path_for_parent(
         return Ok(path);
     }
 
-    let mut parent_path = std::path::PathBuf::from(final_path_from_handle(parent.raw_fd())?);
+    let mut parent_path =
+        std::path::PathBuf::from(final_path_from_handle(raw_file_handle(parent)?)?);
     parent_path.push(path);
     Ok(parent_path.into_os_string())
 }
@@ -1547,7 +1565,7 @@ fn read_native_dir(file: &Resource, out: &mut [u8], restart: bool) -> AsyncHostR
     };
     let ok = unsafe {
         GetFileInformationByHandleEx(
-            file.raw_fd() as HANDLE,
+            raw_file_handle(file)? as HANDLE,
             info_class,
             out.as_mut_ptr().cast(),
             u32::try_from(out.len()).map_err(|_| AsyncHostError::Fault)?,

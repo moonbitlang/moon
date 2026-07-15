@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::os::windows::io::{AsRawSocket, BorrowedSocket, RawHandle};
+
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
@@ -68,7 +70,7 @@ ported_fns! {
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_bus_register"
     )]
-    pub(crate) fn poll_register(
+    fn poll_register(
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
@@ -180,6 +182,24 @@ ported_fns! {
     pub(crate) fn event_get_bytes_transferred(event: &PollEvent) -> i32 {
         event.bytes_transferred
     }
+}
+
+pub(crate) fn poll_register_file(
+    instance: &PollInstance,
+    handle: RawHandle,
+    read_only: bool,
+) -> AsyncHostResult<()> {
+    poll_register(instance, handle, read_only)
+}
+
+pub(crate) fn poll_register_socket(
+    instance: &PollInstance,
+    socket: BorrowedSocket<'_>,
+    read_only: bool,
+) -> AsyncHostResult<()> {
+    // IOCP accepts a socket value in the HANDLE parameter. Keep that Windows
+    // ABI conversion inside the IOCP adapter rather than the resource model.
+    poll_register(instance, socket.as_raw_socket() as RawFd, read_only)
 }
 
 pub(crate) fn post_thread_pool_completion(

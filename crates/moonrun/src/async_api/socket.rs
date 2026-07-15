@@ -16,6 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::AsRawSocket;
+
 use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, read_u16};
 use crate::async_policy::AsyncPolicy;
 use crate::async_sys::internal::event_loop::thread_pool::{ResourceClass, ResourceRef};
@@ -382,7 +387,7 @@ pub(super) fn listen(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
         .resource_of_class(fd, ResourceClass::TcpSocket)
         .and_then(|file| {
             check_listen_bind_policy(host.policy(), &file)?;
-            sys::listen(file.raw_fd())
+            sys::listen(raw_socket(&file)?)
         });
     zero_or_minus_one(context, result)
 }
@@ -582,7 +587,7 @@ pub(super) fn accept(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, ad
         let addr = memory.read_exact_mut(addr, addr_len)?;
         let file = host.resource_of_class(fd, ResourceClass::TcpSocket)?;
         let family = file.socket_family().ok_or(AsyncHostError::Inval)?;
-        let fd = sys::accept(file.raw_fd(), addr)?;
+        let fd = sys::accept(raw_socket(&file)?, addr)?;
         Ok((fd, family))
     });
     match result {
@@ -668,7 +673,7 @@ fn zero_or_minus_one(context: &mut ImportContext<'_, '_>, result: AsyncHostResul
 
 fn check_listen_bind_policy(policy: &AsyncPolicy, file: &ResourceRef) -> AsyncHostResult<()> {
     let mut local_addr = vec![0; socket_addr_buffer_len()];
-    let implicit_addr = match sys::getsockname(file.raw_fd(), &mut local_addr) {
+    let implicit_addr = match sys::getsockname(raw_socket(file)?, &mut local_addr) {
         Ok(()) if socket_addr_port(&local_addr)? == 0 => Some(local_addr),
         Ok(()) => None,
         Err(error) => Some(listen_bind_addr_after_getsockname_error(file, error)?),
@@ -677,6 +682,16 @@ fn check_listen_bind_policy(policy: &AsyncPolicy, file: &ResourceRef) -> AsyncHo
         policy.bind_socket(&addr)?;
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn raw_socket(file: &ResourceRef) -> AsyncHostResult<sys::RawSocket> {
+    Ok(file.as_fd()?.as_raw_fd())
+}
+
+#[cfg(windows)]
+fn raw_socket(file: &ResourceRef) -> AsyncHostResult<sys::RawSocket> {
+    Ok(file.as_socket()?.as_raw_socket())
 }
 
 #[cfg(unix)]
