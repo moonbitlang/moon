@@ -141,4 +141,6 @@ mod warns;
 mod wasm_memory;
 mod wbtest_coverage;
 mod whitespace_test;
+#[cfg(windows)]
+mod windows_long_paths;
 mod workspace_basic;
