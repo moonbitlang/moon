@@ -108,10 +108,23 @@ test "answer" {
         output_path.display()
     );
 
-    for command in ["fmt", "check", "build", "test", "bundle", "info", "doc"] {
+    for command in ["fmt", "check", "build", "test", "bundle", "info"] {
         moon_cmd(&dir).arg("clean").assert().success();
         moon_cmd(&dir).arg(command).assert().success();
     }
+
+    moon_cmd(&dir).arg("clean").assert().success();
+    // TODO: `moondoc` receives a short output root, then appends enough package
+    // components internally to create an invalid long legacy path.
+    moon_cmd(&dir)
+        .arg("doc")
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+            Fatal error: exception Sys_error("[..]: No such file or directory")
+            ...
+            Error: failed when checking project
+        "#]]);
 
     moon_cmd(&dir).arg("clean").assert().success();
     moon_cmd(&dir)
@@ -127,14 +140,13 @@ test "answer" {
         .args(["--target", "js"])
         .assert()
         .failure()
-        .get_output()
-        .stderr
-        .clone();
-    let js_run = String::from_utf8(js_run).expect("Node stderr should be UTF-8");
-    // Affected Node.js versions reject valid extended-path entry points. Keep
-    // the exact regression visible so a future upstream fix changes this test.
-    // https://github.com/nodejs/node/issues/62446
-    assert!(js_run.contains("EISDIR") && js_run.contains("lstat 'C:'"));
+        // TODO: Remove this expected failure after Node.js accepts valid
+        // extended-path entry points again: https://github.com/nodejs/node/issues/62446
+        .stderr_eq(snapbox::str![[r#"
+            ...
+            Error: EISDIR: illegal operation on a directory, lstat 'C:'
+            ...
+        "#]]);
 
     for command in ["check", "info"] {
         moon_cmd(&dir).arg("clean").assert().success();
@@ -144,8 +156,8 @@ test "answer" {
             .success();
     }
 
-    // MSVC cannot open long paths in either legacy or verbatim form. Keep the
-    // real commands covered so that limitation becomes visible if it changes.
+    // TODO: MSVC cannot open long paths in either legacy or verbatim form. Keep
+    // the real commands covered so that limitation becomes visible if it changes.
     for command in ["build", "test"] {
         moon_cmd(&dir).arg("clean").assert().success();
         moon_cmd(&dir)
