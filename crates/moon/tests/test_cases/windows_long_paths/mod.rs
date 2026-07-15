@@ -1,6 +1,5 @@
 use super::*;
 use std::{
-    fmt::Write as _,
     os::windows::ffi::OsStrExt,
     path::{Path, PathBuf},
 };
@@ -37,14 +36,14 @@ impl LongPathCase {
         // enough for its generated artifacts to cross it.
         for index in 0.. {
             let next = package_rel.join(format!("segment{index:02}"));
-            if windows_path_len(&root.join(&next).join("moon.pkg.json")) >= LEGACY_PATH_LIMIT {
+            if windows_path_len(&root.join(&next).join("moon.pkg")) >= LEGACY_PATH_LIMIT {
                 break;
             }
             package_rel = next;
         }
 
         let package_dir = root.join(&package_rel);
-        let package_manifest = package_dir.join("moon.pkg.json");
+        let package_manifest = package_dir.join("moon.pkg");
         let source_file = package_dir.join("lib.mbt");
         assert!(
             windows_path_len(&package_manifest) < LEGACY_PATH_LIMIT,
@@ -55,20 +54,8 @@ impl LongPathCase {
             "the source file must remain below the legacy path limit"
         );
 
-        write_file(
-            &root.join("moon.mod.json"),
-            r#"{
-  "name": "test/long-path"
-}
-"#,
-        );
-        write_file(
-            &package_manifest,
-            r#"{
-  "is-main": true
-}
-"#,
-        );
+        write_file(&root.join("moon.mod"), "name = \"test/long-path\"\n");
+        write_file(&package_manifest, "pkgtype(kind: \"executable\")\n");
         write_file(
             &source_file,
             r#"pub fn answer() -> Int { 42 }
@@ -83,158 +70,218 @@ test "answer" {
 "#,
         );
 
-        let dry_run = moon_cmd(&dir)
-            .args(["check", "--dry-run", "--sort-input"])
-            .assert()
-            .success()
-            .get_output()
-            .stdout
-            .clone();
-        let dry_run = String::from_utf8(dry_run).expect("dry-run output should be UTF-8");
-        let command_args = dry_run
-            .lines()
-            .find_map(|line| {
-                let args = moonutil::shlex::split_native(line);
-                args.windows(2).any(|pair| pair[0] == "-o").then_some(args)
-            })
-            .expect("dry run should expose the compiler command");
-        let output_path = command_args
-            .windows(2)
-            .find(|pair| pair[0] == "-o")
-            .map(|pair| PathBuf::from(&pair[1]))
-            .expect("dry run should expose the package artifact after `-o`");
-        let output_path = if output_path.is_absolute() {
-            output_path
-        } else {
-            root.join(output_path)
-        };
-        assert!(
-            windows_path_len(&output_path) > LEGACY_PATH_LIMIT,
-            "the generated artifact must cross the legacy path limit"
+        Self { dir, package_rel }
+    }
+
+    fn package(&self) -> &str {
+        self.package_rel
+            .to_str()
+            .expect("generated package path should be valid UTF-8")
+    }
+
+    #[track_caller]
+    fn assert_compiler_path_failure(
+        &self,
+        args: &[&str],
+        backend: &str,
+        profile: &str,
+        action: &str,
+    ) {
+        let expected = format!(
+            r#"
+         --  --[..]
+       /  //  / __--------_
+      /  //  /_/            /
+   ---      -                / __
+  / X        /        ____   /   )
+  *_________/__/_____/______/ `--
+
+Oops, the compiler has encountered an unexpected situation.
+This is a bug in the compiler.
+
+A bug report containing the error description and relevant code would be
+greatly appreciated. You can submit the bug report here:
+
+  https://github.com/moonbitlang/moonbit-docs/issues/new?template=ice.md
+
+Error: Sys_error("[..]_build[..]{backend}[..]{profile}[..]{action}[..]: No such file or directory")
+
+Compiler args: [..]
+
+moonc version: [..]
+...
+"#
         );
 
-        Self { dir, package_rel }
+        moon_cmd(&self.dir)
+            .env("NO_COLOR", "1")
+            .args(args)
+            .assert()
+            .failure()
+            .stderr_eq(expected);
     }
 }
 
 #[test]
-fn records_toolchain_behavior_beyond_the_legacy_path_limit() {
+fn dry_run_plans_an_artifact_beyond_the_legacy_path_limit() {
     let case = LongPathCase::new();
-    let package = case
-        .package_rel
-        .to_str()
-        .expect("generated package path should be valid UTF-8");
-    let commands = [
-        ("fmt", vec!["fmt"]),
-        ("check", vec!["check"]),
-        ("info", vec!["info"]),
-        ("build", vec!["build"]),
-        ("test", vec!["test"]),
-        ("bundle", vec!["bundle"]),
-        ("doc", vec!["doc"]),
-        ("run (wasm-gc)", vec!["run", package]),
-        ("run (js)", vec!["run", package, "--target", "js"]),
-        ("test (js)", vec!["test", "--target", "js"]),
-        ("check (native)", vec!["check", "--target", "native"]),
-        ("info (native)", vec!["info", "--target", "native"]),
-        ("build (native)", vec!["build", "--target", "native"]),
-        ("test (native)", vec!["test", "--target", "native"]),
-        ("run (native)", vec!["run", package, "--target", "native"]),
-    ];
+    let root = case.dir.as_ref();
+    let dry_run = moon_cmd(&case.dir)
+        .args(["check", "--dry-run", "--sort-input"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let dry_run = String::from_utf8(dry_run).expect("dry-run output should be UTF-8");
+    let command_args = dry_run
+        .lines()
+        .find_map(|line| {
+            let args = moonutil::shlex::split_native(line);
+            args.windows(2).any(|pair| pair[0] == "-o").then_some(args)
+        })
+        .expect("dry run should expose the compiler command");
+    let output_path = command_args
+        .windows(2)
+        .find(|pair| pair[0] == "-o")
+        .map(|pair| PathBuf::from(&pair[1]))
+        .expect("dry run should expose the package artifact after `-o`");
+    let output_path = if output_path.is_absolute() {
+        output_path
+    } else {
+        root.join(output_path)
+    };
+    assert!(
+        windows_path_len(&output_path) > LEGACY_PATH_LIMIT,
+        "the generated artifact must cross the legacy path limit"
+    );
+}
 
-    let mut redactions = snapbox::Redactions::new();
-    for (placeholder, path) in [
-        ("[ROOT]", case.dir.as_ref().to_path_buf()),
-        ("[TOOLCHAIN]", toolchain_root_for_tests()),
-    ] {
-        redactions.insert(placeholder, path.clone()).unwrap();
-        if let Ok(canonical) = std::fs::canonicalize(path) {
-            redactions.insert(placeholder, canonical).unwrap();
-        }
-    }
+#[test]
+fn fmt_reports_its_long_format_directory() {
+    let case = LongPathCase::new();
+    moon_cmd(&case.dir)
+        .env("NO_COLOR", "1")
+        .arg("fmt")
+        .assert()
+        .failure()
+        .stdout_eq(snapbox::str![[r#"
+Fatal error: exception Sys_error("[..]_build[..]wasm-gc[..]release[..]format[..]: No such file or directory")
+...
+"#]])
+        .stderr_eq(snapbox::str![[r#"
+Failed with 0 warnings, 0 errors.
+Error: failed when formatting project
+"#]]);
+}
 
-    let mut observed = String::new();
-    for (label, args) in commands {
-        let target_dir = case.dir.join("_build");
-        if target_dir.exists() {
-            std::fs::remove_dir_all(&target_dir).unwrap();
-        }
+#[test]
+fn check_reports_its_long_output_directory() {
+    LongPathCase::new().assert_compiler_path_failure(&["check"], "wasm-gc", "debug", "check");
+}
 
-        let output = moon_process_cmd(&case.dir)
-            .env("NO_COLOR", "1")
-            .args(args)
-            .output()
-            .expect("moon command should start");
-        writeln!(observed, "## {label}").unwrap();
-        match output.status.code() {
-            Some(code) => writeln!(observed, "exit code: {code}").unwrap(),
-            None => writeln!(observed, "terminated without an exit code").unwrap(),
-        }
+#[test]
+fn info_reports_its_long_check_directory() {
+    LongPathCase::new().assert_compiler_path_failure(&["info"], "wasm-gc", "debug", "check");
+}
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if !stdout.trim().is_empty() {
-            writeln!(observed, "stdout:").unwrap();
-            writeln!(observed, "{}", stdout.trim_end()).unwrap();
-        }
+#[test]
+fn build_reports_its_long_output_directory() {
+    LongPathCase::new().assert_compiler_path_failure(&["build"], "wasm-gc", "debug", "build");
+}
 
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !stderr.trim().is_empty() {
-            writeln!(observed, "stderr:").unwrap();
-            writeln!(observed, "{}", stderr.trim_end()).unwrap();
-        }
-        writeln!(observed).unwrap();
-    }
+#[test]
+fn test_reports_its_long_output_directory() {
+    LongPathCase::new().assert_compiler_path_failure(&["test"], "wasm-gc", "debug", "test");
+}
 
-    // This is intentionally a behavior snapshot, including known failures and
-    // their diagnostics. Follow-up fixes should update only the affected section.
-    snapbox::Assert::new().redact_with(redactions).eq(
-        observed,
-        snapbox::str![[r#"
-## fmt
-exit code: 0
+#[test]
+fn bundle_reports_its_long_output_directory() {
+    LongPathCase::new().assert_compiler_path_failure(&["bundle"], "wasm-gc", "release", "bundle");
+}
 
-## check
-exit code: 1
+// These higher-level commands currently stop in `moonc`, before moondoc, Node,
+// or the native C toolchain is reached. Keep them separate so a future change
+// reveals exactly which boundary becomes reachable.
+#[test]
+fn doc_reports_its_long_check_directory() {
+    LongPathCase::new().assert_compiler_path_failure(&["doc"], "wasm-gc", "debug", "check");
+}
 
-## info
-exit code: 1
+#[test]
+fn run_wasm_gc_reports_its_long_output_directory() {
+    let case = LongPathCase::new();
+    case.assert_compiler_path_failure(&["run", case.package()], "wasm-gc", "debug", "build");
+}
 
-## build
-exit code: 1
+#[test]
+fn run_js_reports_its_long_output_directory() {
+    let case = LongPathCase::new();
+    case.assert_compiler_path_failure(
+        &["run", case.package(), "--target", "js"],
+        "js",
+        "debug",
+        "build",
+    );
+}
 
-## test
-exit code: 1
+#[test]
+fn test_js_reports_its_long_output_directory() {
+    LongPathCase::new().assert_compiler_path_failure(
+        &["test", "--target", "js"],
+        "js",
+        "debug",
+        "test",
+    );
+}
 
-## bundle
-exit code: 1
+#[test]
+fn check_native_reports_its_long_output_directory() {
+    LongPathCase::new().assert_compiler_path_failure(
+        &["check", "--target", "native"],
+        "native",
+        "debug",
+        "check",
+    );
+}
 
-## doc
-exit code: 1
+#[test]
+fn info_native_reports_its_long_check_directory() {
+    LongPathCase::new().assert_compiler_path_failure(
+        &["info", "--target", "native"],
+        "native",
+        "debug",
+        "check",
+    );
+}
 
-## run (wasm-gc)
-exit code: 1
+#[test]
+fn build_native_reports_its_long_output_directory() {
+    LongPathCase::new().assert_compiler_path_failure(
+        &["build", "--target", "native"],
+        "native",
+        "debug",
+        "build",
+    );
+}
 
-## run (js)
-exit code: 1
+#[test]
+fn test_native_reports_its_long_output_directory() {
+    LongPathCase::new().assert_compiler_path_failure(
+        &["test", "--target", "native"],
+        "native",
+        "debug",
+        "test",
+    );
+}
 
-## test (js)
-exit code: 1
-
-## check (native)
-exit code: 1
-
-## info (native)
-exit code: 1
-
-## build (native)
-exit code: 1
-
-## test (native)
-exit code: 1
-
-## run (native)
-exit code: 1
-
-"#]],
+#[test]
+fn run_native_reports_its_long_output_directory() {
+    let case = LongPathCase::new();
+    case.assert_compiler_path_failure(
+        &["run", case.package(), "--target", "native"],
+        "native",
+        "debug",
+        "build",
     );
 }
