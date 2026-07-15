@@ -214,6 +214,10 @@ fn check_paths(
     // Check if any of the relevant events are in ignored dirs.
     // Note: `_build/` and `.mooncakes/` are always ignored by default.
     let mut ignore_builder = filter_files::FileFilterBuilder::new(repo_root);
+    // Only a proper descendant can be filtered as part of the watched tree.
+    // An equal or ancestor directory would also suppress source events.
+    let filters_output_subtree =
+        ignored_subtree != repo_root && ignored_subtree.starts_with(repo_root);
 
     for evt in relevant_events {
         for path in &evt.paths {
@@ -227,7 +231,7 @@ fn check_paths(
 
             let explicitly_watched = path_matches(&additional_paths.watched_paths, path);
 
-            if !explicitly_watched && path.starts_with(ignored_subtree) {
+            if !explicitly_watched && filters_output_subtree && path.starts_with(ignored_subtree) {
                 trace!(
                     "Ignoring event for path '{}' because it is in the output directory",
                     path.display()
@@ -413,6 +417,43 @@ mod tests {
         let result = check_events(root, &[event], &AdditionalWatchPaths::default());
 
         assert!(result);
+    }
+
+    #[test]
+    fn rerun_triggered_when_output_directory_is_not_a_strict_descendant() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(temp_dir.path()).unwrap();
+        let watch_root = root.join("project");
+        let disjoint_output = root.join("target");
+
+        let file = watch_root.join("src/main.mbt");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::create_dir_all(&disjoint_output).unwrap();
+        fs::write(&file, "stuff").unwrap();
+
+        let event = build_event(&file);
+        let additional_paths = AdditionalWatchPaths::default();
+
+        for output_dir in [
+            root.as_path(),
+            watch_root.as_path(),
+            disjoint_output.as_path(),
+        ] {
+            let result = check_rerun_trigger(
+                &watch_root,
+                output_dir,
+                std::slice::from_ref(&event),
+                &additional_paths,
+            );
+
+            assert!(
+                result,
+                "output directory '{}' suppressed a source event",
+                output_dir.display()
+            );
+        }
     }
 
     #[test]
@@ -608,7 +649,7 @@ mod tests {
         use std::fs;
 
         let temp_dir = tempfile::tempdir().unwrap();
-        let root = temp_dir.path();
+        let root = dunce::canonicalize(temp_dir.path()).unwrap();
         let output_dir = root.join("target");
         fs::create_dir_all(&output_dir).unwrap();
         let ignored_subtree = normalize_watch_path(&output_dir);
@@ -620,7 +661,7 @@ mod tests {
             attrs: Default::default(),
         };
         let result = check_rerun_trigger(
-            root,
+            &root,
             &ignored_subtree,
             &[event],
             &AdditionalWatchPaths::default(),
