@@ -108,12 +108,7 @@ fn test_pre_build_runs_from_module_root() {
 
     moon_cmd(&src_dir)
         .env("MOON_OVERRIDE", moon_bin())
-        .args([
-            "--manifest-path",
-            "../moon.mod.json",
-            "check",
-            "--sort-input",
-        ])
+        .args(["-C", "..", "check", "--sort-input"])
         .assert()
         .success();
 
@@ -152,17 +147,11 @@ fn test_pre_build_dry_run_uses_cwd_relative_placeholders() {
 }
 
 #[test]
-fn test_pre_build_dry_run_uses_prebuild_cwd_with_manifest_path() {
+fn test_pre_build_dry_run_uses_prebuild_cwd_after_chdir() {
     let dir = TestDir::new("pre_build.in");
     let src_dir = dir.join("src");
     let assert = moon_cmd(&src_dir)
-        .args([
-            "--manifest-path",
-            "../moon.mod.json",
-            "check",
-            "--dry-run",
-            "--sort-input",
-        ])
+        .args(["-C", "..", "check", "--dry-run", "--sort-input"])
         .assert()
         .success();
     let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();

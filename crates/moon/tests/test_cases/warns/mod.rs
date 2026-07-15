@@ -255,16 +255,7 @@ fn test_warn_list_alerts() {
 
     // don't set -w if it's empty string
     check(
-        get_stdout(
-            &dir,
-            [
-                "check",
-                "--manifest-path",
-                "a/moon.mod.json",
-                "--sort-input",
-                "--dry-run",
-            ],
-        ),
+        get_stdout(&dir, ["-C", "a", "check", "--sort-input", "--dry-run"]),
         expect![[r#"
             moonc check ./b/hello.mbt -o ./_build/wasm-gc/debug/check/username/b/b.mi -pkg username/b -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:./b -target wasm-gc -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check -doctest-only ./b/hello.mbt -include-doctests -o ./_build/wasm-gc/debug/check/username/b/b.blackbox_test.mi -pkg username/b_blackbox_test -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b_blackbox_test:./b -target wasm-gc -blackbox-test -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
@@ -274,17 +265,8 @@ fn test_warn_list_alerts() {
     );
 
     check(
-        get_stderr(
-            &dir,
-            [
-                "check",
-                "--manifest-path",
-                "a/moon.mod.json",
-                "--sort-input",
-            ],
-        ),
+        get_stderr(&dir, ["-C", "a", "check", "--sort-input"]),
         expect![[r#"
-            Warning: `--manifest-path` is deprecated. Prefer `-C <project-dir>` to select a different project.
             Warning: [0014]
                ╭─[ $ROOT/a/main.mbt:2:3 ]
                │
@@ -304,10 +286,7 @@ fn test_warn_list_alerts() {
     );
 
     check(
-        get_stdout(
-            &dir,
-            ["test", "--manifest-path", "a/moon.mod.json", "--sort-input"],
-        ),
+        get_stdout(&dir, ["-C", "a", "test", "--sort-input"]),
         expect![[r#"
             Total tests: 1, passed: 1, failed: 0.
         "#]],
@@ -319,16 +298,7 @@ fn test_mod_level_warn_list_alerts() {
     let dir = TestDir::new("warns/mod_level");
 
     check(
-        get_stdout(
-            &dir,
-            [
-                "check",
-                "--manifest-path",
-                "a/moon.mod.json",
-                "--dry-run",
-                "--sort-input",
-            ],
-        ),
+        get_stdout(&dir, ["-C", "a", "check", "--dry-run", "--sort-input"]),
         expect![[r#"
             moonc check ./b/hello.mbt -o ./_build/wasm-gc/debug/check/username/b/b.mi -pkg username/b -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:./b -target wasm-gc -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check -doctest-only ./b/hello.mbt -include-doctests -o ./_build/wasm-gc/debug/check/username/b/b.blackbox_test.mi -pkg username/b_blackbox_test -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b_blackbox_test:./b -target wasm-gc -blackbox-test -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json

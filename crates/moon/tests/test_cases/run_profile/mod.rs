@@ -281,7 +281,7 @@ fn test_moon_test_profile_runs_profiler_from_module_root() {
     let output = moon_process_cmd(&spawn_dir)
         .env("PATH", path)
         .env("MOON_PROFILE_CWD_MARKER", &marker)
-        .args(["--manifest-path", "../moon.mod.json", "test", "--profile"])
+        .args(["-C", "..", "test", "--profile"])
         .output()
         .expect("failed to run profiled tests");
     assert!(

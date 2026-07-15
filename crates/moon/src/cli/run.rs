@@ -309,15 +309,6 @@ fn run_source_as_single_file(
     result
 }
 
-fn reject_manifest_path_for_run(cli: &UniversalFlags) -> anyhow::Result<()> {
-    if cli.source_tgt_dir.manifest_path.is_some() {
-        bail!(
-            "`--manifest-path` is no longer supported for `moon run`. Use `moon -C <project-dir> run ...` instead."
-        );
-    }
-    Ok(())
-}
-
 fn resolve_run_start_dir(input: &str) -> anyhow::Result<std::path::PathBuf> {
     let input_path =
         dunce::canonicalize(input).with_context(|| format!("failed to resolve path `{input}`"))?;
@@ -372,8 +363,6 @@ fn build_wasm_file_executable_from_arg(
 
 #[instrument(skip_all)]
 pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
-    reject_manifest_path_for_run(cli)?;
-
     if cmd.profile {
         return super::profile::run_profiled_run(cli, cmd);
     }

@@ -581,17 +581,11 @@ mod tests {
 
     fn resolve_output(source_dir: &Path) -> moonbuild_rupes_recta::ResolveOutput {
         let cfg = ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
-        let manifest_path = if source_dir.join(MOON_WORK).exists() {
-            source_dir.join(MOON_WORK)
-        } else {
-            source_dir.join(MOON_MOD_JSON)
-        };
         let dirs = SourceTargetDirs {
             cwd: None,
-            manifest_path: Some(manifest_path),
             target_dir: None,
         }
-        .query(WorkspaceEnv::Auto)
+        .query_from(source_dir, WorkspaceEnv::Auto)
         .unwrap()
         .package_dirs()
         .unwrap();

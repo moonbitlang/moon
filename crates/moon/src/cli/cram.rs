@@ -234,7 +234,7 @@ fn cram_external_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsS
             }
         } else if matches!(
             arg.to_str(),
-            Some("--manifest-path" | "--target-dir" | "--unstable-feature" | "-Z")
+            Some("--target-dir" | "--unstable-feature" | "-Z")
         ) {
             index += 1;
         } else if is_global_bool_arg(arg) {
