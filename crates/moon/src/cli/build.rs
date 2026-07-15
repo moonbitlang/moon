@@ -38,9 +38,8 @@ use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
 use crate::rr_build::preconfig_compile;
 use crate::user_diagnostics::UserDiagnostics;
-use crate::watch::WatchOutput;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
-use crate::watch::watching;
+use crate::watch::{WatchOutput, watching};
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -148,7 +147,7 @@ fn run_build_internal(
     };
 
     if cmd.watch {
-        watching(|| f(true), source_dir, source_dir, target_dir)
+        watching(|| f(true), source_dir, target_dir)
     } else {
         f(false).map(|output| if output.ok { 0 } else { 1 })
     }
@@ -169,6 +168,13 @@ fn run_build_rr(
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
+    std::fs::create_dir_all(target_dir).with_context(|| {
+        format!(
+            "Failed to create target directory: '{}'",
+            target_dir.display()
+        )
+    })?;
+
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),

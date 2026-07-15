@@ -426,18 +426,7 @@ fn run_check_normal_internal(
     if cmd.watch {
         // For checks, the actual target dir is a subdir of the original target
         let watch_target = target_dir.join(WATCH_MODE_DIR);
-        std::fs::create_dir_all(&watch_target).with_context(|| {
-            format!(
-                "Failed to create target directory: '{}'",
-                watch_target.display()
-            )
-        })?;
-        watching(
-            || run_once(true, &watch_target),
-            source_dir,
-            source_dir,
-            &watch_target,
-        )
+        watching(|| run_once(true, &watch_target), source_dir, target_dir)
     } else {
         run_once(false, target_dir).map(|output| if output.ok { 0 } else { 1 })
     }
@@ -455,6 +444,13 @@ fn run_check_normal_internal_rr(
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
 ) -> anyhow::Result<WatchOutput> {
+    std::fs::create_dir_all(target_dir).with_context(|| {
+        format!(
+            "Failed to create target directory: '{}'",
+            target_dir.display()
+        )
+    })?;
+
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
         !cmd.build_flags.std(),
