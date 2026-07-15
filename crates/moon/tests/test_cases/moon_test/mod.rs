@@ -247,8 +247,8 @@ fn test_moon_test_runs_from_module_root() {
         get_stdout(
             &lib_dir,
             [
-                "--manifest-path",
-                "../moon.mod.json",
+                "-C",
+                "..",
                 "test",
                 "--target",
                 "js",
@@ -272,8 +272,8 @@ fn test_moon_test_workspace_members_run_from_module_root() {
         get_stdout(
             &spawn_dir,
             [
-                "--manifest-path",
-                "../moon.work",
+                "-C",
+                "..",
                 "test",
                 "--target",
                 "js",

@@ -39,8 +39,8 @@ fn test_native_tcc_run_when_moon_spawned_from_other_dir() {
         .env_remove("MOON_CC")
         .env("MOONBIT_NEW_NATIVE", "0")
         .args([
-            "--manifest-path",
-            "../moon.work",
+            "-C",
+            "..",
             "test",
             "--target",
             "native",

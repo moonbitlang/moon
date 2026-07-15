@@ -19,12 +19,9 @@
 use std::process::{Command, Stdio};
 
 use anyhow::bail;
-use moonutil::{
-    cli_support::{
-        LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand,
-        RegisterSubcommand, UniversalFlags,
-    },
-    constants::{MOON_MOD, MOON_MOD_JSON},
+use moonutil::cli_support::{
+    LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
+    UniversalFlags,
 };
 use serde::Serialize;
 
@@ -126,126 +123,12 @@ fn single_module_mooncake_cli(
 ) -> anyhow::Result<UniversalFlags> {
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
-    let module_dir = project
-        .selected_module()
-        .map(|module| module.root.clone())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> {command} ...`.",
-                project.root().display(),
-            )
-        })?;
+    if project.selected_module().is_none() {
+        bail!(
+            "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> {command} ...`.",
+            project.root().display(),
+        );
+    }
     cli.source_tgt_dir.cwd = None;
-    cli.source_tgt_dir.manifest_path = Some(if module_dir.join(MOON_MOD).exists() {
-        module_dir.join(MOON_MOD)
-    } else {
-        module_dir.join(MOON_MOD_JSON)
-    });
     Ok(cli)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::single_module_mooncake_cli;
-    use moonutil::{
-        cli_support::UniversalFlags,
-        constants::{MOON_MOD, MOON_MOD_JSON},
-        project::{SourceTargetDirs, WorkspaceEnv},
-    };
-    use std::path::Path;
-
-    fn write_file(path: &Path, content: &str) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(path, content).unwrap();
-    }
-
-    #[test]
-    fn single_module_mooncake_cli_targets_the_selected_member_manifest() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path();
-        let member = root.join("app");
-        write_file(&root.join("moon.work"), "members = [\n  \"./app\",\n]\n");
-        write_file(
-            &member.join(MOON_MOD),
-            "name = \"alice/app\"\n\nversion = \"0.1.0\"\n",
-        );
-
-        let cli = UniversalFlags {
-            source_tgt_dir: SourceTargetDirs {
-                cwd: None,
-                manifest_path: Some(member.join(MOON_MOD)),
-                target_dir: None,
-            },
-            quiet: false,
-            verbose: false,
-            trace: false,
-            dry_run: false,
-            build_graph: false,
-            workspace_env: WorkspaceEnv::Auto,
-            unstable_feature: Box::default(),
-        };
-
-        let cli = single_module_mooncake_cli(cli, "package").unwrap();
-        let actual_manifest_path = cli
-            .source_tgt_dir
-            .manifest_path
-            .as_ref()
-            .map(dunce::canonicalize)
-            .unwrap()
-            .unwrap();
-        let expected_manifest_path = member.join(MOON_MOD);
-
-        assert_eq!(cli.source_tgt_dir.cwd, None);
-        assert_eq!(
-            actual_manifest_path,
-            dunce::canonicalize(expected_manifest_path).unwrap()
-        );
-        assert_eq!(cli.source_tgt_dir.target_dir, None);
-    }
-
-    #[test]
-    fn single_module_mooncake_cli_falls_back_to_json_manifest() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path();
-        let member = root.join("app");
-        write_file(&root.join("moon.work"), "members = [\n  \"./app\",\n]\n");
-        write_file(
-            &member.join(MOON_MOD_JSON),
-            "{\n  \"name\": \"alice/app\",\n  \"version\": \"0.1.0\"\n}\n",
-        );
-
-        let cli = UniversalFlags {
-            source_tgt_dir: SourceTargetDirs {
-                cwd: None,
-                manifest_path: Some(member.join(MOON_MOD_JSON)),
-                target_dir: None,
-            },
-            quiet: false,
-            verbose: false,
-            trace: false,
-            dry_run: false,
-            build_graph: false,
-            workspace_env: WorkspaceEnv::Auto,
-            unstable_feature: Box::default(),
-        };
-
-        let cli = single_module_mooncake_cli(cli, "package").unwrap();
-        let actual_manifest_path = cli
-            .source_tgt_dir
-            .manifest_path
-            .as_ref()
-            .map(dunce::canonicalize)
-            .unwrap()
-            .unwrap();
-        let expected_manifest_path = member.join(MOON_MOD_JSON);
-
-        assert_eq!(cli.source_tgt_dir.cwd, None);
-        assert_eq!(
-            actual_manifest_path,
-            dunce::canonicalize(expected_manifest_path).unwrap()
-        );
-        assert_eq!(cli.source_tgt_dir.target_dir, None);
-    }
 }

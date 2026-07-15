@@ -1388,30 +1388,22 @@ fn test_moon_add_help_includes_no_update() {
 }
 
 #[test]
-fn test_manifest_path_deprecation_warning_for_non_run_commands() {
+fn test_manifest_path_is_not_supported() {
     let dir = TestDir::new("moon_commands");
-    let stderr = get_stderr(
-        &dir,
-        ["check", "--manifest-path", "moon.mod.json", "--dry-run"],
-    );
-    assert!(
-        stderr.contains("`--manifest-path` is deprecated"),
-        "expected deprecation warning, got:\n{stderr}"
-    );
-}
+    moon_cmd(&dir)
+        .args(["check", "--manifest-path", "moon.mod.json", "--dry-run"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+error: unexpected argument '--manifest-path' found
 
-#[test]
-fn test_run_rejects_manifest_path() {
-    let dir = TestDir::new("moon_commands");
-    let stderr = get_err_stderr(&dir, ["run", "--manifest-path", "moon.mod.json", "main1"]);
-    assert!(
-        stderr.contains("`--manifest-path` is no longer supported for `moon run`"),
-        "expected moon run manifest-path rejection, got:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("Use `moon -C <project-dir> run ...` instead"),
-        "expected moon run manifest-path guidance, got:\n{stderr}"
-    );
+  tip: to pass '--manifest-path' as a value, use '-- --manifest-path'
+
+Usage: moon[EXE] check [OPTIONS] [PATH]...
+
+For more information, try '--help'.
+
+"#]]);
 }
 
 #[test]

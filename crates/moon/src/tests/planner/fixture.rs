@@ -79,7 +79,6 @@ impl PlanningFixture {
         let fixture_dir = dunce::canonicalize(case_root.join(case))?;
         let project = SourceTargetDirs {
             cwd: None,
-            manifest_path: None,
             target_dir: None,
         }
         .query_from(&fixture_dir, WorkspaceEnv::Auto)?

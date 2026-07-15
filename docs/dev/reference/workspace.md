@@ -205,12 +205,8 @@ Those commands need a selected member and will fail at workspace root with the
 Project selection depends on:
 
 - the working directory after `-C`
-- `--manifest-path`
 - `MOON_WORK`
 - `MOON_NO_WORKSPACE` (deprecated fallback)
-
-`--manifest-path` pins manifest resolution, but does not change the process
-working directory.
 
 ## `MOON_WORK`
 
@@ -234,8 +230,8 @@ With `MOON_WORK=off`:
 With `MOON_WORK=<path-to-moon.work>`:
 
 - project-scoped commands use that workspace even outside the workspace tree
-- if the current or explicitly selected `moon.mod.json` is not a workspace
-  member, Moon fails instead of silently falling back
+- if the module selected from the current directory is not a workspace member,
+  Moon fails instead of silently falling back
 
 ## `MOON_NO_WORKSPACE`
 
@@ -258,63 +254,19 @@ The algorithm is:
 
 1. Canonicalize the current directory.
 2. If `MOON_WORK=off` is enabled:
-   - find the nearest ancestor containing `moon.mod.json`
+   - find the nearest ancestor containing `moon.mod` or `moon.mod.json`
    - if found, select that module manifest
    - otherwise, fail because workspace mode is disabled and no module exists
 3. If `MOON_WORK` points to a `moon.work` file:
    - select that workspace manifest
-   - if the nearest ancestor `moon.mod.json` exists and is not a workspace
-     member, fail
+   - if the nearest ancestor module exists and is not a workspace member, fail
 4. Otherwise, walk ancestors from nearest to farthest and look for applicable
    workspace manifests.
 5. If an applicable workspace manifest is found, select that workspace
    manifest.
 6. If no applicable workspace is found, fall back to the nearest ancestor
-   `moon.mod.json`.
+   module manifest.
 7. If neither exists, fail with "not in a Moon project".
-
-`--manifest-path` still exists as a deprecated compatibility flag for
-non-`run` commands, but the public recommendation is to use `-C` instead.
-
-## Selection With `--manifest-path`
-
-`--manifest-path` accepts exactly:
-
-- `moon.mod.json`
-- `moon.work`
-
-The selected manifest path is canonicalized first.
-
-### `--manifest-path <...>/moon.mod.json`
-
-This means "start from this module".
-
-- if `MOON_WORK=off` is enabled, the command stays in single-module mode
-- otherwise, Moon may still promote to an enclosing applicable workspace
-
-This is important: `--manifest-path moon.mod.json` does not mean "force
-single-module mode". It means "select this module as the starting point".
-
-If an enclosing workspace applies, the command keeps:
-
-- `project_manifest_path = workspace manifest`
-- `project_root = workspace root`
-- `module_dir = selected module`
-
-That is how member-scoped commands can act on one member while still using the
-workspace's local dependency graph.
-
-### `--manifest-path <...>/moon.work`
-
-This means "start from this workspace root", but only when workspace mode is
-enabled.
-
-If `MOON_WORK=off` is enabled:
-
-- Moon ignores the workspace manifest
-- Moon falls back to the nearest ancestor `moon.mod.json`, if any
-- otherwise the command fails because workspace mode is disabled and no module
-  is available
 
 ## How Moon Decides Whether A Workspace Applies
 
@@ -369,9 +321,6 @@ selection.
 | `-C app` | start from `app`, then allow workspace promotion |
 | `-C app` + member-scoped command | act on `app`, but keep workspace-local deps/layout if a workspace applies |
 | `moon run path/to/app` from outside the project | discover the project from `path/to/app` |
-| `--manifest-path app/moon.mod.json` | start from `app`, then allow workspace promotion |
-| `--manifest-path app/moon.mod.json` + member-scoped command | act on `app`, but keep workspace-local deps/layout if a workspace applies |
-| `--manifest-path moon.work` | select the workspace manifest |
 | inside workspace member + `MOON_WORK=off` | ignore the workspace and use the nearest ancestor `moon.mod.json` |
 | workspace root with no module + `MOON_WORK=off` | error: workspace mode is disabled and no module is available |
 | anywhere + `MOON_WORK=/abs/path/to/moon.work` | pin selection to that workspace |

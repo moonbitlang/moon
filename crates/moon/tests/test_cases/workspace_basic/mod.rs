@@ -922,83 +922,7 @@ fn test_member_dir_can_disable_implicit_workspace_mode() {
 }
 
 #[test]
-fn test_manifest_path_targets_workspace_member_for_single_module_commands() {
-    let dir = TestDir::new("workspace_basic.in");
-
-    let stderr = get_stderr(
-        &dir,
-        [
-            "--manifest-path",
-            "app/moon.mod.json",
-            "add",
-            "moonbitlang/core",
-            "--no-update",
-        ],
-    );
-    assert!(
-        stderr.contains("no need to add `moonbitlang/core` as dependency"),
-        "expected add command to target app module, got:\n{stderr}"
-    );
-
-    let stderr = get_stderr(
-        &dir,
-        ["--manifest-path", "app/moon.mod.json", "package", "--list"],
-    );
-    assert!(
-        stderr.contains("src/main/main.mbt"),
-        "expected package command to list the app member contents, got:\n{stderr}"
-    );
-    assert!(
-        stderr.contains("Package to $ROOT/_build/publish/alice-app-0.1.0.zip"),
-        "expected package command to write the app member archive, got:\n{stderr}"
-    );
-    assert!(
-        !stderr.contains("liba/src/lib/lib.mbt"),
-        "expected package command to target only the app member, got:\n{stderr}"
-    );
-
-    check(
-        std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap(),
-        expect![[r#"
-            {
-              "name": "alice/app",
-              "version": "0.1.0",
-              "source": "src",
-              "deps": {
-                "alice/liba": "0.1.0"
-              }
-            }
-        "#]],
-    );
-
-    check(
-        get_stdout(
-            &dir,
-            [
-                "--manifest-path",
-                "app/moon.mod.json",
-                "remove",
-                "alice/liba",
-            ],
-        ),
-        expect![[r#""#]],
-    );
-
-    let app_manifest = std::fs::read_to_string(dir.join("app/moon.mod.json")).unwrap();
-    check(
-        app_manifest.trim_end_matches('\n'),
-        expect![[r#"
-            {
-              "name": "alice/app",
-              "version": "0.1.0",
-              "deps": {},
-              "source": "src"
-            }"#]],
-    );
-}
-
-#[test]
-fn test_manifest_path_targets_dsl_member_for_tree() {
+fn test_member_dir_targets_dsl_member_for_tree() {
     let dir = TestDir::new("workspace_basic.in");
     std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
     std::fs::write(
@@ -1018,7 +942,7 @@ options(
     )
     .unwrap();
 
-    let tree = get_stdout(&dir, ["--manifest-path", "app/moon.mod", "tree"]);
+    let tree = get_stdout(&dir, ["-C", "app", "tree"]);
     assert!(
         tree.contains("alice/app@0.1.0"),
         "expected app module in tree output, got:\n{tree}"
@@ -1034,7 +958,7 @@ options(
 }
 
 #[test]
-fn test_manifest_path_targets_dsl_member_for_remove() {
+fn test_member_dir_targets_dsl_member_for_remove() {
     let dir = TestDir::new("workspace_basic.in");
     std::fs::remove_file(dir.join("app/moon.mod.json")).unwrap();
     std::fs::write(
@@ -1057,10 +981,7 @@ options(
     .unwrap();
 
     check(
-        get_stdout(
-            &dir,
-            ["--manifest-path", "app/moon.mod", "remove", "alice/liba"],
-        ),
+        get_stdout(&dir, ["-C", "app", "remove", "alice/liba"]),
         expect![[r#""#]],
     );
 
@@ -1087,18 +1008,6 @@ options(
 }
 
 #[test]
-fn test_manifest_path_can_disable_implicit_workspace_mode() {
-    let dir = TestDir::new("workspace_basic.in");
-
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        ["--manifest-path", "app/moon.mod.json", "build", "--dry-run"],
-        [(MOON_WORK_ENV, "off")],
-    );
-    assert_registry_resolution_failure(&stderr);
-}
-
-#[test]
 fn test_workspace_root_cannot_use_workspace_with_env_override() {
     let dir = TestDir::new("workspace_basic.in");
 
@@ -1116,54 +1025,6 @@ fn test_same_root_module_can_disable_implicit_workspace_mode() {
 
     let stderr = get_err_stderr_with_envs(&dir, ["build", "--dry-run"], [(MOON_WORK_ENV, "off")]);
     assert_registry_resolution_failure(&stderr);
-}
-
-#[test]
-fn test_same_root_manifest_path_can_disable_implicit_workspace_mode() {
-    let dir = same_root_workspace_dir();
-
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        ["--manifest-path", "moon.mod.json", "build", "--dry-run"],
-        [(MOON_WORK_ENV, "off")],
-    );
-    assert_registry_resolution_failure(&stderr);
-}
-
-#[test]
-fn test_same_root_workspace_manifest_can_disable_workspace_mode_with_env_override() {
-    let dir = same_root_workspace_dir();
-
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        [
-            "--manifest-path",
-            "moon.work",
-            "build",
-            "--dry-run",
-            "--sort-input",
-        ],
-        [(MOON_WORK_ENV, "off")],
-    );
-    assert_registry_resolution_failure(&stderr);
-}
-
-#[test]
-fn test_workspace_manifest_path_cannot_use_workspace_with_env_override() {
-    let dir = TestDir::new("workspace_basic.in");
-
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        [
-            "--manifest-path",
-            "moon.work",
-            "build",
-            "--dry-run",
-            "--sort-input",
-        ],
-        [(MOON_WORK_ENV, "off")],
-    );
-    assert_workspace_disabled_without_module(&stderr);
 }
 
 #[test]
@@ -1342,29 +1203,6 @@ fn test_pinned_workspace_path_selects_outer_module_when_listed() {
 }
 
 #[test]
-fn test_pinned_workspace_path_rejects_unlisted_manifest_path_module() {
-    let dir = nested_workspace_under_unrelated_module_dir();
-
-    let stderr = get_err_stderr_with_envs(
-        &dir,
-        ["--manifest-path", "outer/moon.mod.json", "tree"],
-        [(
-            MOON_WORK_ENV,
-            dir.join("outer/ws/moon.work")
-                .to_string_lossy()
-                .into_owned(),
-        )],
-    );
-
-    assert!(
-        stderr.contains(
-            "pinned workspace `$ROOT/outer/ws/moon.work` from MOON_WORK does not apply to module `$ROOT/outer`"
-        ),
-        "expected pinned workspace membership error, got:\n{stderr}"
-    );
-}
-
-#[test]
 fn test_legacy_workspace_disable_env_warns_and_still_works() {
     let dir = TestDir::new("workspace_basic.in");
 
@@ -1472,32 +1310,7 @@ fn test_prove_targets_member_module_with_workspace_resolution() {
         "expected app prove dry-run to keep workspace-local dependency resolution, got:\n{stdout}"
     );
 
-    let stdout = get_stdout(
-        &dir,
-        ["--manifest-path", "app/moon.mod.json", "prove", "--dry-run"],
-    );
-    assert!(
-        stdout.contains("moonc prove ./app/src/main/main.mbt"),
-        "expected manifest-path prove dry-run to target the app member, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("-workspace-path ./app"),
-        "expected manifest-path prove dry-run to keep workspace-local context, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("alice/liba/lib"),
-        "expected manifest-path prove dry-run to keep workspace-local dependency resolution, got:\n{stdout}"
-    );
-
-    let stdout = get_stdout(
-        &dir,
-        [
-            "--manifest-path",
-            "liba/moon.mod.json",
-            "prove",
-            "--dry-run",
-        ],
-    );
+    let stdout = get_stdout(&dir, ["-C", "liba", "prove", "--dry-run"]);
     assert!(
         stdout.contains("alice/liba/lib"),
         "expected prove dry-run to target the liba module, got:\n{stdout}"
@@ -1537,15 +1350,6 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
     assert!(
         stdout.contains("-serve-mode"),
         "expected doc --serve dry-run to enable serve mode for moondoc, got:\n{stdout}"
-    );
-
-    let stdout = get_stdout(
-        &dir,
-        ["--manifest-path", "app/moon.mod.json", "doc", "--dry-run"],
-    );
-    assert!(
-        stdout.contains("moondoc ./app -o ./_build/doc"),
-        "expected manifest-path doc dry-run to target the app member, got:\n{stdout}"
     );
 
     let stdout = get_stdout(&dir, ["-C", "app/src/main", "doc", "--dry-run"]);

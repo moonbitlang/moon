@@ -31,7 +31,6 @@ fn command_string_run_parses_as_expected() {
             UniversalFlags {
                 source_tgt_dir: SourceTargetDirs {
                     cwd: None,
-                    manifest_path: None,
                     target_dir: None,
                 },
                 workspace_env: Auto,
@@ -123,7 +122,6 @@ fn native_target_dry_run_test_command_parses_as_expected() {
             UniversalFlags {
                 source_tgt_dir: SourceTargetDirs {
                     cwd: None,
-                    manifest_path: None,
                     target_dir: None,
                 },
                 workspace_env: Auto,
