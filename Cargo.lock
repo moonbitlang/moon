@@ -1784,6 +1784,7 @@ dependencies = [
  "serde_yaml",
  "shlex",
  "slotmap",
+ "tempfile",
  "thiserror 1.0.63",
  "vergen",
  "which 6.0.2",
