@@ -185,7 +185,7 @@ fn test_moonrun_help_describes_policy_shape() {
         .success();
     let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
 
-    assert!(stdout.contains("Experimental: Sandbox moonbitlang/async"));
+    assert!(stdout.contains("Experimental: Sandbox wasm runtime host access"));
     assert!(stdout.contains("deny-by-default mode"));
     assert!(stdout.contains("from_host = [\"*\"]"));
     assert!(stdout.contains("read = [\"*\"]"));
