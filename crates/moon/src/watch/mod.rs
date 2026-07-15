@@ -217,14 +217,6 @@ fn check_paths(
 
     for evt in relevant_events {
         for path in &evt.paths {
-            if path.starts_with(ignored_subtree) {
-                trace!(
-                    "Ignoring event for path '{}' because it is in the output directory",
-                    path.display()
-                );
-                continue;
-            }
-
             if path_matches(&additional_paths.ignored_paths, path) {
                 trace!(
                     "Ignoring event for path '{}' due to additional ignored paths",
@@ -234,6 +226,14 @@ fn check_paths(
             }
 
             let explicitly_watched = path_matches(&additional_paths.watched_paths, path);
+
+            if !explicitly_watched && path.starts_with(ignored_subtree) {
+                trace!(
+                    "Ignoring event for path '{}' because it is in the output directory",
+                    path.display()
+                );
+                continue;
+            }
 
             // Filter to source/config files that can affect RR planning/builds.
             // Note: A file removal will render `path.is_file()` false, but we
@@ -492,6 +492,30 @@ mod tests {
         let file = root.join("src/lib/input.txt");
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(root.join(".gitignore"), "src/lib/input.txt\n").unwrap();
+        fs::write(&file, "data").unwrap();
+
+        let event = build_event(&file);
+        let result = check_events(
+            root,
+            &[event],
+            &AdditionalWatchPaths {
+                watched_paths: HashSet::from_iter([dunce::canonicalize(file).unwrap()]),
+                ..AdditionalWatchPaths::default()
+            },
+        );
+
+        assert!(result);
+    }
+
+    #[test]
+    fn rerun_triggered_for_explicitly_watched_prebuild_input_in_output_directory() {
+        use std::fs;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+
+        let file = root.join("_build/input.txt");
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(&file, "data").unwrap();
 
         let event = build_event(&file);
