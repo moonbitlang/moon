@@ -123,7 +123,6 @@ test "answer" {
         .stderr_eq(snapbox::str![[r#"
 Fatal error: exception Sys_error("[..]: No such file or directory")
 ...
-Error: failed when checking project
 "#]]);
 
     moon_cmd(&dir).arg("clean").assert().success();
@@ -143,7 +142,10 @@ Error: failed when checking project
         // TODO: Remove this expected failure after Node.js accepts valid
         // extended-path entry points again: https://github.com/nodejs/node/issues/62446
         .stderr_eq(snapbox::str![[r#"
-...
+node:fs:[..]
+    const out = binding.lstat(base, false, undefined, true /* throwIfNoEntry */);
+                        ^
+
 Error: EISDIR: illegal operation on a directory, lstat 'C:'
 ...
 "#]]);
