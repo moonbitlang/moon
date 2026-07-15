@@ -26,10 +26,11 @@ use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
 
 #[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
 #[cfg(windows)]
 use std::os::windows::io::{
-    AsRawHandle, AsRawSocket, FromRawHandle, FromRawSocket, OwnedHandle, OwnedSocket, RawSocket,
+    AsHandle, AsRawHandle, AsRawSocket, AsSocket, BorrowedHandle, BorrowedSocket, FromRawHandle,
+    FromRawSocket, OwnedHandle, OwnedSocket, RawHandle, RawSocket,
 };
 
 pub(crate) type ResourceHandle = u64;
@@ -50,6 +51,40 @@ pub(crate) struct SpawnOptions {
 type OwnedRawFile = OwnedFd;
 #[cfg(windows)]
 type OwnedRawFile = OwnedHandle;
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FileRef<'a> {
+    Borrowed(BorrowedFd<'a>),
+    Stdio(RawFd),
+}
+
+#[cfg(unix)]
+impl AsRawFd for FileRef<'_> {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            Self::Borrowed(fd) => fd.as_raw_fd(),
+            Self::Stdio(fd) => *fd,
+        }
+    }
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FileRef<'a> {
+    Borrowed(BorrowedHandle<'a>),
+    Stdio(RawHandle),
+}
+
+#[cfg(windows)]
+impl AsRawHandle for FileRef<'_> {
+    fn as_raw_handle(&self) -> RawHandle {
+        match self {
+            Self::Borrowed(handle) => handle.as_raw_handle(),
+            Self::Stdio(handle) => *handle,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResourceClass {
@@ -175,13 +210,67 @@ impl Resource {
         self.class
     }
 
-    pub(crate) fn raw_fd(&self) -> fd_util::stub::RawFd {
+    pub(crate) fn raw_identity(&self) -> isize {
         match &self.raw {
-            RawResource::Invalid => invalid_raw_file(),
-            RawResource::File(raw) => raw_file(raw),
-            RawResource::StdioFile(raw) => *raw as fd_util::stub::RawFd,
+            RawResource::Invalid => -1,
+            #[cfg(unix)]
+            RawResource::File(raw) => raw.as_fd().as_raw_fd() as isize,
             #[cfg(windows)]
-            RawResource::Socket(raw) => raw_socket(raw),
+            RawResource::File(raw) => raw.as_handle().as_raw_handle() as isize,
+            RawResource::StdioFile(raw) => *raw,
+            #[cfg(windows)]
+            RawResource::Socket(raw) => raw.as_socket().as_raw_socket() as isize,
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn as_fd(&self) -> AsyncHostResult<BorrowedFd<'_>> {
+        match &self.raw {
+            RawResource::Invalid => Err(crate::async_host::AsyncHostError::Badf),
+            RawResource::File(raw) => Ok(raw.as_fd()),
+            RawResource::StdioFile(_) => Err(crate::async_host::AsyncHostError::Inval),
+        }
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn as_file(&self) -> AsyncHostResult<FileRef<'_>> {
+        match &self.raw {
+            RawResource::Invalid => Err(crate::async_host::AsyncHostError::Badf),
+            RawResource::File(raw) => Ok(FileRef::Borrowed(raw.as_fd())),
+            RawResource::StdioFile(raw) => i32::try_from(*raw)
+                .map(FileRef::Stdio)
+                .map_err(|_| crate::async_host::AsyncHostError::Badf),
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn as_handle(&self) -> AsyncHostResult<BorrowedHandle<'_>> {
+        match &self.raw {
+            RawResource::Invalid => Err(crate::async_host::AsyncHostError::Badf),
+            RawResource::File(raw) => Ok(raw.as_handle()),
+            RawResource::StdioFile(_) => Err(crate::async_host::AsyncHostError::Inval),
+            RawResource::Socket(_) => Err(crate::async_host::AsyncHostError::Inval),
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn as_file(&self) -> AsyncHostResult<FileRef<'_>> {
+        match &self.raw {
+            RawResource::Invalid => Err(crate::async_host::AsyncHostError::Badf),
+            RawResource::File(raw) => Ok(FileRef::Borrowed(raw.as_handle())),
+            RawResource::StdioFile(raw) => Ok(FileRef::Stdio(*raw as RawHandle)),
+            RawResource::Socket(_) => Err(crate::async_host::AsyncHostError::Inval),
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn as_socket(&self) -> AsyncHostResult<BorrowedSocket<'_>> {
+        match &self.raw {
+            RawResource::Invalid => Err(crate::async_host::AsyncHostError::Badf),
+            RawResource::Socket(raw) => Ok(raw.as_socket()),
+            RawResource::File(_) | RawResource::StdioFile(_) => {
+                Err(crate::async_host::AsyncHostError::Inval)
+            }
         }
     }
 
@@ -229,21 +318,6 @@ fn owned_raw_file(raw: fd_util::stub::RawFd) -> OwnedRawFile {
 fn owned_raw_socket(raw: RawSocket) -> OwnedSocket {
     // Resource takes ownership of sockets returned by platform APIs.
     unsafe { OwnedSocket::from_raw_socket(raw) }
-}
-
-#[cfg(unix)]
-fn raw_file(raw: &OwnedRawFile) -> fd_util::stub::RawFd {
-    raw.as_raw_fd()
-}
-
-#[cfg(windows)]
-fn raw_file(raw: &OwnedRawFile) -> fd_util::stub::RawFd {
-    raw.as_raw_handle()
-}
-
-#[cfg(windows)]
-fn raw_socket(raw: &OwnedSocket) -> fd_util::stub::RawFd {
-    raw.as_raw_socket() as fd_util::stub::RawFd
 }
 
 #[derive(Debug)]
@@ -470,5 +544,30 @@ pub(crate) fn platform() -> i32 {
     #[cfg(target_os = "linux")]
     {
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stdio_resource_remains_explicitly_unowned() {
+        #[cfg(unix)]
+        let resource = Resource::stdio_file(0);
+        #[cfg(windows)]
+        let resource = Resource::stdio_file(1usize as RawHandle);
+
+        assert!(matches!(resource.as_file(), Ok(FileRef::Stdio(_))));
+        #[cfg(unix)]
+        assert!(matches!(
+            resource.as_fd(),
+            Err(crate::async_host::AsyncHostError::Inval)
+        ));
+        #[cfg(windows)]
+        assert!(matches!(
+            resource.as_handle(),
+            Err(crate::async_host::AsyncHostError::Inval)
+        ));
     }
 }

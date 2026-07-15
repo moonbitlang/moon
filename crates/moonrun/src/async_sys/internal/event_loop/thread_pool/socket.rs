@@ -17,6 +17,10 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ffi::OsString;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::AsRawSocket;
 
 use crate::async_host::AsyncHostResult;
 use crate::async_sys::ported_fns;
@@ -32,7 +36,11 @@ ported_fns! {
         socket: &Resource,
         addr: &[u8],
     ) -> AsyncHostResult<i64> {
-        crate::async_sys::socket::bind(socket.raw_fd(), addr)?;
+        #[cfg(unix)]
+        let socket = socket.as_fd()?.as_raw_fd();
+        #[cfg(windows)]
+        let socket = socket.as_socket()?.as_raw_socket();
+        crate::async_sys::socket::bind(socket, addr)?;
         Ok(0)
     }
 

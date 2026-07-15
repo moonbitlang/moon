@@ -18,6 +18,10 @@
 
 #[cfg(unix)]
 use std::ffi::OsString;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 
 use crate::async_host::{
     AsyncHostError, AsyncHostResult, GuestMemory, INVALID_HOST_HANDLE, read_u16,
@@ -270,7 +274,16 @@ pub(super) fn get_process_result(
         let resource = handle_id
             .map(|handle| context.host.resource(handle))
             .transpose()?;
-        let raw_handle = resource.as_ref().map(|resource| resource.raw_fd());
+        #[cfg(unix)]
+        let raw_handle = resource
+            .as_ref()
+            .map(|resource| resource.as_fd().map(|fd| fd.as_raw_fd()))
+            .transpose()?;
+        #[cfg(windows)]
+        let raw_handle = resource
+            .as_ref()
+            .map(|resource| resource.as_handle().map(|handle| handle.as_raw_handle()))
+            .transpose()?;
         #[cfg(unix)]
         let code = context.host.finish_owned_child(pid, handle_id, || {
             process::get_process_result(raw_handle, pid)

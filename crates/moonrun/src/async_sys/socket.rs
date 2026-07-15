@@ -26,6 +26,7 @@ use std::os::unix::ffi::OsStringExt;
 use windows_sys::Win32::Networking::WinSock as ws;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
+#[cfg(unix)]
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
 
@@ -151,9 +152,9 @@ mod win {
     use windows_sys::Win32::NetworkManagement::Ndis::{IfOperStatusUp, NET_LUID_LH};
     use windows_sys::Win32::Networking::WinSock as ws;
 
-    use super::{AsyncHostError, AsyncHostResult, RawFd, RawSocket};
+    use super::{AsyncHostError, AsyncHostResult, RawSocket};
 
-    fn socket(fd: RawFd) -> ws::SOCKET {
+    fn socket(fd: RawSocket) -> ws::SOCKET {
         fd as usize
     }
 
@@ -236,7 +237,7 @@ mod win {
         Ok(())
     }
 
-    fn set_socket_int(fd: RawFd, level: i32, option: i32, value: i32) -> AsyncHostResult<()> {
+    fn set_socket_int(fd: RawSocket, level: i32, option: i32, value: i32) -> AsyncHostResult<()> {
         socket_error(unsafe {
             ws::setsockopt(
                 socket(fd),
@@ -377,9 +378,12 @@ mod win {
         if socket == ws::INVALID_SOCKET {
             return Err(last_wsa_error());
         }
-        if let Err(error) =
-            set_socket_int(socket as RawFd, ws::SOL_SOCKET, ws::SO_EXCLUSIVEADDRUSE, 0)
-        {
+        if let Err(error) = set_socket_int(
+            socket as RawSocket,
+            ws::SOL_SOCKET,
+            ws::SO_EXCLUSIVEADDRUSE,
+            0,
+        ) {
             unsafe {
                 ws::closesocket(socket);
             }
@@ -404,13 +408,18 @@ mod win {
         }
         let result = if multicast {
             set_socket_int(
-                socket as RawFd,
+                socket as RawSocket,
                 ws::SOL_SOCKET,
                 ws::SO_REUSE_MULTICASTPORT,
                 1,
             )
         } else {
-            set_socket_int(socket as RawFd, ws::SOL_SOCKET, ws::SO_EXCLUSIVEADDRUSE, 0)
+            set_socket_int(
+                socket as RawSocket,
+                ws::SOL_SOCKET,
+                ws::SO_EXCLUSIVEADDRUSE,
+                0,
+            )
         };
         if let Err(error) = result {
             unsafe {
@@ -422,7 +431,7 @@ mod win {
     }
 
     pub(super) fn join_multicast_group(
-        fd: RawFd,
+        fd: RawSocket,
         multi_addr: &[u8],
         local_addr: &[u8],
     ) -> AsyncHostResult<()> {
@@ -444,7 +453,7 @@ mod win {
     }
 
     pub(super) fn join_multicast_group_v6(
-        fd: RawFd,
+        fd: RawSocket,
         multi_addr: &[u8],
         interface_index: i32,
     ) -> AsyncHostResult<()> {
@@ -464,7 +473,7 @@ mod win {
         })
     }
 
-    pub(super) fn set_multicast_interface(fd: RawFd, local_addr: &[u8]) -> AsyncHostResult<()> {
+    pub(super) fn set_multicast_interface(fd: RawSocket, local_addr: &[u8]) -> AsyncHostResult<()> {
         let local_addr = read_sockaddr_in(local_addr)?;
         socket_error(unsafe {
             ws::setsockopt(
@@ -478,7 +487,7 @@ mod win {
     }
 
     pub(super) fn set_multicast_interface_v6(
-        fd: RawFd,
+        fd: RawSocket,
         interface_index: i32,
     ) -> AsyncHostResult<()> {
         let interface_index = interface_index as u32;
@@ -493,7 +502,7 @@ mod win {
         })
     }
 
-    pub(super) fn set_multicast_ttl(fd: RawFd, ttl: i32, family: i32) -> AsyncHostResult<()> {
+    pub(super) fn set_multicast_ttl(fd: RawSocket, ttl: i32, family: i32) -> AsyncHostResult<()> {
         let (level, option) = match family {
             4 => (ws::IPPROTO_IP, ws::IP_MULTICAST_TTL),
             6 => (ws::IPPROTO_IPV6, ws::IPV6_MULTICAST_HOPS),
@@ -503,7 +512,7 @@ mod win {
     }
 
     pub(super) fn set_multicast_loopback(
-        fd: RawFd,
+        fd: RawSocket,
         enable: bool,
         family: i32,
     ) -> AsyncHostResult<()> {
@@ -515,24 +524,24 @@ mod win {
         set_socket_int(fd, level, option, i32::from(enable))
     }
 
-    pub(super) fn disable_nagle(fd: RawFd) -> AsyncHostResult<()> {
+    pub(super) fn disable_nagle(fd: RawSocket) -> AsyncHostResult<()> {
         set_socket_int(fd, ws::IPPROTO_TCP, ws::TCP_NODELAY, 1)
     }
 
-    pub(super) fn allow_reuse_addr(fd: RawFd) -> AsyncHostResult<()> {
+    pub(super) fn allow_reuse_addr(fd: RawSocket) -> AsyncHostResult<()> {
         set_socket_int(fd, ws::SOL_SOCKET, ws::SO_REUSEADDR, 1)
     }
 
-    pub(super) fn set_ipv6_only(fd: RawFd, ipv6_only: bool) -> AsyncHostResult<()> {
+    pub(super) fn set_ipv6_only(fd: RawSocket, ipv6_only: bool) -> AsyncHostResult<()> {
         set_socket_int(fd, ws::IPPROTO_IPV6, ws::IPV6_V6ONLY, i32::from(ipv6_only))
     }
 
-    pub(super) fn listen(fd: RawFd) -> AsyncHostResult<()> {
+    pub(super) fn listen(fd: RawSocket) -> AsyncHostResult<()> {
         socket_error(unsafe { ws::listen(socket(fd), ws::SOMAXCONN as i32) })
     }
 
     pub(super) fn enable_keepalive(
-        fd: RawFd,
+        fd: RawSocket,
         keep_idle: i32,
         keep_count: i32,
         keep_intvl: i32,
@@ -550,7 +559,7 @@ mod win {
         Ok(())
     }
 
-    pub(super) fn getsockname(fd: RawFd, addr_out: &mut [u8]) -> AsyncHostResult<()> {
+    pub(super) fn getsockname(fd: RawSocket, addr_out: &mut [u8]) -> AsyncHostResult<()> {
         let mut len = i32::try_from(addr_out.len()).map_err(|_| AsyncHostError::Fault)?;
         socket_error(unsafe {
             ws::getsockname(
@@ -654,16 +663,16 @@ mod win {
         0
     }
 
-    pub(super) fn udp_client_connect(fd: RawFd, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(super) fn udp_client_connect(fd: RawSocket, addr: &[u8]) -> AsyncHostResult<()> {
         connect(fd, addr)
     }
 
-    pub(super) fn bind(fd: RawFd, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(super) fn bind(fd: RawSocket, addr: &[u8]) -> AsyncHostResult<()> {
         let len = sockaddr_len(addr)?;
         socket_error(unsafe { ws::bind(socket(fd), addr.as_ptr().cast::<ws::SOCKADDR>(), len) })
     }
 
-    pub(super) fn connect(fd: RawFd, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(super) fn connect(fd: RawSocket, addr: &[u8]) -> AsyncHostResult<()> {
         let len = sockaddr_len(addr)?;
         socket_error(unsafe { ws::connect(socket(fd), addr.as_ptr().cast::<ws::SOCKADDR>(), len) })
     }
@@ -1033,7 +1042,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn join_multicast_group(
-        fd: RawFd,
+        fd: RawSocket,
         multi_addr: &[u8],
         local_addr: &[u8],
     ) -> AsyncHostResult<()> {
@@ -1065,7 +1074,7 @@ ported_fns! {
     )]
     #[cfg(windows)]
     pub(crate) fn join_multicast_group(
-        fd: RawFd,
+        fd: RawSocket,
         multi_addr: &[u8],
         local_addr: &[u8],
     ) -> AsyncHostResult<()> {
@@ -1078,7 +1087,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn join_multicast_group_v6(
-        fd: RawFd,
+        fd: RawSocket,
         multi_addr: &[u8],
         interface_index: i32,
     ) -> AsyncHostResult<()> {
@@ -1113,7 +1122,7 @@ ported_fns! {
     )]
     #[cfg(windows)]
     pub(crate) fn join_multicast_group_v6(
-        fd: RawFd,
+        fd: RawSocket,
         multi_addr: &[u8],
         interface_index: i32,
     ) -> AsyncHostResult<()> {
@@ -1125,7 +1134,7 @@ ported_fns! {
         original = "moonbitlang_async_set_multicast_interface"
     )]
     #[cfg(unix)]
-    pub(crate) fn set_multicast_interface(fd: RawFd, local_addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn set_multicast_interface(fd: RawSocket, local_addr: &[u8]) -> AsyncHostResult<()> {
         let local_addr = read_sockaddr_in(local_addr)?;
         if unsafe {
             libc::setsockopt(
@@ -1148,7 +1157,7 @@ ported_fns! {
         original = "moonbitlang_async_set_multicast_interface"
     )]
     #[cfg(windows)]
-    pub(crate) fn set_multicast_interface(fd: RawFd, local_addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn set_multicast_interface(fd: RawSocket, local_addr: &[u8]) -> AsyncHostResult<()> {
         win::set_multicast_interface(fd, local_addr)
     }
 
@@ -1158,7 +1167,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn set_multicast_interface_v6(
-        fd: RawFd,
+        fd: RawSocket,
         interface_index: i32,
     ) -> AsyncHostResult<()> {
         let interface_index = interface_index as libc::c_uint;
@@ -1184,7 +1193,7 @@ ported_fns! {
     )]
     #[cfg(windows)]
     pub(crate) fn set_multicast_interface_v6(
-        fd: RawFd,
+        fd: RawSocket,
         interface_index: i32,
     ) -> AsyncHostResult<()> {
         win::set_multicast_interface_v6(fd, interface_index)
@@ -1195,7 +1204,7 @@ ported_fns! {
         original = "moonbitlang_async_set_multicast_ttl"
     )]
     #[cfg(unix)]
-    pub(crate) fn set_multicast_ttl(fd: RawFd, ttl: i32, family: i32) -> AsyncHostResult<()> {
+    pub(crate) fn set_multicast_ttl(fd: RawSocket, ttl: i32, family: i32) -> AsyncHostResult<()> {
         let (level, option) = match family {
             4 => (libc::IPPROTO_IP, libc::IP_MULTICAST_TTL),
             6 => (libc::IPPROTO_IPV6, libc::IPV6_MULTICAST_HOPS),
@@ -1223,7 +1232,7 @@ ported_fns! {
         original = "moonbitlang_async_set_multicast_ttl"
     )]
     #[cfg(windows)]
-    pub(crate) fn set_multicast_ttl(fd: RawFd, ttl: i32, family: i32) -> AsyncHostResult<()> {
+    pub(crate) fn set_multicast_ttl(fd: RawSocket, ttl: i32, family: i32) -> AsyncHostResult<()> {
         win::set_multicast_ttl(fd, ttl, family)
     }
 
@@ -1233,7 +1242,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn set_multicast_loopback(
-        fd: RawFd,
+        fd: RawSocket,
         enable: bool,
         family: i32,
     ) -> AsyncHostResult<()> {
@@ -1265,7 +1274,7 @@ ported_fns! {
     )]
     #[cfg(windows)]
     pub(crate) fn set_multicast_loopback(
-        fd: RawFd,
+        fd: RawSocket,
         enable: bool,
         family: i32,
     ) -> AsyncHostResult<()> {
@@ -1277,7 +1286,7 @@ ported_fns! {
         original = "moonbitlang_async_disable_nagle"
     )]
     #[cfg(unix)]
-    pub(crate) fn disable_nagle(fd: RawFd) -> AsyncHostResult<()> {
+    pub(crate) fn disable_nagle(fd: RawSocket) -> AsyncHostResult<()> {
         let enable: libc::c_int = 1;
         if unsafe {
             libc::setsockopt(
@@ -1299,7 +1308,7 @@ ported_fns! {
         original = "moonbitlang_async_disable_nagle"
     )]
     #[cfg(windows)]
-    pub(crate) fn disable_nagle(fd: RawFd) -> AsyncHostResult<()> {
+    pub(crate) fn disable_nagle(fd: RawSocket) -> AsyncHostResult<()> {
         win::disable_nagle(fd)
     }
 
@@ -1308,7 +1317,7 @@ ported_fns! {
         original = "moonbitlang_async_allow_reuse_addr"
     )]
     #[cfg(unix)]
-    pub(crate) fn allow_reuse_addr(fd: RawFd) -> AsyncHostResult<()> {
+    pub(crate) fn allow_reuse_addr(fd: RawSocket) -> AsyncHostResult<()> {
         let enable: libc::c_int = 1;
         if unsafe {
             libc::setsockopt(
@@ -1330,7 +1339,7 @@ ported_fns! {
         original = "moonbitlang_async_allow_reuse_addr"
     )]
     #[cfg(windows)]
-    pub(crate) fn allow_reuse_addr(fd: RawFd) -> AsyncHostResult<()> {
+    pub(crate) fn allow_reuse_addr(fd: RawSocket) -> AsyncHostResult<()> {
         win::allow_reuse_addr(fd)
     }
 
@@ -1339,7 +1348,7 @@ ported_fns! {
         original = "moonbitlang_async_set_ipv6_only"
     )]
     #[cfg(unix)]
-    pub(crate) fn set_ipv6_only(fd: RawFd, ipv6_only: bool) -> AsyncHostResult<()> {
+    pub(crate) fn set_ipv6_only(fd: RawSocket, ipv6_only: bool) -> AsyncHostResult<()> {
         let value: libc::c_int = i32::from(ipv6_only);
         if unsafe {
             libc::setsockopt(
@@ -1361,7 +1370,7 @@ ported_fns! {
         original = "moonbitlang_async_set_ipv6_only"
     )]
     #[cfg(windows)]
-    pub(crate) fn set_ipv6_only(fd: RawFd, ipv6_only: bool) -> AsyncHostResult<()> {
+    pub(crate) fn set_ipv6_only(fd: RawSocket, ipv6_only: bool) -> AsyncHostResult<()> {
         win::set_ipv6_only(fd, ipv6_only)
     }
 
@@ -1370,7 +1379,7 @@ ported_fns! {
         original = "moonbitlang_async_listen"
     )]
     #[cfg(unix)]
-    pub(crate) fn listen(fd: RawFd) -> AsyncHostResult<()> {
+    pub(crate) fn listen(fd: RawSocket) -> AsyncHostResult<()> {
         if unsafe { libc::listen(fd, libc::SOMAXCONN) } < 0 {
             Err(last_native_error())
         } else {
@@ -1383,7 +1392,7 @@ ported_fns! {
         original = "moonbitlang_async_listen"
     )]
     #[cfg(windows)]
-    pub(crate) fn listen(fd: RawFd) -> AsyncHostResult<()> {
+    pub(crate) fn listen(fd: RawSocket) -> AsyncHostResult<()> {
         win::listen(fd)
     }
 
@@ -1393,7 +1402,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn enable_keepalive(
-        fd: RawFd,
+        fd: RawSocket,
         keep_idle: i32,
         keep_count: i32,
         keep_intvl: i32,
@@ -1446,7 +1455,7 @@ ported_fns! {
     )]
     #[cfg(windows)]
     pub(crate) fn enable_keepalive(
-        fd: RawFd,
+        fd: RawSocket,
         keep_idle: i32,
         keep_count: i32,
         keep_intvl: i32,
@@ -1459,7 +1468,7 @@ ported_fns! {
         original = "moonbitlang_async_getsockname"
     )]
     #[cfg(unix)]
-    pub(crate) fn getsockname(fd: RawFd, addr_out: &mut [u8]) -> AsyncHostResult<()> {
+    pub(crate) fn getsockname(fd: RawSocket, addr_out: &mut [u8]) -> AsyncHostResult<()> {
         let mut len = libc::socklen_t::try_from(addr_out.len()).map_err(|_| AsyncHostError::Fault)?;
         if unsafe {
             libc::getsockname(fd, addr_out.as_mut_ptr().cast::<libc::sockaddr>(), &mut len)
@@ -1475,7 +1484,7 @@ ported_fns! {
         original = "moonbitlang_async_getsockname"
     )]
     #[cfg(windows)]
-    pub(crate) fn getsockname(fd: RawFd, addr_out: &mut [u8]) -> AsyncHostResult<()> {
+    pub(crate) fn getsockname(fd: RawSocket, addr_out: &mut [u8]) -> AsyncHostResult<()> {
         win::getsockname(fd, addr_out)
     }
 
@@ -1593,7 +1602,7 @@ ported_fns! {
         original = "moonbitlang_async_udp_client_connect"
     )]
     #[cfg(unix)]
-    pub(crate) fn udp_client_connect(fd: RawFd, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn udp_client_connect(fd: RawSocket, addr: &[u8]) -> AsyncHostResult<()> {
         connect(fd, addr)
     }
 
@@ -1602,12 +1611,12 @@ ported_fns! {
         original = "moonbitlang_async_udp_client_connect"
     )]
     #[cfg(windows)]
-    pub(crate) fn udp_client_connect(fd: RawFd, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn udp_client_connect(fd: RawSocket, addr: &[u8]) -> AsyncHostResult<()> {
         win::udp_client_connect(fd, addr)
     }
 
     #[cfg(unix)]
-    pub(crate) fn bind(fd: RawFd, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn bind(fd: RawSocket, addr: &[u8]) -> AsyncHostResult<()> {
         let len = sockaddr_len(addr)?;
         if unsafe { libc::bind(fd, addr.as_ptr().cast::<libc::sockaddr>(), len) } < 0 {
             Err(last_native_error())
@@ -1617,7 +1626,7 @@ ported_fns! {
     }
 
     #[cfg(windows)]
-    pub(crate) fn bind(fd: RawFd, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn bind(fd: RawSocket, addr: &[u8]) -> AsyncHostResult<()> {
         win::bind(fd, addr)
     }
 
@@ -1626,7 +1635,7 @@ ported_fns! {
         original = "moonbitlang_async_connect"
     )]
     #[cfg(unix)]
-    pub(crate) fn connect(fd: RawFd, addr: &[u8]) -> AsyncHostResult<()> {
+    pub(crate) fn connect(fd: RawSocket, addr: &[u8]) -> AsyncHostResult<()> {
         let len = sockaddr_len(addr)?;
         if unsafe { libc::connect(fd, addr.as_ptr().cast::<libc::sockaddr>(), len) } < 0 {
             Err(last_native_error())
@@ -1640,7 +1649,7 @@ ported_fns! {
         original = "moonbitlang_async_getsockerr"
     )]
     #[cfg(unix)]
-    pub(crate) fn getsockerr(fd: RawFd) -> AsyncHostResult<i32> {
+    pub(crate) fn getsockerr(fd: RawSocket) -> AsyncHostResult<i32> {
         let mut err = 0;
         let mut len = std::mem::size_of_val(&err) as libc::socklen_t;
         if unsafe {
@@ -1663,7 +1672,7 @@ ported_fns! {
         original = "moonbitlang_async_accept"
     )]
     #[cfg(unix)]
-    pub(crate) fn accept(fd: RawFd, addr: &mut [u8]) -> AsyncHostResult<RawSocket> {
+    pub(crate) fn accept(fd: RawSocket, addr: &mut [u8]) -> AsyncHostResult<RawSocket> {
         let mut len = sockaddr_len(addr)?;
         let conn = unsafe { libc::accept(fd, addr.as_mut_ptr().cast::<libc::sockaddr>(), &mut len) };
         if conn < 0 {
@@ -1678,7 +1687,7 @@ ported_fns! {
     )]
     #[cfg(unix)]
     pub(crate) fn recvfrom(
-        fd: RawFd,
+        fd: RawSocket,
         buf: &mut [u8],
         addr: &mut [u8],
     ) -> AsyncHostResult<usize> {
@@ -1705,7 +1714,7 @@ ported_fns! {
         original = "moonbitlang_async_sendto"
     )]
     #[cfg(unix)]
-    pub(crate) fn sendto(fd: RawFd, buf: &[u8], addr: &[u8]) -> AsyncHostResult<usize> {
+    pub(crate) fn sendto(fd: RawSocket, buf: &[u8], addr: &[u8]) -> AsyncHostResult<usize> {
         let len = sockaddr_len(addr)?;
         let ret = unsafe {
             libc::sendto(
@@ -1781,7 +1790,7 @@ ported_fns! {
     unix,
     any(target_os = "linux", target_os = "android", target_os = "macos")
 ))]
-fn set_tcp_int(fd: RawFd, option: libc::c_int, value: i32) -> AsyncHostResult<()> {
+fn set_tcp_int(fd: RawSocket, option: libc::c_int, value: i32) -> AsyncHostResult<()> {
     let value: libc::c_int = value;
     if unsafe {
         libc::setsockopt(

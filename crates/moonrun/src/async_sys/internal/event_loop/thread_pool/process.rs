@@ -21,6 +21,10 @@
 use std::ffi::OsString;
 #[cfg(unix)]
 use std::ffi::{CStr, CString};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, AsRawSocket};
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
@@ -254,7 +258,7 @@ fn duplicate_stdio_fds(stdio: &[Option<ResourceRef>; 3]) -> AsyncHostResult<[Opt
         let Some(resource) = resource else {
             continue;
         };
-        let fd = unsafe { libc::fcntl(resource.raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
+        let fd = unsafe { libc::fcntl(resource.as_file()?.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
         if fd < 0 {
             let error = last_native_error();
             close_stdio_fds(&fds);
@@ -383,7 +387,7 @@ fn spawn_process_windows(
     let mut inherited_handles = Vec::with_capacity(std_handles.len());
     for (resource, std_handle) in stdio.iter().zip(std_handles) {
         let raw_result = if let Some(resource) = resource {
-            Ok(resource.raw_fd())
+            spawn_stdio_handle(resource)
         } else {
             let raw = unsafe { GetStdHandle(std_handle) };
             if raw.is_null() || raw == INVALID_HANDLE_VALUE {
@@ -546,6 +550,18 @@ fn spawn_process_windows(
 }
 
 #[cfg(windows)]
+fn spawn_stdio_handle(resource: &Resource) -> AsyncHostResult<RawFile> {
+    if resource.resource_class().is_socket() {
+        // Windows permits sockets in STARTUPINFO standard-handle fields and
+        // supports inheriting them as handles. Keep that ABI conversion at the
+        // process-spawn seam without representing sockets as file handles.
+        Ok(resource.as_socket()?.as_raw_socket() as RawFile)
+    } else {
+        Ok(resource.as_file()?.as_raw_handle())
+    }
+}
+
+#[cfg(windows)]
 fn global_job_object() -> AsyncHostResult<Option<RawFile>> {
     static GLOBAL_JOB_OBJECT: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
     static GLOBAL_JOB_OBJECT_INIT: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -628,7 +644,7 @@ fn wait_for_process(
 
     #[cfg(target_os = "linux")]
     if let Some(handle) = handle {
-        return wait_for_process_pidfd(handle.raw_fd(), defer_reap);
+        return wait_for_process_pidfd(handle.as_fd()?.as_raw_fd(), defer_reap);
     }
     wait_for_process_pid(pid, defer_reap)
 }
@@ -698,7 +714,7 @@ pub(super) fn make_wait_for_process_cancel() -> AsyncHostResult<Resource> {
 pub(super) fn cancel_wait_for_process(cancel: &ResourceRef) -> AsyncHostResult<()> {
     use windows_sys::Win32::System::Threading::SetEvent;
 
-    if unsafe { SetEvent(cancel.raw_fd()) } == 0 {
+    if unsafe { SetEvent(cancel.as_handle()?.as_raw_handle()) } == 0 {
         Err(last_native_error())
     } else {
         Ok(())
@@ -713,7 +729,7 @@ fn wait_for_process(
 ) -> AsyncHostResult<i64> {
     let cancel = cancel.ok_or(AsyncHostError::Badf)?;
     if let Some(handle) = handle {
-        return wait_for_process_handle(handle.raw_fd(), &cancel);
+        return wait_for_process_handle(handle.as_handle()?.as_raw_handle(), &cancel);
     }
 
     use windows_sys::Win32::Foundation::CloseHandle;
@@ -746,7 +762,7 @@ fn wait_for_process_handle(handle: RawFile, cancel: &ResourceRef) -> AsyncHostRe
         GetExitCodeProcess, INFINITE, WaitForMultipleObjects, WaitForSingleObject,
     };
 
-    let handles = [handle, cancel.raw_fd()];
+    let handles = [handle, cancel.as_handle()?.as_raw_handle()];
     let wait = unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) };
     if wait == WAIT_OBJECT_0 + 1 {
         match unsafe { WaitForSingleObject(handle, 0) } {
@@ -839,5 +855,26 @@ mod tests {
     fn wait_for_unknown_process_reports_native_error() {
         let err = run_wait_for_process_job(None, -1, false).unwrap_err();
         assert!(matches!(err, AsyncHostError::Native(_)));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::super::ResourceClass;
+    use super::*;
+
+    #[test]
+    fn spawn_stdio_accepts_socket_resource() {
+        assert_eq!(crate::async_sys::internal::event_loop::io::init_wsa(), 0);
+        let raw_socket = crate::async_sys::socket::make_tcp_socket(4).unwrap();
+        let resource = Resource::new_socket(raw_socket, ResourceClass::TcpSocket, 4);
+
+        assert_eq!(
+            spawn_stdio_handle(&resource).unwrap() as usize,
+            raw_socket as usize
+        );
+
+        drop(resource);
+        assert_eq!(crate::async_sys::internal::event_loop::io::cleanup_wsa(), 0);
     }
 }

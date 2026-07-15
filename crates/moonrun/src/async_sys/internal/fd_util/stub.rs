@@ -17,8 +17,13 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
-use crate::async_sys::internal::event_loop::thread_pool::{HostHandle, ResourceTable};
+use crate::async_sys::internal::event_loop::thread_pool::{FileRef, HostHandle, ResourceTable};
 use crate::async_sys::ported_fns;
+
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, BorrowedSocket};
 
 #[cfg(unix)]
 pub(crate) type RawFd = std::os::fd::RawFd;
@@ -72,6 +77,21 @@ const WINDOWS_TO_UNIX_EPOCH_SECONDS: i64 = 11_644_473_600;
 #[cfg(windows)]
 fn windows_filetime_to_unix_seconds(ticks: i64) -> i64 {
     ticks / WINDOWS_TICKS_PER_SECOND - WINDOWS_TO_UNIX_EPOCH_SECONDS
+}
+
+#[cfg(unix)]
+pub(crate) fn kind_of_file(file: FileRef<'_>) -> AsyncHostResult<i32> {
+    kind_of_fd(file.as_raw_fd())
+}
+
+#[cfg(windows)]
+pub(crate) fn kind_of_file(file: FileRef<'_>) -> AsyncHostResult<i32> {
+    kind_of_fd(file.as_raw_handle())
+}
+
+#[cfg(windows)]
+pub(crate) fn kind_of_socket(_socket: BorrowedSocket<'_>) -> AsyncHostResult<i32> {
+    Ok(FILE_KIND_SOCKET)
 }
 
 #[cfg(windows)]
