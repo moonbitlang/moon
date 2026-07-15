@@ -104,6 +104,7 @@ impl NetPolicy {
     }
 
     pub(super) fn resolve_dns(&self, host: &OsStr) -> AsyncHostResult<()> {
+        let target = quote_os_str(host);
         let host = host.to_string_lossy();
         let host = normalize_dns_name(&host);
         if self.dns.iter().any(|pattern| pattern.matches(&host))
@@ -111,7 +112,7 @@ impl NetPolicy {
         {
             Ok(())
         } else {
-            Err(AsyncHostError::PermissionDenied)
+            sandbox_denied("DNS lookup", &target)
         }
     }
 
@@ -150,6 +151,7 @@ impl NetPolicy {
         addr: &[u8],
     ) -> AsyncHostResult<()> {
         let addr = parse_socket_addr(addr)?;
+        let target = quote_str(&addr.describe());
         let rules = match operation {
             NetOperation::Connect => &self.connect,
             NetOperation::Bind => &self.bind,
@@ -161,7 +163,16 @@ impl NetPolicy {
         {
             Ok(())
         } else {
-            Err(AsyncHostError::PermissionDenied)
+            sandbox_denied(operation.sandbox_action(), &target)
+        }
+    }
+}
+
+impl NetOperation {
+    fn sandbox_action(self) -> &'static str {
+        match self {
+            Self::Connect => "network connect",
+            Self::Bind => "network bind",
         }
     }
 }
@@ -250,6 +261,15 @@ impl SocketRule {
     }
 }
 
+impl SocketAddr {
+    fn describe(self) -> String {
+        match self.ip {
+            IpAddr::V4(ip) => format!("{ip}:{}", self.port),
+            IpAddr::V6(ip) => format!("[{ip}]:{}", self.port),
+        }
+    }
+}
+
 fn split_host_port(value: &str) -> anyhow::Result<(&str, &str)> {
     if let Some(rest) = value.strip_prefix('[') {
         let Some((host, port)) = rest.split_once("]:") else {
@@ -272,6 +292,19 @@ fn split_host_port(value: &str) -> anyhow::Result<(&str, &str)> {
 
 fn normalize_dns_name(name: &str) -> String {
     name.trim().trim_end_matches('.').to_ascii_lowercase()
+}
+
+fn sandbox_denied(action: &str, target: &str) -> AsyncHostResult<()> {
+    eprintln!("Sandbox policy blocked {action}: {target}");
+    Err(AsyncHostError::PermissionDenied)
+}
+
+fn quote_os_str(value: &OsStr) -> String {
+    quote_str(&value.to_string_lossy())
+}
+
+fn quote_str(value: &str) -> String {
+    format!("{value:?}")
 }
 
 #[cfg(unix)]

@@ -177,8 +177,8 @@ fn test_runwasm_local_package_forwards_experimental_policy() {
         [("MOONRUN_OVERRIDE", moonrun_bin())],
     );
     assert!(
-        stderr.contains("failed to load moonrun policy"),
-        "expected moonrun policy load error, got:\n{stderr}"
+        stderr.contains("failed to load sandbox policy"),
+        "expected sandbox policy load error, got:\n{stderr}"
     );
 }
 
@@ -291,8 +291,8 @@ fn test_runwasm_cached_asset_forwards_experimental_policy() {
         envs,
     );
     assert!(
-        stderr.contains("failed to load moonrun policy"),
-        "expected moonrun policy load error, got:\n{stderr}"
+        stderr.contains("failed to load sandbox policy"),
+        "expected sandbox policy load error, got:\n{stderr}"
     );
 }
 

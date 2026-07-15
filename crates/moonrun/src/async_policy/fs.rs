@@ -69,11 +69,19 @@ impl FsPolicy {
         path: &OsStr,
         intents: FsIntents,
     ) -> AsyncHostResult<()> {
+        let target = sandbox_path_target(base, path);
         let path = Path::new(path);
-        let path = resolve_runtime_path(base, path)?;
-        let path = canonicalize_existing_prefix(&path)?;
+        let path = match resolve_runtime_path(base, path)
+            .and_then(|path| canonicalize_existing_prefix(&path))
+        {
+            Ok(path) => path,
+            Err(AsyncHostError::PermissionDenied) => {
+                return sandbox_denied(intents.sandbox_action(), &target);
+            }
+            Err(error) => return Err(error),
+        };
 
-        self.allows_resolved(&path, intents)
+        self.allows_resolved(&path, intents, &target)
     }
 
     pub(super) fn allows_entry(
@@ -82,19 +90,32 @@ impl FsPolicy {
         path: &OsStr,
         intents: FsIntents,
     ) -> AsyncHostResult<()> {
+        let target = sandbox_path_target(base, path);
         let path = Path::new(path);
-        let path = resolve_runtime_path(base, path)?;
-        let path = canonicalize_entry_path(&path)?;
+        let path = match resolve_runtime_path(base, path)
+            .and_then(|path| canonicalize_entry_path(&path))
+        {
+            Ok(path) => path,
+            Err(AsyncHostError::PermissionDenied) => {
+                return sandbox_denied(intents.sandbox_action(), &target);
+            }
+            Err(error) => return Err(error),
+        };
 
-        self.allows_resolved(&path, intents)
+        self.allows_resolved(&path, intents, &target)
     }
 
-    fn allows_resolved(&self, path: &Path, intents: FsIntents) -> AsyncHostResult<()> {
+    fn allows_resolved(
+        &self,
+        path: &Path,
+        intents: FsIntents,
+        target: &str,
+    ) -> AsyncHostResult<()> {
         if intents.read && !self.allows_read(path) {
-            return Err(AsyncHostError::PermissionDenied);
+            return sandbox_denied("file read", target);
         }
         if intents.write && !self.allows_write(path) {
-            return Err(AsyncHostError::PermissionDenied);
+            return sandbox_denied("file write", target);
         }
         Ok(())
     }
@@ -159,6 +180,14 @@ impl FsIntents {
             Self::read()
         }
     }
+
+    fn sandbox_action(self) -> &'static str {
+        match (self.read, self.write) {
+            (true, false) => "file read",
+            (false, true) => "file write",
+            _ => "file access",
+        }
+    }
 }
 
 fn resolve_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<Vec<FsRoot>> {
@@ -173,8 +202,12 @@ fn resolve_roots(roots: Vec<PathBuf>, config_dir: &Path) -> anyhow::Result<Vec<F
             } else {
                 config_dir.join(root)
             };
-            let path = std::fs::canonicalize(&path)
-                .with_context(|| format!("failed to resolve async fs root {}", path.display()))?;
+            let path = std::fs::canonicalize(&path).with_context(|| {
+                format!(
+                    "failed to resolve sandbox filesystem root {}",
+                    path.display()
+                )
+            })?;
             Ok(FsRoot::Path(path))
         })
         .collect()
@@ -228,6 +261,27 @@ fn normalize_path(path: PathBuf) -> PathBuf {
         }
     }
     normalized
+}
+
+fn sandbox_denied(action: &str, target: &str) -> AsyncHostResult<()> {
+    eprintln!("Sandbox policy blocked {action}: {target}");
+    Err(AsyncHostError::PermissionDenied)
+}
+
+fn sandbox_path_target(base: RuntimePathBase<'_>, path: &OsStr) -> String {
+    if matches!(base, RuntimePathBase::Untracked) {
+        quote_str("<untracked resource>")
+    } else {
+        quote_os_str(path)
+    }
+}
+
+fn quote_os_str(value: &OsStr) -> String {
+    quote_str(&value.to_string_lossy())
+}
+
+fn quote_str(value: &str) -> String {
+    format!("{value:?}")
 }
 
 #[cfg(test)]

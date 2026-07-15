@@ -21,7 +21,7 @@ async fn main {
   let input = @fs.read_file("allowed/input.txt").text()
   @fs.write_file(
     "allowed/out.txt",
-    b"workspace async policy",
+    b"workspace sandbox policy",
     create_mode=CreateOrTruncate,
   )
   let output = @fs.read_file("allowed/out.txt").text()

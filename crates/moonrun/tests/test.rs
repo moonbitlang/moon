@@ -185,7 +185,7 @@ fn test_moonrun_help_describes_policy_shape() {
         .success();
     let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
 
-    assert!(stdout.contains("Experimental: Sandbox moonbitlang/async"));
+    assert!(stdout.contains("Experimental: Sandbox wasm runtime host access"));
     assert!(stdout.contains("deny-by-default mode"));
     assert!(stdout.contains("from_host = [\"*\"]"));
     assert!(stdout.contains("read = [\"*\"]"));
@@ -541,7 +541,7 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
         .arg(&fs_allow_wasm)
         .assert()
         .success()
-        .stdout_eq("workspace input\n|workspace async policy\n");
+        .stdout_eq("workspace input\n|workspace sandbox policy\n");
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
@@ -593,7 +593,11 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
         .arg(&listen_implicit_bind_wasm)
         .assert()
         .success()
-        .stdout_eq("listen denied\n");
+        .stdout_eq("listen denied\n")
+        .stderr_eq(snapbox::str![[r#"
+Sandbox policy blocked network bind: "0.0.0.0:0"
+
+"#]]);
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
@@ -604,7 +608,7 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
         .success()
         .stdout_eq("spawn denied\n");
 
-    let assert = snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .current_dir(dir.path())
         .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
         .arg("--policy")
@@ -612,16 +616,14 @@ fn test_moon_run_async_policy_with_workspace_async_fs() {
         .arg(&fs_deny_read_wasm)
         .assert()
         .failure()
-        .stderr_eq("");
-    let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
-    assert!(
-        stdout.contains("@fs.open()"),
-        "expected async fs open failure in stdout, got:\n{stdout}"
-    );
-    assert!(
-        stdout.contains("denied/secret.txt"),
-        "expected denied path in stdout, got:\n{stdout}"
-    );
+        .stdout_eq(snapbox::str![[r#"
+OSError("[..]@fs.open()[..]denied/secret.txt[..]Permission denied")
+
+"#]])
+        .stderr_eq(snapbox::str![[r#"
+Sandbox policy blocked file read: "denied/secret.txt"
+
+"#]]);
 }
 
 #[test]
