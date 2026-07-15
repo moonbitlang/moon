@@ -134,7 +134,7 @@ test "answer" {
         .success();
 
     moon_cmd(&dir).arg("clean").assert().success();
-    let js_run = moon_cmd(&dir)
+    moon_cmd(&dir)
         .arg("run")
         .arg(&package_rel)
         .args(["--target", "js"])
