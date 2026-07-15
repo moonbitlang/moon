@@ -1399,7 +1399,7 @@ error: unexpected argument '--manifest-path' found
 
   tip: to pass '--manifest-path' as a value, use '-- --manifest-path'
 
-Usage: moon check [OPTIONS] [PATH]...
+Usage: moon[EXE] check [OPTIONS] [PATH]...
 
 For more information, try '--help'.
 
