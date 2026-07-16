@@ -22,6 +22,13 @@
 use crate::async_host::AsyncHostError;
 use crate::async_sys::internal::fd_util::stub::RawFd;
 
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, OwnedFd};
+#[cfg(windows)]
+use std::os::windows::io::{AsRawHandle, OwnedHandle};
+#[cfg(windows)]
+use std::sync::Arc;
+
 #[cfg(target_os = "linux")]
 mod epoll;
 #[cfg(windows)]
@@ -46,46 +53,41 @@ pub(crate) const PROCESS_EVENT: i32 = 4;
 
 #[derive(Debug)]
 pub(crate) struct PollInstance {
-    fd: RawFd,
+    #[cfg(unix)]
+    fd: OwnedFd,
+    #[cfg(windows)]
+    fd: Arc<OwnedHandle>,
     events: Vec<PollEvent>,
 }
 
-#[cfg(windows)]
-unsafe impl Send for PollInstance {}
-
-#[cfg(windows)]
-unsafe impl Sync for PollInstance {}
-
 impl PollInstance {
-    #[cfg(windows)]
     pub(crate) fn raw_fd(&self) -> RawFd {
-        self.fd
+        #[cfg(unix)]
+        {
+            self.fd.as_raw_fd()
+        }
+        #[cfg(windows)]
+        {
+            self.fd.as_raw_handle()
+        }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PollEvent {
+    #[cfg(unix)]
     fd: RawFd,
+    #[cfg(windows)]
+    // IOCP completion keys are opaque values. Store the address bits rather
+    // than a pointer so cached events carry no false pointer provenance.
+    fd: usize,
     events: i32,
     #[cfg(windows)]
-    io_result: *mut windows_sys::Win32::System::IO::OVERLAPPED,
+    io_result: usize,
     #[cfg(windows)]
     bytes_transferred: i32,
     #[cfg(windows)]
     worker_generation: Option<usize>,
-}
-
-impl Drop for PollInstance {
-    fn drop(&mut self) {
-        #[cfg(unix)]
-        unsafe {
-            libc::close(self.fd);
-        }
-        #[cfg(windows)]
-        unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(self.fd);
-        }
-    }
 }
 
 pub(super) fn last_errno() -> i32 {

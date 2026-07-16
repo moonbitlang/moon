@@ -19,6 +19,7 @@
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
+use std::os::fd::{FromRawFd, OwnedFd};
 
 use super::{
     EVENT_BUFFER_SIZE, PROCESS_EVENT, PollEvent, PollInstance, READ_EVENT, WRITE_EVENT, last_errno,
@@ -36,7 +37,7 @@ ported_fns! {
             Err(last_native_error())
         } else {
             Ok(PollInstance {
-                fd,
+                fd: unsafe { OwnedFd::from_raw_fd(fd) },
                 events: Vec::new(),
             })
         }
@@ -73,7 +74,7 @@ ported_fns! {
         ];
         if unsafe {
             libc::kevent(
-                instance.fd,
+                instance.raw_fd(),
                 events.as_ptr(),
                 if read_only { 1 } else { 2 },
                 std::ptr::null_mut(),
@@ -101,7 +102,7 @@ ported_fns! {
         let event = new_kevent(pid as libc::uintptr_t, libc::EVFILT_PROC, flags, fflags, 0);
         let ret = unsafe {
             libc::kevent(
-                instance.fd,
+                instance.raw_fd(),
                 &event,
                 1,
                 std::ptr::null_mut(),
@@ -134,7 +135,7 @@ ported_fns! {
         let mut events = vec![empty_kevent(); EVENT_BUFFER_SIZE];
         let count = unsafe {
             libc::kevent(
-                instance.fd,
+                instance.raw_fd(),
                 std::ptr::null(),
                 0,
                 events.as_mut_ptr(),
@@ -191,7 +192,7 @@ pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostRe
         let event = new_kevent(fd as libc::uintptr_t, filter, libc::EV_DELETE, 0, 0);
         if unsafe {
             libc::kevent(
-                instance.fd,
+                instance.raw_fd(),
                 &event,
                 1,
                 std::ptr::null_mut(),

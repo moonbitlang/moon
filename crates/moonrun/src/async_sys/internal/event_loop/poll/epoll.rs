@@ -19,6 +19,7 @@
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
+use std::os::fd::{FromRawFd, OwnedFd};
 
 use super::{
     EVENT_BUFFER_SIZE, PollEvent, PollInstance, READ_EVENT, WRITE_EVENT, last_native_error,
@@ -35,7 +36,7 @@ ported_fns! {
             Err(last_native_error())
         } else {
             Ok(PollInstance {
-                fd,
+                fd: unsafe { OwnedFd::from_raw_fd(fd) },
                 events: Vec::new(),
             })
         }
@@ -73,7 +74,7 @@ ported_fns! {
             events: epoll_event_mask(events)?,
             u64: fd as u64,
         };
-        if unsafe { libc::epoll_ctl(instance.fd, libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
+        if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
             Err(last_native_error())
         } else {
             Ok(())
@@ -88,7 +89,7 @@ ported_fns! {
         let mut events = vec![libc::epoll_event { events: 0, u64: 0 }; EVENT_BUFFER_SIZE];
         let count = unsafe {
             libc::epoll_wait(
-                instance.fd,
+                instance.raw_fd(),
                 events.as_mut_ptr(),
                 EVENT_BUFFER_SIZE as i32,
                 timeout,
@@ -135,7 +136,15 @@ ported_fns! {
 }
 
 pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostResult<()> {
-    if unsafe { libc::epoll_ctl(instance.fd, libc::EPOLL_CTL_DEL, fd, std::ptr::null_mut()) } < 0 {
+    if unsafe {
+        libc::epoll_ctl(
+            instance.raw_fd(),
+            libc::EPOLL_CTL_DEL,
+            fd,
+            std::ptr::null_mut(),
+        )
+    } < 0
+    {
         let errno = super::last_errno();
         if errno == libc::ENOENT {
             Ok(())
