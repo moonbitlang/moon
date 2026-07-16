@@ -911,8 +911,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn wait_for_unknown_process_reports_native_error() {
-        let err = run_wait_for_process_job(None, -1, false).unwrap_err();
-        assert!(matches!(err, AsyncHostError::Native(_)));
+        // The current process is not its own child and cannot consume a child
+        // spawned by another test, unlike the `-1` waitpid wildcard.
+        let non_child_pid = unsafe { libc::getpid() };
+        let err = run_wait_for_process_job(None, non_child_pid, false).unwrap_err();
+        assert_eq!(err, AsyncHostError::Native(libc::ECHILD));
     }
 }
 

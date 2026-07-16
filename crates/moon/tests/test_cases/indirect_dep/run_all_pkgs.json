@@ -237,6 +237,11 @@
     },
     {
       "root": "moonbitlang/core",
+      "rel": "lexbuf",
+      "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/lexbuf/lexbuf.mi"
+    },
+    {
+      "root": "moonbitlang/core",
       "rel": "list",
       "artifact": "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/list/list.mi"
     },
