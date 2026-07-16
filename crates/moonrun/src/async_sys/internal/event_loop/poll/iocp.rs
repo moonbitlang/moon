@@ -16,7 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::os::windows::io::{AsRawSocket, BorrowedSocket, RawHandle};
+use std::os::windows::io::{
+    AsRawHandle, AsRawSocket, BorrowedSocket, FromRawHandle, OwnedHandle, RawHandle,
+};
+use std::sync::Arc;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -24,17 +27,16 @@ use crate::async_sys::ported_fns;
 
 use super::{EVENT_BUFFER_SIZE, PollEvent, PollInstance, last_errno, last_native_error};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct CompletionPort(RawFd);
+#[derive(Debug, Clone)]
+pub(crate) struct CompletionPort(Arc<OwnedHandle>);
 
 // A completion port handle may be used from worker threads to post completion
-// packets. PollInstance owns the actual handle lifetime; this value is only a
-// typed copy used while the owning poll instance remains registered in AsyncHost.
-unsafe impl Send for CompletionPort {}
+// packets. Share ownership with PollInstance so a worker cannot post through a
+// stale handle if the guest destroys the poll instance before the worker exits.
 
 impl CompletionPort {
     pub(crate) fn from_poll(poll: &PollInstance) -> Self {
-        Self(poll.raw_fd())
+        Self(Arc::clone(&poll.fd))
     }
 }
 
@@ -52,7 +54,7 @@ ported_fns! {
             Err(last_native_error())
         } else {
             Ok(PollInstance {
-                fd,
+                fd: Arc::new(unsafe { OwnedHandle::from_raw_handle(fd) }),
                 events: Vec::new(),
             })
         }
@@ -83,7 +85,8 @@ ported_fns! {
         if unsafe { SetFileCompletionNotificationModes(fd, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS as u8) } == 0 {
             return Err(last_native_error());
         }
-        let registered = unsafe { CreateIoCompletionPort(fd, instance.fd, fd as usize, 0) };
+        let registered =
+            unsafe { CreateIoCompletionPort(fd, instance.raw_fd(), fd as usize, 0) };
         if registered.is_null() {
             Err(last_native_error())
         } else {
@@ -104,7 +107,7 @@ ported_fns! {
         let mut count = 0;
         let ok = unsafe {
             GetQueuedCompletionStatusEx(
-                instance.fd,
+                instance.raw_fd(),
                 entries.as_mut_ptr(),
                 EVENT_BUFFER_SIZE as u32,
                 &mut count,
@@ -130,15 +133,15 @@ ported_fns! {
                     None
                 };
                 PollEvent {
-                    fd,
+                    fd: entry.lpCompletionKey,
                     events: 0,
                     // Worker completion packets use lpOverlapped only as a
                     // host generation token; guest-visible worker events match
                     // native and expose no IO result.
                     io_result: if worker_generation.is_some() {
-                        std::ptr::null_mut()
+                        0
                     } else {
-                        entry.lpOverlapped
+                        entry.lpOverlapped as usize
                     },
                     bytes_transferred: entry.dwNumberOfBytesTransferred as i32,
                     worker_generation,
@@ -162,7 +165,7 @@ ported_fns! {
         original = "moonbitlang_async_event_get_fd"
     )]
     pub(crate) fn event_get_fd(event: &PollEvent) -> RawFd {
-        event.fd
+        event.fd as RawFd
     }
 
     #[ported(
@@ -172,7 +175,7 @@ ported_fns! {
     pub(crate) fn event_get_io_result(
         event: &PollEvent,
     ) -> *mut windows_sys::Win32::System::IO::OVERLAPPED {
-        event.io_result
+        event.io_result as *mut windows_sys::Win32::System::IO::OVERLAPPED
     }
 
     #[ported(
@@ -203,7 +206,7 @@ pub(crate) fn poll_register_socket(
 }
 
 pub(crate) fn post_thread_pool_completion(
-    completion_port: CompletionPort,
+    completion_port: &CompletionPort,
     completion_id: i32,
     generation: usize,
 ) -> AsyncHostResult<()> {
@@ -216,7 +219,7 @@ pub(crate) fn post_thread_pool_completion(
     // transferred bytes. Rust treats that value as an opaque completion id.
     if unsafe {
         PostQueuedCompletionStatus(
-            completion_port.0,
+            completion_port.0.as_raw_handle(),
             completion_id as u32,
             INVALID_HANDLE_VALUE as usize,
             worker_generation_to_overlapped(generation),

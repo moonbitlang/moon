@@ -186,10 +186,10 @@ static CONSOLE_COMPLETION_TARGET: std::sync::Mutex<Option<(CompletionPort, usize
 unsafe extern "system" fn console_control_handler(ctrl_type: u32) -> i32 {
     let interested = INTERESTED_CONSOLE_CTRL_EVENT.load(std::sync::atomic::Ordering::Relaxed);
     if ctrl_type < i32::BITS && (interested & (1_i32 << ctrl_type)) != 0 {
-        let target = *CONSOLE_COMPLETION_TARGET.lock().unwrap();
+        let target = CONSOLE_COMPLETION_TARGET.lock().unwrap().clone();
         if let Some((completion_port, generation)) = target {
             let _ = poll::post_thread_pool_completion(
-                completion_port,
+                &completion_port,
                 (ctrl_type | (1 << 31)) as i32,
                 generation,
             );

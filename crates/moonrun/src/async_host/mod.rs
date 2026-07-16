@@ -760,7 +760,7 @@ impl IoResultTable {
 }
 
 #[cfg(windows)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 struct ThreadPoolCompletionTarget {
     poll: HandleKey,
     port: poll::CompletionPort,
@@ -846,6 +846,11 @@ struct HostIoResult {
 }
 
 #[cfg(windows)]
+// SAFETY: IoResultTable stores each value in a Box before its OVERLAPPED
+// address can be submitted to Windows, never removes a pending result, and
+// serializes all access through its mutex. Moving the Box between threads does
+// not move the HostIoResult allocation; its buffers and ResourceRefs are owned
+// and remain alive until the operation reaches a terminal state.
 unsafe impl Send for HostIoResult {}
 
 #[cfg(windows)]
@@ -1538,6 +1543,7 @@ impl AsyncHost {
             let mut completions = self.thread_pool_completions.lock().unwrap();
             if completions
                 .target
+                .as_ref()
                 .is_some_and(|target| target.poll == poll_key)
             {
                 let _ = crate::async_sys::signal::set_console_control_handler(false, None);
@@ -1637,6 +1643,7 @@ impl AsyncHost {
                 .lock()
                 .unwrap()
                 .target
+                .as_ref()
                 .filter(|target| target.poll == poll_key)
                 .map(|target| target.generation);
             (poll, thread_pool_generation, self.invalid_fd())
@@ -3630,6 +3637,7 @@ impl AsyncHost {
                 .lock()
                 .unwrap()
                 .target
+                .clone()
                 .ok_or(AsyncHostError::Badf)?;
             self.queue_worker_job(job_key)?;
             self.spawn_worker_thread(
@@ -3639,7 +3647,7 @@ impl AsyncHost {
                 },
                 move |completion_id| {
                     let _ = poll::post_thread_pool_completion(
-                        completion_target.port,
+                        &completion_target.port,
                         completion_id.as_i32(),
                         completion_target.generation,
                     );
@@ -3760,7 +3768,8 @@ impl AsyncHost {
             .lock()
             .unwrap()
             .target
-            .map(|target| (target.port, target.generation))
+            .as_ref()
+            .map(|target| (target.port.clone(), target.generation))
             .ok_or(AsyncHostError::Badf)
     }
 
@@ -5818,17 +5827,60 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn native_order_completion_before_poll_destroy_remains_supported() {
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let completion_notifier = host.init_thread_pool(poll).unwrap();
+        let completion = host.thread_pool_completion_target().unwrap();
+
+        poll::post_thread_pool_completion(&completion.0, 42, completion.1).unwrap();
+
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+        assert_eq!(host.poll_event_fd(event).unwrap(), completion_notifier);
+        assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
+
+        drop(completion);
+        host.poll_destroy(poll).unwrap();
+        host.destroy_thread_pool();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn alternate_order_poll_destroy_before_completion_remains_safe() {
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+
+        host.init_thread_pool(poll).unwrap();
+        // A worker captures this target when it is spawned. Destroying the
+        // guest poll handle must not invalidate the target while that worker
+        // can still publish its terminal completion.
+        let completion = host.thread_pool_completion_target().unwrap();
+
+        host.poll_destroy(poll).unwrap();
+
+        poll::post_thread_pool_completion(&completion.0, 42, completion.1).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn stale_thread_pool_completions_are_ignored_after_reinit() {
         let host = AsyncHost::default();
         let poll = host.poll_create().unwrap();
 
         host.init_thread_pool(poll).unwrap();
-        let stale_completion = host.thread_pool_completions.lock().unwrap().target.unwrap();
+        let stale_completion = host
+            .thread_pool_completions
+            .lock()
+            .unwrap()
+            .target
+            .clone()
+            .unwrap();
         // Fill the current IOCP batch so a valid completion can sit behind
         // stale completions from the destroyed pool generation.
         for completion_id in 0..1024 {
             poll::post_thread_pool_completion(
-                stale_completion.port,
+                &stale_completion.port,
                 completion_id,
                 stale_completion.generation,
             )
@@ -5837,11 +5889,17 @@ mod tests {
         host.destroy_thread_pool();
 
         let completion_notifier = host.init_thread_pool(poll).unwrap();
-        let current_completion = host.thread_pool_completions.lock().unwrap().target.unwrap();
+        let current_completion = host
+            .thread_pool_completions
+            .lock()
+            .unwrap()
+            .target
+            .clone()
+            .unwrap();
         assert_ne!(stale_completion.generation, current_completion.generation);
 
         poll::post_thread_pool_completion(
-            current_completion.port,
+            &current_completion.port,
             43,
             current_completion.generation,
         )
@@ -5850,22 +5908,6 @@ mod tests {
         let event = host.poll_get_event(poll, 0).unwrap();
         assert_eq!(host.poll_event_fd(event).unwrap(), completion_notifier);
         assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 43);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn thread_pool_completion_reports_native_sentinel() {
-        let host = AsyncHost::default();
-        let poll = host.poll_create().unwrap();
-        let completion_notifier = host.init_thread_pool(poll).unwrap();
-        let completion = host.thread_pool_completions.lock().unwrap().target.unwrap();
-
-        poll::post_thread_pool_completion(completion.port, 42, completion.generation).unwrap();
-
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
-        let event = host.poll_get_event(poll, 0).unwrap();
-        assert_eq!(host.poll_event_fd(event).unwrap(), completion_notifier);
-        assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 42);
     }
 
     #[test]
