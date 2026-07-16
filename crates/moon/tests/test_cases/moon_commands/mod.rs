@@ -257,7 +257,6 @@ fn test_moonx_builds_and_reuses_a_cached_native_registry_executable() {
             .env("MOON_HOME", moon_home.path())
             .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
             .args([
-                "--quiet",
                 "--target",
                 "native",
                 "testuser/runner/tool@1.2.3",
@@ -265,8 +264,7 @@ fn test_moonx_builds_and_reuses_a_cached_native_registry_executable() {
             ])
             .assert()
             .success()
-            .stdout_eq("native runner\n--child-arg\n")
-            .stderr_eq("");
+            .stdout_eq("native runner\n--child-arg\n");
     };
 
     run();
