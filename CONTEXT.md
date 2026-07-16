@@ -40,6 +40,16 @@ _Avoid_: Always-full package model, eager package facts
 A MoonBuild command whose information demand stops before full dependency resolution and build target projection.
 _Avoid_: Partial resolve, incomplete build command
 
+## Package Execution
+
+**Executable Package Coordinate**:
+An exact registry selector containing a module, an optional package path, and an optional version that identifies one main package for direct execution.
+_Avoid_: Install source, wildcard package selector, runwasm coordinate
+
+**Cached Executable Artifact**:
+The final runnable file retained for an Executable Package Coordinate and Target Backend so later executions can skip acquisition or building.
+_Avoid_: Installed binary, cached build workspace, source cache
+
 ## Naming
 
 **Process Name**:

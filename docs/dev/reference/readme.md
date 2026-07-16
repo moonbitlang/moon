@@ -24,6 +24,7 @@ This is a reference documentation of the current MoonBuild behavior.
 * [`moon bundle`](./bundle.md)
 * [`moon install` binary installer behavior](./moon-install-binary.md)
 * [`moon runwasm` behavior](./runwasm.md)
+* [`moonx` executable package runner behavior](./moonx.md)
 * [Rupes Recta special cases](./rr-special-cases.md)
 * [`moon test` execution flow](./tests.md)
 * [`supported_targets` behavior](./supported-targets.md)

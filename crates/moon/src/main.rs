@@ -128,6 +128,9 @@ pub fn main() {
     panic::setup_panic_hook();
 
     let raw_args = std::env::args_os().collect::<Vec<_>>();
+    if cli::moonx::is_moonx_invocation(&raw_args) {
+        std::process::exit(cli::moonx::run_from_args(&raw_args));
+    }
     if cli::tool::exec::is_tool_exec(&raw_args) {
         match cli::tool::exec::run_from_raw_args(&raw_args) {
             Ok(code) => std::process::exit(code),
