@@ -67,7 +67,6 @@ ported_fns! {
     ) -> AsyncHostResult<i32> {
         #[cfg(windows)]
         {
-            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, STILL_ACTIVE};
             use windows_sys::Win32::System::Threading::GetExitCodeProcess;
 
             let _ = pid;
@@ -75,9 +74,6 @@ ported_fns! {
             let mut code = 0;
             if unsafe { GetExitCodeProcess(handle, &mut code) } == 0 {
                 return Err(last_native_error());
-            }
-            if code == STILL_ACTIVE as u32 {
-                return Err(AsyncHostError::Native(ERROR_IO_PENDING as i32));
             }
             Ok(code as i32)
         }
@@ -95,7 +91,7 @@ ported_fns! {
                         libc::P_PIDFD,
                         handle as libc::id_t,
                         &mut info,
-                        libc::WEXITED | libc::WSTOPPED | libc::WNOHANG,
+                        libc::WEXITED | libc::WNOHANG,
                     )
                 } < 0
                 {
