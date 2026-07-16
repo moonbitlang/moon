@@ -24,7 +24,7 @@ use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{locks::FileLock, registry::RegistryConfig, resolution::ModuleName};
 use semver::Version;
 
-use crate::{rr_build, run::default_rt, user_diagnostics::UserDiagnostics};
+use crate::{rr_build, user_diagnostics::UserDiagnostics};
 
 pub(crate) enum RegistryRunTarget {
     Wasm {
@@ -334,20 +334,11 @@ fn run_artifact(
         rr_build::dry_print_command(run_cmd.as_std(), &print_dir, true);
     }
 
-    let res = default_rt()
-        .context("Failed to create runtime")?
-        .block_on(crate::run::run(&mut [], false, run_cmd))
-        .context("failed to run command")?;
-
-    if crate::run::shutdown_requested() {
-        return Ok(130);
-    }
-
-    if let Some(code) = res.code() {
-        Ok(code)
-    } else {
-        bail!("Command exited without a return code")
-    }
+    let status = super::process::delegate(run_cmd.as_std_mut())
+        .context("failed to delegate to registry executable")?;
+    status
+        .code()
+        .context("registry executable exited without a return code")
 }
 
 #[cfg(test)]

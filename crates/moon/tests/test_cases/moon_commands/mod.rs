@@ -281,6 +281,42 @@ fn test_moonx_builds_and_reuses_a_cached_native_registry_executable() {
     run();
 }
 
+#[cfg(any(unix, windows))]
+#[test]
+fn test_moonx_delegates_interrupt_to_cached_native_executable() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    std::fs::copy(compile_signal_fixture(fake_bin_dir.path()), &cache_path)
+        .expect("failed to populate cached native executable");
+
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+    let ready_file = bin_dir.path().join("moonx-native-ready");
+    let mut command = interruptible_command(&moonx);
+    let mut child = command
+        .current_dir(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["--target", "native", "testuser/runner/tool@1.2.3"])
+        .arg(&ready_file)
+        .spawn()
+        .expect("failed to spawn moonx");
+
+    wait_for_ready_file(&mut child, &ready_file);
+    send_interrupt(child.id());
+    let status = wait_for_child_status(&mut child);
+    assert_eq!(
+        status.code(),
+        Some(42),
+        "cached native executable did not handle interrupt itself; status was {status}"
+    );
+}
+
 #[test]
 #[cfg(unix)]
 fn test_tool_exec_shell_applies_cwd_env_and_execs() {
@@ -852,6 +888,21 @@ fn interruptible_moon_command(dir: &impl AsRef<std::path::Path>) -> std::process
 }
 
 #[cfg(unix)]
+fn interruptible_command(program: &std::path::Path) -> std::process::Command {
+    std::process::Command::new(program)
+}
+
+#[cfg(windows)]
+fn interruptible_command(program: &std::path::Path) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
+
+    let mut command = std::process::Command::new(program);
+    command.creation_flags(CREATE_NEW_PROCESS_GROUP);
+    command
+}
+
+#[cfg(unix)]
 fn send_interrupt(pid: u32) {
     let rc = unsafe { libc::kill(pid as libc::pid_t, libc::SIGINT) };
     assert_eq!(
@@ -876,7 +927,7 @@ fn send_interrupt(pid: u32) {
 }
 
 #[cfg(any(unix, windows))]
-fn compile_signal_fixture(fake_bin_dir: &std::path::Path) {
+fn compile_signal_fixture(fake_bin_dir: &std::path::Path) -> PathBuf {
     let source =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external_signal_handler.rs");
     let executable = fake_bin_dir.join(format!(
@@ -895,6 +946,7 @@ fn compile_signal_fixture(fake_bin_dir: &std::path::Path) {
         status.success(),
         "failed to compile fake moon-test-behavior"
     );
+    executable
 }
 
 fn compile_fake_cram_fixture(fake_bin_dir: &std::path::Path) -> PathBuf {
