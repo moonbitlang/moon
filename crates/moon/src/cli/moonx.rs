@@ -71,7 +71,13 @@ pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
     raw_args
         .first()
         .and_then(|arg| std::path::Path::new(arg).file_name())
-        .is_some_and(|name| name == "moonx" || name == "moonx.exe")
+        .is_some_and(|name| {
+            if cfg!(windows) {
+                name.eq_ignore_ascii_case("moonx") || name.eq_ignore_ascii_case("moonx.exe")
+            } else {
+                name == "moonx" || name == "moonx.exe"
+            }
+        })
 }
 
 pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
@@ -93,5 +99,32 @@ pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
             output.error(format!("{:?}", err));
             -1
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn invoked_as(name: &str) -> bool {
+        is_moonx_invocation(&[OsString::from(name)])
+    }
+
+    #[test]
+    fn recognizes_moonx_executable_names() {
+        assert!(invoked_as("moonx"));
+        assert!(invoked_as("moonx.exe"));
+    }
+
+    #[test]
+    fn executable_name_case_matches_platform_rules() {
+        assert_eq!(invoked_as("MOONX"), cfg!(windows));
+        assert_eq!(invoked_as("Moonx.exe"), cfg!(windows));
+    }
+
+    #[test]
+    fn rejects_moon_executable_names() {
+        assert!(!invoked_as("moon"));
+        assert!(!invoked_as("moon.exe"));
     }
 }
