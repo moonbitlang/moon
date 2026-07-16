@@ -534,14 +534,13 @@ mod tests {
     fn msvc_toolchain() -> Toolchain {
         Toolchain::from_path_probe(CC {
             cc_kind: CCKind::Msvc,
-            cc_path: "cl.exe".to_string(),
+            cc_path: "msvc/bin/cl.exe".to_string(),
             ar_kind: ARKind::MsvcLib,
-            ar_path: "lib.exe".to_string(),
+            ar_path: "msvc/bin/lib.exe".to_string(),
             target_triple: None,
             is_env_override: false,
         })
         .with_msvc_environment(MsvcEnvironment {
-            cl_exe: PathBuf::from("msvc/bin/cl.exe"),
             command_env: vec![
                 ("INCLUDE".to_string(), "crt/include;sdk/include".to_string()),
                 ("LIB".to_string(), "crt/lib;sdk/lib".to_string()),

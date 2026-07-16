@@ -78,7 +78,7 @@ pub(crate) fn link_executable_command(
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use moonutil::compiler_flags::{ARKind, CC, CCKind, MsvcEnvironment, Toolchain};
 
@@ -94,7 +94,6 @@ mod tests {
             is_env_override: false,
         })
         .with_msvc_environment(MsvcEnvironment {
-            cl_exe: PathBuf::from("cl.exe"),
             command_env: vec![
                 ("INCLUDE".to_string(), "crt/include;sdk/include".to_string()),
                 ("LIB".to_string(), "crt/lib;sdk/lib".to_string()),
