@@ -142,6 +142,12 @@ Filename text is preserved when Moon later needs a case-preserving fallback path
 ### MSVC (`cl`)
 
 - Archiver is `lib.exe`.
+- For a bare MSVC override such as `cl.exe`, Moon uses the discovered full paths for both
+  `cl.exe` and `lib.exe`. The discovered command environment is attached separately and is not
+  relied on to locate either executable.
+- A path-like MSVC override uses the sibling `lib.exe` and does not inherit the environment from
+  a separately discovered toolchain. The configured environment must already support that
+  toolchain.
 
 ### TCC
 
