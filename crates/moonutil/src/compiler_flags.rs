@@ -1818,7 +1818,10 @@ mod tests {
         assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
         assert_eq!(toolchain.cc().cc_path, "msvc/bin/cl.exe");
         assert_eq!(toolchain.cc_command_path(), "msvc/bin/cl.exe");
-        assert_eq!(toolchain.cc().ar_path, "msvc/bin/lib.exe");
+        assert_eq!(
+            normalize_path_separators(&toolchain.cc().ar_path),
+            "msvc/bin/lib.exe"
+        );
     }
 
     #[test]
@@ -1837,7 +1840,10 @@ mod tests {
 
         assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
         assert_eq!(toolchain.cc().cc_path, "custom/bin/cl.exe");
-        assert_eq!(toolchain.cc().ar_path, "custom/bin/lib.exe");
+        assert_eq!(
+            normalize_path_separators(&toolchain.cc().ar_path),
+            "custom/bin/lib.exe"
+        );
         assert_eq!(toolchain.msvc_environment(), None);
     }
 
@@ -1847,7 +1853,7 @@ mod tests {
             .expect("parse MSVC compiler with independent archiver override");
 
         assert_eq!(cc.cc_path, "custom/x64/cl.exe");
-        assert_eq!(cc.ar_path, "custom/x64/lib.exe");
+        assert_eq!(normalize_path_separators(&cc.ar_path), "custom/x64/lib.exe");
     }
 
     #[test]
