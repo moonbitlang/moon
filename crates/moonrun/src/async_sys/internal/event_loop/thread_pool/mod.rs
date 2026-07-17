@@ -36,21 +36,20 @@ pub(crate) use jobs::make_spawn_job_windows;
 #[cfg(windows)]
 pub(crate) use jobs::{cancel_job_resource, job_cancel_resource};
 pub(crate) use jobs::{
-    errno_is_cancelled, get_file_size_result, get_platform, get_realpath_result_handle,
-    get_spawn_job_result_handle, getaddrinfo_job_result, job_get_err, job_get_ret, make_access_job,
-    make_bind_job, make_chmod_job, make_failed_job, make_file_kind_by_path_job, make_file_size_job,
+    errno_is_cancelled, get_file_size_result, get_platform, get_spawn_job_result_handle,
+    getaddrinfo_job_result, job_get_err, job_get_ret, make_access_job, make_bind_job,
+    make_chmod_job, make_failed_job, make_file_kind_by_path_job, make_file_size_job,
     make_file_time_by_path_job, make_file_time_job, make_flock_job, make_fsync_job,
     make_getaddrinfo_job, make_mkdir_job, make_open_job, make_read_job, make_readdir_job,
     make_realpath_job, make_remove_job, make_rename_job, make_rmdir_job, make_sleep_job,
     make_symlink_job, make_wait_for_process_job, make_write_job, open_job_get_dev_id,
     open_job_get_fd, open_job_get_file_id, open_job_get_kind, open_job_result, open_job_result_mut,
-    set_realpath_result_handle, set_spawn_job_result, take_realpath_result_buffer,
-    take_spawn_job_result,
+    publish_realpath_result, set_spawn_job_result, take_spawn_job_result,
 };
 pub(crate) use runner::{get_file_time_result, get_read_result, run_host_job};
 pub(crate) use types::{
-    FileRef, FileTimeResult, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, Resource,
-    ResourceClass, ResourceRef, ResourceTable, SpawnOptions,
+    FileRef, FileTimeResult, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult,
+    RealpathJobResult, Resource, ResourceClass, ResourceRef, ResourceTable, SpawnOptions,
 };
 #[cfg(windows)]
 pub(crate) use worker::worker_cancellable_job;

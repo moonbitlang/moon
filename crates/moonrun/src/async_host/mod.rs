@@ -1196,7 +1196,7 @@ pub(crate) struct AsyncHost {
     // table is the only guest-visible namespace, but most payload storage stays
     // in narrower tables until moving it improves locality.
     // Keep nested table locks short and in the existing directions:
-    // jobs -> handles for publishing open-job results,
+    // jobs -> handles for publishing open and realpath job results,
     // handles -> io_results for Windows overlapped-IO submission/close; submit
     // paths keep handles held until io_results is locked so close_fd cannot
     // miss an operation that is about to become pending,
@@ -2276,7 +2276,7 @@ impl AsyncHost {
                 // After get_realpath_result exposes that path as a host c_buffer,
                 // freeing the job must also release the c_buffer slot.
                 if let thread_pool::JobPayload::Realpath {
-                    result_handle: Some(buffer_handle),
+                    result: Some(thread_pool::RealpathJobResult::Published(buffer_handle)),
                     ..
                 } = job.payload()
                 {
@@ -3455,6 +3455,9 @@ impl AsyncHost {
                 path,
                 *follow_symlink,
             ),
+            JobPayload::Realpath { path, .. } => {
+                policy.stat_path(RuntimePathBase::CurrentDirectory, path)
+            }
             JobPayload::Access { path, access } => policy.access_path(path, *access),
             JobPayload::Chmod { path, .. } => policy.chmod_path(path),
             JobPayload::Flock { file, exclusive } => {
@@ -3812,24 +3815,18 @@ impl AsyncHost {
 
     pub(crate) fn get_realpath_result(&self, handle: u64) -> AsyncHostResult<u64> {
         let key = self.handles.lock().unwrap().job(handle)?;
-        {
-            let jobs = self.jobs.lock().unwrap();
-            let job = jobs.visible_job(key)?;
-            if let Some(handle) = thread_pool::get_realpath_result_handle(job)? {
-                return Ok(handle);
-            }
-        }
-
-        let buffer = {
-            let mut jobs = self.jobs.lock().unwrap();
-            let job = jobs.visible_job_mut(key)?;
-            thread_pool::take_realpath_result_buffer(job)?
-        };
-        let buffer_handle = self.insert_c_buffer(buffer);
         let mut jobs = self.jobs.lock().unwrap();
         let job = jobs.visible_job_mut(key)?;
-        thread_pool::set_realpath_result_handle(job, buffer_handle)?;
-        Ok(buffer_handle)
+        // Keep the job locked through publication so free_job either observes
+        // and cleans up the c_buffer or removes the job before publication.
+        thread_pool::publish_realpath_result(job, |buffer| {
+            let buffer_key = self.handles.lock().unwrap().insert(HandleKind::CBuffer);
+            self.c_buffers
+                .lock()
+                .unwrap()
+                .insert(buffer_key, Arc::new(Mutex::new(buffer)));
+            handle_from_key(buffer_key)
+        })
     }
 
     #[cfg(unix)]
@@ -5021,16 +5018,12 @@ mod tests {
         {
             let mut jobs = host.jobs.lock().unwrap();
             let job = jobs.visible_job_mut(job_key(&host, job_handle)).unwrap();
-            let thread_pool::JobPayload::Realpath {
-                result,
-                result_handle,
-                ..
-            } = job.payload_mut()
-            else {
+            let thread_pool::JobPayload::Realpath { result, .. } = job.payload_mut() else {
                 panic!("expected realpath job");
             };
-            *result = Some(b"/tmp/example\0".to_vec().into_boxed_slice());
-            assert_eq!(*result_handle, None);
+            *result = Some(thread_pool::RealpathJobResult::Unpublished(
+                b"/tmp/example\0".to_vec().into_boxed_slice(),
+            ));
         }
 
         let buffer_handle = host.get_realpath_result(job_handle).unwrap();
@@ -5142,6 +5135,34 @@ mod tests {
                 false,
                 0,
                 0,
+            ))
+            .unwrap();
+
+        host.run_job(job).unwrap();
+
+        assert_eq!(host.job_get_ret(job).unwrap(), -1);
+        assert_eq!(
+            host.job_get_err(job).unwrap(),
+            AsyncHostError::PermissionDenied.errno()
+        );
+        host.free_job(job).unwrap();
+    }
+
+    #[test]
+    fn run_job_checks_realpath_policy_at_execution() {
+        let tmp = tempfile::tempdir().unwrap();
+        let allowed = tmp.path().join("allowed");
+        let denied = tmp.path().join("denied");
+        std::fs::create_dir(&allowed).unwrap();
+        std::fs::create_dir(&denied).unwrap();
+        let denied_file = denied.join("secret.txt");
+        std::fs::write(&denied_file, "secret").unwrap();
+        let policy_file = tmp.path().join("policy.toml");
+        std::fs::write(&policy_file, "[fs]\nread = [\"allowed\"]\n").unwrap();
+        let host = host_with_policy(&policy_file);
+        let job = host
+            .insert_job(thread_pool::make_realpath_job(
+                denied_file.as_os_str().to_os_string(),
             ))
             .unwrap();
 

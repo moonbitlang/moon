@@ -29,7 +29,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult, HostCBuffer};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 
-use super::{FileTimeResult, OpenJobResource, OpenJobResult, Resource};
+use super::{FileTimeResult, OpenJobResource, OpenJobResult, RealpathJobResult, Resource};
 
 type RawFile = fd_util::stub::RawFd;
 
@@ -278,9 +278,9 @@ ported_fns! {
     )]
     pub(super) fn run_realpath_job(
         path: OsString,
-        result: &mut Option<Box<[u8]>>,
+        result: &mut Option<RealpathJobResult>,
     ) -> AsyncHostResult<i64> {
-        *result = Some(realpath_native_path(path)?);
+        *result = Some(RealpathJobResult::Unpublished(realpath_native_path(path)?));
         Ok(0)
     }
 }
@@ -1781,7 +1781,7 @@ fn os_string_to_wide(path: OsString) -> Vec<u16> {
 
 #[cfg(windows)]
 fn copy_windows_realpath_c_string_bytes(units: &[u16]) -> Box<[u8]> {
-    const VERBATIM_PREFIX_LEN: usize = 4;
+    const VERBATIM_PREFIX: [u16; 4] = ['\\' as u16, '\\' as u16, '?' as u16, '\\' as u16];
     const VERBATIM_UNC_PREFIX: [u16; 8] = [
         '\\' as u16,
         '\\' as u16,
@@ -1793,46 +1793,33 @@ fn copy_windows_realpath_c_string_bytes(units: &[u16]) -> Box<[u8]> {
         '\\' as u16,
     ];
 
+    // GetFinalPathNameByHandleW with VOLUME_NAME_DOS returns a `\\?\` path.
+    // Match async's user-facing realpath result by normalizing `\\?\C:\...`
+    // to `C:\...` and `\\?\UNC\server\...` to `\\server\...`. Checking
+    // each complete prefix establishes the slice bounds before rewriting it.
+    // The returned string therefore uses conventional rather than verbatim
+    // Windows path syntax.
     if units.starts_with(&VERBATIM_UNC_PREFIX) {
-        let units = &units[6..];
-        let byte_len = std::mem::size_of_val(units);
-        let mut buffer = Box::<[u8]>::new_uninit_slice(byte_len + std::mem::size_of::<u16>());
-        let first_unit = ('\\' as u16).to_ne_bytes();
-        buffer[0].write(first_unit[0]);
-        buffer[1].write(first_unit[1]);
-        if units.len() > 1 {
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    units[1..].as_ptr().cast::<u8>(),
-                    buffer.as_mut_ptr().add(std::mem::size_of::<u16>()).cast(),
-                    byte_len - std::mem::size_of::<u16>(),
-                );
-            }
-        }
-        buffer[byte_len].write(0);
-        buffer[byte_len + 1].write(0);
-        unsafe { buffer.assume_init() }
-    } else if units.len() >= VERBATIM_PREFIX_LEN {
-        copy_wide_c_string_bytes(&units[VERBATIM_PREFIX_LEN..])
+        let mut normalized = units[6..].to_vec();
+        normalized[0] = '\\' as u16;
+        copy_wide_c_string_bytes(&normalized)
+    } else if units.starts_with(&VERBATIM_PREFIX) {
+        copy_wide_c_string_bytes(&units[VERBATIM_PREFIX.len()..])
     } else {
+        // Preserve an unexpected API result rather than dropping arbitrary
+        // leading code units.
         copy_wide_c_string_bytes(units)
     }
 }
 
 #[cfg(windows)]
 fn copy_wide_c_string_bytes(units: &[u16]) -> Box<[u8]> {
-    let byte_len = std::mem::size_of_val(units);
-    let mut buffer = Box::<[u8]>::new_uninit_slice(byte_len + std::mem::size_of::<u16>());
-    unsafe {
-        std::ptr::copy_nonoverlapping(
-            units.as_ptr().cast::<u8>(),
-            buffer.as_mut_ptr().cast(),
-            byte_len,
-        );
+    let mut buffer = Vec::with_capacity(std::mem::size_of_val(units) + std::mem::size_of::<u16>());
+    for unit in units {
+        buffer.extend_from_slice(&unit.to_ne_bytes());
     }
-    buffer[byte_len].write(0);
-    buffer[byte_len + 1].write(0);
-    unsafe { buffer.assume_init() }
+    buffer.extend_from_slice(&0u16.to_ne_bytes());
+    buffer.into_boxed_slice()
 }
 
 fn last_native_error() -> AsyncHostError {
@@ -1855,6 +1842,27 @@ fn native_io_error(error: std::io::Error) -> AsyncHostError {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn realpath_normalizes_only_windows_verbatim_prefixes() {
+        let normalize = |path: &str| {
+            let units = path.encode_utf16().collect::<Vec<_>>();
+            let bytes = copy_windows_realpath_c_string_bytes(&units);
+            let units = bytes
+                .chunks_exact(std::mem::size_of::<u16>())
+                .map(|bytes| u16::from_ne_bytes([bytes[0], bytes[1]]))
+                .collect::<Vec<_>>();
+            assert_eq!(units.last(), Some(&0));
+            String::from_utf16(&units[..units.len() - 1]).unwrap()
+        };
+
+        assert_eq!(normalize(r"\\?\C:\dir\file"), r"C:\dir\file");
+        assert_eq!(
+            normalize(r"\\?\UNC\server\share\file"),
+            r"\\server\share\file"
+        );
+        assert_eq!(normalize(r"C:\already-normal"), r"C:\already-normal");
+    }
 
     #[test]
     fn junction_reparse_buffer_encodes_substitute_and_print_names() {
