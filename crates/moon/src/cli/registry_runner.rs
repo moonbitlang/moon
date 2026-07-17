@@ -212,6 +212,7 @@ fn parse_executable_package_coordinate(
 
 fn validate_components(input: &str, path: &str, label: &str) -> anyhow::Result<()> {
     if path.is_empty()
+        || path.contains('\\')
         || path.split('/').any(|component| {
             component.is_empty() || component == "." || component == ".." || component.contains(':')
         })
@@ -473,6 +474,7 @@ mod tests {
         assert!(parse_executable_package_coordinate("moonbitlang/parser//cmd").is_err());
         assert!(parse_executable_package_coordinate("./moonbitlang/parser").is_err());
         assert!(parse_executable_package_coordinate("C:/moonbitlang/parser").is_err());
+        assert!(parse_executable_package_coordinate("user/module/a\\..\\..\\evil@1.2.3").is_err());
         assert!(parse_executable_package_coordinate("https://mooncakes.io/x").is_err());
     }
 
