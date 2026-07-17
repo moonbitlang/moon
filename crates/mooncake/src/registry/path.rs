@@ -54,6 +54,8 @@ pub struct FrontMatterImportPath {
 
 fn parse_path_components(path: &str) -> anyhow::Result<Vec<&str>> {
     let components = path.split('/').collect::<Vec<_>>();
+    // FIXME: Replace this defensive denylist with validation against the
+    // registry's allowed component grammar once that grammar is defined.
     if components.iter().any(|component| {
         component.is_empty()
             || *component == "."
