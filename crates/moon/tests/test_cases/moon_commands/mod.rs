@@ -181,7 +181,7 @@ native
 }
 
 #[test]
-fn test_moonx_builds_and_reuses_a_cached_native_registry_executable() {
+fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
     use sha2::{Digest, Sha256};
     use std::io::Write;
 

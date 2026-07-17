@@ -710,9 +710,9 @@ pub(super) fn build_registry_native_executable_to(
     )?;
 
     let source = tempfile::TempDir::new().context("Failed to create temporary directory")?;
-    // `OnlineRegistry` prints acquisition progress to stdout unless quiet. A
-    // runner must leave stdout exclusively to the program it eventually execs.
-    OnlineRegistry::mooncakes_io().install_to(module_name, version, source.path(), true)?;
+    // Moonx needs the sources for its temporary build, but must not run package
+    // installation hooks or let acquisition progress precede program stdout.
+    OnlineRegistry::mooncakes_io().extract_to(module_name, version, source.path(), true)?;
 
     let cli = UniversalFlags {
         source_tgt_dir: SourceTargetDirs {

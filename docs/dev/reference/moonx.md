@@ -79,6 +79,10 @@ selection, and release build behavior of `moon install`, but publishes the
 finished executable into the registry cache instead of the user's binary
 directory.
 
+Source acquisition for `moonx` does not execute the downloaded module's
+`scripts.postadd` hook. Normal registry installation retains its existing
+postadd behavior.
+
 The Cached Executable Artifact is keyed by the resolved module version, package
 path, and Target Backend. A cache hit executes it directly; Moon toolchain
 upgrades do not invalidate an existing cached executable. Source trees and
