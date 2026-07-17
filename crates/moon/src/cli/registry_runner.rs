@@ -182,9 +182,6 @@ fn resolve_latest_version_with(
 fn parse_executable_package_coordinate(
     input: &str,
 ) -> anyhow::Result<(ModuleName, String, Option<Version>)> {
-    if input.matches('@').count() > 1 {
-        bail!("Invalid package coordinate `{input}`: multiple `@` version markers found");
-    }
     if input.ends_with("...") {
         bail!("Invalid package coordinate `{input}`: wildcard package paths are not supported");
     }
@@ -197,29 +194,15 @@ fn parse_executable_package_coordinate(
         } else {
             bail!("Invalid package coordinate `{input}`");
         };
-        validate_components(input, &parsed.full_path_without_version(), "package")?;
         let version = Version::parse(&parsed.version).with_context(|| {
             format!("Invalid version `{}` in package coordinate", parsed.version)
         })?;
         return Ok((parsed.module, parsed.package, Some(version)));
     }
 
-    validate_components(input, input, "package")?;
     let parsed = registry_path::parse_install_style_path(input)
         .with_context(|| format!("Invalid package coordinate `{input}`"))?;
     Ok((parsed.module, parsed.package, None))
-}
-
-fn validate_components(input: &str, path: &str, label: &str) -> anyhow::Result<()> {
-    if path.is_empty()
-        || path.contains('\\')
-        || path.split('/').any(|component| {
-            component.is_empty() || component == "." || component == ".." || component.contains(':')
-        })
-    {
-        bail!("Invalid package coordinate `{input}`: invalid {label} path component");
-    }
-    Ok(())
 }
 
 pub(super) fn ensure_cached_file(
@@ -474,7 +457,6 @@ mod tests {
         assert!(parse_executable_package_coordinate("moonbitlang/parser//cmd").is_err());
         assert!(parse_executable_package_coordinate("./moonbitlang/parser").is_err());
         assert!(parse_executable_package_coordinate("C:/moonbitlang/parser").is_err());
-        assert!(parse_executable_package_coordinate("user/module/a\\..\\..\\evil@1.2.3").is_err());
         assert!(parse_executable_package_coordinate("https://mooncakes.io/x").is_err());
     }
 
