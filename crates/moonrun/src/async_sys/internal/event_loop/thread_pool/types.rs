@@ -397,6 +397,14 @@ impl Job {
 }
 
 #[derive(Debug)]
+pub(crate) enum RealpathJobResult {
+    // The completed job owns the native path until the guest requests it.
+    Unpublished(Box<[u8]>),
+    // The host c_buffer table owns the path and the job finalizer releases it.
+    Published(HostHandle),
+}
+
+#[derive(Debug)]
 pub(crate) enum JobPayload {
     Failed {
         errno: i32,
@@ -491,6 +499,10 @@ pub(crate) enum JobPayload {
     GetAddrInfo {
         host: OsString,
         result: Option<Vec<Box<[u8]>>>,
+    },
+    Realpath {
+        path: OsString,
+        result: Option<RealpathJobResult>,
     },
     #[cfg(unix)]
     SpawnUnix {

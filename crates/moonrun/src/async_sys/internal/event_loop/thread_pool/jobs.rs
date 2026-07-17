@@ -26,8 +26,8 @@ use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::ported_fns;
 
 use super::types::{
-    HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, ResourceRef, SpawnOptions,
-    platform,
+    HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult, RealpathJobResult, ResourceRef,
+    SpawnOptions, platform,
 };
 
 pub(crate) fn make_failed_job(errno: i32) -> Job {
@@ -359,6 +359,39 @@ ported_fns! {
 
     #[ported(
         source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_make_realpath_job"
+    )]
+    pub(crate) fn make_realpath_job(path: OsString) -> Job {
+        Job::new(JobPayload::Realpath { path, result: None })
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
+        original = "moonbitlang_async_get_realpath_result"
+    )]
+    pub(crate) fn publish_realpath_result(
+        job: &mut Job,
+        publish: impl FnOnce(Box<[u8]>) -> HostHandle,
+    ) -> AsyncHostResult<HostHandle> {
+        match job.payload_mut() {
+            JobPayload::Realpath {
+                result: Some(RealpathJobResult::Published(handle)),
+                ..
+            } => Ok(*handle),
+            JobPayload::Realpath { result, .. } => {
+                let Some(RealpathJobResult::Unpublished(buffer)) = result.take() else {
+                    return Err(AsyncHostError::Inval);
+                };
+                let handle = publish(buffer);
+                *result = Some(RealpathJobResult::Published(handle));
+                Ok(handle)
+            }
+            _ => Err(AsyncHostError::Badf),
+        }
+    }
+
+    #[ported(
+        source = "src/internal/event_loop/thread_pool.c",
         original = "moonbitlang_async_make_spawn_job"
     )]
     #[allow(clippy::too_many_arguments)]
@@ -614,6 +647,71 @@ mod tests {
             }
             other => panic!("unexpected payload: {other:?}"),
         }
+    }
+
+    #[test]
+    fn realpath_job_carries_owned_path() {
+        let job = make_realpath_job(OsString::from("/tmp/example"));
+
+        match job.payload() {
+            JobPayload::Realpath { path, result: None } => {
+                assert_eq!(path, &OsString::from("/tmp/example"));
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn realpath_job_resolves_to_nul_terminated_c_buffer() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("target");
+        let link = tmp.path().join("link");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let mut job = make_realpath_job(link.into_os_string());
+
+        run_host_job(&mut job);
+
+        assert_eq!(job_get_ret(&job), 0);
+        assert_eq!(job_get_err(&job), 0);
+        let JobPayload::Realpath {
+            result: Some(RealpathJobResult::Unpublished(buffer)),
+            ..
+        } = job.payload()
+        else {
+            panic!("expected completed realpath job");
+        };
+        let realpath = std::ffi::CStr::from_bytes_with_nul(buffer.as_ref()).unwrap();
+        let expected = std::fs::canonicalize(target).unwrap();
+        assert_eq!(realpath.to_bytes(), expected.as_os_str().as_bytes());
+    }
+
+    #[test]
+    fn realpath_result_is_published_once() {
+        let mut job = make_realpath_job(OsString::from("unused"));
+        let JobPayload::Realpath { result, .. } = job.payload_mut() else {
+            unreachable!();
+        };
+        *result = Some(RealpathJobResult::Unpublished(
+            b"resolved\0".to_vec().into_boxed_slice(),
+        ));
+
+        let handle = publish_realpath_result(&mut job, |buffer| {
+            assert_eq!(&*buffer, b"resolved\0");
+            42
+        })
+        .unwrap();
+        let same_handle = publish_realpath_result(&mut job, |_| {
+            panic!("a published realpath result must not be published again")
+        })
+        .unwrap();
+
+        assert_eq!(handle, 42);
+        assert_eq!(same_handle, handle);
     }
 
     #[test]
