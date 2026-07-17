@@ -20,6 +20,27 @@
 fn get_platform() -> Int = "moonbitlang/async" "runtime/get_platform"
 
 ///|
+fn get_pid() -> Int = "moonbitlang/async" "env_util/getpid"
+
+///|
+fn get_errno() -> Int = "moonbitlang/async" "os_error/get_errno"
+
+///|
+fn invalid_fd() -> UInt64 = "moonbitlang/async" "fd_util/invalid_fd"
+
+///|
+fn open_pid_handle(pid : Int) -> UInt64 = "moonbitlang/async" "process/open_pid_handle"
+
+///|
+#unsafe_skip_stub_check
+#borrow(out)
+fn get_process_result(
+  handle : UInt64,
+  pid : Int,
+  out : Ref[Int],
+) -> Int = "moonbitlang/async" "process/get_process_result"
+
+///|
 fn ms_since_epoch() -> UInt64 = "moonbitlang/async" "time/get_ms_since_epoch"
 
 ///|
@@ -126,6 +147,22 @@ fn assert_true(cond : Bool, message : String) -> Unit {
 fn main {
   let platform = get_platform()
   assert_true(platform >= 0 && platform <= 2, "invalid platform")
+  if platform == 1 {
+    let out = Ref(0)
+    assert_true(
+      get_process_result(invalid_fd(), get_pid(), out) == -1,
+      "waiting on the current process unexpectedly succeeded",
+    )
+    assert_true(get_errno() != 0, "failed process wait did not set errno")
+    assert_true(
+      open_pid_handle(get_pid()) == invalid_fd(),
+      "macOS PID handle fallback returned a valid handle",
+    )
+    assert_true(
+      get_errno() == 0,
+      "macOS PID handle fallback did not clear stale errno",
+    )
+  }
   let before = ms_since_epoch()
   assert_true(before > 1_600_000_000_000, "time is not Unix epoch milliseconds")
   let after = ms_since_epoch()

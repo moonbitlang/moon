@@ -213,9 +213,13 @@ pub(super) fn open_pid_handle(
     context: &mut ImportContext<'_, '_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
-    context
+    let handle = context
         .host
-        .with_owned_child_pid(pid, || Ok(context.host.invalid_fd()))
+        .with_owned_child_pid(pid, || Ok(context.host.invalid_fd()))?;
+    // The invalid handle selects the kqueue fallback rather than reporting an
+    // error. Match the native C implementation by clearing any stale errno.
+    context.host.set_errno(0);
+    Ok(handle)
 }
 
 #[ported(
