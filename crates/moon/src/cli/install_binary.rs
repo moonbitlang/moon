@@ -29,7 +29,7 @@ use moonutil::{
     cli_support::UniversalFlags,
     constants::{MOON_MOD, MOON_MOD_JSON},
     locks::FileLock,
-    project::PackageDirs,
+    project::{PackageDirs, SourceTargetDirs, WorkspaceEnv},
     registry::RegistryConfig,
     resolution::{ModuleName, ModuleSourceKind},
     target::TargetBackend,
@@ -459,23 +459,32 @@ pub(super) fn install_from_git(
     )
 }
 
-/// Build matching packages and install binaries using RR build engine.
-fn build_and_install_packages(
+struct SelectedPackage {
+    pkg_id: PackageId,
+    full_pkg_name: String,
+    binary_name: String,
+}
+
+struct PreparedNativeBuild {
+    target_dir: PathBuf,
+    mooncake_bin_dir: PathBuf,
+    resolve_output: moonbuild_rupes_recta::resolve::ResolveOutput,
+    selected_packages: Vec<SelectedPackage>,
+}
+
+fn prepare_native_build(
     cli: &UniversalFlags,
     module_name: &ModuleName,
     module_dir: &Path,
     package_dirs: PackageDirs,
-    install_dir: &Path,
     filter: PackageFilter,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<PreparedNativeBuild> {
     let module_dir = dunce::canonicalize(module_dir).with_context(|| {
         format!(
             "Failed to resolve module directory `{}`",
             module_dir.display()
         )
     })?;
-    let quiet = cli.quiet;
-    let output = UserDiagnostics::from_flags(cli);
     let source_dir = package_dirs.source_dir;
     let target_dir = package_dirs.target_dir;
     let mooncakes_dir = package_dirs.mooncakes_dir;
@@ -516,12 +525,6 @@ fn build_and_install_packages(
         );
     };
 
-    struct SelectedPackage {
-        pkg_id: PackageId,
-        full_pkg_name: String,
-        binary_name: String,
-    }
-
     let mut selected_packages: Vec<SelectedPackage> = Vec::new();
 
     for (pkg_path, &pkg_id) in all_pkgs {
@@ -558,9 +561,220 @@ fn build_and_install_packages(
         return Err(filter.no_match_error(module_name, &module_dir));
     }
 
+    Ok(PreparedNativeBuild {
+        target_dir,
+        mooncake_bin_dir,
+        resolve_output,
+        selected_packages,
+    })
+}
+
+fn build_selected_package(
+    cli: &UniversalFlags,
+    prepared: &PreparedNativeBuild,
+    pkg: &SelectedPackage,
+) -> anyhow::Result<Option<PathBuf>> {
+    let quiet = cli.quiet;
+    let output = UserDiagnostics::from_flags(cli);
+    std::fs::create_dir_all(&prepared.target_dir).context("Failed to create build directory")?;
+
+    output.info(format!("Building `{}`...", pkg.full_pkg_name));
+
+    let build_flags = BuildFlags {
+        release: true,
+        warn_list: Some("-a".to_string()),
+        ..BuildFlags::default()
+    };
+    let preconfig = preconfig_compile(
+        &moonutil::cli_support::AutoSyncFlags { frozen: false },
+        cli,
+        &build_flags,
+        Some(TargetBackend::Native),
+        &prepared.target_dir,
+        RunMode::Build,
+    );
+
+    let planning_context = rr_build::prepare_resolved_build(
+        &preconfig,
+        &cli.unstable_feature,
+        &prepared.target_dir,
+        output,
+        &prepared.resolve_output,
+    )?;
+    let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
+    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+        preconfig,
+        &cli.unstable_feature,
+        output,
+        planning_context,
+        intent,
+        &prepared.mooncake_bin_dir,
+        prepared.resolve_output.clone(),
+    )?;
+
+    let _lock = FileLock::lock(&prepared.target_dir)?;
+    rr_build::generate_all_pkgs_json(&build_meta)?;
+
+    let result = rr_build::execute_build(
+        &BuildConfig::from_flags(
+            &build_flags,
+            &cli.unstable_feature,
+            cli.verbose,
+            UserDiagnostics::from_flags(cli),
+        ),
+        build_graph,
+        &prepared.target_dir,
+    )?;
+    if !result.successful() {
+        result.print_info(quiet, "building").ok();
+        output.error(format!("Failed to build `{}`", pkg.full_pkg_name));
+        return Ok(None);
+    }
+    result.print_info(quiet, "building").ok();
+
+    let target = BuildTarget {
+        package: pkg.pkg_id,
+        kind: TargetKind::Source,
+    };
+    Ok(Some(
+        build_meta.artifacts[&BuildPlanNode::MakeExecutable(target)].artifacts[0].clone(),
+    ))
+}
+
+fn build_native_executable_to(
+    cli: &UniversalFlags,
+    module_name: &ModuleName,
+    module_dir: &Path,
+    package_dirs: PackageDirs,
+    package_path: &str,
+    destination: &Path,
+) -> anyhow::Result<()> {
+    let prepared = prepare_native_build(
+        cli,
+        module_name,
+        module_dir,
+        package_dirs,
+        PackageFilter::package_path(package_path.to_string(), false),
+    )?;
+    let pkg = prepared
+        .selected_packages
+        .first()
+        .context("exact package selection returned no package")?;
+    let binary_src = build_selected_package(cli, &prepared, pkg)?
+        .ok_or_else(|| anyhow::anyhow!("Failed to build `{}`", pkg.full_pkg_name))?;
+    std::fs::copy(&binary_src, destination).with_context(|| {
+        format!(
+            "Failed to copy binary from `{}` to `{}`",
+            binary_src.display(),
+            destination.display()
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(destination)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(destination, perms)?;
+    }
+
+    Ok(())
+}
+
+pub(super) fn build_registry_native_executable_to(
+    module_name: &ModuleName,
+    version: &Version,
+    package_path: &str,
+    destination: &Path,
+    quiet: bool,
+    verbose: bool,
+) -> anyhow::Result<()> {
+    let output = UserDiagnostics::new(verbose, quiet);
+    ensure_registry_version_available(
+        module_name,
+        version,
+        output,
+        || {
+            OnlineRegistry::mooncakes_io()
+                .all_versions_of(module_name)
+                .is_ok_and(|versions| versions.contains_key(version))
+        },
+        || {
+            mooncake::update::update_with_output(
+                &moonutil::registry::index(),
+                &RegistryConfig::load(),
+                mooncake::update::UpdateOutput::Quiet,
+            )
+            .map(|_| ())
+        },
+    )?;
+
+    let source = tempfile::TempDir::new().context("Failed to create temporary directory")?;
+    // Moonx needs the sources for its temporary build, but must not run package
+    // installation hooks or let acquisition progress precede program stdout.
+    OnlineRegistry::mooncakes_io().extract_to(module_name, version, source.path(), true)?;
+
+    let cli = UniversalFlags {
+        source_tgt_dir: SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        },
+        workspace_env: WorkspaceEnv::default(),
+        quiet,
+        verbose,
+        trace: false,
+        dry_run: false,
+        build_graph: false,
+        unstable_feature: ""
+            .parse()
+            .expect("empty unstable feature set must be valid"),
+    };
+    let package_dirs = cli.source_tgt_dir.source_root_package_dirs(source.path())?;
+    build_native_executable_to(
+        &cli,
+        module_name,
+        source.path(),
+        package_dirs,
+        package_path,
+        destination,
+    )
+}
+
+fn ensure_registry_version_available(
+    module_name: &ModuleName,
+    version: &Version,
+    output: UserDiagnostics,
+    mut version_is_available: impl FnMut() -> bool,
+    mut update_registry: impl FnMut() -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    if version_is_available() {
+        return Ok(());
+    }
+
+    update_registry().context("Failed to update registry index")?;
+    output.info("Updated registry index");
+    if !version_is_available() {
+        bail!("Module `{module_name}` version `{version}` not found in registry");
+    }
+    Ok(())
+}
+
+/// Build matching packages and install binaries using RR build engine.
+fn build_and_install_packages(
+    cli: &UniversalFlags,
+    module_name: &ModuleName,
+    module_dir: &Path,
+    package_dirs: PackageDirs,
+    install_dir: &Path,
+    filter: PackageFilter,
+) -> anyhow::Result<i32> {
+    let quiet = cli.quiet;
+    let output = UserDiagnostics::from_flags(cli);
+    let prepared = prepare_native_build(cli, module_name, module_dir, package_dirs, filter)?;
+
     if cli.dry_run {
         let mut dry_run_count = 0;
-        for pkg in &selected_packages {
+        for pkg in &prepared.selected_packages {
             if moonutil::toolchain::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
                 output.error(format!(
                     "Cannot install `{}` - name conflicts with MoonBit toolchain binary",
@@ -596,10 +810,9 @@ fn build_and_install_packages(
         )
     })?;
 
-    std::fs::create_dir_all(&target_dir).context("Failed to create build directory")?;
     let mut installed_count = 0;
 
-    for pkg in selected_packages {
+    for pkg in &prepared.selected_packages {
         // Check if binary name would overwrite a reserved toolchain binary
         if moonutil::toolchain::RESERVED_BIN_NAMES.contains(&pkg.binary_name.as_str()) {
             output.error(format!(
@@ -609,67 +822,9 @@ fn build_and_install_packages(
             continue;
         }
 
-        output.info(format!("Building `{}`...", pkg.full_pkg_name));
-
-        let build_flags = BuildFlags {
-            release: true,
-            warn_list: Some("-a".to_string()),
-            ..BuildFlags::default()
-        };
-        let preconfig = preconfig_compile(
-            &moonutil::cli_support::AutoSyncFlags { frozen: false },
-            cli,
-            &build_flags,
-            Some(TargetBackend::Native),
-            &target_dir,
-            RunMode::Build,
-        );
-
-        let output = UserDiagnostics::from_flags(cli);
-        let planning_context = rr_build::prepare_resolved_build(
-            &preconfig,
-            &cli.unstable_feature,
-            &target_dir,
-            output,
-            &resolve_output,
-        )?;
-        let intent = vec![UserIntent::Build(pkg.pkg_id)].into();
-        let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
-            preconfig,
-            &cli.unstable_feature,
-            output,
-            planning_context,
-            intent,
-            &mooncake_bin_dir,
-            resolve_output.clone(),
-        )?;
-
-        let _lock = FileLock::lock(&target_dir)?;
-        rr_build::generate_all_pkgs_json(&build_meta)?;
-
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(
-                &build_flags,
-                &cli.unstable_feature,
-                cli.verbose,
-                UserDiagnostics::from_flags(cli),
-            ),
-            build_graph,
-            &target_dir,
-        )?;
-        if !result.successful() {
-            result.print_info(quiet, "building").ok();
-            output.error(format!("Failed to build `{}`", pkg.full_pkg_name));
+        let Some(binary_src) = build_selected_package(cli, &prepared, pkg)? else {
             continue;
-        }
-        result.print_info(quiet, "building").ok();
-
-        let target = BuildTarget {
-            package: pkg.pkg_id,
-            kind: TargetKind::Source,
         };
-        let binary_src =
-            build_meta.artifacts[&BuildPlanNode::MakeExecutable(target)].artifacts[0].clone();
         let dst_name = if cfg!(windows) {
             format!("{}.exe", pkg.binary_name)
         } else {
@@ -752,6 +907,8 @@ fn install_file_atomically(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
 
     fn test_path(parts: &[&str]) -> PathBuf {
@@ -760,6 +917,42 @@ mod tests {
             path.push(part);
         }
         path
+    }
+
+    #[test]
+    fn pinned_registry_version_uses_existing_index_entry() {
+        let updated = Cell::new(false);
+        ensure_registry_version_available(
+            &"testuser/runner".parse().unwrap(),
+            &"1.2.3".parse().unwrap(),
+            UserDiagnostics::default(),
+            || true,
+            || {
+                updated.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert!(!updated.get());
+    }
+
+    #[test]
+    fn pinned_registry_version_updates_missing_index_entry() {
+        let updated = Cell::new(false);
+        ensure_registry_version_available(
+            &"testuser/runner".parse().unwrap(),
+            &"1.2.3".parse().unwrap(),
+            UserDiagnostics::default(),
+            || updated.get(),
+            || {
+                updated.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert!(updated.get());
     }
 
     #[test]

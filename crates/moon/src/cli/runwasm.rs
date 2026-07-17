@@ -16,25 +16,19 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use moonbuild_rupes_recta::model::RunBackend;
-use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
     cli_support::AutoSyncFlags, cli_support::UniversalFlags, constants::is_moon_pkg_exist,
-    locks::FileLock, registry::RegistryConfig, resolution::ModuleName, target::SurfaceTarget,
+    registry::RegistryConfig, target::SurfaceTarget,
 };
 use reqwest::{StatusCode, header::USER_AGENT};
-use semver::Version;
 use sha2::{Digest, Sha256};
 use tracing::instrument;
 
-use super::{BuildFlags, RunSubcommand};
-use crate::{rr_build, run::default_rt, user_diagnostics::UserDiagnostics};
+use super::{BuildFlags, RunSubcommand, registry_runner::ResolvedExecutablePackage};
+use crate::user_diagnostics::UserDiagnostics;
 
 /// Run a local package as WebAssembly or a prebuilt WebAssembly binary
 #[derive(Debug, clap::Parser)]
@@ -76,75 +70,10 @@ pub(crate) struct RunWasmSubcommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RunWasmCoordinate {
-    module_name: ModuleName,
-    package_path: String,
-    version: Option<Version>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 struct ResolvedRunWasmAsset {
     url: String,
     checksum_url: String,
     cache_path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum LatestVersionLookup {
-    Found(Version),
-    NoVersionInformation,
-    NotFound,
-}
-
-impl RunWasmCoordinate {
-    fn binary_name(&self) -> String {
-        if self.package_path.is_empty() {
-            self.module_name.last_segment().to_string()
-        } else {
-            self.package_path
-                .rsplit('/')
-                .next()
-                .expect("non-empty package path must have a last segment")
-                .to_string()
-        }
-    }
-
-    fn with_version(self, version: Version, registry: &str) -> ResolvedRunWasmAsset {
-        let binary_name = self.binary_name();
-        let base = registry.trim_end_matches('/');
-        let module = self.module_name.to_string();
-        let url = if self.package_path.is_empty() {
-            format!("{base}/assets/{module}@{version}/{binary_name}.wasm")
-        } else {
-            format!(
-                "{base}/assets/{module}@{version}/{}/{}.wasm",
-                self.package_path, binary_name
-            )
-        };
-
-        let mut cache_path = moonutil::registry::cache()
-            .join("assets")
-            .join(self.module_name.username.as_str());
-        for segment in self.module_name.unqual.split('/') {
-            cache_path.push(segment);
-        }
-        cache_path.push(version.to_string());
-        for segment in self
-            .package_path
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-        {
-            cache_path.push(segment);
-        }
-        cache_path.push(format!("{binary_name}.wasm"));
-
-        let checksum_url = format!("{url}.sha256");
-        ResolvedRunWasmAsset {
-            url,
-            checksum_url,
-            cache_path,
-        }
-    }
 }
 
 #[instrument(skip_all)]
@@ -156,43 +85,44 @@ pub(crate) fn run_runwasm(cli: &UniversalFlags, cmd: RunWasmSubcommand) -> anyho
     if cli.dry_run {
         bail!("--dry-run is not supported for Mooncakes assets in `moon runwasm`");
     }
-    let output = UserDiagnostics::from_flags(cli);
-    let coordinate = parse_runwasm_coordinate(&cmd.package)?;
+    super::registry_runner::run(
+        cmd.package,
+        super::registry_runner::RegistryRunTarget::Wasm {
+            experimental_policy: cmd.experimental_policy,
+        },
+        cmd.args,
+        cli.quiet,
+        cli.verbose,
+    )
+}
+
+pub(super) fn cached_wasm_path(
+    package: &ResolvedExecutablePackage,
+    output: UserDiagnostics,
+) -> anyhow::Result<PathBuf> {
     let registry_config = RegistryConfig::load();
-    let version = match coordinate.version.clone() {
-        Some(version) => version,
-        None => resolve_latest_version(&coordinate.module_name, output)?,
-    };
-    let asset = coordinate.with_version(version, &registry_config.registry);
-    let wasm_path = ensure_cached_wasm(&asset, output)?;
+    let asset = resolve_wasm_asset(package, &registry_config.registry);
+    ensure_cached_wasm(&asset, output)
+}
 
-    let mut run_cmd = crate::run::command_for_with_moonrun_policy(
-        RunBackend::WasmGC,
-        None,
-        &wasm_path,
-        None,
-        cmd.experimental_policy.as_deref(),
-    );
-    run_cmd.args(&cmd.args);
-
-    if cli.verbose {
-        let print_dir = std::env::current_dir().context("failed to get current directory")?;
-        rr_build::dry_print_command(run_cmd.as_std(), &print_dir, true);
-    }
-
-    let res = default_rt()
-        .context("Failed to create runtime")?
-        .block_on(crate::run::run(&mut [], false, run_cmd))
-        .context("failed to run command")?;
-
-    if crate::run::shutdown_requested() {
-        return Ok(130);
-    }
-
-    if let Some(code) = res.code() {
-        Ok(code)
+fn resolve_wasm_asset(package: &ResolvedExecutablePackage, registry: &str) -> ResolvedRunWasmAsset {
+    let artifact_name = package.artifact_name(".wasm");
+    let base = registry.trim_end_matches('/');
+    let module = package.module_name.to_string();
+    let url = if package.package_path.is_empty() {
+        format!("{base}/assets/{module}@{}/{artifact_name}", package.version)
     } else {
-        bail!("Command exited without a return code")
+        format!(
+            "{base}/assets/{module}@{}/{}/{}",
+            package.version, package.package_path, artifact_name
+        )
+    };
+
+    let checksum_url = format!("{url}.sha256");
+    ResolvedRunWasmAsset {
+        url,
+        checksum_url,
+        cache_path: package.cache_path(".wasm"),
     }
 }
 
@@ -226,88 +156,6 @@ fn runwasm_as_run_subcommand(cmd: RunWasmSubcommand) -> RunSubcommand {
     }
 }
 
-fn resolve_latest_version(
-    module_name: &ModuleName,
-    output: UserDiagnostics,
-) -> anyhow::Result<Version> {
-    let index_dir = moonutil::registry::index();
-    let registry_config = RegistryConfig::load();
-    let had_index = index_dir.exists();
-
-    resolve_latest_version_with(
-        module_name,
-        output,
-        had_index,
-        || latest_version_from_local_registry(module_name),
-        || {
-            mooncake::update::update_with_output(
-                &index_dir,
-                &registry_config,
-                mooncake::update::UpdateOutput::Quiet,
-            )
-            .map(|_| ())
-        },
-    )
-}
-
-fn latest_version_from_local_registry(module_name: &ModuleName) -> LatestVersionLookup {
-    let registry = OnlineRegistry::mooncakes_io();
-    let versions = match registry.all_versions_of(module_name) {
-        Ok(versions) => versions,
-        Err(_) => return LatestVersionLookup::NotFound,
-    };
-    versions
-        .last_key_value()
-        .map(|(version, _)| LatestVersionLookup::Found(version.clone()))
-        .unwrap_or(LatestVersionLookup::NoVersionInformation)
-}
-
-fn resolve_latest_version_with(
-    module_name: &ModuleName,
-    output: UserDiagnostics,
-    had_index: bool,
-    mut lookup_latest_version: impl FnMut() -> LatestVersionLookup,
-    mut update_registry: impl FnMut() -> anyhow::Result<()>,
-) -> anyhow::Result<Version> {
-    if let LatestVersionLookup::Found(version) = lookup_latest_version() {
-        output.info(format!(
-            "Resolved {module_name} latest version to {version}"
-        ));
-        return Ok(version);
-    }
-
-    match update_registry() {
-        Ok(_) => output.info("Updated registry index"),
-        Err(e) => {
-            if had_index {
-                output.warn(format!(
-                    "Failed to update registry index, using cached index: {}",
-                    e
-                ));
-            } else {
-                return Err(e).context("Failed to update registry index");
-            }
-        }
-    }
-
-    let version = match lookup_latest_version() {
-        LatestVersionLookup::Found(version) => version,
-        LatestVersionLookup::NoVersionInformation => {
-            bail!("Module `{module_name}` has no version information")
-        }
-        LatestVersionLookup::NotFound if had_index => {
-            bail!("Module `{module_name}` not found in registry")
-        }
-        LatestVersionLookup::NotFound => {
-            bail!("Module `{module_name}` not found in registry after updating the index")
-        }
-    };
-    output.info(format!(
-        "Resolved {module_name} latest version to {version}"
-    ));
-    Ok(version)
-}
-
 fn ensure_cached_wasm(
     asset: &ResolvedRunWasmAsset,
     output: UserDiagnostics,
@@ -320,55 +168,25 @@ fn ensure_cached_wasm_with(
     output: UserDiagnostics,
     mut download: impl FnMut(&str) -> anyhow::Result<Vec<u8>>,
 ) -> anyhow::Result<PathBuf> {
-    if asset.cache_path.exists() {
-        output.info(format!(
-            "Using cached {}",
-            asset.cache_path.to_string_lossy()
-        ));
-        return Ok(asset.cache_path.clone());
-    }
-
-    let parent = asset
-        .cache_path
-        .parent()
-        .context("runwasm cache path has no parent")?;
-    std::fs::create_dir_all(parent).with_context(|| {
-        format!(
-            "failed to create runwasm cache directory {}",
-            parent.display()
-        )
-    })?;
-    // The lock covers the whole check/download/publish sequence. Waiters re-check
-    // after acquiring it; an existing final wasm means another process finished.
-    let _lock = FileLock::lock(parent)
-        .with_context(|| format!("failed to lock cache directory {}", parent.display()))?;
-
-    if asset.cache_path.exists() {
-        output.info(format!(
-            "Using cached {}",
-            asset.cache_path.to_string_lossy()
-        ));
-        return Ok(asset.cache_path.clone());
-    }
-
-    let checksum_bytes = download(&asset.checksum_url)?;
-    let expected_checksum = parse_sha256_checksum(&checksum_bytes)
-        .with_context(|| format!("invalid SHA-256 checksum from {}", asset.checksum_url))?;
-    output.info(format!("Downloading {}", asset.url));
-    let bytes = download(&asset.url)?;
-    let actual_checksum = sha256_hex(&bytes);
-    if actual_checksum != expected_checksum {
-        bail!(
-            "prebuilt wasm checksum mismatch for {}: expected {}, got {}",
-            asset.url,
-            expected_checksum,
-            actual_checksum
-        );
-    }
-
-    write_atomic(&asset.cache_path, &bytes)?;
-
-    Ok(asset.cache_path.clone())
+    super::registry_runner::ensure_cached_file(&asset.cache_path, output, |staged| {
+        let checksum_bytes = download(&asset.checksum_url)?;
+        let expected_checksum = parse_sha256_checksum(&checksum_bytes)
+            .with_context(|| format!("invalid SHA-256 checksum from {}", asset.checksum_url))?;
+        output.info(format!("Downloading {}", asset.url));
+        let bytes = download(&asset.url)?;
+        let actual_checksum = sha256_hex(&bytes);
+        if actual_checksum != expected_checksum {
+            bail!(
+                "prebuilt wasm checksum mismatch for {}: expected {}, got {}",
+                asset.url,
+                expected_checksum,
+                actual_checksum
+            );
+        }
+        std::fs::write(staged, bytes)
+            .with_context(|| format!("failed to write cache file {}", staged.display()))?;
+        Ok(())
+    })
 }
 
 fn parse_sha256_checksum(bytes: &[u8]) -> anyhow::Result<String> {
@@ -385,25 +203,6 @@ fn parse_sha256_checksum(bytes: &[u8]) -> anyhow::Result<String> {
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
-    let parent = path.parent().context("cache path has no parent")?;
-    let mut tmp = tempfile::NamedTempFile::new_in(parent)
-        .with_context(|| format!("failed to create download file in {}", parent.display()))?;
-    tmp.write_all(bytes)
-        .with_context(|| format!("failed to write download file {}", tmp.path().display()))?;
-    tmp.as_file()
-        .sync_all()
-        .with_context(|| format!("failed to sync download file {}", tmp.path().display()))?;
-    tmp.persist(path).with_context(|| {
-        let path = path.display();
-        format!("failed to move downloaded file to {path}")
-    })?;
-    if let Ok(dir) = std::fs::File::open(parent) {
-        let _ = dir.sync_all();
-    }
-    Ok(())
 }
 
 fn download_wasm(url: &str) -> anyhow::Result<Vec<u8>> {
@@ -424,60 +223,16 @@ fn download_wasm(url: &str) -> anyhow::Result<Vec<u8>> {
     Ok(data.to_vec())
 }
 
-fn parse_runwasm_coordinate(input: &str) -> anyhow::Result<RunWasmCoordinate> {
-    if input.matches('@').count() > 1 {
-        bail!("Invalid runwasm coordinate `{input}`: multiple `@` version markers found");
-    }
-    if input.ends_with("...") {
-        bail!("Invalid runwasm coordinate `{input}`: wildcard package paths are not supported");
-    }
-
-    if input.contains('@') {
-        let parsed = if let Ok(parsed) = registry_path::parse_module_at_version_path(input) {
-            parsed
-        } else if let Ok(parsed) = registry_path::parse_package_at_version_path(input) {
-            parsed
-        } else {
-            bail!("Invalid runwasm coordinate `{input}`");
-        };
-        validate_components(input, &parsed.full_path_without_version(), "package")?;
-        let version = Version::parse(&parsed.version).with_context(|| {
-            format!("Invalid version `{}` in runwasm coordinate", parsed.version)
-        })?;
-        return Ok(RunWasmCoordinate {
-            module_name: parsed.module,
-            package_path: parsed.package,
-            version: Some(version),
-        });
-    }
-
-    validate_components(input, input, "package")?;
-    let parsed = registry_path::parse_install_style_path(input)
-        .with_context(|| format!("Invalid runwasm coordinate `{input}`"))?;
-    Ok(RunWasmCoordinate {
-        module_name: parsed.module,
-        package_path: parsed.package,
-        version: None,
-    })
-}
-
-fn validate_components(input: &str, path: &str, label: &str) -> anyhow::Result<()> {
-    if path.is_empty()
-        || path.split('/').any(|component| {
-            component.is_empty() || component == "." || component == ".." || component.contains(':')
-        })
-    {
-        bail!("Invalid runwasm coordinate `{input}`: invalid {label} path component");
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn parse(input: &str) -> RunWasmCoordinate {
-        parse_runwasm_coordinate(input).unwrap()
+    fn resolved(package_path: &str) -> ResolvedExecutablePackage {
+        ResolvedExecutablePackage {
+            module_name: "moonbitlang/parser".parse().unwrap(),
+            package_path: package_path.to_string(),
+            version: "0.3.3".parse().unwrap(),
+        }
     }
 
     #[test]
@@ -511,131 +266,8 @@ mod tests {
     }
 
     #[test]
-    fn parse_install_style_version() {
-        let parsed = parse("moonbitlang/parser/cmd/moonfmt@0.3.3");
-        assert_eq!(parsed.module_name.to_string(), "moonbitlang/parser");
-        assert_eq!(parsed.package_path, "cmd/moonfmt");
-        assert_eq!(parsed.version.as_ref().unwrap().to_string(), "0.3.3");
-        assert_eq!(parsed.binary_name(), "moonfmt");
-    }
-
-    #[test]
-    fn parse_module_version_alias() {
-        let parsed = parse("moonbitlang/parser@0.3.3/cmd/moonfmt");
-        assert_eq!(parsed.module_name.to_string(), "moonbitlang/parser");
-        assert_eq!(parsed.package_path, "cmd/moonfmt");
-        assert_eq!(parsed.version.as_ref().unwrap().to_string(), "0.3.3");
-        assert_eq!(parsed.binary_name(), "moonfmt");
-    }
-
-    #[test]
-    fn parse_latest_coordinate() {
-        let parsed = parse("moonbitlang/parser/cmd/moonfmt");
-        assert_eq!(parsed.module_name.to_string(), "moonbitlang/parser");
-        assert_eq!(parsed.package_path, "cmd/moonfmt");
-        assert_eq!(parsed.version, None);
-    }
-
-    #[test]
-    fn latest_resolution_uses_local_registry_before_updating() {
-        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
-        let mut update_called = false;
-
-        let version = resolve_latest_version_with(
-            &module_name,
-            UserDiagnostics::default(),
-            true,
-            || LatestVersionLookup::Found("0.3.3".parse().unwrap()),
-            || {
-                update_called = true;
-                Ok(())
-            },
-        )
-        .unwrap();
-
-        assert_eq!(version.to_string(), "0.3.3");
-        assert!(!update_called);
-    }
-
-    #[test]
-    fn latest_resolution_updates_after_local_registry_miss() {
-        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
-        let mut lookup_count = 0;
-        let mut update_called = false;
-
-        let version = resolve_latest_version_with(
-            &module_name,
-            UserDiagnostics::default(),
-            true,
-            || {
-                lookup_count += 1;
-                if lookup_count > 1 {
-                    LatestVersionLookup::Found("0.3.3".parse().unwrap())
-                } else {
-                    LatestVersionLookup::NotFound
-                }
-            },
-            || {
-                update_called = true;
-                Ok(())
-            },
-        )
-        .unwrap();
-
-        assert_eq!(version.to_string(), "0.3.3");
-        assert_eq!(lookup_count, 2);
-        assert!(update_called);
-    }
-
-    #[test]
-    fn latest_resolution_preserves_no_version_information_after_update() {
-        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
-        let mut update_called = false;
-
-        let err = resolve_latest_version_with(
-            &module_name,
-            UserDiagnostics::default(),
-            true,
-            || LatestVersionLookup::NoVersionInformation,
-            || {
-                update_called = true;
-                Ok(())
-            },
-        )
-        .unwrap_err();
-
-        assert_eq!(
-            err.to_string(),
-            "Module `moonbitlang/parser` has no version information"
-        );
-        assert!(update_called);
-    }
-
-    #[test]
-    fn parse_root_package_uses_module_last_segment_as_binary_name() {
-        let parsed = parse("moonbitlang/parser@0.3.3");
-        assert_eq!(parsed.module_name.to_string(), "moonbitlang/parser");
-        assert_eq!(parsed.package_path, "");
-        assert_eq!(parsed.binary_name(), "parser");
-    }
-
-    #[test]
-    fn reject_invalid_coordinates() {
-        assert!(parse_runwasm_coordinate("moonbitlang/parser@bad/cmd/moonfmt").is_err());
-        assert!(parse_runwasm_coordinate("moonbitlang/parser/cmd/moonfmt@bad").is_err());
-        assert!(parse_runwasm_coordinate("moonbitlang/parser@0.3.3/cmd@0.4.0").is_err());
-        assert!(parse_runwasm_coordinate("moonbitlang/parser/0.3.3@0.4.0/cmd").is_err());
-        assert!(parse_runwasm_coordinate("moonbitlang/parser/...").is_err());
-        assert!(parse_runwasm_coordinate("moonbitlang/parser//cmd").is_err());
-        assert!(parse_runwasm_coordinate("./moonbitlang/parser").is_err());
-        assert!(parse_runwasm_coordinate("C:/moonbitlang/parser").is_err());
-        assert!(parse_runwasm_coordinate("https://mooncakes.io/x").is_err());
-    }
-
-    #[test]
     fn build_asset_url() {
-        let parsed = parse("moonbitlang/parser/cmd/moonfmt@0.3.3");
-        let resolved = parsed.with_version("0.3.3".parse().unwrap(), "https://mooncakes.io/");
+        let resolved = resolve_wasm_asset(&resolved("cmd/moonfmt"), "https://mooncakes.io/");
         assert_eq!(
             resolved.url,
             "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/cmd/moonfmt/moonfmt.wasm"
@@ -648,8 +280,7 @@ mod tests {
 
     #[test]
     fn build_root_asset_url() {
-        let parsed = parse("moonbitlang/parser@0.3.3");
-        let resolved = parsed.with_version("0.3.3".parse().unwrap(), "https://mooncakes.io");
+        let resolved = resolve_wasm_asset(&resolved(""), "https://mooncakes.io");
         assert_eq!(
             resolved.url,
             "https://mooncakes.io/assets/moonbitlang/parser@0.3.3/parser.wasm"
@@ -670,8 +301,7 @@ mod tests {
     #[test]
     fn cache_miss_downloads_checksum_and_writes_file() {
         let cache_dir = tempfile::TempDir::new().unwrap();
-        let parsed = parse("moonbitlang/parser/cmd/moonfmt@0.3.3");
-        let mut asset = parsed.with_version("0.3.3".parse().unwrap(), "https://mooncakes.io");
+        let mut asset = resolve_wasm_asset(&resolved("cmd/moonfmt"), "https://mooncakes.io");
         asset.cache_path = cache_dir.path().join("moonfmt.wasm");
         let wasm = b"\0asmtest".to_vec();
         let checksum = sha256_hex(&wasm);
@@ -699,8 +329,7 @@ mod tests {
     #[test]
     fn cache_hit_uses_existing_wasm_without_downloading() {
         let cache_dir = tempfile::TempDir::new().unwrap();
-        let parsed = parse("moonbitlang/parser/cmd/moonfmt@0.3.3");
-        let mut asset = parsed.with_version("0.3.3".parse().unwrap(), "https://mooncakes.io");
+        let mut asset = resolve_wasm_asset(&resolved("cmd/moonfmt"), "https://mooncakes.io");
         asset.cache_path = cache_dir.path().join("moonfmt.wasm");
         let wasm = b"\0asmtest";
         std::fs::write(&asset.cache_path, wasm).unwrap();
@@ -722,8 +351,7 @@ mod tests {
     #[test]
     fn checksum_mismatch_rejects_download() {
         let cache_dir = tempfile::TempDir::new().unwrap();
-        let parsed = parse("moonbitlang/parser/cmd/moonfmt@0.3.3");
-        let mut asset = parsed.with_version("0.3.3".parse().unwrap(), "https://mooncakes.io");
+        let mut asset = resolve_wasm_asset(&resolved("cmd/moonfmt"), "https://mooncakes.io");
         asset.cache_path = cache_dir.path().join("moonfmt.wasm");
         let expected_checksum = sha256_hex(b"expected wasm");
 

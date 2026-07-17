@@ -92,6 +92,7 @@ colored.workspace = true
 libc.workspace = true
 moonbuild-debug.workspace = true
 moon-test-util = { path = "../moon-test-util" }
+zip.workspace = true
 
 
 [[bin]]

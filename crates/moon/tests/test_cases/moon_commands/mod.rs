@@ -1,5 +1,16 @@
 use super::*;
 
+fn moonx_bin(bin_dir: &tempfile::TempDir) -> std::path::PathBuf {
+    let moonx = bin_dir
+        .path()
+        .join(if cfg!(windows) { "moonx.exe" } else { "moonx" });
+    let moon = moon_bin();
+    std::fs::hard_link(&moon, &moonx).unwrap_or_else(|_| {
+        std::fs::copy(&moon, &moonx).expect("failed to copy moon binary as moonx");
+    });
+    moonx
+}
+
 #[test]
 fn test_moon_cmd() {
     let dir = TestDir::new("moon_commands");
@@ -79,6 +90,228 @@ fn test_moon_help() {
               -Z, --unstable-feature <UNSTABLE_FEATURE>
                       Unstable flags to MoonBuild [env: MOON_UNSTABLE=] [default: ]
         "#]],
+    );
+}
+
+#[test]
+fn test_moonx_uses_its_own_command_line_interface() {
+    let dir = TestDir::new_empty();
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+Run a package from the Mooncakes registry without installing it
+
+Usage: moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...
+
+Arguments:
+  <PACKAGE>          Registry package coordinate
+  [PROGRAM_ARGS]...  Arguments passed to the program
+
+Options:
+      --target <TARGET>             [default: wasm] [possible values: wasm, native]
+      --experimental-policy <PATH>  Experimental moonrun policy file; only valid for wasm
+  -q, --quiet                       Suppress output
+  -v, --verbose                     Increase verbosity
+  -h, --help                        Print help
+  -V, --version                     Print version
+
+"#]]);
+}
+
+#[test]
+fn test_moonx_runs_cached_wasm_and_forwards_everything_after_the_coordinate() {
+    let dir = TestDir::new("moon_run_with_cli_args.in");
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .success();
+
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+    std::fs::copy(
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
+        &cache_path,
+    )
+    .unwrap();
+
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args([
+            "moonbitlang/parser/cmd/moonfmt@0.3.3",
+            "--arg1",
+            "--target",
+            "native",
+        ])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+[..]/registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm
+--arg1
+--target
+native
+
+"#]])
+        .stderr_eq("");
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .args(["moonbitlang/parser/cmd/moonfmt@0.3.3", "--", "exit-7"])
+        .assert()
+        .code(7)
+        .stdout_eq("")
+        .stderr_eq("");
+}
+
+#[test]
+fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+
+    let fixture = TestDir::new("moonx_registry_native.in");
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let zip_path = moon_home
+        .path()
+        .join("registry/cache/testuser/runner/1.2.3.zip");
+    std::fs::create_dir_all(zip_path.parent().unwrap()).unwrap();
+
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::FileOptions::default();
+    for relative in [
+        "moon.mod.json",
+        "src/lib/moon.pkg.json",
+        "src/lib/lib.mbt",
+        "src/tool/moon.pkg.json",
+        "src/tool/main.mbt",
+    ] {
+        archive.start_file(relative, options).unwrap();
+        archive
+            .write_all(&std::fs::read(fixture.join(relative)).unwrap())
+            .unwrap();
+    }
+    let zip = archive.finish().unwrap().into_inner();
+    std::fs::write(&zip_path, &zip).unwrap();
+
+    let index_path = moon_home
+        .path()
+        .join("registry/index/user/testuser/runner.index");
+    std::fs::create_dir_all(index_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &index_path,
+        format!(
+            "{{\"name\":\"testuser/runner\",\"version\":\"1.2.3\",\"checksum\":\"{:x}\"}}\n",
+            Sha256::digest(&zip)
+        ),
+    )
+    .unwrap();
+
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&fixture)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .args(["--quiet", "--target", "native", "testuser/runner@1.2.3"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+[..]Package `testuser/runner` not found or is not a main package (is-main: true required)
+
+"#]]);
+
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&fixture)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .args(["--quiet", "--target", "native", "testuser/runner/lib@1.2.3"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(snapbox::str![[r#"
+[..]Package `testuser/runner/lib` not found or is not a main package (is-main: true required)
+
+"#]]);
+
+    let run = || {
+        snapbox::cmd::Command::new(&moonx)
+            .current_dir(&fixture)
+            .env("MOON_HOME", moon_home.path())
+            .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+            .args([
+                "--target",
+                "native",
+                "testuser/runner/tool@1.2.3",
+                "--child-arg",
+            ])
+            .assert()
+            .success()
+            .stdout_eq("native runner\n--child-arg\n");
+    };
+
+    run();
+    assert!(
+        moon_home
+            .path()
+            .join("registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe")
+            .is_file()
+    );
+    std::fs::remove_file(&zip_path).unwrap();
+    std::fs::remove_file(&index_path).unwrap();
+    run();
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn test_moonx_delegates_interrupt_to_cached_native_executable() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    let cache_path = moon_home
+        .path()
+        .join("registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe");
+    std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+
+    let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
+    std::fs::copy(compile_signal_fixture(fake_bin_dir.path()), &cache_path)
+        .expect("failed to populate cached native executable");
+
+    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
+    let moonx = moonx_bin(&bin_dir);
+    let ready_file = bin_dir.path().join("moonx-native-ready");
+    let mut command = interruptible_command(&moonx);
+    let mut child = command
+        .current_dir(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["--target", "native", "testuser/runner/tool@1.2.3"])
+        .arg(&ready_file)
+        .spawn()
+        .expect("failed to spawn moonx");
+
+    wait_for_ready_file(&mut child, &ready_file);
+    send_interrupt(child.id());
+    let status = wait_for_child_status(&mut child);
+    assert_eq!(
+        status.code(),
+        Some(42),
+        "cached native executable did not handle interrupt itself; status was {status}"
     );
 }
 
@@ -232,7 +465,7 @@ fn test_runwasm_exits_with_guest_exit_code() {
 fn test_runwasm_cached_asset_exits_with_guest_exit_code() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)
-        .args(["build", "--target", "wasm-gc"])
+        .args(["build", "--target", "wasm"])
         .assert()
         .success();
 
@@ -242,7 +475,7 @@ fn test_runwasm_cached_asset_exits_with_guest_exit_code() {
         .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::copy(
-        dir.join("_build/wasm-gc/debug/build/main/main.wasm"),
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
         &cache_path,
     )
     .unwrap();
@@ -261,7 +494,7 @@ fn test_runwasm_cached_asset_exits_with_guest_exit_code() {
 fn test_runwasm_cached_asset_forwards_experimental_policy() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)
-        .args(["build", "--target", "wasm-gc"])
+        .args(["build", "--target", "wasm"])
         .assert()
         .success();
 
@@ -271,7 +504,7 @@ fn test_runwasm_cached_asset_forwards_experimental_policy() {
         .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::copy(
-        dir.join("_build/wasm-gc/debug/build/main/main.wasm"),
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
         &cache_path,
     )
     .unwrap();
@@ -300,7 +533,7 @@ fn test_runwasm_cached_asset_forwards_experimental_policy() {
 fn test_runwasm_uses_cached_asset_and_forwards_args() {
     let dir = TestDir::new("moon_run_with_cli_args.in");
     moon_cmd(&dir)
-        .args(["build", "--target", "wasm-gc"])
+        .args(["build", "--target", "wasm"])
         .assert()
         .success();
 
@@ -310,7 +543,7 @@ fn test_runwasm_uses_cached_asset_and_forwards_args() {
         .join("registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm");
     std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
     std::fs::copy(
-        dir.join("_build/wasm-gc/debug/build/main/main.wasm"),
+        dir.join("_build/wasm/debug/build/main/main.wasm"),
         &cache_path,
     )
     .unwrap();
@@ -653,6 +886,21 @@ fn interruptible_moon_command(dir: &impl AsRef<std::path::Path>) -> std::process
 }
 
 #[cfg(unix)]
+fn interruptible_command(program: &std::path::Path) -> std::process::Command {
+    std::process::Command::new(program)
+}
+
+#[cfg(windows)]
+fn interruptible_command(program: &std::path::Path) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
+
+    let mut command = std::process::Command::new(program);
+    command.creation_flags(CREATE_NEW_PROCESS_GROUP);
+    command
+}
+
+#[cfg(unix)]
 fn send_interrupt(pid: u32) {
     let rc = unsafe { libc::kill(pid as libc::pid_t, libc::SIGINT) };
     assert_eq!(
@@ -677,7 +925,7 @@ fn send_interrupt(pid: u32) {
 }
 
 #[cfg(any(unix, windows))]
-fn compile_signal_fixture(fake_bin_dir: &std::path::Path) {
+fn compile_signal_fixture(fake_bin_dir: &std::path::Path) -> PathBuf {
     let source =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/external_signal_handler.rs");
     let executable = fake_bin_dir.join(format!(
@@ -696,6 +944,7 @@ fn compile_signal_fixture(fake_bin_dir: &std::path::Path) {
         status.success(),
         "failed to compile fake moon-test-behavior"
     );
+    executable
 }
 
 fn compile_fake_cram_fixture(fake_bin_dir: &std::path::Path) -> PathBuf {

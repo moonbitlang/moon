@@ -52,15 +52,29 @@ pub struct FrontMatterImportPath {
     pub package: Option<String>,
 }
 
+fn parse_path_components(path: &str) -> anyhow::Result<Vec<&str>> {
+    let components = path.split('/').collect::<Vec<_>>();
+    // FIXME: Replace this defensive denylist with validation against the
+    // registry's allowed component grammar once that grammar is defined.
+    if components.iter().any(|component| {
+        component.is_empty()
+            || *component == "."
+            || *component == ".."
+            || component.contains(':')
+            || component.contains('\\')
+    }) {
+        anyhow::bail!("path contains an invalid component");
+    }
+    Ok(components)
+}
+
 /// Parse `user/module[/package]` using the install/runwasm interpretation.
 ///
-/// This intentionally preserves the current command behavior: the first two
-/// segments are always the module, and later segments are the package path.
-/// Callers remain responsible for extra validation such as rejecting empty,
-/// `.`/`..`, or drive-letter-like path components.
+/// The first two segments are always the module, and later segments are the
+/// package path. Components may not be empty, `.`, `..`, or contain `:` or `\\`.
 pub fn parse_install_style_path(input: &str) -> anyhow::Result<InstallStylePath> {
-    let components = input.split('/').collect::<Vec<_>>();
-    if components.len() < 2 || components.iter().any(|component| component.is_empty()) {
+    let components = parse_path_components(input)?;
+    if components.len() < 2 {
         anyhow::bail!("must be in format `user/module/package`");
     }
 
@@ -78,6 +92,9 @@ pub fn parse_install_style_path(input: &str) -> anyhow::Result<InstallStylePath>
 }
 
 /// Parse `username/module@version[/package]`.
+///
+/// Module and package components may not be empty, `.`, `..`, or contain `:`
+/// or `\\`.
 pub fn parse_module_at_version_path(input: &str) -> anyhow::Result<VersionedPackagePath> {
     if input.matches('@').count() > 1 {
         anyhow::bail!("must contain a single version marker");
@@ -93,16 +110,12 @@ pub fn parse_module_at_version_path(input: &str) -> anyhow::Result<VersionedPack
         anyhow::bail!("version must not be empty or contain path separators");
     }
 
-    let module_components = module_part.split('/').collect::<Vec<_>>();
-    if module_components.len() != 2
-        || module_components
-            .iter()
-            .any(|component| component.is_empty())
-    {
+    let module_components = parse_path_components(module_part)?;
+    if module_components.len() != 2 {
         anyhow::bail!("module name must be in format `user/module`");
     }
-    if !package.is_empty() && package.split('/').any(|component| component.is_empty()) {
-        anyhow::bail!("package path must not contain empty components");
+    if !package.is_empty() {
+        parse_path_components(package)?;
     }
 
     Ok(VersionedPackagePath {
@@ -116,6 +129,9 @@ pub fn parse_module_at_version_path(input: &str) -> anyhow::Result<VersionedPack
 }
 
 /// Parse `username/module[/package]@version`.
+///
+/// Module and package components may not be empty, `.`, `..`, or contain `:`
+/// or `\\`.
 pub fn parse_package_at_version_path(input: &str) -> anyhow::Result<VersionedPackagePath> {
     if input.matches('@').count() > 1 {
         anyhow::bail!("must contain a single version marker");
@@ -208,7 +224,7 @@ pub fn resolve_unversioned_registry_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_module_at_version_path, parse_package_at_version_path,
+        parse_install_style_path, parse_module_at_version_path, parse_package_at_version_path,
         resolve_unversioned_registry_path,
     };
 
@@ -237,6 +253,20 @@ mod tests {
     #[test]
     fn parse_package_at_version_path_rejects_module_version_package_suffix() {
         assert!(parse_package_at_version_path("moonbitlang/x@0.4.39/fs/path").is_err());
+    }
+
+    #[test]
+    fn registry_path_parsers_reject_invalid_components() {
+        for path in [
+            "user/module/.",
+            "user/module/..",
+            "C:/module/package",
+            r"user/module/a\..\..\evil",
+        ] {
+            assert!(parse_install_style_path(path).is_err(), "accepted {path}");
+        }
+        assert!(parse_module_at_version_path(r"user/module@1.2.3/a\..\..\evil").is_err());
+        assert!(parse_package_at_version_path(r"user/module/a\..\..\evil@1.2.3").is_err());
     }
 
     #[test]

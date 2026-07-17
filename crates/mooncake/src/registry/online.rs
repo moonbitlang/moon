@@ -27,7 +27,8 @@ use std::{
 use anyhow::bail;
 use indexmap::map::IndexMap;
 use moonutil::{
-    dependency::SourceDependencyInfo, resolution::ModuleName, scripts::execute_postadd_script,
+    dependency::SourceDependencyInfo, registry::RegistryConfig, resolution::ModuleName,
+    scripts::execute_postadd_script,
 };
 use reqwest::header::USER_AGENT;
 use semver::Version;
@@ -51,9 +52,10 @@ pub struct OnlineRegistry {
 
 impl OnlineRegistry {
     pub fn mooncakes_io() -> Self {
+        let registry = RegistryConfig::load().registry;
         OnlineRegistry {
             index: moonutil::registry::index(),
-            url_base: "https://download.mooncakes.io/user".to_string(),
+            url_base: registry_download_base(&registry),
             cache: RefCell::new(HashMap::new()),
         }
     }
@@ -63,6 +65,15 @@ impl OnlineRegistry {
             .join("user")
             .join(name.username.as_str())
             .join(format!("{}.index", name.unqual))
+    }
+}
+
+fn registry_download_base(registry: &str) -> String {
+    let registry = registry.trim_end_matches('/');
+    if registry == "https://mooncakes.io" {
+        "https://download.mooncakes.io/user".to_string()
+    } else {
+        format!("{registry}/user")
     }
 }
 
@@ -232,6 +243,19 @@ impl OnlineRegistry {
         pkg_install_dir: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
+        self.extract_to(name, version, pkg_install_dir, quiet)?;
+        execute_postadd_script(pkg_install_dir)?;
+        Ok(())
+    }
+
+    /// Download and extract a registry package without running `scripts.postadd`.
+    pub fn extract_to(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        pkg_install_dir: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()> {
         // ensure dir exists and is empty
         if !pkg_install_dir.exists() {
             std::fs::create_dir_all(pkg_install_dir).unwrap();
@@ -242,9 +266,6 @@ impl OnlineRegistry {
 
         let data = self.download_or_using_cache(name, version, quiet)?;
         extract_zip_to_dir(pkg_install_dir, data)?;
-
-        execute_postadd_script(pkg_install_dir)?;
-
         Ok(())
     }
 }
@@ -272,6 +293,22 @@ mod tests {
 
     use super::*;
     use crate::registry::Registry;
+
+    #[test]
+    fn official_registry_uses_download_service() {
+        assert_eq!(
+            registry_download_base("https://mooncakes.io/"),
+            "https://download.mooncakes.io/user"
+        );
+    }
+
+    #[test]
+    fn configured_registry_serves_package_downloads() {
+        assert_eq!(
+            registry_download_base("https://registry.example.com/"),
+            "https://registry.example.com/user"
+        );
+    }
 
     fn temp_index_dir() -> std::path::PathBuf {
         let nanos = SystemTime::now()
