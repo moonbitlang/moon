@@ -37,7 +37,12 @@ ported_fns! {
             check_signal_call(unsafe { libc::sigaddset(&mut set, signal) })?;
         }
         check_signal_call(unsafe { libc::sigaddset(&mut set, libc::SIGUSR2) })?;
-        let _mask_guard = SignalMaskGuard::block(&set)?;
+
+        // The cancellation signal is part of the wait set, so all signals must
+        // remain blocked while sigwait owns delivery on this worker thread.
+        let mut all_signals = unsafe { std::mem::zeroed::<libc::sigset_t>() };
+        check_signal_call(unsafe { libc::sigfillset(&mut all_signals) })?;
+        let _mask_guard = SignalMaskGuard::replace(&all_signals)?;
 
         loop {
             let mut signal = 0;
@@ -60,9 +65,9 @@ struct SignalMaskGuard {
 }
 
 impl SignalMaskGuard {
-    fn block(set: &libc::sigset_t) -> AsyncHostResult<Self> {
+    fn replace(set: &libc::sigset_t) -> AsyncHostResult<Self> {
         let mut old = unsafe { std::mem::zeroed::<libc::sigset_t>() };
-        check_pthread_call(unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, set, &mut old) })?;
+        check_pthread_call(unsafe { libc::pthread_sigmask(libc::SIG_SETMASK, set, &mut old) })?;
         Ok(Self { old })
     }
 }

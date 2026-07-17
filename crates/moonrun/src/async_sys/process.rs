@@ -67,17 +67,31 @@ ported_fns! {
     ) -> AsyncHostResult<i32> {
         #[cfg(windows)]
         {
-            use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, STILL_ACTIVE};
-            use windows_sys::Win32::System::Threading::GetExitCodeProcess;
+            use windows_sys::Win32::Foundation::{
+                ERROR_IO_PENDING, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+            };
+            use windows_sys::Win32::System::Threading::{
+                GetExitCodeProcess, WaitForSingleObject,
+            };
 
             let _ = pid;
             let handle = handle.ok_or(AsyncHostError::Badf)?;
+
+            // Native async only calls this after its wait job completes, but a
+            // Wasm guest can call the import directly. Check the waitable handle
+            // because STILL_ACTIVE (259) can also be a real process exit code.
+            match unsafe { WaitForSingleObject(handle, 0) } {
+                WAIT_OBJECT_0 => {}
+                WAIT_TIMEOUT => {
+                    return Err(AsyncHostError::Native(ERROR_IO_PENDING as i32));
+                }
+                WAIT_FAILED => return Err(last_native_error()),
+                _ => return Err(AsyncHostError::Inval),
+            }
+
             let mut code = 0;
             if unsafe { GetExitCodeProcess(handle, &mut code) } == 0 {
                 return Err(last_native_error());
-            }
-            if code == STILL_ACTIVE as u32 {
-                return Err(AsyncHostError::Native(ERROR_IO_PENDING as i32));
             }
             Ok(code as i32)
         }
@@ -95,7 +109,7 @@ ported_fns! {
                         libc::P_PIDFD,
                         handle as libc::id_t,
                         &mut info,
-                        libc::WEXITED | libc::WSTOPPED | libc::WNOHANG,
+                        libc::WEXITED | libc::WNOHANG,
                     )
                 } < 0
                 {
@@ -241,4 +255,45 @@ fn last_native_errno() -> i32 {
 #[cfg(target_os = "macos")]
 fn last_native_errno() -> i32 {
     unsafe { *libc::__error() }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use std::os::windows::io::AsRawHandle;
+    use std::process::Command;
+
+    use super::*;
+
+    #[test]
+    fn running_process_result_is_pending() {
+        let mut child = Command::new("cmd.exe")
+            .args(["/D", "/C", "ping -n 30 127.0.0.1 >NUL"])
+            .spawn()
+            .unwrap();
+        let result = get_process_result(Some(child.as_raw_handle()), child.id() as i32);
+
+        let _ = child.kill();
+        child.wait().unwrap();
+
+        assert_eq!(
+            result,
+            Err(AsyncHostError::Native(
+                windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32
+            ))
+        );
+    }
+
+    #[test]
+    fn completed_process_can_return_still_active_value() {
+        let mut child = Command::new("cmd.exe")
+            .args(["/D", "/C", "exit /B 259"])
+            .spawn()
+            .unwrap();
+        let handle = child.as_raw_handle();
+        let pid = child.id() as i32;
+
+        child.wait().unwrap();
+
+        assert_eq!(get_process_result(Some(handle), pid), Ok(259));
+    }
 }
