@@ -105,6 +105,9 @@ impl<'a> super::LoweringContext<'a> {
         let mut extra_inputs = files_vec;
         extra_inputs.extend_from_slice(&info.doctest_files);
         extra_inputs.push(BINARIES.moonbuild.clone());
+        if let Some(patch_file) = &info.patch_file {
+            extra_inputs.push(patch_file.clone());
+        }
 
         BuildCommand {
             commandline: commandline.into(),
