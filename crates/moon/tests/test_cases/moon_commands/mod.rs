@@ -11,6 +11,50 @@ fn moonx_bin(bin_dir: &tempfile::TempDir) -> std::path::PathBuf {
     moonx
 }
 
+fn cache_registry_package(
+    moon_home: &std::path::Path,
+    name: &str,
+    version: &str,
+    files: &[(&str, Vec<u8>)],
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (path, contents) in files {
+        archive
+            .start_file(*path, zip::write::FileOptions::default())
+            .unwrap();
+        archive.write_all(contents).unwrap();
+    }
+    let zip = archive.finish().unwrap().into_inner();
+
+    let (username, package) = name.split_once('/').unwrap();
+    let zip_path = moon_home
+        .join("registry/cache")
+        .join(username)
+        .join(package)
+        .join(format!("{version}.zip"));
+    std::fs::create_dir_all(zip_path.parent().unwrap()).unwrap();
+    std::fs::write(&zip_path, &zip).unwrap();
+
+    let index_path = moon_home
+        .join("registry/index/user")
+        .join(username)
+        .join(format!("{package}.index"));
+    std::fs::create_dir_all(index_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &index_path,
+        format!(
+            "{{\"name\":\"{name}\",\"version\":\"{version}\",\"checksum\":\"{:x}\"}}\n",
+            Sha256::digest(&zip)
+        ),
+    )
+    .unwrap();
+
+    (zip_path, index_path)
+}
+
 #[test]
 fn test_moon_cmd() {
     let dir = TestDir::new("moon_commands");
@@ -180,46 +224,28 @@ native
 }
 
 #[test]
-fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
-    use sha2::{Digest, Sha256};
-    use std::io::Write;
-
+fn test_moonx_native_output_and_cache_contract() {
     let fixture = TestDir::new("moonx_registry_native.in");
     let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
-    let zip_path = moon_home
-        .path()
-        .join("registry/cache/testuser/runner/1.2.3.zip");
-    std::fs::create_dir_all(zip_path.parent().unwrap()).unwrap();
-
-    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let options = zip::write::FileOptions::default();
-    for relative in [
+    let runner_files = [
         "moon.mod.json",
         "src/lib/moon.pkg.json",
         "src/lib/lib.mbt",
         "src/tool/moon.pkg.json",
         "src/tool/main.mbt",
-    ] {
-        archive.start_file(relative, options).unwrap();
-        archive
-            .write_all(&std::fs::read(fixture.join(relative)).unwrap())
-            .unwrap();
-    }
-    let zip = archive.finish().unwrap().into_inner();
-    std::fs::write(&zip_path, &zip).unwrap();
-
-    let index_path = moon_home
-        .path()
-        .join("registry/index/user/testuser/runner.index");
-    std::fs::create_dir_all(index_path.parent().unwrap()).unwrap();
-    std::fs::write(
-        &index_path,
-        format!(
-            "{{\"name\":\"testuser/runner\",\"version\":\"1.2.3\",\"checksum\":\"{:x}\"}}\n",
-            Sha256::digest(&zip)
-        ),
-    )
-    .unwrap();
+    ]
+    .map(|path| (path, std::fs::read(fixture.join(path)).unwrap()));
+    let (zip_path, index_path) =
+        cache_registry_package(moon_home.path(), "testuser/runner", "1.2.3", &runner_files);
+    cache_registry_package(
+        moon_home.path(),
+        "testuser/dependency",
+        "1.0.0",
+        &[(
+            "moon.mod.json",
+            br#"{"name":"testuser/dependency","version":"1.0.0"}"#.to_vec(),
+        )],
+    );
 
     let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
     let moonx = moonx_bin(&bin_dir);
@@ -267,137 +293,12 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
             .stderr_eq("");
     };
 
-    run();
-    assert!(
-        moon_home
-            .path()
-            .join("registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe")
-            .is_file()
-    );
-    std::fs::remove_file(&zip_path).unwrap();
-    std::fs::remove_file(&index_path).unwrap();
-    run();
-}
-
-#[test]
-fn test_moonx_native_dependency_download_stays_off_stdout() {
-    use sha2::{Digest, Sha256};
-    use std::{
-        io::{ErrorKind, Read, Write},
-        net::TcpListener,
-        time::{Duration, Instant},
-    };
-
-    fn package_archive(manifest: &serde_json::Value, files: &[(&str, Vec<u8>)]) -> Vec<u8> {
-        let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-        archive
-            .start_file("moon.mod.json", zip::write::FileOptions::default())
-            .unwrap();
-        archive
-            .write_all(&serde_json::to_vec_pretty(manifest).unwrap())
-            .unwrap();
-        for (path, contents) in files {
-            archive
-                .start_file(*path, zip::write::FileOptions::default())
-                .unwrap();
-            archive.write_all(contents).unwrap();
-        }
-        archive.finish().unwrap().into_inner()
-    }
-
-    fn write_index(moon_home: &std::path::Path, name: &str, version: &str, archive: &[u8]) {
-        let (username, package) = name.split_once('/').unwrap();
-        let index = moon_home
-            .join("registry/index/user")
-            .join(username)
-            .join(format!("{package}.index"));
-        std::fs::create_dir_all(index.parent().unwrap()).unwrap();
-        std::fs::write(
-            index,
-            format!(
-                "{{\"name\":\"{name}\",\"version\":\"{version}\",\"checksum\":\"{:x}\"}}\n",
-                Sha256::digest(archive)
-            ),
-        )
-        .unwrap();
-    }
-
-    let fixture = TestDir::new("moonx_registry_native.in");
-    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
-    let mut runner_manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(fixture.join("moon.mod.json")).unwrap()).unwrap();
-    runner_manifest.as_object_mut().unwrap().remove("scripts");
-    runner_manifest["deps"] = serde_json::json!({ "testuser/dependency": "1.0.0" });
-    let runner_files = [
-        "src/lib/moon.pkg.json",
-        "src/lib/lib.mbt",
-        "src/tool/moon.pkg.json",
-        "src/tool/main.mbt",
-    ]
-    .map(|path| (path, std::fs::read(fixture.join(path)).unwrap()));
-    let runner_archive = package_archive(&runner_manifest, &runner_files);
-    let runner_cache = moon_home
+    let executable = moon_home
         .path()
-        .join("registry/cache/testuser/runner/1.2.3.zip");
-    std::fs::create_dir_all(runner_cache.parent().unwrap()).unwrap();
-    std::fs::write(runner_cache, &runner_archive).unwrap();
-    write_index(
-        moon_home.path(),
-        "testuser/runner",
-        "1.2.3",
-        &runner_archive,
-    );
-
-    let dependency_archive = package_archive(
-        &serde_json::json!({
-            "name": "testuser/dependency",
-            "version": "1.0.0",
-        }),
-        &[],
-    );
-    write_index(
-        moon_home.path(),
-        "testuser/dependency",
-        "1.0.0",
-        &dependency_archive,
-    );
-
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let registry_url = format!("http://{}", listener.local_addr().unwrap());
-    let server = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let (mut stream, _) = loop {
-            match listener.accept() {
-                Ok(connection) => break connection,
-                Err(err) if err.kind() == ErrorKind::WouldBlock && Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(err) if err.kind() == ErrorKind::WouldBlock => {
-                    panic!("timed out waiting for dependency download request");
-                }
-                Err(err) => panic!("failed to accept dependency download request: {err}"),
-            }
-        };
-        stream
-            .set_read_timeout(Some(Duration::from_secs(10)))
-            .unwrap();
-        let mut request = [0; 4096];
-        let _ = stream.read(&mut request).unwrap();
-        write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            dependency_archive.len()
-        )
-        .unwrap();
-        stream.write_all(&dependency_archive).unwrap();
-    });
-
-    let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
-    snapbox::cmd::Command::new(moonx_bin(&bin_dir))
+        .join("registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe");
+    snapbox::cmd::Command::new(&moonx)
         .current_dir(&fixture)
         .env("MOON_HOME", moon_home.path())
-        .env("MOONCAKES_REGISTRY", registry_url)
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .args([
             "--verbose",
@@ -411,14 +312,19 @@ fn test_moonx_native_dependency_download_stays_off_stdout() {
         .stdout_eq("native runner\n--child-arg\n")
         .stderr_eq(snapbox::str![[r#"
 Using cached testuser/runner@1.2.3
-Downloading testuser/dependency@1.0.0
+Using cached testuser/dependency@1.0.0
 Info: Building `testuser/runner/tool`...
 Finished. moon: ran 4 tasks, now up to date
 '$MOON_HOME/registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe' --child-arg
 
 "#]]);
 
-    server.join().unwrap();
+    std::fs::remove_file(&executable).unwrap();
+    run();
+    assert!(executable.is_file());
+    std::fs::remove_file(&zip_path).unwrap();
+    std::fs::remove_file(&index_path).unwrap();
+    run();
 }
 
 #[cfg(any(unix, windows))]
