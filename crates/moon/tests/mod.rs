@@ -23,7 +23,7 @@ use moonbuild_debug::graph::ENV_VAR;
 use std::path::{Path, PathBuf};
 use util::*;
 
-pub(crate) use support::{build_graph, dry_run_utils, process, util};
+pub(crate) use support::{build_graph, dry_run_utils, process, registry, util};
 
 pub(crate) struct TestDir(moon_test_util::test_dir::TestDir);
 

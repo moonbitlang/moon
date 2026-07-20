@@ -132,6 +132,7 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
     }
 
     registry.install_to(&pkg_name, &version, &pkg_dir, cli.quiet)?;
+    super::registry_runner::warn_ignored_postadd(&pkg_dir, &pkg_name, &version, output)?;
 
     if !cli.quiet {
         println!(

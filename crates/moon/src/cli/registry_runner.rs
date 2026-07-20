@@ -26,6 +26,21 @@ use semver::Version;
 
 use crate::{rr_build, user_diagnostics::UserDiagnostics};
 
+pub(super) fn warn_ignored_postadd(
+    destination: &Path,
+    module_name: &ModuleName,
+    version: &Version,
+    output: UserDiagnostics,
+) -> anyhow::Result<()> {
+    if moonutil::scripts::declared_postadd_script(destination)?.is_some() {
+        output.warn(mooncake::pkg::install::ignored_postadd_warning(
+            module_name,
+            version,
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) enum RegistryRunTarget {
     Wasm {
         experimental_policy: Option<PathBuf>,

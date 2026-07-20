@@ -234,7 +234,8 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
         .failure()
         .stdout_eq("")
         .stderr_eq(snapbox::str![[r#"
-[..]Package `testuser/runner` not found or is not a main package (is-main: true required)
+Warning: Package `testuser/runner@1.2.3` declares deprecated `scripts.postadd`; the hook was not executed
+Error: Package `testuser/runner` not found or is not a main package (is-main: true required)
 
 "#]]);
 
@@ -247,7 +248,8 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
         .failure()
         .stdout_eq("")
         .stderr_eq(snapbox::str![[r#"
-[..]Package `testuser/runner/lib` not found or is not a main package (is-main: true required)
+Warning: Package `testuser/runner@1.2.3` declares deprecated `scripts.postadd`; the hook was not executed
+Error: Package `testuser/runner/lib` not found or is not a main package (is-main: true required)
 
 "#]]);
 

@@ -31,7 +31,9 @@ use semver::Version;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::pkg::{install::install_impl, roots_for_selected_module, sync::SyncOutputOptions};
+use crate::pkg::{
+    install::install_impl_with_postadd, roots_for_selected_module, sync::SyncOutputOptions,
+};
 use crate::registry::{self, Registry};
 
 /// Add a dependency
@@ -192,13 +194,26 @@ pub fn add(
 
     let m = Arc::new(m);
     let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
-    install_impl(
+    install_impl_with_postadd(
         mooncakes_dir,
         roots,
         SyncOutputOptions::new(quiet, true),
         false,
         false,
         true,
+        |path, source| {
+            if source.name() == pkg_name && source.version() == version {
+                eprintln!(
+                    "{}: Package `{}@{}` declares deprecated `scripts.postadd`; explicit `moon add` may still execute it temporarily for compatibility (set `MOON_IGNORE_POSTADD` to skip)",
+                    "Warning".yellow().bold(),
+                    source.name(),
+                    source.version()
+                );
+                moonutil::scripts::execute_postadd_script(path)
+            } else {
+                crate::pkg::install::warn_ignored_postadd(path, source)
+            }
+        },
     )?;
 
     if module_dir.join(MOON_MOD).exists() {

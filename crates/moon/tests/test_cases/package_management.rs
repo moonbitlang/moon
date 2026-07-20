@@ -321,22 +321,131 @@ fn test_upgrade_refuses_split_toolchain_root() -> anyhow::Result<()> {
 
 #[test]
 fn test_postadd_script() {
-    if std::env::var("CI").is_err() {
-        return;
-    }
     let dir = TestDir::new("test_postadd_script.in");
-    let output = get_stdout(&dir, ["add", "lijunchen/test_postadd"]);
-    assert!(output.contains(".mooncakes/lijunchen/test_postadd"));
+    let moon_home = tempfile::TempDir::new().unwrap();
+    registry::cache_package(
+        moon_home.path(),
+        serde_json::json!({
+            "name": "testuser/postadd",
+            "version": "1.2.3",
+            "scripts": { "postadd": format!("{} version", moon_bin().display()) },
+        }),
+        [] as [(&str, &[u8]); 0],
+    );
 
-    let _ = get_stdout(&dir, ["remove", "lijunchen/test_postadd"]);
-
-    let out = moon_process_cmd(&dir)
-        .env("MOON_IGNORE_POSTADD", "1")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .args(["add", "lijunchen/test_postadd"])
+    let executed = moon_process_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["add", "--quiet", "--no-update", "testuser/postadd@1.2.3"])
         .output()
         .unwrap();
-    let out = String::from_utf8(out.stderr).unwrap();
-    assert!(!out.contains(".mooncakes/lijunchen/test_postadd"));
+    assert!(executed.status.success(), "{executed:?}");
+    assert!(!executed.stdout.is_empty(), "postadd should execute once");
+    snapbox::assert_data_eq!(
+        String::from_utf8_lossy(&executed.stderr).as_ref(),
+        snapbox::str![[r#"
+Warning: Package `testuser/postadd@1.2.3` declares deprecated `scripts.postadd`; explicit `moon add` may still execute it temporarily for compatibility (set `MOON_IGNORE_POSTADD` to skip)
+
+"#]],
+    );
+
+    let ignored_dir = TestDir::new("test_postadd_script.in");
+    let ignored = moon_process_cmd(&ignored_dir)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_IGNORE_POSTADD", "1")
+        .args(["add", "--quiet", "--no-update", "testuser/postadd@1.2.3"])
+        .output()
+        .unwrap();
+    assert!(ignored.status.success(), "{ignored:?}");
+    assert!(
+        ignored.stdout.is_empty(),
+        "ignored postadd must not execute"
+    );
+    snapbox::assert_data_eq!(
+        String::from_utf8_lossy(&ignored.stderr).as_ref(),
+        snapbox::str![[r#"
+Warning: Package `testuser/postadd@1.2.3` declares deprecated `scripts.postadd`; explicit `moon add` may still execute it temporarily for compatibility (set `MOON_IGNORE_POSTADD` to skip)
+
+"#]],
+    );
+}
+
+#[test]
+fn fetch_warns_and_skips_deprecated_postadd() {
+    let dir = TestDir::new_empty();
+    let moon_home = tempfile::TempDir::new().unwrap();
+    registry::cache_package(
+        moon_home.path(),
+        serde_json::json!({
+            "name": "testuser/postadd",
+            "version": "1.2.3",
+            "scripts": { "postadd": "postadd-must-not-run" },
+        }),
+        [("README.md", b"fetched")],
+    );
+
+    let output = moon_process_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["fetch", "--quiet", "--no-update", "testuser/postadd@1.2.3"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty());
+    snapbox::assert_data_eq!(
+        String::from_utf8_lossy(&output.stderr).as_ref(),
+        snapbox::str![[r#"
+Warning: Package `testuser/postadd@1.2.3` declares deprecated `scripts.postadd`; the hook was not executed
+
+"#]],
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".repos/testuser/postadd/1.2.3/README.md")).unwrap(),
+        "fetched"
+    );
+}
+
+#[test]
+fn dependency_sync_warns_and_skips_deprecated_postadd() {
+    let dir = TestDir::new_empty();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "name": "testuser/project",
+            "version": "0.1.0",
+            "deps": { "testuser/postadd": "1.2.3" },
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let moon_home = tempfile::TempDir::new().unwrap();
+    registry::cache_package(
+        moon_home.path(),
+        serde_json::json!({
+            "name": "testuser/postadd",
+            "version": "1.2.3",
+            "scripts": { "postadd": "postadd-must-not-run" },
+        }),
+        [] as [(&str, &[u8]); 0],
+    );
+
+    let output = moon_process_cmd(&dir)
+        .env("MOON_HOME", moon_home.path())
+        .args(["install", "--quiet"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty());
+    snapbox::assert_data_eq!(
+        String::from_utf8_lossy(&output.stderr).as_ref(),
+        snapbox::str![[r#"
+Warning: `moon install` without arguments is deprecated and will be removed in a future version. Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.
+Warning: Package `testuser/postadd@1.2.3` declares deprecated `scripts.postadd`; the hook was not executed
+
+"#]],
+    );
+    assert!(
+        dir.join(".mooncakes/testuser/postadd/moon.mod.json")
+            .is_file()
+    );
 }
