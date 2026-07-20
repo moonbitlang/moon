@@ -7,7 +7,10 @@ fn test_virtual_pkg() {
     let virtual_pkg = dir.join("virtual");
 
     check(
-        get_stdout(&virtual_pkg, ["run", "main", "--dry-run"]),
+        get_stdout(
+            &virtual_pkg,
+            ["run", "--target", "wasm-gc", "main", "--dry-run"],
+        ),
         expect![[r#"
             moonc build-interface ./lib3/pkg.mbti -o ./_build/wasm-gc/debug/build/lib3/lib3.mi -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg username/hello/lib3 -pkg-sources username/hello/lib3:./lib3 -virtual -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -error-format json
             moonc build-interface ./lib1/pkg.mbti -o ./_build/wasm-gc/debug/build/lib1/lib1.mi -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg username/hello/lib1 -pkg-sources username/hello/lib1:./lib1 -virtual -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -error-format json
@@ -20,7 +23,7 @@ fn test_virtual_pkg() {
         "#]],
     );
     check(
-        get_stdout(&virtual_pkg, ["run", "main"]),
+        get_stdout(&virtual_pkg, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             another impl for f1 in lib2: 1
             another impl for f2 in lib2: 2
@@ -28,7 +31,10 @@ fn test_virtual_pkg() {
         "#]],
     );
     check(
-        get_stdout(&virtual_pkg, ["test", "--no-parallelize"]),
+        get_stdout(
+            &virtual_pkg,
+            ["test", "--target", "wasm-gc", "--no-parallelize"],
+        ),
         expect![[r#"
             bb test
             default impl for f1 in lib1: 1
@@ -45,7 +51,7 @@ fn test_virtual_pkg() {
 
     let user = dir.join("user");
     check(
-        get_stdout(&user, ["run", "main"]),
+        get_stdout(&user, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             user impl for f1 in lib: 1
             user impl for f2 in lib: 2

@@ -35,7 +35,7 @@ fn test_all_pkgs() {
     // check
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stderr(&dir, ["check"]),
+        get_stderr(&dir, ["check", "--target", "wasm-gc"]),
         expect![[r#"
         Finished. moon: ran 10 tasks, now up to date
     "#]],
@@ -47,7 +47,7 @@ fn test_all_pkgs() {
     // build
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stderr(&dir, ["build"]),
+        get_stderr(&dir, ["build", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 7 tasks, now up to date
         "#]],
@@ -59,7 +59,7 @@ fn test_all_pkgs() {
     // run
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stdout(&dir, ["run", "cmd/main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "cmd/main"]),
         expect![[r#"
         42
         42
@@ -72,7 +72,7 @@ fn test_all_pkgs() {
     // test
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stdout(&dir, ["test"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc"]),
         expect![[r#"
             Total tests: 2, passed: 2, failed: 0.
         "#]],
@@ -84,7 +84,7 @@ fn test_all_pkgs() {
     // info
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stderr(&dir, ["info"]),
+        get_stderr(&dir, ["info", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 10 tasks, now up to date
         "#]],
@@ -100,7 +100,7 @@ fn test_indirect_dep_bundle() {
     // bundle
     let _ = get_stdout(&dir, ["clean"]);
     check(
-        get_stderr(&dir, ["bundle"]),
+        get_stderr(&dir, ["bundle", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 7 tasks, now up to date
         "#]],

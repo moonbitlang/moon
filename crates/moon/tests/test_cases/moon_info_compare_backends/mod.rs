@@ -14,7 +14,7 @@ fn test_moon_info_compare_backends() {
         "Diverging backends should still promote the canonical mbti output"
     );
     let mbti = std::fs::read_to_string(dir.join("lib").join(MBTI_GENERATED)).unwrap();
-    assert!(mbti.contains("pub fn hello_wasm_gc() -> String"));
+    assert!(mbti.contains("pub fn hello_wasm() -> String"));
 
     expect_file!["moon_info_compare_backends.out"].assert_eq(&out);
 }

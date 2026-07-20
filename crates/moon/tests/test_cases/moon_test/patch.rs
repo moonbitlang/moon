@@ -11,6 +11,8 @@ fn test_moon_test_patch() {
         &dir,
         [
             "test",
+            "--target",
+            "wasm-gc",
             "-p",
             "moon_new/lib",
             "--file",
@@ -28,6 +30,8 @@ fn test_moon_test_patch() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "moon_new/lib",
                 "--file",
@@ -48,6 +52,8 @@ fn test_moon_test_patch() {
         &dir,
         [
             "test",
+            "--target",
+            "wasm-gc",
             "-p",
             "moon_new/lib",
             "--file",
@@ -66,6 +72,8 @@ fn test_moon_test_patch() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "moon_new/lib",
                 "--file",
@@ -86,6 +94,8 @@ fn test_moon_test_patch() {
         &dir,
         [
             "test",
+            "--target",
+            "wasm-gc",
             "-p",
             "moon_new/lib",
             "--file",
@@ -104,6 +114,8 @@ fn test_moon_test_patch() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "moon_new/lib",
                 "--file",
@@ -124,6 +136,8 @@ fn test_moon_test_patch() {
         &dir,
         [
             "test",
+            "--target",
+            "wasm-gc",
             "-p",
             "moon_new/lib2",
             "--file",
@@ -142,6 +156,8 @@ fn test_moon_test_patch() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "moon_new/lib2",
                 "--file",
@@ -161,6 +177,8 @@ fn test_moon_test_patch() {
         &dir,
         [
             "test",
+            "--target",
+            "wasm-gc",
             "-p",
             "moon_new/lib2",
             "--file",
@@ -179,6 +197,8 @@ fn test_moon_test_patch() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "moon_new/lib2",
                 "--file",
@@ -204,6 +224,8 @@ fn test_moon_test_patch_content_change_regenerates_driver() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "moon_new/lib2",
                 "--file",
@@ -242,6 +264,8 @@ fn test_moon_test_patch_content_change_regenerates_driver() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "moon_new/lib2",
                 "--file",

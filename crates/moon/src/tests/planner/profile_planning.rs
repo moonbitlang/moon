@@ -101,7 +101,8 @@ fn assert_command_uses_profile(
 #[test]
 fn bench_graph_uses_selected_codegen_profile() {
     let fixture = PlanningFixture::new("moon_bench").expect("fixture should resolve");
-    let (cli, cmd) = parse_bench_command(&["bench", "--sort-input", "--dry-run"]);
+    let (cli, cmd) =
+        parse_bench_command(&["bench", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
 
     let default_graph = fixture
         .plan_bench_with_cli(&cli, &cmd)
@@ -109,16 +110,28 @@ fn bench_graph_uses_selected_codegen_profile() {
     assert!(default_graph.contains("moonc"));
     assert!(!default_graph.contains("-O0"));
 
-    let (release_cli, release_cmd) =
-        parse_bench_command(&["bench", "--release", "--sort-input", "--dry-run"]);
+    let (release_cli, release_cmd) = parse_bench_command(&[
+        "bench",
+        "--target",
+        "wasm-gc",
+        "--release",
+        "--sort-input",
+        "--dry-run",
+    ]);
     let release_graph = fixture
         .plan_bench_with_cli(&release_cli, &release_cmd)
         .expect("release bench graph should plan");
     assert!(release_graph.contains("moonc"));
     assert!(!release_graph.contains("-O0"));
 
-    let (debug_cli, debug_cmd) =
-        parse_bench_command(&["bench", "--debug", "--sort-input", "--dry-run"]);
+    let (debug_cli, debug_cmd) = parse_bench_command(&[
+        "bench",
+        "--target",
+        "wasm-gc",
+        "--debug",
+        "--sort-input",
+        "--dry-run",
+    ]);
     let debug_graph = fixture
         .plan_bench_with_cli(&debug_cli, &debug_cmd)
         .expect("debug bench graph should plan");
@@ -129,7 +142,8 @@ fn bench_graph_uses_selected_codegen_profile() {
 #[test]
 fn default_test_graph_matches_snapshot() {
     let fixture = PlanningFixture::new("test_release").expect("fixture should resolve");
-    let (cli, cmd) = parse_test_command(&["test", "--sort-input", "--dry-run"]);
+    let (cli, cmd) =
+        parse_test_command(&["test", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
 
     expect_file!["./snapshots/test_profile_default_graph.jsonl.snap"].assert_eq(
         &fixture
@@ -141,7 +155,14 @@ fn default_test_graph_matches_snapshot() {
 #[test]
 fn release_test_graph_matches_snapshot() {
     let fixture = PlanningFixture::new("test_release").expect("fixture should resolve");
-    let (cli, cmd) = parse_test_command(&["test", "--release", "--sort-input", "--dry-run"]);
+    let (cli, cmd) = parse_test_command(&[
+        "test",
+        "--target",
+        "wasm-gc",
+        "--release",
+        "--sort-input",
+        "--dry-run",
+    ]);
 
     expect_file!["./snapshots/test_profile_release_graph.jsonl.snap"].assert_eq(
         &fixture
@@ -157,11 +178,28 @@ fn check_graph_uses_debug_profile_without_codegen_flags() {
     for (label, args) in [
         (
             "default check",
-            ["check", "--dry-run", "--nostd", "--sort-input"].as_slice(),
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--nostd",
+                "--sort-input",
+            ]
+            .as_slice(),
         ),
         (
             "explicit debug check",
-            ["check", "--dry-run", "--debug", "--nostd", "--sort-input"].as_slice(),
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--debug",
+                "--nostd",
+                "--sort-input",
+            ]
+            .as_slice(),
         ),
     ] {
         let (cli, cmd) = parse_check_command(args);
@@ -181,21 +219,6 @@ fn build_graph_uses_selected_profile() {
     for (label, args, profile) in [
         (
             "default build",
-            ["build", "--dry-run", "--nostd", "--sort-input"].as_slice(),
-            "debug",
-        ),
-        (
-            "release build",
-            ["build", "--dry-run", "--release", "--nostd", "--sort-input"].as_slice(),
-            "release",
-        ),
-        (
-            "debug build",
-            ["build", "--dry-run", "--debug", "--nostd", "--sort-input"].as_slice(),
-            "debug",
-        ),
-        (
-            "default build with explicit target",
             [
                 "build",
                 "--target",
@@ -208,7 +231,7 @@ fn build_graph_uses_selected_profile() {
             "debug",
         ),
         (
-            "release build with explicit target",
+            "release build",
             [
                 "build",
                 "--target",
@@ -222,7 +245,7 @@ fn build_graph_uses_selected_profile() {
             "release",
         ),
         (
-            "debug build with explicit target",
+            "debug build",
             [
                 "build",
                 "--target",
@@ -265,7 +288,16 @@ fn run_graph_uses_selected_profile() {
     for (label, args, profile) in [
         (
             "default run",
-            ["run", "main", "--dry-run", "--nostd", "--sort-input"].as_slice(),
+            [
+                "run",
+                "main",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--nostd",
+                "--sort-input",
+            ]
+            .as_slice(),
             "debug",
         ),
         (
@@ -273,6 +305,8 @@ fn run_graph_uses_selected_profile() {
             [
                 "run",
                 "main",
+                "--target",
+                "wasm-gc",
                 "--dry-run",
                 "--release",
                 "--nostd",
@@ -283,48 +317,6 @@ fn run_graph_uses_selected_profile() {
         ),
         (
             "debug run",
-            [
-                "run",
-                "main",
-                "--dry-run",
-                "--debug",
-                "--nostd",
-                "--sort-input",
-            ]
-            .as_slice(),
-            "debug",
-        ),
-        (
-            "default run with explicit target",
-            [
-                "run",
-                "main",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--nostd",
-                "--sort-input",
-            ]
-            .as_slice(),
-            "debug",
-        ),
-        (
-            "release run with explicit target",
-            [
-                "run",
-                "main",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--release",
-                "--nostd",
-                "--sort-input",
-            ]
-            .as_slice(),
-            "release",
-        ),
-        (
-            "debug run with explicit target",
             [
                 "run",
                 "main",

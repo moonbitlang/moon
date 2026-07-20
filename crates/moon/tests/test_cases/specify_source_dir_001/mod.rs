@@ -5,21 +5,21 @@ fn test_specify_source_dir_001() {
     let dir = TestDir::new("specify_source_dir_001.in");
     assert_dry_run_graph(
         &dir,
-        ["check", "--dry-run", "--sort-input"],
+        ["check", "--target", "wasm-gc", "--dry-run", "--sort-input"],
         expect_file!["check_graph.jsonl.snap"],
     );
     assert_dry_run_graph(
         &dir,
-        ["build", "--dry-run", "--sort-input"],
+        ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
         expect_file!["build_graph.jsonl.snap"],
     );
     assert_dry_run_graph(
         &dir,
-        ["test", "--dry-run", "--sort-input"],
+        ["test", "--target", "wasm-gc", "--dry-run", "--sort-input"],
         expect_file!["test_graph.jsonl.snap"],
     );
     check(
-        get_stderr(&dir, ["check", "--sort-input"]),
+        get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
             Finished. moon: ran 4 tasks, now up to date
         "#]],
@@ -283,19 +283,19 @@ fn test_specify_source_dir_001() {
         )
     }
     check(
-        get_stderr(&dir, ["build"]),
+        get_stderr(&dir, ["build", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
     );
     check(
-        get_stdout(&dir, ["test"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc"]),
         expect![[r#"
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     check(
-        get_stdout(&dir, ["run", "./src/main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "./src/main"]),
         expect![[r#"
             Hello, world!
         "#]],

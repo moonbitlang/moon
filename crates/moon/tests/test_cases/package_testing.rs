@@ -181,7 +181,18 @@ fn test_moon_check_filter_package() {
     let dir = TestDir::new("test_check_filter.in");
 
     check(
-        get_stdout(&dir, ["check", "-p", "A", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "-p",
+                "A",
+                "--dry-run",
+                "--sort-input",
+            ],
+        ),
         expect![[r#"
             moonc check ./A/hello.mbt ./A/test.mbt ./A/hello_wbtest.mbt -o ./_build/wasm-gc/debug/check/A/A.whitebox_test.mi -pkg username/hello/A -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/A:./A -target wasm-gc -whitebox-test -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check ./A/hello.mbt ./A/test.mbt -o ./_build/wasm-gc/debug/check/A/A.mi -pkg username/hello/A -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/A:./A -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
@@ -190,7 +201,18 @@ fn test_moon_check_filter_package() {
     );
 
     check(
-        get_stdout(&dir, ["check", "-p", "main", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "-p",
+                "main",
+                "--dry-run",
+                "--sort-input",
+            ],
+        ),
         expect![[r#"
             moonc check ./lib2/lib.mbt -o ./_build/wasm-gc/debug/check/lib2/lib2.mi -pkg username/hello/lib2 -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check ./lib/hello.mbt -o ./_build/wasm-gc/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib2/lib2.mi:lib2 -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
@@ -200,7 +222,18 @@ fn test_moon_check_filter_package() {
     );
 
     check(
-        get_stdout(&dir, ["check", "-p", "lib", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "-p",
+                "lib",
+                "--dry-run",
+                "--sort-input",
+            ],
+        ),
         expect![[r#"
             moonc check ./lib2/lib.mbt -o ./_build/wasm-gc/debug/check/lib2/lib2.mi -pkg username/hello/lib2 -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib2:./lib2 -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check ./lib/hello.mbt -o ./_build/wasm-gc/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib2/lib2.mi:lib2 -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
@@ -219,6 +252,8 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "A",
                 "--patch-file",
@@ -238,6 +273,8 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "A",
                 "--patch-file",
@@ -257,6 +294,8 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "A",
                 "--patch-file",
@@ -278,6 +317,8 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "lib",
                 "--patch-file",
@@ -297,6 +338,8 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "lib",
                 "--patch-file",
@@ -318,6 +361,8 @@ fn test_moon_check_package_with_patch() {
             &dir,
             [
                 "check",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "main",
                 "--patch-file",
@@ -339,7 +384,10 @@ fn test_moon_check_package_with_patch() {
 fn test_no_mi_for_test_pkg() {
     let dir = TestDir::new("test_check_filter.in");
 
-    get_stdout(&dir, ["test", "-p", "username/hello/A"]);
+    get_stdout(
+        &dir,
+        ["test", "--target", "wasm-gc", "-p", "username/hello/A"],
+    );
 
     // .mi should not be generated for test package
     let mi_path = dir.join("_build/wasm-gc/debug/test/A/A.internal_test.mi");
@@ -356,7 +404,15 @@ fn test_render_diagnostic_in_patch_file() {
     check(
         get_stderr(
             &dir,
-            ["check", "-p", "lib", "--patch-file", "./patch_test.json"],
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "-p",
+                "lib",
+                "--patch-file",
+                "./patch_test.json",
+            ],
         ),
         expect![[r#"
             Warning: [0002]
@@ -372,7 +428,15 @@ fn test_render_diagnostic_in_patch_file() {
     check(
         get_stderr(
             &dir,
-            ["check", "-p", "lib", "--patch-file", "./patch_wbtest.json"],
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "-p",
+                "lib",
+                "--patch-file",
+                "./patch_wbtest.json",
+            ],
         ),
         expect![[r#"
             Warning: [0002]
@@ -386,7 +450,18 @@ fn test_render_diagnostic_in_patch_file() {
         "#]],
     );
     check(
-        get_stderr(&dir, ["check", "-p", "lib", "--patch-file", "./patch.json"]),
+        get_stderr(
+            &dir,
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "-p",
+                "lib",
+                "--patch-file",
+                "./patch.json",
+            ],
+        ),
         expect![[r#"
             Warning: [0002]
                ╭─[ hello_0.mbt:2:6 ]
@@ -405,6 +480,8 @@ fn test_render_diagnostic_in_patch_file() {
             &dir,
             [
                 "check",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "lib",
                 "--patch-file",
@@ -514,7 +591,10 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
     let dir = TestDir::new("self-pkg-in-test-import.in");
 
     check(
-        get_stdout(&dir, ["check", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["check", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+        ),
         expect![[r#"
             moonc check ./lib/hello.mbt -o ./_build/wasm-gc/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check ./main/main.mbt -o ./_build/wasm-gc/debug/check/main/main.mi -pkg username/hello/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json

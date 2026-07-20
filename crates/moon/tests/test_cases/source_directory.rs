@@ -71,12 +71,12 @@ fn test_specify_source_dir_with_deps() {
     let dir = TestDir::new("specify_source_dir_with_deps_001.in");
     assert_dry_run_graph(
         &dir,
-        ["check", "--dry-run", "--sort-input"],
+        ["check", "--target", "wasm-gc", "--dry-run", "--sort-input"],
         expect_file!["./specify_source_dir_with_deps_001.in/check_graph.jsonl.snap"],
     );
     assert_dry_run_graph(
         &dir,
-        ["test", "--dry-run", "--sort-input"],
+        ["test", "--target", "wasm-gc", "--dry-run", "--sort-input"],
         expect_file!["./specify_source_dir_with_deps_001.in/test_graph.jsonl.snap"],
     );
 

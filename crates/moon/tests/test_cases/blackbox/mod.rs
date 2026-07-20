@@ -14,7 +14,14 @@ fn test_blackbox_test_core_override() {
     let graph = dir.join("out.jsonl");
     let output = snap_dry_run_graph(
         &dir,
-        ["test", "--enable-coverage", "--dry-run", "--sort-input"],
+        [
+            "test",
+            "--target",
+            "wasm-gc",
+            "--enable-coverage",
+            "--dry-run",
+            "--sort-input",
+        ],
         &graph,
     );
     compare_graphs(
@@ -51,6 +58,8 @@ fn test_blackbox_success() {
         &dir,
         [
             "test",
+            "--target",
+            "wasm-gc",
             "-p",
             "username/hello/A",
             "--file",
@@ -73,6 +82,8 @@ fn test_blackbox_success() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "-p",
                 "username/hello/A",
                 "--file",
@@ -90,7 +101,7 @@ fn test_blackbox_success() {
     );
 
     check(
-        get_stdout(&dir, ["test"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc"]),
         expect![[r#"
             output from A/hello.mbt!
             output from C/hello.mbt!
@@ -101,7 +112,11 @@ fn test_blackbox_success() {
     );
 
     let graph_2 = dir.join("check.jsonl");
-    let _output_2 = snap_dry_run_graph(&dir, ["check", "--sort-input", "--dry-run"], &graph_2);
+    let _output_2 = snap_dry_run_graph(
+        &dir,
+        ["check", "--target", "wasm-gc", "--sort-input", "--dry-run"],
+        &graph_2,
+    );
     compare_graphs(
         &graph_2,
         expect_file!["test_blackbox_success_check.jsonl.snap"],
@@ -109,7 +124,7 @@ fn test_blackbox_success() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["check", "--sort-input"])
+        .args(["check", "--target", "wasm-gc", "--sort-input"])
         .assert()
         .success();
 

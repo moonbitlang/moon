@@ -30,7 +30,14 @@ fn expected_wasm_gc_packages(packages: &[&str]) -> Vec<PlannedPackageRun> {
 }
 
 fn expect_build_packages(fixture: &PlanningFixture, path: &str, expected: &[&str]) {
-    let (cli, cmd) = parse_build_command(&["build", path, "--dry-run", "--sort-input"]);
+    let (cli, cmd) = parse_build_command(&[
+        "build",
+        path,
+        "--target",
+        "wasm-gc",
+        "--dry-run",
+        "--sort-input",
+    ]);
     let runs = fixture
         .plan_build_all_with_cli(&cli, &cmd)
         .expect("build path filter should plan");
@@ -41,7 +48,14 @@ fn expect_build_packages(fixture: &PlanningFixture, path: &str, expected: &[&str
 }
 
 fn expect_check_packages(fixture: &PlanningFixture, path: &str, expected: &[&str]) {
-    let (cli, cmd) = parse_check_command(&["check", path, "--dry-run", "--sort-input"]);
+    let (cli, cmd) = parse_check_command(&[
+        "check",
+        path,
+        "--target",
+        "wasm-gc",
+        "--dry-run",
+        "--sort-input",
+    ]);
     let runs = fixture
         .plan_check_all_with_cli(&cli, &cmd)
         .expect("check path filter should plan");
@@ -52,7 +66,14 @@ fn expect_check_packages(fixture: &PlanningFixture, path: &str, expected: &[&str
 }
 
 fn expect_bench_packages(fixture: &PlanningFixture, path: &str, expected: &[&str]) {
-    let (cli, cmd) = parse_bench_command(&["bench", path, "--dry-run", "--sort-input"]);
+    let (cli, cmd) = parse_bench_command(&[
+        "bench",
+        path,
+        "--target",
+        "wasm-gc",
+        "--dry-run",
+        "--sort-input",
+    ]);
     let runs = fixture
         .plan_bench_all_with_cli(&cli, &cmd)
         .expect("bench path filter should plan");

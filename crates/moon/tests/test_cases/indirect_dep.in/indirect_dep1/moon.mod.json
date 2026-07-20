@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "keywords": [],
   "description": "",
+  "preferred-target": "wasm-gc",
   "deps": {
     "username/sub": {
       "path": "./sub"

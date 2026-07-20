@@ -9,11 +9,11 @@ fn implement_third_party1() {
     let dir = TestDir::new("virtual_pkg2.in/p");
     assert_dry_run_graph(
         &dir,
-        ["check", ".", "--dry-run"],
+        ["check", "--target", "wasm-gc", ".", "--dry-run"],
         expect_file!["./check_graph.jsonl"],
     );
 
-    let s = get_stderr(&dir, ["check", "."]);
+    let s = get_stderr(&dir, ["check", "--target", "wasm-gc", "."]);
     check(
         s,
         expect![[r#"
@@ -78,11 +78,11 @@ fn implement_third_party2() {
     let dir = TestDir::new("virtual_pkg2.in/p");
     assert_dry_run_graph(
         &dir,
-        ["build", "--dry-run"],
+        ["build", "--target", "wasm-gc", "--dry-run"],
         expect_file!["./build_graph.jsonl"],
     );
 
-    let s = get_stderr(&dir, ["build"]);
+    let s = get_stderr(&dir, ["build", "--target", "wasm-gc"]);
     check(
         s,
         expect![[r#"

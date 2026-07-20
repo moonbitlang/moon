@@ -164,15 +164,6 @@ impl BuildRunExecutableOptions {
         }
     }
 
-    fn for_inline_run(cli: &UniversalFlags) -> Self {
-        Self {
-            try_tcc_run: !cli.dry_run,
-            print_dry_run_run_command: true,
-            output: RunOutputVerbosity::from_flags(cli),
-            default_target_backend: TargetBackend::Native,
-        }
-    }
-
     pub(crate) fn for_profile(cli: &UniversalFlags) -> Self {
         Self {
             // Profiling needs a stable executable path for xctrace to launch.
@@ -262,7 +253,7 @@ fn run_inline_source_as_single_file(
         source,
         "command.mbtx",
         "command",
-        BuildRunExecutableOptions::for_inline_run(cli),
+        BuildRunExecutableOptions::for_run(cli),
     )
 }
 

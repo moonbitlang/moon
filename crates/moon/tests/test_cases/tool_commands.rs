@@ -147,7 +147,7 @@ fn test_moonfmt() {
 fn test_diff_mbti() {
     let dir = TestDir::new("diff_mbti.in");
     let content = get_stdout(&dir, ["info", "--target", "all"]);
-    assert!(content.contains("$ROOT/_build/wasm-gc/debug/check/lib/lib.mbti"));
+    assert!(content.contains("$ROOT/_build/wasm/debug/check/lib/lib.mbti"));
     assert!(content.contains("$ROOT/_build/js/debug/check/lib/lib.mbti"));
     assert!(content.contains("-pub fn aaa() -> String"));
     assert!(content.contains("+pub fn a() -> String"));

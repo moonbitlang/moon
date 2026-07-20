@@ -32,9 +32,7 @@ fn whitespace_cli_variants_resolve_to_same_main_package_intention() {
     };
 
     for args in [
-        &["build", "--dry-run", "--nostd"][..],
-        &["build", "--dry-run", "--debug", "--nostd"],
-        &["build", "--dry-run", "--target", "wasm-gc", "--nostd"],
+        &["build", "--dry-run", "--target", "wasm-gc", "--nostd"][..],
         &[
             "build",
             "--dry-run",
@@ -53,8 +51,6 @@ fn whitespace_cli_variants_resolve_to_same_main_package_intention() {
     }
 
     for args in [
-        &["run", "main exe", "--dry-run", "--nostd"][..],
-        &["run", "main exe", "--dry-run", "--debug", "--nostd"],
         &[
             "run",
             "main exe",
@@ -62,7 +58,7 @@ fn whitespace_cli_variants_resolve_to_same_main_package_intention() {
             "--target",
             "wasm-gc",
             "--nostd",
-        ],
+        ][..],
         &[
             "run",
             "main exe",

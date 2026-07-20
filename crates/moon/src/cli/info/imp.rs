@@ -122,7 +122,7 @@ pub(super) fn plan_info_outputs(
 ///
 /// 1. Module's `preferred-backend` (if set in `moon.mod.json`)
 /// 2. Workspace's `preferred-backend` (if set in `moon.work`)
-/// 3. `wasm-gc` (default fallback)
+/// 3. `wasm` (default fallback)
 ///
 /// Note: If a package's `supported-targets` does NOT include the canonical backend,
 /// no `.mbti` file will be written. Users should set `preferred-backend` on the

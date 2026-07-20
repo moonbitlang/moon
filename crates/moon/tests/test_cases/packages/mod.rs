@@ -20,7 +20,10 @@ fn test_error_duplicate_alias() {
 fn test_core_order() {
     let dir = TestDir::new("packages/core_order");
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
+        get_stdout(
+            &dir,
+            ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
+        ),
         expect![[r#"
             moonc build-package ./T/t.mbt -o ./_build/wasm-gc/debug/build/T/T.core -pkg lijunchen/hello/T -pkg-type library -pkg-sources lijunchen/hello/T:./T -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./B/b.mbt -o ./_build/wasm-gc/debug/build/B/B.core -pkg lijunchen/hello/B -pkg-type library -i ./_build/wasm-gc/debug/build/T/T.mi:T -pkg-sources lijunchen/hello/B:./B -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json

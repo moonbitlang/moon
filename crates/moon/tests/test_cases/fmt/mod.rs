@@ -84,7 +84,7 @@ fn test_moon_fmt_002() {
     check(
         read(
             dir.join(BUILD_DIR)
-                .join(TargetBackend::default().to_dir_name())
+                .join(TargetBackend::WasmGC.to_dir_name())
                 .join("release")
                 .join("format")
                 .join("lib")
@@ -100,7 +100,7 @@ fn test_moon_fmt_002() {
     check(
         read(
             dir.join(BUILD_DIR)
-                .join(TargetBackend::default().to_dir_name())
+                .join(TargetBackend::WasmGC.to_dir_name())
                 .join("release")
                 .join("format")
                 .join("main")

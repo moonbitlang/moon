@@ -10,7 +10,7 @@ fn dummy_core_writes_packages_json_for_selected_target() {
     let dir = dunce::canonicalize(test_dir.as_ref()).unwrap();
 
     moon_cmd(&dir)
-        .args(["check", "--sort-input"])
+        .args(["check", "--target", "wasm-gc", "--sort-input"])
         .assert()
         .success();
 
@@ -41,7 +41,14 @@ fn dummy_core_bundle_dry_run_matches_snapshots() {
     let test_coverage_dry_run_dump_file = test_dir.join("test_coverage.jsonl");
     get_stdout_with_envs(
         &dir,
-        ["test", "--dry-run", "--enable-coverage", "--sort-input"],
+        [
+            "test",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--enable-coverage",
+            "--sort-input",
+        ],
         [(ENV_VAR, &test_coverage_dry_run_dump_file)],
     );
     compare_graphs(
@@ -52,7 +59,7 @@ fn dummy_core_bundle_dry_run_matches_snapshots() {
     let bundle_dry_run_dump_file = test_dir.join("bundle_dry_run.jsonl");
     get_stdout_with_envs(
         &dir,
-        ["bundle", "--dry-run", "--sort-input"],
+        ["bundle", "--target", "wasm-gc", "--dry-run", "--sort-input"],
         [(ENV_VAR, &bundle_dry_run_dump_file)],
     );
     compare_graphs(

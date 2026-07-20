@@ -90,7 +90,7 @@ fn snapshot_layout_and_files(root: &Path) -> String {
 fn test_moon_run_main() {
     let dir = TestDir::new("moon_new/plain");
     check(
-        get_stdout(&dir, ["run", "main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
@@ -112,6 +112,8 @@ fn test_moon_new() {
                 "-C",
                 "./hello",
                 "run",
+                "--target",
+                "wasm-gc",
                 "--target-dir",
                 "./hello/target",
                 "cmd/main",
@@ -129,6 +131,8 @@ fn test_moon_new() {
                 "-C",
                 "./hello",
                 "run",
+                "--target",
+                "wasm-gc",
                 "--target-dir",
                 "./target",
                 "cmd/main",
@@ -146,6 +150,8 @@ fn test_moon_new() {
                 "-C",
                 "./hello",
                 "run",
+                "--target",
+                "wasm-gc",
                 "--target-dir",
                 "./target",
                 "cmd/main",
@@ -178,7 +184,10 @@ fn test_moon_new_allows_pkg_id_project_names() {
     }
 
     check(
-        get_stdout(&dir.join("good0"), ["run", "cmd/main"]),
+        get_stdout(
+            &dir.join("good0"),
+            ["run", "--target", "wasm-gc", "cmd/main"],
+        ),
         expect![[r#"
             Hello
         "#]],
@@ -244,7 +253,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        get_stdout(&hello1, ["run", "cmd/main"]),
+        get_stdout(&hello1, ["run", "--target", "wasm-gc", "cmd/main"]),
         expect![[r#"
             Hello
         "#]],
@@ -259,7 +268,7 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        get_stdout(&hello2, ["run", "cmd/main"]),
+        get_stdout(&hello2, ["run", "--target", "wasm-gc", "cmd/main"]),
         expect![[r#"
             Hello
         "#]],
@@ -276,13 +285,13 @@ fn test_moon_new_new() {
         .assert()
         .success();
     check(
-        get_stdout(&hello3, ["test", "-v"]),
+        get_stdout(&hello3, ["test", "--target", "wasm-gc", "-v"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0.
         "#]],
     );
     check(
-        get_stdout(&hello3, ["test"]),
+        get_stdout(&hello3, ["test", "--target", "wasm-gc"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0.
         "#]],
@@ -301,7 +310,7 @@ fn test_moon_new_new() {
         expect![[""]],
     );
     check(
-        get_stdout(&hello4, ["test", "-v"]),
+        get_stdout(&hello4, ["test", "--target", "wasm-gc", "-v"]),
         expect![[r#"
             Total tests: 0, passed: 0, failed: 0.
         "#]],
