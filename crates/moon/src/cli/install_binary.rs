@@ -23,7 +23,10 @@ use moonbuild_rupes_recta::{
     intent::UserIntent,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
 };
-use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
+use mooncake::{
+    pkg::sync::SyncOutputOptions,
+    registry::{OnlineRegistry, Registry, path as registry_path},
+};
 use moonutil::{
     build_options::RunMode,
     cli_support::UniversalFlags,
@@ -477,6 +480,7 @@ fn prepare_native_build(
     module_name: &ModuleName,
     module_dir: &Path,
     package_dirs: PackageDirs,
+    sync_output: SyncOutputOptions,
     filter: PackageFilter,
 ) -> anyhow::Result<PreparedNativeBuild> {
     let module_dir = dunce::canonicalize(module_dir).with_context(|| {
@@ -491,7 +495,8 @@ fn prepare_native_build(
     let project_manifest = package_dirs.project_manifest;
 
     let resolve_cfg =
-        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
+        ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
+            .with_sync_output(sync_output);
     let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
@@ -654,6 +659,7 @@ fn build_native_executable_to(
         module_name,
         module_dir,
         package_dirs,
+        SyncOutputOptions::new(!cli.verbose, cli.verbose),
         PackageFilter::package_path(package_path.to_string(), false),
     )?;
     let pkg = prepared
@@ -712,7 +718,7 @@ pub(super) fn build_registry_native_executable_to(
     let source = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     // Moonx needs the sources for its temporary build, but must not run package
     // installation hooks or let acquisition progress precede program stdout.
-    OnlineRegistry::mooncakes_io().extract_to(module_name, version, source.path(), true)?;
+    OnlineRegistry::mooncakes_io().extract_to(module_name, version, source.path(), !verbose)?;
 
     let cli = UniversalFlags {
         source_tgt_dir: SourceTargetDirs {
@@ -770,7 +776,14 @@ fn build_and_install_packages(
 ) -> anyhow::Result<i32> {
     let quiet = cli.quiet;
     let output = UserDiagnostics::from_flags(cli);
-    let prepared = prepare_native_build(cli, module_name, module_dir, package_dirs, filter)?;
+    let prepared = prepare_native_build(
+        cli,
+        module_name,
+        module_dir,
+        package_dirs,
+        SyncOutputOptions::new(cli.quiet, cli.verbose),
+        filter,
+    )?;
 
     if cli.dry_run {
         let mut dry_run_count = 0;
