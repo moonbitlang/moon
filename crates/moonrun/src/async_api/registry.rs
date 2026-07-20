@@ -26,7 +26,7 @@ use super::context::{
 use super::provenance::{PortedImport, SourceLocation, SourceRoot};
 use super::{
     c_buffer, env_util, event_bus, event_loop, fd_util, fs, io, os_error, os_string, process,
-    runtime, signal, socket, stdio, thread_pool, time, tls,
+    random, runtime, signal, socket, stdio, thread_pool, time, tls,
 };
 
 pub(crate) const MOONBIT_ASYNC_MODULE: &str = "moonbitlang/async";
@@ -366,6 +366,10 @@ declare_async_imports! {
 
     // Time helpers.
     helper time::get_ms_since_epoch() -> u64 => "time/get_ms_since_epoch";
+
+    // Cryptographically secure random bytes. Like the other native-style
+    // helpers, this returns 0 on success and -1 after recording errno.
+    helper random::fill(buffer: i32, length: i32) -> i32 => "random/fill";
 
     // os_error/stub.c predicates, errno accessors, and string formatting.
     ported os_error::get_errno() -> i32 => "os_error/get_errno";

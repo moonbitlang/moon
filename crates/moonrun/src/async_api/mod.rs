@@ -37,6 +37,7 @@ mod os_error;
 mod os_string;
 mod process;
 mod provenance;
+mod random;
 mod registry;
 mod runtime;
 mod signal;

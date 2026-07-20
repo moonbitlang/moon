@@ -62,6 +62,7 @@ pub(crate) mod tls;
 pub(crate) enum AsyncHostError {
     Fault,
     Inval,
+    Io,
     Badf,
     PermissionDenied,
     Native(i32),
@@ -96,18 +97,21 @@ mod native_errno {
     pub(crate) const ACCESS: i32 = libc::EACCES;
     pub(crate) const FAULT: i32 = libc::EFAULT;
     pub(crate) const INVAL: i32 = libc::EINVAL;
+    pub(crate) const IO: i32 = libc::EIO;
 }
 
 #[cfg(windows)]
 mod native_errno {
     use windows_sys::Win32::Foundation::{
-        ERROR_ACCESS_DENIED, ERROR_INVALID_ADDRESS, ERROR_INVALID_HANDLE, ERROR_INVALID_PARAMETER,
+        ERROR_ACCESS_DENIED, ERROR_GEN_FAILURE, ERROR_INVALID_ADDRESS, ERROR_INVALID_HANDLE,
+        ERROR_INVALID_PARAMETER,
     };
 
     pub(crate) const ACCESS: i32 = ERROR_ACCESS_DENIED as i32;
     pub(crate) const BADF: i32 = ERROR_INVALID_HANDLE as i32;
     pub(crate) const FAULT: i32 = ERROR_INVALID_ADDRESS as i32;
     pub(crate) const INVAL: i32 = ERROR_INVALID_PARAMETER as i32;
+    pub(crate) const IO: i32 = ERROR_GEN_FAILURE as i32;
 }
 
 impl AsyncHostError {
@@ -115,6 +119,7 @@ impl AsyncHostError {
         match self {
             Self::Fault => native_errno::FAULT,
             Self::Inval => native_errno::INVAL,
+            Self::Io => native_errno::IO,
             Self::Badf => native_errno::BADF,
             Self::PermissionDenied => native_errno::ACCESS,
             Self::Native(errno) => errno,

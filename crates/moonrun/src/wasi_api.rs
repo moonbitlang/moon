@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::v8_builder::ScopeExt;
+use rand::{RngCore, rngs::OsRng};
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::fs;
@@ -755,6 +756,25 @@ fn set_memory(
             .map_err(|_| WASI_ERRNO_INVAL)?;
         let _ = context.memory.set(v8::Global::new(scope, memory));
         Ok(())
+    })();
+    finish_with_result(&mut ret, result);
+}
+
+fn random_get(
+    scope: &mut v8::HandleScope,
+    args: v8::FunctionCallbackArguments,
+    mut ret: v8::ReturnValue,
+) {
+    let result = (|| -> WasiResult<()> {
+        let buffer = read_i32_arg(scope, &args, 0)?;
+        let length = read_i32_arg(scope, &args, 1)?;
+        let context = callback_context(&args);
+        with_wasi_memory_mut(scope, context, |memory| {
+            let offset = ptr_to_offset(buffer)?;
+            let length = usize::try_from(length).map_err(|_| WASI_ERRNO_FAULT)?;
+            let destination = checked_mut_range(memory, offset, length)?;
+            OsRng.try_fill_bytes(destination).map_err(|_| WASI_ERRNO_IO)
+        })
     })();
     finish_with_result(&mut ret, result);
 }
@@ -1821,6 +1841,7 @@ pub(crate) fn init_env<'s>(
     set_wasi_func!(obj, scope, context_ptr, args_sizes_get);
     set_wasi_func!(obj, scope, context_ptr, environ_get);
     set_wasi_func!(obj, scope, context_ptr, environ_sizes_get);
+    set_wasi_func!(obj, scope, context_ptr, random_get);
     set_wasi_func!(obj, scope, context_ptr, fd_read);
     set_wasi_func!(obj, scope, context_ptr, fd_write);
     set_wasi_func!(obj, scope, context_ptr, fd_close);
