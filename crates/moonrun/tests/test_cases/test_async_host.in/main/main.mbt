@@ -44,6 +44,22 @@ fn get_process_result(
 fn ms_since_epoch() -> UInt64 = "moonbitlang/async" "time/get_ms_since_epoch"
 
 ///|
+#unsafe_skip_stub_check
+#borrow(buffer)
+fn random_fill(
+  buffer : FixedArray[Byte],
+  length : Int,
+) -> Int = "moonbitlang/async" "random/fill"
+
+///|
+#unsafe_skip_stub_check
+#borrow(buffer)
+fn wasi_random_get(
+  buffer : FixedArray[Byte],
+  length : Int,
+) -> Int = "wasi_snapshot_preview1" "random_get"
+
+///|
 fn event_bus_create() -> UInt64 = "moonbitlang/async" "event_bus/create"
 
 ///|
@@ -167,6 +183,41 @@ fn main {
   assert_true(before > 1_600_000_000_000, "time is not Unix epoch milliseconds")
   let after = ms_since_epoch()
   assert_true(after >= before, "time moved backwards")
+  let random_bytes = FixedArray::make(32, b'\x00')
+  assert_true(
+    random_fill(random_bytes, random_bytes.length()) == 0,
+    "secure random fill failed",
+  )
+  let mut random_byte_changed = false
+  for byte in random_bytes {
+    if byte != b'\x00' {
+      random_byte_changed = true
+      break
+    }
+  }
+  assert_true(random_byte_changed, "secure random fill wrote only zeroes")
+  assert_true(
+    random_fill(random_bytes, 2_147_483_647) == -1,
+    "invalid async random range did not use the native error convention",
+  )
+  assert_true(get_errno() != 0, "async random failure did not record errno")
+  let wasi_random_bytes = FixedArray::make(32, b'\x00')
+  assert_true(
+    wasi_random_get(wasi_random_bytes, wasi_random_bytes.length()) == 0,
+    "WASI random_get failed",
+  )
+  let mut wasi_random_byte_changed = false
+  for byte in wasi_random_bytes {
+    if byte != b'\x00' {
+      wasi_random_byte_changed = true
+      break
+    }
+  }
+  assert_true(wasi_random_byte_changed, "WASI random_get wrote only zeroes")
+  assert_true(
+    wasi_random_get(wasi_random_bytes, 2_147_483_647) == 21,
+    "invalid WASI random range did not return WASI errno.fault",
+  )
   let message_buf = errno_to_string(2)
   let message_len = os_string_decode_len(message_buf, 0, -1)
   assert_true(message_len > 0, "errno string size query failed")
