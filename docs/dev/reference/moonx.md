@@ -24,7 +24,6 @@ The supported options are:
 ```text
 --target <wasm|native>        # defaults to wasm
 --experimental-policy <PATH> # wasm only
--q, --quiet
 -v, --verbose
 -h, --help
 -V, --version
@@ -82,6 +81,11 @@ directory.
 Source acquisition for `moonx` does not execute the downloaded module's
 `scripts.postadd` hook. Normal registry installation retains its existing
 postadd behavior.
+
+By default, `moonx` emits no informational output of its own. With `--verbose`,
+registry acquisition, build progress, and execution details are written to
+stderr. Stdout remains reserved for the delegated program, whose standard
+streams are inherited unchanged.
 
 The Cached Executable Artifact is keyed by the resolved module version, package
 path, and Target Backend. A cache hit executes it directly; Moon toolchain

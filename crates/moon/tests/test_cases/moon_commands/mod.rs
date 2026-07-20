@@ -11,6 +11,50 @@ fn moonx_bin(bin_dir: &tempfile::TempDir) -> std::path::PathBuf {
     moonx
 }
 
+fn cache_registry_package(
+    moon_home: &std::path::Path,
+    name: &str,
+    version: &str,
+    files: &[(&str, Vec<u8>)],
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (path, contents) in files {
+        archive
+            .start_file(*path, zip::write::FileOptions::default())
+            .unwrap();
+        archive.write_all(contents).unwrap();
+    }
+    let zip = archive.finish().unwrap().into_inner();
+
+    let (username, package) = name.split_once('/').unwrap();
+    let zip_path = moon_home
+        .join("registry/cache")
+        .join(username)
+        .join(package)
+        .join(format!("{version}.zip"));
+    std::fs::create_dir_all(zip_path.parent().unwrap()).unwrap();
+    std::fs::write(&zip_path, &zip).unwrap();
+
+    let index_path = moon_home
+        .join("registry/index/user")
+        .join(username)
+        .join(format!("{package}.index"));
+    std::fs::create_dir_all(index_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &index_path,
+        format!(
+            "{{\"name\":\"{name}\",\"version\":\"{version}\",\"checksum\":\"{:x}\"}}\n",
+            Sha256::digest(&zip)
+        ),
+    )
+    .unwrap();
+
+    (zip_path, index_path)
+}
+
 #[test]
 fn test_moon_cmd() {
     let dir = TestDir::new("moon_commands");
@@ -116,8 +160,7 @@ Arguments:
 Options:
       --target <TARGET>             [default: wasm] [possible values: wasm, native]
       --experimental-policy <PATH>  Experimental moonrun policy file; only valid for wasm
-  -q, --quiet                       Suppress output
-  -v, --verbose                     Increase verbosity
+  -v, --verbose                     Show progress and execution details
   -h, --help                        Print help
   -V, --version                     Print version
 
@@ -181,46 +224,28 @@ native
 }
 
 #[test]
-fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
-    use sha2::{Digest, Sha256};
-    use std::io::Write;
-
+fn test_moonx_native_output_and_cache_contract() {
     let fixture = TestDir::new("moonx_registry_native.in");
     let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
-    let zip_path = moon_home
-        .path()
-        .join("registry/cache/testuser/runner/1.2.3.zip");
-    std::fs::create_dir_all(zip_path.parent().unwrap()).unwrap();
-
-    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    let options = zip::write::FileOptions::default();
-    for relative in [
+    let runner_files = [
         "moon.mod.json",
         "src/lib/moon.pkg.json",
         "src/lib/lib.mbt",
         "src/tool/moon.pkg.json",
         "src/tool/main.mbt",
-    ] {
-        archive.start_file(relative, options).unwrap();
-        archive
-            .write_all(&std::fs::read(fixture.join(relative)).unwrap())
-            .unwrap();
-    }
-    let zip = archive.finish().unwrap().into_inner();
-    std::fs::write(&zip_path, &zip).unwrap();
-
-    let index_path = moon_home
-        .path()
-        .join("registry/index/user/testuser/runner.index");
-    std::fs::create_dir_all(index_path.parent().unwrap()).unwrap();
-    std::fs::write(
-        &index_path,
-        format!(
-            "{{\"name\":\"testuser/runner\",\"version\":\"1.2.3\",\"checksum\":\"{:x}\"}}\n",
-            Sha256::digest(&zip)
-        ),
-    )
-    .unwrap();
+    ]
+    .map(|path| (path, std::fs::read(fixture.join(path)).unwrap()));
+    let (zip_path, index_path) =
+        cache_registry_package(moon_home.path(), "testuser/runner", "1.2.3", &runner_files);
+    cache_registry_package(
+        moon_home.path(),
+        "testuser/dependency",
+        "1.0.0",
+        &[(
+            "moon.mod.json",
+            br#"{"name":"testuser/dependency","version":"1.0.0"}"#.to_vec(),
+        )],
+    );
 
     let bin_dir = tempfile::TempDir::new().expect("failed to create moonx bin directory");
     let moonx = moonx_bin(&bin_dir);
@@ -229,7 +254,7 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
         .current_dir(&fixture)
         .env("MOON_HOME", moon_home.path())
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .args(["--quiet", "--target", "native", "testuser/runner@1.2.3"])
+        .args(["--target", "native", "testuser/runner@1.2.3"])
         .assert()
         .failure()
         .stdout_eq("")
@@ -242,7 +267,7 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
         .current_dir(&fixture)
         .env("MOON_HOME", moon_home.path())
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .args(["--quiet", "--target", "native", "testuser/runner/lib@1.2.3"])
+        .args(["--target", "native", "testuser/runner/lib@1.2.3"])
         .assert()
         .failure()
         .stdout_eq("")
@@ -264,16 +289,43 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
             ])
             .assert()
             .success()
-            .stdout_eq("native runner\n--child-arg\n");
+            .stdout_eq("native runner\n--child-arg\n")
+            .stderr_eq(snapbox::str![[r#"
+...
+
+"#]]);
     };
 
+    let executable = moon_home
+        .path()
+        .join("registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe");
+    snapbox::cmd::Command::new(&moonx)
+        .current_dir(&fixture)
+        .env("MOON_HOME", moon_home.path())
+        .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
+        .args([
+            "--verbose",
+            "--target",
+            "native",
+            "testuser/runner/tool@1.2.3",
+            "--child-arg",
+        ])
+        .assert()
+        .success()
+        .stdout_eq("native runner\n--child-arg\n")
+        .stderr_eq(snapbox::str![[r#"
+Using cached testuser/runner@1.2.3
+Using cached testuser/dependency@1.0.0
+Info: Building `testuser/runner/tool`...
+...
+Finished. moon: ran 4 tasks, now up to date
+'$MOON_HOME/registry/cache/assets/testuser/runner/1.2.3/tool/tool[..]' --child-arg
+
+"#]]);
+
+    std::fs::remove_file(&executable).unwrap();
     run();
-    assert!(
-        moon_home
-            .path()
-            .join("registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe")
-            .is_file()
-    );
+    assert!(executable.is_file());
     std::fs::remove_file(&zip_path).unwrap();
     std::fs::remove_file(&index_path).unwrap();
     run();

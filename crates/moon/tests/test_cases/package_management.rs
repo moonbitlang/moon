@@ -66,8 +66,14 @@ fn mooncakes_io_smoke_test() {
     );
 
     std::fs::remove_dir_all(&mooncakes_dir).unwrap();
-    let out = get_stdout(&dir, ["install"]);
-    let mut lines = out.lines().collect::<Vec<_>>();
+    let assert = moon_cmd(&dir).arg("install").assert().success();
+    let output = assert.get_output();
+    assert!(output.stdout.is_empty());
+    let mut lines = std::str::from_utf8(&output.stderr)
+        .unwrap()
+        .lines()
+        .filter(|line| line.starts_with("Using cached "))
+        .collect::<Vec<_>>();
     lines.sort();
     check(
         lines.join("\n"),
