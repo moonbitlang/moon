@@ -28,7 +28,6 @@ use anyhow::bail;
 use indexmap::map::IndexMap;
 use moonutil::{
     dependency::SourceDependencyInfo, registry::RegistryConfig, resolution::ModuleName,
-    scripts::execute_postadd_script,
 };
 use reqwest::header::USER_AGENT;
 use semver::Version;
@@ -129,7 +128,7 @@ impl super::Registry for OnlineRegistry {
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        self.install_to_impl(name, version, to, quiet)
+        self.extract_to(name, version, to, quiet)
     }
 }
 
@@ -234,18 +233,6 @@ impl OnlineRegistry {
         std::fs::create_dir_all(cache_file.parent().unwrap())?;
         std::fs::write(cache_file, &data)?;
         Ok(data)
-    }
-
-    pub fn install_to_impl(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        pkg_install_dir: &Path,
-        quiet: bool,
-    ) -> anyhow::Result<()> {
-        self.extract_to(name, version, pkg_install_dir, quiet)?;
-        execute_postadd_script(pkg_install_dir)?;
-        Ok(())
     }
 
     /// Download and extract a registry package without running `scripts.postadd`.

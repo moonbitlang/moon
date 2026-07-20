@@ -201,6 +201,7 @@ pub(crate) fn sync_deps(
     registry: &dyn Registry,
     pkg_list: &ResolvedEnv,
     quiet: bool,
+    on_postadd: &mut dyn FnMut(&Path, &ModuleSource) -> anyhow::Result<()>,
     frozen: bool,
     verbose: bool,
 ) -> anyhow::Result<()> {
@@ -265,6 +266,9 @@ pub(crate) fn sync_deps(
                 unreachable!()
             };
             registry.install_to(version.name(), version.version(), &pkg_path, quiet)?;
+            if moonutil::scripts::declared_postadd_script(&pkg_path)?.is_some() {
+                on_postadd(&pkg_path, version)?;
+            }
             // TODO: parallelize this
         }
     }

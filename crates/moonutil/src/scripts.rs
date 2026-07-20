@@ -61,15 +61,8 @@ pub fn execute_postadd_script(dir: &Path) -> anyhow::Result<()> {
     if is_moon_script_ignored(IgnoredMoonScript::Postadd) {
         return Ok(());
     }
-    let m = read_module_desc_file_in_dir(dir)?;
-    if let Some(scripts) = &m.scripts
-        && scripts.contains_key("postadd")
-    {
-        let postadd = scripts
-            .get("postadd")
-            .unwrap()
-            .split(' ')
-            .collect::<Vec<_>>();
+    if let Some(script) = declared_postadd_script(dir)? {
+        let postadd = script.split(' ').collect::<Vec<_>>();
         if !postadd.is_empty() {
             let command = postadd[0];
             let args = &postadd[1..];
@@ -90,4 +83,13 @@ pub fn execute_postadd_script(dir: &Path) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+pub fn declared_postadd_script(dir: &Path) -> anyhow::Result<Option<String>> {
+    let module = read_module_desc_file_in_dir(dir)?;
+    Ok(module
+        .scripts
+        .as_ref()
+        .and_then(|scripts| scripts.get("postadd"))
+        .cloned())
 }

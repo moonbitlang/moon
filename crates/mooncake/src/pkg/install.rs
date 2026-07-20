@@ -24,10 +24,14 @@ use crate::{
 
 use super::sync::SyncOutputOptions;
 use anyhow::Context;
+use colored::Colorize;
 use moonutil::{
     constants::MOONBITLANG_CORE,
-    resolution::{DependencyKind, DirSyncResult, ResolvedEnv, ResolvedRootModules},
+    resolution::{
+        DependencyKind, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv, ResolvedRootModules,
+    },
 };
+use semver::Version;
 use std::path::{Path, PathBuf};
 
 /// Install a binary package globally or install project dependencies (deprecated without args)
@@ -85,6 +89,26 @@ pub(crate) fn install_impl(
     dont_sync: bool,
     no_std: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
+    install_impl_with_postadd(
+        mooncakes_dir,
+        roots,
+        output_options,
+        verbose,
+        dont_sync,
+        no_std,
+        warn_ignored_postadd,
+    )
+}
+
+pub(crate) fn install_impl_with_postadd(
+    mooncakes_dir: &Path,
+    roots: ResolvedRootModules,
+    output_options: SyncOutputOptions,
+    verbose: bool,
+    dont_sync: bool,
+    no_std: bool,
+    mut on_postadd: impl FnMut(&Path, &ModuleSource) -> anyhow::Result<()>,
+) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let includes_core = roots
         .iter()
         .any(|(_, module)| module.module_info().name == MOONBITLANG_CORE);
@@ -105,6 +129,7 @@ pub(crate) fn install_impl(
         resolve_config.registry.as_ref(),
         &res,
         output_options.quiet(),
+        &mut on_postadd,
         dont_sync,
         output_options.verbose(),
     )
@@ -115,6 +140,21 @@ pub(crate) fn install_impl(
     install_bin_deps(verbose, &res, &dir_sync_result)?;
 
     Ok((res, dir_sync_result))
+}
+
+pub fn ignored_postadd_warning(name: &ModuleName, version: &Version) -> String {
+    format!(
+        "Package `{name}@{version}` declares deprecated `scripts.postadd`; the hook was not executed"
+    )
+}
+
+pub(crate) fn warn_ignored_postadd(_path: &Path, source: &ModuleSource) -> anyhow::Result<()> {
+    eprintln!(
+        "{}: {}",
+        "Warning".yellow().bold(),
+        ignored_postadd_warning(source.name(), source.version())
+    );
+    Ok(())
 }
 
 fn install_bin_deps(

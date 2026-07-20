@@ -274,6 +274,7 @@ pub(super) fn install_binary(
     let module_dir = tmp_dir.path();
 
     registry.install_to(&spec.module_name, &version, module_dir, quiet)?;
+    super::registry_runner::warn_ignored_postadd(module_dir, &spec.module_name, &version, output)?;
 
     let filter =
         PackageFilter::package_path(spec.package_path.clone().unwrap_or_default(), install_all);
@@ -713,6 +714,7 @@ pub(super) fn build_registry_native_executable_to(
     // Moonx needs the sources for its temporary build, but must not run package
     // installation hooks or let acquisition progress precede program stdout.
     OnlineRegistry::mooncakes_io().extract_to(module_name, version, source.path(), true)?;
+    super::registry_runner::warn_ignored_postadd(source.path(), module_name, version, output)?;
 
     let cli = UniversalFlags {
         source_tgt_dir: SourceTargetDirs {
