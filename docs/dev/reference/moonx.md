@@ -83,6 +83,10 @@ Source acquisition for `moonx` does not execute the downloaded module's
 `scripts.postadd` hook. Normal registry installation retains its existing
 postadd behavior.
 
+Normal `moonx` execution suppresses registry acquisition progress. With
+`--verbose`, progress is written to stderr; stdout remains reserved for the
+delegated program.
+
 The Cached Executable Artifact is keyed by the resolved module version, package
 path, and Target Backend. A cache hit executes it directly; Moon toolchain
 upgrades do not invalidate an existing cached executable. Source trees and
