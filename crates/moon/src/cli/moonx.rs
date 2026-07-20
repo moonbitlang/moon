@@ -50,11 +50,7 @@ pub(crate) struct MoonxCli {
     #[arg(long = "experimental-policy", value_name = "PATH")]
     pub experimental_policy: Option<PathBuf>,
 
-    /// Suppress output
-    #[arg(short = 'q', long)]
-    pub quiet: bool,
-
-    /// Increase verbosity
+    /// Show progress and execution details
     #[arg(short = 'v', long)]
     pub verbose: bool,
 
@@ -82,7 +78,9 @@ pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
 
 pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
     let cli = MoonxCli::try_parse_from(raw_args).unwrap_or_else(|err| err.exit());
-    let output = UserDiagnostics::new(cli.verbose, cli.quiet);
+    // moonx is a transparent runner unless the user explicitly requests details.
+    let quiet = !cli.verbose;
+    let output = UserDiagnostics::new(cli.verbose, quiet);
     let target = match cli.target {
         MoonxTarget::Wasm => RegistryRunTarget::Wasm {
             experimental_policy: cli.experimental_policy,
@@ -93,7 +91,7 @@ pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
         }
         MoonxTarget::Native => RegistryRunTarget::Native,
     };
-    match registry_runner::run(cli.package, target, cli.args, cli.quiet, cli.verbose) {
+    match registry_runner::run(cli.package, target, cli.args, quiet, cli.verbose) {
         Ok(code) => code,
         Err(err) => {
             output.error(format!("{:?}", err));
@@ -104,6 +102,8 @@ pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use clap::error::ErrorKind;
+
     use super::*;
 
     fn invoked_as(name: &str) -> bool {
@@ -126,5 +126,11 @@ mod tests {
     fn rejects_moon_executable_names() {
         assert!(!invoked_as("moon"));
         assert!(!invoked_as("moon.exe"));
+    }
+
+    #[test]
+    fn rejects_removed_quiet_option() {
+        let error = MoonxCli::try_parse_from(["moonx", "--quiet", "user/module"]).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnknownArgument);
     }
 }

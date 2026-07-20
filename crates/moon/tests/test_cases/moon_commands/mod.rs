@@ -116,8 +116,7 @@ Arguments:
 Options:
       --target <TARGET>             [default: wasm] [possible values: wasm, native]
       --experimental-policy <PATH>  Experimental moonrun policy file; only valid for wasm
-  -q, --quiet                       Suppress output
-  -v, --verbose                     Increase verbosity
+  -v, --verbose                     Show progress and execution details
   -h, --help                        Print help
   -V, --version                     Print version
 
@@ -229,7 +228,7 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
         .current_dir(&fixture)
         .env("MOON_HOME", moon_home.path())
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .args(["--quiet", "--target", "native", "testuser/runner@1.2.3"])
+        .args(["--target", "native", "testuser/runner@1.2.3"])
         .assert()
         .failure()
         .stdout_eq("")
@@ -242,7 +241,7 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
         .current_dir(&fixture)
         .env("MOON_HOME", moon_home.path())
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
-        .args(["--quiet", "--target", "native", "testuser/runner/lib@1.2.3"])
+        .args(["--target", "native", "testuser/runner/lib@1.2.3"])
         .assert()
         .failure()
         .stdout_eq("")
@@ -264,7 +263,8 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
             ])
             .assert()
             .success()
-            .stdout_eq("native runner\n--child-arg\n");
+            .stdout_eq("native runner\n--child-arg\n")
+            .stderr_eq("");
     };
 
     run();
@@ -283,8 +283,9 @@ fn test_moonx_native_skips_postadd_and_reuses_cached_executable() {
 fn test_moonx_native_dependency_download_stays_off_stdout() {
     use sha2::{Digest, Sha256};
     use std::{
-        io::{Read, Write},
+        io::{ErrorKind, Read, Write},
         net::TcpListener,
+        time::{Duration, Instant},
     };
 
     fn package_archive(manifest: &serde_json::Value, files: &[(&str, Vec<u8>)]) -> Vec<u8> {
@@ -362,9 +363,25 @@ fn test_moonx_native_dependency_download_stays_off_stdout() {
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
     let registry_url = format!("http://{}", listener.local_addr().unwrap());
     let server = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(connection) => break connection,
+                Err(err) if err.kind() == ErrorKind::WouldBlock && Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    panic!("timed out waiting for dependency download request");
+                }
+                Err(err) => panic!("failed to accept dependency download request: {err}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
         let mut request = [0; 4096];
         let _ = stream.read(&mut request).unwrap();
         write!(
