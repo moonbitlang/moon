@@ -314,8 +314,9 @@ fn test_moonx_native_output_and_cache_contract() {
 Using cached testuser/runner@1.2.3
 Using cached testuser/dependency@1.0.0
 Info: Building `testuser/runner/tool`...
+...
 Finished. moon: ran 4 tasks, now up to date
-'$MOON_HOME/registry/cache/assets/testuser/runner/1.2.3/tool/tool.exe' --child-arg
+'$MOON_HOME/registry/cache/assets/testuser/runner/1.2.3/tool/tool[..]' --child-arg
 
 "#]]);
 
