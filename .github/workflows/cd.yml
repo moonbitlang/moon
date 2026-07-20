@@ -20,6 +20,12 @@ name: CD
 
 on:
   workflow_dispatch:
+    inputs:
+      glibc-version:
+        description: Minimum glibc version for Linux x86_64 binaries
+        required: true
+        default: "2.23"
+        type: string
   push:
     branches:
       - main
@@ -71,49 +77,30 @@ jobs:
 
   ubuntu-build:
     runs-on: ubuntu-latest
-    container:
-      image: ubuntu:16.04
+    env:
+      LINUX_GLIBC_VERSION: ${{ inputs.glibc-version || '2.23' }}
+      LINUX_TARGET: x86_64-unknown-linux-gnu
     steps:
-      - name: Install dependencies
-        run: |
-          apt update && apt install -y software-properties-common curl unzip build-essential git sudo coreutils pkg-config libssl-dev
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
 
-      - name: Configure git
-        run: git config --global core.autocrlf false
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          targets: ${{ env.LINUX_TARGET }}
 
-      - name: Checkout
-        run: |
-          git clone --depth 1 "https://${{ secrets.MOON_CLONE_PAT }}@github.com/moonbitlang/moon.git" "$GITHUB_WORKSPACE"
-          git submodule update --init crates/moonutil/resources/error_codes
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
 
-      - name: Install Rustup
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf "https://sh.rustup.rs" | sh -s -- --default-toolchain none -y
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install cargo-zigbuild
+        run: cargo install --locked --version 0.22.1 cargo-zigbuild
 
-      - name: Install Rust
-        run: |
-          rustup toolchain install ${{ env.toolchain }} --profile minimal --no-self-update
-        env:
-          toolchain: 1.90.0
-
-      - name: Rust Version
-        run: |
-          cargo version
-          rustc --version
-
-      - run: |
-          git config --global --add safe.directory "$(pwd)"
-          git status
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release
-
-      - name: Setup AWS
-        run: |
-          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-          unzip awscliv2.zip
-          bash ./aws/install
+        run: cargo zigbuild --release --target "${LINUX_TARGET}.${LINUX_GLIBC_VERSION}"
 
       - name: Upload
         env:
@@ -122,5 +109,5 @@ jobs:
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         run: |
           version=$(echo "$GITHUB_SHA" | cut -c 1-9)
-          aws s3 cp target/release/moon "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
-          aws s3 cp target/release/moonrun "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
+          aws s3 cp "target/$LINUX_TARGET/release/moon" "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moon/$version/$(uname -s)-$(uname -m)/"
+          aws s3 cp "target/$LINUX_TARGET/release/moonrun" "s3://${{ secrets.AWS_BUCKET_NAME }}/bleeding-moonrun/$version/$(uname -s)-$(uname -m)/"
