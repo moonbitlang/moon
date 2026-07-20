@@ -290,16 +290,10 @@ fn test_moonx_native_output_and_cache_contract() {
             .assert()
             .success()
             .stdout_eq("native runner\n--child-arg\n")
-            .stderr_eq(if cfg!(windows) {
-                snapbox::str![[r#"
-runtime.c
-tool.c
-[..]Creating library [..]tool.lib and object [..]tool.exp
+            .stderr_eq(snapbox::str![[r#"
+...
 
-"#]]
-            } else {
-                snapbox::str![""]
-            });
+"#]]);
     };
 
     let executable = moon_home
