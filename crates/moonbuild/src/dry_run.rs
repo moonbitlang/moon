@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use n2::densemap::Index;
-use n2::graph::{BuildId, FileId, Graph};
+use n2::graph::{BuildId, FileId, Graph, RspFile};
 use std::{
     collections::{HashMap, HashSet},
     io::Write,
@@ -48,7 +48,8 @@ pub fn print_build_commands(
         for b in builds.iter() {
             let build = &graph.builds[*b];
             if let Some(cmdline) = build.cmdline.as_ref() {
-                println!("{}", replacer.normalize_command(cmdline));
+                let command = command_for_display(cmdline, build.rspfile.as_ref());
+                println!("{}", replacer.normalize_command(&command));
             }
             if let Some(cwd) = build.cwd.as_deref().map(Path::new) {
                 let resolved_cwd = if cwd.is_absolute() {
@@ -74,6 +75,23 @@ fn normalized_env_lines(env: &[(String, String)], replacer: &PathNormalizer) -> 
     env.iter()
         .map(|(key, value)| format!("{key}={}", replacer.normalize_command_arg(value)))
         .collect()
+}
+
+fn command_for_display(command: &str, rspfile: Option<&RspFile>) -> String {
+    let Some(rspfile) = rspfile else {
+        return command.to_owned();
+    };
+    let command_args = moonutil::shlex::split_native(command);
+    let [executable, flag, path] = command_args.as_slice() else {
+        return command.to_owned();
+    };
+    if flag != "-rsp-file" || Path::new(path) != rspfile.path {
+        return command.to_owned();
+    }
+
+    moonutil::shlex::join_native(
+        std::iter::once(executable.as_str()).chain(rspfile.content.lines()),
+    )
 }
 
 // FIXME: `PathNormalizer` is production-facing dry-run output formatting, not
@@ -293,10 +311,10 @@ fn generate_from_nodes(
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
-        let command = node
-            .cmdline
-            .as_ref()
-            .map(|cmd| replacer.normalize_command(cmd));
+        let command = node.cmdline.as_ref().map(|cmd| {
+            let command = command_for_display(cmd, node.rspfile.as_ref());
+            replacer.normalize_command(&command)
+        });
         let mut inputs = node
             .ins
             .ids
@@ -400,7 +418,31 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId]) -> Vec<BuildId> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PathNormalizer, normalized_env_lines};
+    use n2::graph::RspFile;
+
+    use super::{PathNormalizer, command_for_display, normalized_env_lines};
+
+    #[test]
+    fn dry_run_expands_moonc_response_file() {
+        let rspfile = RspFile {
+            path: "/build/pkg.core.rsp".into(),
+            content: "build-package\n/source/a.mbt\n-o\n/build/pkg.core\n".to_owned(),
+        };
+        let command = moonutil::shlex::join_native(
+            ["/tool/moonc", "-rsp-file", "/build/pkg.core.rsp"].into_iter(),
+        );
+
+        assert_eq!(
+            moonutil::shlex::split_native(&command_for_display(&command, Some(&rspfile))),
+            [
+                "/tool/moonc",
+                "build-package",
+                "/source/a.mbt",
+                "-o",
+                "/build/pkg.core",
+            ]
+        );
+    }
 
     #[test]
     fn normalizes_known_tool_exe_suffix_without_touching_native_outputs() {

@@ -26,7 +26,7 @@ use std::{
 };
 
 use moonutil::toolchain::{home, toolchain_root};
-use n2::graph::{BuildId, FileId};
+use n2::graph::{BuildId, FileId, RspFile};
 
 pub const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
 static DRY_RUN_TEST_OUTPUT: LazyLock<Option<String>> =
@@ -135,10 +135,10 @@ fn generate_from_nodes(
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
-        let command = node
-            .cmdline
-            .as_ref()
-            .map(|cmd| replacer.normalize_command(cmd));
+        let command = node.cmdline.as_ref().map(|cmd| {
+            let command = command_for_display(cmd, node.rspfile.as_ref());
+            replacer.normalize_command(&command)
+        });
         let mut inputs = node
             .ins
             .ids
@@ -172,6 +172,23 @@ fn generate_from_nodes(
     nodes.sort_by(|a, b| a.outputs.cmp(&b.outputs));
 
     BuildGraphDump { nodes }
+}
+
+fn command_for_display(command: &str, rspfile: Option<&RspFile>) -> String {
+    let Some(rspfile) = rspfile else {
+        return command.to_owned();
+    };
+    let command_args = moonutil::shlex::split_native(command);
+    let [executable, flag, path] = command_args.as_slice() else {
+        return command.to_owned();
+    };
+    if flag != "-rsp-file" || Path::new(path) != rspfile.path {
+        return command.to_owned();
+    }
+
+    moonutil::shlex::join_native(
+        std::iter::once(executable.as_str()).chain(rspfile.content.lines()),
+    )
 }
 
 pub struct PathNormalizer {
@@ -295,7 +312,31 @@ impl PathNormalizer {
 
 #[cfg(test)]
 mod tests {
-    use super::PathNormalizer;
+    use n2::graph::RspFile;
+
+    use super::{PathNormalizer, command_for_display};
+
+    #[test]
+    fn graph_dump_expands_moonc_response_file() {
+        let rspfile = RspFile {
+            path: "/build/pkg.core.rsp".into(),
+            content: "build-package\n/source/a.mbt\n-o\n/build/pkg.core\n".to_owned(),
+        };
+        let command = moonutil::shlex::join_native(
+            ["/tool/moonc", "-rsp-file", "/build/pkg.core.rsp"].into_iter(),
+        );
+
+        assert_eq!(
+            moonutil::shlex::split_native(&command_for_display(&command, Some(&rspfile))),
+            [
+                "/tool/moonc",
+                "build-package",
+                "/source/a.mbt",
+                "-o",
+                "/build/pkg.core",
+            ]
+        );
+    }
 
     #[test]
     fn normalizes_known_tool_exe_suffix_without_touching_native_outputs() {

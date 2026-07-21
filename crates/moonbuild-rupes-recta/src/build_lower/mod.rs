@@ -613,6 +613,86 @@ mod tests {
     }
 
     #[test]
+    fn oversized_moonc_command_uses_response_file_and_preserves_metadata_argv() {
+        let (resolve_output, target) = single_package_resolve_output();
+        let module_root = PathBuf::from("/tmp/username/hello");
+        let mut target_info = build_target_info();
+        for index in 0..400 {
+            target_info.regular_files.push(module_root.join(format!(
+                "main/{index:04}_a_deliberately_long_source_filename_for_response_file_testing.mbt"
+            )));
+        }
+
+        let mut plan = BuildPlan::default();
+        plan.test_add_node(BuildPlanNode::BuildCore(target));
+        plan.test_insert_build_target_info(target, target_info);
+
+        let artifact_paths = ArtifactPathResolver::new(
+            TargetLayout::new(
+                module_root.join("_build"),
+                TargetLayoutMode::Workspace,
+                OptLevel::Debug,
+                RunMode::Build,
+            ),
+            None,
+        );
+        let options = BuildOptions {
+            artifact_paths,
+            target_backend: RunBackend::WasmGC,
+            native_mode: NativeBackendMode::GeneratedC,
+            selected_backend: SelectedBackend::new(
+                RunBackend::WasmGC,
+                &NativeBackendMode::GeneratedC,
+                false,
+            ),
+            opt_level: OptLevel::Debug,
+            action: RunMode::Build,
+            debug_symbols: false,
+            enable_coverage: false,
+            output_wat: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            info_no_alias: false,
+            wasi_link: false,
+            stdlib_path: None,
+            lowering_environment: LoweringEnvironment::default(),
+        };
+
+        let action_plan = plan.build_action_plan();
+        let lowered = lower_build_plan(&resolve_output, &action_plan, &options)
+            .expect("lowering should succeed");
+        let build = lowered
+            .build_graph
+            .builds
+            .iter()
+            .find(|build| build.cmdline.is_some())
+            .expect("compiler action should be lowered");
+        let command = build
+            .cmdline
+            .as_deref()
+            .expect("compiler action should have a command line");
+        let rspfile = build
+            .rspfile
+            .as_ref()
+            .expect("oversized compiler command should use a response file");
+
+        let metadata_args = lowered
+            .command_args_by_output
+            .values()
+            .find(|args| args.get(1).is_some_and(|arg| arg == "build-package"))
+            .expect("absolute build-package argv should be retained for metadata");
+
+        assert!(command.len() < 1024, "response-file command was {command}");
+        assert!(command.contains("-rsp-file"));
+        assert!(rspfile.path.is_absolute());
+        assert_eq!(
+            rspfile.content.lines().collect::<Vec<_>>(),
+            metadata_args[1..]
+        );
+    }
+
+    #[test]
     fn lowered_windows_msvc_native_exe_command_contains_complete_link_shape() {
         let (resolve_output, target) = single_package_resolve_output();
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
