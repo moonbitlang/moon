@@ -438,6 +438,7 @@ pub(super) fn make_spawn_job_unix(
     has_cwd: i32,
 ) -> AsyncHostResult<u64> {
     let _ = inherited_env_entry_count;
+    let (args, env) = context.host.take_process_spawn_buffers(args, env)?;
     let path = read_guest_os_string(context, path, path_len)?;
     let cwd = if has_cwd == 0 {
         None
@@ -450,7 +451,6 @@ pub(super) fn make_spawn_job_unix(
     let options = thread_pool::SpawnOptions {
         child_signal_mask: context.host.thread_pool_child_signal_mask()?,
     };
-    let (args, env) = context.host.take_process_spawn_buffers(args, env)?;
     context.host.insert_job(thread_pool::make_spawn_job_unix(
         path,
         args,
@@ -480,6 +480,7 @@ pub(super) fn make_spawn_job_windows(
     no_console_window: i32,
     is_orphan: i32,
 ) -> AsyncHostResult<u64> {
+    let env = context.host.take_process_env(env)?;
     let command_line = read_guest_os_string(context, command_line, command_line_len)?;
     let cwd = if has_cwd == 0 {
         None
@@ -493,7 +494,6 @@ pub(super) fn make_spawn_job_windows(
         no_console_window: no_console_window != 0,
         is_orphan: is_orphan != 0,
     };
-    let env = context.host.take_process_env(env)?;
     context.host.insert_job(thread_pool::make_spawn_job_windows(
         command_line,
         env,

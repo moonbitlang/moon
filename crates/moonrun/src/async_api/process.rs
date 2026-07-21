@@ -126,7 +126,7 @@ pub(super) fn write_env_block(
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
-    context.host.process_env_write_block(dst, src)
+    context.host.transfer_process_env_block(dst, src)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_write_env_block")]
@@ -136,7 +136,7 @@ pub(super) fn write_env_block(
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
-    context.host.process_env_write_block(dst, src)
+    context.host.transfer_process_env_block(dst, src)
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_env_block_add_entry")]
