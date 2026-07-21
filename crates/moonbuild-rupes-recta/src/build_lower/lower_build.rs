@@ -430,7 +430,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: Commandline::moonc(cmd.build_command(&*BINARIES.moonc)),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 
@@ -491,7 +491,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: Commandline::moonc(cmd.build_command(&*BINARIES.moonc)),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 
@@ -571,7 +571,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: Commandline::moonc(cmd.build_command(&*BINARIES.moonc)),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 
@@ -676,7 +676,7 @@ impl<'a> LoweringContext<'a> {
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
         BuildCommand {
-            commandline: Commandline::moonc(cmd.build_command(&*BINARIES.moonc)),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
             extra_inputs,
         }
     }
@@ -794,7 +794,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs,
-            commandline: Commandline::moonc(cmd.build_command(&*BINARIES.moonc)),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 
@@ -1436,7 +1436,7 @@ impl<'a> LoweringContext<'a> {
         BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
             extra_inputs: vec![mbti_path.clone()],
-            commandline: Commandline::moonc(cmd.build_command(&*BINARIES.moonc)),
+            commandline: cmd.build_command(&*BINARIES.moonc).into(),
         }
     }
 

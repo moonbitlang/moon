@@ -135,14 +135,10 @@ fn generate_from_nodes(
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
-        let command = node.cmdline.as_ref().map(|cmd| {
-            let rspfile = node
-                .rspfile
-                .as_ref()
-                .map(|rspfile| (rspfile.path.as_path(), rspfile.content.as_str()));
-            let command = moonutil::moonc_response::command_for_display(cmd, rspfile);
-            replacer.normalize_command(&command)
-        });
+        let command = node
+            .cmdline
+            .as_ref()
+            .map(|cmd| replacer.normalize_command(cmd));
         let mut inputs = node
             .ins
             .ids

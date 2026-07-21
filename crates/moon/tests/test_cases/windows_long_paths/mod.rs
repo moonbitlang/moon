@@ -5,6 +5,7 @@ use std::{
 };
 
 const LEGACY_PATH_LIMIT: usize = 260;
+const COMMAND_LINE_LIMIT: usize = 32_767;
 
 fn windows_path_len(path: &Path) -> usize {
     path.as_os_str().encode_wide().count()
@@ -160,6 +161,36 @@ fn dry_run_plans_an_artifact_beyond_the_legacy_path_limit() {
         windows_path_len(&output_path) > LEGACY_PATH_LIMIT,
         "the generated artifact must cross the legacy path limit"
     );
+}
+
+#[test]
+fn build_succeeds_with_an_oversized_compiler_command() {
+    let dir = TestDir::new_empty();
+    let root = dir.as_ref();
+    write_file(
+        &root.join("moon.mod"),
+        "name = \"test/long-command-line\"\n",
+    );
+    write_file(&root.join("moon.pkg"), "");
+
+    let total_source_path_len = (0..400)
+        .map(|index| {
+            let source = root.join(format!(
+                "source_{index:04}_with_a_deliberately_long_name_for_command_line_testing.mbt"
+            ));
+            write_file(&source, "");
+            windows_path_len(&source) + 1
+        })
+        .sum::<usize>();
+    assert!(
+        total_source_path_len > COMMAND_LINE_LIMIT,
+        "source paths must exceed the Windows command-line limit"
+    );
+
+    moon_cmd(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 }
 
 #[test]

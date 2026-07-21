@@ -48,12 +48,7 @@ pub fn print_build_commands(
         for b in builds.iter() {
             let build = &graph.builds[*b];
             if let Some(cmdline) = build.cmdline.as_ref() {
-                let rspfile = build
-                    .rspfile
-                    .as_ref()
-                    .map(|rspfile| (rspfile.path.as_path(), rspfile.content.as_str()));
-                let command = moonutil::moonc_response::command_for_display(cmdline, rspfile);
-                println!("{}", replacer.normalize_command(&command));
+                println!("{}", replacer.normalize_command(cmdline));
             }
             if let Some(cwd) = build.cwd.as_deref().map(Path::new) {
                 let resolved_cwd = if cwd.is_absolute() {
@@ -298,14 +293,10 @@ fn generate_from_nodes(
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
-        let command = node.cmdline.as_ref().map(|cmd| {
-            let rspfile = node
-                .rspfile
-                .as_ref()
-                .map(|rspfile| (rspfile.path.as_path(), rspfile.content.as_str()));
-            let command = moonutil::moonc_response::command_for_display(cmd, rspfile);
-            replacer.normalize_command(&command)
-        });
+        let command = node
+            .cmdline
+            .as_ref()
+            .map(|cmd| replacer.normalize_command(cmd));
         let mut inputs = node
             .ins
             .ids

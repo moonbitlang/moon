@@ -18,12 +18,7 @@
 
 //! Lowers the normalized action plan into `n2`'s build graph.
 
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-    str::FromStr,
-    sync::OnceLock,
-};
+use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
 
 use log::{debug, info};
 use moonutil::{
@@ -31,7 +26,7 @@ use moonutil::{
     compiler_flags::{CompilerPaths, Toolchain},
     cond_expr::OptLevel,
 };
-use n2::graph::{Graph as N2Graph, RspFile};
+use n2::graph::Graph as N2Graph;
 use tracing::instrument;
 
 use crate::{
@@ -49,6 +44,7 @@ mod compiler;
 mod context;
 mod lower_aux;
 mod lower_build;
+mod moonc_response;
 mod utils;
 
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
@@ -233,11 +229,6 @@ pub struct LoweringResult {
     pub artifacts: Vec<(BuildActionId, Vec<PathBuf>)>,
 }
 
-// Use a portable command budget well below Windows' 32,767 UTF-16-code-unit
-// process limit. UTF-8 byte length is a conservative approximation. Applying
-// this budget on every host gives long commands one portable policy.
-const MOONC_RESPONSE_FILE_THRESHOLD: usize = 16 * 1024;
-
 /// The command to execute for n2.
 ///
 /// # How n2 handles commandlines
@@ -275,9 +266,6 @@ enum CommandlineKind {
     /// This commandline will be joined using the platform's default convention.
     Args(Vec<String>),
 
-    /// A moonc argv that may use the compiler's line-based response-file format.
-    MooncArgs(Vec<String>),
-
     /// This verbatim string will be plugged into the build graph as-is.
     /// Use with caution.
     ///
@@ -304,14 +292,6 @@ impl From<Vec<String>> for Commandline {
 }
 
 impl Commandline {
-    fn moonc(args: Vec<String>) -> Self {
-        Self {
-            kind: CommandlineKind::MooncArgs(args),
-            cwd: None,
-            env: Vec::new(),
-        }
-    }
-
     fn verbatim(s: String) -> Self {
         Self {
             kind: CommandlineKind::Verbatim(s),
@@ -320,52 +300,19 @@ impl Commandline {
         }
     }
 
-    /// Render this command and any response file needed by n2.
-    fn render_for_n2(
-        &self,
-        primary_output: Option<&Path>,
-    ) -> anyhow::Result<(String, Option<RspFile>)> {
+    /// Convert this to the string representation expected by n2.
+    fn to_n2_string(&self) -> String {
         match &self.kind {
-            CommandlineKind::Args(args) => Ok((
-                moonutil::shlex::join_native(args.iter().map(|x| x.as_str())),
-                None,
-            )),
-            CommandlineKind::MooncArgs(args) => {
-                let command = moonutil::shlex::join_native(args.iter().map(|x| x.as_str()));
-                if command.len() < MOONC_RESPONSE_FILE_THRESHOLD {
-                    return Ok((command, None));
-                }
-
-                let executable = args
-                    .first()
-                    .ok_or_else(|| anyhow::anyhow!("moonc command has no executable"))?;
-                let primary_output = primary_output.ok_or_else(|| {
-                    anyhow::anyhow!("oversized moonc command has no primary output")
-                })?;
-                let content = moonutil::moonc_response::encode(&args[1..])?;
-                let mut rsp_path = primary_output.as_os_str().to_owned();
-                rsp_path.push(".rsp");
-                let rsp_path = PathBuf::from(rsp_path);
-                let rsp_path_arg = rsp_path.to_string_lossy();
-                let command = moonutil::shlex::join_native(
-                    [executable.as_str(), "-rsp-file", rsp_path_arg.as_ref()].into_iter(),
-                );
-
-                Ok((
-                    command,
-                    Some(RspFile {
-                        path: rsp_path,
-                        content,
-                    }),
-                ))
+            CommandlineKind::Args(args) => {
+                moonutil::shlex::join_native(args.iter().map(|x| x.as_str()))
             }
-            CommandlineKind::Verbatim(s) => Ok((s.clone(), None)),
+            CommandlineKind::Verbatim(s) => s.clone(),
         }
     }
 
     fn args(&self) -> Option<&[String]> {
         match &self.kind {
-            CommandlineKind::Args(args) | CommandlineKind::MooncArgs(args) => Some(args),
+            CommandlineKind::Args(args) => Some(args),
             CommandlineKind::Verbatim(_) => None,
         }
     }
@@ -452,7 +399,7 @@ pub fn lower_build_plan(
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     use indexmap::IndexSet;
     use moonutil::{
@@ -480,17 +427,6 @@ mod tests {
     };
 
     use super::*;
-
-    fn test_root() -> PathBuf {
-        #[cfg(windows)]
-        {
-            PathBuf::from(r"C:\tmp")
-        }
-        #[cfg(not(windows))]
-        {
-            PathBuf::from("/tmp")
-        }
-    }
 
     #[test]
     fn non_native_artifact_options_do_not_resolve_operating_system() {
@@ -537,7 +473,7 @@ mod tests {
         ModuleSource::local_path(
             name.parse::<ModuleName>()
                 .expect("test module name should parse"),
-            test_root().join(name),
+            PathBuf::from(format!("/tmp/{name}")),
             DEFAULT_VERSION.clone(),
         )
     }
@@ -664,7 +600,7 @@ mod tests {
         packages.test_register_module(module_id, moon_mod("username/hello"));
         let package_id = packages.test_add_package(module_id, package_path, package);
         let mut module_dirs = DirSyncResult::default();
-        module_dirs.insert(module_id, test_root().join("username/hello"));
+        module_dirs.insert(module_id, PathBuf::from("/tmp/username/hello"));
 
         (
             ResolveOutput {
@@ -682,122 +618,6 @@ mod tests {
         command
             .iter()
             .any(|arg| arg.replace('\\', "/").ends_with(suffix))
-    }
-
-    #[test]
-    fn response_files_are_only_used_for_oversized_moonc_commands() {
-        let output = test_root().join("pkg.core");
-        let short_moonc =
-            Commandline::moonc(vec!["/tool/moonc".to_owned(), "build-package".to_owned()]);
-        let (_, rspfile) = short_moonc
-            .render_for_n2(Some(&output))
-            .expect("short command should render");
-        assert!(rspfile.is_none());
-
-        let long_non_moonc: Commandline = vec![
-            "/tool/other".to_owned(),
-            "x".repeat(MOONC_RESPONSE_FILE_THRESHOLD),
-        ]
-        .into();
-        let (_, rspfile) = long_non_moonc
-            .render_for_n2(Some(&output))
-            .expect("ordinary command should render");
-        assert!(rspfile.is_none());
-    }
-
-    #[test]
-    fn oversized_unrepresentable_moonc_command_is_rejected() {
-        let commandline = Commandline::moonc(vec![
-            "/tool/moonc".to_owned(),
-            "#comment".to_owned(),
-            "x".repeat(MOONC_RESPONSE_FILE_THRESHOLD),
-        ]);
-
-        let error = commandline
-            .render_for_n2(Some(Path::new("/build/pkg.core")))
-            .expect_err("unrepresentable command should fail lowering");
-
-        assert!(error.to_string().contains("parsed as a comment"));
-    }
-
-    #[test]
-    fn oversized_moonc_command_uses_response_file_and_preserves_metadata_argv() {
-        let (resolve_output, target) = single_package_resolve_output();
-        let module_root = test_root().join("username/hello");
-        let mut target_info = build_target_info();
-        for index in 0..400 {
-            target_info.regular_files.push(module_root.join(format!(
-                "main/{index:04}_a_deliberately_long_source_filename_for_response_file_testing.mbt"
-            )));
-        }
-
-        let mut plan = BuildPlan::default();
-        plan.test_add_node(BuildPlanNode::BuildCore(target));
-        plan.test_insert_build_target_info(target, target_info);
-
-        let artifact_paths = ArtifactPathResolver::new(
-            TargetLayout::new(
-                module_root.join("_build"),
-                TargetLayoutMode::Workspace,
-                OptLevel::Debug,
-                RunMode::Build,
-            ),
-            None,
-        );
-        let options = BuildOptions {
-            artifact_paths,
-            target_backend: RunBackend::WasmGC,
-            native_mode: NativeBackendMode::GeneratedC,
-            selected_backend: SelectedBackend::new(
-                RunBackend::WasmGC,
-                &NativeBackendMode::GeneratedC,
-                false,
-            ),
-            opt_level: OptLevel::Debug,
-            action: RunMode::Build,
-            debug_symbols: false,
-            enable_coverage: false,
-            output_wat: false,
-            moonc_output_json: false,
-            docs_serve: false,
-            warning_condition: WarningCondition::Default,
-            info_no_alias: false,
-            wasi_link: false,
-            stdlib_path: None,
-            lowering_environment: LoweringEnvironment::default(),
-        };
-
-        let action_plan = plan.build_action_plan();
-        let lowered = lower_build_plan(&resolve_output, &action_plan, &options)
-            .expect("lowering should succeed");
-        let build = lowered
-            .build_graph
-            .builds
-            .iter()
-            .find(|build| build.cmdline.is_some())
-            .expect("compiler action should be lowered");
-        let command = build
-            .cmdline
-            .as_deref()
-            .expect("compiler action should have a command line");
-        let rspfile = build
-            .rspfile
-            .as_ref()
-            .expect("oversized compiler command should use a response file");
-
-        let metadata_args = lowered
-            .command_args_by_output
-            .values()
-            .find(|args| args.get(1).is_some_and(|arg| arg == "build-package"))
-            .expect("absolute build-package argv should be retained for metadata");
-
-        assert!(command.len() < 1024, "response-file command was {command}");
-        assert!(command.contains("-rsp-file"));
-        assert!(rspfile.path.is_absolute());
-        assert_eq!(
-            rspfile.content.lines().collect::<Vec<_>>(),
-            metadata_args[1..]
-        );
     }
 
     #[test]

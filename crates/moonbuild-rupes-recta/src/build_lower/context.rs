@@ -36,7 +36,7 @@ use crate::{
 use moonutil::toolchain::BINARIES;
 
 use super::{
-    BuildOptions, CommandArgMap, LoweringError,
+    BuildOptions, CommandArgMap, LoweringError, moonc_response,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
@@ -309,10 +309,9 @@ impl<'a> LoweringContext<'a> {
         // this, or if you are duplicating a lot of code for it, please refactor.
         let mut ins = action_products.dependency_paths();
         ins.extend(cmd.extra_inputs);
-        // Track tool binary dependencies so that n2 detects when compilers
-        // or other toolchain binaries change (e.g. after a toolchain update)
-        // and triggers a rebuild.
-        if self.plan.needs_moonc_tool_dep(id) {
+        let runs_moonc = self.plan.runs_moonc(id);
+        // Track the compiler binary so n2 rebuilds after a toolchain update.
+        if runs_moonc {
             ins.push(BINARIES.moonc.clone());
         }
         ins.sort(); // make sure the order is deterministic
@@ -329,10 +328,18 @@ impl<'a> LoweringContext<'a> {
             .plan
             .package_for_error(id)
             .map(|x| self.get_package(x).fqn.clone());
-        let (n2_command, rspfile) = cmd
-            .commandline
-            .render_for_n2(output_paths.first().map(PathBuf::as_path))
-            .map_err(|source| LoweringError::Commandline {
+        let rendered_command = if runs_moonc {
+            cmd.commandline
+                .args()
+                .ok_or_else(|| anyhow::anyhow!("moonc command is not represented as argv"))
+                .and_then(|args| {
+                    moonc_response::render(args, output_paths.first().map(PathBuf::as_path))
+                })
+        } else {
+            Ok((cmd.commandline.to_n2_string(), None))
+        };
+        let (n2_command, rspfile) =
+            rendered_command.map_err(|source| LoweringError::Commandline {
                 package: fqn.clone().into(),
                 action: id,
                 source,
