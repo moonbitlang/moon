@@ -36,7 +36,7 @@ use crate::{
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
 
-use super::{BuildCommand, compiler, context::ActionProducts};
+use super::{BuildCommand, Commandline, compiler, context::ActionProducts};
 
 impl<'a> super::LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -149,7 +149,7 @@ impl<'a> super::LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
+            commandline: Commandline::moonc(cmd.build_command(&*BINARIES.moonc)),
         }
     }
 

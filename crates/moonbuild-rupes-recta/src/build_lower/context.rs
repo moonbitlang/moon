@@ -18,11 +18,11 @@
 
 //! Lowering context and core implementation.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use log::debug;
 use moonutil::resolution::{DirSyncResult, ResolvedEnv};
-use n2::graph::{Build, Graph as N2Graph, RspFile};
+use n2::graph::{Build, Graph as N2Graph};
 use tracing::{Level, instrument};
 
 use crate::{
@@ -39,10 +39,6 @@ use super::{
     BuildOptions, CommandArgMap, LoweringError,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
-
-// Switch well before Windows' 32,767 UTF-16-code-unit process limit. UTF-8
-// byte length is a conservative approximation of UTF-16 code-unit length.
-const MOONC_RESPONSE_FILE_THRESHOLD: usize = 16 * 1024;
 
 pub(crate) struct LoweringContext<'a> {
     // What we're building
@@ -326,50 +322,24 @@ impl<'a> LoweringContext<'a> {
         if let Some(args) = cmd.commandline.args() {
             for output_path in &output_paths {
                 self.command_args_by_output
-                    .insert(output_path.clone(), args.clone());
+                    .insert(output_path.clone(), args.to_vec());
             }
         }
-        let mut n2_command = cmd.commandline.to_n2_string();
-        // n2 writes and hashes the response file as part of this build action.
-        // moonc trims response-file lines and treats `#` as a comment, so keep
-        // the direct command if any argument would not round-trip losslessly.
-        let rspfile = if n2_command.len() >= MOONC_RESPONSE_FILE_THRESHOLD
-            && let Some(args) = cmd.commandline.args()
-            && args
-                .first()
-                .is_some_and(|executable| Path::new(executable) == BINARIES.moonc.as_path())
-            && let Some(primary_output) = output_paths.first()
-            && args[1..].iter().all(|arg| {
-                !arg.is_empty()
-                    && arg.trim() == arg
-                    && !arg.contains(['\r', '\n'])
-                    && !arg.starts_with('#')
-                    && arg != "-rsp-file"
-            }) {
-            let mut rsp_path = primary_output.as_os_str().to_owned();
-            rsp_path.push(".rsp");
-            let rsp_path = PathBuf::from(rsp_path);
-            let mut content = args[1..].join("\n");
-            content.push('\n');
-
-            let rsp_path_arg = rsp_path.to_string_lossy();
-            n2_command = moonutil::shlex::join_native(
-                [args[0].as_str(), "-rsp-file", rsp_path_arg.as_ref()].into_iter(),
-            );
-            Some(RspFile {
-                path: rsp_path,
-                content,
-            })
-        } else {
-            None
-        };
-        let outs = build_outs(&mut self.graph, output_paths);
-
-        // Construct n2 build node
         let fqn = self
             .plan
             .package_for_error(id)
             .map(|x| self.get_package(x).fqn.clone());
+        let (n2_command, rspfile) = cmd
+            .commandline
+            .render_for_n2(output_paths.first().map(PathBuf::as_path))
+            .map_err(|source| LoweringError::Commandline {
+                package: fqn.clone().into(),
+                action: id,
+                source,
+            })?;
+        let outs = build_outs(&mut self.graph, output_paths);
+
+        // Construct n2 build node
         let mut build = Build::new(
             build_n2_fileloc(self.plan.fileloc(id, self.modules, self.packages)),
             ins,

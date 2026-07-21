@@ -18,7 +18,12 @@
 
 //! Lowers the normalized action plan into `n2`'s build graph.
 
-use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::OnceLock,
+};
 
 use log::{debug, info};
 use moonutil::{
@@ -26,7 +31,7 @@ use moonutil::{
     compiler_flags::{CompilerPaths, Toolchain},
     cond_expr::OptLevel,
 };
-use n2::graph::Graph as N2Graph;
+use n2::graph::{Graph as N2Graph, RspFile};
 use tracing::instrument;
 
 use crate::{
@@ -195,6 +200,13 @@ pub enum WarningCondition {
 /// An error that may be raised during action plan lowering.
 #[derive(thiserror::Error, Debug)]
 pub enum LoweringError {
+    #[error("Failed to render a command line for package {package}, action {action:?}: {source}")]
+    Commandline {
+        package: OptionalPackageFQNWithSource,
+        action: BuildActionId,
+        source: anyhow::Error,
+    },
+
     #[error(
         "An error was reported by n2 (the build graph executor), \
         when lowering for package {package}, action {action:?}"
@@ -220,6 +232,11 @@ pub struct LoweringResult {
     /// Artifacts corresponding to the root input actions, in input action order.
     pub artifacts: Vec<(BuildActionId, Vec<PathBuf>)>,
 }
+
+// Use a portable command budget well below Windows' 32,767 UTF-16-code-unit
+// process limit. UTF-8 byte length is a conservative approximation. Applying
+// this budget on every host gives long commands one portable policy.
+const MOONC_RESPONSE_FILE_THRESHOLD: usize = 16 * 1024;
 
 /// The command to execute for n2.
 ///
@@ -258,6 +275,9 @@ enum CommandlineKind {
     /// This commandline will be joined using the platform's default convention.
     Args(Vec<String>),
 
+    /// A moonc argv that may use the compiler's line-based response-file format.
+    MooncArgs(Vec<String>),
+
     /// This verbatim string will be plugged into the build graph as-is.
     /// Use with caution.
     ///
@@ -284,6 +304,14 @@ impl From<Vec<String>> for Commandline {
 }
 
 impl Commandline {
+    fn moonc(args: Vec<String>) -> Self {
+        Self {
+            kind: CommandlineKind::MooncArgs(args),
+            cwd: None,
+            env: Vec::new(),
+        }
+    }
+
     fn verbatim(s: String) -> Self {
         Self {
             kind: CommandlineKind::Verbatim(s),
@@ -292,19 +320,52 @@ impl Commandline {
         }
     }
 
-    /// Convert this to the string representation expected by n2.
-    fn to_n2_string(&self) -> String {
+    /// Render this command and any response file needed by n2.
+    fn render_for_n2(
+        &self,
+        primary_output: Option<&Path>,
+    ) -> anyhow::Result<(String, Option<RspFile>)> {
         match &self.kind {
-            CommandlineKind::Args(args) => {
-                moonutil::shlex::join_native(args.iter().map(|x| x.as_str()))
+            CommandlineKind::Args(args) => Ok((
+                moonutil::shlex::join_native(args.iter().map(|x| x.as_str())),
+                None,
+            )),
+            CommandlineKind::MooncArgs(args) => {
+                let command = moonutil::shlex::join_native(args.iter().map(|x| x.as_str()));
+                if command.len() < MOONC_RESPONSE_FILE_THRESHOLD {
+                    return Ok((command, None));
+                }
+
+                let executable = args
+                    .first()
+                    .ok_or_else(|| anyhow::anyhow!("moonc command has no executable"))?;
+                let primary_output = primary_output.ok_or_else(|| {
+                    anyhow::anyhow!("oversized moonc command has no primary output")
+                })?;
+                let content = moonutil::moonc_response::encode(&args[1..])?;
+                let mut rsp_path = primary_output.as_os_str().to_owned();
+                rsp_path.push(".rsp");
+                let rsp_path = PathBuf::from(rsp_path);
+                let rsp_path_arg = rsp_path.to_string_lossy();
+                let command = moonutil::shlex::join_native(
+                    [executable.as_str(), "-rsp-file", rsp_path_arg.as_ref()].into_iter(),
+                );
+
+                Ok((
+                    command,
+                    Some(RspFile {
+                        path: rsp_path,
+                        content,
+                    }),
+                ))
             }
-            CommandlineKind::Verbatim(s) => s.clone(),
+            CommandlineKind::Verbatim(s) => Ok((s.clone(), None)),
         }
     }
 
-    fn args(&self) -> Option<&Vec<String>> {
+    fn args(&self) -> Option<&[String]> {
         match &self.kind {
-            CommandlineKind::Args(args) => Some(args),
+            CommandlineKind::Args(args) | CommandlineKind::MooncArgs(args) => Some(args),
             CommandlineKind::Verbatim(_) => None,
         }
     }
@@ -391,7 +452,7 @@ pub fn lower_build_plan(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use indexmap::IndexSet;
     use moonutil::{
@@ -419,6 +480,17 @@ mod tests {
     };
 
     use super::*;
+
+    fn test_root() -> PathBuf {
+        #[cfg(windows)]
+        {
+            PathBuf::from(r"C:\tmp")
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from("/tmp")
+        }
+    }
 
     #[test]
     fn non_native_artifact_options_do_not_resolve_operating_system() {
@@ -465,7 +537,7 @@ mod tests {
         ModuleSource::local_path(
             name.parse::<ModuleName>()
                 .expect("test module name should parse"),
-            PathBuf::from(format!("/tmp/{name}")),
+            test_root().join(name),
             DEFAULT_VERSION.clone(),
         )
     }
@@ -592,7 +664,7 @@ mod tests {
         packages.test_register_module(module_id, moon_mod("username/hello"));
         let package_id = packages.test_add_package(module_id, package_path, package);
         let mut module_dirs = DirSyncResult::default();
-        module_dirs.insert(module_id, PathBuf::from("/tmp/username/hello"));
+        module_dirs.insert(module_id, test_root().join("username/hello"));
 
         (
             ResolveOutput {
@@ -613,12 +685,45 @@ mod tests {
     }
 
     #[test]
+    fn response_files_are_only_used_for_oversized_moonc_commands() {
+        let output = test_root().join("pkg.core");
+        let short_moonc =
+            Commandline::moonc(vec!["/tool/moonc".to_owned(), "build-package".to_owned()]);
+        let (_, rspfile) = short_moonc
+            .render_for_n2(Some(&output))
+            .expect("short command should render");
+        assert!(rspfile.is_none());
+
+        let long_non_moonc: Commandline = vec![
+            "/tool/other".to_owned(),
+            "x".repeat(MOONC_RESPONSE_FILE_THRESHOLD),
+        ]
+        .into();
+        let (_, rspfile) = long_non_moonc
+            .render_for_n2(Some(&output))
+            .expect("ordinary command should render");
+        assert!(rspfile.is_none());
+    }
+
+    #[test]
+    fn oversized_unrepresentable_moonc_command_is_rejected() {
+        let commandline = Commandline::moonc(vec![
+            "/tool/moonc".to_owned(),
+            "#comment".to_owned(),
+            "x".repeat(MOONC_RESPONSE_FILE_THRESHOLD),
+        ]);
+
+        let error = commandline
+            .render_for_n2(Some(Path::new("/build/pkg.core")))
+            .expect_err("unrepresentable command should fail lowering");
+
+        assert!(error.to_string().contains("parsed as a comment"));
+    }
+
+    #[test]
     fn oversized_moonc_command_uses_response_file_and_preserves_metadata_argv() {
         let (resolve_output, target) = single_package_resolve_output();
-        #[cfg(windows)]
-        let module_root = PathBuf::from(r"C:\tmp\username\hello");
-        #[cfg(not(windows))]
-        let module_root = PathBuf::from("/tmp/username/hello");
+        let module_root = test_root().join("username/hello");
         let mut target_info = build_target_info();
         for index in 0..400 {
             target_info.regular_files.push(module_root.join(format!(

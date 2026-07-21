@@ -42,6 +42,7 @@ mod module;
 mod moon_dir;
 pub mod moon_mod_patch;
 pub mod moon_pkg;
+pub mod moonc_response;
 mod mooncakes;
 pub mod package;
 pub mod path;
