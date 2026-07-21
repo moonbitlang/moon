@@ -6,7 +6,7 @@ cargo xtask
 
 This runs:
 
-- `cargo run --bin moon -- -C crates/moonbuild/template/test_driver_project check`
+- `cargo run --bin moon -- -C crates/moonbuild/template/test_driver_project check --target wasm-gc`
 - `cargo run --bin moon -- -C crates/moonbuild/template/test_driver_project fmt --check`
 - `cargo fmt -- --check`
 - `cargo clippy --all-targets --all-features -- -D warnings`

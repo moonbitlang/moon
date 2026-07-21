@@ -54,7 +54,12 @@ impl LongPathCase {
             "the source file must remain below the legacy path limit"
         );
 
-        write_file(&root.join("moon.mod"), "name = \"test/long-path\"\n");
+        // `moon doc` has no `--target`, so pin the fixture while passing the
+        // target explicitly to commands that support it.
+        write_file(
+            &root.join("moon.mod"),
+            "name = \"test/long-path\"\npreferred_target = \"wasm-gc\"\n",
+        );
         write_file(&package_manifest, "pkgtype(kind: \"executable\")\n");
         write_file(
             &source_file,
@@ -127,7 +132,7 @@ fn dry_run_plans_an_artifact_beyond_the_legacy_path_limit() {
     let case = LongPathCase::new();
     let root = case.dir.as_ref();
     let dry_run = moon_cmd(&case.dir)
-        .args(["check", "--dry-run", "--sort-input"])
+        .args(["check", "--target", "wasm-gc", "--dry-run", "--sort-input"])
         .assert()
         .success()
         .get_output()
@@ -178,27 +183,52 @@ Error: failed when formatting project
 
 #[test]
 fn check_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(&["check"], "wasm-gc", "debug", "check");
+    LongPathCase::new().assert_compiler_path_failure(
+        &["check", "--target", "wasm-gc"],
+        "wasm-gc",
+        "debug",
+        "check",
+    );
 }
 
 #[test]
 fn info_reports_its_long_check_directory() {
-    LongPathCase::new().assert_compiler_path_failure(&["info"], "wasm-gc", "debug", "check");
+    LongPathCase::new().assert_compiler_path_failure(
+        &["info", "--target", "wasm-gc"],
+        "wasm-gc",
+        "debug",
+        "check",
+    );
 }
 
 #[test]
 fn build_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(&["build"], "wasm-gc", "debug", "build");
+    LongPathCase::new().assert_compiler_path_failure(
+        &["build", "--target", "wasm-gc"],
+        "wasm-gc",
+        "debug",
+        "build",
+    );
 }
 
 #[test]
 fn test_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(&["test"], "wasm-gc", "debug", "test");
+    LongPathCase::new().assert_compiler_path_failure(
+        &["test", "--target", "wasm-gc"],
+        "wasm-gc",
+        "debug",
+        "test",
+    );
 }
 
 #[test]
 fn bundle_reports_its_long_output_directory() {
-    LongPathCase::new().assert_compiler_path_failure(&["bundle"], "wasm-gc", "release", "bundle");
+    LongPathCase::new().assert_compiler_path_failure(
+        &["bundle", "--target", "wasm-gc"],
+        "wasm-gc",
+        "release",
+        "bundle",
+    );
 }
 
 // These higher-level commands currently stop in `moonc`, before moondoc, Node,
@@ -212,7 +242,12 @@ fn doc_reports_its_long_check_directory() {
 #[test]
 fn run_wasm_gc_reports_its_long_output_directory() {
     let case = LongPathCase::new();
-    case.assert_compiler_path_failure(&["run", case.package()], "wasm-gc", "debug", "build");
+    case.assert_compiler_path_failure(
+        &["run", case.package(), "--target", "wasm-gc"],
+        "wasm-gc",
+        "debug",
+        "build",
+    );
 }
 
 #[test]

@@ -34,6 +34,8 @@ pub(crate) fn run(_ci: &Ci) -> anyhow::Result<()> {
                     "-C",
                     "crates/moonbuild/template/test_driver_project",
                     "check",
+                    "--target",
+                    "wasm-gc",
                 ],
             },
             fix_script: None,
