@@ -108,13 +108,15 @@ pub(super) fn allocate_env_block(
     Ok(context.host.insert_process_env(vec![0; size]))
 }
 
-pub(super) fn free_env(context: &mut ImportContext<'_, '_>, env: u64) -> AsyncHostResult<()> {
-    context.host.free_process_env(env)
+// Deprecated. We'll remove it later.
+pub(super) fn free_env(_context: &mut ImportContext<'_, '_>, _env: u64) -> AsyncHostResult<()> {
+    Ok(())
 }
 
 #[cfg(unix)]
-pub(super) fn free_argv(context: &mut ImportContext<'_, '_>, argv: u64) -> AsyncHostResult<()> {
-    context.host.free_process_argv(argv)
+// Deprecated. We'll remove it later.
+pub(super) fn free_argv(_context: &mut ImportContext<'_, '_>, _argv: u64) -> AsyncHostResult<()> {
+    Ok(())
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_write_env_block")]
@@ -124,7 +126,7 @@ pub(super) fn write_env_block(
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
-    context.host.process_env_write_block(dst, src)
+    context.host.transfer_process_env_block(dst, src)
 }
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_write_env_block")]
@@ -134,7 +136,7 @@ pub(super) fn write_env_block(
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
-    context.host.process_env_write_block(dst, src)
+    context.host.transfer_process_env_block(dst, src)
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_env_block_add_entry")]
