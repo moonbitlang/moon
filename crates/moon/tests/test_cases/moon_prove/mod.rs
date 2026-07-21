@@ -57,19 +57,9 @@ fn assert_stdout_contains_prelude_proof(stdout: &str, label: &str) {
 }
 
 fn assert_invpred_runtime_commands_succeed(dir: &TestDir) {
-    let _ = get_stdout(dir, ["check", "invpred", "--target", "wasm-gc"]);
-    let _ = get_stdout(dir, ["build", "invpred", "--target", "wasm-gc"]);
-    let _ = get_stdout(
-        dir,
-        [
-            "bench",
-            "-p",
-            "invpred",
-            "--build-only",
-            "--target",
-            "wasm-gc",
-        ],
-    );
+    let _ = get_stdout(dir, ["check", "invpred"]);
+    let _ = get_stdout(dir, ["build", "invpred"]);
+    let _ = get_stdout(dir, ["bench", "-p", "invpred", "--build-only"]);
 }
 
 fn assert_prove_all_pkgs_artifact_uses_verif(dir: &TestDir, rel: &str) {
@@ -140,11 +130,11 @@ fn test_check_doctest_with_mbtp_uses_imported_proof_api() {
     }
     let dir = TestDir::new("moon_prove/doctest_with_mbtp.in");
 
-    assert_success(&dir, ["check", "--target", "wasm-gc"]);
+    assert_success(&dir, ["check"]);
     assert_is_file(&dir.join("_build/wasm-gc/debug/check/lib/lib.mi"));
     assert_is_file(&dir.join("_build/wasm-gc/debug/check/lib/lib.blackbox_test.mi"));
 
-    let stdout = get_stdout(&dir, ["check", "--target", "wasm-gc", "--dry-run"]);
+    let stdout = get_stdout(&dir, ["check", "--dry-run"]);
     expect_file!["snapshots/doctest_with_mbtp.check.stdout"].assert_eq(&stdout);
 }
 
@@ -155,7 +145,7 @@ fn test_packages_json_includes_mbtp_files() {
     }
     let dir = TestDir::new("moon_prove/doctest_with_mbtp.in");
 
-    let _ = get_stderr(&dir, ["check", "--target", "wasm-gc"]);
+    let _ = get_stderr(&dir, ["check"]);
 
     let packages_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
@@ -221,17 +211,7 @@ fn test_proof_enabled_suppresses_proof_warnings_for_test_runs() {
     }
     let dir = TestDir::new("moon_prove/warn_suppression.in");
 
-    let dry_run = get_stdout(
-        &dir,
-        [
-            "test",
-            "lib",
-            "--target",
-            "wasm-gc",
-            "--dry-run",
-            "--sort-input",
-        ],
-    );
+    let dry_run = get_stdout(&dir, ["test", "lib", "--dry-run", "--sort-input"]);
     expect_file!["snapshots/warn_suppression.test.stdout"].assert_eq(&dry_run);
     assert!(
         dry_run.contains("-w -1-2-3-29"),
@@ -240,14 +220,7 @@ fn test_proof_enabled_suppresses_proof_warnings_for_test_runs() {
 
     let output = snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args([
-            "test",
-            "lib",
-            "--target",
-            "wasm-gc",
-            "--sort-input",
-            "--no-parallelize",
-        ])
+        .args(["test", "lib", "--sort-input", "--no-parallelize"])
         .assert()
         .success()
         .get_output()
@@ -386,37 +359,13 @@ fn test_invpred_package_threads_mbtp_into_compile_dry_runs() {
     for (label, args) in [
         (
             "check",
-            vec![
-                "check",
-                "invpred",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--sort-input",
-            ],
+            vec!["check", "invpred", "--dry-run", "--sort-input"],
         ),
         (
             "build",
-            vec![
-                "build",
-                "invpred",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--sort-input",
-            ],
+            vec!["build", "invpred", "--dry-run", "--sort-input"],
         ),
-        (
-            "test",
-            vec![
-                "test",
-                "invpred",
-                "--target",
-                "wasm-gc",
-                "--dry-run",
-                "--sort-input",
-            ],
-        ),
+        ("test", vec!["test", "invpred", "--dry-run", "--sort-input"]),
         ("prove", vec!["prove", "invpred", "--dry-run"]),
         (
             "bench",
@@ -425,16 +374,11 @@ fn test_invpred_package_threads_mbtp_into_compile_dry_runs() {
                 "-p",
                 "invpred",
                 "--build-only",
-                "--target",
-                "wasm-gc",
                 "--dry-run",
                 "--sort-input",
             ],
         ),
-        (
-            "bundle",
-            vec!["bundle", "--target", "wasm-gc", "--dry-run", "--sort-input"],
-        ),
+        ("bundle", vec!["bundle", "--dry-run", "--sort-input"]),
     ] {
         assert_stdout_contains_mbtp(&dir, args, "./invpred/invpred.mbtp", label);
     }
@@ -450,14 +394,7 @@ fn test_invpred_package_runtime_commands_succeed() {
     check(
         get_stdout(
             &dir,
-            [
-                "test",
-                "invpred",
-                "--target",
-                "wasm-gc",
-                "--sort-input",
-                "--no-parallelize",
-            ],
+            ["test", "invpred", "--sort-input", "--no-parallelize"],
         ),
         expect!["Total tests: 1, passed: 1, failed: 0.\n"],
     );
