@@ -615,6 +615,9 @@ mod tests {
     #[test]
     fn oversized_moonc_command_uses_response_file_and_preserves_metadata_argv() {
         let (resolve_output, target) = single_package_resolve_output();
+        #[cfg(windows)]
+        let module_root = PathBuf::from(r"C:\tmp\username\hello");
+        #[cfg(not(windows))]
         let module_root = PathBuf::from("/tmp/username/hello");
         let mut target_info = build_target_info();
         for index in 0..400 {
