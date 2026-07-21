@@ -1,1 +1,1 @@
-{ "name": "username/prove" }
+{ "name": "username/prove", "preferred-target": "wasm-gc" }

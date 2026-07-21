@@ -1,1 +1,1 @@
-{ "name": "username/prove_indirect" }
+{ "name": "username/prove_indirect", "preferred-target": "wasm-gc" }
