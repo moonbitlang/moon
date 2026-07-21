@@ -184,7 +184,10 @@ fn test_workspace_commands() {
     let dir = TestDir::new("workspace_basic.in");
 
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+        ),
         expect![[r#"
             moonc build-package ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/build/alice/liba/lib/lib.core -pkg alice/liba/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./app/src/main/main.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/build/alice/app/main/main.core -pkg alice/app/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/alice/liba/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/app/main:./app/src/main -target wasm-gc -g -O0 -source-map -workspace-path ./app -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
@@ -193,7 +196,10 @@ fn test_workspace_commands() {
     );
 
     check(
-        get_stdout(&dir, ["test", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["test", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+        ),
         expect![[r#"
             moonc build-package ./liba/src/lib/lib.mbt -w -1-2-3-29 -o ./_build/wasm-gc/debug/test/alice/liba/lib/lib.core -pkg alice/liba/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources alice/liba/lib:./liba/src/lib -target wasm-gc -g -O0 -source-map -workspace-path ./liba -all-pkgs ./_build/wasm-gc/debug/test/all_pkgs.json
             moon generate-test-driver --output-driver ./_build/wasm-gc/debug/test/alice/app/main/__generated_driver_for_internal_test.mbt --output-metadata ./_build/wasm-gc/debug/test/alice/app/main/__internal_test_info.json ./app/src/main/main.mbt --target wasm-gc --pkg-name alice/app/main --driver-kind internal
@@ -260,10 +266,13 @@ fn test_workspace_commands() {
         );
     }
 
-    let stderr = get_stderr(&dir, ["check", "--sort-input"]);
+    let stderr = get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
     assert!(stderr.contains("Finished. moon: ran "));
 
-    check(get_stdout(&dir, ["info"]), expect![[r#""#]]);
+    check(
+        get_stdout(&dir, ["info", "--target", "wasm-gc"]),
+        expect![[r#""#]],
+    );
 
     let lib_mi_out =
         std::fs::read_to_string(dir.join("liba/src/lib").join(MBTI_GENERATED)).unwrap();
@@ -1334,11 +1343,11 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
         "expected doc dry-run to pass workspace metadata to moondoc, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("./_build/wasm-gc/debug/check/alice/app/main/main.mi"),
+        stdout.contains("./_build/wasm/debug/check/alice/app/main/main.mi"),
         "expected doc dry-run to keep the workspace build layout for the app module, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("./_build/wasm-gc/debug/check/alice/liba/lib/lib.mi"),
+        stdout.contains("./_build/wasm/debug/check/alice/liba/lib/lib.mi"),
         "expected doc dry-run to keep the workspace build layout for dependencies, got:\n{stdout}"
     );
 
@@ -1380,7 +1389,7 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
     assert_eq!(app_pkg["is-third-party"], serde_json::json!(false));
     assert_eq!(
         app_pkg["artifact"],
-        serde_json::json!("$ROOT/_build/wasm-gc/debug/check/alice/app/main/main.mi")
+        serde_json::json!("$ROOT/_build/wasm/debug/check/alice/app/main/main.mi")
     );
 
     let lib_pkg = packages
@@ -1390,6 +1399,6 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
     assert_eq!(lib_pkg["is-third-party"], serde_json::json!(false));
     assert_eq!(
         lib_pkg["artifact"],
-        serde_json::json!("$ROOT/_build/wasm-gc/debug/check/alice/liba/lib/lib.mi")
+        serde_json::json!("$ROOT/_build/wasm/debug/check/alice/liba/lib/lib.mi")
     );
 }

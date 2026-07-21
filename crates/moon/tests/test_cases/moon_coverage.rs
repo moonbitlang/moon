@@ -31,6 +31,7 @@ fn test_moon_coverage_analyze() {
             [
                 "coverage",
                 "analyze",
+                "--test-flag=--target=wasm-gc",
                 "--test-flag=--sort-input",
                 "--",
                 "-f=caret",
@@ -89,6 +90,7 @@ fn test_moon_coverage_analyze_dry_run() {
             "coverage",
             "analyze",
             "--dry-run",
+            "--test-flag=--target=wasm-gc",
             "--test-flag=--nostd",
             "--test-flag=--sort-input",
         ],
@@ -137,6 +139,7 @@ fn test_moon_coverage_analyze_third_party() {
             "coverage",
             "analyze",
             "--dry-run",
+            "--test-flag=--target=wasm-gc",
             "--test-flag=--nostd",
             "--test-flag=--sort-input",
         ],

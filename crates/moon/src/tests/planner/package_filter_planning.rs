@@ -28,6 +28,8 @@ fn filtered_package_graph_matches_snapshot() {
     let fixture = PlanningFixture::new("test_filter/test_filter").expect("fixture should resolve");
     let (cli, cmd) = parse_test_command(&[
         "test",
+        "--target",
+        "wasm-gc",
         "-p",
         "username/hello/A",
         "--sort-input",
@@ -44,7 +46,8 @@ fn filtered_package_graph_matches_snapshot() {
 #[test]
 fn workspace_test_graph_matches_snapshot() {
     let fixture = PlanningFixture::new("test_filter/test_filter").expect("fixture should resolve");
-    let (cli, cmd) = parse_test_command(&["test", "--sort-input", "--dry-run"]);
+    let (cli, cmd) =
+        parse_test_command(&["test", "--target", "wasm-gc", "--sort-input", "--dry-run"]);
 
     expect_file!["./snapshots/package_filter_workspace_graph.jsonl.snap"].assert_eq(
         &fixture

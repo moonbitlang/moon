@@ -97,8 +97,8 @@ pub fn lower_surface_targets(st: &[SurfaceTarget]) -> Vec<TargetBackend> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Serialize, Deserialize, Default, Hash)]
 #[repr(u8)]
 pub enum TargetBackend {
-    Wasm,
     #[default]
+    Wasm,
     WasmGC,
     Js,
     Native,

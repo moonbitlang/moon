@@ -1,5 +1,6 @@
 {
   "name": "hello31",
+  "preferred-target": "wasm-gc",
   "deps": {
     "lijunchen/mooncake": {
       "path": "./mods/lijunchen/mooncake"

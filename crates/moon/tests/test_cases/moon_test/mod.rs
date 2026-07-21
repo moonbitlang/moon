@@ -172,13 +172,13 @@ fn test_moon_test_succ_llvm() {
 fn test_moon_test_hello_exec() {
     let dir = TestDir::new("moon_test/hello_exec");
     check(
-        get_stdout(&dir, ["run", "main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             Hello, world!
         "#]],
     );
     check(
-        get_stdout(&dir, ["test", "-v"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc", "-v"]),
         expect![[r#"
             this is lib test
             [moonbitlang/hello] test lib/hello_wbtest.mbt:1 (#0) ok
@@ -187,7 +187,14 @@ fn test_moon_test_hello_exec() {
     );
     assert_dry_run_graph(
         &dir,
-        ["test", "--dry-run", "--debug", "--sort-input"],
+        [
+            "test",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--debug",
+            "--sort-input",
+        ],
         expect_file!["moon_test_hello_exec_graph.jsonl.snap"],
     );
 }
@@ -196,7 +203,7 @@ fn test_moon_test_hello_exec() {
 fn test_moon_test_hello_exec_fntest() {
     let dir = TestDir::new("moon_test/hello_exec_fntest");
     check(
-        get_stdout(&dir, ["run", "main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "main"]),
         expect![[r#"
             init in main/main.mbt
         "#]],
@@ -204,11 +211,28 @@ fn test_moon_test_hello_exec_fntest() {
 
     assert_dry_run_graph(
         &dir,
-        ["test", "-v", "--dry-run", "--sort-input"],
+        [
+            "test",
+            "--target",
+            "wasm-gc",
+            "-v",
+            "--dry-run",
+            "--sort-input",
+        ],
         expect_file!["moon_test_hello_exec_fntest_graph.jsonl.snap"],
     );
 
-    let test_out = get_stdout(&dir, ["test", "-v", "--sort-input", "--no-parallelize"]);
+    let test_out = get_stdout(
+        &dir,
+        [
+            "test",
+            "--target",
+            "wasm-gc",
+            "-v",
+            "--sort-input",
+            "--no-parallelize",
+        ],
+    );
     assert_lines_in_order(
         &test_out,
         r"
@@ -377,21 +401,24 @@ fn test_zombie_child_process() {
 fn test_moon_test_with_local_dep() {
     let dir = TestDir::new("moon_test/with_local_deps");
     check(
-        get_stdout(&dir, ["test", "-v", "--frozen"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc", "-v", "--frozen"]),
         expect![[r#"
             [hello31] test lib/hello_wbtest.mbt:1 (#0) ok
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
     check(
-        get_stdout(&dir, ["run", "main", "--frozen"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "main", "--frozen"]),
         expect![[r#"
             hello from mooncake
             hello from mooncake2
         "#]],
     );
     // Run moon info
-    moon_cmd(&dir).args(["info", "--frozen"]).assert().success();
+    moon_cmd(&dir)
+        .args(["info", "--target", "wasm-gc", "--frozen"])
+        .assert()
+        .success();
     // Check directory structure by listing all files
     let root_dir = dir.as_ref().to_owned();
     let dir = WalkDir::new(&dir)
@@ -551,7 +578,17 @@ fn test_moon_test_with_local_dep() {
 #[test]
 fn test_pkg_source_in() {
     let dir = TestDir::new("moon_test/with_local_deps");
-    let out = get_stdout(&dir, ["build", "--dry-run", "--sort-input", "--frozen"]);
+    let out = get_stdout(
+        &dir,
+        [
+            "build",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--sort-input",
+            "--frozen",
+        ],
+    );
     check(
         &out,
         expect![[r#"

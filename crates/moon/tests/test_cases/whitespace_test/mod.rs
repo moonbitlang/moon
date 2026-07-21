@@ -20,20 +20,24 @@ fn whitespace_test() {
     //     "#]],
     // );
     let build_graph = dir.join("build_graph.jsonl");
-    snap_dry_run_graph(&dir, ["build", "--dry-run", "--nostd"], &build_graph);
+    snap_dry_run_graph(
+        &dir,
+        ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
+        &build_graph,
+    );
     compare_graphs(
         &build_graph,
         expect_file!["../whitespace_test.in/build_graph.jsonl.snap"],
     );
 
     check(
-        get_stdout(&dir, ["run", "main exe"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "main exe"]),
         expect![[r#"
             Hello, world!
         "#]],
     );
 
-    let out = get_stderr(&dir, ["check"]);
+    let out = get_stderr(&dir, ["check", "--target", "wasm-gc"]);
     expect![[r#"
         Finished. moon: ran 5 tasks, now up to date
     "#]]
@@ -56,7 +60,14 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     let build_graph = path_with_space.join("build_graph.jsonl");
     snap_dry_run_graph(
         &path_with_space,
-        ["build", "--no-render", "--sort-input", "--dry-run"],
+        [
+            "build",
+            "--target",
+            "wasm-gc",
+            "--no-render",
+            "--sort-input",
+            "--dry-run",
+        ],
         &build_graph,
     );
     compare_graphs(
@@ -64,7 +75,10 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
         expect_file!["../whitespace_test.in/parent_space_build_graph.jsonl.snap"],
     );
 
-    let out = get_stderr(&path_with_space, ["build", "--no-render"]);
+    let out = get_stderr(
+        &path_with_space,
+        ["build", "--target", "wasm-gc", "--no-render"],
+    );
     let out = out.replace(&prefix, ".");
     let out = out.replace(
         &moonutil::toolchain::home()

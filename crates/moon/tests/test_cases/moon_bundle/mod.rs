@@ -4,7 +4,10 @@ use super::*;
 fn test_moon_bundle() {
     let dir = TestDir::new("moon_bundle");
     check(
-        get_stdout(&dir, ["bundle", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["bundle", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+        ),
         expect![[r#"
             moonc build-package -w -a -o ./_build/wasm-gc/release/bundle/prelude/prelude.core -pkg moonbitlang/core/prelude -pkg-type library -pkg-sources moonbitlang/core/prelude:./prelude -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/bundle/all_pkgs.json
             moonc build-package ./Orphan/lib.mbt -w -a -o ./_build/wasm-gc/release/bundle/Orphan/Orphan.core -pkg moonbitlang/core/Orphan -pkg-type library -pkg-sources moonbitlang/core/Orphan:./Orphan -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/bundle/all_pkgs.json

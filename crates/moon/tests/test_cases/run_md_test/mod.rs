@@ -5,7 +5,7 @@ fn test_run_md_test() {
     let dir = TestDir::new("run_md_test.in");
 
     check(
-        get_stderr(&dir, ["check", "--sort-input"]),
+        get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
             Warning: [0002]
                 ╭─[ $ROOT/src/lib/1.mbt.md:39:9 ]
@@ -67,6 +67,8 @@ fn test_run_md_test() {
             &dir,
             [
                 "test",
+                "--target",
+                "wasm-gc",
                 "--sort-input",
                 "-p",
                 "lib",
@@ -82,10 +84,13 @@ fn test_run_md_test() {
         "#]],
     );
 
-    let _ = get_stdout(&dir, ["test", "--update", "--sort-input"]);
+    let _ = get_stdout(
+        &dir,
+        ["test", "--target", "wasm-gc", "--update", "--sort-input"],
+    );
 
     check(
-        get_stdout(&dir, ["test", "--sort-input"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
             hello from hello_test.mbt
             fn in md test
@@ -104,7 +109,7 @@ fn test_run_md_test() {
 
     #[cfg(unix)]
     {
-        get_stdout(&dir, ["check", "--sort-input"]);
+        get_stdout(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
         let p = dir.join("_build/packages.json");
         check(
             replace_dir(&std::fs::read_to_string(p).unwrap(), &dir),

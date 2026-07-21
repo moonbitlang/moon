@@ -390,15 +390,45 @@ fn test_moon_build_filter_by_path_success() {
     let dir = TestDir::new("test_filter/test_filter");
 
     // Test build with folder path
-    let stdout = get_stdout(&dir, ["build", "A", "--dry-run", "--sort-input"]);
+    let stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            "--target",
+            "wasm-gc",
+            "A",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
     expect_file!["snapshots/build_A.stdout"].assert_eq(&stdout);
 
     // Test build with lib folder
-    let stdout = get_stdout(&dir, ["build", "lib", "--dry-run", "--sort-input"]);
+    let stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            "--target",
+            "wasm-gc",
+            "lib",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
     expect_file!["snapshots/build_lib.stdout"].assert_eq(&stdout);
 
     // Test build with main folder
-    let stdout = get_stdout(&dir, ["build", "main", "--dry-run", "--sort-input"]);
+    let stdout = get_stdout(
+        &dir,
+        [
+            "build",
+            "--target",
+            "wasm-gc",
+            "main",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
     expect_file!["snapshots/build_main.stdout"].assert_eq(&stdout);
 }
 
@@ -542,15 +572,45 @@ fn test_moon_check_filter_by_path_success() {
     let dir = TestDir::new("test_filter/test_filter");
 
     // Test check with folder path
-    let stdout = get_stdout(&dir, ["check", "A", "--dry-run", "--sort-input"]);
+    let stdout = get_stdout(
+        &dir,
+        [
+            "check",
+            "--target",
+            "wasm-gc",
+            "A",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
     expect_file!["snapshots/check_A.stdout"].assert_eq(&stdout);
 
     // Test check with lib folder
-    let stdout = get_stdout(&dir, ["check", "lib", "--dry-run", "--sort-input"]);
+    let stdout = get_stdout(
+        &dir,
+        [
+            "check",
+            "--target",
+            "wasm-gc",
+            "lib",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
     expect_file!["snapshots/check_lib.stdout"].assert_eq(&stdout);
 
     // Test check with main folder
-    let stdout = get_stdout(&dir, ["check", "main", "--dry-run", "--sort-input"]);
+    let stdout = get_stdout(
+        &dir,
+        [
+            "check",
+            "--target",
+            "wasm-gc",
+            "main",
+            "--dry-run",
+            "--sort-input",
+        ],
+    );
     expect_file!["snapshots/check_main.stdout"].assert_eq(&stdout);
 }
 

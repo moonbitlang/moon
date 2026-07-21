@@ -22,7 +22,7 @@ use super::*;
 fn test_moon_pkg() {
     let dir = TestDir::new("moon_pkg.in");
     check(
-        get_stdout(&dir, ["check", "--dry-run"]),
+        get_stdout(&dir, ["check", "--target", "wasm-gc", "--dry-run"]),
         expect![[r#"
             moon tool exec --shell 'cat ./pkg/pkg.mbt > ./pkg/gen.txt'
               cwd: .
@@ -33,7 +33,7 @@ fn test_moon_pkg() {
         "#]],
     );
     check(
-        get_stdout(&dir, ["build", "--dry-run"]),
+        get_stdout(&dir, ["build", "--target", "wasm-gc", "--dry-run"]),
         expect![[r#"
             moon tool exec --shell 'cat ./pkg/pkg.mbt > ./pkg/gen.txt'
               cwd: .
@@ -49,7 +49,17 @@ fn test_moon_pkg() {
 fn test_need_link() {
     let dir = TestDir::new("need_link.in");
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd", "--sort-input"]),
+        get_stdout(
+            &dir,
+            [
+                "build",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -pkg-type foreign_library -pkg-sources username/hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
@@ -78,7 +88,10 @@ fn test_no_work_to_do() {
 fn test_no_block_params() {
     let dir = TestDir::new("no_block_params.in");
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+        ),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg username/hello/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
@@ -126,7 +139,7 @@ fn test_failed_to_fill_whole_buffer() {
 
     let dir = TestDir::new("hello");
     check(
-        get_stderr(&dir, ["check"]),
+        get_stderr(&dir, ["check", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 2 tasks, now up to date
         "#]],
@@ -139,7 +152,7 @@ fn test_failed_to_fill_whole_buffer() {
     }
     std::fs::write(&moon_db_path, "").unwrap();
 
-    let stderr = get_err_stderr(&dir, ["check"]);
+    let stderr = get_err_stderr(&dir, ["check", "--target", "wasm-gc"]);
     println!("stderr: {}", stderr);
     assert!(stderr.contains("failed to fill whole buffer"));
 }
@@ -154,7 +167,7 @@ fn test_trace_001() {
 #[test]
 fn no_main_just_init() {
     let dir = TestDir::new("no_main_just_init.in");
-    get_stdout(&dir, ["build"]);
+    get_stdout(&dir, ["build", "--target", "wasm-gc"]);
     let file = dir.join("_build/wasm-gc/debug/build/lib/lib.wasm");
     assert!(file.exists());
 
@@ -386,7 +399,10 @@ fn test_dont_link_third_party() {
     let dir = TestDir::new("dont_link_third_party.in");
 
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
+        ),
         expect![[r#"
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc link-core '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/abort/abort.core' '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/core.core' ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/main:./main -pkg-sources 'moonbitlang/core:$MOON_HOME/lib/core' -target wasm-gc -g -O0 -source-map

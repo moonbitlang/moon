@@ -37,7 +37,17 @@ fn test_warn_list_dry_run() {
     let dir = TestDir::new("warns/warn_list");
 
     check(
-        get_stdout(&dir, ["build", "--sort-input", "--no-render", "--dry-run"]),
+        get_stdout(
+            &dir,
+            [
+                "build",
+                "--target",
+                "wasm-gc",
+                "--sort-input",
+                "--no-render",
+                "--dry-run",
+            ],
+        ),
         expect![[r#"
             moonc build-package ./lib1/hello.mbt -w -1 -o ./_build/wasm-gc/debug/build/lib1/lib1.core -pkg username/hello/lib1 -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./lib/hello.mbt -w -2 -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg username/hello/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
@@ -50,6 +60,8 @@ fn test_warn_list_dry_run() {
             &dir,
             [
                 "build",
+                "--target",
+                "wasm-gc",
                 "--warn-list",
                 "-29",
                 "--sort-input",
@@ -69,6 +81,8 @@ fn test_warn_list_dry_run() {
         &dir,
         [
             "build",
+            "--target",
+            "wasm-gc",
             "--deny-warn",
             "--sort-input",
             "--no-render",
@@ -78,14 +92,24 @@ fn test_warn_list_dry_run() {
     assert_deny_warn_appended_to_custom_warn_list(&build_deny_warn_stdout, "moonc build-package");
 
     check(
-        get_stdout(&dir, ["test", "--sort-input"]),
+        get_stdout(&dir, ["test", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
             Total tests: 1, passed: 1, failed: 0.
         "#]],
     );
 
     check(
-        get_stdout(&dir, ["bundle", "--sort-input", "--no-render", "--dry-run"]),
+        get_stdout(
+            &dir,
+            [
+                "bundle",
+                "--target",
+                "wasm-gc",
+                "--sort-input",
+                "--no-render",
+                "--dry-run",
+            ],
+        ),
         expect![[r#"
             moonc build-package ./lib1/hello.mbt -w -a -o ./_build/wasm-gc/release/bundle/lib1/lib1.core -pkg username/hello/lib1 -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/bundle/all_pkgs.json
             moonc build-package ./lib/hello.mbt -w -a -o ./_build/wasm-gc/release/bundle/lib/lib.core -pkg username/hello/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/release/bundle/all_pkgs.json
@@ -95,10 +119,20 @@ fn test_warn_list_dry_run() {
     );
 
     // to cover `moon bundle` no work to do
-    get_stdout(&dir, ["bundle", "--sort-input"]);
+    get_stdout(&dir, ["bundle", "--target", "wasm-gc", "--sort-input"]);
 
     check(
-        get_stdout(&dir, ["check", "--sort-input", "--no-render", "--dry-run"]),
+        get_stdout(
+            &dir,
+            [
+                "check",
+                "--target",
+                "wasm-gc",
+                "--sort-input",
+                "--no-render",
+                "--dry-run",
+            ],
+        ),
         expect![[r#"
             moonc check ./lib1/hello.mbt -w -1 -o ./_build/wasm-gc/debug/check/lib1/lib1.mi -pkg username/hello/lib1 -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib1:./lib1 -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check ./lib/hello.mbt -w -2 -o ./_build/wasm-gc/debug/check/lib/lib.mi -pkg username/hello/lib -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello/lib:./lib -target wasm-gc -workspace-path . -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
@@ -113,6 +147,8 @@ fn test_warn_list_dry_run() {
             &dir,
             [
                 "check",
+                "--target",
+                "wasm-gc",
                 "--warn-list",
                 "-29",
                 "--sort-input",
@@ -134,6 +170,8 @@ fn test_warn_list_dry_run() {
         &dir,
         [
             "check",
+            "--target",
+            "wasm-gc",
             "--deny-warn",
             "--sort-input",
             "--no-render",
@@ -255,7 +293,18 @@ fn test_warn_list_alerts() {
 
     // don't set -w if it's empty string
     check(
-        get_stdout(&dir, ["-C", "a", "check", "--sort-input", "--dry-run"]),
+        get_stdout(
+            &dir,
+            [
+                "-C",
+                "a",
+                "check",
+                "--target",
+                "wasm-gc",
+                "--sort-input",
+                "--dry-run",
+            ],
+        ),
         expect![[r#"
             moonc check ./b/hello.mbt -o ./_build/wasm-gc/debug/check/username/b/b.mi -pkg username/b -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:./b -target wasm-gc -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check -doctest-only ./b/hello.mbt -include-doctests -o ./_build/wasm-gc/debug/check/username/b/b.blackbox_test.mi -pkg username/b_blackbox_test -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b_blackbox_test:./b -target wasm-gc -blackbox-test -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
@@ -265,7 +314,10 @@ fn test_warn_list_alerts() {
     );
 
     check(
-        get_stderr(&dir, ["-C", "a", "check", "--sort-input"]),
+        get_stderr(
+            &dir,
+            ["-C", "a", "check", "--target", "wasm-gc", "--sort-input"],
+        ),
         expect![[r#"
             Warning: [0014]
                ╭─[ $ROOT/a/main.mbt:2:3 ]
@@ -286,7 +338,10 @@ fn test_warn_list_alerts() {
     );
 
     check(
-        get_stdout(&dir, ["-C", "a", "test", "--sort-input"]),
+        get_stdout(
+            &dir,
+            ["-C", "a", "test", "--target", "wasm-gc", "--sort-input"],
+        ),
         expect![[r#"
             Total tests: 1, passed: 1, failed: 0.
         "#]],
@@ -298,7 +353,18 @@ fn test_mod_level_warn_list_alerts() {
     let dir = TestDir::new("warns/mod_level");
 
     check(
-        get_stdout(&dir, ["-C", "a", "check", "--dry-run", "--sort-input"]),
+        get_stdout(
+            &dir,
+            [
+                "-C",
+                "a",
+                "check",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--sort-input",
+            ],
+        ),
         expect![[r#"
             moonc check ./b/hello.mbt -o ./_build/wasm-gc/debug/check/username/b/b.mi -pkg username/b -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b:./b -target wasm-gc -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json
             moonc check -doctest-only ./b/hello.mbt -include-doctests -o ./_build/wasm-gc/debug/check/username/b/b.blackbox_test.mi -pkg username/b_blackbox_test -pkg-type library -std-path '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/check/username/b/b.mi:b -i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/b_blackbox_test:./b -target wasm-gc -blackbox-test -workspace-path ./b -all-pkgs ./_build/wasm-gc/debug/check/all_pkgs.json

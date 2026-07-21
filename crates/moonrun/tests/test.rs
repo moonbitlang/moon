@@ -81,7 +81,11 @@ fn test_moonrun_version() {
 fn test_moonrun_wasm_stack_trace() {
     let dir = TestDir::new("test_stack_trace.in");
 
-    moon_cmd().current_dir(&dir).arg("build").assert().success();
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 
     let main_wasm = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
     let redactions = moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref());
@@ -261,7 +265,11 @@ Total tests: 1, passed: 0, failed: 1.
 fn test_moon_run_with_cli_args() {
     let dir = TestDir::new("test_cli_args.in");
 
-    moon_cmd().current_dir(&dir).arg("build").assert().success();
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 
     let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
     // `argv` passed to CLI is:
@@ -301,7 +309,11 @@ fn test_moon_run_with_cli_args() {
 fn test_moonrun_exits_with_guest_exit_code() {
     let dir = TestDir::new("test_cli_args.in");
 
-    moon_cmd().current_dir(&dir).arg("build").assert().success();
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 
     snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
         .arg(dir.join("_build/wasm-gc/debug/build/main/main.wasm"))
@@ -317,7 +329,11 @@ fn test_moonrun_exits_with_guest_exit_code() {
 fn test_moon_run_with_read_bytes_from_stdin() {
     let dir = TestDir::new("test_read_bytes.in");
 
-    moon_cmd().current_dir(&dir).arg("build").assert().success();
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 
     let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
 
@@ -340,7 +356,11 @@ fn test_moon_run_with_read_bytes_from_stdin() {
 fn test_moon_run_with_is_windows() {
     let dir = TestDir::new("test_os_platform_detection");
 
-    moon_cmd().current_dir(&dir).arg("build").assert().success();
+    moon_cmd()
+        .current_dir(&dir)
+        .args(["build", "--target", "wasm-gc"])
+        .assert()
+        .success();
 
     let wasm_file = dir.join("_build/wasm-gc/debug/build/main/main.wasm");
 

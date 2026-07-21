@@ -8,9 +8,9 @@ fn test_target_backend_cli_wiring_smoke() {
     check(
         get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
         expect![[r#"
-            moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
-            moonc link-core ./_build/wasm-gc/debug/build/lib/lib.core ./_build/wasm-gc/debug/build/main/main.core -main hello/main -o ./_build/wasm-gc/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map
+            moonc build-package ./lib/hello.mbt -o ./_build/wasm/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
+            moonc build-package ./main/main.mbt -o ./_build/wasm/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm -g -O0 -workspace-path . -all-pkgs ./_build/wasm/debug/build/all_pkgs.json
+            moonc link-core ./_build/wasm/debug/build/lib/lib.core ./_build/wasm/debug/build/main/main.core -main hello/main -o ./_build/wasm/debug/build/main/main.wasm -pkg-config-path ./main/moon.pkg.json -pkg-sources hello/lib:./lib -pkg-sources hello/main:./main -target wasm -g -O0 -wasi
         "#]],
     );
     check(
@@ -49,7 +49,7 @@ fn assert_preferred_target_conflict_warning(stderr: &str) {
     );
 }
 
-fn assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
+fn assert_conflicting_workspace_preferred_targets_default_to_wasm(
     command: &str,
     stdout: &str,
     stderr: &str,
@@ -57,15 +57,12 @@ fn assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
     assert_preferred_target_conflict_warning(stderr);
     assert_contains_and_absent(
         stdout,
-        &[
-            "./_build/wasm-gc/",
-            "-target wasm-gc",
-            "./js_preferred/src/lib/extra.wasm-gc.mbt",
-            "./native_preferred/src/lib/extra.wasm-gc.mbt",
-        ],
+        &["./_build/wasm/", "-target wasm"],
         &[
             "./js_preferred/src/lib/extra.js.mbt",
+            "./js_preferred/src/lib/extra.wasm-gc.mbt",
             "./native_preferred/src/lib/extra.native.mbt",
+            "./native_preferred/src/lib/extra.wasm-gc.mbt",
         ],
     );
     assert!(
@@ -376,7 +373,7 @@ fn test_packages_json_contains_computed_supported_targets() {
 
     snapbox::cmd::Command::new(moon_bin())
         .current_dir(&dir)
-        .args(["check", "--sort-input"])
+        .args(["check", "--target", "wasm-gc", "--sort-input"])
         .assert()
         .success();
 
@@ -505,7 +502,7 @@ fn test_run_without_module_preference_ignores_unrelated_module_preference() {
 
     assert_contains_and_absent(
         &stdout,
-        &["./_build/wasm-gc/", "-target wasm-gc"],
+        &["./_build/wasm/", "-target wasm"],
         &["./_build/js/", "-target js"],
     );
 }
@@ -700,16 +697,14 @@ fn test_check_last_executed_backend_wins_for_packages_json() {
 }
 
 #[test]
-fn test_conflicting_workspace_preferred_targets_default_to_wasm_gc_across_other_commands() {
+fn test_conflicting_workspace_preferred_targets_default_to_wasm_across_other_commands() {
     let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
     let commands = [("bundle", &["bundle", "--dry-run", "--sort-input"][..])];
 
     for (command, args) in commands {
         let stdout = get_stdout(&dir, args.iter().copied());
         let stderr = get_stderr(&dir, args.iter().copied());
-        assert_conflicting_workspace_preferred_targets_default_to_wasm_gc(
-            command, &stdout, &stderr,
-        );
+        assert_conflicting_workspace_preferred_targets_default_to_wasm(command, &stdout, &stderr);
     }
 }
 

@@ -2,34 +2,34 @@
 # Package username/hello/lib has diverging interfaces across backends:
 #
 # ---
---- username/hello/lib WasmGC ($ROOT/_build/wasm-gc/debug/check/lib/lib.mbti)
-+++ username/hello/lib Wasm ($ROOT/_build/wasm/debug/check/lib/lib.mbti)
+--- username/hello/lib Wasm ($ROOT/_build/wasm/debug/check/lib/lib.mbti)
++++ username/hello/lib WasmGC ($ROOT/_build/wasm-gc/debug/check/lib/lib.mbti)
 @@ -5,5 +5,5 @@
  pub fn hello() -> String
  
--pub fn hello_wasm_gc() -> String
-+pub fn hello_wasm() -> String
+-pub fn hello_wasm() -> String
++pub fn hello_wasm_gc() -> String
  
  // Errors
 #
 # ---
---- username/hello/lib WasmGC ($ROOT/_build/wasm-gc/debug/check/lib/lib.mbti)
+--- username/hello/lib Wasm ($ROOT/_build/wasm/debug/check/lib/lib.mbti)
 +++ username/hello/lib Js ($ROOT/_build/js/debug/check/lib/lib.mbti)
 @@ -5,5 +5,5 @@
  pub fn hello() -> String
  
--pub fn hello_wasm_gc() -> String
+-pub fn hello_wasm() -> String
 +pub fn hello_js() -> String
  
  // Errors
 #
 # ---
---- username/hello/lib WasmGC ($ROOT/_build/wasm-gc/debug/check/lib/lib.mbti)
+--- username/hello/lib Wasm ($ROOT/_build/wasm/debug/check/lib/lib.mbti)
 +++ username/hello/lib Native ($ROOT/_build/native/debug/check/lib/lib.mbti)
 @@ -5,5 +5,5 @@
  pub fn hello() -> String
  
--pub fn hello_wasm_gc() -> String
+-pub fn hello_wasm() -> String
 +pub fn hello_native() -> String
  
  // Errors

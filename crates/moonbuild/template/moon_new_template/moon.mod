@@ -21,6 +21,6 @@ license = "Apache-2.0"
 
 keywords = []
 
-preferred_target = "wasm-gc"
+preferred_target = "wasm"
 
 description = ""

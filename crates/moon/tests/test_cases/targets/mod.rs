@@ -25,7 +25,10 @@ fn test_many_targets() {
 #[test]
 fn test_many_targets_auto_update_001() {
     let dir = TestDir::new("targets/auto_update");
-    let _ = get_stdout(&dir, ["test", "-u", "--no-parallelize"]);
+    let _ = get_stdout(
+        &dir,
+        ["test", "--target", "wasm-gc", "-u", "--no-parallelize"],
+    );
     check(
         read(dir.join("lib").join("x.wasm.mbt")),
         expect![[r#"

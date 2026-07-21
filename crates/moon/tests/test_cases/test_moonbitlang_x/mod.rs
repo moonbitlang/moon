@@ -9,18 +9,18 @@ fn test_moonbitlang_x() {
 
     assert_dry_run_graph(
         &dir,
-        ["build", "--dry-run", "--sort-input"],
+        ["build", "--target", "wasm-gc", "--dry-run", "--sort-input"],
         expect_file!["moonbitlang_x_build_dry_run.jsonl.snap"],
     );
 
     assert_dry_run_graph(
         &dir,
-        ["test", "--dry-run", "--sort-input"],
+        ["test", "--target", "wasm-gc", "--dry-run", "--sort-input"],
         expect_file!["moonbitlang_x_test_dry_run.jsonl.snap"],
     );
 
     check(
-        get_stdout(&dir, ["run", "src/main"]),
+        get_stdout(&dir, ["run", "--target", "wasm-gc", "src/main"]),
         expect![[r#"
             Some(123)
         "#]],

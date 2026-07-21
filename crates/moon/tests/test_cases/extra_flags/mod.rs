@@ -24,7 +24,10 @@ use expect_test::expect;
 fn test_extra_flags() {
     let dir = TestDir::new("extra_flags");
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd"]),
+        get_stdout(
+            &dir,
+            ["build", "--target", "wasm-gc", "--dry-run", "--nostd"],
+        ),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
@@ -32,7 +35,17 @@ fn test_extra_flags() {
         "#]],
     );
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--debug", "--nostd"]),
+        get_stdout(
+            &dir,
+            [
+                "build",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--debug",
+                "--nostd",
+            ],
+        ),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
@@ -41,7 +54,10 @@ fn test_extra_flags() {
     );
 
     check(
-        get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]),
+        get_stdout(
+            &dir,
+            ["run", "--target", "wasm-gc", "main", "--dry-run", "--nostd"],
+        ),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
@@ -50,7 +66,18 @@ fn test_extra_flags() {
         "#]],
     );
     check(
-        get_stdout(&dir, ["run", "main", "--dry-run", "--debug", "--nostd"]),
+        get_stdout(
+            &dir,
+            [
+                "run",
+                "--target",
+                "wasm-gc",
+                "main",
+                "--dry-run",
+                "--debug",
+                "--nostd",
+            ],
+        ),
         expect![[r#"
             moonc build-package ./lib/hello.mbt -o ./_build/wasm-gc/debug/build/lib/lib.core -pkg hello/lib -pkg-type library -pkg-sources hello/lib:./lib -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./main/main.mbt -o ./_build/wasm-gc/debug/build/main/main.core -pkg hello/main -pkg-type executable -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -pkg-sources hello/main:./main -target wasm-gc -g -O0 -source-map -g -no-builtin -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json

@@ -1,3 +1,4 @@
 {
-  "name": "username/prove_doctest"
+  "name": "username/prove_doctest",
+  "preferred-target": "wasm-gc"
 }

@@ -10,10 +10,24 @@ use crate::{get_err_stderr, util::check};
 fn run_dry_run_uses_selected_profile_for_runtime_artifact() {
     let dir = TestDir::new("debug_flag_test");
 
-    let default_run = get_stdout(&dir, ["run", "main", "--dry-run", "--nostd"]);
+    let default_run = get_stdout(
+        &dir,
+        ["run", "--target", "wasm-gc", "main", "--dry-run", "--nostd"],
+    );
     assert_moonrun_line(&default_run, false);
 
-    let release_run = get_stdout(&dir, ["run", "main", "--dry-run", "--release", "--nostd"]);
+    let release_run = get_stdout(
+        &dir,
+        [
+            "run",
+            "--target",
+            "wasm-gc",
+            "main",
+            "--dry-run",
+            "--release",
+            "--nostd",
+        ],
+    );
     assert_moonrun_line(&release_run, true);
 }
 

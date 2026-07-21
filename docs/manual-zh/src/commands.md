@@ -417,7 +417,7 @@ Resources:
 
 Generate public interface (`.mbti`) files for all packages in the module or workspace
 
-By default, `moon info` writes `pkg.generated.mbti` from each selected package's canonical backend: module `preferred-backend`, then workspace `preferred-backend`, then `wasm-gc`.
+By default, `moon info` writes `pkg.generated.mbti` from each selected package's canonical backend: module `preferred-backend`, then workspace `preferred-backend`, then `wasm`.
 
 `--target` inspects backend-specific interfaces and reports differences, but does not change which backend is written to `pkg.generated.mbti`.
 

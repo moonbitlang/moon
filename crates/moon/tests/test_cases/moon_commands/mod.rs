@@ -59,7 +59,17 @@ fn cache_registry_package(
 fn test_moon_cmd() {
     let dir = TestDir::new("moon_commands");
     check(
-        get_stdout(&dir, ["build", "--dry-run", "--nostd", "--sort-input"]),
+        get_stdout(
+            &dir,
+            [
+                "build",
+                "--target",
+                "wasm-gc",
+                "--dry-run",
+                "--nostd",
+                "--sort-input",
+            ],
+        ),
         expect![[r#"
             moonc build-package ./lib/list/lib.mbt -o ./_build/wasm-gc/debug/build/lib/list/list.core -pkg design/lib/list -pkg-type library -pkg-sources design/lib/list:./lib/list -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
             moonc build-package ./lib/queue/lib.mbt -o ./_build/wasm-gc/debug/build/lib/queue/queue.core -pkg design/lib/queue -pkg-type library -i ./_build/wasm-gc/debug/build/lib/list/list.mi:list -pkg-sources design/lib/queue:./lib/queue -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
@@ -1447,7 +1457,7 @@ fn test_moon_run_command_string_invalid_source_shows_failed_command_in_verbose_m
 }
 
 #[test]
-fn test_moon_run_command_string_defaults_to_native() {
+fn test_moon_run_command_string_defaults_to_wasm() {
     let dir = TestDir::new_empty();
     let stdout = get_stdout(
         &dir,
@@ -1462,16 +1472,17 @@ fn test_moon_run_command_string_defaults_to_native() {
         ],
     );
 
-    assert!(stdout.contains("-target native"), "stdout: {stdout}");
+    assert!(stdout.contains("-target wasm"), "stdout: {stdout}");
     assert!(
-        stdout.contains("./_build/native/debug/build/single/single.core"),
+        stdout.contains("./_build/wasm/debug/build/single/single.core"),
         "stdout: {stdout}"
     );
     assert!(!stdout.contains("-target wasm-gc"), "stdout: {stdout}");
+    assert!(!stdout.contains("-target native"), "stdout: {stdout}");
 }
 
 #[test]
-fn test_moon_run_command_string_explicit_target_overrides_native_default() {
+fn test_moon_run_command_string_explicit_target_overrides_wasm_default() {
     let dir = TestDir::new_empty();
     let stdout = get_stdout(
         &dir,
@@ -1493,11 +1504,12 @@ fn test_moon_run_command_string_explicit_target_overrides_native_default() {
         stdout.contains("moonrun ./_build/wasm-gc/debug/build/single/single.wasm --"),
         "stdout: {stdout}"
     );
+    assert!(!stdout.contains("./_build/wasm/debug/"), "stdout: {stdout}");
     assert!(!stdout.contains("-target native"), "stdout: {stdout}");
 }
 
 #[test]
-fn test_moon_run_command_string_short_alias_c_defaults_to_native() {
+fn test_moon_run_command_string_short_alias_c_defaults_to_wasm() {
     let dir = TestDir::new_empty();
     let stdout = get_stdout(
         &dir,
@@ -1512,12 +1524,13 @@ fn test_moon_run_command_string_short_alias_c_defaults_to_native() {
         ],
     );
 
-    assert!(stdout.contains("-target native"), "stdout: {stdout}");
+    assert!(stdout.contains("-target wasm"), "stdout: {stdout}");
     assert!(
-        stdout.contains("./_build/native/debug/build/single/single.core"),
+        stdout.contains("./_build/wasm/debug/build/single/single.core"),
         "stdout: {stdout}"
     );
     assert!(!stdout.contains("-target wasm-gc"), "stdout: {stdout}");
+    assert!(!stdout.contains("-target native"), "stdout: {stdout}");
 }
 
 #[test]

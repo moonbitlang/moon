@@ -286,7 +286,7 @@ fn test_moon_dir() {
             "lib",
             "lib|why3|share|why3",
             "lib|why3|lib|why3",
-            "lib|core|_build|wasm-gc|release|bundle",
+            "lib|core|_build|wasm|release|bundle",
         ]
     "#]]
     .assert_debug_eq(&toolchain_dirs);

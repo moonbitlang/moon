@@ -85,7 +85,10 @@ fn test_moon_run_single_file_dry_run() {
         "#]],
     );
 
-    let output = get_stdout(&dir, ["run", "a/b/single.mbt", "--dry-run"]);
+    let output = get_stdout(
+        &dir,
+        ["run", "a/b/single.mbt", "--target", "wasm-gc", "--dry-run"],
+    );
     check(
         &output,
         expect![[r#"

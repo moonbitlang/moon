@@ -96,10 +96,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
         .expect("default build graph should plan");
     assert_graph_text_contains_and_omits(
         &default_graph,
-        &[
-            "./_build/wasm-gc/debug/build/main/main.wasm",
-            "-target wasm-gc",
-        ],
+        &["./_build/wasm/debug/build/main/main.wasm", "-target wasm"],
         &["./_build/js/debug/build/main/main.js", "-target js"],
     );
 
@@ -117,10 +114,7 @@ fn target_backend_build_planning_respects_default_and_explicit_backend() {
     assert_graph_text_contains_and_omits(
         &js_graph,
         &["./_build/js/debug/build/main/main.js", "-target js"],
-        &[
-            "./_build/wasm-gc/debug/build/main/main.wasm",
-            "-target wasm-gc",
-        ],
+        &["./_build/wasm/debug/build/main/main.wasm", "-target wasm"],
     );
 }
 
@@ -578,7 +572,7 @@ fn run_selection_without_module_preference_uses_default_backend() {
     let run_app = fixture
         .plan_run_graph_with_cli(&cli, &cmd)
         .expect("default backend run graph should plan");
-    assert_target_backend_runs(vec![run_app], &[TargetBackend::WasmGC]);
+    assert_target_backend_runs(vec![run_app], &[TargetBackend::Wasm]);
 
     let (cli, cmd) =
         parse_run_command(&["run", "js_preferred/src/main", "--dry-run", "--sort-input"]);

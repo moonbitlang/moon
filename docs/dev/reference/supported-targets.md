@@ -78,7 +78,7 @@ Notes:
 
 * `--target all` expands to `wasm`,  `wasm-gc`,  `js`,  `native` (not `llvm`).
 * `llvm` is still a valid value in `supported_targets`.
-* `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm-gc`.
+* `moon info` writes `pkg.generated.mbti` only from the canonical backend of each selected package: module `preferred-backend`, then workspace preferred backend, then `wasm`.
 
 ## Dependency compatibility (fail-fast)
 
