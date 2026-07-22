@@ -30,12 +30,14 @@ pub(super) fn lower(
     args: Vec<String>,
     primary_output: &Path,
 ) -> Result<Commandline, LoweringError> {
-    let (executable, response_args) = args
+    let commandline = Commandline::from(args);
+    let (executable, response_args) = commandline
+        .args()
+        .expect("moonc commands are represented as argv")
         .split_first()
         .expect("moonc command builders always provide an executable");
-    let command = moonutil::shlex::join_native(args.iter().map(String::as_str));
-    if command.len() < RESPONSE_FILE_THRESHOLD {
-        return Ok(args.into());
+    if commandline.inline_command().len() < RESPONSE_FILE_THRESHOLD {
+        return Ok(commandline);
     }
 
     let content = encode(response_args)?;
@@ -47,7 +49,7 @@ pub(super) fn lower(
         [executable.as_str(), "-rsp-file", rsp_path_arg.as_ref()].into_iter(),
     );
 
-    Ok(Commandline::from(args).with_response_file(
+    Ok(commandline.with_response_file(
         command,
         RspFile {
             path: rsp_path,

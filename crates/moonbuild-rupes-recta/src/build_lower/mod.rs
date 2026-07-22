@@ -267,19 +267,19 @@ enum CommandlineKind {
     ///
     /// This variant is used for commands that intentionally rely on shell
     /// composition, such as prebuild commands and follow-up tool invocations.
-    Verbatim(String),
+    Verbatim,
 }
 
 /// How n2 should execute a logical command.
 #[derive(Debug, Clone)]
 enum CommandExecution {
-    Inline,
+    Inline(String),
     ResponseFile { command: String, file: RspFile },
 }
 
 #[derive(Debug, Clone)]
 struct Commandline {
-    /// The complete logical command used by metadata and human-facing output.
+    /// Structured logical argv, when available for metadata and presentation.
     kind: CommandlineKind,
     execution: CommandExecution,
     cwd: Option<PathBuf>,
@@ -288,9 +288,10 @@ struct Commandline {
 
 impl From<Vec<String>> for Commandline {
     fn from(v: Vec<String>) -> Self {
+        let command = moonutil::shlex::join_native(v.iter().map(String::as_str));
         Commandline {
             kind: CommandlineKind::Args(v),
-            execution: CommandExecution::Inline,
+            execution: CommandExecution::Inline(command),
             cwd: None,
             env: Vec::new(),
         }
@@ -300,8 +301,8 @@ impl From<Vec<String>> for Commandline {
 impl Commandline {
     fn verbatim(s: String) -> Self {
         Self {
-            kind: CommandlineKind::Verbatim(s),
-            execution: CommandExecution::Inline,
+            kind: CommandlineKind::Verbatim,
+            execution: CommandExecution::Inline(s),
             cwd: None,
             env: Vec::new(),
         }
@@ -309,17 +310,16 @@ impl Commandline {
 
     fn into_n2(self) -> (String, Option<RspFile>) {
         match self.execution {
-            CommandExecution::Inline => {
-                let command = match self.kind {
-                    CommandlineKind::Args(args) => {
-                        moonutil::shlex::join_native(args.iter().map(String::as_str))
-                    }
-                    CommandlineKind::Verbatim(command) => command,
-                };
-                (command, None)
-            }
+            CommandExecution::Inline(command) => (command, None),
             CommandExecution::ResponseFile { command, file } => (command, Some(file)),
         }
+    }
+
+    fn inline_command(&self) -> &str {
+        let CommandExecution::Inline(command) = &self.execution else {
+            unreachable!("a response-file command is already lowered")
+        };
+        command
     }
 
     fn with_response_file(mut self, command: String, file: RspFile) -> Self {
@@ -330,7 +330,7 @@ impl Commandline {
     fn args(&self) -> Option<&Vec<String>> {
         match &self.kind {
             CommandlineKind::Args(args) => Some(args),
-            CommandlineKind::Verbatim(_) => None,
+            CommandlineKind::Verbatim => None,
         }
     }
 
