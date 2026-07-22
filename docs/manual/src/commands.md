@@ -55,7 +55,7 @@ This document contains the help content for the `moon` command-line program.
 * `run` — Run a main package
 * `runwasm` — Run a local package as WebAssembly or a prebuilt WebAssembly binary
 * `test` — Test the current package
-* `clean` — Remove the _build directory
+* `clean` — Remove local build outputs or configured global caches
 * `fmt` — Format source code
 * `doc` — Generate documentation or searching documentation for a symbol
 * `explain` — Explain compiler diagnostics and language topics
@@ -345,9 +345,14 @@ Test the current package
 
 ## `moon clean`
 
-Remove the _build directory
+Remove local build outputs or configured global caches
 
-**Usage:** `moon clean`
+**Usage:** `moon clean [OPTIONS]`
+
+###### **Options:**
+
+* `--dep-cache` — Remove the global dependency-source cache instead of `_build`
+* `--build-cache` — Remove the global build-artifact cache instead of `_build`
 
 
 

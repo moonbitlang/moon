@@ -69,6 +69,11 @@ cargo install --path ./crates/moon --debug --offline
 
 ## Source Code Overview
 
+### Design
+
+- [Global build state and cache design](design/global-build-cache.md)
+- [`docs/dev/reference`](reference/readme.md): implemented MoonBuild behavior.
+
 - `crates/moon`
   - `src/cli`: the command line interface of `moon`
     - `src/cli/mooncake_adapter.rs`: forwards to the `mooncake`

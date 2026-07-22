@@ -43,7 +43,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand test 'Test the current package'
             cand cram 'Run cram tests with project binaries on PATH (experimental)'
             cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
-            cand clean 'Remove the _build directory'
+            cand clean 'Remove local build outputs or configured global caches'
             cand fmt 'Format source code'
             cand doc 'Generate documentation or searching documentation for a symbol'
             cand explain 'Explain compiler diagnostics and language topics'
@@ -380,6 +380,8 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;clean'= {
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
+            cand --dep-cache 'Remove the global dependency-source cache instead of `_build`'
+            cand --build-cache 'Remove the global build-artifact cache instead of `_build`'
             cand -q 'Suppress output'
             cand --quiet 'Suppress output'
             cand -v 'Increase verbosity'
@@ -1029,7 +1031,7 @@ set edit:completion:arg-completer[moon] = {|@words|
             cand test 'Test the current package'
             cand cram 'Run cram tests with project binaries on PATH (experimental)'
             cand generate-test-driver 'Generate tests for a provided package. This is a thin wrapper around `moonc gen-test-info`, which does the actual parsing and generation'
-            cand clean 'Remove the _build directory'
+            cand clean 'Remove local build outputs or configured global caches'
             cand fmt 'Format source code'
             cand doc 'Generate documentation or searching documentation for a symbol'
             cand explain 'Explain compiler diagnostics and language topics'

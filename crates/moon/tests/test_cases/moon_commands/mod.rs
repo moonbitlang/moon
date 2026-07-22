@@ -99,7 +99,7 @@ fn test_moon_help() {
               run                    Run a main package
               runwasm                Run a local package as WebAssembly or a prebuilt WebAssembly binary
               test                   Test the current package
-              clean                  Remove the _build directory
+              clean                  Remove local build outputs or configured global caches
               fmt                    Format source code
               doc                    Generate documentation or searching documentation for a symbol
               explain                Explain compiler diagnostics and language topics
