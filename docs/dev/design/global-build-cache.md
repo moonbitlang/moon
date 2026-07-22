@@ -38,10 +38,10 @@ outputs, never a live `_build` tree.
 | Compiler temporaries and generated working files | Invocation `_build` | No |
 | Final user-requested output | Command or project | No implicit global path |
 
-The design follows Go in separating a module/source cache from a build cache.
-It also follows Go's action-cache model: an artifact is reusable only when all
-compiler-observable inputs have the same identity. Directory names are for
-storage organization, not correctness.
+Source acquisition and compiler outputs have different identities, lifetimes,
+and cleanup rules, so they use separate caches. An artifact is reusable only
+when all compiler-observable inputs have the same identity. Directory names
+are for storage organization, not correctness.
 
 ## Implemented public seam
 
@@ -101,7 +101,7 @@ action, not merely a package version.
 
 ## Future artifact identity
 
-The build cache should use the same conceptual split as Go:
+Artifact identity has three concepts:
 
 - **Action ID:** a digest of everything that can affect the compilation.
 - **Output ID:** a digest of the complete published result.
@@ -146,9 +146,9 @@ example backend plus optional operating system, architecture, ABI, and runtime
 capabilities. Native cross-checking can then select explicit OS and
 architecture values without changing the cache's correctness model.
 
-For conditional source selection, Moon should stay closer to Go's
-per-invocation build constraints than Cargo's feature unification. A future
-build-tag or `cfg` design should:
+Conditional source selection should produce one explicit build configuration
+for each invocation. Dependency-requested feature unification is not part of
+this design. A future build-tag or `cfg` design should:
 
 - resolve to one explicit build configuration for an invocation;
 - participate in source selection before action IDs are computed;
@@ -211,19 +211,17 @@ The next implementation should choose one stage, write a failing end-to-end
 test first, and avoid introducing speculative directory structure for later
 stages.
 
-## Evidence and precedents
+## References
 
-- [Go module cache](https://go.dev/ref/mod#module-cache) separates downloaded
-  module state from compiled build outputs.
-- [Go build IDs](https://go.dev/src/cmd/go/internal/work/buildid.go#L26) explain
-  the action-ID/output-ID model.
-- [Go action hashing](https://go.dev/src/cmd/go/internal/work/exec.go#L260)
-  demonstrates that tool identity, configuration, and imported package state
-  belong in an action key.
-- [Go build constraints](https://pkg.go.dev/cmd/go#hdr-Build_constraints) are
-  selected per invocation rather than unified across dependents.
-- [Cargo features](https://doc.rust-lang.org/cargo/reference/features.html) are
-  useful contrast: feature unification is a package-graph policy, not merely a
-  cache layout detail.
-- [Cargo fingerprints](https://doc.rust-lang.org/nightly/nightly-rustc/cargo/core/compiler/fingerprint/index.html)
-  reinforce that dependency and compiler inputs must invalidate reuse.
+- [Go module cache](https://go.dev/ref/mod#module-cache): separation of
+  downloaded module state and compiled outputs.
+- [Go build IDs](https://go.dev/src/cmd/go/internal/work/buildid.go#L26):
+  action and output identities.
+- [Go action hashing](https://go.dev/src/cmd/go/internal/work/exec.go#L260):
+  inputs used to identify a compilation action.
+- [Go build constraints](https://pkg.go.dev/cmd/go#hdr-Build_constraints):
+  per-invocation source selection.
+- [Cargo features](https://doc.rust-lang.org/cargo/reference/features.html):
+  dependency-requested feature selection and unification.
+- [Cargo fingerprints](https://doc.rust-lang.org/nightly/nightly-rustc/cargo/core/compiler/fingerprint/index.html):
+  dependency and compiler-input invalidation.
