@@ -20,6 +20,7 @@
 
 use std::{
     collections::BTreeSet,
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -189,6 +190,7 @@ pub(super) fn report_info_outputs<'a>(
     plan: &'a InfoOutputPlan,
     it: impl Iterator<Item = &'a (TargetBackend, BuildMeta)>,
     requested_backends: &[TargetBackend],
+    writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     if requested_backends.is_empty() {
         return Ok(());
@@ -197,7 +199,7 @@ pub(super) fn report_info_outputs<'a>(
     let requested_backends = requested_backends.iter().copied().collect::<BTreeSet<_>>();
 
     for (_package, group) in collect_package_output_groups(plan, it) {
-        report_info_output_for_package(&requested_backends, &group)?;
+        report_info_output_for_package(&requested_backends, &group, writer)?;
     }
 
     Ok(())
@@ -274,6 +276,7 @@ fn read_backend_contents<'a>(
 fn report_info_output_for_package(
     requested_backends: &BTreeSet<TargetBackend>,
     group: &PackageOutputGroup,
+    writer: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let backend_contents = read_backend_contents(group)?;
     let requested_outputs = requested_backends
@@ -305,15 +308,17 @@ fn report_info_output_for_package(
     }
 
     if canonical.is_some() {
-        println!(
+        writeln!(
+            writer,
             "#\n# Package {} has diverging interfaces across backends:",
             group.plan.pkg_name
-        );
+        )?;
     } else {
-        println!(
+        writeln!(
+            writer,
             "#\n# Package {} has requested interfaces different from canonical backend {:?}:",
             group.plan.pkg_name, canonical_backend
-        );
+        )?;
     }
 
     for (hash, backends) in hash_groups {
@@ -325,31 +330,33 @@ fn report_info_output_for_package(
             .get(&backends[0])
             .context("Backend output not found")?;
 
-        println!("#\n# ---");
-        println!(
+        writeln!(writer, "#\n# ---")?;
+        writeln!(
+            writer,
             "{} {} {:?} {}",
             "---".bright_red(),
             group.plan.pkg_name,
             canonical_backend,
             baseline_file_label.bright_black(),
-        );
+        )?;
         for backend in &backends {
             let actual = backend_contents
                 .get(backend)
                 .context("Backend output not found")?;
-            println!(
+            writeln!(
+                writer,
                 "{} {} {:?} {}",
                 "+++".bright_green(),
                 group.plan.pkg_name,
                 backend,
                 format!("({})", actual.filename.display()).bright_black(),
-            );
+            )?;
         }
 
-        write_diff(baseline_content, &actual.content, 1, 2, std::io::stdout())?;
+        write_diff(baseline_content, &actual.content, 1, 2, &mut *writer)?;
     }
 
-    println!("# ------");
+    writeln!(writer, "# ------")?;
     Ok(())
 }
 

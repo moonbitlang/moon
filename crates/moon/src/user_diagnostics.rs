@@ -91,7 +91,8 @@ impl UserDiagnostics {
 
     fn enabled(self, kind: UserMessageKind) -> bool {
         match kind {
-            UserMessageKind::Error | UserMessageKind::Warn => true,
+            UserMessageKind::Error => true,
+            UserMessageKind::Warn => !self.quiet,
             UserMessageKind::Info | UserMessageKind::Hint => {
                 !self.quiet && self.threshold >= UserThreshold::Info
             }
@@ -137,10 +138,10 @@ mod tests {
     }
 
     #[test]
-    fn quiet_output_still_shows_warn() {
+    fn quiet_output_only_shows_errors() {
         let output = UserDiagnostics::new(true, true);
-        assert!(output.enabled(UserMessageKind::Warn));
         assert!(output.enabled(UserMessageKind::Error));
+        assert!(!output.enabled(UserMessageKind::Warn));
         assert!(!output.enabled(UserMessageKind::Info));
         assert!(!output.enabled(UserMessageKind::Hint));
     }

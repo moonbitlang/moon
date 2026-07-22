@@ -28,6 +28,7 @@ use moonbuild_rupes_recta::{
 use moonutil::{
     build_options::RunMode,
     cli_support::AutoSyncFlags,
+    command_output::CommandOutput,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
     user_log::UserLog,
@@ -265,18 +266,24 @@ fn calc_user_intent_for_info(
 }
 
 pub(crate) fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
-    let output = UserLog::new(cli.user_log_level());
+    let output = CommandOutput::new(cli.user_log_level());
     if cmd.no_alias {
-        output.warn("`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092");
+        output.user_log().warn(
+            "`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092",
+        );
     }
     if cli.dry_run {
         bail!("dry-run is not supported for info")
     }
 
-    run_info_rr(cli, cmd)
+    run_info_rr(cli, cmd, &output)
 }
 
-pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
+fn run_info_rr(
+    cli: UniversalFlags,
+    cmd: InfoSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -298,8 +305,8 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
     let synced_env =
         sync_dependencies(&resolve_cfg, &source_dir, &mooncakes_dir, &project_manifest)?;
     let resolve_output = resolve_synced_project(&resolve_cfg, synced_env)?;
-    let output = UserDiagnostics::from_flags(&cli);
-    let selection = PackageSelection::new(&cmd, &resolve_output, output)?;
+    let user_diagnostics = UserDiagnostics::from_flags(&cli);
+    let selection = PackageSelection::new(&cmd, &resolve_output, user_diagnostics)?;
 
     let requested_targets = cmd
         .target
@@ -323,6 +330,7 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
             resolve_output.clone(),
             &selection,
             &output_plan,
+            output,
         )?;
         if !success {
             ok = false;
@@ -336,7 +344,9 @@ pub(crate) fn run_info_rr(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::R
     }
 
     imp::promote_info_results(&output_plan, all_meta.iter());
-    imp::report_info_outputs(&output_plan, all_meta.iter(), &requested_targets)?;
+    output.write_result(|writer| {
+        imp::report_info_outputs(&output_plan, all_meta.iter(), &requested_targets, writer)
+    })?;
     Ok(0)
 }
 
@@ -354,6 +364,7 @@ fn run_info_rr_internal(
     resolve_output: ResolveOutput,
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
+    output: &CommandOutput,
 ) -> anyhow::Result<(bool, BuildMeta)> {
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
@@ -364,13 +375,12 @@ fn run_info_rr_internal(
         RunMode::Check,
     );
     preconfig.info_no_alias = cmd.no_alias;
-    let user_log = UserLog::new(cli.user_log_level());
     let user_diagnostics = UserDiagnostics::from_flags(cli);
     let ctx = InfoIntentContext {
         selection,
         output_plan,
         target_kind,
-        output: &user_log,
+        output: output.user_log(),
     };
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,

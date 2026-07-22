@@ -24,6 +24,7 @@ pub mod build_script;
 pub mod cache;
 mod cli;
 pub mod cli_support;
+pub mod command_output;
 pub mod compiler_flags;
 pub mod cond_expr;
 pub mod constants;
