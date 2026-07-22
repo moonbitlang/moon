@@ -57,6 +57,7 @@ pub mod target;
 pub mod test_metadata;
 pub mod text;
 pub mod toolchain;
+pub mod user_log;
 pub mod user_warning;
 pub mod version;
 pub mod workspace;
