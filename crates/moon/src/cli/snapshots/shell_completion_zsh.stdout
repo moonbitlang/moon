@@ -394,6 +394,8 @@ _arguments "${_arguments_options[@]}" : \
 (clean)
 _arguments "${_arguments_options[@]}" : \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
+'--dep-cache[Remove the global dependency-source cache instead of \`_build\`]' \
+'--build-cache[Remove the global build-artifact cache instead of \`_build\`]' \
 '-q[Suppress output]' \
 '--quiet[Suppress output]' \
 '-v[Increase verbosity]' \
@@ -1538,7 +1540,7 @@ _moon_commands() {
 'test:Test the current package' \
 'cram:Run cram tests with project binaries on PATH (experimental)' \
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around \`moonc gen-test-info\`, which does the actual parsing and generation' \
-'clean:Remove the _build directory' \
+'clean:Remove local build outputs or configured global caches' \
 'fmt:Format source code' \
 'doc:Generate documentation or searching documentation for a symbol' \
 'explain:Explain compiler diagnostics and language topics' \
@@ -1707,7 +1709,7 @@ _moon__help_commands() {
 'test:Test the current package' \
 'cram:Run cram tests with project binaries on PATH (experimental)' \
 'generate-test-driver:Generate tests for a provided package. This is a thin wrapper around \`moonc gen-test-info\`, which does the actual parsing and generation' \
-'clean:Remove the _build directory' \
+'clean:Remove local build outputs or configured global caches' \
 'fmt:Format source code' \
 'doc:Generate documentation or searching documentation for a symbol' \
 'explain:Explain compiler diagnostics and language topics' \

@@ -19,13 +19,31 @@
 use anyhow::{Context, bail};
 use moonutil::{cli_support::UniversalFlags, locks::FileLock};
 
-/// Remove the _build directory
+/// Remove local build outputs or configured global caches.
 #[derive(Debug, clap::Parser)]
-pub(crate) struct CleanSubcommand {}
+pub(crate) struct CleanSubcommand {
+    /// Remove the global dependency-source cache instead of `_build`.
+    #[arg(long)]
+    dep_cache: bool,
 
-pub(crate) fn run_clean(cli: &UniversalFlags) -> anyhow::Result<i32> {
+    /// Remove the global build-artifact cache instead of `_build`.
+    #[arg(long)]
+    build_cache: bool,
+}
+
+pub(crate) fn run_clean(cli: &UniversalFlags, cmd: &CleanSubcommand) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for clean");
+    }
+
+    if cmd.dep_cache || cmd.build_cache {
+        if cmd.dep_cache {
+            moonutil::cache::clean_cache(moonutil::cache::CacheKind::DependencySources)?;
+        }
+        if cmd.build_cache {
+            moonutil::cache::clean_cache(moonutil::cache::CacheKind::BuildArtifacts)?;
+        }
+        return Ok(0);
     }
 
     let src_tgt = cli

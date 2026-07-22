@@ -661,7 +661,7 @@ _moon() {
             return 0
             ;;
         moon__clean)
-            opts="-q -v -h --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
+            opts="-q -v -h --dep-cache --build-cache --target-dir --quiet --verbose --trace --dry-run --build-graph --help"
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 2 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
