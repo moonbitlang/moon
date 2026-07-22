@@ -1549,6 +1549,7 @@ dependencies = [
 name = "moon"
 version = "0.1.0"
 dependencies = [
+ "anstyle",
  "anyhow",
  "chrono",
  "clap",
@@ -1616,6 +1617,8 @@ dependencies = [
 name = "moonbuild"
 version = "0.1.0"
 dependencies = [
+ "anstream",
+ "anstyle",
  "anyhow",
  "arcstr",
  "ariadne",
@@ -1756,6 +1759,8 @@ dependencies = [
 name = "moonutil"
 version = "0.1.0"
 dependencies = [
+ "anstream",
+ "anstyle",
  "anyhow",
  "arcstr",
  "ariadne",

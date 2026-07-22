@@ -39,6 +39,8 @@ moonbuild-debug = { path = "./crates/moonbuild-debug", version = "*" }
 mooncake = { path = "./crates/mooncake", version = "*" }
 moonutil = { path = "./crates/moonutil", version = "*" }
 anyhow = { version = "1.0.86" }
+anstream = "0.6.21"
+anstyle = "1.0.13"
 clap = { version = "4.5.4", features = ["derive", "string", "env"] }
 colored = "2.1.0"
 ctrlc = { version = "3.4.4", features = ["termination"] }

@@ -99,12 +99,7 @@ fn test_moon_test_filter_outline_wiring() {
             "-q",
         ],
     ));
-    check(
-        output,
-        expect![[r#"
-Warning: no test entry found.
-"#]],
-    );
+    check(output, expect!["\n\n"]);
 
     let output = normalize_outline(get_stdout(
         &dir,

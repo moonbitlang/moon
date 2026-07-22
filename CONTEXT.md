@@ -40,6 +40,24 @@ _Avoid_: Always-full package model, eager package facts
 A MoonBuild command whose information demand stops before full dependency resolution and build target projection.
 _Avoid_: Partial resolve, incomplete build command
 
+## Command Communication
+
+**Command Result**:
+The stdout representation a MoonBuild command intentionally produces for a user or another program. It is not filtered by `--quiet` or `--verbose`.
+_Avoid_: User log, progress message, child output
+
+**User Log**:
+A MoonBuild-authored stderr message that explains an error, warning, informational event, or debugging detail. Its visibility is controlled by the command's user-log level.
+_Avoid_: Command result, tracing log, child output
+
+**Process Passthrough**:
+The stdout or stderr bytes of a child tool or executed program forwarded without MoonBuild changing their channel, content, or visibility.
+_Avoid_: Command result, user log
+
+**Progress Display**:
+Transient terminal status for concurrent or long-running work, rendered independently from durable user-log lines.
+_Avoid_: User log, command result
+
 ## Package Execution
 
 **Executable Package Coordinate**:

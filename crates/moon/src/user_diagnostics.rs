@@ -18,57 +18,55 @@
 
 use std::fmt::Display;
 
-use colored::{ColoredString, Colorize};
-use moonutil::cli_support::UniversalFlags;
-use moonutil::user_warning::{UserMessageLevel, UserWarning};
+use anstyle::{AnsiColor, Style};
+use moonutil::{
+    cli_support::UniversalFlags,
+    user_log::{UserLog, user_log_level},
+    user_warning::{UserMessageLevel, UserWarning},
+};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum UserThreshold {
-    Warn,
-    Info,
-}
+const INFO_STYLE: Style = AnsiColor::Cyan.on_default().bold();
+const HINT_STYLE: Style = AnsiColor::Green.on_default().bold();
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UserMessageKind {
-    Error,
-    Warn,
-    Info,
-    #[allow(dead_code)]
-    Hint,
-}
-
+/// Compatibility adapter for call sites that still use diagnostic-style labels.
+///
+/// Filtering and stderr ownership belong to `UserLog`; this type only preserves
+/// the legacy `Info:` and `Hint:` presentation until those callers migrate.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct UserDiagnostics {
-    threshold: UserThreshold,
-    quiet: bool,
+    user_log: UserLog,
 }
 
 impl UserDiagnostics {
     pub(crate) fn from_flags(flags: &UniversalFlags) -> Self {
-        Self::new(flags.verbose, flags.quiet)
+        Self {
+            user_log: UserLog::new(flags.user_log_level()),
+        }
+    }
+
+    pub(crate) fn from_user_log(user_log: &UserLog) -> Self {
+        Self {
+            user_log: *user_log,
+        }
     }
 
     pub(crate) fn new(verbose: bool, quiet: bool) -> Self {
         Self {
-            threshold: if verbose {
-                UserThreshold::Info
-            } else {
-                UserThreshold::Warn
-            },
-            quiet,
+            user_log: UserLog::new(user_log_level(verbose, quiet)),
         }
     }
 
     pub(crate) fn error(self, message: impl Display) {
-        self.emit(UserMessageKind::Error, message);
+        self.user_log.error(message);
     }
 
     pub(crate) fn warn(self, message: impl Display) {
-        self.emit(UserMessageKind::Warn, message);
+        self.user_log.warn(message);
     }
 
     pub(crate) fn info(self, message: impl Display) {
-        self.emit(UserMessageKind::Info, message);
+        self.user_log
+            .info(format_args!("{INFO_STYLE}Info{INFO_STYLE:#}: {message}"));
     }
 
     pub(crate) fn user_message(self, message: &UserWarning) {
@@ -80,68 +78,13 @@ impl UserDiagnostics {
 
     #[allow(dead_code)]
     pub(crate) fn hint(self, message: impl Display) {
-        self.emit(UserMessageKind::Hint, message);
-    }
-
-    fn emit(self, kind: UserMessageKind, message: impl Display) {
-        if self.enabled(kind) {
-            eprintln!("{}: {}", kind.label(), message);
-        }
-    }
-
-    fn enabled(self, kind: UserMessageKind) -> bool {
-        match kind {
-            UserMessageKind::Error | UserMessageKind::Warn => true,
-            UserMessageKind::Info | UserMessageKind::Hint => {
-                !self.quiet && self.threshold >= UserThreshold::Info
-            }
-        }
+        self.user_log
+            .info(format_args!("{HINT_STYLE}Hint{HINT_STYLE:#}: {message}"));
     }
 }
 
 impl Default for UserDiagnostics {
     fn default() -> Self {
         Self::new(false, false)
-    }
-}
-
-impl UserMessageKind {
-    fn label(self) -> ColoredString {
-        match self {
-            UserMessageKind::Error => "Error".red().bold(),
-            UserMessageKind::Warn => "Warning".yellow().bold(),
-            UserMessageKind::Info => "Info".cyan().bold(),
-            UserMessageKind::Hint => "Hint".green().bold(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{UserDiagnostics, UserMessageKind};
-
-    #[test]
-    fn default_output_shows_warn_but_not_info() {
-        let output = UserDiagnostics::new(false, false);
-        assert!(output.enabled(UserMessageKind::Warn));
-        assert!(output.enabled(UserMessageKind::Error));
-        assert!(!output.enabled(UserMessageKind::Info));
-        assert!(!output.enabled(UserMessageKind::Hint));
-    }
-
-    #[test]
-    fn verbose_output_enables_info() {
-        let output = UserDiagnostics::new(true, false);
-        assert!(output.enabled(UserMessageKind::Info));
-        assert!(output.enabled(UserMessageKind::Hint));
-    }
-
-    #[test]
-    fn quiet_output_still_shows_warn() {
-        let output = UserDiagnostics::new(true, true);
-        assert!(output.enabled(UserMessageKind::Warn));
-        assert!(output.enabled(UserMessageKind::Error));
-        assert!(!output.enabled(UserMessageKind::Info));
-        assert!(!output.enabled(UserMessageKind::Hint));
     }
 }

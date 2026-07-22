@@ -372,6 +372,28 @@ fn test_moon_info_verbose_unsupported_path_is_bare_stderr() {
 }
 
 #[test]
+fn test_moon_info_quiet_keeps_command_result_and_suppresses_user_log() {
+    let dir = TestDir::new("mixed_backend_local_dep.in");
+    let assert = moon_cmd(&dir)
+        .args(["info", "--target", "js", "--no-alias", "--quiet"])
+        .assert()
+        .success()
+        .stderr_eq("");
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+
+    assert!(
+        stdout.contains(
+            "Package mixed/localdep/shared has requested interfaces different from canonical backend"
+        ),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("pub fn shared_banner() -> String"),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
 fn test_module_supported_targets_intersects_package_supported_targets() {
     let dir = TestDir::new("supported_targets_module_intersection.in");
 
