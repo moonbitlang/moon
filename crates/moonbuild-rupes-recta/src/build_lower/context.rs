@@ -36,7 +36,7 @@ use crate::{
 use moonutil::toolchain::BINARIES;
 
 use super::{
-    BuildOptions, CommandArgMap, LoweringError, moonc_response,
+    BuildOptions, CommandArgMap, LoweringError,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
@@ -248,15 +248,19 @@ impl<'a> LoweringContext<'a> {
         }
         let action_products = ActionProducts::new(self, id);
 
-        // Lower the action to its commands. This step should be infallible.
+        // Lower the action to its command and tool-specific execution transport.
         let cmd = match action {
-            BuildAction::Check { target, info } => self.lower_check(&action_products, target, info),
-            BuildAction::EmitProof { target, info } => {
-                self.lower_emit_proof(&action_products, target, info)
+            BuildAction::Check { target, info } => {
+                self.lower_check(&action_products, target, info)?
             }
-            BuildAction::Prove { target, info } => self.lower_prove(&action_products, target, info),
+            BuildAction::EmitProof { target, info } => {
+                self.lower_emit_proof(&action_products, target, info)?
+            }
+            BuildAction::Prove { target, info } => {
+                self.lower_prove(&action_products, target, info)?
+            }
             BuildAction::BuildCore { target, info } => {
-                self.lower_build_mbt(&action_products, target, info)
+                self.lower_build_mbt(&action_products, target, info)?
             }
             BuildAction::BuildCStub {
                 package,
@@ -270,7 +274,7 @@ impl<'a> LoweringContext<'a> {
                 target,
                 info,
                 make_executable_info,
-            } => self.lower_link_core(&action_products, target, info, make_executable_info),
+            } => self.lower_link_core(&action_products, target, info, make_executable_info)?,
             BuildAction::MakeExecutable {
                 target,
                 info: Some(info),
@@ -284,9 +288,9 @@ impl<'a> LoweringContext<'a> {
             BuildAction::GenerateMbti { target } => {
                 self.lower_generate_mbti(&action_products, target)
             }
-            BuildAction::BuildVirtual { package } => self.lower_parse_mbti(package),
+            BuildAction::BuildVirtual { package } => self.lower_parse_mbti(package)?,
             BuildAction::Bundle { module, targets } => {
-                self.lower_bundle(&action_products, module, targets)
+                self.lower_bundle(&action_products, module, targets)?
             }
             BuildAction::BuildRuntimeLib { info } => {
                 self.lower_compile_runtime(&action_products, info)
@@ -309,9 +313,10 @@ impl<'a> LoweringContext<'a> {
         // this, or if you are duplicating a lot of code for it, please refactor.
         let mut ins = action_products.dependency_paths();
         ins.extend(cmd.extra_inputs);
-        let runs_moonc = self.plan.runs_moonc(id);
-        // Track the compiler binary so n2 rebuilds after a toolchain update.
-        if runs_moonc {
+        // Track tool binary dependencies so that n2 detects when compilers
+        // or other toolchain binaries change (e.g. after a toolchain update)
+        // and triggers a rebuild.
+        if self.plan.needs_moonc_tool_dep(id) {
             ins.push(BINARIES.moonc.clone());
         }
         ins.sort(); // make sure the order is deterministic
@@ -321,29 +326,13 @@ impl<'a> LoweringContext<'a> {
         if let Some(args) = cmd.commandline.args() {
             for output_path in &output_paths {
                 self.command_args_by_output
-                    .insert(output_path.clone(), args.to_vec());
+                    .insert(output_path.clone(), args.clone());
             }
         }
-        let fqn = self
-            .plan
-            .package_for_error(id)
-            .map(|x| self.get_package(x).fqn.clone());
-        let rendered_command = if runs_moonc {
-            cmd.commandline
-                .args()
-                .ok_or_else(|| anyhow::anyhow!("moonc command is not represented as argv"))
-                .and_then(|args| {
-                    moonc_response::render(args, output_paths.first().map(PathBuf::as_path))
-                })
-        } else {
-            Ok((cmd.commandline.to_n2_string(), None))
-        };
-        let (n2_command, rspfile) =
-            rendered_command.map_err(|source| LoweringError::Commandline {
-                package: fqn.clone().into(),
-                action: id,
-                source,
-            })?;
+        let mut commandline = cmd.commandline;
+        let cwd = commandline.cwd.take();
+        let env = std::mem::take(&mut commandline.env);
+        let (n2_command, rspfile) = commandline.into_n2();
         let outs = build_outs(&mut self.graph, output_paths);
 
         // Construct n2 build node
@@ -354,8 +343,8 @@ impl<'a> LoweringContext<'a> {
         );
         build.cmdline = Some(n2_command);
         build.rspfile = rspfile;
-        build.cwd = cmd.commandline.cwd().map(|cwd| cwd.display().to_string());
-        build.env = cmd.commandline.env().to_vec();
+        build.cwd = cwd.map(|cwd| cwd.display().to_string());
+        build.env = env;
         build.desc = Some(self.plan.human_desc(id, self.modules, self.packages));
         // n2 can't capture and replay command outputs. this is a workaround to
         // avoid losing warnings from `moonc`. According to legacy code, this
@@ -365,6 +354,10 @@ impl<'a> LoweringContext<'a> {
         build.can_dirty_on_output = self.plan.can_dirty_on_output(id);
 
         self.debug_print_command_and_files(id, &build);
+        let fqn = self
+            .plan
+            .package_for_error(id)
+            .map(|x| self.get_package(x).fqn.clone());
         self.graph
             .add_build(build)
             .map(|_| ())

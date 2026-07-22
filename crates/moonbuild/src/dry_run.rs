@@ -19,7 +19,8 @@
 use n2::densemap::Index;
 use n2::graph::{BuildId, FileId, Graph};
 use std::{
-    collections::{HashMap, HashSet},
+    borrow::Cow,
+    collections::{BTreeMap, HashMap, HashSet},
     io::Write,
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -35,6 +36,7 @@ static DRY_RUN_TEST_OUTPUT: LazyLock<Option<String>> =
 pub fn print_build_commands(
     graph: &Graph,
     default: &[FileId],
+    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
     source_dir: &Path,
     target_dir: &Path,
 ) {
@@ -48,11 +50,8 @@ pub fn print_build_commands(
         for b in builds.iter() {
             let build = &graph.builds[*b];
             if let Some(cmdline) = build.cmdline.as_ref() {
-                let rspfile = build
-                    .rspfile
-                    .as_ref()
-                    .map(|rspfile| (rspfile.path.as_path(), rspfile.content.as_str()));
-                let command = moonutil::shlex::expand_response_file_for_display(cmdline, rspfile);
+                let logical_args = logical_args_for_build(graph, build, logical_commands);
+                let command = command_for_display(cmdline, logical_args);
                 println!("{}", replacer.normalize_command(&command));
             }
             if let Some(cwd) = build.cwd.as_deref().map(Path::new) {
@@ -72,7 +71,31 @@ pub fn print_build_commands(
         }
     }
 
-    try_debug_dump_build_graph_to_file(graph, default, source_dir);
+    try_debug_dump_build_graph_to_file(graph, default, logical_commands, source_dir);
+}
+
+fn logical_args_for_build<'a>(
+    graph: &Graph,
+    build: &n2::graph::Build,
+    logical_commands: &'a BTreeMap<PathBuf, Vec<String>>,
+) -> Option<&'a [String]> {
+    build.outs.ids.iter().find_map(|id| {
+        let file = graph.files.by_id.lookup(*id)?;
+        logical_commands
+            .get(Path::new(&file.name))
+            .map(Vec::as_slice)
+    })
+}
+
+fn command_for_display<'a>(
+    execution_command: &'a str,
+    logical_args: Option<&[String]>,
+) -> Cow<'a, str> {
+    logical_args.map_or(Cow::Borrowed(execution_command), |args| {
+        Cow::Owned(moonutil::shlex::join_native(
+            args.iter().map(String::as_str),
+        ))
+    })
 }
 
 fn normalized_env_lines(env: &[(String, String)], replacer: &PathNormalizer) -> Vec<String> {
@@ -234,12 +257,13 @@ struct BuildNode {
 fn debug_dump_build_graph(
     graph: &n2::graph::Graph,
     input_files: &[FileId],
+    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
     source_dir: &Path,
 ) -> BuildGraphDump {
     let replacer = PathNormalizer::new(source_dir);
 
     let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
-    generate_from_nodes(graph, accessible_nodes, &replacer)
+    generate_from_nodes(graph, accessible_nodes, logical_commands, &replacer)
 }
 
 // FIXME: `MOON_TEST_DUMP_BUILD_GRAPH` is integration-test infrastructure kept
@@ -249,6 +273,7 @@ fn debug_dump_build_graph(
 fn try_debug_dump_build_graph_to_file(
     build_graph: &n2::graph::Graph,
     default_files: &[n2::graph::FileId],
+    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
     source_dir: &Path,
 ) {
     let Some(out_file) = DRY_RUN_TEST_OUTPUT.as_deref() else {
@@ -256,7 +281,7 @@ fn try_debug_dump_build_graph_to_file(
     };
 
     let file = std::fs::File::create(out_file).expect("Failed to create dry-run dump target");
-    let dump = debug_dump_build_graph(build_graph, default_files, source_dir);
+    let dump = debug_dump_build_graph(build_graph, default_files, logical_commands, source_dir);
     dump.dump_to(file).expect("Failed to dump to target output");
 }
 
@@ -293,17 +318,15 @@ fn dfs_for_accessible_nodes(graph: &n2::graph::Graph, start_files: &[FileId]) ->
 fn generate_from_nodes(
     graph: &n2::graph::Graph,
     accessible_nodes: impl IntoIterator<Item = BuildId>,
+    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
     replacer: &PathNormalizer,
 ) -> BuildGraphDump {
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
         let command = node.cmdline.as_ref().map(|cmd| {
-            let rspfile = node
-                .rspfile
-                .as_ref()
-                .map(|rspfile| (rspfile.path.as_path(), rspfile.content.as_str()));
-            let command = moonutil::shlex::expand_response_file_for_display(cmd, rspfile);
+            let logical_args = logical_args_for_build(graph, node, logical_commands);
+            let command = command_for_display(cmd, logical_args);
             replacer.normalize_command(&command)
         });
         let mut inputs = node
@@ -409,7 +432,21 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId]) -> Vec<BuildId> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PathNormalizer, normalized_env_lines};
+    use super::{PathNormalizer, command_for_display, normalized_env_lines};
+
+    #[test]
+    fn displays_logical_args_instead_of_the_execution_transport() {
+        let logical_args = vec![
+            "moonc".to_owned(),
+            "build-package".to_owned(),
+            "source/a.mbt".to_owned(),
+        ];
+
+        let command =
+            command_for_display("moonc -rsp-file build/pkg.core.rsp", Some(&logical_args));
+
+        assert_eq!(moonutil::shlex::split_native(&command), logical_args);
+    }
 
     #[test]
     fn normalizes_known_tool_exe_suffix_without_touching_native_outputs() {

@@ -20,24 +20,24 @@ use std::path::{Path, PathBuf};
 
 use n2::graph::RspFile;
 
+use super::{Commandline, LoweringError};
+
 // Keep a portable margin below Windows' 32,767 UTF-16-code-unit process limit.
 // UTF-8 byte length is a conservative approximation for this purpose.
 const RESPONSE_FILE_THRESHOLD: usize = 16 * 1024;
 
-pub(super) fn render(
-    args: &[String],
-    primary_output: Option<&Path>,
-) -> anyhow::Result<(String, Option<RspFile>)> {
+pub(super) fn lower(
+    args: Vec<String>,
+    primary_output: &Path,
+) -> Result<Commandline, LoweringError> {
+    let (executable, response_args) = args
+        .split_first()
+        .expect("moonc command builders always provide an executable");
     let command = moonutil::shlex::join_native(args.iter().map(String::as_str));
     if command.len() < RESPONSE_FILE_THRESHOLD {
-        return Ok((command, None));
+        return Ok(args.into());
     }
 
-    let Some((executable, response_args)) = args.split_first() else {
-        anyhow::bail!("moonc command has no executable");
-    };
-    let primary_output = primary_output
-        .ok_or_else(|| anyhow::anyhow!("oversized moonc command has no primary output"))?;
     let content = encode(response_args)?;
     let mut rsp_path = primary_output.as_os_str().to_owned();
     rsp_path.push(".rsp");
@@ -47,17 +47,17 @@ pub(super) fn render(
         [executable.as_str(), "-rsp-file", rsp_path_arg.as_ref()].into_iter(),
     );
 
-    Ok((
+    Ok(Commandline::from(args).with_response_file(
         command,
-        Some(RspFile {
+        RspFile {
             path: rsp_path,
             content,
-        }),
+        },
     ))
 }
 
 /// Encode arguments in the line-based format accepted by `moonc -rsp-file`.
-fn encode(args: &[String]) -> anyhow::Result<String> {
+fn encode(args: &[String]) -> Result<String, LoweringError> {
     for (index, arg) in args.iter().enumerate() {
         let reason = if arg.is_empty() {
             Some("the argument is empty")
@@ -74,7 +74,7 @@ fn encode(args: &[String]) -> anyhow::Result<String> {
         };
 
         if let Some(reason) = reason {
-            anyhow::bail!("moonc response files cannot represent argument {index}: {reason}");
+            return Err(LoweringError::MooncResponseFile { index, reason });
         }
     }
 
@@ -86,10 +86,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn renders_only_oversized_commands_as_response_files() {
+    fn preserves_logical_args_while_selecting_execution_transport() {
         let output = Path::new("build/pkg.core");
         let short = vec!["moonc".to_owned(), "build-package".to_owned()];
-        let (command, rspfile) = render(&short, Some(output)).expect("short command should render");
+        let lowered = lower(short.clone(), output).expect("short command should lower");
+        let (command, rspfile) = lowered.into_n2();
         assert_eq!(moonutil::shlex::split_native(&command), short);
         assert!(rspfile.is_none());
 
@@ -98,8 +99,9 @@ mod tests {
             "build-package".to_owned(),
             "x".repeat(RESPONSE_FILE_THRESHOLD),
         ];
-        let (command, rspfile) =
-            render(&long, Some(output)).expect("oversized command should render");
+        let lowered = lower(long.clone(), output).expect("oversized command should lower");
+        assert_eq!(lowered.args(), Some(&long));
+        let (command, rspfile) = lowered.into_n2();
         let rspfile = rspfile.expect("oversized command should use a response file");
 
         assert_eq!(

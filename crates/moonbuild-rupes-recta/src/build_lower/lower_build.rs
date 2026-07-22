@@ -57,8 +57,9 @@ use crate::{
 };
 
 use super::{
-    BuildCommand, Commandline, compiler,
+    BuildCommand, Commandline, LoweringError, compiler,
     context::{ActionProducts, LoweringContext},
+    moonc_command,
 };
 
 fn commandline_with_dsymutil(cmd: &[String], dest: &str) -> Commandline {
@@ -351,7 +352,7 @@ impl<'a> LoweringContext<'a> {
         products: &ActionProducts,
         target: BuildTarget,
         info: &BuildTargetInfo,
-    ) -> BuildCommand {
+    ) -> Result<BuildCommand, LoweringError> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
@@ -428,10 +429,13 @@ impl<'a> LoweringContext<'a> {
         // Also track any -check-mi file used by this command (virtual checks/impl)
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
-        BuildCommand {
+        let commandline =
+            moonc_command::lower(cmd.build_command(&*BINARIES.moonc), cmd.mi_out.as_ref())?;
+
+        Ok(BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
-        }
+            commandline,
+        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -440,7 +444,7 @@ impl<'a> LoweringContext<'a> {
         products: &ActionProducts,
         target: BuildTarget,
         info: &BuildTargetInfo,
-    ) -> BuildCommand {
+    ) -> Result<BuildCommand, LoweringError> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
         let mi_inputs = self.prove_mi_inputs_of(target);
@@ -489,10 +493,12 @@ impl<'a> LoweringContext<'a> {
         }
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
-        BuildCommand {
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &whyml_output)?;
+
+        Ok(BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
-        }
+            commandline,
+        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -501,7 +507,7 @@ impl<'a> LoweringContext<'a> {
         products: &ActionProducts,
         target: BuildTarget,
         info: &BuildTargetInfo,
-    ) -> BuildCommand {
+    ) -> Result<BuildCommand, LoweringError> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
         let mi_inputs = self.prove_mi_inputs_of(target);
@@ -569,10 +575,12 @@ impl<'a> LoweringContext<'a> {
         }
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
-        BuildCommand {
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &whyml_output)?;
+
+        Ok(BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
-        }
+            commandline,
+        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -581,7 +589,7 @@ impl<'a> LoweringContext<'a> {
         products: &ActionProducts,
         target: BuildTarget,
         info: &BuildTargetInfo,
-    ) -> BuildCommand {
+    ) -> Result<BuildCommand, LoweringError> {
         let package = self.get_package(target);
         let module = self.packages.module_info(package.module);
 
@@ -654,7 +662,7 @@ impl<'a> LoweringContext<'a> {
                 target.kind,
             ),
             defaults: self.set_build_commons(package, info, is_main),
-            core_out: core_output.into(),
+            core_out: core_output.clone().into(),
             mi_out: mi_output.into(),
             flags: self.set_flags(),
             extra_build_opts: module.compile_flags.as_deref().unwrap_or_default(),
@@ -675,10 +683,12 @@ impl<'a> LoweringContext<'a> {
 
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
 
-        BuildCommand {
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &core_output)?;
+
+        Ok(BuildCommand {
+            commandline,
             extra_inputs,
-        }
+        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -688,7 +698,7 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         info: &LinkCoreInfo,
         make_executable_info: Option<&MakeExecutableInfo>,
-    ) -> BuildCommand {
+    ) -> Result<BuildCommand, LoweringError> {
         #[cfg(not(target_os = "windows"))]
         let _ = make_executable_info;
 
@@ -759,7 +769,7 @@ impl<'a> LoweringContext<'a> {
                 fqn: &package.fqn,
                 kind: target.kind,
             },
-            output_path: out_file.into(),
+            output_path: out_file.clone().into(),
             pkg_config_path: config_path.clone().into(),
             package_sources: &package_sources,
             stdlib_core_source: None,
@@ -792,10 +802,12 @@ impl<'a> LoweringContext<'a> {
             extra_inputs.push(config_path);
         }
 
-        BuildCommand {
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &out_file)?;
+
+        Ok(BuildCommand {
             extra_inputs,
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
-        }
+            commandline,
+        })
     }
 
     fn get_wasm_config<'b>(
@@ -1396,7 +1408,10 @@ impl<'a> LoweringContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_parse_mbti(&mut self, pid: PackageId) -> BuildCommand {
+    pub(super) fn lower_parse_mbti(
+        &mut self,
+        pid: PackageId,
+    ) -> Result<BuildCommand, LoweringError> {
         let pkg = self.packages.get_package(pid);
         let Some(mbti_path) = &pkg.virtual_mbti else {
             panic!(
@@ -1433,11 +1448,13 @@ impl<'a> LoweringContext<'a> {
             );
         }
 
-        BuildCommand {
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &mi_out)?;
+
+        Ok(BuildCommand {
             // Track the user-written `.mbti` contract as an explicit input
             extra_inputs: vec![mbti_path.clone()],
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
-        }
+            commandline,
+        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]

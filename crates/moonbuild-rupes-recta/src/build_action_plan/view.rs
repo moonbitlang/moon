@@ -216,7 +216,7 @@ impl<'a> BuildActionPlan<'a> {
         )
     }
 
-    pub fn runs_moonc(&self, id: BuildActionId) -> bool {
+    pub fn needs_moonc_tool_dep(&self, id: BuildActionId) -> bool {
         matches!(
             self.node(id),
             BuildPlanNode::Check(_)

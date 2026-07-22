@@ -16,12 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::Path;
-
-use super::{
-    expand_response_file_for_display, join_native, join_windows, parse_windows_argv0, split_native,
-    split_windows,
-};
+use super::parse_windows_argv0;
+use super::{join_windows, split_windows};
 
 fn assert_parse_tail(tail: &str, expected: &[&str]) {
     let input = format!("program.exe {}", tail);
@@ -134,28 +130,4 @@ fn backslashes_before_quote_and_trailing() {
     // Trailing backslashes inside quoted arg must be doubled in the command line and restored by split
     let args = [r#"x\ y\\"#, r#"z\\ "#, r#"w"#];
     roundtrip(&args);
-}
-
-#[test]
-fn expands_response_file_commands_for_display() {
-    let response_file = Path::new("build/pkg.core.rsp");
-    let command = join_native(["moonc", "-rsp-file", "build/pkg.core.rsp"].into_iter());
-    let expanded = expand_response_file_for_display(
-        &command,
-        Some((
-            response_file,
-            "build-package\nsource/a.mbt\n-o\nbuild/pkg.core\n",
-        )),
-    );
-
-    assert_eq!(
-        split_native(&expanded),
-        [
-            "moonc",
-            "build-package",
-            "source/a.mbt",
-            "-o",
-            "build/pkg.core",
-        ]
-    );
 }

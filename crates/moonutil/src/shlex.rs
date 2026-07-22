@@ -22,8 +22,6 @@
 //! quoting rules, which are different from Unix shells. Blame `n2`/`ninja` for
 //! the difference.
 
-use std::{borrow::Cow, path::Path};
-
 pub fn split_unix(args: &str) -> Vec<String> {
     shlex::Shlex::new(args).collect()
 }
@@ -51,31 +49,6 @@ pub use get_argv0_windows as get_argv0_native;
 pub use split_unix as split_native;
 #[cfg(target_os = "windows")]
 pub use split_windows as split_native;
-
-/// Expand a generated line-based response-file invocation for display.
-///
-/// This deliberately reconstructs the logical command only for the exact
-/// `<executable> -rsp-file <path>` shape. Other response-file conventions are
-/// left to their owners.
-pub fn expand_response_file_for_display<'a>(
-    command: &'a str,
-    response_file: Option<(&Path, &str)>,
-) -> Cow<'a, str> {
-    let Some((response_file_path, response_file_content)) = response_file else {
-        return Cow::Borrowed(command);
-    };
-    let command_args = split_native(command);
-    let [executable, flag, path] = command_args.as_slice() else {
-        return Cow::Borrowed(command);
-    };
-    if flag != "-rsp-file" || Path::new(path) != response_file_path {
-        return Cow::Borrowed(command);
-    }
-
-    Cow::Owned(join_native(
-        std::iter::once(executable.as_str()).chain(response_file_content.lines()),
-    ))
-}
 
 /// Split the given command line according to Windows rules.
 ///
