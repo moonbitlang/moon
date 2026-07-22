@@ -30,6 +30,9 @@ pub struct UserLog {
     level: LevelFilter,
 }
 
+/// Maps legacy CLI verbosity flags to the shared user-log level.
+// FIXME: Remove this compatibility bridge once callers no longer receive raw
+// `verbose` and `quiet` booleans.
 pub fn user_log_level(verbose: bool, quiet: bool) -> LevelFilter {
     if quiet {
         LevelFilter::Error
