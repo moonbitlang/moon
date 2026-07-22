@@ -43,7 +43,13 @@ pub fn print_dry_run<'a>(
         })
         .collect::<Vec<_>>();
 
-    moonbuild::dry_run::print_build_commands(graph, &default_files, source_dir, target_dir);
+    moonbuild::dry_run::print_build_commands(
+        graph,
+        &default_files,
+        &input.command_args_by_output,
+        source_dir,
+        target_dir,
+    );
 }
 
 /// Print all commands in a dry-run.
@@ -51,7 +57,13 @@ pub fn print_dry_run<'a>(
 /// Similar to [`print_dry_run`], but assumes *all* files in the build graph are to be built.
 pub fn print_dry_run_all(input: &BuildInput, source_dir: &Path, target_dir: &Path) {
     let default_files = input.graph.get_start_nodes();
-    moonbuild::dry_run::print_build_commands(&input.graph, &default_files, source_dir, target_dir);
+    moonbuild::dry_run::print_build_commands(
+        &input.graph,
+        &default_files,
+        &input.command_args_by_output,
+        source_dir,
+        target_dir,
+    );
 }
 
 /// Print a command as it would be executed, with the proper escaping.

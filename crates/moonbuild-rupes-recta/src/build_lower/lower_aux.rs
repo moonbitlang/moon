@@ -36,7 +36,7 @@ use crate::{
     model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
 };
 
-use super::{BuildCommand, compiler, context::ActionProducts};
+use super::{BuildCommand, LoweringError, compiler, context::ActionProducts, moonc_command};
 
 impl<'a> super::LoweringContext<'a> {
     #[instrument(level = Level::DEBUG, skip(self, products, info))]
@@ -121,7 +121,7 @@ impl<'a> super::LoweringContext<'a> {
         products: &ActionProducts,
         module_id: ModuleId,
         targets: &[BuildTarget],
-    ) -> BuildCommand {
+    ) -> Result<BuildCommand, LoweringError> {
         let output = products.single_output_path_matching(|product| {
             matches!(
                 product,
@@ -145,12 +145,13 @@ impl<'a> super::LoweringContext<'a> {
             }));
         }
 
-        let cmd = compiler::MooncBundleCore::new(&inputs, output);
+        let cmd = compiler::MooncBundleCore::new(&inputs, output.clone());
+        let commandline = moonc_command::lower(cmd.build_command(&*BINARIES.moonc), &output)?;
 
-        BuildCommand {
+        Ok(BuildCommand {
             extra_inputs: vec![],
-            commandline: cmd.build_command(&*BINARIES.moonc).into(),
-        }
+            commandline,
+        })
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products))]

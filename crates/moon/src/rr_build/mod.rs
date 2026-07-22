@@ -946,6 +946,12 @@ impl BuildInput {
     pub(crate) fn graph_for_test(&self) -> &n2::graph::Graph {
         &self.graph
     }
+
+    pub(crate) fn command_args_for_test(
+        &self,
+    ) -> &moonbuild_rupes_recta::build_lower::CommandArgMap {
+        &self.command_args_by_output
+    }
 }
 
 /// Execute a build plan.

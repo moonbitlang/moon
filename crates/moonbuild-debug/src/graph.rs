@@ -19,7 +19,7 @@
 //! Test utilities
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     io::{BufRead, Write},
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -79,17 +79,19 @@ pub struct BuildNode {
 pub fn debug_dump_build_graph(
     graph: &n2::graph::Graph,
     input_files: &[FileId],
+    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
     source_dir: &Path,
 ) -> BuildGraphDump {
     let replacer = PathNormalizer::new(source_dir);
 
     let accessible_nodes = dfs_for_accessible_nodes(graph, input_files);
-    generate_from_nodes(graph, accessible_nodes, &replacer)
+    generate_from_nodes(graph, accessible_nodes, logical_commands, &replacer)
 }
 
 pub fn try_debug_dump_build_graph_to_file(
     build_graph: &n2::graph::Graph,
     default_files: &[n2::graph::FileId],
+    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
     source_dir: &Path,
 ) {
     let Some(out_file) = DRY_RUN_TEST_OUTPUT.as_deref() else {
@@ -97,7 +99,7 @@ pub fn try_debug_dump_build_graph_to_file(
     };
 
     let file = std::fs::File::create(out_file).expect("Failed to create dry-run dump target");
-    let dump = debug_dump_build_graph(build_graph, default_files, source_dir);
+    let dump = debug_dump_build_graph(build_graph, default_files, logical_commands, source_dir);
     dump.dump_to(file).expect("Failed to dump to target output");
 }
 
@@ -130,15 +132,23 @@ fn dfs_for_accessible_nodes(graph: &n2::graph::Graph, start_files: &[FileId]) ->
 fn generate_from_nodes(
     graph: &n2::graph::Graph,
     accessible_nodes: impl IntoIterator<Item = BuildId>,
+    logical_commands: &BTreeMap<PathBuf, Vec<String>>,
     replacer: &PathNormalizer,
 ) -> BuildGraphDump {
     let mut nodes = vec![];
     for node in accessible_nodes {
         let node = graph.builds.lookup(node).expect("Unknown build in graph");
-        let command = node
-            .cmdline
-            .as_ref()
-            .map(|cmd| replacer.normalize_command(cmd));
+        let command = node.cmdline.as_ref().map(|cmd| {
+            let logical_args = node.outs.ids.iter().find_map(|id| {
+                let file = graph.files.by_id.lookup(*id)?;
+                logical_commands.get(Path::new(&file.name))
+            });
+            let command = logical_args.map_or_else(
+                || cmd.clone(),
+                |args| moonutil::shlex::join_native(args.iter().map(String::as_str)),
+            );
+            replacer.normalize_command(&command)
+        });
         let mut inputs = node
             .ins
             .ids

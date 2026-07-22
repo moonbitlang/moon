@@ -26,7 +26,7 @@ use moonutil::{
     compiler_flags::{CompilerPaths, Toolchain},
     cond_expr::OptLevel,
 };
-use n2::graph::Graph as N2Graph;
+use n2::graph::{Graph as N2Graph, RspFile};
 use tracing::instrument;
 
 use crate::{
@@ -44,6 +44,7 @@ mod compiler;
 mod context;
 mod lower_aux;
 mod lower_build;
+mod moonc_command;
 mod utils;
 
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
@@ -195,6 +196,9 @@ pub enum WarningCondition {
 /// An error that may be raised during action plan lowering.
 #[derive(thiserror::Error, Debug)]
 pub enum LoweringError {
+    #[error("moonc response files cannot represent argument {index}: {reason}")]
+    MooncResponseFile { index: usize, reason: &'static str },
+
     #[error(
         "An error was reported by n2 (the build graph executor), \
         when lowering for package {package}, action {action:?}"
@@ -263,20 +267,31 @@ enum CommandlineKind {
     ///
     /// This variant is used for commands that intentionally rely on shell
     /// composition, such as prebuild commands and follow-up tool invocations.
-    Verbatim(String),
+    Verbatim,
+}
+
+/// How n2 should execute a logical command.
+#[derive(Debug, Clone)]
+enum CommandExecution {
+    Inline(String),
+    ResponseFile { command: String, file: RspFile },
 }
 
 #[derive(Debug, Clone)]
 struct Commandline {
+    /// Structured logical argv, when available for metadata and presentation.
     kind: CommandlineKind,
+    execution: CommandExecution,
     cwd: Option<PathBuf>,
     env: Vec<(String, String)>,
 }
 
 impl From<Vec<String>> for Commandline {
     fn from(v: Vec<String>) -> Self {
+        let command = moonutil::shlex::join_native(v.iter().map(String::as_str));
         Commandline {
             kind: CommandlineKind::Args(v),
+            execution: CommandExecution::Inline(command),
             cwd: None,
             env: Vec::new(),
         }
@@ -286,35 +301,37 @@ impl From<Vec<String>> for Commandline {
 impl Commandline {
     fn verbatim(s: String) -> Self {
         Self {
-            kind: CommandlineKind::Verbatim(s),
+            kind: CommandlineKind::Verbatim,
+            execution: CommandExecution::Inline(s),
             cwd: None,
             env: Vec::new(),
         }
     }
 
-    /// Convert this to the string representation expected by n2.
-    fn to_n2_string(&self) -> String {
-        match &self.kind {
-            CommandlineKind::Args(args) => {
-                moonutil::shlex::join_native(args.iter().map(|x| x.as_str()))
-            }
-            CommandlineKind::Verbatim(s) => s.clone(),
+    fn into_n2(self) -> (String, Option<RspFile>) {
+        match self.execution {
+            CommandExecution::Inline(command) => (command, None),
+            CommandExecution::ResponseFile { command, file } => (command, Some(file)),
         }
+    }
+
+    fn inline_command(&self) -> &str {
+        let CommandExecution::Inline(command) = &self.execution else {
+            unreachable!("a response-file command is already lowered")
+        };
+        command
+    }
+
+    fn with_response_file(mut self, command: String, file: RspFile) -> Self {
+        self.execution = CommandExecution::ResponseFile { command, file };
+        self
     }
 
     fn args(&self) -> Option<&Vec<String>> {
         match &self.kind {
             CommandlineKind::Args(args) => Some(args),
-            CommandlineKind::Verbatim(_) => None,
+            CommandlineKind::Verbatim => None,
         }
-    }
-
-    fn cwd(&self) -> Option<&PathBuf> {
-        self.cwd.as_ref()
-    }
-
-    fn env(&self) -> &[(String, String)] {
-        &self.env
     }
 
     fn with_cwd(mut self, cwd: PathBuf) -> Self {
