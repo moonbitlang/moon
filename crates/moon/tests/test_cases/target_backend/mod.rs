@@ -354,7 +354,7 @@ fn test_supported_targets_empty_list_is_never_selected() {
 fn test_moon_info_verbose_unsupported_path_is_bare_stderr() {
     let dir = TestDir::new("supported_targets_empty.in");
     let assert = moon_cmd(&dir)
-        .args(["info", "lib", "never", "--verbose"])
+        .args(["info", "lib", "never", "--verbose", "--target", "wasm-gc"])
         .assert()
         .success()
         .stdout_eq("");
