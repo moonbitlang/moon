@@ -1,6 +1,6 @@
 # Command Output Migration
 
-Status: accepted; CO-1 complete
+Status: accepted; CO-1 complete, including review follow-up
 
 ## Goal
 
@@ -19,6 +19,8 @@ Splitting stdout from stderr is independent from normalizing default verbosity. 
 
 The stdout operation should preserve the renderer's result type, propagate its `std::io::Write` failures, and hold the lock for the entire logical result. It should not grow methods for every output format.
 
+Both standard-stream boundaries are adaptive. Renderers emit ANSI styles, and the stdout or stderr writer retains or strips them according to that destination's terminal and environment policy. Color detection must not consult a different global stream: stdout and stderr may be redirected independently.
+
 Renderers below the CLI seam should accept a writer. Library operations should return data when the CLI owns presentation. A lower-level operation may accept `UserLog` when emitting a user-facing event is inherently part of that operation, but pure build planning should not depend on `CommandOutput`.
 
 The facade does not own Process Passthrough, Progress Displays, compiler diagnostics, or tracing. Those paths have different byte-preservation, concurrency, terminal, and configuration contracts and should be migrated only within their own seams.
@@ -33,9 +35,7 @@ The facade does not own Process Passthrough, Progress Displays, compiler diagnos
 | Progress Display | terminal stderr | quiet-aware | renderer-specific lifecycle | progress renderer |
 | tracing | configured tracing sink | `RUST_LOG`/trace configuration | tracing subscriber policy | tracing setup |
 
-One current behavior requires an explicit compatibility decision in its migration slice:
-
-- `UserDiagnostics` prefixes informational messages with `Info:`, while `UserLog` renders informational messages without a label.
+`UserDiagnostics` is a transitional presentation adapter over `UserLog`. It preserves the legacy `Info:` and `Hint:` labels, but filtering and stderr ownership come only from its underlying `UserLog`. New code should use `UserLog` directly.
 
 The quiet user-log level follows `UserLog` and suppresses warnings. Default levels and informational formatting remain command-specific until affected command snapshots make any intended behavior change visible.
 
@@ -49,10 +49,11 @@ Blocks: CO-2, CO-3
 
 - Add `moonutil::CommandOutput` composed with `UserLog`.
 - Route the existing `moon info` backend-difference report through one locked stdout writer closure.
-- Apply the resolved error-only quiet invariant to the transitional `UserDiagnostics`, without changing which commands default to quiet.
+- Make `UserDiagnostics` a compatibility adapter over `UserLog`, without changing which commands default to quiet.
+- Make ANSI styling follow the actual stdout or stderr destination instead of global stdout detection.
 - Keep build execution output on its current paths.
 - Test the public `moon` process seam: backend differences remain on stdout under `--quiet`, while a known warning is filtered on stderr.
-- Unit-test the transitional `UserDiagnostics` quiet invariant because it is shared by commands not yet migrated to `UserLog`.
+- Unit-test `UserLog` filtering and destination-controlled ANSI rendering.
 - Done when `moon info` contains no direct stdout macro or handle access and its existing output remains compatible.
 
 ### CO-2: Establish command-level construction

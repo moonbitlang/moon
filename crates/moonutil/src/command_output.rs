@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::io::{self, Write};
+use std::io::Write;
 
 use log::LevelFilter;
 
@@ -49,7 +49,7 @@ impl CommandOutput {
         &self,
         render: impl FnOnce(&mut dyn Write) -> Result<T, E>,
     ) -> Result<T, E> {
-        let mut stdout = io::stdout().lock();
+        let mut stdout = anstream::stdout().lock();
         render(&mut stdout)
     }
 }

@@ -66,13 +66,7 @@ pub struct UniversalFlags {
 
 impl UniversalFlags {
     pub fn user_log_level(&self) -> log::LevelFilter {
-        if self.quiet {
-            log::LevelFilter::Error
-        } else if self.verbose {
-            log::LevelFilter::Info
-        } else {
-            log::LevelFilter::Warn
-        }
+        crate::user_log::user_log_level(self.verbose, self.quiet)
     }
 
     /// Collect deprecation warnings for deprecated flags.

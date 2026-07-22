@@ -17,6 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::runtest::TestStatistics;
+use anstyle::{AnsiColor, Style};
 use anyhow::Context;
 use base64::Engine;
 use colored::Colorize;
@@ -818,12 +819,21 @@ const DIFF_MIN_CTX: usize = 5;
 /// without chunking.
 const MIN_LINES_FOR_CHUNKING: usize = 20;
 
+const DIFF_CONTEXT_STYLE: Style = AnsiColor::BrightBlack.on_default();
+const DIFF_REMOVED_STYLE: Style = AnsiColor::BrightRed.on_default();
+const DIFF_REMOVED_EMPHASIS_STYLE: Style = AnsiColor::BrightRed.on_default().underline();
+const DIFF_ADDED_STYLE: Style = AnsiColor::BrightGreen.on_default();
+const DIFF_ADDED_EMPHASIS_STYLE: Style = AnsiColor::BrightGreen.on_default().underline();
+const DIFF_MISSING_NEWLINE_STYLE: Style = Style::new().dimmed();
+
 /// Write the difference between strings `expected` and `actual` to the provided
 /// writer `to`, in unified diff format.
 ///
 /// The function uses a number of heuristics to determine the best format for
 /// the diff output. Inline diffs will not show newline differences, short diffs
 /// will be displayed in full, and long diffs will be chunked.
+/// ANSI styles are always rendered; the destination writer decides whether to
+/// retain or strip them.
 pub fn write_diff(
     expected: &str,
     actual: &str,
@@ -855,6 +865,28 @@ pub fn write_diff(
     Ok(())
 }
 
+#[test]
+fn diff_color_follows_destination_writer() {
+    let render = |choice| {
+        let mut writer = anstream::AutoStream::new(Vec::new(), choice);
+        write_diff("old\n", "new\n", 1, 2, &mut writer).unwrap();
+        writer.into_inner()
+    };
+
+    let colored = render(anstream::ColorChoice::AlwaysAnsi);
+    assert!(
+        colored.contains(&b'\x1b'),
+        "output was not colored: {colored:?}"
+    );
+
+    let plain = render(anstream::ColorChoice::Never);
+    assert!(!plain.contains(&b'\x1b'));
+    assert!(
+        plain.starts_with(b"-old\n+new\n"),
+        "unexpected diff: {plain:?}"
+    );
+}
+
 /// Write a hunk of diff
 fn write_hunk<'a>(
     orig_diff: &'a TextDiff<'a, 'a, 'a, str>,
@@ -865,7 +897,7 @@ fn write_hunk<'a>(
 ) -> std::io::Result<()> {
     if header {
         let header = similar::udiff::UnifiedHunkHeader::new(hunk);
-        writeln!(to, "{}", header.to_string().bright_black())?;
+        writeln!(to, "{DIFF_CONTEXT_STYLE}{header}{DIFF_CONTEXT_STYLE:#}")?;
     }
 
     for op in hunk {
@@ -882,22 +914,28 @@ fn write_hunk<'a>(
                         unreachable!("Equal should have been handled earlier")
                     }
                     similar::ChangeTag::Delete => {
-                        write!(to, "{}", "-".bright_red())?;
+                        write!(to, "{DIFF_REMOVED_STYLE}-{DIFF_REMOVED_STYLE:#}")?;
                         for &(emph, slice) in change.values() {
                             if emph {
-                                write!(to, "{}", slice.underline().bright_red())?;
+                                write!(
+                                    to,
+                                    "{DIFF_REMOVED_EMPHASIS_STYLE}{slice}{DIFF_REMOVED_EMPHASIS_STYLE:#}"
+                                )?;
                             } else {
-                                write!(to, "{}", slice.bright_red())?;
+                                write!(to, "{DIFF_REMOVED_STYLE}{slice}{DIFF_REMOVED_STYLE:#}")?;
                             }
                         }
                     }
                     similar::ChangeTag::Insert => {
-                        write!(to, "{}", "+".bright_green())?;
+                        write!(to, "{DIFF_ADDED_STYLE}+{DIFF_ADDED_STYLE:#}")?;
                         for &(emph, slice) in change.values() {
                             if emph {
-                                write!(to, "{}", slice.underline().bright_green())?;
+                                write!(
+                                    to,
+                                    "{DIFF_ADDED_EMPHASIS_STYLE}{slice}{DIFF_ADDED_EMPHASIS_STYLE:#}"
+                                )?;
                             } else {
-                                write!(to, "{}", slice.bright_green())?;
+                                write!(to, "{DIFF_ADDED_STYLE}{slice}{DIFF_ADDED_STYLE:#}")?;
                             }
                         }
                     }
@@ -918,19 +956,23 @@ fn report_missing_nl_f(
     if missing {
         writeln!(to)?;
         if report_missing_newlines {
-            writeln!(to, "{}", "\\ No newline at end of file".dimmed())?;
+            writeln!(
+                to,
+                "{DIFF_MISSING_NEWLINE_STYLE}\\ No newline at end of file{DIFF_MISSING_NEWLINE_STYLE:#}"
+            )?;
         }
     }
     Ok(())
 }
 
 fn write_diff_header(mut to: impl Write) -> std::io::Result<()> {
+    const LABEL_STYLE: Style = Style::new().bold();
+    const EXPECTED_STYLE: Style = AnsiColor::Red.on_default();
+    const ACTUAL_STYLE: Style = AnsiColor::Green.on_default();
+
     writeln!(
         to,
-        "{} ({}, {})",
-        "Diff:".bold(),
-        "- expected".red(),
-        "+ actual".green()
+        "{LABEL_STYLE}Diff:{LABEL_STYLE:#} ({EXPECTED_STYLE}- expected{EXPECTED_STYLE:#}, {ACTUAL_STYLE}+ actual{ACTUAL_STYLE:#})"
     )
 }
 
@@ -954,18 +996,19 @@ pub fn render_expect_fail(
         return Ok(());
     }
 
-    println!("expect test failed at {}", rep.loc);
-    write_diff_header(std::io::stdout())?;
-    println!("----");
+    let mut stdout = anstream::stdout().lock();
+    writeln!(stdout, "expect test failed at {}", rep.loc)?;
+    write_diff_header(&mut stdout)?;
+    writeln!(stdout, "----")?;
     write_diff(
         &rep.expect,
         &rep.actual,
         MIN_LINES_FOR_CHUNKING,
         DIFF_MIN_CTX,
-        std::io::stdout(),
+        &mut stdout,
     )?;
-    println!("----");
-    println!();
+    writeln!(stdout, "----")?;
+    writeln!(stdout)?;
 
     Ok(())
 }
@@ -1022,23 +1065,25 @@ pub fn render_snapshot_fail(
     };
     let eq = actual == expect;
     if !eq {
-        println!(
+        let mut stdout = anstream::stdout().lock();
+        writeln!(
+            stdout,
             "expect test failed at {}:{}:{}",
             loc.filename,
             loc.line_start + 1,
             loc.col_start + 1
-        );
-        write_diff_header(std::io::stdout())?;
-        println!("----");
+        )?;
+        write_diff_header(&mut stdout)?;
+        writeln!(stdout, "----")?;
         write_diff(
             &expect,
             &actual,
             MIN_LINES_FOR_CHUNKING,
             DIFF_MIN_CTX,
-            std::io::stdout(),
+            &mut stdout,
         )?;
-        println!("----");
-        println!();
+        writeln!(stdout, "----")?;
+        writeln!(stdout)?;
     }
     Ok((eq, expect, actual))
 }

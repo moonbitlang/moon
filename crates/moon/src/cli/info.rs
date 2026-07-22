@@ -99,7 +99,7 @@ impl PackageSelection {
     fn new(
         cmd: &InfoSubcommand,
         resolve_output: &ResolveOutput,
-        output: UserDiagnostics,
+        user_log: &UserLog,
     ) -> anyhow::Result<Self> {
         let package_ids: Vec<_> = resolve_output
             .local_modules()
@@ -124,9 +124,10 @@ impl PackageSelection {
         }
 
         if !cmd.path.is_empty() {
-            let path_packages = select_packages(&cmd.path, output, |dir| {
-                filter_pkg_by_dir(resolve_output, dir)
-            })?;
+            let path_packages =
+                select_packages(&cmd.path, UserDiagnostics::from_user_log(user_log), |dir| {
+                    filter_pkg_by_dir(resolve_output, dir)
+                })?;
             let package_ids = path_packages.iter().map(|(_, pkg_id)| *pkg_id).collect();
             return Ok(Self {
                 mode: SelectionMode::Paths,
@@ -150,7 +151,7 @@ impl PackageSelection {
             }
 
             for missing in matches.missing {
-                output.warn(format!("Input `{}` did not match any package", missing));
+                user_log.warn(format!("Input `{}` did not match any package", missing));
             }
 
             return Ok(Self {
@@ -172,7 +173,7 @@ struct InfoIntentContext<'a> {
     selection: &'a PackageSelection,
     output_plan: &'a imp::InfoOutputPlan,
     target_kind: imp::TargetKind,
-    output: &'a UserLog,
+    user_log: &'a UserLog,
 }
 
 fn calc_user_intent_for_info(
@@ -191,7 +192,7 @@ fn calc_user_intent_for_info(
             if (canonical || !is_canonical_run) && supported {
                 vec![UserIntent::Info(package)]
             } else {
-                ctx.output.warn(format!(
+                ctx.user_log.warn(format!(
                     "Skipping package `{}` for `moon info`: it does not support target backend `{}`",
                     resolve_output.pkg_dirs.get_package(package).fqn,
                     target_backend
@@ -218,7 +219,7 @@ fn calc_user_intent_for_info(
 
             for (path, pkg_id) in &unsupported {
                 let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
-                ctx.output.info(format!(
+                ctx.user_log.info(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,
@@ -228,7 +229,7 @@ fn calc_user_intent_for_info(
             }
 
             if filtered.is_empty() && !unsupported.is_empty() {
-                ctx.output.warn(format!(
+                ctx.user_log.warn(format!(
                     "No selected package supports target backend `{}` for `moon info`",
                     target_backend
                 ));
@@ -252,7 +253,7 @@ fn calc_user_intent_for_info(
                 .collect();
 
             if filtered.is_empty() {
-                ctx.output.warn(format!(
+                ctx.user_log.warn(format!(
                     "No selected package supports target backend `{}` for `moon info`",
                     target_backend
                 ));
@@ -276,14 +277,6 @@ pub(crate) fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Resu
         bail!("dry-run is not supported for info")
     }
 
-    run_info_rr(cli, cmd, &output)
-}
-
-fn run_info_rr(
-    cli: UniversalFlags,
-    cmd: InfoSubcommand,
-    output: &CommandOutput,
-) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -305,8 +298,7 @@ fn run_info_rr(
     let synced_env =
         sync_dependencies(&resolve_cfg, &source_dir, &mooncakes_dir, &project_manifest)?;
     let resolve_output = resolve_synced_project(&resolve_cfg, synced_env)?;
-    let user_diagnostics = UserDiagnostics::from_flags(&cli);
-    let selection = PackageSelection::new(&cmd, &resolve_output, user_diagnostics)?;
+    let selection = PackageSelection::new(&cmd, &resolve_output, output.user_log())?;
 
     let requested_targets = cmd
         .target
@@ -330,7 +322,7 @@ fn run_info_rr(
             resolve_output.clone(),
             &selection,
             &output_plan,
-            output,
+            output.user_log(),
         )?;
         if !success {
             ok = false;
@@ -364,7 +356,7 @@ fn run_info_rr_internal(
     resolve_output: ResolveOutput,
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
-    output: &CommandOutput,
+    user_log: &UserLog,
 ) -> anyhow::Result<(bool, BuildMeta)> {
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
@@ -375,12 +367,12 @@ fn run_info_rr_internal(
         RunMode::Check,
     );
     preconfig.info_no_alias = cmd.no_alias;
-    let user_diagnostics = UserDiagnostics::from_flags(cli);
+    let user_diagnostics = UserDiagnostics::from_user_log(user_log);
     let ctx = InfoIntentContext {
         selection,
         output_plan,
         target_kind,
-        output: output.user_log(),
+        user_log,
     };
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,

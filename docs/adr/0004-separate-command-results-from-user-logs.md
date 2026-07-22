@@ -4,7 +4,7 @@ status: accepted
 
 # Separate Command Results from User Logs
 
-MoonBuild will place a small `CommandOutput` interface at the CLI orchestration seam. It will own the command's `UserLog` and provide fallible, locked writes for Command Results on stdout, while renderers below that seam accept a writer and library code prefers returning values. Process Passthrough, Progress Displays, and tracing remain separate because combining their different filtering, ordering, and byte-preservation requirements would create a mode-switched interface and make incremental migration unsafe.
+MoonBuild will place a small `CommandOutput` interface at the CLI orchestration seam. It will own the command's `UserLog` and provide fallible, locked writes for Command Results on stdout, while renderers below that seam accept a writer and library code prefers returning values. The stdout and stderr boundaries use adaptive streams, so each destination independently decides whether to retain ANSI styling. Process Passthrough, Progress Displays, and tracing remain separate because combining their different filtering, ordering, and byte-preservation requirements would create a mode-switched interface and make incremental migration unsafe.
 
 ## Consequences
 
@@ -12,6 +12,7 @@ MoonBuild will place a small `CommandOutput` interface at the CLI orchestration 
 - The quiet user-log level is error-only, whether selected explicitly or by a command default. Commands may retain different default user-log levels while they migrate.
 - Command Result write failures are returned to the command instead of being discarded.
 - One logical result can hold the stdout lock for its complete render, preventing MoonBuild-authored fragments from interleaving.
+- Color follows the actual destination channel. Redirecting stdout does not disable color on an interactive stderr, and redirecting stderr does not affect stdout.
 - The build engines do not receive the whole `CommandOutput` merely to print; they return data or accept the narrower `UserLog` or writer their operation requires.
 - Existing direct output migrates command by command. Explicitly classified passthrough, progress, and tracing sites are not mechanical conversion targets.
 

@@ -24,8 +24,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use anstyle::{AnsiColor, Style};
 use anyhow::Context;
-use colored::Colorize;
 use indexmap::IndexMap;
 use moonbuild::expect::write_diff;
 use moonbuild_rupes_recta::{
@@ -38,6 +38,10 @@ use sha2::Digest;
 use tracing::error;
 
 use crate::{filter::preferred_target_backend_for_package, rr_build::BuildMeta};
+
+const REMOVED_STYLE: Style = AnsiColor::BrightRed.on_default();
+const ADDED_STYLE: Style = AnsiColor::BrightGreen.on_default();
+const PATH_STYLE: Style = AnsiColor::BrightBlack.on_default();
 
 pub(super) struct InfoOutputPlan {
     packages: IndexMap<PackageId, PackageOutputPlan>,
@@ -333,11 +337,8 @@ fn report_info_output_for_package(
         writeln!(writer, "#\n# ---")?;
         writeln!(
             writer,
-            "{} {} {:?} {}",
-            "---".bright_red(),
-            group.plan.pkg_name,
-            canonical_backend,
-            baseline_file_label.bright_black(),
+            "{REMOVED_STYLE}---{REMOVED_STYLE:#} {} {:?} {PATH_STYLE}{}{PATH_STYLE:#}",
+            group.plan.pkg_name, canonical_backend, baseline_file_label,
         )?;
         for backend in &backends {
             let actual = backend_contents
@@ -345,11 +346,10 @@ fn report_info_output_for_package(
                 .context("Backend output not found")?;
             writeln!(
                 writer,
-                "{} {} {:?} {}",
-                "+++".bright_green(),
+                "{ADDED_STYLE}+++{ADDED_STYLE:#} {} {:?} {PATH_STYLE}({}){PATH_STYLE:#}",
                 group.plan.pkg_name,
                 backend,
-                format!("({})", actual.filename.display()).bright_black(),
+                actual.filename.display(),
             )?;
         }
 
