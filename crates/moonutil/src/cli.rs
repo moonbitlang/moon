@@ -65,6 +65,16 @@ pub struct UniversalFlags {
 }
 
 impl UniversalFlags {
+    pub fn user_log_level(&self) -> log::LevelFilter {
+        if self.quiet {
+            log::LevelFilter::Error
+        } else if self.verbose {
+            log::LevelFilter::Info
+        } else {
+            log::LevelFilter::Warn
+        }
+    }
+
     /// Collect deprecation warnings for deprecated flags.
     pub fn deprecation_warnings(&self) -> Vec<&'static str> {
         let mut warnings = Vec::new();

@@ -30,6 +30,7 @@ use moonutil::{
     cli_support::AutoSyncFlags,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
+    user_log::UserLog,
 };
 
 use crate::{
@@ -170,7 +171,7 @@ struct InfoIntentContext<'a> {
     selection: &'a PackageSelection,
     output_plan: &'a imp::InfoOutputPlan,
     target_kind: imp::TargetKind,
-    output: UserDiagnostics,
+    output: &'a UserLog,
 }
 
 fn calc_user_intent_for_info(
@@ -264,7 +265,7 @@ fn calc_user_intent_for_info(
 }
 
 pub(crate) fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
+    let output = UserLog::new(cli.user_log_level());
     if cmd.no_alias {
         output.warn("`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092");
     }
@@ -363,18 +364,19 @@ fn run_info_rr_internal(
         RunMode::Check,
     );
     preconfig.info_no_alias = cmd.no_alias;
-    let output = UserDiagnostics::from_flags(cli);
+    let user_log = UserLog::new(cli.user_log_level());
+    let user_diagnostics = UserDiagnostics::from_flags(cli);
     let ctx = InfoIntentContext {
         selection,
         output_plan,
         target_kind,
-        output,
+        output: &user_log,
     };
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_diagnostics,
         &resolve_output,
     )?;
     let intent =
@@ -382,7 +384,7 @@ fn run_info_rr_internal(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_diagnostics,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -397,7 +399,7 @@ fn run_info_rr_internal(
         &BuildFlags::default(),
         &cli.unstable_feature,
         cli.verbose,
-        output,
+        user_diagnostics,
     );
     let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
     let success = result.successful();

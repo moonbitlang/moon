@@ -351,6 +351,27 @@ fn test_supported_targets_empty_list_is_never_selected() {
 }
 
 #[test]
+fn test_moon_info_verbose_unsupported_path_is_bare_stderr() {
+    let dir = TestDir::new("supported_targets_empty.in");
+    let assert = moon_cmd(&dir)
+        .args(["info", "lib", "never", "--verbose"])
+        .assert()
+        .success()
+        .stdout_eq("");
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    let message = "skipping path `never` because package `supported/empty/never` does not support target backend `wasm-gc`. Supported backends: []";
+
+    assert!(
+        stderr.lines().any(|line| line == message),
+        "stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains(&format!("Info: {message}")),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn test_module_supported_targets_intersects_package_supported_targets() {
     let dir = TestDir::new("supported_targets_module_intersection.in");
 
