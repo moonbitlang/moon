@@ -52,7 +52,6 @@ fn test_moon_test_rendered_output() {
                │       ┬  
                │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
-            Warning: no test entry found.
         "#]],
     );
 }
