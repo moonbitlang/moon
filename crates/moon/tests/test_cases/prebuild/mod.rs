@@ -330,8 +330,11 @@ fn test_pre_build_mooncake_bin_shape() {
         .expect("failed to canonicalize installed registry bin-dep artifact directory");
     let launcher_contents = read(&registry_launcher).replace('\\', "/");
     let installed_artifacts = installed_artifacts.to_string_lossy().replace('\\', "/");
+    // Windows launchers escape path separators as `//`; normalize them before
+    // checking that the launcher points at the stable copied artifact.
+    let normalized_launcher_contents = launcher_contents.replace("//", "/");
     assert!(
-        launcher_contents.contains(&installed_artifacts),
+        normalized_launcher_contents.contains(&installed_artifacts),
         "registry launcher must reference the copied artifact directory `{installed_artifacts}`; \
          launcher contents: {launcher_contents:?}"
     );
