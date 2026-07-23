@@ -1724,9 +1724,9 @@ dependencies = [
  "serde_json",
  "serde_json_lenient",
  "sha2",
+ "tempfile",
  "test-log",
  "thiserror 1.0.63",
- "tracing",
  "walkdir",
  "zip",
 ]

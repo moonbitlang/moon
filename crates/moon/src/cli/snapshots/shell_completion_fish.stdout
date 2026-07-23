@@ -643,7 +643,6 @@ complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcomma
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from write-tcc-rsp-file" -l build-graph
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from write-tcc-rsp-file" -s h -l help -d 'Print help'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from build-binary-dep" -l install-path -d 'The parent directory where the binary module is installed to' -r -F
-complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from build-binary-dep" -l resolved-dirs -d 'Authoritative project context supplied by the parent `moon` process' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from build-binary-dep" -l target-dir -d 'The target directory. Defaults to `<project-root>/_build`' -r -F
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from build-binary-dep" -l all-pkgs -d 'Whether to build and install all binary packages in the module'
 complete -c moon -n "__fish_moon_using_subcommand tool; and __fish_seen_subcommand_from build-binary-dep" -s q -l quiet -d 'Suppress output'

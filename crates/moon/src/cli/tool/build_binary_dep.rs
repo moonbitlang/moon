@@ -36,13 +36,8 @@ use moonbuild_rupes_recta::{
     ResolveConfig, discover::DiscoveredPackage, intent::UserIntent, model::PackageId,
 };
 use moonutil::{
-    build_options::RunMode,
-    cli_support::AutoSyncFlags,
-    cli_support::UniversalFlags,
-    locks::FileLock,
-    project::{PackageDirs, ProjectManifest},
-    target::TargetBackend,
-    user_log::UserLog,
+    build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
+    locks::FileLock, project::PackageDirs, target::TargetBackend, user_log::UserLog,
 };
 
 use crate::{
@@ -66,21 +61,6 @@ pub(crate) struct BuildBinaryDepArgs {
     /// The parent directory where the binary module is installed to.
     #[clap(long)]
     install_path: PathBuf,
-
-    /// Authoritative project context supplied by the parent `moon` process.
-    #[clap(
-        long,
-        hide = true,
-        num_args = 5,
-        value_names = [
-            "SOURCE_DIR",
-            "TARGET_DIR",
-            "MOONCAKE_BIN_DIR",
-            "MOONCAKES_DIR",
-            "PROJECT_MANIFEST"
-        ]
-    )]
-    resolved_dirs: Option<Vec<PathBuf>>,
 }
 
 pub(crate) fn run_build_binary_dep(
@@ -88,35 +68,10 @@ pub(crate) fn run_build_binary_dep(
     cmd: &BuildBinaryDepArgs,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    // Normal user-facing invocations resolve directories once here. Binary
-    // dependency builds spawned by dependency sync receive the complete
-    // authoritative set from their parent and must not rediscover it.
-    let resolved_dirs = match cmd.resolved_dirs.as_deref() {
-        Some(
-            [
-                source_dir,
-                target_dir,
-                mooncake_bin_dir,
-                mooncakes_dir,
-                project_manifest,
-            ],
-        ) => Some(PackageDirs {
-            source_dir: source_dir.clone(),
-            target_dir: target_dir.clone(),
-            mooncake_bin_dir: mooncake_bin_dir.clone(),
-            mooncakes_dir: mooncakes_dir.clone(),
-            project_manifest: ProjectManifest::Module(project_manifest.clone()),
-        }),
-        None => None,
-        Some(_) => unreachable!("clap requires five resolved directory values"),
-    };
-    let dirs = match resolved_dirs {
-        Some(dirs) => dirs,
-        None => cli
-            .source_tgt_dir
-            .query(cli.workspace_env.clone())?
-            .package_dirs()?,
-    };
+    let dirs = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .package_dirs()?;
     let PackageDirs {
         target_dir,
         mooncake_bin_dir,
@@ -289,15 +244,6 @@ fn install_build_rr(
         .first()
         .context("RR build should yield exactly one artifact file")?;
 
-    // Build command using existing runtime mapping, then shlex-join
-    let guard = crate::run::command_for(meta.target_backend, meta.tcc_run.as_ref(), artifact, None);
-    let parts = std::iter::once(guard.as_std().get_program())
-        .chain(guard.as_std().get_args())
-        .map(|x| x.to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    let line = shlex::try_join(parts.iter().map(|s| &**s))
-        .expect("unexpected null byte in args when forming exec command");
-
     // Determine filename
     // Matching legacy, it uses the following fallbacks:
     // - provided bin_name
@@ -307,6 +253,33 @@ fn install_build_rr(
         .or_else(|| artifact.file_stem().and_then(|s| s.to_str()))
         .map(|s| s.to_string())
         .unwrap_or_else(|| "moonbin".to_string());
+
+    // The build target may be temporary. Copy the runnable artifact into the
+    // installation tree before creating a launcher that refers to it.
+    let artifact_name = artifact
+        .file_name()
+        .context("binary dependency artifact path has no file name")?;
+    let artifact_dir = install_dir.join(".artifacts").join(&name);
+    std::fs::create_dir_all(&artifact_dir)?;
+    let installed_artifact = crate::cli::install_binary::install_file_atomically(
+        artifact,
+        &artifact_dir,
+        artifact_name,
+    )?;
+
+    // Build command using existing runtime mapping, then shlex-join
+    let guard = crate::run::command_for(
+        meta.target_backend,
+        meta.tcc_run.as_ref(),
+        &installed_artifact,
+        None,
+    );
+    let parts = std::iter::once(guard.as_std().get_program())
+        .chain(guard.as_std().get_args())
+        .map(|x| x.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    let line = shlex::try_join(parts.iter().map(|s| &**s))
+        .expect("unexpected null byte in args when forming exec command");
 
     // Write a minimal launcher script
     #[cfg(unix)]

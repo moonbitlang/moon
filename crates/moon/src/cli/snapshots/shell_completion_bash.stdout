@@ -2419,17 +2419,13 @@ _moon() {
             return 0
             ;;
         moon__tool__build__binary__dep)
-            opts="-q -v -h --all-pkgs --install-path --resolved-dirs --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PKG_NAMES]..."
+            opts="-q -v -h --all-pkgs --install-path --target-dir --quiet --verbose --trace --dry-run --build-graph --help [PKG_NAMES]..."
             if [[ ${cur} == -* || ${COMP_CWORD} -eq 3 ]] ; then
                 COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
                 return 0
             fi
             case "${prev}" in
                 --install-path)
-                    COMPREPLY=($(compgen -f "${cur}"))
-                    return 0
-                    ;;
-                --resolved-dirs)
                     COMPREPLY=($(compgen -f "${cur}"))
                     return 0
                     ;;

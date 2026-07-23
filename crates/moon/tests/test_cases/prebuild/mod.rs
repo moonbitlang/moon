@@ -301,20 +301,49 @@ fn test_pre_build_mooncake_bin_shape() {
         !registry_source.join("src/main-js/generated.txt").exists(),
         "registry bin-dep pre-build must not write under mooncakes_dir"
     );
-    let registry_work_dir = target_dir
-        .join("bin-deps")
-        .join("username")
-        .join("registry_shape_tool")
-        .join("0.1.0")
-        .join("source");
+    let bin_dep_temp_dirs = std::fs::read_dir(&target_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(".bin-dep-"))
+        .collect::<Vec<_>>();
     assert!(
-        registry_work_dir.join(BUILD_DIR).exists(),
-        "registry bin-dep build must use target_dir"
+        bin_dep_temp_dirs.is_empty(),
+        "registry bin-dep temporary work directories must be removed"
+    );
+
+    let installed_artifacts = target_dir
+        .join(MOON_BIN_DIR)
+        .join(".artifacts")
+        .join("registry-shape-tool");
+    assert!(
+        installed_artifacts.is_dir(),
+        "registry bin-dep artifact must be copied out of the temporary build"
+    );
+    let launcher_contents = read(&registry_launcher).replace('\\', "/");
+    assert!(
+        launcher_contents.contains(&installed_artifacts.to_string_lossy().replace('\\', "/")),
+        "registry launcher must reference the copied artifact"
     );
     assert!(
-        registry_work_dir.join("src/main-js/generated.txt").exists(),
-        "registry bin-dep pre-build must use target_dir"
+        !launcher_contents.contains(".bin-dep-"),
+        "registry launcher must not reference a temporary build directory"
     );
+
+    #[cfg(unix)]
+    {
+        let output = std::process::Command::new(&registry_launcher)
+            .output()
+            .expect("failed to run installed registry bin-dep");
+        assert!(
+            output.status.success(),
+            "installed registry bin-dep failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "registry-shape-tool"
+        );
+    }
 
     let actual_raw = read(dir.join("src/main/mooncake_bin.txt"));
     let actual_path = actual_raw.trim();

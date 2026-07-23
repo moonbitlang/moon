@@ -878,13 +878,13 @@ fn build_and_install_packages(
 /// binary that has already been executed.
 ///
 /// The tempfile is created inside `install_dir` so the final persist is a
-/// same-filesystem replacement. `src` is copied rather than moved because it
-/// is the build graph's declared artifact and must remain in `_build` for
-/// subsequent no-op commands.
-fn install_file_atomically(
+/// same-filesystem replacement. `src` is copied rather than moved because the
+/// caller owns the build artifact; for `moon install`, it must remain in
+/// `_build` for subsequent no-op commands.
+pub(crate) fn install_file_atomically(
     src: &Path,
     install_dir: &Path,
-    dst_name: &str,
+    dst_name: impl AsRef<Path>,
 ) -> anyhow::Result<PathBuf> {
     let dst = install_dir.join(dst_name);
 
