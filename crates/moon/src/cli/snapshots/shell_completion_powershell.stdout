@@ -989,6 +989,7 @@ Register-ArgumentCompleter -Native -CommandName 'moon' -ScriptBlock {
         }
         'moon;tool;build-binary-dep' {
             [CompletionResult]::new('--install-path', 'install-path', [CompletionResultType]::ParameterName, 'The parent directory where the binary module is installed to')
+            [CompletionResult]::new('--resolved-dirs', 'resolved-dirs', [CompletionResultType]::ParameterName, 'Authoritative project context supplied by the parent `moon` process')
             [CompletionResult]::new('--target-dir', 'target-dir', [CompletionResultType]::ParameterName, 'The target directory. Defaults to `<project-root>/_build`')
             [CompletionResult]::new('--all-pkgs', 'all-pkgs', [CompletionResultType]::ParameterName, 'Whether to build and install all binary packages in the module')
             [CompletionResult]::new('-q', 'q', [CompletionResultType]::ParameterName, 'Suppress output')

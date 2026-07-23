@@ -930,6 +930,7 @@ set edit:completion:arg-completer[moon] = {|@words|
         }
         &'moon;tool;build-binary-dep'= {
             cand --install-path 'The parent directory where the binary module is installed to'
+            cand --resolved-dirs 'Authoritative project context supplied by the parent `moon` process'
             cand --target-dir 'The target directory. Defaults to `<project-root>/_build`'
             cand --all-pkgs 'Whether to build and install all binary packages in the module'
             cand -q 'Suppress output'

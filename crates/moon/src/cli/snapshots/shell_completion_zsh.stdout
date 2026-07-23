@@ -1081,6 +1081,7 @@ _arguments "${_arguments_options[@]}" : \
 (build-binary-dep)
 _arguments "${_arguments_options[@]}" : \
 '--install-path=[The parent directory where the binary module is installed to]:INSTALL_PATH:_files' \
+'*--resolved-dirs=[Authoritative project context supplied by the parent \`moon\` process]:SOURCE_DIR:_files:SOURCE_DIR:_files:SOURCE_DIR:_files:SOURCE_DIR:_files:SOURCE_DIR:_files' \
 '--target-dir=[The target directory. Defaults to \`<project-root>/_build\`]:TARGET_DIR:_files' \
 '--all-pkgs[Whether to build and install all binary packages in the module]' \
 '-q[Suppress output]' \
