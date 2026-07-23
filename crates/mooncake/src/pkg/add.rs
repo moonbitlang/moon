@@ -58,6 +58,7 @@ pub struct AddSubcommand {
 pub fn add_latest(
     module_dir: &Path,
     project_manifest: &ProjectManifest,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     pkg_name: &ModuleName,
     bin: bool,
@@ -94,6 +95,7 @@ pub fn add_latest(
     add(
         module_dir,
         project_manifest,
+        mooncake_bin_dir,
         mooncakes_dir,
         pkg_name,
         bin,
@@ -113,6 +115,7 @@ fn test_module_name() {
 pub fn add(
     module_dir: &Path,
     project_manifest: &ProjectManifest,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     pkg_name: &ModuleName,
     bin: bool,
@@ -194,6 +197,7 @@ pub fn add(
     let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
     install_impl(
         mooncakes_dir,
+        mooncake_bin_dir,
         roots,
         SyncOutputOptions::new(quiet, true),
         false,

@@ -94,10 +94,11 @@ impl PlanningFixture {
             false,
             WorkspaceEnv::Auto,
         );
-        let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
+        let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
         let synced_env = moonbuild_rupes_recta::sync_dependencies(
             &resolve_cfg,
             &source_dir,
+            &mooncake_bin_dir,
             &mooncakes_dir,
             &project_manifest,
         )?;

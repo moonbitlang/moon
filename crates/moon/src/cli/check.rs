@@ -322,7 +322,7 @@ fn run_check_for_single_file_rr(
         false,
         user_log,
     )?;
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
+    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
         .or(cmd.build_flags.resolve_single_target_backend()?)
         .or(backend);
@@ -477,10 +477,11 @@ fn run_check_normal_internal_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
+    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         source_dir,
+        &mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
     )

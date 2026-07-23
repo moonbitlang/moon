@@ -26,7 +26,9 @@ use super::sync::SyncOutputOptions;
 use anyhow::Context;
 use moonutil::{
     constants::MOONBITLANG_CORE,
-    resolution::{DependencyKind, DirSyncResult, ResolvedEnv, ResolvedRootModules},
+    resolution::{
+        DependencyKind, DirSyncResult, ModuleSourceKind, ResolvedEnv, ResolvedRootModules,
+    },
 };
 use std::path::{Path, PathBuf};
 
@@ -79,6 +81,7 @@ pub struct InstallSubcommand {
 
 pub(crate) fn install_impl(
     mooncakes_dir: &Path,
+    mooncake_bin_dir: &Path,
     roots: ResolvedRootModules,
     output_options: SyncOutputOptions,
     verbose: bool,
@@ -112,7 +115,7 @@ pub(crate) fn install_impl(
 
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
 
-    install_bin_deps(verbose, &res, &dir_sync_result)?;
+    install_bin_deps(verbose, &res, &dir_sync_result, mooncake_bin_dir)?;
 
     Ok((res, dir_sync_result))
 }
@@ -121,6 +124,7 @@ fn install_bin_deps(
     verbose: bool,
     res: &ResolvedEnv,
     dep_dir: &DirSyncResult,
+    mooncake_bin_dir: &Path,
 ) -> Result<(), anyhow::Error> {
     for &main_module in res.input_module_ids() {
         let Some(bin_deps) = res.module_info(main_module).bin_deps.as_ref() else {
@@ -150,7 +154,11 @@ fn install_bin_deps(
             }
             // install path
             cmd.arg("--install-path");
-            cmd.arg(path);
+            if matches!(res.module_source(id).source(), ModuleSourceKind::Registry) {
+                cmd.arg(mooncake_bin_dir);
+            } else {
+                cmd.arg(path);
+            }
 
             if !verbose {
                 cmd.arg("--quiet");

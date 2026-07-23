@@ -556,7 +556,7 @@ fn run_test_in_single_file_rr(
         false,
         user_log,
     )?;
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
+    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = if cmd.profile {
         Some(TargetBackend::Native)
     } else {
@@ -1005,10 +1005,11 @@ fn run_test_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
+    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         source_dir,
+        &mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
     )?;

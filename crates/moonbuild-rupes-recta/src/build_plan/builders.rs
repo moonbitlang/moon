@@ -1599,7 +1599,7 @@ static PREBUILD_AUTOMATA: LazyLock<aho_corasick::AhoCorasick> = LazyLock::new(||
 /// dependency artifacts. Artifacts built by binary dependencies are placed in
 /// either of these two locations:
 ///
-/// - `<project .mooncakes dir>/__moonbin__/[bin-target-name]`, if the artifact
+/// - `<project target dir>/__moonbin__/[bin-target-name]`, if the artifact
 ///   comes from a regular dependency from the official registry.
 /// - At the root of the corresponding module's source directory, if the
 ///   artifact comes from a local dependency.
@@ -1645,7 +1645,7 @@ fn handle_build_command_new(
         // Insert replacement
         // See the IDs in CHECK_AUTOMATA
         match magic.pattern().as_usize() {
-            // $mooncake_bin => <project .mooncakes dir>/__moonbin__
+            // $mooncake_bin => <project target dir>/__moonbin__
             0 => {
                 write!(reconstructed, "{}", mooncake_bin_dir.display()).expect("write can't fail");
             }
@@ -1809,7 +1809,7 @@ mod tests {
         let command = handle_build_command_new(
             "generate --inputs $input --outputs $output",
             Path::new("module"),
-            Path::new("module/.mooncakes/__moonbin__"),
+            Path::new("module/_build/__moonbin__"),
             Path::new("module/src/lib"),
             &prebuild_command_paths(
                 Path::new("module"),

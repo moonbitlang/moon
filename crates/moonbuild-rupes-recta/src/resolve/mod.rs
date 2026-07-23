@@ -31,12 +31,12 @@ use log::{debug, info};
 use std::str::FromStr;
 
 use mooncake::{
-    pkg::sync::{SyncOutputOptions, auto_sync, auto_sync_for_single_file_rr},
+    pkg::sync::{SyncDirs, SyncOutputOptions, auto_sync, auto_sync_for_single_file_rr},
     registry::path as registry_path,
 };
 use moonutil::{
     cli_support::AutoSyncFlags,
-    constants::{MBTI_USER_WRITTEN, MOONBITLANG_CORE},
+    constants::{MBTI_USER_WRITTEN, MOON_BIN_DIR, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
     front_matter::{MbtMdHeader, parse_front_matter_config},
     manifest::MoonMod,
@@ -315,6 +315,7 @@ pub enum ResolveError {
 pub fn sync_dependencies(
     cfg: &ResolveConfig,
     source_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
 ) -> Result<(ResolvedEnv, DirSyncResult), ResolveError> {
@@ -325,13 +326,16 @@ pub fn sync_dependencies(
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
     let (resolved_env, dir_sync_result, _) = auto_sync(
-        source_dir,
-        mooncakes_dir,
+        SyncDirs {
+            source_dir,
+            mooncake_bin_dir,
+            mooncakes_dir,
+            project_manifest,
+        },
         &cfg.sync_flags,
         cfg.sync_output,
         cfg.no_std,
         cfg.workspace_env.clone(),
-        project_manifest,
     )
     .map_err(ResolveError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");
@@ -451,6 +455,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     // Sync modules as usual
     let (resolved_env, dir_sync_result) = auto_sync_for_single_file_rr(
         source_dir,
+        &target_dir.join(MOON_BIN_DIR),
         mooncakes_dir,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),

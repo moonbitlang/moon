@@ -295,9 +295,14 @@ pub(crate) fn run_info(
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
-    let synced_env =
-        sync_dependencies(&resolve_cfg, &source_dir, &mooncakes_dir, &project_manifest)?;
+    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
+    let synced_env = sync_dependencies(
+        &resolve_cfg,
+        &source_dir,
+        &mooncake_bin_dir,
+        &mooncakes_dir,
+        &project_manifest,
+    )?;
     let resolve_output = resolve_synced_project(&resolve_cfg, synced_env, output.user_log())?;
     let selection = PackageSelection::new(&cmd, &resolve_output, output.user_log())?;
 

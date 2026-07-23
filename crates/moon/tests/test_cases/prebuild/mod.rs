@@ -224,14 +224,59 @@ fn test_package_local_rule_dev_build() {
 fn test_pre_build_mooncake_bin_shape() {
     let top_dir = TestDir::new("pre_build_mooncake_bin_shape.in");
     let dir = top_dir.join("user.in");
+    let target_dir = dir.join("artifacts");
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    cache_registry_package(
+        moon_home.path(),
+        "username/registry_shape_tool",
+        "0.1.0",
+        &[
+            (
+                "moon.mod.json",
+                br#"{"name":"username/registry_shape_tool","version":"0.1.0","source":"src"}"#
+                    .to_vec(),
+            ),
+            (
+                "src/main-js/moon.pkg.json",
+                br#"{"is-main":true,"bin-target":"js","bin-name":"registry-shape-tool"}"#.to_vec(),
+            ),
+            (
+                "src/main-js/main.mbt",
+                br#"fn main { println("registry-shape-tool") }"#.to_vec(),
+            ),
+        ],
+    );
 
-    get_stderr(&dir, ["check"]);
+    get_stderr_with_envs(
+        &dir,
+        ["--target-dir", "artifacts", "check"],
+        [("MOON_HOME", moon_home.path())],
+    );
 
     #[cfg(unix)]
     let launcher = top_dir.join("provider.in").join("shape-tool");
     #[cfg(target_os = "windows")]
     let launcher = top_dir.join("provider.in").join("shape-tool.ps1");
     assert!(launcher.exists(), "expected bin-dep launcher: {launcher:?}");
+
+    #[cfg(unix)]
+    let registry_launcher = target_dir.join(MOON_BIN_DIR).join("registry-shape-tool");
+    #[cfg(target_os = "windows")]
+    let registry_launcher = target_dir
+        .join(MOON_BIN_DIR)
+        .join("registry-shape-tool.ps1");
+    assert!(
+        registry_launcher.exists(),
+        "expected registry bin-dep launcher: {registry_launcher:?}"
+    );
+    assert!(
+        !dir.join(".mooncakes")
+            .join("username")
+            .join("registry_shape_tool")
+            .join(registry_launcher.file_name().unwrap())
+            .exists(),
+        "registry launcher must not make mooncakes_dir mutable"
+    );
 
     let actual_raw = read(dir.join("src/main/mooncake_bin.txt"));
     let actual_path = actual_raw.trim();
@@ -242,9 +287,8 @@ fn test_pre_build_mooncake_bin_shape() {
         .replace("\\\"", "\"")
         .replace('\\', "/");
 
-    let source_dir = dunce::canonicalize(&dir).unwrap();
-    let expected_path = source_dir
-        .join(".mooncakes")
+    let expected_path = dunce::canonicalize(&target_dir)
+        .unwrap()
         .join(MOON_BIN_DIR)
         .to_string_lossy()
         .replace('\\', "/");

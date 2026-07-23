@@ -106,10 +106,12 @@ mod tests {
 
         let resolve_cfg =
             ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let target_dir = temp_dir.path().join("_build");
         let mooncakes_dir = temp_dir.path().join(".mooncakes");
         let synced_env = sync_dependencies(
             &resolve_cfg,
             temp_dir.path(),
+            &target_dir.join(moonutil::constants::MOON_BIN_DIR),
             &mooncakes_dir,
             &ProjectManifest::None,
         )
@@ -152,10 +154,12 @@ mod tests {
 
         let resolve_cfg =
             ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let target_dir = temp_dir.path().join("_build");
         let mooncakes_dir = temp_dir.path().join(".mooncakes");
         let synced_env = sync_dependencies(
             &resolve_cfg,
             temp_dir.path(),
+            &target_dir.join(moonutil::constants::MOON_BIN_DIR),
             &mooncakes_dir,
             &ProjectManifest::None,
         )

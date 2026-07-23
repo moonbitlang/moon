@@ -17,12 +17,14 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
+    io::Write,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
 
 use expect_test::Expect;
 use moonutil::{compiler_flags, text::StringExt};
+use sha2::{Digest, Sha256};
 
 static MOONRUN_BIN: OnceLock<PathBuf> = OnceLock::new();
 
@@ -159,6 +161,47 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
 
 pub(crate) fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
     moon_test_util::test_dir::copy_tree(src, dest, true)
+}
+
+pub(crate) fn cache_registry_package(
+    moon_home: &Path,
+    name: &str,
+    version: &str,
+    files: &[(&str, Vec<u8>)],
+) -> (PathBuf, PathBuf) {
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (path, contents) in files {
+        archive
+            .start_file(*path, zip::write::FileOptions::default())
+            .unwrap();
+        archive.write_all(contents).unwrap();
+    }
+    let zip = archive.finish().unwrap().into_inner();
+
+    let (username, package) = name.split_once('/').unwrap();
+    let zip_path = moon_home
+        .join("registry/cache")
+        .join(username)
+        .join(package)
+        .join(format!("{version}.zip"));
+    std::fs::create_dir_all(zip_path.parent().unwrap()).unwrap();
+    std::fs::write(&zip_path, &zip).unwrap();
+
+    let index_path = moon_home
+        .join("registry/index/user")
+        .join(username)
+        .join(format!("{package}.index"));
+    std::fs::create_dir_all(index_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &index_path,
+        format!(
+            "{{\"name\":\"{name}\",\"version\":\"{version}\",\"checksum\":\"{:x}\"}}\n",
+            Sha256::digest(&zip)
+        ),
+    )
+    .unwrap();
+
+    (zip_path, index_path)
 }
 
 #[track_caller]

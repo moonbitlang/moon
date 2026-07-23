@@ -37,7 +37,7 @@ Notes:
 - `input`/`output` are resolved relative to the package directory for build dependency tracking.
 - `$input`/`$output` expand to paths relative to the prebuild command working directory. These substituted paths are lexically normalized and start with `./`, for example `./src/lib/input.txt`.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
-- `$mooncake_bin` expands to `<project .mooncakes dir>/__moonbin__`.
+- `$mooncake_bin` expands to `<project target dir>/__moonbin__`.
   The command adapter computes this `mooncake_bin_dir` from project discovery
   before build planning; prebuild planning does not rediscover it from the
   package or module directory.
@@ -59,7 +59,7 @@ Only the `command` field is substituted. The following placeholders are recogniz
   Expands to the absolute path of the current package directory (the directory containing this `moon.pkg.json`).
 
 - `$mooncake_bin`  
-  Expands to the absolute path `<project .mooncakes dir>/__moonbin__`.
+  Expands to the absolute path `<project target dir>/__moonbin__`.
   This refers to launchers installed from the current project's direct
   `bin-deps`.
 

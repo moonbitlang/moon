@@ -592,6 +592,7 @@ mod tests {
         let synced_env = moonbuild_rupes_recta::sync_dependencies(
             &cfg,
             &dirs.source_dir,
+            &dirs.target_dir.join(moonutil::constants::MOON_BIN_DIR),
             &dirs.mooncakes_dir,
             &dirs.project_manifest,
         )

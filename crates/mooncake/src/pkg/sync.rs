@@ -25,6 +25,7 @@ use indexmap::IndexMap;
 use moonutil::{
     build_options::{MoonbuildOpt, MooncOpt},
     cli_support::AutoSyncFlags,
+    constants::MOON_BIN_DIR,
     front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{
@@ -66,27 +67,34 @@ impl Default for SyncOutputOptions {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SyncDirs<'a> {
+    pub source_dir: &'a Path,
+    pub mooncake_bin_dir: &'a Path,
+    pub mooncakes_dir: &'a Path,
+    pub project_manifest: &'a ProjectManifest,
+}
+
 /// Given the specified source directory, resolve the module dependency relation
 /// and their directories
 ///
 /// TODO: support registry config
 pub fn auto_sync(
-    source_dir: &Path,
-    mooncakes_dir: &Path,
+    dirs: SyncDirs<'_>,
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
     no_std: bool,
     workspace_env: WorkspaceEnv,
-    project_manifest: &ProjectManifest,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
-    if let ProjectManifest::Workspace(project_manifest) = project_manifest
+    if let ProjectManifest::Workspace(project_manifest) = dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
     {
         let workspace_root = project_manifest
             .parent()
             .context("workspace manifest path has no parent directory")?;
         return resolve_workspace_sync(
-            mooncakes_dir,
+            dirs.mooncake_bin_dir,
+            dirs.mooncakes_dir,
             cli,
             output_options,
             no_std,
@@ -95,12 +103,13 @@ pub fn auto_sync(
         );
     }
 
-    let module = Arc::new(read_module_desc_file_in_dir(source_dir)?);
-    let source = ModuleSource::from_local_module(&module, source_dir);
+    let module = Arc::new(read_module_desc_file_in_dir(dirs.source_dir)?);
+    let source = ModuleSource::from_local_module(&module, dirs.source_dir);
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
     let (resolved_env, sync_result) = super::install::install_impl(
-        mooncakes_dir,
+        dirs.mooncakes_dir,
+        dirs.mooncake_bin_dir,
         roots,
         output_options,
         false,
@@ -112,6 +121,7 @@ pub fn auto_sync(
 }
 
 fn resolve_workspace_sync(
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     cli: &AutoSyncFlags,
     output_options: SyncOutputOptions,
@@ -128,6 +138,7 @@ fn resolve_workspace_sync(
 
     let (resolved_env, sync_result) = super::install::install_impl(
         mooncakes_dir,
+        mooncake_bin_dir,
         roots,
         output_options,
         false,
@@ -169,6 +180,7 @@ pub fn auto_sync_for_single_mbt_md(
 
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         mooncakes_dir,
+        &moonbuild_opt.target_dir.join(MOON_BIN_DIR),
         roots,
         SyncOutputOptions::new(moonbuild_opt.quiet, true),
         moonbuild_opt.verbose,
@@ -181,6 +193,7 @@ pub fn auto_sync_for_single_mbt_md(
 
 pub fn auto_sync_for_single_file_rr(
     source_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     sync_flags: &AutoSyncFlags,
     front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
@@ -204,6 +217,7 @@ pub fn auto_sync_for_single_file_rr(
 
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         mooncakes_dir,
+        mooncake_bin_dir,
         roots,
         output_options,
         false,
