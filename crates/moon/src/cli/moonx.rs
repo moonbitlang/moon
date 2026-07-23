@@ -18,7 +18,7 @@
 
 use std::{ffi::OsString, path::PathBuf};
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, ValueEnum};
 
 use crate::user_diagnostics::UserDiagnostics;
 
@@ -36,7 +36,6 @@ pub(crate) enum MoonxTarget {
     name = "moonx",
     about = "Run a package from the Mooncakes registry without installing it",
     override_usage = "moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...",
-    help_template = "{about-with-newline}\n{usage-heading} {usage}\n\nArguments:\n  <PACKAGE>          Registry package coordinate\n  [PROGRAM_ARGS]...  Arguments passed to the program\n\n{all-args}",
     version
 )]
 pub(crate) struct MoonxCli {
@@ -51,14 +50,14 @@ pub(crate) struct MoonxCli {
     #[arg(short = 'v', long)]
     pub verbose: bool,
 
-    #[command(subcommand)]
-    package: MoonxPackage,
-}
-
-#[derive(Debug, Subcommand)]
-enum MoonxPackage {
-    #[command(external_subcommand)]
-    External(Vec<String>),
+    /// Registry package coordinate followed by arguments passed to the program
+    #[arg(
+        value_names = ["PACKAGE", "PROGRAM_ARGS"],
+        required = true,
+        num_args = 1..,
+        trailing_var_arg = true
+    )]
+    pub package_and_args: Vec<String>,
 }
 
 pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
@@ -76,14 +75,13 @@ pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
 
 pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
     let cli = MoonxCli::try_parse_from(raw_args).unwrap_or_else(|err| err.exit());
-    let MoonxPackage::External(package_and_args) = cli.package;
-    let mut package_and_args = package_and_args.into_iter();
-    let package = package_and_args
-        .next()
-        .expect("external subcommand always contains its name");
-    let args = package_and_args.collect::<Vec<_>>();
-    let args = match args.as_slice() {
-        [separator, args @ ..] if separator == "--" => args.to_vec(),
+    let (package, args) = cli
+        .package_and_args
+        .split_first()
+        .expect("package_and_args requires at least one value");
+    // A trailing positional preserves `--`; moonx treats one leading occurrence as a separator.
+    let args = match args {
+        [separator, args @ ..] if separator == "--" => args,
         _ => args,
     };
     // moonx is a transparent runner unless the user explicitly requests details.
@@ -99,7 +97,7 @@ pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
         }
         MoonxTarget::Native => RegistryRunTarget::Native,
     };
-    match registry_runner::run(package, target, args, quiet, cli.verbose) {
+    match registry_runner::run(package.clone(), target, args.to_vec(), quiet, cli.verbose) {
         Ok(code) => code,
         Err(err) => {
             output.error(format!("{:?}", err));
@@ -146,8 +144,7 @@ mod tests {
     fn forwards_help_and_version_flags_after_package() {
         for flag in ["-h", "--help", "-V", "--version"] {
             let cli = MoonxCli::try_parse_from(["moonx", "user/module", flag]).unwrap();
-            let MoonxPackage::External(package_and_args) = cli.package;
-            assert_eq!(package_and_args, ["user/module", flag]);
+            assert_eq!(cli.package_and_args, ["user/module", flag]);
         }
     }
 }
