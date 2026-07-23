@@ -22,8 +22,8 @@ use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode};
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    locks::FileLock, project::PackageDirs, resolution::ModuleId, target::TargetBackend,
-    test_metadata::DiagnosticLevel, user_log::UserLog,
+    command_output::CommandOutput, locks::FileLock, project::PackageDirs, resolution::ModuleId,
+    target::TargetBackend, test_metadata::DiagnosticLevel, user_log::UserLog,
 };
 use serde::Deserialize;
 use tracing::instrument;
@@ -99,8 +99,9 @@ impl ProveSubcommand {
 pub(crate) fn run_prove(
     cli: &UniversalFlags,
     cmd: &ProveSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let module_dir = if cmd.path.is_some() {
@@ -186,12 +187,15 @@ pub(crate) fn run_prove(
     let proof_reports = planned_proof_reports(&build_meta);
 
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            &project_root,
-            &target_dir,
-        );
+        output.write_result(|writer| {
+            rr_build::write_dry_run(
+                writer,
+                &build_graph,
+                build_meta.artifacts.values(),
+                &project_root,
+                &target_dir,
+            )
+        })?;
         return Ok(0);
     }
 

@@ -21,6 +21,7 @@ use std::path::Path;
 use anyhow::{Context as _, bail};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::cli_support::AutoSyncFlags;
+use moonutil::command_output::CommandOutput;
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleId;
 use moonutil::{build_options::RunMode, locks::FileLock, user_log::UserLog};
@@ -62,13 +63,13 @@ pub(crate) struct DocSubcommand {
 pub(crate) fn run_doc(
     cli: UniversalFlags,
     cmd: DocSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     if let Some(symbol) = cmd.symbol.as_deref() {
-        return run_doc_query(symbol, user_log);
+        return run_doc_query(symbol, output.user_log());
     }
 
-    run_doc_rr(cli, cmd, user_log)
+    run_doc_rr(cli, cmd, output)
 }
 
 #[instrument(skip_all)]
@@ -94,8 +95,9 @@ fn run_doc_query(symbol: &str, user_log: &UserLog) -> anyhow::Result<i32> {
 pub(crate) fn run_doc_rr(
     cli: UniversalFlags,
     cmd: DocSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let selected_module_dir = project
@@ -157,12 +159,15 @@ pub(crate) fn run_doc_rr(
 
     // Early exit for dry-run
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            &source_dir,
-            &target_dir,
-        );
+        output.write_result(|writer| {
+            rr_build::write_dry_run(
+                writer,
+                &build_graph,
+                build_meta.artifacts.values(),
+                &source_dir,
+                &target_dir,
+            )
+        })?;
         return Ok(0);
     }
 

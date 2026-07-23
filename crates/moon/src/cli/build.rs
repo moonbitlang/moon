@@ -21,6 +21,7 @@ use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
 use moonutil::cli_support::AutoSyncFlags;
+use moonutil::command_output::CommandOutput;
 use moonutil::locks::FileLock;
 use moonutil::project::{PackageDirs, ProjectManifest};
 use moonutil::target::TargetBackend;
@@ -84,7 +85,7 @@ pub(crate) struct BuildSubcommand {
 pub(crate) fn run_build(
     cli: &UniversalFlags,
     cmd: BuildSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
@@ -105,7 +106,7 @@ pub(crate) fn run_build(
             &mooncakes_dir,
             &project_manifest,
             None,
-            user_log,
+            output,
         );
     }
     let surface_targets = cmd.build_flags.target.clone();
@@ -121,7 +122,7 @@ pub(crate) fn run_build(
             &mooncakes_dir,
             &project_manifest,
             Some(t),
-            user_log,
+            output,
         )
         .context(format!("failed to run build for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -139,7 +140,7 @@ fn run_build_internal(
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let f = |watch: bool| {
         run_build_rr(
@@ -151,7 +152,7 @@ fn run_build_internal(
             project_manifest,
             watch,
             selected_target_backend,
-            user_log,
+            output,
         )
     };
 
@@ -176,8 +177,9 @@ fn run_build_rr(
     project_manifest: &ProjectManifest,
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
+    let user_log = output.user_log();
     std::fs::create_dir_all(target_dir).with_context(|| {
         format!(
             "Failed to create target directory: '{}'",
@@ -220,14 +222,18 @@ fn run_build_rr(
     )?;
 
     let ok = if cli.dry_run {
-        for (build_meta, build_graph) in planned_runs {
-            rr_build::print_dry_run(
-                &build_graph,
-                build_meta.artifacts.values(),
-                source_dir,
-                target_dir,
-            );
-        }
+        output.write_result(|writer| {
+            for (build_meta, build_graph) in planned_runs {
+                rr_build::write_dry_run(
+                    writer,
+                    &build_graph,
+                    build_meta.artifacts.values(),
+                    source_dir,
+                    target_dir,
+                )?;
+            }
+            Ok::<_, std::io::Error>(())
+        })?;
         true
     } else {
         let _lock = FileLock::lock(target_dir)?;

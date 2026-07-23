@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::fmt::FmtConfig;
-use moonutil::{project::PackageDirs, user_log::UserLog};
+use moonutil::{command_output::CommandOutput, project::PackageDirs};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
@@ -54,12 +54,17 @@ pub(crate) struct FmtSubcommand {
 pub(crate) fn run_fmt(
     cli: &UniversalFlags,
     cmd: FmtSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    run_fmt_rr(cli, cmd, user_log)
+    run_fmt_rr(cli, cmd, output)
 }
 
-fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand, user_log: &UserLog) -> anyhow::Result<i32> {
+fn run_fmt_rr(
+    cli: &UniversalFlags,
+    cmd: FmtSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let PackageDirs {
         source_dir,
         target_dir,
@@ -102,7 +107,9 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand, user_log: &UserLog) -> a
     )?;
 
     if cli.dry_run {
-        rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);
+        output.write_result(|writer| {
+            rr_build::write_dry_run_all(writer, &graph, &source_dir, &target_dir)
+        })?;
         Ok(0)
     } else {
         let res = rr_build::execute_build(&BuildConfig::default(), graph, &target_dir, user_log)?;

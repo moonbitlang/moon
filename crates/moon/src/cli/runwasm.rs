@@ -20,8 +20,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use moonutil::{
-    cli_support::AutoSyncFlags, cli_support::UniversalFlags, constants::is_moon_pkg_exist,
-    registry::RegistryConfig, target::SurfaceTarget, user_log::UserLog,
+    cli_support::AutoSyncFlags, cli_support::UniversalFlags, command_output::CommandOutput,
+    constants::is_moon_pkg_exist, registry::RegistryConfig, target::SurfaceTarget,
+    user_log::UserLog,
 };
 use reqwest::{StatusCode, header::USER_AGENT};
 use sha2::{Digest, Sha256};
@@ -79,10 +80,10 @@ struct ResolvedRunWasmAsset {
 pub(crate) fn run_runwasm(
     cli: &UniversalFlags,
     cmd: RunWasmSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     if should_run_as_local_package(&cmd.package)? {
-        return super::run_run(cli, runwasm_as_run_subcommand(cmd), user_log);
+        return super::run_run(cli, runwasm_as_run_subcommand(cmd), output);
     }
 
     if cli.dry_run {
@@ -96,7 +97,7 @@ pub(crate) fn run_runwasm(
         cmd.args,
         cli.quiet,
         cli.verbose,
-        user_log,
+        output.user_log(),
     )
 }
 

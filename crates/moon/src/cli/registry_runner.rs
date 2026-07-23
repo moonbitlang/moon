@@ -266,12 +266,12 @@ pub(crate) fn run(
                 &wasm_path,
                 experimental_policy.as_deref(),
                 &args,
-                verbose,
+                user_log,
             )
         }
         RegistryRunTarget::Native => {
             let executable = cached_native_executable(&package, user_log, quiet, verbose)?;
-            run_artifact(RunBackend::Native, &executable, None, &args, verbose)
+            run_artifact(RunBackend::Native, &executable, None, &args, user_log)
         }
     }
 }
@@ -302,7 +302,7 @@ fn run_artifact(
     artifact: &Path,
     experimental_policy: Option<&Path>,
     args: &[String],
-    verbose: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let mut run_cmd = crate::run::command_for_with_moonrun_policy(
         backend,
@@ -313,10 +313,10 @@ fn run_artifact(
     );
     run_cmd.args(args);
 
-    if verbose {
-        let print_dir = std::env::current_dir().context("failed to get current directory")?;
-        rr_build::dry_print_command(run_cmd.as_std(), &print_dir, true);
-    }
+    user_log.info(rr_build::format_dry_run_command(
+        run_cmd.as_std(),
+        Path::new("."),
+    ));
 
     let status = super::process::delegate(run_cmd.as_std_mut())
         .context("failed to delegate to registry executable")?;

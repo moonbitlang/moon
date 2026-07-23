@@ -43,6 +43,7 @@ use moonbuild_rupes_recta::model::BuildTarget;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
 use moonutil::cli_support::AutoSyncFlags;
+use moonutil::command_output::CommandOutput;
 use moonutil::locks::FileLock;
 use moonutil::project::{ProjectManifest, ProjectProbe};
 use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
@@ -319,9 +320,9 @@ pub(crate) struct TestSubcommand {
 pub(crate) fn run_test(
     cli: UniversalFlags,
     cmd: TestSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let result = run_test_impl(&cli, &cmd, user_log);
+    let result = run_test_impl(&cli, &cmd, output);
     if crate::run::shutdown_requested() {
         return Ok(130);
     }
@@ -332,8 +333,9 @@ pub(crate) fn run_test(
 fn run_test_impl(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     if cmd.profile {
         profile::ensure_profile_available(profile::MOON_TEST_PROFILE_COMMAND)?;
         ensure_test_profile_target_is_native(&cmd.build_flags)?;
@@ -366,7 +368,7 @@ fn run_test_impl(
                         &single_file.package_dirs.source_dir,
                         &target_dir,
                         &mooncakes_dir,
-                        user_log,
+                        output,
                     );
                 }
                 [] => return Err(not_found.into_error().into()),
@@ -399,7 +401,7 @@ fn run_test_impl(
             &dirs.project_manifest,
             None,
             selected_target_backend,
-            user_log,
+            output,
         );
     }
     let surface_targets = &cmd.build_flags.target;
@@ -421,7 +423,7 @@ fn run_test_impl(
             &dirs.project_manifest,
             display_backend_hint,
             Some(t),
-            user_log,
+            output,
         )
         .context(format!("failed to run test for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -474,7 +476,7 @@ fn run_test_internal(
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     debug!(
         backend = ?selected_target_backend,
@@ -490,7 +492,7 @@ fn run_test_internal(
         project_manifest,
         display_backend_hint,
         selected_target_backend,
-        user_log,
+        output,
     )?;
     trace!(exit_code, "run_test_internal finished");
     Ok(exit_code)
@@ -504,7 +506,7 @@ fn run_test_in_single_file(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
@@ -516,7 +518,7 @@ fn run_test_in_single_file(
         source_dir,
         target_dir,
         mooncakes_dir,
-        user_log,
+        output,
     )
 }
 
@@ -528,8 +530,9 @@ fn run_test_in_single_file_rr(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     std::fs::create_dir_all(target_dir)
         .context("failed to create target directory for single-file test")?;
 
@@ -624,7 +627,7 @@ fn run_test_in_single_file_rr(
         build_graph,
         filter,
         None,
-        user_log,
+        output,
     )
 }
 
@@ -922,7 +925,7 @@ pub(crate) fn run_test_or_bench_internal(
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     debug!(
         run_mode = ?cmd.run_mode,
@@ -977,7 +980,7 @@ pub(crate) fn run_test_or_bench_internal(
         project_manifest,
         display_backend_hint,
         selected_target_backend,
-        user_log,
+        output,
     )
 }
 
@@ -992,8 +995,9 @@ fn run_test_rr(
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
+    let user_log = output.user_log();
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
@@ -1047,7 +1051,7 @@ fn run_test_rr(
             build_graph,
             filter,
             build_only_artifacts.as_mut(),
-            user_log,
+            output,
         )?);
     }
     if !cli.dry_run
@@ -1549,8 +1553,9 @@ fn rr_test_from_plan(
     build_graph: rr_build::BuildInput,
     filter: TestFilter,
     build_only_artifacts: Option<&mut TestArtifacts>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
+    let user_log = output.user_log();
     let built = match execute_test_build_from_plan(
         cli,
         cmd,
@@ -1558,7 +1563,7 @@ fn rr_test_from_plan(
         target_dir,
         build_meta,
         build_graph,
-        user_log,
+        output,
     )? {
         TestBuildExecution::DryRun => return Ok(0),
         TestBuildExecution::BuildFailed(exit_code) => return Ok(exit_code),
@@ -1606,6 +1611,7 @@ fn rr_test_from_plan(
             build_meta,
             &filter,
             cmd.include_skipped,
+            output,
         );
     }
 
@@ -1616,9 +1622,9 @@ fn rr_test_from_plan(
         &filter,
         cmd.include_skipped,
         cmd.run_mode == RunMode::Bench,
-        cli.verbose,
         cmd.no_parallelize,
         cmd.build_flags.jobs,
+        user_log,
     )?;
     let _initial_summary = test_result.summary();
 
@@ -1712,9 +1718,9 @@ fn rr_test_from_plan(
                 &rerun_filter,
                 cmd.include_skipped,
                 cmd.run_mode == RunMode::Bench,
-                cli.verbose,
                 cmd.no_parallelize,
                 cmd.build_flags.jobs,
+                user_log,
             )?;
             let _rerun_summary = new_test_result.summary();
 
@@ -1761,15 +1767,19 @@ fn execute_test_build_from_plan(
     target_dir: &Path,
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> Result<TestBuildExecution, anyhow::Error> {
+    let user_log = output.user_log();
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
+        output.write_result(|writer| {
+            rr_build::write_dry_run(
+                writer,
+                &build_graph,
+                build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            )
+        })?;
         // Test command lines depend on generated metadata, which dry-run does
         // not materialize. Profile dry-run therefore stops at the build graph.
         return Ok(TestBuildExecution::DryRun);

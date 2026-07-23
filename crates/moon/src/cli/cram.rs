@@ -18,6 +18,7 @@
 
 use std::{
     ffi::{OsStr, OsString},
+    io::Write,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -28,10 +29,10 @@ use clap::{Subcommand, ValueEnum};
 use moonbuild_rupes_recta::model::BuildPlanNode;
 use moonutil::{
     cli_support::AutoSyncFlags,
+    command_output::CommandOutput,
     locks::FileLock,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend},
-    user_log::UserLog,
 };
 use tracing::instrument;
 
@@ -90,10 +91,10 @@ struct ParsedCramArgs {
 pub(crate) fn run_cram(
     cli: &UniversalFlags,
     cmd: CramSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     match cmd.command {
-        Some(CramCommand::Test(cmd)) => run_cram_test(cli, cmd, user_log),
+        Some(CramCommand::Test(cmd)) => run_cram_test(cli, cmd, output),
         Some(CramCommand::External(args)) => delegate_moon_cram(args),
         None => delegate_moon_cram(Vec::new()),
     }
@@ -102,8 +103,9 @@ pub(crate) fn run_cram(
 fn run_cram_test(
     cli: &UniversalFlags,
     cmd: CramTestSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let parsed = cram_args(cmd);
     let moon_cram = if cli.dry_run {
         moonutil::toolchain::BINARIES.moon_cram.clone()
@@ -163,15 +165,24 @@ fn run_cram_test(
 
     let executable_dirs = collect_executable_dirs(&planned_runs, &source_dir);
     if cli.dry_run {
-        for (build_meta, build_graph) in &planned_runs {
-            rr_build::print_dry_run(
-                build_graph,
-                build_meta.artifacts.values(),
+        output.write_result(|writer| {
+            for (build_meta, build_graph) in &planned_runs {
+                rr_build::write_dry_run(
+                    writer,
+                    build_graph,
+                    build_meta.artifacts.values(),
+                    &source_dir,
+                    &target_dir,
+                )?;
+            }
+            write_dry_run_cram_command(
+                writer,
+                &moon_cram,
+                &parsed.cram_args,
+                &executable_dirs,
                 &source_dir,
-                &target_dir,
-            );
-        }
-        print_dry_run_cram_command(&moon_cram, &parsed.cram_args, &executable_dirs, &source_dir);
+            )
+        })?;
         return Ok(0);
     }
 
@@ -350,12 +361,13 @@ fn path_with_executable_dirs(executable_dirs: &[PathBuf]) -> anyhow::Result<OsSt
         .context("failed to construct PATH for `moon-cram`")
 }
 
-fn print_dry_run_cram_command(
+fn write_dry_run_cram_command(
+    output: &mut dyn Write,
     moon_cram: &Path,
     cram_args: &[String],
     executable_dirs: &[PathBuf],
     source_dir: &Path,
-) {
+) -> std::io::Result<()> {
     let replacer = moonbuild::dry_run::PathNormalizer::new(source_dir);
     let mut args = vec![
         format!(
@@ -369,10 +381,11 @@ fn print_dry_run_cram_command(
             .iter()
             .map(|arg| replacer.normalize_command_arg(arg)),
     );
-    println!(
+    writeln!(
+        output,
         "{}",
         moonutil::shlex::join_unix(args.iter().map(String::as_str))
-    );
+    )
 }
 
 fn display_path_with_executable_dirs(
