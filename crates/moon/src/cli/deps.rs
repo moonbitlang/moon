@@ -79,9 +79,10 @@ pub(crate) fn install_cli(
         );
         let PackageDirs {
             source_dir,
-            target_dir,
+            mooncake_bin_dir,
             mooncakes_dir,
             project_manifest,
+            ..
         } = cli
             .source_tgt_dir
             .query(cli.workspace_env.clone())?
@@ -89,7 +90,7 @@ pub(crate) fn install_cli(
         mooncake::pkg::sync::auto_sync(
             mooncake::pkg::sync::SyncDirs {
                 source_dir: &source_dir,
-                mooncake_bin_dir: &target_dir.join(moonutil::constants::MOON_BIN_DIR),
+                mooncake_bin_dir: &mooncake_bin_dir,
                 mooncakes_dir: &mooncakes_dir,
                 project_manifest: &project_manifest,
             },
@@ -209,7 +210,7 @@ pub(crate) fn add_cli(
     let project = query.project()?;
     let module_dir = require_selected_module(&project, "add")?;
     let PackageDirs {
-        target_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
         ..
@@ -263,7 +264,7 @@ pub(crate) fn add_cli(
         mooncake::pkg::add::add(
             &module_dir,
             &project_manifest,
-            &target_dir.join(moonutil::constants::MOON_BIN_DIR),
+            &mooncake_bin_dir,
             &mooncakes_dir,
             &pkg_name,
             cmd.bin,
@@ -275,7 +276,7 @@ pub(crate) fn add_cli(
         mooncake::pkg::add::add_latest(
             &module_dir,
             &project_manifest,
-            &target_dir.join(moonutil::constants::MOON_BIN_DIR),
+            &mooncake_bin_dir,
             &mooncakes_dir,
             &pkg_name,
             cmd.bin,

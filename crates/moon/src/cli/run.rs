@@ -468,6 +468,7 @@ fn build_package_executable(
     let PackageDirs {
         source_dir,
         target_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
     } = cli
@@ -482,7 +483,6 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         &source_dir,
@@ -644,15 +644,13 @@ fn build_single_file_executable_from_arg(
             .as_deref()
             .expect("single-file run from arg requires a positional input path"),
     )?;
-    let target_dir = single_file_dirs.package_dirs.target_dir;
-    let mooncakes_dir = single_file_dirs.package_dirs.mooncakes_dir;
-
     build_single_file_executable(
         cli,
         cmd,
         single_file_dirs.package_dirs.source_dir,
-        target_dir,
-        mooncakes_dir,
+        single_file_dirs.package_dirs.target_dir,
+        single_file_dirs.package_dirs.mooncake_bin_dir,
+        single_file_dirs.package_dirs.mooncakes_dir,
         single_file_dirs.file_path,
         options,
         output,
@@ -667,6 +665,7 @@ fn build_single_file_executable(
     cmd: &RunSubcommand,
     source_dir: std::path::PathBuf,
     target_dir: std::path::PathBuf,
+    mooncake_bin_dir: std::path::PathBuf,
     mooncakes_dir: std::path::PathBuf,
     input_path: std::path::PathBuf,
     options: BuildRunExecutableOptions,
@@ -689,13 +688,14 @@ fn build_single_file_executable(
     .with_sync_output(options.output.sync_output());
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
+        &source_dir,
         target_dir.as_path(),
+        &mooncake_bin_dir,
         &mooncakes_dir,
         &input_path,
         true,
         user_log,
     )?;
-    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);

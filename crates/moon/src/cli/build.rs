@@ -90,6 +90,7 @@ pub(crate) fn run_build(
     let PackageDirs {
         source_dir,
         target_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
     } = cli
@@ -103,6 +104,7 @@ pub(crate) fn run_build(
             &cmd,
             &source_dir,
             &target_dir,
+            &mooncake_bin_dir,
             &mooncakes_dir,
             &project_manifest,
             None,
@@ -119,6 +121,7 @@ pub(crate) fn run_build(
             &cmd,
             &source_dir,
             &target_dir,
+            &mooncake_bin_dir,
             &mooncakes_dir,
             &project_manifest,
             Some(t),
@@ -137,6 +140,7 @@ fn run_build_internal(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
@@ -148,6 +152,7 @@ fn run_build_internal(
             cmd,
             source_dir,
             target_dir,
+            mooncake_bin_dir,
             mooncakes_dir,
             project_manifest,
             watch,
@@ -173,6 +178,7 @@ fn run_build_rr(
     cmd: &BuildSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     watch: bool,
@@ -193,11 +199,10 @@ fn run_build_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         source_dir,
-        &mooncake_bin_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
     )?;
@@ -216,7 +221,7 @@ fn run_build_rr(
         cmd,
         source_dir,
         target_dir,
-        &mooncake_bin_dir,
+        mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
         user_log,

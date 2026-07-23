@@ -25,7 +25,6 @@ use indexmap::IndexMap;
 use moonutil::{
     build_options::{MoonbuildOpt, MooncOpt},
     cli_support::AutoSyncFlags,
-    constants::MOON_BIN_DIR,
     front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{
@@ -152,6 +151,7 @@ fn resolve_workspace_sync(
 pub fn auto_sync_for_single_mbt_md(
     moonc_opt: &MooncOpt,
     moonbuild_opt: &MoonbuildOpt,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     front_matter_config: Option<MbtMdHeader>,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Arc<MoonMod>)> {
@@ -180,7 +180,7 @@ pub fn auto_sync_for_single_mbt_md(
 
     let (resolved_env, dir_sync_result) = super::install::install_impl(
         mooncakes_dir,
-        &moonbuild_opt.target_dir.join(MOON_BIN_DIR),
+        mooncake_bin_dir,
         roots,
         SyncOutputOptions::new(moonbuild_opt.quiet, true),
         moonbuild_opt.verbose,

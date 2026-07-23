@@ -358,16 +358,15 @@ fn run_test_impl(
             match cmd.path.as_slice() {
                 [path] => {
                     let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
-                    let target_dir = single_file.package_dirs.target_dir;
-                    let mooncakes_dir = single_file.package_dirs.mooncakes_dir;
                     info!("delegating to single-file test runner");
                     return run_test_in_single_file(
                         cli,
                         cmd,
                         &single_file.file_path,
                         &single_file.package_dirs.source_dir,
-                        &target_dir,
-                        &mooncakes_dir,
+                        &single_file.package_dirs.target_dir,
+                        &single_file.package_dirs.mooncake_bin_dir,
+                        &single_file.package_dirs.mooncakes_dir,
                         output,
                     );
                 }
@@ -397,6 +396,7 @@ fn run_test_impl(
             cmd,
             &dirs.source_dir,
             &dirs.target_dir,
+            &dirs.mooncake_bin_dir,
             &dirs.mooncakes_dir,
             &dirs.project_manifest,
             None,
@@ -419,6 +419,7 @@ fn run_test_impl(
             cmd,
             &dirs.source_dir,
             &dirs.target_dir,
+            &dirs.mooncake_bin_dir,
             &dirs.mooncakes_dir,
             &dirs.project_manifest,
             display_backend_hint,
@@ -472,6 +473,7 @@ fn run_test_internal(
     cmd: &TestSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
@@ -488,6 +490,7 @@ fn run_test_internal(
         cmd.into(),
         source_dir,
         target_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
         display_backend_hint,
@@ -505,6 +508,7 @@ fn run_test_in_single_file(
     single_file_path: &Path,
     source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -517,6 +521,7 @@ fn run_test_in_single_file(
         single_file_path,
         source_dir,
         target_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         output,
     )
@@ -529,6 +534,7 @@ fn run_test_in_single_file_rr(
     single_file_path: &Path,
     source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -550,13 +556,14 @@ fn run_test_in_single_file_rr(
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
+        source_dir,
         target_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         single_file_path,
         false,
         user_log,
     )?;
-    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = if cmd.profile {
         Some(TargetBackend::Native)
     } else {
@@ -612,7 +619,7 @@ fn run_test_in_single_file_rr(
         user_log,
         planning_context,
         intent,
-        &mooncake_bin_dir,
+        mooncake_bin_dir,
         resolved,
     )?;
 
@@ -921,6 +928,7 @@ pub(crate) fn run_test_or_bench_internal(
     cmd: TestLikeSubcommand,
     source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
@@ -976,6 +984,7 @@ pub(crate) fn run_test_or_bench_internal(
         &cmd,
         source_dir,
         target_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
         display_backend_hint,
@@ -991,6 +1000,7 @@ fn run_test_rr(
     cmd: &TestLikeSubcommand<'_>,
     source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
@@ -1005,11 +1015,10 @@ fn run_test_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = moonbuild_rupes_recta::sync_dependencies(
         &resolve_cfg,
         source_dir,
-        &mooncake_bin_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
     )?;
@@ -1019,7 +1028,7 @@ fn run_test_rr(
         cli,
         cmd,
         target_dir,
-        &mooncake_bin_dir,
+        mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
         user_log,

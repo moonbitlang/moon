@@ -281,6 +281,7 @@ pub(crate) fn run_info(
     let PackageDirs {
         source_dir,
         target_dir,
+        mooncake_bin_dir,
         mooncakes_dir,
         project_manifest,
     } = cli
@@ -295,7 +296,6 @@ pub(crate) fn run_info(
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env = sync_dependencies(
         &resolve_cfg,
         &source_dir,

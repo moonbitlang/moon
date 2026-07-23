@@ -36,7 +36,7 @@ use mooncake::{
 };
 use moonutil::{
     cli_support::AutoSyncFlags,
-    constants::{MBTI_USER_WRITTEN, MOON_BIN_DIR, MOONBITLANG_CORE},
+    constants::{MBTI_USER_WRITTEN, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
     front_matter::{MbtMdHeader, parse_front_matter_config},
     manifest::MoonMod,
@@ -396,23 +396,18 @@ pub fn resolve_synced_project(
 #[instrument(skip_all, fields(run_mode = run_mode))]
 pub fn resolve_single_file_project(
     cfg: &ResolveConfig,
+    source_dir: &Path,
     target_dir: &Path,
+    mooncake_bin_dir: &Path,
     mooncakes_dir: &Path,
-    file: &Path,
+    source_file: &Path,
     run_mode: bool,
     user_log: &UserLog,
 ) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
-    // Canonicalize input and classify by suffix first.
-    let source_file = dunce::canonicalize(file)
-        .context("Failed to resolve the file path")
-        .map_err(ResolveError::SingleFileParseError)?;
-    let source_dir = source_file
-        .parent()
-        .expect("File must have a parent directory");
     let is_mbtx = source_file.extension().is_some_and(|ext| ext == "mbtx");
     let (header, front_matter_config, compile_input_file) = if is_mbtx {
         let imports =
-            parse_mbtx_imports(&source_file).map_err(ResolveError::SingleFileParseError)?;
+            parse_mbtx_imports(source_file).map_err(ResolveError::SingleFileParseError)?;
         let mut config = FrontMatterConfig {
             deps_to_sync: None,
             package_imports: None,
@@ -424,15 +419,15 @@ pub fn resolve_single_file_project(
         }
         // Generate a temporary .mbt file under target_dir,
         // because moonc doesn't support import declarations in source files yet.
-        let compile_input_file = prepare_single_file_for_compile(&source_file, target_dir)
+        let compile_input_file = prepare_single_file_for_compile(source_file, target_dir)
             .map_err(ResolveError::SingleFileParseError)?;
         (None, config, compile_input_file)
     } else {
         let header =
-            parse_front_matter_config(&source_file).map_err(ResolveError::SingleFileParseError)?;
+            parse_front_matter_config(source_file).map_err(ResolveError::SingleFileParseError)?;
         let config = extract_front_matter_config(header.as_ref())
             .map_err(ResolveError::SingleFileParseError)?;
-        (header, config, source_file.clone())
+        (header, config, source_file.to_path_buf())
     };
 
     let backend = header
@@ -455,7 +450,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     // Sync modules as usual
     let (resolved_env, dir_sync_result) = auto_sync_for_single_file_rr(
         source_dir,
-        &target_dir.join(MOON_BIN_DIR),
+        mooncake_bin_dir,
         mooncakes_dir,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),
