@@ -163,10 +163,6 @@ Run a package from the Mooncakes registry without installing it
 
 Usage: moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...
 
-Arguments:
-  <PACKAGE>          Registry package coordinate
-  [PROGRAM_ARGS]...  Arguments passed to the program
-
 Options:
       --target <TARGET>             [default: wasm] [possible values: wasm, native]
       --experimental-policy <PATH>  Experimental moonrun policy file; only valid for wasm

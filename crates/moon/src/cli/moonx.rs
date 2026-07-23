@@ -24,17 +24,6 @@ use crate::user_diagnostics::UserDiagnostics;
 
 use super::registry_runner::{self, RegistryRunTarget};
 
-const MOONX_HELP_TEMPLATE: &str = "\
-{about-with-newline}
-{usage-heading} {usage}
-
-Arguments:
-  <PACKAGE>          Registry package coordinate
-  [PROGRAM_ARGS]...  Arguments passed to the program
-
-Options:
-{options}";
-
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub(crate) enum MoonxTarget {
     #[default]
@@ -47,7 +36,6 @@ pub(crate) enum MoonxTarget {
     name = "moonx",
     about = "Run a package from the Mooncakes registry without installing it",
     override_usage = "moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...",
-    help_template = MOONX_HELP_TEMPLATE,
     version
 )]
 pub(crate) struct MoonxCli {
