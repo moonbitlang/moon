@@ -164,7 +164,8 @@ Run a package from the Mooncakes registry without installing it
 Usage: moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...
 
 Arguments:
-  <PACKAGE> <PROGRAM_ARGS>...  Registry package coordinate followed by arguments passed to the program
+  <PACKAGE>          Registry package coordinate
+  [PROGRAM_ARGS]...  Arguments passed to the program
 
 Options:
       --target <TARGET>             [default: wasm] [possible values: wasm, native]

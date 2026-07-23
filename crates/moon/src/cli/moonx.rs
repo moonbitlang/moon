@@ -24,6 +24,17 @@ use crate::user_diagnostics::UserDiagnostics;
 
 use super::registry_runner::{self, RegistryRunTarget};
 
+const MOONX_HELP_TEMPLATE: &str = "\
+{about-with-newline}
+{usage-heading} {usage}
+
+Arguments:
+  <PACKAGE>          Registry package coordinate
+  [PROGRAM_ARGS]...  Arguments passed to the program
+
+Options:
+{options}";
+
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
 pub(crate) enum MoonxTarget {
     #[default]
@@ -36,6 +47,7 @@ pub(crate) enum MoonxTarget {
     name = "moonx",
     about = "Run a package from the Mooncakes registry without installing it",
     override_usage = "moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...",
+    help_template = MOONX_HELP_TEMPLATE,
     version
 )]
 pub(crate) struct MoonxCli {
@@ -138,6 +150,12 @@ mod tests {
     fn rejects_removed_quiet_option() {
         let error = MoonxCli::try_parse_from(["moonx", "--quiet", "user/module"]).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn requires_package() {
+        let error = MoonxCli::try_parse_from(["moonx"]).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument);
     }
 
     #[test]
