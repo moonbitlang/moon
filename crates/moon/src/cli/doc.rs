@@ -23,14 +23,13 @@ use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleId;
-use moonutil::{build_options::RunMode, locks::FileLock};
+use moonutil::{build_options::RunMode, locks::FileLock, user_log::UserLog};
 use tracing::instrument;
 
 use super::UniversalFlags;
 
 use crate::cli::BuildFlags;
 use crate::rr_build::{self, BuildConfig, preconfig_compile};
-use crate::user_diagnostics::UserDiagnostics;
 
 /// Generate documentation or searching documentation for a symbol.
 #[derive(Debug, clap::Parser)]
@@ -60,18 +59,21 @@ pub(crate) struct DocSubcommand {
 
 #[instrument(skip_all)]
 #[allow(deprecated)]
-pub(crate) fn run_doc(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
+pub(crate) fn run_doc(
+    cli: UniversalFlags,
+    cmd: DocSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     if let Some(symbol) = cmd.symbol.as_deref() {
-        return run_doc_query(symbol, output);
+        return run_doc_query(symbol, user_log);
     }
 
-    run_doc_rr(cli, cmd)
+    run_doc_rr(cli, cmd, user_log)
 }
 
 #[instrument(skip_all)]
-fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
-    output.warn("`moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
+fn run_doc_query(symbol: &str, user_log: &UserLog) -> anyhow::Result<i32> {
+    user_log.warn("`moon doc <SYMBOL>` is deprecated; use `moon ide doc <SYMBOL>` instead.");
     let query_result = std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_ide)
         .arg("doc")
         .arg(symbol)
@@ -89,7 +91,11 @@ fn run_doc_query(symbol: &str, output: UserDiagnostics) -> anyhow::Result<i32> {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_doc_rr(
+    cli: UniversalFlags,
+    cmd: DocSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let selected_module_dir = project
@@ -127,14 +133,14 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
         &mooncakes_dir,
         &project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
-    let output = UserDiagnostics::from_flags(&cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         &target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     let module_id = selected_doc_module_id(&resolve_output, &selected_module_dir)?;
@@ -142,7 +148,7 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         &mooncake_bin_dir,
@@ -168,13 +174,8 @@ pub(crate) fn run_doc_rr(cli: UniversalFlags, cmd: DocSubcommand) -> anyhow::Res
     rr_build::generate_metadata(&source_dir, &target_dir, &build_meta, &build_graph, None)?;
 
     // Execute the build
-    let cfg = BuildConfig::from_flags(
-        &BuildFlags::default(),
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_flags(&cli),
-    );
-    let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
+    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
+    let result = rr_build::execute_build(&cfg, build_graph, &target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 
     if !result.successful() {

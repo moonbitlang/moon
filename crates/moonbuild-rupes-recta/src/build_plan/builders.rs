@@ -47,7 +47,6 @@ use crate::{
     discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, NativeTarget, PackageId, TargetKind},
     pkg_name::PackageFQNWithSource,
-    user_warning::UserWarning,
 };
 
 use super::{
@@ -92,16 +91,16 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn warn_incompatible_windows_msvc_env_override(&mut self) {
-        if !compiler_flags::has_incompatible_windows_msvc_env_override() {
+        if self.warned_incompatible_windows_msvc_env_override
+            || !compiler_flags::has_incompatible_windows_msvc_env_override()
+        {
             return;
         }
 
-        let warning = UserWarning::warn(
+        self.warned_incompatible_windows_msvc_env_override = true;
+        self.user_log.warn(
             "MOON_CC is ignored for Windows MSVC direct object native target because it is not a cl-compatible driver; set MOON_CC to cl.exe or clang-cl.exe to override MSVC discovery.",
         );
-        if !self.user_warnings.contains(&warning) {
-            self.user_warnings.push(warning);
-        }
     }
 
     fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
@@ -202,10 +201,10 @@ impl<'a> BuildPlanConstructor<'a> {
                 .warned_missing_supported_targets
                 .insert(importer_target.package)
         {
-            self.user_warnings.push(UserWarning::new(format!(
+            self.user_log.warn(format!(
                 "Package `{}` does not declare `supported_targets`, but depends on `{}` which declares it. Consider declaring `supported_targets` explicitly",
                 importer_pkg.fqn, dependency_pkg.fqn
-            )));
+            ));
         }
 
         let dependency_realizable = self
@@ -706,14 +705,14 @@ impl<'a> BuildPlanConstructor<'a> {
             return;
         }
 
-        self.user_warnings.push(UserWarning::new(format!(
+        self.user_log.warn(format!(
             "Main package `{}` uses blackbox-only test inputs ({}) in package directory \"{}\". \
              Main packages will stop generating blackbox tests in a future release. \
              Move public behavior into a non-main package and keep the main package as an entrypoint.",
             pkg.fqn,
             blackbox_inputs.join(", "),
             pkg.root_path.display(),
-        )));
+        ));
     }
 
     /// Check if a given target needs to check `.mi` against another target.
@@ -1447,7 +1446,7 @@ impl<'a> BuildPlanConstructor<'a> {
             if (filename.ends_with(".mbt") || filename.ends_with(".mbt.md"))
                 && output.parent() != Some("".as_ref())
             {
-                self.user_warnings.push(UserWarning::new(format!(
+                self.user_log.warn(format!(
                     "Prebuild output '{}' is not in the package directory of package {}. \
                      Such behavior is not supported. \
                      The build system will not add it to the list of MoonBit files to compile. \
@@ -1455,16 +1454,16 @@ impl<'a> BuildPlanConstructor<'a> {
                      please move the prebuild command to that package instead.",
                     output.display(),
                     pkg.fqn
-                )));
+                ));
             }
             // If the file looks like a package manifest
             if is_moon_mod(filename) || is_moon_pkg(filename) {
-                self.user_warnings.push(UserWarning::new(format!(
+                self.user_log.warn(format!(
                     "Prebuild output '{}' of package {} looks like a package manifest file. \
                      Overwriting package manifests is not supported and may lead to unexpected behavior.",
                     output.display(),
                     pkg.fqn
-                )));
+                ));
             }
         }
 

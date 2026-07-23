@@ -19,11 +19,11 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode, user_warning::UserWarning};
+use moonbuild_rupes_recta::{intent::UserIntent, model::BuildPlanNode};
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
     locks::FileLock, project::PackageDirs, resolution::ModuleId, target::TargetBackend,
-    test_metadata::DiagnosticLevel,
+    test_metadata::DiagnosticLevel, user_log::UserLog,
 };
 use serde::Deserialize;
 use tracing::instrument;
@@ -35,7 +35,6 @@ use crate::{
         package_supports_backend,
     },
     rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile},
-    user_diagnostics::UserDiagnostics,
 };
 
 /// Prove the current package
@@ -97,7 +96,11 @@ impl ProveSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_prove(
+    cli: &UniversalFlags,
+    cmd: &ProveSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let module_dir = if cmd.path.is_some() {
@@ -153,14 +156,14 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         &mooncakes_dir,
         &project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         &target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     let intent = calc_user_intent(
@@ -169,11 +172,12 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
         &resolve_output,
         planning_context.target_backend(),
         prove_why3_config.as_deref(),
+        user_log,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         &mooncake_bin_dir,
@@ -193,13 +197,8 @@ pub(crate) fn run_prove(cli: &UniversalFlags, cmd: &ProveSubcommand) -> anyhow::
 
     let _lock = FileLock::lock(&target_dir)?;
     rr_build::generate_all_pkgs_json(&build_meta)?;
-    let cfg = BuildConfig::from_flags(
-        &build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_flags(cli),
-    );
-    let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
+    let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
+    let result = rr_build::execute_build(&cfg, build_graph, &target_dir, user_log)?;
     if !cli.quiet && !build_flags.output_json {
         let _ = print_prove_summary(&project_root, &proof_reports);
     }
@@ -212,6 +211,7 @@ fn calc_user_intent(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
     prove_why3_config: Option<&Path>,
+    user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let directive = moonbuild_rupes_recta::build_plan::InputDirective {
         prove_why3_config: prove_why3_config.map(Path::to_path_buf),
@@ -229,19 +229,14 @@ fn calc_user_intent(
             .then_some(UserIntent::Prove(pkg))
             .into_iter()
             .collect::<Vec<_>>();
-        let warnings = (!pkg_info.raw.proof_enabled)
-            .then(|| {
-                UserWarning::warn(format!(
-                    "Package `{}` selected by `{}` is not proof-enabled; skipping `moon prove` for it.",
-                    pkg_info.fqn,
-                    path.display(),
-                ))
-            })
-            .into_iter()
-            .collect::<Vec<_>>();
-        Ok(CalcUserIntentOutput::with_warnings(
-            intents, directive, warnings,
-        ))
+        if !pkg_info.raw.proof_enabled {
+            user_log.warn(format!(
+                "Package `{}` selected by `{}` is not proof-enabled; skipping `moon prove` for it.",
+                pkg_info.fqn,
+                path.display(),
+            ));
+        }
+        Ok(CalcUserIntentOutput::new(intents, directive))
     } else {
         let main_module_id = selected_main_module_id(resolve_output, selected_module_dir)?;
         let packages = resolve_output

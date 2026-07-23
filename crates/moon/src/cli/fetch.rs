@@ -19,10 +19,11 @@
 use anyhow::bail;
 use colored::Colorize;
 use mooncake::registry::Registry;
-use moonutil::{project::PackageDirs, registry::RegistryConfig, resolution::ModuleName};
+use moonutil::{
+    project::PackageDirs, registry::RegistryConfig, resolution::ModuleName, user_log::UserLog,
+};
 
 use super::UniversalFlags;
-use crate::user_diagnostics::UserDiagnostics;
 
 #[derive(Debug, clap::Parser)]
 #[clap(
@@ -39,8 +40,11 @@ pub(crate) struct FetchSubcommand {
     pub no_update: bool,
 }
 
-pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
+pub(crate) fn fetch_cli(
+    cli: UniversalFlags,
+    cmd: FetchSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let index_dir = moonutil::registry::index();
     let mut index_updated = false;
 
@@ -51,7 +55,7 @@ pub(crate) fn fetch_cli(cli: UniversalFlags, cmd: FetchSubcommand) -> anyhow::Re
             Ok(_) => index_updated = true,
             Err(e) => {
                 if had_index {
-                    output.warn(format!(
+                    user_log.warn(format!(
                         "failed to update registry index, continuing with existing index: {e}"
                     ));
                 } else {

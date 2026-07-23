@@ -27,6 +27,7 @@ use moonutil::{
     registry::RegistryConfig,
     resolution::ModuleName,
     toolchain,
+    user_log::UserLog,
 };
 use std::path::{Path, PathBuf};
 
@@ -47,7 +48,6 @@ use super::install_binary::{
     GitRef, install_binary, install_from_git, install_from_local, is_git_url, is_local_path,
     parse_package_spec, strip_wildcard_suffix,
 };
-use crate::user_diagnostics::UserDiagnostics;
 
 /// Returns the local filesystem path used for wildcard local install.
 fn local_wildcard_path(source: &str) -> Option<PathBuf> {
@@ -66,11 +66,14 @@ fn local_wildcard_path(source: &str) -> Option<PathBuf> {
     }
 }
 
-pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
+pub(crate) fn install_cli(
+    cli: UniversalFlags,
+    cmd: InstallSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     // If no package path and no local path, use legacy behavior
     if cmd.source.is_none() && cmd.path.is_none() {
-        output.warn(
+        user_log.warn(
             "`moon install` without arguments is deprecated and will be removed in a future version. \
              Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
         );
@@ -102,7 +105,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
     if let Some(local_path) = cmd.path {
         let local_path_str = local_path.to_string_lossy();
         if strip_wildcard_suffix(local_path_str.as_ref()).is_some() {
-            output.warn(format!(
+            user_log.warn(format!(
                 "`--path` does not support wildcard selectors like `{}`",
                 local_path_str
             ));
@@ -111,7 +114,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
                 local_path_str
             );
         }
-        return install_from_local(&cli, &local_path, &install_dir, false);
+        return install_from_local(&cli, &local_path, &install_dir, false, user_log);
     }
 
     let source = cmd.source.ok_or_else(|| {
@@ -130,7 +133,13 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
         }
         let (local_path, install_all) = local_wildcard_path(&source)
             .map_or((PathBuf::from(source.as_str()), false), |base| (base, true));
-        return install_from_local(&cli, Path::new(&local_path), &install_dir, install_all);
+        return install_from_local(
+            &cli,
+            Path::new(&local_path),
+            &install_dir,
+            install_all,
+            user_log,
+        );
     }
 
     // Git URL install
@@ -155,6 +164,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
             cmd.path_in_repo.as_deref(),
             &install_dir,
             install_all,
+            user_log,
         );
     }
 
@@ -167,7 +177,7 @@ pub(crate) fn install_cli(cli: UniversalFlags, cmd: InstallSubcommand) -> anyhow
     }
     let spec = parse_package_spec(&source)?;
     let install_all = spec.is_wildcard;
-    install_binary(&cli, &spec, &install_dir, install_all)
+    install_binary(&cli, &spec, &install_dir, install_all, user_log)
 }
 
 pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
@@ -187,8 +197,11 @@ pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::
     mooncake::pkg::remove::remove(&module_dir, &project_manifest, username, pkgname)
 }
 
-pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(&cli);
+pub(crate) fn add_cli(
+    cli: UniversalFlags,
+    cmd: AddSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let module_dir = require_selected_module(&project, "add")?;
@@ -211,7 +224,7 @@ pub(crate) fn add_cli(cli: UniversalFlags, cmd: AddSubcommand) -> anyhow::Result
             Ok(_) => index_updated = true,
             Err(e) => {
                 if had_index {
-                    output.warn(format!(
+                    user_log.warn(format!(
                         "failed to update registry index, continuing with existing index: {e}"
                     ));
                 } else {

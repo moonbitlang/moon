@@ -1,6 +1,6 @@
 # Command Output Migration
 
-Status: accepted; CO-1 complete, including review follow-up
+Status: accepted; CO-1, CO-2, and CO-4 complete
 
 ## Goal
 
@@ -35,7 +35,7 @@ The facade does not own Process Passthrough, Progress Displays, compiler diagnos
 | Progress Display | terminal stderr | quiet-aware | renderer-specific lifecycle | progress renderer |
 | tracing | configured tracing sink | `RUST_LOG`/trace configuration | tracing subscriber policy | tracing setup |
 
-`UserDiagnostics` is a transitional presentation adapter over `UserLog`. It preserves the legacy `Info:` and `Hint:` labels, but filtering and stderr ownership come only from its underlying `UserLog`. New code should use `UserLog` directly.
+`UserLog` is the sole owner of filtered user-facing stderr. Informational messages are rendered as bare lines, while warnings and errors retain their canonical labels.
 
 The quiet user-log level follows `UserLog` and suppresses warnings. Default levels and informational formatting remain command-specific until affected command snapshots make any intended behavior change visible.
 
@@ -58,14 +58,16 @@ Blocks: CO-2, CO-3
 
 ### CO-2: Establish command-level construction
 
+Status: complete
+
 Blocked by: CO-1
 
 Blocks: CO-4, CO-5
 
 - Construct one `CommandOutput` after universal flags and workspace setup are known.
-- Pass references through command dispatch without migrating all commands in the same change.
+- Pass references through command dispatch so migrated commands can receive the command-owned log without reconstructing its policy.
 - Keep early argument/help and pre-dispatch failures on explicit bootstrap output paths.
-- Done when a command can receive one output context without reconstructing log policy in nested functions.
+- Done when commands can receive the output context without reconstructing output policy.
 
 ### CO-3: Migrate self-contained result commands
 
@@ -78,15 +80,20 @@ Blocks: CO-6
 - Prefer a renderer taking a writer when a command emits more than one fragment.
 - Done when the selected command family has no unclassified direct stdout writes.
 
-### CO-4: Replace `UserDiagnostics` incrementally
+### CO-4: Replace `UserDiagnostics`
+
+Status: complete
 
 Blocked by: CO-2
 
 Blocks: CO-6, CO-7
 
-- Move one build-facing command family at a time to `UserLog`.
-- Preserve each command's current default log level unless the slice explicitly changes it; pin error-only `--quiet` and any informational-label decision for the affected family.
-- Delete `UserDiagnostics` only after its last caller moves; do not keep it as a permanent wrapper over `UserLog`.
+- Pass the command-owned `UserLog` through every build-facing command family.
+- Preserve each command's current default log level; pin error-only `--quiet` and the bare informational-message policy.
+- Emit user-facing events directly through `UserLog`; do not buffer them in a parallel warning transport.
+- Keep output policy out of build planning configuration by passing `UserLog` only to operations that emit events.
+- Treat promotion of semantic warnings under `--deny-warn` as a separate policy change at the `UserLog` seam.
+- Delete `UserDiagnostics` after its last caller moves; do not keep it as a permanent wrapper over `UserLog`.
 - Done when `UserDiagnostics` is removed and all user-authored log sites use the shared level policy.
 
 ### CO-5: Migrate dry-run and graph Command Results

@@ -28,7 +28,7 @@ use demangle::*;
 use embed::*;
 use format_and_diff::*;
 use format_workspace::*;
-use moonutil::cli_support::UniversalFlags;
+use moonutil::{cli_support::UniversalFlags, user_log::UserLog};
 use write_rsp_file::*;
 
 #[derive(Debug, clap::Parser)]
@@ -47,14 +47,18 @@ pub(crate) enum ToolSubcommands {
     Demangle(DemangleSubcommand),
 }
 
-pub(crate) fn run_tool(cli: &UniversalFlags, cmd: ToolSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_tool(
+    cli: &UniversalFlags,
+    cmd: ToolSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     match cmd.subcommand {
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),
         ToolSubcommands::FormatWorkspace(subcmd) => run_format_workspace(subcmd),
         ToolSubcommands::Embed(subcmd) => run_embed(subcmd),
         ToolSubcommands::WriteTccRspFile(subcmd) => write_tcc_rsp_file(subcmd),
         ToolSubcommands::BuildBinaryDep(subcmd) => {
-            build_binary_dep::run_build_binary_dep(cli, &subcmd)
+            build_binary_dep::run_build_binary_dep(cli, &subcmd, user_log)
         }
         ToolSubcommands::Demangle(subcmd) => Ok(run_demangle(subcmd)),
     }

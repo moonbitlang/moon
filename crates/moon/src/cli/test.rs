@@ -32,7 +32,6 @@ use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
 use crate::run::{TestFilter, TestIndex, TestOutlineEntry};
-use crate::user_diagnostics::UserDiagnostics;
 use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
@@ -47,6 +46,7 @@ use moonutil::cli_support::AutoSyncFlags;
 use moonutil::locks::FileLock;
 use moonutil::project::{ProjectManifest, ProjectProbe};
 use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
+use moonutil::user_log::UserLog;
 use std::path::{Path, PathBuf};
 use tracing::{Level, debug, info, instrument, trace};
 
@@ -178,10 +178,10 @@ fn print_test_summary(
     passed: usize,
     quiet: bool,
     backend_hint: Option<&str>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) {
     if total == 0 {
-        output.warn("no test entry found.");
+        user_log.warn("no test entry found.");
     }
 
     let failed = total - passed;
@@ -206,9 +206,9 @@ fn print_test_summary(
     }
 }
 
-fn print_test_outline(entries: &[TestOutlineEntry], output: UserDiagnostics) {
+fn print_test_outline(entries: &[TestOutlineEntry], user_log: &UserLog) {
     if entries.is_empty() {
-        output.warn("no test entry found.");
+        user_log.warn("no test entry found.");
         return;
     }
 
@@ -316,8 +316,12 @@ pub(crate) struct TestSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Result<i32> {
-    let result = run_test_impl(&cli, &cmd);
+pub(crate) fn run_test(
+    cli: UniversalFlags,
+    cmd: TestSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let result = run_test_impl(&cli, &cmd, user_log);
     if crate::run::shutdown_requested() {
         return Ok(130);
     }
@@ -325,13 +329,16 @@ pub(crate) fn run_test(cli: UniversalFlags, cmd: TestSubcommand) -> anyhow::Resu
 }
 
 #[instrument(skip_all)]
-fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i32> {
+fn run_test_impl(
+    cli: &UniversalFlags,
+    cmd: &TestSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     if cmd.profile {
         profile::ensure_profile_available(profile::MOON_TEST_PROFILE_COMMAND)?;
         ensure_test_profile_target_is_native(&cmd.build_flags)?;
     }
 
-    let output = UserDiagnostics::from_flags(cli);
     info!(
         update = cmd.update,
         build_only = cmd.build_only,
@@ -359,6 +366,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
                         &single_file.package_dirs.source_dir,
                         &target_dir,
                         &mooncakes_dir,
+                        user_log,
                     );
                 }
                 [] => return Err(not_found.into_error().into()),
@@ -374,7 +382,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
     );
 
     if cmd.doc_test {
-        output.warn(
+        user_log.warn(
             "--doc flag is deprecated and will be removed in the future, please use `moon test` directly",
         );
     }
@@ -391,6 +399,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
             &dirs.project_manifest,
             None,
             selected_target_backend,
+            user_log,
         );
     }
     let surface_targets = &cmd.build_flags.target;
@@ -412,6 +421,7 @@ fn run_test_impl(cli: &UniversalFlags, cmd: &TestSubcommand) -> anyhow::Result<i
             &dirs.project_manifest,
             display_backend_hint,
             Some(t),
+            user_log,
         )
         .context(format!("failed to run test for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -464,6 +474,7 @@ fn run_test_internal(
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     debug!(
         backend = ?selected_target_backend,
@@ -479,6 +490,7 @@ fn run_test_internal(
         project_manifest,
         display_backend_hint,
         selected_target_backend,
+        user_log,
     )?;
     trace!(exit_code, "run_test_internal finished");
     Ok(exit_code)
@@ -492,6 +504,7 @@ fn run_test_in_single_file(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
@@ -503,6 +516,7 @@ fn run_test_in_single_file(
         source_dir,
         target_dir,
         mooncakes_dir,
+        user_log,
     )
 }
 
@@ -514,6 +528,7 @@ fn run_test_in_single_file_rr(
     source_dir: &Path,
     target_dir: &Path,
     mooncakes_dir: &Path,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     std::fs::create_dir_all(target_dir)
         .context("failed to create target directory for single-file test")?;
@@ -536,6 +551,7 @@ fn run_test_in_single_file_rr(
         mooncakes_dir,
         single_file_path,
         false,
+        user_log,
     )?;
     let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = if cmd.profile {
@@ -556,12 +572,11 @@ fn run_test_in_single_file_rr(
     // Enable tcc-run to match legacy debug test graph shape
     preconfig.try_tcc_run = !cmd.profile;
 
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolved,
     )?;
     let pkg = rr_build::local_packages(&resolved)
@@ -591,7 +606,7 @@ fn run_test_in_single_file_rr(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         &mooncake_bin_dir,
@@ -609,6 +624,7 @@ fn run_test_in_single_file_rr(
         build_graph,
         filter,
         None,
+        user_log,
     )
 }
 
@@ -691,6 +707,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    user_log: &UserLog,
 ) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
     // Keep the planning flow explicit:
     // 1. derive the effective build flags used by test/bench,
@@ -719,12 +736,11 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         name_filter: cmd.filter.clone(),
         ..Default::default()
     };
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     let intent = calc_user_intent(
@@ -732,12 +748,12 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         cmd,
         &mut filter,
         planning_context.target_backend(),
-        output,
+        user_log,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -753,6 +769,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    user_log: &UserLog,
 ) -> Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter)>, anyhow::Error> {
     if let Some(target_backend) = selected_target_backend {
         return plan_test_or_bench_rr_from_resolved(
@@ -762,13 +779,13 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
             mooncake_bin_dir,
             Some(target_backend),
             resolve_output,
+            user_log,
         )
         .map(|plan| vec![plan]);
     }
 
     validate_original_package_selection_filters(&resolve_output, cmd)?;
-    let selections =
-        resolve_test_target_selections(&resolve_output, cmd, UserDiagnostics::from_flags(cli))?;
+    let selections = resolve_test_target_selections(&resolve_output, cmd, user_log)?;
 
     if has_explicit_test_selector(cmd) {
         if selections.is_empty() {
@@ -779,6 +796,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
                 mooncake_bin_dir,
                 None,
                 resolve_output,
+                user_log,
             )
             .map(|plan| vec![plan]);
         }
@@ -796,6 +814,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
                     selection.target_backend,
                     resolve_output.clone(),
                     resolved_selection,
+                    user_log,
                 )
             })
             .collect();
@@ -809,6 +828,7 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
             mooncake_bin_dir,
             None,
             resolve_output,
+            user_log,
         )
         .map(|plan| vec![plan]);
     }
@@ -826,11 +846,13 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved_all(
                 selection.target_backend,
                 resolve_output.clone(),
                 resolved_selection,
+                user_log,
             )
         })
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn plan_test_or_bench_rr_from_resolved_scoped(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
@@ -839,6 +861,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     resolved_selection: ResolvedTestSelection,
+    user_log: &UserLog,
 ) -> Result<(rr_build::BuildMeta, rr_build::BuildInput, TestFilter), anyhow::Error> {
     let build_flags = BuildFlags {
         no_strip: !cmd.build_flags.strip && !cmd.build_flags.release,
@@ -861,12 +884,11 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         preconfig.try_tcc_run = true;
     }
 
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     debug_assert_eq!(planning_context.target_backend(), target_backend);
@@ -880,7 +902,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -900,6 +922,7 @@ pub(crate) fn run_test_or_bench_internal(
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     debug!(
         run_mode = ?cmd.run_mode,
@@ -954,6 +977,7 @@ pub(crate) fn run_test_or_bench_internal(
         project_manifest,
         display_backend_hint,
         selected_target_backend,
+        user_log,
     )
 }
 
@@ -968,6 +992,7 @@ fn run_test_rr(
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> Result<i32, anyhow::Error> {
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
@@ -983,7 +1008,8 @@ fn run_test_rr(
         mooncakes_dir,
         project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let planned_runs = plan_test_or_bench_rr_from_resolved_all(
         cli,
         cmd,
@@ -991,6 +1017,7 @@ fn run_test_rr(
         &mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
+        user_log,
     )?;
     let effective_display_backend_hint = if planned_runs.len() > 1 {
         Some(())
@@ -1020,6 +1047,7 @@ fn run_test_rr(
             build_graph,
             filter,
             build_only_artifacts.as_mut(),
+            user_log,
         )?);
     }
     if !cli.dry_run
@@ -1052,7 +1080,7 @@ fn apply_list_of_filters(
     value_tracing: bool,
     target_backend: TargetBackend,
     out_filter: &mut TestFilter,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<InputDirective, anyhow::Error> {
     let package_matches = match_packages_with_fuzzy(
         resolve_output,
@@ -1123,7 +1151,7 @@ fn apply_list_of_filters(
         }
     } else {
         // No package matched
-        output.warn(format!(
+        user_log.warn(format!(
             "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
             package_filter.join(", ")
         ));
@@ -1148,7 +1176,7 @@ fn calc_user_intent(
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     target_backend: moonutil::target::TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let all_affected_packages: Vec<_> = resolve_output
         .local_modules()
@@ -1167,7 +1195,7 @@ fn calc_user_intent(
         out_filter,
         &all_affected_packages,
         target_backend,
-        output,
+        user_log,
         cmd.explicit_path_filters,
         cmd.package.as_deref(),
     )
@@ -1180,7 +1208,7 @@ fn calc_user_intent_from_packages(
     out_filter: &mut TestFilter,
     all_affected_packages: &[PackageId],
     target_backend: moonutil::target::TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
     explicit_path_filters: &[PathBuf],
     package_filter: Option<&[String]>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
@@ -1223,7 +1251,7 @@ fn calc_user_intent_from_packages(
                 debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
 
                 let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
-                    output.info(format!(
+                    user_log.info(format!(
                         "skipping path `{}` because it is not a package in the current work context.",
                         path.display()
                     ));
@@ -1255,7 +1283,7 @@ fn calc_user_intent_from_packages(
 
             for (path, pkg_id) in unsupported_paths {
                 let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-                output.info(format!(
+                user_log.info(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,
@@ -1280,7 +1308,7 @@ fn calc_user_intent_from_packages(
             value_tracing,
             target_backend,
             out_filter,
-            output,
+            user_log,
         )?
     } else {
         // No filter: emit one intent per package (Test/Bench)
@@ -1385,9 +1413,9 @@ fn has_explicit_test_selector(cmd: &TestLikeSubcommand<'_>) -> bool {
 fn resolve_test_target_selections(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     cmd: &TestLikeSubcommand<'_>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
-    let selected = resolve_selected_test_packages(resolve_output, cmd, output)?;
+    let selected = resolve_selected_test_packages(resolve_output, cmd, user_log)?;
     let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
 
     for selection in &mut selections {
@@ -1406,10 +1434,10 @@ fn resolve_test_target_selections(
 fn resolve_selected_test_packages(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     cmd: &TestLikeSubcommand<'_>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.explicit_path_filters.is_empty() {
-        return Ok(select_packages(cmd.explicit_path_filters, output, |dir| {
+        return Ok(select_packages(cmd.explicit_path_filters, user_log, |dir| {
             filter_pkg_by_dir(resolve_output, dir)
         })?
         .into_iter()
@@ -1521,8 +1549,8 @@ fn rr_test_from_plan(
     build_graph: rr_build::BuildInput,
     filter: TestFilter,
     build_only_artifacts: Option<&mut TestArtifacts>,
+    user_log: &UserLog,
 ) -> Result<i32, anyhow::Error> {
-    let user_diagnostics = UserDiagnostics::from_flags(cli);
     let built = match execute_test_build_from_plan(
         cli,
         cmd,
@@ -1530,7 +1558,7 @@ fn rr_test_from_plan(
         target_dir,
         build_meta,
         build_graph,
-        user_diagnostics,
+        user_log,
     )? {
         TestBuildExecution::DryRun => return Ok(0),
         TestBuildExecution::BuildFailed(exit_code) => return Ok(exit_code),
@@ -1544,7 +1572,7 @@ fn rr_test_from_plan(
             cmd.include_skipped,
             cmd.run_mode == RunMode::Bench,
         )?;
-        print_test_outline(&entries, user_diagnostics);
+        print_test_outline(&entries, user_log);
         return Ok(0);
     }
 
@@ -1617,7 +1645,7 @@ fn rr_test_from_plan(
 
             // Apply loop count limits
             if loop_count >= cmd.update_limit {
-                user_diagnostics.warn(format!(
+                user_log.warn(format!(
                     "reached the limit of {} update passes, stopping further updates.",
                     cmd.update_limit
                 ));
@@ -1654,6 +1682,7 @@ fn rr_test_from_plan(
                 build_graph,
                 target_dir,
                 Some(build_meta),
+                user_log,
                 Box::new(|work| {
                     trace!("requesting rerun artifacts");
                     for file_path in want_files {
@@ -1702,7 +1731,7 @@ fn rr_test_from_plan(
         summary.passed,
         cli.quiet,
         backend_hint,
-        user_diagnostics,
+        user_log,
     );
 
     if summary.total == summary.passed {
@@ -1732,7 +1761,7 @@ fn execute_test_build_from_plan(
     target_dir: &Path,
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
-    user_diagnostics: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<TestBuildExecution, anyhow::Error> {
     if cli.dry_run {
         rr_build::print_dry_run(
@@ -1751,16 +1780,12 @@ fn execute_test_build_from_plan(
     // before executing the build
     rr_build::generate_all_pkgs_json(build_meta)?;
 
-    let build_config = BuildConfig::from_flags(
-        cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        user_diagnostics,
-    );
+    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
 
     // since n2 build consumes the graph, we back it up for reruns
     let build_graph_backup = cmd.update.then(|| build_graph.clone());
-    let result = rr_build::execute_test_build(&build_config, build_graph, target_dir, build_meta)?;
+    let result =
+        rr_build::execute_test_build(&build_config, build_graph, target_dir, build_meta, user_log)?;
     debug!(
         success = result.successful(),
         exit_code = result.return_code_for_success(),

@@ -44,6 +44,7 @@ use moonutil::{
     project::{ProjectManifest, WorkspaceEnv},
     resolution::{DirSyncResult, ModuleId, ResolvedEnv},
     target::TargetBackend,
+    user_log::UserLog,
 };
 use tracing::instrument;
 
@@ -54,7 +55,6 @@ use crate::special_cases::CORE_MODULE_TUPLE;
 use crate::{
     discover::{DiscoverError, DiscoverResult, discover_packages},
     pkg_solve::{self, DepRelationship},
-    user_warning::UserWarning,
 };
 
 /// Represents the overall result of a resolve process.
@@ -68,8 +68,6 @@ pub struct ResolveOutput {
     pub pkg_dirs: DiscoverResult,
     /// Package dependency relationship
     pub pkg_rel: DepRelationship,
-    /// User-facing warnings discovered during resolve.
-    pub user_warnings: Vec<UserWarning>,
 }
 
 impl ResolveOutput {
@@ -137,21 +135,18 @@ fn extract_front_matter_config(header: Option<&MbtMdHeader>) -> anyhow::Result<F
     Ok(config)
 }
 
-fn collect_virtual_mbti_deprecation_warnings(packages: &DiscoverResult) -> Vec<UserWarning> {
-    packages
-        .all_packages(false)
-        .filter_map(|(_pkg_id, pkg)| {
-            let virtual_mbti = pkg.virtual_mbti.as_ref()?;
-            if virtual_mbti.file_name().and_then(|name| name.to_str()) == Some(MBTI_USER_WRITTEN) {
-                return None;
-            }
-            Some(UserWarning::new(format!(
+fn warn_virtual_mbti_deprecations(packages: &DiscoverResult, user_log: &UserLog) {
+    for (_pkg_id, pkg) in packages.all_packages(false) {
+        if let Some(virtual_mbti) = &pkg.virtual_mbti
+            && virtual_mbti.file_name().and_then(|name| name.to_str()) != Some(MBTI_USER_WRITTEN)
+        {
+            user_log.warn(format!(
                 "Using package name in MBTI file is deprecated. Please rename {} to {}",
                 virtual_mbti.display(),
                 MBTI_USER_WRITTEN
-            )))
-        })
-        .collect()
+            ));
+        }
+    }
 }
 
 fn parse_front_matter_imports(
@@ -308,23 +303,10 @@ pub enum ResolveError {
     DiscoverError(#[from] DiscoverError),
 
     #[error("Failed to solve package relationship")]
-    SolveError {
-        #[source]
-        source: Box<pkg_solve::SolveError>,
-        user_warnings: Vec<UserWarning>,
-    },
+    SolveError(#[source] Box<pkg_solve::SolveError>),
 
     #[error("Failed to parse single file front matter configuration")]
     SingleFileParseError(#[source] anyhow::Error),
-}
-
-impl ResolveError {
-    pub fn user_warnings(&self) -> &[UserWarning] {
-        match self {
-            ResolveError::SolveError { user_warnings, .. } => user_warnings,
-            _ => &[],
-        }
-    }
 }
 
 /// Performs the resolving process from a raw working directory, until all of
@@ -363,6 +345,7 @@ pub fn sync_dependencies(
 pub fn resolve_synced_project(
     cfg: &ResolveConfig,
     synced_dependencies: (ResolvedEnv, DirSyncResult),
+    user_log: &UserLog,
 ) -> Result<ResolveOutput, ResolveError> {
     let (resolved_env, dir_sync_result) = synced_dependencies;
 
@@ -381,21 +364,14 @@ pub fn resolve_synced_project(
         discover_result.package_count()
     );
 
-    let mut user_warnings = collect_virtual_mbti_deprecation_warnings(&discover_result);
-    let dep_relationship = match pkg_solve::solve(
+    warn_virtual_mbti_deprecations(&discover_result, user_log);
+    let dep_relationship = pkg_solve::solve(
         &resolved_env,
         &discover_result,
         cfg.enable_coverage,
-        &mut user_warnings,
-    ) {
-        Ok(ok) => ok,
-        Err(source) => {
-            return Err(ResolveError::SolveError {
-                source: Box::new(source),
-                user_warnings,
-            });
-        }
-    };
+        user_log,
+    )
+    .map_err(|source| ResolveError::SolveError(Box::new(source)))?;
 
     info!("Package dependency resolution completed successfully");
     debug!(
@@ -408,7 +384,6 @@ pub fn resolve_synced_project(
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
-        user_warnings,
     })
 }
 
@@ -421,6 +396,7 @@ pub fn resolve_single_file_project(
     mooncakes_dir: &Path,
     file: &Path,
     run_mode: bool,
+    user_log: &UserLog,
 ) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
     // Canonicalize input and classify by suffix first.
     let source_file = dunce::canonicalize(file)
@@ -465,12 +441,11 @@ pub fn resolve_single_file_project(
         .context("Unable to parse target backend from front matter")
         .map_err(ResolveError::SingleFileParseError)?;
 
-    let mut user_warnings = Vec::new();
     if front_matter_config.warn_import_all {
-        user_warnings.push(UserWarning::new(
+        user_log.warn(
             "moonbit.deps without moonbit.import: importing all packages (legacy behavior). \
 Use moonbit.import with 'username/module@version[/package]' entries to opt in to explicit imports.",
-        ));
+        );
     }
 
     // Sync modules as usual
@@ -484,7 +459,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     .map_err(ResolveError::SyncModulesError)?;
     // Discover all packages in resolved modules
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
-    user_warnings.extend(collect_virtual_mbti_deprecation_warnings(&discover_result));
+    warn_virtual_mbti_deprecations(&discover_result, user_log);
 
     // Synthesize the single-file package that imports everything from discovered modules
     crate::discover::synth::build_synth_single_file_package(
@@ -496,27 +471,19 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     )?;
 
     // Solve package dependency relationship
-    let dep_relationship = match pkg_solve::solve(
+    let dep_relationship = pkg_solve::solve(
         &resolved_env,
         &discover_result,
         cfg.enable_coverage,
-        &mut user_warnings,
-    ) {
-        Ok(ok) => ok,
-        Err(source) => {
-            return Err(ResolveError::SolveError {
-                source: Box::new(source),
-                user_warnings,
-            });
-        }
-    };
+        user_log,
+    )
+    .map_err(|source| ResolveError::SolveError(Box::new(source)))?;
 
     let res = ResolveOutput {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
-        user_warnings,
     };
     Ok((res, backend))
 }

@@ -190,6 +190,58 @@ fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode()
 }
 
 #[test]
+fn test_moon_build_package_selection_uses_user_log_policy() {
+    let dir = TestDir::new("supported_targets_empty.in");
+    let assert = moon_cmd(&dir)
+        .args([
+            "build",
+            "lib",
+            "never",
+            "--verbose",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+        ])
+        .assert()
+        .success();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    let message = "skipping path `never` because package `supported/empty/never` does not support target backend `wasm-gc`. Supported backends: []";
+
+    assert!(
+        stderr.lines().any(|line| line == message),
+        "stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains(&format!("Info: {message}")),
+        "stderr: {stderr}"
+    );
+
+    let stderr = get_stderr(
+        &dir,
+        ["build", "lib", "never", "--target", "wasm-gc", "--dry-run"],
+    );
+    assert!(!stderr.contains(message), "stderr: {stderr}");
+}
+
+#[test]
+fn test_moon_build_package_selection_preserves_warning_labels() {
+    let dir = TestDir::new("mixed_backend_local_dep.in");
+
+    moon_cmd(&dir)
+        .args([
+            "build",
+            "--package",
+            "local/jsdep/lib",
+            "--dry-run",
+        ])
+        .assert()
+        .success()
+        .stderr_eq(
+            "Warning: Package 'local/jsdep/lib' matched by name 'local/jsdep/lib' is not in the main module, it may not be accessible.\n",
+        );
+}
+
+#[test]
 fn test_mixed_backend_split_check_keeps_single_package_patch_file_rule() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
 
@@ -631,6 +683,7 @@ fn test_check_skips_backend_mismatched_tests_as_info() {
     assert!(verbose_stderr.contains("Skipping whitebox tests for package"));
     assert!(verbose_stderr.contains("Skipping blackbox tests for package"));
     assert!(verbose_stderr.contains("target is not realizable for this backend"));
+    assert!(!verbose_stderr.contains("Info: Skipping"));
 }
 
 #[test]

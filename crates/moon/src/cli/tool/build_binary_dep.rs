@@ -37,14 +37,13 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    locks::FileLock, project::PackageDirs, target::TargetBackend,
+    locks::FileLock, project::PackageDirs, target::TargetBackend, user_log::UserLog,
 };
 
 use crate::{
     cli::BuildFlags,
     filter::match_packages_by_name_rr,
     rr_build::{self, BuildConfig, BuildMeta, preconfig_compile},
-    user_diagnostics::UserDiagnostics,
 };
 
 #[derive(clap::Args, Debug)]
@@ -67,8 +66,8 @@ pub(crate) struct BuildBinaryDepArgs {
 pub(crate) fn run_build_binary_dep(
     cli: &UniversalFlags,
     cmd: &BuildBinaryDepArgs,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(cli);
     let PackageDirs {
         source_dir,
         target_dir,
@@ -94,7 +93,8 @@ pub(crate) fn run_build_binary_dep(
         &mooncakes_dir,
         &project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
     // Note: There's a cyclic dependency!
     //
@@ -121,7 +121,7 @@ pub(crate) fn run_build_binary_dep(
             &resolve_output,
             packages.values().cloned(),
             default_backend,
-            output,
+            user_log,
         )
     } else {
         let mut result_pkgs = vec![];
@@ -130,12 +130,12 @@ pub(crate) fn run_build_binary_dep(
                 &resolve_output,
                 resolve_output.local_modules(),
                 pkg_name,
-                output,
+                user_log,
             );
             for pkg in pkgs {
                 let pkg_ref = resolve_output.pkg_dirs.get_package(pkg);
                 let pkg_bin_target = pkg_ref.raw.bin_target.unwrap_or(default_backend);
-                add_bin_dep(&mut result_pkgs, pkg, pkg_ref, pkg_bin_target, output);
+                add_bin_dep(&mut result_pkgs, pkg, pkg_ref, pkg_bin_target, user_log);
             }
         }
         result_pkgs
@@ -159,19 +159,18 @@ pub(crate) fn run_build_binary_dep(
             &target_dir,
             RunMode::Build,
         );
-        let output = UserDiagnostics::from_flags(cli);
         let planning_context = rr_build::prepare_resolved_build(
             &preconfig,
             &cli.unstable_feature,
             &target_dir,
-            output,
+            user_log,
             &resolve_output,
         )?;
         let intent = vec![UserIntent::Build(pkg)].into();
         let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
             preconfig,
             &cli.unstable_feature,
-            output,
+            user_log,
             planning_context,
             intent,
             &mooncake_bin_dir,
@@ -185,14 +184,10 @@ pub(crate) fn run_build_binary_dep(
         rr_build::generate_all_pkgs_json(&build_meta)?;
 
         let result = rr_build::execute_build(
-            &BuildConfig::from_flags(
-                &build_flags,
-                &cli.unstable_feature,
-                cli.verbose,
-                UserDiagnostics::from_flags(cli),
-            ),
+            &BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose),
             build_graph,
             &target_dir,
+            user_log,
         )?;
         result.print_info(cli.quiet, "building")?;
 
@@ -206,14 +201,14 @@ fn get_linkable_pkgs_for_bin_dep(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     packages: impl Iterator<Item = PackageId>,
     default_backend: TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Vec<(PackageId, TargetBackend)> {
     let mut linkable_pkgs = vec![];
     for pkg_id in packages {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
         let pkg_bin_target = pkg.raw.bin_target.unwrap_or(default_backend);
 
-        add_bin_dep(&mut linkable_pkgs, pkg_id, pkg, pkg_bin_target, output);
+        add_bin_dep(&mut linkable_pkgs, pkg_id, pkg, pkg_bin_target, user_log);
     }
     linkable_pkgs
 }
@@ -223,7 +218,7 @@ fn add_bin_dep(
     pkg_id: PackageId,
     pkg: &DiscoveredPackage,
     pkg_bin_target: TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) {
     if pkg.raw.force_link
         || pkg
@@ -235,7 +230,7 @@ fn add_bin_dep(
     {
         linkable_pkgs.push((pkg_id, pkg_bin_target))
     } else if pkg.raw.bin_target.is_some() {
-        output.warn(format!(
+        user_log.warn(format!(
             "Package {} has bin_target set, but cannot be linked; skipping",
             pkg.fqn
         ));

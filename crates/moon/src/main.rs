@@ -25,6 +25,7 @@ use std::{
 
 use clap::{CommandFactory, Parser};
 use cli::MoonBuildSubcommands;
+use moonutil::{command_output::CommandOutput, user_log::UserLog};
 
 mod build_flags;
 mod cli;
@@ -34,12 +35,9 @@ pub mod rr_build;
 mod run;
 #[cfg(test)]
 mod tests;
-mod user_diagnostics;
 mod watch;
 
 use tracing_subscriber::{Layer, layer::SubscriberExt};
-
-use crate::user_diagnostics::UserDiagnostics;
 
 /// Initialize logging and tracing-related functionality.
 ///
@@ -110,20 +108,6 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     Box::new(chrome_guard)
 }
 
-fn emit_resolve_warnings_from_error_chain(output: UserDiagnostics, err: &anyhow::Error) {
-    for cause in err.chain() {
-        let Some(resolve_err) =
-            cause.downcast_ref::<moonbuild_rupes_recta::resolve::ResolveError>()
-        else {
-            continue;
-        };
-        for warning in resolve_err.user_warnings() {
-            output.user_message(warning);
-        }
-        break;
-    }
-}
-
 pub fn main() {
     panic::setup_panic_hook();
 
@@ -135,7 +119,7 @@ pub fn main() {
         match cli::tool::exec::run_from_raw_args(&raw_args) {
             Ok(code) => std::process::exit(code),
             Err(err) => {
-                UserDiagnostics::default().error(format!("{:?}", err));
+                eprintln!("Error: {err:?}");
                 std::process::exit(-1);
             }
         }
@@ -161,12 +145,12 @@ pub fn main() {
         let _ = writeln!(stderr);
         std::process::exit(2);
     };
-    let output = UserDiagnostics::from_flags(&flags);
+    let bootstrap_output = UserLog::new(flags.user_log_level());
 
     if let Some(dir) = &flags.source_tgt_dir.cwd {
         // `-C` changes the process working directory early.
         if let Err(err) = std::env::set_current_dir(dir) {
-            output.error(format!(
+            bootstrap_output.error(format!(
                 "failed to change directory to {}: {}",
                 dir.display(),
                 err
@@ -181,56 +165,57 @@ pub fn main() {
         match moonutil::project::current_workspace_env() {
             Ok(result) => result,
             Err(err) => {
-                output.error(format!("{:?}", err));
+                bootstrap_output.error(format!("{:?}", err));
                 std::process::exit(-1);
             }
         };
     flags.workspace_env = workspace_env;
+    let output = CommandOutput::new(flags.user_log_level());
 
     // Check for deprecated flags and emit warnings (after tracing is initialized)
     for warning in flags.deprecation_warnings() {
-        output.warn(warning);
+        output.user_log().warn(warning);
     }
     if let Some(warning) = workspace_env_deprecation_warning {
-        output.warn(warning);
+        output.user_log().warn(warning);
     }
 
     use MoonBuildSubcommands::*;
     let res = match subcommand {
-        Add(a) => cli::add_cli(flags, a),
-        Bench(b) => cli::run_bench(flags, b),
-        Build(b) => cli::run_build(&flags, b),
-        Bundle(b) => cli::run_bundle(flags, b),
-        Check(c) => cli::run_check(&flags, &c),
-        Prove(p) => cli::run_prove(&flags, &p),
+        Add(a) => cli::add_cli(flags, a, output.user_log()),
+        Bench(b) => cli::run_bench(flags, b, output.user_log()),
+        Build(b) => cli::run_build(&flags, b, output.user_log()),
+        Bundle(b) => cli::run_bundle(flags, b, output.user_log()),
+        Check(c) => cli::run_check(&flags, &c, output.user_log()),
+        Prove(p) => cli::run_prove(&flags, &p, output.user_log()),
         Clean(cmd) => cli::run_clean(&flags, &cmd),
-        Cram(c) => cli::run_cram(&flags, c),
+        Cram(c) => cli::run_cram(&flags, c, output.user_log()),
         Coverage(c) => cli::run_coverage(flags, c),
-        Doc(d) => cli::run_doc(flags, d),
-        Fetch(f) => cli::fetch_cli(flags, f),
+        Doc(d) => cli::run_doc(flags, d, output.user_log()),
+        Fetch(f) => cli::fetch_cli(flags, f, output.user_log()),
         Work(w) => cli::work_cli(flags, w),
-        Fmt(f) => cli::run_fmt(&flags, f),
+        Fmt(f) => cli::run_fmt(&flags, f, output.user_log()),
         GenerateBuildMatrix(b) => cli::generate_build_matrix(&flags, b),
         GenerateTestDriver(g) => cli::generate_test_driver(flags, g),
-        Info(i) => cli::run_info(flags, i),
+        Info(i) => cli::run_info(flags, i, &output),
         Explain(e) => cli::run_explain(&flags, e),
-        Install(i) => cli::install_cli(flags, i),
+        Install(i) => cli::install_cli(flags, i, output.user_log()),
         Login(l) => cli::mooncake_adapter::login_cli(flags, l),
         Whoami(w) => cli::run_whoami(&flags, w),
-        New(n) => cli::run_new(&flags, n),
+        New(n) => cli::run_new(&flags, n, output.user_log()),
         Publish(p) => cli::mooncake_adapter::publish_cli(flags, p),
         Package(p) => cli::mooncake_adapter::package_cli(flags, p),
         Register(r) => cli::mooncake_adapter::register_cli(flags, r),
         Remove(r) => cli::remove_cli(flags, r),
-        Run(r) => cli::run_run(&flags, r),
-        RunWasm(r) => cli::run_runwasm(&flags, r),
-        Test(t) => cli::run_test(flags, t),
+        Run(r) => cli::run_run(&flags, r, output.user_log()),
+        RunWasm(r) => cli::run_runwasm(&flags, r, output.user_log()),
+        Test(t) => cli::run_test(flags, t, output.user_log()),
         Tree(t) => cli::tree_cli(flags, t),
         Update(u) => cli::update_cli(flags, u),
         Upgrade(u) => cli::run_upgrade(flags, u),
         ShellCompletion(gs) => cli::gen_shellcomp(&flags, gs),
         Version(v) => cli::run_version(&flags, v),
-        Tool(v) => cli::run_tool(&flags, v),
+        Tool(v) => cli::run_tool(&flags, v, output.user_log()),
         External(args) => cli::run_external(args),
     };
 
@@ -239,8 +224,7 @@ pub fn main() {
     match res {
         Ok(code) => std::process::exit(code),
         Err(e) => {
-            emit_resolve_warnings_from_error_chain(output, &e);
-            output.error(format!("{:?}", e));
+            output.user_log().error(format!("{:?}", e));
             std::process::exit(-1);
         }
     }

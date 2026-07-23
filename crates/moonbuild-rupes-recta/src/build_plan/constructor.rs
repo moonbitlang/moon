@@ -28,9 +28,9 @@ use crate::{
     build_plan::{FileDependencyKind, InputDirective, PlanArtifactNeed},
     model::{BuildPlanNode, BuildTarget, PackageId},
     prebuild::PrebuildOutput,
-    user_warning::UserWarning,
 };
 use indexmap::IndexMap;
+use moonutil::user_log::UserLog;
 use tracing::{Level, debug, instrument};
 
 use super::{BuildEnvironment, BuildPlan, BuildPlanConstructError};
@@ -44,7 +44,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) build_env: &'a BuildEnvironment,
     pub(super) input_directive: &'a InputDirective,
     pub(super) prebuild_config: Option<&'a PrebuildOutput>,
-    pub(super) user_warnings: Vec<UserWarning>,
+    pub(super) user_log: &'a UserLog,
 
     /// The resulting build plan
     pub(super) res: BuildPlan,
@@ -52,6 +52,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     /// Currently pending nodes that need to be processed.
     pub(super) pending: Vec<BuildPlanNode>,
     pub(super) resolved: HashSet<BuildPlanNode>,
+    pub(super) warned_incompatible_windows_msvc_env_override: bool,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
 
@@ -136,6 +137,7 @@ impl<'a> BuildPlanConstructor<'a> {
         build_env: &'a BuildEnvironment,
         input_directive: &'a InputDirective,
         prebuild_config: Option<&'a PrebuildOutput>,
+        user_log: &'a UserLog,
     ) -> Self {
         Self {
             input: resolved,
@@ -143,11 +145,12 @@ impl<'a> BuildPlanConstructor<'a> {
             build_env,
             input_directive,
             prebuild_config,
-            user_warnings: Vec::new(),
+            user_log,
 
             res: BuildPlan::default(),
             pending: Vec::new(),
             resolved: HashSet::new(),
+            warned_incompatible_windows_msvc_env_override: false,
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
             #[cfg(debug_assertions)]
@@ -155,8 +158,8 @@ impl<'a> BuildPlanConstructor<'a> {
         }
     }
 
-    pub(super) fn finish(self) -> (BuildPlan, Vec<UserWarning>) {
-        (self.res, self.user_warnings)
+    pub(super) fn finish(self) -> BuildPlan {
+        self.res
     }
 
     pub(super) fn build(

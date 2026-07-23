@@ -19,8 +19,7 @@
 use std::{ffi::OsString, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
-
-use crate::user_diagnostics::UserDiagnostics;
+use moonutil::user_log::{UserLog, user_log_level};
 
 use super::registry_runner::{self, RegistryRunTarget};
 
@@ -86,7 +85,7 @@ pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
     };
     // moonx is a transparent runner unless the user explicitly requests details.
     let quiet = !cli.verbose;
-    let output = UserDiagnostics::new(cli.verbose, quiet);
+    let output = UserLog::new(user_log_level(cli.verbose, quiet));
     let target = match cli.target {
         MoonxTarget::Wasm => RegistryRunTarget::Wasm {
             experimental_policy: cli.experimental_policy,
@@ -97,7 +96,14 @@ pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
         }
         MoonxTarget::Native => RegistryRunTarget::Native,
     };
-    match registry_runner::run(package.clone(), target, args.to_vec(), quiet, cli.verbose) {
+    match registry_runner::run(
+        package.clone(),
+        target,
+        args.to_vec(),
+        quiet,
+        cli.verbose,
+        &output,
+    ) {
         Ok(code) => code,
         Err(err) => {
             output.error(format!("{:?}", err));

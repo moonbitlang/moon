@@ -52,7 +52,7 @@ use std::{
 use log::{debug, info};
 use moonutil::{
     build_options::RunMode, compiler_flags::Toolchain, cond_expr::OptLevel, resolution::ModuleId,
-    target::TargetBackend,
+    target::TargetBackend, user_log::UserLog,
 };
 use petgraph::prelude::DiGraphMap;
 use tracing::instrument;
@@ -62,7 +62,6 @@ use crate::{
     model::{BuildPlanNode, BuildTarget, NativeBackendMode, PackageId, RunBackend},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
-    user_warning::UserWarning,
 };
 
 mod builders;
@@ -530,7 +529,8 @@ pub fn build_plan(
     input: impl Iterator<Item = BuildPlanNode>,
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
-) -> Result<(BuildPlan, Vec<UserWarning>), BuildPlanConstructError> {
+    user_log: &UserLog,
+) -> Result<BuildPlan, BuildPlanConstructError> {
     info!("Constructing build plan");
     debug!(
         "Build environment: backend={:?}, opt_level={:?}",
@@ -543,13 +543,14 @@ pub fn build_plan(
         build_env,
         input_directive,
         prebuild_config,
+        user_log,
     );
     constructor.build(input)?;
     let result = constructor.finish();
 
     info!(
         "Build plan construction completed with {} total nodes",
-        result.0.node_count()
+        result.node_count()
     );
     Ok(result)
 }

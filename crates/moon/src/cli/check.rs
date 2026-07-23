@@ -30,6 +30,7 @@
 //!    `packages.json`.
 //!
 use anyhow::Context;
+use log::LevelFilter;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
@@ -40,6 +41,7 @@ use moonutil::locks::FileLock;
 use moonutil::project::{ProjectManifest, ProjectProbe};
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
+use moonutil::user_log::UserLog;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
@@ -50,7 +52,6 @@ use crate::filter::{
     select_supported_packages,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
-use crate::user_diagnostics::UserDiagnostics;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -127,11 +128,15 @@ pub(crate) struct CheckSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(cli);
+pub(crate) fn run_check(
+    cli: &UniversalFlags,
+    cmd: &CheckSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;
+        let fmt_user_log = UserLog::new(LevelFilter::Error);
         let fmt_exit_code = crate::cli::fmt::run_fmt(
             &cli_for_fmt,
             crate::cli::FmtSubcommand {
@@ -141,9 +146,10 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
                 path: cmd.path.clone(),
                 args: vec![],
             },
+            &fmt_user_log,
         )?;
         if fmt_exit_code != 0 {
-            output.warn("formatting code failed");
+            user_log.warn("formatting code failed");
         }
     }
 
@@ -195,6 +201,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             single_file,
             &project_manifest,
             None,
+            user_log,
         );
     }
 
@@ -211,6 +218,7 @@ pub(crate) fn run_check(cli: &UniversalFlags, cmd: &CheckSubcommand) -> anyhow::
             single_file,
             &project_manifest,
             Some(t),
+            user_log,
         )
         .context(format!("failed to run check for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -229,6 +237,7 @@ fn run_check_internal(
     single_file: bool,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     if single_file {
         run_check_for_single_file(
@@ -238,6 +247,7 @@ fn run_check_internal(
             target_dir,
             mooncakes_dir,
             selected_target_backend,
+            user_log,
         )
     } else {
         run_check_normal_internal(
@@ -248,6 +258,7 @@ fn run_check_internal(
             mooncakes_dir,
             project_manifest,
             selected_target_backend,
+            user_log,
         )
     }
 }
@@ -259,6 +270,7 @@ fn run_check_for_single_file(
     target_dir: &Path,
     mooncakes_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     run_check_for_single_file_rr(
         cli,
@@ -267,6 +279,7 @@ fn run_check_for_single_file(
         target_dir,
         mooncakes_dir,
         selected_target_backend,
+        user_log,
     )
 }
 
@@ -277,6 +290,7 @@ fn run_check_for_single_file_rr(
     target_dir: &Path,
     mooncakes_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     if cmd.patch_file.is_some() {
         anyhow::bail!("standalone single-file `moon check` does not support `--patch-file`");
@@ -303,6 +317,7 @@ fn run_check_for_single_file_rr(
         mooncakes_dir,
         &single_file_path,
         false,
+        user_log,
     )?;
     let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
@@ -318,19 +333,18 @@ fn run_check_for_single_file_rr(
         RunMode::Check,
     );
 
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolved,
     )?;
     let intent = get_user_intents_single_file(&resolved, planning_context.target_backend())?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         &mooncake_bin_dir,
@@ -369,16 +383,11 @@ fn run_check_for_single_file_rr(
         filename.as_deref(),
     )?;
 
-    let mut cfg = BuildConfig::from_flags(
-        &cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_flags(cli),
-    );
+    let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
 
-    let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
+    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 
     Ok(if result.successful() { 0 } else { 1 })
@@ -402,6 +411,7 @@ fn get_user_intents_single_file(
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_check_normal_internal(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -410,6 +420,7 @@ fn run_check_normal_internal(
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let run_once = |watch: bool, target_dir: &Path| -> anyhow::Result<WatchOutput> {
         run_check_normal_internal_rr(
@@ -421,6 +432,7 @@ fn run_check_normal_internal(
             project_manifest,
             watch,
             selected_target_backend,
+            user_log,
         )
     };
     if cmd.watch {
@@ -443,6 +455,7 @@ fn run_check_normal_internal_rr(
     project_manifest: &ProjectManifest,
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<WatchOutput> {
     std::fs::create_dir_all(target_dir).with_context(|| {
         format!(
@@ -465,8 +478,9 @@ fn run_check_normal_internal_rr(
         project_manifest,
     )
     .context("Failed to calculate build plan")?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)
-        .context("Failed to calculate build plan")?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)
+            .context("Failed to calculate build plan")?;
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolve_output)
     } else {
@@ -483,6 +497,7 @@ fn run_check_normal_internal_rr(
         &mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
+        user_log,
     )
     .context("Failed to calculate build plan")?;
 
@@ -503,12 +518,7 @@ fn run_check_normal_internal_rr(
                 target_dir.display()
             )
         })?;
-        let mut cfg = BuildConfig::from_flags(
-            &cmd.build_flags,
-            &cli.unstable_feature,
-            cli.verbose,
-            UserDiagnostics::from_flags(cli),
-        );
+        let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
         cfg.patch_file = cmd.patch_file.clone();
         cfg.explain_errors |= cmd.explain;
         let mut ok = true;
@@ -518,7 +528,7 @@ fn run_check_normal_internal_rr(
             // Generate metadata for IDE. The last executed backend wins.
             rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
-            let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
+            let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
             result.print_info(cli.quiet, "checking")?;
             ok &= result.successful();
         }
@@ -532,6 +542,7 @@ fn run_check_normal_internal_rr(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_check_rr_from_resolved_all(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -540,13 +551,14 @@ pub(crate) fn plan_check_rr_from_resolved_all(
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
     validate_selector_flags_before_split(
         &resolve_output,
         cmd,
         source_dir,
         selected_target_backend,
-        UserDiagnostics::from_flags(cli),
+        user_log,
     )?;
 
     let selections = resolve_check_target_selections(
@@ -554,7 +566,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
         cmd,
         source_dir,
         selected_target_backend,
-        UserDiagnostics::from_flags(cli),
+        user_log,
     )?;
 
     if selections.is_empty() {
@@ -566,6 +578,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
             mooncake_bin_dir,
             selected_target_backend,
             resolve_output,
+            user_log,
         )
         .map(|plan| vec![plan]);
     }
@@ -585,6 +598,7 @@ pub(crate) fn plan_check_rr_from_resolved_all(
                 selection.target_backend,
                 resolve_output.clone(),
                 ResolvedCheckSelection::from_command(selection.packages, cmd),
+                user_log,
             )
         })
         .collect()
@@ -595,14 +609,14 @@ fn validate_selector_flags_before_split(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_backend: Option<TargetBackend>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<()> {
     if cmd.patch_file.is_none() {
         return Ok(());
     }
 
     let selected =
-        resolve_selected_packages(resolve_output, cmd, source_dir, target_backend, output)?;
+        resolve_selected_packages(resolve_output, cmd, source_dir, target_backend, user_log)?;
     if cmd.patch_file.is_some() && selected.len() != 1 {
         anyhow::bail!("`--patch-file` requires the selector to resolve to a single package");
     }
@@ -610,6 +624,7 @@ fn validate_selector_flags_before_split(
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_check_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -618,6 +633,7 @@ pub(crate) fn plan_check_rr_from_resolved(
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
@@ -628,12 +644,11 @@ pub(crate) fn plan_check_rr_from_resolved(
         RunMode::Check,
     );
 
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     let intent = if let Some(filter_path) = cmd.package_path.as_deref() {
@@ -650,13 +665,13 @@ pub(crate) fn plan_check_rr_from_resolved(
             &cmd.path,
             planning_context.target_backend(),
             cmd.patch_file.as_deref(),
-            output,
+            user_log,
         )?
     };
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -664,6 +679,7 @@ pub(crate) fn plan_check_rr_from_resolved(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn plan_check_rr_from_selection(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
@@ -672,6 +688,7 @@ fn plan_check_rr_from_selection(
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     selection: ResolvedCheckSelection,
+    user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
@@ -682,19 +699,18 @@ fn plan_check_rr_from_selection(
         RunMode::Check,
     );
 
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     debug_assert_eq!(planning_context.target_backend(), target_backend);
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         selection.into_user_intent()?,
         mooncake_bin_dir,
@@ -707,7 +723,7 @@ pub(crate) fn resolve_check_target_selections(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
         let packages = resolve_selected_packages(
@@ -715,7 +731,7 @@ pub(crate) fn resolve_check_target_selections(
             cmd,
             source_dir,
             Some(target_backend),
-            output,
+            user_log,
         )?;
         return Ok(vec![TargetPackageGroup {
             target_backend,
@@ -723,7 +739,7 @@ pub(crate) fn resolve_check_target_selections(
         }]);
     }
 
-    let selected = resolve_selected_packages(resolve_output, cmd, source_dir, None, output)?;
+    let selected = resolve_selected_packages(resolve_output, cmd, source_dir, None, user_log)?;
     let selections = group_packages_by_preferred_backend(resolve_output, selected);
 
     let mut filtered = Vec::new();
@@ -732,7 +748,7 @@ pub(crate) fn resolve_check_target_selections(
             resolve_output,
             selection.packages,
             selection.target_backend,
-            output,
+            user_log,
         )?;
         if !packages.is_empty() {
             filtered.push(TargetPackageGroup {
@@ -750,7 +766,7 @@ fn resolve_selected_packages(
     cmd: &CheckSubcommand,
     source_dir: &Path,
     target_backend: Option<TargetBackend>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if let Some(filter_path) = cmd.package_path.as_deref() {
         let (dir, _) = canonicalize_with_filename(&source_dir.join(filter_path))?;
@@ -763,9 +779,9 @@ fn resolve_selected_packages(
 
     if !cmd.path.is_empty() {
         if let Some(target_backend) = target_backend {
-            return select_supported_packages(resolve_output, &cmd.path, target_backend, output);
+            return select_supported_packages(resolve_output, &cmd.path, target_backend, user_log);
         }
-        return Ok(select_packages(&cmd.path, output, |dir| {
+        return Ok(select_packages(&cmd.path, user_log, |dir| {
             filter_pkg_by_dir(resolve_output, dir)
         })?
         .into_iter()
@@ -785,7 +801,7 @@ fn filter_packages_for_backend(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     packages: Vec<PackageId>,
     target_backend: TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     let mut supported = Vec::new();
     let mut unsupported = Vec::new();
@@ -813,7 +829,7 @@ fn filter_packages_for_backend(
     for pkg in unsupported {
         let pkg_id = pkg;
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-        output.info(format!(
+        user_log.info(format!(
             "skipping package `{}` because it does not support the selected target backend `{}`. Supported backends: {}",
             pkg.fqn,
             target_backend,
@@ -845,10 +861,10 @@ fn calc_user_intent(
     paths: &[PathBuf],
     target_backend: TargetBackend,
     patch_file: Option<&Path>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !paths.is_empty() {
-        let selected = select_supported_packages(resolve_output, paths, target_backend, output)?;
+        let selected = select_supported_packages(resolve_output, paths, target_backend, user_log)?;
         let directive = build_directive_for_selected_packages(&selected, patch_file)?;
         Ok((
             selected.into_iter().map(UserIntent::Check).collect(),

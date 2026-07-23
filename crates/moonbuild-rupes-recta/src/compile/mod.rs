@@ -18,7 +18,7 @@
 
 use indexmap::IndexMap;
 use log::{debug, info};
-use moonutil::{build_options::RunMode, cond_expr::OptLevel};
+use moonutil::{build_options::RunMode, cond_expr::OptLevel, user_log::UserLog};
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
@@ -30,7 +30,6 @@ use crate::{
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
     target_layout::ArtifactPathResolver,
-    user_warning::UserWarning,
 };
 
 /// The context that encapsulates all the data needed for the building process.
@@ -89,9 +88,6 @@ pub struct CompileOutput {
     /// The final artifacts corresponding to the input nodes
     pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 
-    /// User-facing warnings discovered during planning.
-    pub user_warnings: Vec<UserWarning>,
-
     /// The build plan, but only if we decided to export it.
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
@@ -112,6 +108,7 @@ pub fn compile(
     input_nodes: &[BuildPlanNode],
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
+    user_log: &UserLog,
 ) -> Result<CompileOutput, CompileGraphError> {
     info!(
         "Building compilation plan for {} build nodes",
@@ -131,13 +128,14 @@ pub fn compile(
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),
     };
-    let (plan, user_warnings) = build_plan::build_plan(
+    let plan = build_plan::build_plan(
         resolve_output,
         mooncake_bin_dir,
         &build_env,
         input_nodes,
         input_directive,
         prebuild_config,
+        user_log,
     )?;
 
     info!("Build plan created successfully");
@@ -186,7 +184,6 @@ pub fn compile(
         build_graph,
         command_args_by_output,
         artifacts,
-        user_warnings,
         build_plan: if cx.debug_export_build_plan {
             Some(Box::new(plan))
         } else {

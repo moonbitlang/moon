@@ -31,13 +31,13 @@ use moonutil::{
     locks::FileLock,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend},
+    user_log::UserLog,
 };
 use tracing::instrument;
 
 use crate::{
     cli::{BuildSubcommand, process},
     rr_build::{self, BuildConfig},
-    user_diagnostics::UserDiagnostics,
 };
 
 use super::{BuildFlags, UniversalFlags};
@@ -87,15 +87,23 @@ struct ParsedCramArgs {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_cram(cli: &UniversalFlags, cmd: CramSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_cram(
+    cli: &UniversalFlags,
+    cmd: CramSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     match cmd.command {
-        Some(CramCommand::Test(cmd)) => run_cram_test(cli, cmd),
+        Some(CramCommand::Test(cmd)) => run_cram_test(cli, cmd, user_log),
         Some(CramCommand::External(args)) => delegate_moon_cram(args),
         None => delegate_moon_cram(Vec::new()),
     }
 }
 
-fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Result<i32> {
+fn run_cram_test(
+    cli: &UniversalFlags,
+    cmd: CramTestSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let parsed = cram_args(cmd);
     let moon_cram = if cli.dry_run {
         moonutil::toolchain::BINARIES.moon_cram.clone()
@@ -139,7 +147,8 @@ fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Resul
         &mooncakes_dir,
         &project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
     let planned_runs = crate::cli::plan_build_rr_from_resolved_all(
         cli,
@@ -149,6 +158,7 @@ fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Resul
         &mooncake_bin_dir,
         Some(TargetBackend::Native),
         resolve_output,
+        user_log,
     )?;
 
     let executable_dirs = collect_executable_dirs(&planned_runs, &source_dir);
@@ -166,15 +176,10 @@ fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Resul
     }
 
     let _lock = FileLock::lock(&target_dir)?;
-    let cfg = BuildConfig::from_flags(
-        &build_cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_flags(cli),
-    );
+    let cfg = BuildConfig::from_flags(&build_cmd.build_flags, &cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
         rr_build::generate_all_pkgs_json(&build_meta)?;
-        let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
+        let result = rr_build::execute_build(&cfg, build_graph, &target_dir, user_log)?;
         result.print_info(cli.quiet, "building")?;
         if !result.successful() {
             return Ok(result.return_code_for_success());

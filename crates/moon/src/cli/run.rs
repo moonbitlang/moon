@@ -30,6 +30,7 @@ use moonutil::{
     constants::is_moon_pkg_exist,
     locks::FileLock,
     target::TargetBackend,
+    user_log::UserLog,
 };
 use tracing::{Level, instrument};
 
@@ -38,7 +39,6 @@ use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::default_rt;
-use crate::user_diagnostics::UserDiagnostics;
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -222,6 +222,7 @@ impl RunExecutable {
 fn run_stdin_source_as_single_file(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let mut source = String::new();
     std::io::stdin()
@@ -235,12 +236,14 @@ fn run_stdin_source_as_single_file(
         "stdin.mbtx",
         "stdin",
         BuildRunExecutableOptions::for_run(cli),
+        user_log,
     )
 }
 
 fn run_inline_source_as_single_file(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let source = cmd
         .command
@@ -254,6 +257,7 @@ fn run_inline_source_as_single_file(
         "command.mbtx",
         "command",
         BuildRunExecutableOptions::for_run(cli),
+        user_log,
     )
 }
 
@@ -264,6 +268,7 @@ fn run_source_as_single_file(
     temp_name: &str,
     source_name: &str,
     options: BuildRunExecutableOptions,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let temp_dir = tempfile::TempDir::new()
         .with_context(|| format!("failed to create temporary directory for {source_name} run"))?;
@@ -295,7 +300,7 @@ fn run_source_as_single_file(
         build_only,
         profile,
     };
-    let result = run_single_file_from_arg_with_options(cli, cmd, options);
+    let result = run_single_file_from_arg_with_options(cli, cmd, options, user_log);
     drop(temp_dir);
     result
 }
@@ -353,17 +358,21 @@ fn build_wasm_file_executable_from_arg(
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_run(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     if cmd.profile {
-        return super::profile::run_profiled_run(cli, cmd);
+        return super::profile::run_profiled_run(cli, cmd, user_log);
     }
 
     if cmd.command.is_some() {
-        return run_inline_source_as_single_file(cli, cmd);
+        return run_inline_source_as_single_file(cli, cmd, user_log);
     }
 
     if cmd.package_or_mbt_file.as_deref() == Some("-") {
-        return run_stdin_source_as_single_file(cli, cmd);
+        return run_stdin_source_as_single_file(cli, cmd, user_log);
     }
 
     let executable = if cmd.package_or_mbt_file.as_deref().is_some_and(|input| {
@@ -374,7 +383,7 @@ pub(crate) fn run_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Resul
     }) {
         build_wasm_file_executable_from_arg(cli, &cmd)?
     } else {
-        build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli))?
+        build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli), user_log)?
     };
     let result = run_executable(cli, &cmd, executable);
     if crate::run::shutdown_requested() {
@@ -392,6 +401,7 @@ pub(crate) fn build_run_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     options: BuildRunExecutableOptions,
+    user_log: &UserLog,
 ) -> anyhow::Result<RunExecutable> {
     let input = cmd
         .package_or_mbt_file
@@ -414,26 +424,26 @@ pub(crate) fn build_run_executable(
     match query.probe_project()? {
         ProjectProbe::Found(_) => {
             if is_mbtx {
-                return build_single_file_executable_from_arg(cli, cmd, options);
+                return build_single_file_executable_from_arg(cli, cmd, options, user_log);
             }
             if is_mbt {
                 let moon_pkg_json_exist =
                     std::fs::metadata(input)?.is_file() && is_moon_pkg_exist(&run_start_dir);
                 if !moon_pkg_json_exist {
-                    return build_single_file_executable_from_arg(cli, cmd, options);
+                    return build_single_file_executable_from_arg(cli, cmd, options, user_log);
                 }
             }
         }
         ProjectProbe::NotFound(not_found) => {
             if is_mbt || is_mbtx {
-                return build_single_file_executable_from_arg(cli, cmd, options);
+                return build_single_file_executable_from_arg(cli, cmd, options, user_log);
             }
             return Err(not_found.into_error().into());
         }
     }
 
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
-    build_package_executable(cli, cmd, selected_target_backend, options)
+    build_package_executable(cli, cmd, selected_target_backend, options, user_log)
 }
 
 #[instrument(skip_all)]
@@ -444,6 +454,7 @@ fn build_package_executable(
     cmd: &RunSubcommand,
     selected_target_backend: Option<TargetBackend>,
     options: BuildRunExecutableOptions,
+    user_log: &UserLog,
 ) -> Result<RunExecutable, anyhow::Error> {
     let run_start_dir = resolve_run_start_dir(
         cmd.package_or_mbt_file
@@ -474,7 +485,8 @@ fn build_package_executable(
         &mooncakes_dir,
         &project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
         cmd,
@@ -483,6 +495,7 @@ fn build_package_executable(
         selected_target_backend,
         resolve_output,
         options.try_tcc_run,
+        user_log,
     )?;
     build_executable_from_plan(
         cli,
@@ -495,9 +508,11 @@ fn build_package_executable(
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
         },
+        user_log,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_run_rr_from_resolved(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
@@ -506,6 +521,7 @@ pub(crate) fn plan_run_rr_from_resolved(
     selected_target_backend: Option<TargetBackend>,
     resolve_output: ResolveOutput,
     try_tcc_run: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let input_path = cmd
         .package_or_mbt_file
@@ -535,12 +551,11 @@ pub(crate) fn plan_run_rr_from_resolved(
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     let intent = selection.into_user_intent(
@@ -552,7 +567,7 @@ pub(crate) fn plan_run_rr_from_resolved(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -605,8 +620,9 @@ fn run_single_file_from_arg_with_options(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
     options: BuildRunExecutableOptions,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let executable = build_single_file_executable_from_arg(cli, &cmd, options)?;
+    let executable = build_single_file_executable_from_arg(cli, &cmd, options, user_log)?;
     run_executable(cli, &cmd, executable)
 }
 
@@ -616,6 +632,7 @@ fn build_single_file_executable_from_arg(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     options: BuildRunExecutableOptions,
+    user_log: &UserLog,
 ) -> anyhow::Result<RunExecutable> {
     let single_file_dirs = cli.source_tgt_dir.single_file_package_dirs(
         cmd.package_or_mbt_file
@@ -633,11 +650,13 @@ fn build_single_file_executable_from_arg(
         mooncakes_dir,
         single_file_dirs.file_path,
         options,
+        user_log,
     )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
 /// Build a run executable from already-resolved single-file package directories.
+#[allow(clippy::too_many_arguments)]
 fn build_single_file_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
@@ -646,6 +665,7 @@ fn build_single_file_executable(
     mooncakes_dir: std::path::PathBuf,
     input_path: std::path::PathBuf,
     options: BuildRunExecutableOptions,
+    user_log: &UserLog,
 ) -> anyhow::Result<RunExecutable> {
     std::fs::create_dir_all(&target_dir).context("failed to create target directory")?;
 
@@ -667,6 +687,7 @@ fn build_single_file_executable(
         &mooncakes_dir,
         &input_path,
         true,
+        user_log,
     )?;
     let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
@@ -683,12 +704,11 @@ fn build_single_file_executable(
     );
     preconfig.try_tcc_run = options.try_tcc_run;
 
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         &target_dir,
-        output,
+        user_log,
         &resolved,
     )?;
     let package = rr_build::local_packages(&resolved)
@@ -703,7 +723,7 @@ fn build_single_file_executable(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         &mooncake_bin_dir,
@@ -721,12 +741,14 @@ fn build_single_file_executable(
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
         },
+        user_log,
     )
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
 /// Execute the build graph and return the resulting run artifact without
 /// launching it.
+#[allow(clippy::too_many_arguments)]
 fn build_executable_from_plan(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
@@ -735,6 +757,7 @@ fn build_executable_from_plan(
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
     options: BuildExecutableFromPlanOptions,
+    user_log: &UserLog,
 ) -> Result<RunExecutable, anyhow::Error> {
     if cli.dry_run {
         rr_build::print_dry_run(
@@ -764,14 +787,10 @@ fn build_executable_from_plan(
     // Generate all_pkgs.json for indirect dependency resolution
     rr_build::generate_all_pkgs_json(build_meta)?;
 
-    let build_config = BuildConfig::from_flags(
-        &cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_flags(cli),
-    )
-    .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir)?;
+    let build_config =
+        BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
+            .with_suppressed_progress(options.output.suppress_build_progress());
+    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?;
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),

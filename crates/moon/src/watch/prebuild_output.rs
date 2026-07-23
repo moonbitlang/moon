@@ -114,7 +114,12 @@ mod tests {
             &ProjectManifest::None,
         )
         .unwrap();
-        let resolved = resolve_synced_project(&resolve_cfg, synced_env).unwrap();
+        let resolved = resolve_synced_project(
+            &resolve_cfg,
+            synced_env,
+            &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
+        )
+        .unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         assert!(watch_paths.ignored_paths.is_empty());
@@ -155,7 +160,12 @@ mod tests {
             &ProjectManifest::None,
         )
         .unwrap();
-        let resolved = resolve_synced_project(&resolve_cfg, synced_env).unwrap();
+        let resolved = resolve_synced_project(
+            &resolve_cfg,
+            synced_env,
+            &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
+        )
+        .unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         let root = dunce::canonicalize(temp_dir.path()).unwrap();
