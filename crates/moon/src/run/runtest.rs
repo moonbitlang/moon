@@ -148,7 +148,6 @@ pub(crate) fn run_tests(
     filter: &TestFilter,
     include_skipped: bool,
     bench: bool,
-    verbose: bool,
     no_parallelize: bool,
     parallelism: Option<usize>,
     user_log: &moonutil::user_log::UserLog,
@@ -174,7 +173,6 @@ pub(crate) fn run_tests(
             rt: &rt,
             source_dir,
             target_dir,
-            verbose,
             user_log,
         };
         for r in invocations {
@@ -211,7 +209,6 @@ pub(crate) fn run_tests(
                         rt: &rt,
                         source_dir,
                         target_dir,
-                        verbose,
                         user_log,
                     };
 
@@ -273,12 +270,10 @@ struct TestRunCtx<'a> {
     build_meta: &'a BuildMeta,
     /// Tokio runtime used to execute the test process
     rt: &'a Runtime,
-    /// Source directory; used for dry-printing commands when verbose
+    /// Source directory; used for rendering commands in user logs.
     source_dir: &'a Path,
     /// Target directory; coverage output destination
     target_dir: &'a Path,
-    /// Enable verbose printing
-    verbose: bool,
     /// User-facing verbose command output.
     user_log: &'a moonutil::user_log::UserLog,
 }
@@ -773,12 +768,10 @@ fn run_one_test_executable(
     cmd.current_dir(module_root);
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
-    if ctx.verbose {
-        ctx.user_log.info(crate::rr_build::format_dry_run_command(
-            cmd.as_std(),
-            ctx.source_dir,
-        ));
-    }
+    ctx.user_log.info(crate::rr_build::format_dry_run_command(
+        cmd.as_std(),
+        ctx.source_dir,
+    ));
     info!(package = %test.args.package, executable = %test.executable.display(), "launching test executable");
 
     let exit_status = ctx

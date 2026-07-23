@@ -848,12 +848,10 @@ fn run_executable(
         cmd.moonrun_policy.as_deref(),
     );
     run_cmd.args(&cmd.args);
-    if cli.verbose {
-        output.user_log().info(rr_build::format_dry_run_command(
-            run_cmd.as_std(),
-            &executable.source_dir,
-        ));
-    }
+    output.user_log().info(rr_build::format_dry_run_command(
+        run_cmd.as_std(),
+        &executable.source_dir,
+    ));
 
     // Release the lock before spawning the subprocess
     executable.release_lock();
