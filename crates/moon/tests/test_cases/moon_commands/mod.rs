@@ -163,10 +163,6 @@ Run a package from the Mooncakes registry without installing it
 
 Usage: moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...
 
-Arguments:
-  <PACKAGE>          Registry package coordinate
-  [PROGRAM_ARGS]...  Arguments passed to the program
-
 Options:
       --target <TARGET>             [default: wasm] [possible values: wasm, native]
       --experimental-policy <PATH>  Experimental moonrun policy file; only valid for wasm
@@ -206,17 +202,25 @@ fn test_moonx_runs_cached_wasm_and_forwards_everything_after_the_coordinate() {
         .env("MOONRUN_OVERRIDE", moonrun_bin())
         .args([
             "moonbitlang/parser/cmd/moonfmt@0.3.3",
+            "--help",
             "--arg1",
             "--target",
             "native",
+            "-h",
+            "-V",
+            "--version",
         ])
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
 [..]/registry/cache/assets/moonbitlang/parser/0.3.3/cmd/moonfmt/moonfmt.wasm
+--help
 --arg1
 --target
 native
+-h
+-V
+--version
 
 "#]])
         .stderr_eq("");
