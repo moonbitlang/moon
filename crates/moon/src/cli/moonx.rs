@@ -18,7 +18,7 @@
 
 use std::{ffi::OsString, path::PathBuf};
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::user_diagnostics::UserDiagnostics;
 
@@ -62,14 +62,14 @@ pub(crate) struct MoonxCli {
     #[arg(short = 'v', long)]
     pub verbose: bool,
 
-    /// Registry package coordinate followed by arguments passed to the program
-    #[arg(
-        value_names = ["PACKAGE", "PROGRAM_ARGS"],
-        required = true,
-        num_args = 1..,
-        trailing_var_arg = true
-    )]
-    pub package_and_args: Vec<String>,
+    #[command(subcommand)]
+    package: MoonxPackage,
+}
+
+#[derive(Debug, Subcommand)]
+enum MoonxPackage {
+    #[command(external_subcommand)]
+    External(Vec<String>),
 }
 
 pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
@@ -87,11 +87,11 @@ pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
 
 pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
     let cli = MoonxCli::try_parse_from(raw_args).unwrap_or_else(|err| err.exit());
-    let (package, args) = cli
-        .package_and_args
+    let MoonxPackage::External(package_and_args) = cli.package;
+    let (package, args) = package_and_args
         .split_first()
-        .expect("package_and_args requires at least one value");
-    // A trailing positional preserves `--`; moonx treats one leading occurrence as a separator.
+        .expect("external subcommand always contains its name");
+    // External subcommands preserve `--`; moonx treats one leading occurrence as a separator.
     let args = match args {
         [separator, args @ ..] if separator == "--" => args,
         _ => args,
@@ -155,14 +155,18 @@ mod tests {
     #[test]
     fn requires_package() {
         let error = MoonxCli::try_parse_from(["moonx"]).unwrap_err();
-        assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument);
+        assert_eq!(
+            error.kind(),
+            ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+        );
     }
 
     #[test]
     fn forwards_help_and_version_flags_after_package() {
         for flag in ["-h", "--help", "-V", "--version"] {
             let cli = MoonxCli::try_parse_from(["moonx", "user/module", flag]).unwrap();
-            assert_eq!(cli.package_and_args, ["user/module", flag]);
+            let MoonxPackage::External(package_and_args) = cli.package;
+            assert_eq!(package_and_args, ["user/module", flag]);
         }
     }
 }
