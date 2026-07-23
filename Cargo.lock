@@ -1726,6 +1726,7 @@ dependencies = [
  "sha2",
  "test-log",
  "thiserror 1.0.63",
+ "tracing",
  "walkdir",
  "zip",
 ]

@@ -278,16 +278,15 @@ pub(crate) fn run_info(
         bail!("dry-run is not supported for info")
     }
 
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-    } = cli
+    let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
+    let PackageDirs {
+        target_dir,
+        mooncake_bin_dir,
+        ..
+    } = &dirs;
 
     let build_flags = BuildFlags::default();
     let resolve_cfg = ResolveConfig::new_with_load_defaults(
@@ -296,13 +295,7 @@ pub(crate) fn run_info(
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = sync_dependencies(
-        &resolve_cfg,
-        &source_dir,
-        &mooncake_bin_dir,
-        &mooncakes_dir,
-        &project_manifest,
-    )?;
+    let synced_env = sync_dependencies(&resolve_cfg, &dirs)?;
     let resolve_output = resolve_synced_project(&resolve_cfg, synced_env, output.user_log())?;
     let selection = PackageSelection::new(&cmd, &resolve_output, output.user_log())?;
 
@@ -323,8 +316,8 @@ pub(crate) fn run_info(
             &cmd,
             tgt,
             target_kind,
-            &target_dir,
-            &mooncake_bin_dir,
+            target_dir,
+            mooncake_bin_dir,
             resolve_output.clone(),
             &selection,
             &output_plan,

@@ -208,10 +208,10 @@ pub enum ProjectManifest {
     Workspace(PathBuf),
 }
 
-/// Authoritative directories resolved during command setup.
+/// Authoritative directories resolved at the start of a project operation.
 ///
-/// Downstream stages should pass these paths through instead of deriving them
-/// again from one another.
+/// Command setup and nested project handoffs construct this once. Downstream
+/// stages should pass it through instead of deriving paths again.
 pub struct PackageDirs {
     pub source_dir: PathBuf,
     pub target_dir: PathBuf,

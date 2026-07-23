@@ -589,14 +589,7 @@ mod tests {
         .unwrap()
         .package_dirs()
         .unwrap();
-        let synced_env = moonbuild_rupes_recta::sync_dependencies(
-            &cfg,
-            &dirs.source_dir,
-            &dirs.target_dir.join(moonutil::constants::MOON_BIN_DIR),
-            &dirs.mooncakes_dir,
-            &dirs.project_manifest,
-        )
-        .unwrap();
+        let synced_env = moonbuild_rupes_recta::sync_dependencies(&cfg, &dirs).unwrap();
         moonbuild_rupes_recta::resolve_synced_project(
             &cfg,
             synced_env,

@@ -24,7 +24,7 @@ use moonutil::{
     cli_support::UniversalFlags,
     command_output::CommandOutput,
     locks::FileLock,
-    project::{PackageDirs, ProjectManifest},
+    project::PackageDirs,
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
     user_log::UserLog,
 };
@@ -56,13 +56,7 @@ pub(crate) fn run_bundle(
     cmd: BundleSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-    } = cli
+    let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
@@ -73,35 +67,15 @@ pub(crate) fn run_bundle(
     }
 
     if surface_targets.is_empty() {
-        return run_bundle_internal(
-            &cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncake_bin_dir,
-            &mooncakes_dir,
-            &project_manifest,
-            None,
-            output,
-        );
+        return run_bundle_internal(&cli, &cmd, &dirs, None, output);
     }
 
     let targets = lower_surface_targets(&surface_targets);
 
     let mut ret_value = 0;
     for t in targets {
-        let x = run_bundle_internal(
-            &cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncake_bin_dir,
-            &mooncakes_dir,
-            &project_manifest,
-            Some(t),
-            output,
-        )
-        .context(format!("failed to run bundle for target {t:?}"))?;
+        let x = run_bundle_internal(&cli, &cmd, &dirs, Some(t), output)
+            .context(format!("failed to run bundle for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -112,25 +86,11 @@ pub(crate) fn run_bundle(
 pub(crate) fn run_bundle_internal(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    run_bundle_internal_rr(
-        cli,
-        cmd,
-        source_dir,
-        target_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-        selected_target_backend,
-        output,
-    )
+    run_bundle_internal_rr(cli, cmd, dirs, selected_target_backend, output)
 }
 
 #[instrument(skip_all)]
@@ -138,26 +98,18 @@ pub(crate) fn run_bundle_internal(
 pub(crate) fn run_bundle_internal_rr(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
-    let (build_meta, build_graph) = plan_bundle_rr(
-        cli,
-        cmd,
+    let PackageDirs {
         source_dir,
         target_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-        selected_target_backend,
-        user_log,
-    )?;
+        ..
+    } = dirs;
+    let (build_meta, build_graph) =
+        plan_bundle_rr(cli, cmd, dirs, selected_target_backend, user_log)?;
 
     if cli.dry_run {
         output.write_result(|writer| {
@@ -192,11 +144,7 @@ pub(crate) fn run_bundle_internal_rr(
 pub(crate) fn plan_bundle_rr(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     selected_target_backend: Option<TargetBackend>,
     user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
@@ -206,20 +154,14 @@ pub(crate) fn plan_bundle_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        source_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-    )?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     plan_bundle_rr_from_resolved(
         cli,
         cmd,
-        target_dir,
-        mooncake_bin_dir,
+        &dirs.target_dir,
+        &dirs.mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
         user_log,

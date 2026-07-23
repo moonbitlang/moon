@@ -25,12 +25,23 @@ use crate::{
 use super::sync::SyncOutputOptions;
 use anyhow::Context;
 use moonutil::{
-    constants::MOONBITLANG_CORE,
+    constants::{BUILD_DIR, DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON, MOONBITLANG_CORE},
+    locks::FileLock,
+    project::{PackageDirs, ProjectManifest},
     resolution::{
         DependencyKind, DirSyncResult, ModuleSourceKind, ResolvedEnv, ResolvedRootModules,
     },
 };
 use std::path::{Path, PathBuf};
+
+const BIN_DEP_WORK_DIR: &str = "bin-deps";
+const BIN_DEP_SOURCE_READY: &str = ".source-ready";
+
+struct PreparedBinDep {
+    dirs: PackageDirs,
+    install_dir: PathBuf,
+    _work_lock: Option<FileLock>,
+}
 
 /// Install a binary package globally or install project dependencies (deprecated without args)
 #[derive(Debug, clap::Parser)]
@@ -80,8 +91,7 @@ pub struct InstallSubcommand {
 }
 
 pub(crate) fn install_impl(
-    mooncakes_dir: &Path,
-    mooncake_bin_dir: &Path,
+    dirs: &PackageDirs,
     roots: ResolvedRootModules,
     output_options: SyncOutputOptions,
     verbose: bool,
@@ -101,7 +111,7 @@ pub(crate) fn install_impl(
     };
 
     let res = resolve_with_default_env_and_resolver(&resolve_config, roots)?;
-    let dep_dir = crate::dep_dir::DepDir::new(mooncakes_dir.to_path_buf());
+    let dep_dir = crate::dep_dir::DepDir::new(dirs.mooncakes_dir.clone());
 
     crate::dep_dir::sync_deps(
         &dep_dir,
@@ -115,7 +125,13 @@ pub(crate) fn install_impl(
 
     let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
 
-    install_bin_deps(verbose, &res, &dir_sync_result, mooncake_bin_dir)?;
+    install_bin_deps(
+        verbose,
+        &res,
+        &dir_sync_result,
+        &dirs.target_dir,
+        &dirs.mooncake_bin_dir,
+    )?;
 
     Ok((res, dir_sync_result))
 }
@@ -124,6 +140,7 @@ fn install_bin_deps(
     verbose: bool,
     res: &ResolvedEnv,
     dep_dir: &DirSyncResult,
+    target_dir: &Path,
     mooncake_bin_dir: &Path,
 ) -> Result<(), anyhow::Error> {
     for &main_module in res.input_module_ids() {
@@ -141,10 +158,19 @@ fn install_bin_deps(
                 .unwrap();
 
             let path = dep_dir.get(id).expect("Failed to get dep dir");
+            let module_source = res.module_source(id);
+            let prepared = prepare_bin_dep(
+                path,
+                target_dir,
+                mooncake_bin_dir,
+                module_source.source(),
+                module_source.name().segments(),
+                &module_source.version().to_string(),
+            )?;
             let mut cmd = std::process::Command::new(moon_path.as_ref());
             // root_path
             cmd.arg("-C");
-            cmd.arg(path);
+            cmd.arg(&prepared.dirs.source_dir);
             cmd.args(["tool", "build-binary-dep"]);
             // pkg_names
             if let Some(pkgs) = info.bin_pkg.as_ref() {
@@ -154,11 +180,16 @@ fn install_bin_deps(
             }
             // install path
             cmd.arg("--install-path");
-            if matches!(res.module_source(id).source(), ModuleSourceKind::Registry) {
-                cmd.arg(mooncake_bin_dir);
-            } else {
-                cmd.arg(path);
-            }
+            cmd.arg(&prepared.install_dir);
+            cmd.arg("--resolved-dirs");
+            cmd.arg(&prepared.dirs.source_dir);
+            cmd.arg(&prepared.dirs.target_dir);
+            cmd.arg(&prepared.dirs.mooncake_bin_dir);
+            cmd.arg(&prepared.dirs.mooncakes_dir);
+            let ProjectManifest::Module(project_manifest) = &prepared.dirs.project_manifest else {
+                unreachable!("binary dependencies are always modules")
+            };
+            cmd.arg(project_manifest);
 
             if !verbose {
                 cmd.arg("--quiet");
@@ -193,4 +224,161 @@ fn install_bin_deps(
     }
 
     Ok(())
+}
+
+fn prepare_bin_dep<'a>(
+    source_dir: &Path,
+    target_dir: &Path,
+    mooncake_bin_dir: &Path,
+    source_kind: &ModuleSourceKind,
+    module_segments: impl Iterator<Item = &'a str>,
+    version: &str,
+) -> anyhow::Result<PreparedBinDep> {
+    let (source_dir, install_dir, work_lock) = match source_kind {
+        ModuleSourceKind::Registry => {
+            let (source_dir, work_lock) =
+                prepare_registry_bin_dep_source(source_dir, target_dir, module_segments, version)?;
+            (source_dir, mooncake_bin_dir.to_path_buf(), Some(work_lock))
+        }
+        _ => {
+            let source_dir = dunce::canonicalize(source_dir).with_context(|| {
+                format!(
+                    "failed to resolve binary dependency source `{}`",
+                    source_dir.display()
+                )
+            })?;
+            (source_dir.clone(), source_dir, None)
+        }
+    };
+
+    let project_manifest = if source_dir.join(MOON_MOD).is_file() {
+        source_dir.join(MOON_MOD)
+    } else if source_dir.join(MOON_MOD_JSON).is_file() {
+        source_dir.join(MOON_MOD_JSON)
+    } else {
+        anyhow::bail!(
+            "binary dependency source `{}` has no module manifest",
+            source_dir.display()
+        );
+    };
+    let target_dir = source_dir.join(BUILD_DIR);
+    std::fs::create_dir_all(&target_dir).with_context(|| {
+        format!(
+            "failed to create binary dependency target directory `{}`",
+            target_dir.display()
+        )
+    })?;
+
+    Ok(PreparedBinDep {
+        dirs: PackageDirs {
+            mooncake_bin_dir: target_dir.join(MOON_BIN_DIR),
+            mooncakes_dir: source_dir.join(DEP_PATH),
+            source_dir,
+            target_dir,
+            project_manifest: ProjectManifest::Module(project_manifest),
+        },
+        install_dir,
+        _work_lock: work_lock,
+    })
+}
+
+#[tracing::instrument(
+    skip_all,
+    fields(source_dir = %source_dir.display(), target_dir = %target_dir.display())
+)]
+fn prepare_registry_bin_dep_source<'a>(
+    source_dir: &Path,
+    target_dir: &Path,
+    module_segments: impl Iterator<Item = &'a str>,
+    version: &str,
+) -> anyhow::Result<(PathBuf, FileLock)> {
+    let work_root = module_segments
+        .fold(target_dir.join(BIN_DEP_WORK_DIR), |dir, segment| {
+            dir.join(segment)
+        })
+        .join(version);
+    std::fs::create_dir_all(&work_root).with_context(|| {
+        format!(
+            "failed to create registry binary dependency work directory `{}`",
+            work_root.display()
+        )
+    })?;
+    // Dependency sync happens before the outer build takes its target lock.
+    // Serialize preparation and the child build per module version so another
+    // command never observes a partial source copy.
+    let work_lock = FileLock::lock(&work_root).with_context(|| {
+        format!(
+            "failed to lock registry binary dependency work directory `{}`",
+            work_root.display()
+        )
+    })?;
+    let work_dir = work_root.join("source");
+    let source_ready = work_root.join(BIN_DEP_SOURCE_READY);
+    if source_ready.is_file() && work_dir.is_dir() {
+        return Ok((work_dir, work_lock));
+    }
+    std::fs::create_dir_all(&work_dir).with_context(|| {
+        format!(
+            "failed to create registry binary dependency source directory `{}`",
+            work_dir.display()
+        )
+    })?;
+
+    // Registry module versions are immutable. The marker lets later syncs
+    // preserve build state; before it exists, a retry overwrites every source
+    // file and completes any interrupted copy. Only root-level build and
+    // dependency state are excluded; identically named package assets remain.
+    for entry in walkdir::WalkDir::new(source_dir)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.depth() != 1 || (entry.file_name() != BUILD_DIR && entry.file_name() != DEP_PATH)
+        })
+    {
+        let entry = entry.with_context(|| {
+            format!(
+                "failed to read registry binary dependency source `{}`",
+                source_dir.display()
+            )
+        })?;
+        let relative = entry.path().strip_prefix(source_dir).with_context(|| {
+            format!(
+                "registry binary dependency entry `{}` is outside source `{}`",
+                entry.path().display(),
+                source_dir.display()
+            )
+        })?;
+        let destination = work_dir.join(relative);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&destination).with_context(|| {
+                format!(
+                    "failed to create registry binary dependency directory `{}`",
+                    destination.display()
+                )
+            })?;
+        } else {
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent).with_context(|| {
+                    format!(
+                        "failed to create registry binary dependency directory `{}`",
+                        parent.display()
+                    )
+                })?;
+            }
+            std::fs::copy(entry.path(), &destination).with_context(|| {
+                format!(
+                    "failed to copy registry binary dependency file `{}` to `{}`",
+                    entry.path().display(),
+                    destination.display()
+                )
+            })?;
+        }
+    }
+    std::fs::write(&source_ready, []).with_context(|| {
+        format!(
+            "failed to mark registry binary dependency source ready at `{}`",
+            source_ready.display()
+        )
+    })?;
+
+    Ok((work_dir, work_lock))
 }

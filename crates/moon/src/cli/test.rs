@@ -45,7 +45,7 @@ use moonutil::build_options::{RunMode, TestArtifacts, TestIndexRange};
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::locks::FileLock;
-use moonutil::project::{ProjectManifest, ProjectProbe};
+use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::{SurfaceTarget, TargetBackend, lower_surface_targets};
 use moonutil::user_log::UserLog;
 use std::path::{Path, PathBuf};
@@ -363,10 +363,7 @@ fn run_test_impl(
                         cli,
                         cmd,
                         &single_file.file_path,
-                        &single_file.package_dirs.source_dir,
-                        &single_file.package_dirs.target_dir,
-                        &single_file.package_dirs.mooncake_bin_dir,
-                        &single_file.package_dirs.mooncakes_dir,
+                        &single_file.package_dirs,
                         output,
                     );
                 }
@@ -391,18 +388,7 @@ fn run_test_impl(
     if cmd.build_flags.target.is_empty() {
         debug!("no explicit backend target provided; using defaults");
         let selected_target_backend = cmd.profile.then_some(TargetBackend::Native);
-        return run_test_internal(
-            cli,
-            cmd,
-            &dirs.source_dir,
-            &dirs.target_dir,
-            &dirs.mooncake_bin_dir,
-            &dirs.mooncakes_dir,
-            &dirs.project_manifest,
-            None,
-            selected_target_backend,
-            output,
-        );
+        return run_test_internal(cli, cmd, &dirs, None, selected_target_backend, output);
     }
     let surface_targets = &cmd.build_flags.target;
     let targets = lower_surface_targets(surface_targets);
@@ -414,19 +400,8 @@ fn run_test_impl(
     let mut ret_value = 0;
     for t in targets {
         info!(backend = ?t, "running tests for backend");
-        let x = run_test_internal(
-            cli,
-            cmd,
-            &dirs.source_dir,
-            &dirs.target_dir,
-            &dirs.mooncake_bin_dir,
-            &dirs.mooncakes_dir,
-            &dirs.project_manifest,
-            display_backend_hint,
-            Some(t),
-            output,
-        )
-        .context(format!("failed to run test for target {t:?}"))?;
+        let x = run_test_internal(cli, cmd, &dirs, display_backend_hint, Some(t), output)
+            .context(format!("failed to run test for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     debug!(exit_code = ret_value, "completed moon test command");
@@ -471,11 +446,7 @@ fn effective_test_build_flags(build_flags: &BuildFlags, profile: bool) -> BuildF
 fn run_test_internal(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
@@ -488,11 +459,7 @@ fn run_test_internal(
     let exit_code = run_test_or_bench_internal(
         cli,
         cmd.into(),
-        source_dir,
-        target_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
+        dirs,
         display_backend_hint,
         selected_target_backend,
         output,
@@ -506,25 +473,13 @@ fn run_test_in_single_file(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
     single_file_path: &Path,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
+    dirs: &PackageDirs,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     if cmd.outline && cli.dry_run {
         anyhow::bail!("`--outline` cannot be used with `--dry-run`");
     }
-    run_test_in_single_file_rr(
-        cli,
-        cmd,
-        single_file_path,
-        source_dir,
-        target_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        output,
-    )
+    run_test_in_single_file_rr(cli, cmd, single_file_path, dirs, output)
 }
 
 #[instrument(level = Level::DEBUG, skip_all)]
@@ -532,13 +487,16 @@ fn run_test_in_single_file_rr(
     cli: &UniversalFlags,
     cmd: &TestSubcommand,
     single_file_path: &Path,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
+    dirs: &PackageDirs,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        mooncake_bin_dir,
+        ..
+    } = dirs;
     std::fs::create_dir_all(target_dir)
         .context("failed to create target directory for single-file test")?;
 
@@ -556,10 +514,7 @@ fn run_test_in_single_file_rr(
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
-        source_dir,
-        target_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
+        dirs,
         single_file_path,
         false,
         user_log,
@@ -926,11 +881,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
 pub(crate) fn run_test_or_bench_internal(
     cli: &UniversalFlags,
     cmd: TestLikeSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
@@ -982,11 +933,7 @@ pub(crate) fn run_test_or_bench_internal(
     run_test_rr(
         cli,
         &cmd,
-        source_dir,
-        target_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
+        dirs,
         display_backend_hint,
         selected_target_backend,
         output,
@@ -998,16 +945,18 @@ pub(crate) fn run_test_or_bench_internal(
 fn run_test_rr(
     cli: &UniversalFlags,
     cmd: &TestLikeSubcommand<'_>,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     display_backend_hint: Option<()>, // FIXME: unsure why it's option but as-is for now
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        mooncake_bin_dir,
+        ..
+    } = dirs;
     info!(run_mode = ?cmd.run_mode, update = cmd.update, build_only = cmd.build_only, "starting rupes-recta test run");
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
@@ -1015,13 +964,7 @@ fn run_test_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        source_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-    )?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let planned_runs = plan_test_or_bench_rr_from_resolved_all(

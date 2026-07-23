@@ -238,7 +238,19 @@ fn test_pre_build_mooncake_bin_shape() {
             ),
             (
                 "src/main-js/moon.pkg.json",
-                br#"{"is-main":true,"bin-target":"js","bin-name":"registry-shape-tool"}"#.to_vec(),
+                br#"{
+  "is-main": true,
+  "bin-target": "js",
+  "bin-name": "registry-shape-tool",
+  "pre-build": [
+    {
+      "input": [],
+      "output": ["generated.txt"],
+      "command": "moon tool write-tcc-rsp-file \"$output\" registry-work"
+    }
+  ]
+}"#
+                .to_vec(),
             ),
             (
                 "src/main-js/main.mbt",
@@ -276,6 +288,32 @@ fn test_pre_build_mooncake_bin_shape() {
             .join(registry_launcher.file_name().unwrap())
             .exists(),
         "registry launcher must not make mooncakes_dir mutable"
+    );
+    let registry_source = dir
+        .join(".mooncakes")
+        .join("username")
+        .join("registry_shape_tool");
+    assert!(
+        !registry_source.join(BUILD_DIR).exists(),
+        "registry bin-dep build must not write under mooncakes_dir"
+    );
+    assert!(
+        !registry_source.join("src/main-js/generated.txt").exists(),
+        "registry bin-dep pre-build must not write under mooncakes_dir"
+    );
+    let registry_work_dir = target_dir
+        .join("bin-deps")
+        .join("username")
+        .join("registry_shape_tool")
+        .join("0.1.0")
+        .join("source");
+    assert!(
+        registry_work_dir.join(BUILD_DIR).exists(),
+        "registry bin-dep build must use target_dir"
+    );
+    assert!(
+        registry_work_dir.join("src/main-js/generated.txt").exists(),
+        "registry bin-dep pre-build must use target_dir"
     );
 
     let actual_raw = read(dir.join("src/main/mooncake_bin.txt"));

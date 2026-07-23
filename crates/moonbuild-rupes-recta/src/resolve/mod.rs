@@ -31,7 +31,7 @@ use log::{debug, info};
 use std::str::FromStr;
 
 use mooncake::{
-    pkg::sync::{SyncDirs, SyncOutputOptions, auto_sync, auto_sync_for_single_file_rr},
+    pkg::sync::{SyncOutputOptions, auto_sync, auto_sync_for_single_file_rr},
     registry::path as registry_path,
 };
 use moonutil::{
@@ -41,7 +41,7 @@ use moonutil::{
     front_matter::{MbtMdHeader, parse_front_matter_config},
     manifest::MoonMod,
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
-    project::{ProjectManifest, WorkspaceEnv},
+    project::{PackageDirs, WorkspaceEnv},
     resolution::{DirSyncResult, ModuleId, ResolvedEnv},
     target::TargetBackend,
     user_log::UserLog,
@@ -314,24 +314,16 @@ pub enum ResolveError {
 #[instrument(skip_all)]
 pub fn sync_dependencies(
     cfg: &ResolveConfig,
-    source_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
 ) -> Result<(ResolvedEnv, DirSyncResult), ResolveError> {
     info!(
         "Starting dependency sync for source directory: {}",
-        source_dir.display()
+        dirs.source_dir.display()
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
     let (resolved_env, dir_sync_result, _) = auto_sync(
-        SyncDirs {
-            source_dir,
-            mooncake_bin_dir,
-            mooncakes_dir,
-            project_manifest,
-        },
+        dirs,
         &cfg.sync_flags,
         cfg.sync_output,
         cfg.no_std,
@@ -396,10 +388,7 @@ pub fn resolve_synced_project(
 #[instrument(skip_all, fields(run_mode = run_mode))]
 pub fn resolve_single_file_project(
     cfg: &ResolveConfig,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
+    dirs: &PackageDirs,
     source_file: &Path,
     run_mode: bool,
     user_log: &UserLog,
@@ -419,7 +408,7 @@ pub fn resolve_single_file_project(
         }
         // Generate a temporary .mbt file under target_dir,
         // because moonc doesn't support import declarations in source files yet.
-        let compile_input_file = prepare_single_file_for_compile(source_file, target_dir)
+        let compile_input_file = prepare_single_file_for_compile(source_file, &dirs.target_dir)
             .map_err(ResolveError::SingleFileParseError)?;
         (None, config, compile_input_file)
     } else {
@@ -449,9 +438,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
 
     // Sync modules as usual
     let (resolved_env, dir_sync_result) = auto_sync_for_single_file_rr(
-        source_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
+        dirs,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),
         cfg.sync_output,

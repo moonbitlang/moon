@@ -109,13 +109,13 @@ pub(crate) fn run_doc_rr(
                 project.root().display(),
             )
         })?;
+    let dirs = query.package_dirs()?;
     let PackageDirs {
         source_dir,
         target_dir,
         mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-    } = query.package_dirs()?;
+        ..
+    } = &dirs;
 
     // FIXME: This is copied from `moon check`'s code. Share code if possible.
     let mut preconfig = preconfig_compile(
@@ -123,26 +123,20 @@ pub(crate) fn run_doc_rr(
         &cli,
         &BuildFlags::default(),
         None,
-        &target_dir,
+        target_dir,
         RunMode::Check,
     );
     preconfig.docs_serve = cmd.serve;
 
     let resolve_cfg = preconfig.resolve_config();
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        &source_dir,
-        &mooncake_bin_dir,
-        &mooncakes_dir,
-        &project_manifest,
-    )?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
-        &target_dir,
+        target_dir,
         user_log,
         &resolve_output,
     )?;
@@ -154,7 +148,7 @@ pub(crate) fn run_doc_rr(
         user_log,
         planning_context,
         intent,
-        &mooncake_bin_dir,
+        mooncake_bin_dir,
         resolve_output,
     )?;
 
@@ -165,23 +159,23 @@ pub(crate) fn run_doc_rr(
                 writer,
                 &build_graph,
                 build_meta.artifacts.values(),
-                &source_dir,
-                &target_dir,
+                source_dir,
+                target_dir,
             )
         })?;
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(&target_dir)?;
+    let _lock = FileLock::lock(target_dir)?;
     // Generate the all_pkgs.json for indirect dependency resolution
     // before executing the build
     rr_build::generate_all_pkgs_json(&build_meta)?;
     // Generate metadata for `moondoc`
-    rr_build::generate_metadata(&source_dir, &target_dir, &build_meta, &build_graph, None)?;
+    rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
     // Execute the build
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
-    let result = rr_build::execute_build(&cfg, build_graph, &target_dir, user_log)?;
+    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 
     if !result.successful() {

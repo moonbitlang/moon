@@ -493,24 +493,14 @@ fn prepare_native_build(
             module_dir.display()
         )
     })?;
-    let source_dir = package_dirs.source_dir;
-    let target_dir = package_dirs.target_dir;
-    let mooncake_bin_dir = package_dirs.mooncake_bin_dir;
-    let mooncakes_dir = package_dirs.mooncakes_dir;
-    let project_manifest = package_dirs.project_manifest;
-
     let resolve_cfg =
         ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone())
             .with_sync_output(sync_output);
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        &source_dir,
-        &mooncake_bin_dir,
-        &mooncakes_dir,
-        &project_manifest,
-    )?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &package_dirs)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
+    let target_dir = package_dirs.target_dir;
+    let mooncake_bin_dir = package_dirs.mooncake_bin_dir;
 
     let main_module_id = resolve_output
         .local_modules()

@@ -36,8 +36,13 @@ use moonbuild_rupes_recta::{
     ResolveConfig, discover::DiscoveredPackage, intent::UserIntent, model::PackageId,
 };
 use moonutil::{
-    build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    locks::FileLock, project::PackageDirs, target::TargetBackend, user_log::UserLog,
+    build_options::RunMode,
+    cli_support::AutoSyncFlags,
+    cli_support::UniversalFlags,
+    locks::FileLock,
+    project::{PackageDirs, ProjectManifest},
+    target::TargetBackend,
+    user_log::UserLog,
 };
 
 use crate::{
@@ -61,6 +66,21 @@ pub(crate) struct BuildBinaryDepArgs {
     /// The parent directory where the binary module is installed to.
     #[clap(long)]
     install_path: PathBuf,
+
+    /// Authoritative project context supplied by the parent `moon` process.
+    #[clap(
+        long,
+        hide = true,
+        num_args = 5,
+        value_names = [
+            "SOURCE_DIR",
+            "TARGET_DIR",
+            "MOONCAKE_BIN_DIR",
+            "MOONCAKES_DIR",
+            "PROJECT_MANIFEST"
+        ]
+    )]
+    resolved_dirs: Option<Vec<PathBuf>>,
 }
 
 pub(crate) fn run_build_binary_dep(
@@ -68,16 +88,40 @@ pub(crate) fn run_build_binary_dep(
     cmd: &BuildBinaryDepArgs,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
+    // Normal user-facing invocations resolve directories once here. Binary
+    // dependency builds spawned by dependency sync receive the complete
+    // authoritative set from their parent and must not rediscover it.
+    let resolved_dirs = match cmd.resolved_dirs.as_deref() {
+        Some(
+            [
+                source_dir,
+                target_dir,
+                mooncake_bin_dir,
+                mooncakes_dir,
+                project_manifest,
+            ],
+        ) => Some(PackageDirs {
+            source_dir: source_dir.clone(),
+            target_dir: target_dir.clone(),
+            mooncake_bin_dir: mooncake_bin_dir.clone(),
+            mooncakes_dir: mooncakes_dir.clone(),
+            project_manifest: ProjectManifest::Module(project_manifest.clone()),
+        }),
+        None => None,
+        Some(_) => unreachable!("clap requires five resolved directory values"),
+    };
+    let dirs = match resolved_dirs {
+        Some(dirs) => dirs,
+        None => cli
+            .source_tgt_dir
+            .query(cli.workspace_env.clone())?
+            .package_dirs()?,
+    };
     let PackageDirs {
-        source_dir,
         target_dir,
         mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-    } = cli
-        .source_tgt_dir
-        .query(cli.workspace_env.clone())?
-        .package_dirs()?;
+        ..
+    } = &dirs;
     if cli.dry_run {
         anyhow::bail!("--dry-run is not supported for `moon tool build-binary-dep`");
     }
@@ -87,13 +131,7 @@ pub(crate) fn run_build_binary_dep(
     // running the build plan.
     let resolve_cfg =
         ResolveConfig::new_with_load_defaults(false, false, false, cli.workspace_env.clone());
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        &source_dir,
-        &mooncake_bin_dir,
-        &mooncakes_dir,
-        &project_manifest,
-    )?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
@@ -157,13 +195,13 @@ pub(crate) fn run_build_binary_dep(
             cli,
             &build_flags,
             Some(target),
-            &target_dir,
+            target_dir,
             RunMode::Build,
         );
         let planning_context = rr_build::prepare_resolved_build(
             &preconfig,
             &cli.unstable_feature,
-            &target_dir,
+            target_dir,
             user_log,
             &resolve_output,
         )?;
@@ -174,20 +212,20 @@ pub(crate) fn run_build_binary_dep(
             user_log,
             planning_context,
             intent,
-            &mooncake_bin_dir,
+            mooncake_bin_dir,
             // FIXME: cloning is not the best way to do this, it takes in this
             // type only to be returned in build meta. We should refactor later.
             resolve_output.clone(),
         )?;
 
-        let _lock = FileLock::lock(&target_dir)?;
+        let _lock = FileLock::lock(target_dir)?;
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(&build_meta)?;
 
         let result = rr_build::execute_build(
             &BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose),
             build_graph,
-            &target_dir,
+            target_dir,
             user_log,
         )?;
         result.print_info(cli.quiet, "building")?;

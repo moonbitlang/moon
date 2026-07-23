@@ -91,7 +91,7 @@ mod tests {
     use moonbuild_rupes_recta::resolve::{
         ResolveConfig, resolve_synced_project, sync_dependencies,
     };
-    use moonutil::project::{ProjectManifest, WorkspaceEnv};
+    use moonutil::project::{SourceTargetDirs, WorkspaceEnv};
 
     #[test]
     fn rr_get_prebuild_watch_paths_skips_empty_modules() {
@@ -106,16 +106,15 @@ mod tests {
 
         let resolve_cfg =
             ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
-        let target_dir = temp_dir.path().join("_build");
-        let mooncakes_dir = temp_dir.path().join(".mooncakes");
-        let synced_env = sync_dependencies(
-            &resolve_cfg,
-            temp_dir.path(),
-            &target_dir.join(moonutil::constants::MOON_BIN_DIR),
-            &mooncakes_dir,
-            &ProjectManifest::None,
-        )
+        let dirs = SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        }
+        .query_from(temp_dir.path(), WorkspaceEnv::Auto)
+        .unwrap()
+        .package_dirs()
         .unwrap();
+        let synced_env = sync_dependencies(&resolve_cfg, &dirs).unwrap();
         let resolved = resolve_synced_project(
             &resolve_cfg,
             synced_env,
@@ -154,16 +153,15 @@ mod tests {
 
         let resolve_cfg =
             ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
-        let target_dir = temp_dir.path().join("_build");
-        let mooncakes_dir = temp_dir.path().join(".mooncakes");
-        let synced_env = sync_dependencies(
-            &resolve_cfg,
-            temp_dir.path(),
-            &target_dir.join(moonutil::constants::MOON_BIN_DIR),
-            &mooncakes_dir,
-            &ProjectManifest::None,
-        )
+        let dirs = SourceTargetDirs {
+            cwd: None,
+            target_dir: None,
+        }
+        .query_from(temp_dir.path(), WorkspaceEnv::Auto)
+        .unwrap()
+        .package_dirs()
         .unwrap();
+        let synced_env = sync_dependencies(&resolve_cfg, &dirs).unwrap();
         let resolved = resolve_synced_project(
             &resolve_cfg,
             synced_env,

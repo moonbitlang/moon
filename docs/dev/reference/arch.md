@@ -250,6 +250,11 @@ There are two types of dependencies in a module.
   dependencies are not propagated transitively.
   After dependency sync, direct bin-deps of each workspace root are built and
   installed by invoking `moon tool build-binary-dep` inside the dependency module.
+  Registry bin-deps are copied into versioned work directories under
+  `<project target dir>/bin-deps` before that command runs, so compilation,
+  pre-build outputs, and nested dependency state do not modify the registry
+  source under `.mooncakes`. Local bin-deps retain their existing in-place
+  build behavior.
 
 There are two kinds of sources that dependencies come from:
 

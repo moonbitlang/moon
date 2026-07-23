@@ -39,7 +39,7 @@ use moonutil::cli_support::UniversalFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::constants::WATCH_MODE_DIR;
 use moonutil::locks::FileLock;
-use moonutil::project::{ProjectManifest, ProjectProbe};
+use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
 use moonutil::user_log::UserLog;
@@ -157,62 +157,38 @@ pub(crate) fn run_check(
 
     // Check if we're running within a project
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let (source_dir, target_dir, mooncake_bin_dir, mooncakes_dir, single_file, project_manifest) =
-        match query.probe_project()? {
-            ProjectProbe::Found(_) => {
-                let dirs = query.package_dirs()?;
-                (
-                    dirs.source_dir,
-                    dirs.target_dir,
-                    dirs.mooncake_bin_dir,
-                    dirs.mooncakes_dir,
-                    None,
-                    dirs.project_manifest,
-                )
-            }
-            ProjectProbe::NotFound(not_found) => {
-                // Now we're talking about real single-file scenario.
-                match cmd.path.as_slice() {
-                    [path] => {
-                        let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
-                        (
-                            single_file.package_dirs.source_dir,
-                            single_file.package_dirs.target_dir,
-                            single_file.package_dirs.mooncake_bin_dir,
-                            single_file.package_dirs.mooncakes_dir,
-                            Some(single_file.file_path),
-                            ProjectManifest::None,
-                        )
-                    }
-                    [] => return Err(not_found.into_error().into()),
-                    _ => {
-                        anyhow::bail!(
-                            "standalone single-file `moon check` expects exactly one `PATH`"
-                        );
-                    }
+    let (mut dirs, single_file) = match query.probe_project()? {
+        ProjectProbe::Found(_) => {
+            let dirs = query.package_dirs()?;
+            (dirs, None)
+        }
+        ProjectProbe::NotFound(not_found) => {
+            // Now we're talking about real single-file scenario.
+            match cmd.path.as_slice() {
+                [path] => {
+                    let single_file = cli.source_tgt_dir.single_file_package_dirs(path)?;
+                    (single_file.package_dirs, Some(single_file.file_path))
+                }
+                [] => return Err(not_found.into_error().into()),
+                _ => {
+                    anyhow::bail!("standalone single-file `moon check` expects exactly one `PATH`");
                 }
             }
-        };
-    let watch_ignored_subtree = target_dir.clone();
-    let (target_dir, mooncake_bin_dir) = if cmd.watch {
-        let target_dir = target_dir.join(WATCH_MODE_DIR);
-        let mooncake_bin_dir = target_dir.join(moonutil::constants::MOON_BIN_DIR);
-        (target_dir, mooncake_bin_dir)
-    } else {
-        (target_dir, mooncake_bin_dir)
+        }
     };
+    let watch_ignored_subtree = dirs.target_dir.clone();
+    if cmd.watch {
+        dirs.target_dir = dirs.target_dir.join(WATCH_MODE_DIR);
+        dirs.mooncake_bin_dir = dirs.target_dir.join(moonutil::constants::MOON_BIN_DIR);
+    }
 
     if cmd.build_flags.target.is_empty() {
         return run_check_internal(
             cli,
             cmd,
-            &source_dir,
-            &target_dir,
+            &dirs,
             &watch_ignored_subtree,
-            &mooncake_bin_dir,
-            &mooncakes_dir,
             single_file.as_deref(),
-            &project_manifest,
             None,
             output,
         );
@@ -225,13 +201,9 @@ pub(crate) fn run_check(
         let x = run_check_internal(
             cli,
             cmd,
-            &source_dir,
-            &target_dir,
+            &dirs,
             &watch_ignored_subtree,
-            &mooncake_bin_dir,
-            &mooncakes_dir,
             single_file.as_deref(),
-            &project_manifest,
             Some(t),
             output,
         )
@@ -246,13 +218,9 @@ pub(crate) fn run_check(
 fn run_check_internal(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
+    dirs: &PackageDirs,
     watch_ignored_subtree: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
     single_file: Option<&Path>,
-    project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
@@ -261,10 +229,7 @@ fn run_check_internal(
             cli,
             cmd,
             single_file_path,
-            source_dir,
-            target_dir,
-            mooncake_bin_dir,
-            mooncakes_dir,
+            dirs,
             selected_target_backend,
             output,
         )
@@ -272,12 +237,8 @@ fn run_check_internal(
         run_check_normal_internal(
             cli,
             cmd,
-            source_dir,
-            target_dir,
+            dirs,
             watch_ignored_subtree,
-            mooncake_bin_dir,
-            mooncakes_dir,
-            project_manifest,
             selected_target_backend,
             output,
         )
@@ -289,14 +250,17 @@ fn run_check_for_single_file_rr(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
     single_file_path: &Path,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
+    dirs: &PackageDirs,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        mooncake_bin_dir,
+        ..
+    } = dirs;
     if cmd.patch_file.is_some() {
         anyhow::bail!("standalone single-file `moon check` does not support `--patch-file`");
     }
@@ -312,10 +276,7 @@ fn run_check_for_single_file_rr(
     );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
-        source_dir,
-        target_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
+        dirs,
         single_file_path,
         false,
         user_log,
@@ -418,31 +379,16 @@ fn get_user_intents_single_file(
 fn run_check_normal_internal(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
+    dirs: &PackageDirs,
     watch_ignored_subtree: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let run_once = || -> anyhow::Result<WatchOutput> {
-        run_check_normal_internal_rr(
-            cli,
-            cmd,
-            source_dir,
-            target_dir,
-            mooncake_bin_dir,
-            mooncakes_dir,
-            project_manifest,
-            cmd.watch,
-            selected_target_backend,
-            output,
-        )
+        run_check_normal_internal_rr(cli, cmd, dirs, cmd.watch, selected_target_backend, output)
     };
     if cmd.watch {
-        watching(run_once, source_dir, watch_ignored_subtree)
+        watching(run_once, &dirs.source_dir, watch_ignored_subtree)
     } else {
         run_once().map(|output| if output.ok { 0 } else { 1 })
     }
@@ -453,16 +399,18 @@ fn run_check_normal_internal(
 fn run_check_normal_internal_rr(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncake_bin_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        mooncake_bin_dir,
+        ..
+    } = dirs;
     std::fs::create_dir_all(target_dir).with_context(|| {
         format!(
             "Failed to create target directory: '{}'",
@@ -476,14 +424,8 @@ fn run_check_normal_internal_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        source_dir,
-        mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-    )
-    .context("Failed to calculate build plan")?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs)
+        .context("Failed to calculate build plan")?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)
             .context("Failed to calculate build plan")?;

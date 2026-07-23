@@ -118,16 +118,16 @@ fn run_cram_test(
         return Ok(process::delegate(&mut command)?.code().unwrap_or(0));
     }
 
+    let dirs = cli
+        .source_tgt_dir
+        .query(cli.workspace_env.clone())?
+        .package_dirs()?;
     let PackageDirs {
         source_dir,
         target_dir,
         mooncake_bin_dir,
-        mooncakes_dir,
-        project_manifest,
-    } = cli
-        .source_tgt_dir
-        .query(cli.workspace_env.clone())?
-        .package_dirs()?;
+        ..
+    } = &dirs;
 
     let build_cmd = BuildSubcommand {
         path: Vec::new(),
@@ -143,28 +143,22 @@ fn run_cram_test(
         build_cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        &source_dir,
-        &mooncake_bin_dir,
-        &mooncakes_dir,
-        &project_manifest,
-    )?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
     let planned_runs = crate::cli::plan_build_rr_from_resolved_all(
         cli,
         &build_cmd,
-        &source_dir,
-        &target_dir,
-        &mooncake_bin_dir,
+        source_dir,
+        target_dir,
+        mooncake_bin_dir,
         Some(TargetBackend::Native),
         resolve_output,
         user_log,
     )?;
 
-    let executable_dirs = collect_executable_dirs(&planned_runs, &source_dir);
+    let executable_dirs = collect_executable_dirs(&planned_runs, source_dir);
     if cli.dry_run {
         output.write_result(|writer| {
             for (build_meta, build_graph) in &planned_runs {
@@ -172,8 +166,8 @@ fn run_cram_test(
                     writer,
                     build_graph,
                     build_meta.artifacts.values(),
-                    &source_dir,
-                    &target_dir,
+                    source_dir,
+                    target_dir,
                 )?;
             }
             write_dry_run_cram_command(
@@ -181,17 +175,17 @@ fn run_cram_test(
                 &moon_cram,
                 &parsed.cram_args,
                 &executable_dirs,
-                &source_dir,
+                source_dir,
             )
         })?;
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(&target_dir)?;
+    let _lock = FileLock::lock(target_dir)?;
     let cfg = BuildConfig::from_flags(&build_cmd.build_flags, &cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
         rr_build::generate_all_pkgs_json(&build_meta)?;
-        let result = rr_build::execute_build(&cfg, build_graph, &target_dir, user_log)?;
+        let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
         result.print_info(cli.quiet, "building")?;
         if !result.successful() {
             return Ok(result.return_code_for_success());
