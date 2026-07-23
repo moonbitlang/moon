@@ -31,6 +31,7 @@ use moonutil::{
     locks::FileLock,
     project::PackageDirs,
     target::{SurfaceTarget, TargetBackend},
+    user_log::UserLog,
 };
 use tracing::instrument;
 
@@ -87,15 +88,23 @@ struct ParsedCramArgs {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_cram(cli: &UniversalFlags, cmd: CramSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_cram(
+    cli: &UniversalFlags,
+    cmd: CramSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     match cmd.command {
-        Some(CramCommand::Test(cmd)) => run_cram_test(cli, cmd),
+        Some(CramCommand::Test(cmd)) => run_cram_test(cli, cmd, user_log),
         Some(CramCommand::External(args)) => delegate_moon_cram(args),
         None => delegate_moon_cram(Vec::new()),
     }
 }
 
-fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Result<i32> {
+fn run_cram_test(
+    cli: &UniversalFlags,
+    cmd: CramTestSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let parsed = cram_args(cmd);
     let moon_cram = if cli.dry_run {
         moonutil::toolchain::BINARIES.moon_cram.clone()
@@ -149,6 +158,7 @@ fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Resul
         &mooncake_bin_dir,
         Some(TargetBackend::Native),
         resolve_output,
+        user_log,
     )?;
 
     let executable_dirs = collect_executable_dirs(&planned_runs, &source_dir);
@@ -170,7 +180,7 @@ fn run_cram_test(cli: &UniversalFlags, cmd: CramTestSubcommand) -> anyhow::Resul
         &build_cmd.build_flags,
         &cli.unstable_feature,
         cli.verbose,
-        UserDiagnostics::from_flags(cli),
+        UserDiagnostics::from_user_log(user_log),
     );
     for (build_meta, build_graph) in planned_runs {
         rr_build::generate_all_pkgs_json(&build_meta)?;

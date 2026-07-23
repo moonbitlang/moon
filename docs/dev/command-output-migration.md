@@ -1,6 +1,6 @@
 # Command Output Migration
 
-Status: accepted; CO-1 complete, including review follow-up
+Status: accepted; CO-1 and CO-2 complete, including review follow-up
 
 ## Goal
 
@@ -56,16 +56,23 @@ Blocks: CO-2, CO-3
 - Unit-test `UserLog` filtering and destination-controlled ANSI rendering.
 - Done when `moon info` contains no direct stdout macro or handle access and its existing output remains compatible.
 
-### CO-2: Establish command-level construction
+### CO-2: Broaden `UserLog` through package selection
+
+Status: complete
 
 Blocked by: CO-1
 
 Blocks: CO-4, CO-5
 
-- Construct one `CommandOutput` after universal flags and workspace setup are known.
-- Pass references through command dispatch without migrating all commands in the same change.
+- Move the shared package-selection logging seam from `UserDiagnostics` to `UserLog`.
+- Cover its consumers in build, check, test, format, info, and binary-dependency commands.
+- Render package-selection informational messages as bare `UserLog` lines while preserving
+  verbosity filtering and warning labels.
+- Construct one `CommandOutput` after universal flags and workspace setup are known so migrated
+  commands can receive the command-owned log without reconstructing its policy.
 - Keep early argument/help and pre-dispatch failures on explicit bootstrap output paths.
-- Done when a command can receive one output context without reconstructing log policy in nested functions.
+- Done when package selection no longer depends on `UserDiagnostics`, and a non-`info` public
+  command test pins the shared filtering and formatting policy.
 
 ### CO-3: Migrate self-contained result commands
 

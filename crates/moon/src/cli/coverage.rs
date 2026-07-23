@@ -22,7 +22,7 @@ use std::{ffi::OsStr, path::Path};
 
 use anyhow::Context;
 use clap::Parser;
-use moonutil::project::PackageDirs;
+use moonutil::{project::PackageDirs, user_log::UserLog};
 use walkdir::WalkDir;
 
 use super::{TestSubcommand, UniversalFlags, run_test};
@@ -94,13 +94,12 @@ fn run_coverage_analyze(
     test_args.extend(args.test_flag);
     let mut test_flags = TestSubcommand::try_parse_from(test_args)?;
     test_flags.build_flags.enable_coverage = true;
-    run_test(
-        UniversalFlags {
-            quiet: true, // Disable output for `moon test` on success
-            ..cli.clone()
-        },
-        test_flags,
-    )?;
+    let test_cli = UniversalFlags {
+        quiet: true, // Disable output for `moon test` on success
+        ..cli.clone()
+    };
+    let test_user_log = UserLog::new(test_cli.user_log_level());
+    run_test(test_cli, test_flags, &test_user_log)?;
 
     let mut report_flags = CoverageReportSubcommand::default();
     report_flags.args.push("-f=simp_caret".into());

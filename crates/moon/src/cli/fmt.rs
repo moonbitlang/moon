@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::fmt::FmtConfig;
-use moonutil::project::PackageDirs;
+use moonutil::{project::PackageDirs, user_log::UserLog};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
@@ -52,11 +52,15 @@ pub(crate) struct FmtSubcommand {
     pub args: Vec<String>,
 }
 
-pub(crate) fn run_fmt(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
-    run_fmt_rr(cli, cmd)
+pub(crate) fn run_fmt(
+    cli: &UniversalFlags,
+    cmd: FmtSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    run_fmt_rr(cli, cmd, user_log)
 }
 
-fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
+fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand, user_log: &UserLog) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -67,13 +71,13 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand) -> anyhow::Result<i32> {
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
 
-    let output = UserDiagnostics::from_flags(cli);
+    let output = UserDiagnostics::from_user_log(user_log);
     let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir, &project_manifest)
         .context("Failed to resolve environment")?;
 
     let mut selected_packages = Vec::new();
 
-    for (_, pkg_id) in select_packages(&cmd.path, output, |dir| {
+    for (_, pkg_id) in select_packages(&cmd.path, user_log, |dir| {
         filter_pkg_by_dir_for_fmt(&resolved, dir)
     })? {
         selected_packages.push(pkg_id);

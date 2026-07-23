@@ -25,6 +25,7 @@ use moonutil::locks::FileLock;
 use moonutil::project::{PackageDirs, ProjectManifest};
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
+use moonutil::user_log::UserLog;
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
@@ -81,7 +82,11 @@ pub(crate) struct BuildSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_build(
+    cli: &UniversalFlags,
+    cmd: BuildSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -101,6 +106,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
             &mooncakes_dir,
             &project_manifest,
             None,
+            user_log,
         );
     }
     let surface_targets = cmd.build_flags.target.clone();
@@ -116,6 +122,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
             &mooncakes_dir,
             &project_manifest,
             Some(t),
+            user_log,
         )
         .context(format!("failed to run build for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -124,6 +131,7 @@ pub(crate) fn run_build(cli: &UniversalFlags, cmd: BuildSubcommand) -> anyhow::R
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 fn run_build_internal(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -132,6 +140,7 @@ fn run_build_internal(
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let f = |watch: bool| {
         run_build_rr(
@@ -143,6 +152,7 @@ fn run_build_internal(
             project_manifest,
             watch,
             selected_target_backend,
+            user_log,
         )
     };
 
@@ -167,6 +177,7 @@ fn run_build_rr(
     project_manifest: &ProjectManifest,
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<WatchOutput> {
     std::fs::create_dir_all(target_dir).with_context(|| {
         format!(
@@ -205,6 +216,7 @@ fn run_build_rr(
         &mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
+        user_log,
     )?;
 
     let ok = if cli.dry_run {
@@ -223,7 +235,7 @@ fn run_build_rr(
             &cmd.build_flags,
             &cli.unstable_feature,
             cli.verbose,
-            UserDiagnostics::from_flags(cli),
+            UserDiagnostics::from_user_log(user_log),
         );
         let mut ok = true;
         for (build_meta, build_graph) in planned_runs {
@@ -248,6 +260,7 @@ pub(crate) fn plan_build_rr_from_resolved(
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
@@ -258,7 +271,7 @@ pub(crate) fn plan_build_rr_from_resolved(
         RunMode::Build,
     );
 
-    let output = UserDiagnostics::from_flags(cli);
+    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
@@ -271,7 +284,7 @@ pub(crate) fn plan_build_rr_from_resolved(
         cmd.package.as_deref(),
         &resolve_output,
         planning_context.target_backend(),
-        output,
+        user_log,
     )?;
     rr_build::plan_resolved_build_from_intent(
         preconfig,
@@ -284,6 +297,7 @@ pub(crate) fn plan_build_rr_from_resolved(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn plan_build_rr_from_resolved_with_scope(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -292,6 +306,7 @@ fn plan_build_rr_from_resolved_with_scope(
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     scoped_packages: Vec<PackageId>,
+    user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
@@ -302,7 +317,7 @@ fn plan_build_rr_from_resolved_with_scope(
         RunMode::Build,
     );
 
-    let output = UserDiagnostics::from_flags(cli);
+    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
@@ -327,6 +342,7 @@ fn plan_build_rr_from_resolved_with_scope(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn plan_build_rr_from_selection(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -335,6 +351,7 @@ fn plan_build_rr_from_selection(
     target_backend: TargetBackend,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
     selection: ResolvedBuildSelection,
+    user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
@@ -345,7 +362,7 @@ fn plan_build_rr_from_selection(
         RunMode::Build,
     );
 
-    let output = UserDiagnostics::from_flags(cli);
+    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
@@ -365,6 +382,7 @@ fn plan_build_rr_from_selection(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_build_rr_from_resolved_all(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
@@ -373,6 +391,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<(rr_build::BuildMeta, rr_build::BuildInput)>> {
     if let Some(target_backend) = selected_target_backend {
         if has_explicit_build_selector(cmd) {
@@ -380,7 +399,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
                 &resolve_output,
                 cmd,
                 Some(target_backend),
-                UserDiagnostics::from_flags(cli),
+                user_log,
             )?;
             if packages.is_empty() {
                 return Ok(Vec::new());
@@ -394,6 +413,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
                 target_backend,
                 resolve_output,
                 ResolvedBuildSelection { packages },
+                user_log,
             )
             .map(|plan| vec![plan]);
         }
@@ -405,16 +425,12 @@ pub(crate) fn plan_build_rr_from_resolved_all(
             mooncake_bin_dir,
             Some(target_backend),
             resolve_output,
+            user_log,
         )
         .map(|plan| vec![plan]);
     }
 
-    let selections = resolve_build_target_selections(
-        &resolve_output,
-        cmd,
-        None,
-        UserDiagnostics::from_flags(cli),
-    )?;
+    let selections = resolve_build_target_selections(&resolve_output, cmd, None, user_log)?;
 
     if has_explicit_build_selector(cmd) {
         return selections
@@ -434,6 +450,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
                     ResolvedBuildSelection {
                         packages: selection.packages,
                     },
+                    user_log,
                 )
             })
             .collect();
@@ -447,6 +464,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
             mooncake_bin_dir,
             None,
             resolve_output,
+            user_log,
         )
         .map(|plan| vec![plan]);
     }
@@ -462,6 +480,7 @@ pub(crate) fn plan_build_rr_from_resolved_all(
                 selection.target_backend,
                 resolve_output.clone(),
                 selection.packages,
+                user_log,
             )
         })
         .collect()
@@ -475,11 +494,11 @@ fn resolve_build_target_selections(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     cmd: &BuildSubcommand,
     selected_target_backend: Option<TargetBackend>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<TargetPackageGroup>> {
     if let Some(target_backend) = selected_target_backend {
         let packages =
-            resolve_selected_build_packages(resolve_output, cmd, Some(target_backend), output)?;
+            resolve_selected_build_packages(resolve_output, cmd, Some(target_backend), user_log)?;
         if packages.is_empty() {
             return Ok(Vec::new());
         }
@@ -489,7 +508,7 @@ fn resolve_build_target_selections(
         }]);
     }
 
-    let selected = resolve_selected_build_packages(resolve_output, cmd, None, output)?;
+    let selected = resolve_selected_build_packages(resolve_output, cmd, None, user_log)?;
     let mut selections = group_packages_by_preferred_backend(resolve_output, selected);
 
     for selection in &mut selections {
@@ -509,13 +528,13 @@ fn resolve_selected_build_packages(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     cmd: &BuildSubcommand,
     target_backend: Option<TargetBackend>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     if !cmd.path.is_empty() {
         if let Some(target_backend) = target_backend {
-            return select_supported_packages(resolve_output, &cmd.path, target_backend, output);
+            return select_supported_packages(resolve_output, &cmd.path, target_backend, user_log);
         }
-        return Ok(select_packages(&cmd.path, output, |dir| {
+        return Ok(select_packages(&cmd.path, user_log, |dir| {
             filter_pkg_by_dir(resolve_output, dir)
         })?
         .into_iter()
@@ -528,7 +547,7 @@ fn resolve_selected_build_packages(
             resolve_output,
             resolve_output.local_modules(),
             package_filter,
-            output,
+            user_log,
         );
         if let Some(target_backend) = target_backend {
             ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
@@ -553,11 +572,11 @@ fn calc_user_intent(
     package_filter: Option<&str>,
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     target_backend: TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     if !path_filters.is_empty() {
         let selected =
-            select_supported_packages(resolve_output, path_filters, target_backend, output)?;
+            select_supported_packages(resolve_output, path_filters, target_backend, user_log)?;
         Ok(selected
             .into_iter()
             .map(UserIntent::Build)
@@ -568,7 +587,7 @@ fn calc_user_intent(
             resolve_output,
             resolve_output.local_modules(),
             package_filter,
-            output,
+            user_log,
         );
         ensure_packages_support_backend(resolve_output, pkgs.iter().copied(), target_backend)?;
         Ok(pkgs

@@ -31,9 +31,8 @@ use moonutil::resolution::{DirSyncResult, ResolvedEnv};
 use moonutil::{
     constants::{MOON_PKG, MOON_PKG_JSON, is_moon_pkg_exist},
     target::TargetBackend,
+    user_log::UserLog,
 };
-
-use crate::user_diagnostics::UserDiagnostics;
 
 /// Canonicalize the given path, returning the directory it's referencing, and
 /// an optional filename if the path is a file.
@@ -73,7 +72,7 @@ pub(crate) fn canonicalize_with_filename(path: &Path) -> anyhow::Result<(PathBuf
 
 pub(crate) fn select_packages<I, F>(
     paths: I,
-    output: UserDiagnostics,
+    user_log: &UserLog,
     mut filter_pkg_by_dir: F,
 ) -> anyhow::Result<Vec<(PathBuf, PackageId)>>
 where
@@ -88,7 +87,7 @@ where
         let path = path.as_ref();
         let (dir, _) = canonicalize_with_filename(path)?;
         let Ok(pkg_id) = filter_pkg_by_dir(&dir) else {
-            output.info(format!(
+            user_log.info(format!(
                 "skipping path `{}` because it is not a package in the current work context.",
                 path.display()
             ));
@@ -140,7 +139,7 @@ pub(crate) fn match_packages_by_name_rr(
     resolve_output: &ResolveOutput,
     main_modules: &[moonutil::resolution::ModuleId],
     needle: &str,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Vec<PackageId> {
     let &[main_module_id] = main_modules else {
         panic!("No multiple main modules are supported");
@@ -152,7 +151,7 @@ pub(crate) fn match_packages_by_name_rr(
     for &pkg_id in &res {
         let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
         if pkg.module != main_module_id {
-            output.warn(format!(
+            user_log.warn(format!(
                 "Package '{}' matched by name '{}' is not in the main module, it may not be accessible.",
                 pkg.fqn,
                 needle
@@ -417,7 +416,7 @@ pub(crate) fn select_supported_packages<I>(
     resolve_output: &ResolveOutput,
     paths: I,
     target_backend: TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>>
 where
     I: IntoIterator,
@@ -426,9 +425,9 @@ where
     let mut selected = Vec::new();
     let mut unsupported = Vec::new();
 
-    for (path, pkg_id) in
-        select_packages(paths, output, |dir| filter_pkg_by_dir(resolve_output, dir))?
-    {
+    for (path, pkg_id) in select_packages(paths, user_log, |dir| {
+        filter_pkg_by_dir(resolve_output, dir)
+    })? {
         if package_supports_backend(resolve_output, pkg_id, target_backend) {
             selected.push(pkg_id);
         } else {
@@ -450,7 +449,7 @@ where
 
     for (path, pkg_id) in &unsupported {
         let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
-        output.info(format!(
+        user_log.info(format!(
             "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
             path.display(),
             pkg.fqn,
@@ -559,12 +558,13 @@ pub(crate) fn filter_pkg_by_dir_for_fmt(
 #[cfg(test)]
 mod tests {
     use super::select_supported_packages;
-    use crate::user_diagnostics::UserDiagnostics;
+    use log::LevelFilter;
     use moonbuild_rupes_recta::ResolveConfig;
     use moonutil::{
         constants::{MOON_MOD_JSON, MOON_PKG_JSON, MOON_WORK},
         project::{SourceTargetDirs, WorkspaceEnv},
         target::TargetBackend,
+        user_log::UserLog,
     };
     use std::path::{Path, PathBuf};
 
@@ -626,7 +626,7 @@ mod tests {
                 &resolved,
                 [&dangling_pkg],
                 TargetBackend::default(),
-                UserDiagnostics::default(),
+                &UserLog::new(LevelFilter::Warn),
             )
             .unwrap(),
             vec![]
@@ -662,7 +662,7 @@ mod tests {
             &resolved,
             [&external_pkg],
             TargetBackend::default(),
-            UserDiagnostics::default(),
+            &UserLog::new(LevelFilter::Warn),
         )
         .unwrap();
 

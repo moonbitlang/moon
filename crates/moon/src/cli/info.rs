@@ -124,10 +124,9 @@ impl PackageSelection {
         }
 
         if !cmd.path.is_empty() {
-            let path_packages =
-                select_packages(&cmd.path, UserDiagnostics::from_user_log(user_log), |dir| {
-                    filter_pkg_by_dir(resolve_output, dir)
-                })?;
+            let path_packages = select_packages(&cmd.path, user_log, |dir| {
+                filter_pkg_by_dir(resolve_output, dir)
+            })?;
             let package_ids = path_packages.iter().map(|(_, pkg_id)| *pkg_id).collect();
             return Ok(Self {
                 mode: SelectionMode::Paths,
@@ -266,8 +265,11 @@ fn calc_user_intent_for_info(
     Ok(intents.into())
 }
 
-pub(crate) fn run_info(cli: UniversalFlags, cmd: InfoSubcommand) -> anyhow::Result<i32> {
-    let output = CommandOutput::new(cli.user_log_level());
+pub(crate) fn run_info(
+    cli: UniversalFlags,
+    cmd: InfoSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     if cmd.no_alias {
         output.user_log().warn(
             "`--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092",

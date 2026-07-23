@@ -27,6 +27,7 @@ use moonutil::{
     constants::BUILD_DIR,
     project::{ProjectManifest, SourceTargetDirs, WorkspaceEnv},
     target::TargetBackend,
+    user_log::UserLog,
 };
 
 use crate::cli::{
@@ -123,6 +124,7 @@ impl PlanningFixture {
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
+            &UserLog::new(cli.user_log_level()),
         )?;
         self.dump_plan(PlannedGraph::new(build_meta, build_graph))
     }
@@ -149,6 +151,7 @@ impl PlanningFixture {
             &self.mooncake_bin_dir,
             selected_target_backend,
             self.resolve_output.clone(),
+            &UserLog::new(cli.user_log_level()),
         )
         .map(|plans| {
             plans
@@ -171,6 +174,7 @@ impl PlanningFixture {
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
+            &UserLog::new(cli.user_log_level()),
         )?;
         self.dump_plan(PlannedGraph::new(build_meta, build_graph))
     }
@@ -188,6 +192,7 @@ impl PlanningFixture {
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
+            &UserLog::new(cli.user_log_level()),
         )
         .map(|plans| {
             plans
@@ -217,6 +222,7 @@ impl PlanningFixture {
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
+            &UserLog::new(cli.user_log_level()),
         )?;
         Ok(PlannedGraph::new(build_meta, build_graph))
     }
@@ -243,6 +249,7 @@ impl PlanningFixture {
             &self.mooncake_bin_dir,
             selected_target_backend,
             self.resolve_output.clone(),
+            &UserLog::new(cli.user_log_level()),
         )
         .map(|plans| {
             plans
@@ -282,6 +289,7 @@ impl PlanningFixture {
             &self.mooncake_bin_dir,
             cmd.build_flags.resolve_single_target_backend()?,
             self.resolve_output.clone(),
+            &UserLog::new(cli.user_log_level()),
         )?;
         self.dump_plan(PlannedGraph::new(build_meta, build_graph))
     }
@@ -308,6 +316,7 @@ impl PlanningFixture {
             &self.mooncake_bin_dir,
             selected_target_backend,
             self.resolve_output.clone(),
+            &UserLog::new(cli.user_log_level()),
         )
         .map(|plans| {
             plans
