@@ -36,6 +36,7 @@ use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::cli_support::UniversalFlags;
+use moonutil::command_output::CommandOutput;
 use moonutil::constants::WATCH_MODE_DIR;
 use moonutil::locks::FileLock;
 use moonutil::project::{ProjectManifest, ProjectProbe};
@@ -131,12 +132,13 @@ pub(crate) struct CheckSubcommand {
 pub(crate) fn run_check(
     cli: &UniversalFlags,
     cmd: &CheckSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;
-        let fmt_user_log = UserLog::new(LevelFilter::Error);
+        let fmt_output = CommandOutput::new(LevelFilter::Error);
         let fmt_exit_code = crate::cli::fmt::run_fmt(
             &cli_for_fmt,
             crate::cli::FmtSubcommand {
@@ -146,7 +148,7 @@ pub(crate) fn run_check(
                 path: cmd.path.clone(),
                 args: vec![],
             },
-            &fmt_user_log,
+            &fmt_output,
         )?;
         if fmt_exit_code != 0 {
             user_log.warn("formatting code failed");
@@ -201,7 +203,7 @@ pub(crate) fn run_check(
             single_file,
             &project_manifest,
             None,
-            user_log,
+            output,
         );
     }
 
@@ -218,7 +220,7 @@ pub(crate) fn run_check(
             single_file,
             &project_manifest,
             Some(t),
-            user_log,
+            output,
         )
         .context(format!("failed to run check for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -237,7 +239,7 @@ fn run_check_internal(
     single_file: bool,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     if single_file {
         run_check_for_single_file(
@@ -247,7 +249,7 @@ fn run_check_internal(
             target_dir,
             mooncakes_dir,
             selected_target_backend,
-            user_log,
+            output,
         )
     } else {
         run_check_normal_internal(
@@ -258,7 +260,7 @@ fn run_check_internal(
             mooncakes_dir,
             project_manifest,
             selected_target_backend,
-            user_log,
+            output,
         )
     }
 }
@@ -270,7 +272,7 @@ fn run_check_for_single_file(
     target_dir: &Path,
     mooncakes_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     run_check_for_single_file_rr(
         cli,
@@ -279,7 +281,7 @@ fn run_check_for_single_file(
         target_dir,
         mooncakes_dir,
         selected_target_backend,
-        user_log,
+        output,
     )
 }
 
@@ -290,8 +292,9 @@ fn run_check_for_single_file_rr(
     target_dir: &Path,
     mooncakes_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     if cmd.patch_file.is_some() {
         anyhow::bail!("standalone single-file `moon check` does not support `--patch-file`");
     }
@@ -353,12 +356,15 @@ fn run_check_for_single_file_rr(
     .context("Failed to calculate build plan")?;
 
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
+        output.write_result(|writer| {
+            rr_build::write_dry_run(
+                writer,
+                &build_graph,
+                build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            )
+        })?;
         return Ok(0);
     }
 
@@ -420,7 +426,7 @@ fn run_check_normal_internal(
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let run_once = |watch: bool, target_dir: &Path| -> anyhow::Result<WatchOutput> {
         run_check_normal_internal_rr(
@@ -432,7 +438,7 @@ fn run_check_normal_internal(
             project_manifest,
             watch,
             selected_target_backend,
-            user_log,
+            output,
         )
     };
     if cmd.watch {
@@ -455,8 +461,9 @@ fn run_check_normal_internal_rr(
     project_manifest: &ProjectManifest,
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
+    let user_log = output.user_log();
     std::fs::create_dir_all(target_dir).with_context(|| {
         format!(
             "Failed to create target directory: '{}'",
@@ -502,14 +509,18 @@ fn run_check_normal_internal_rr(
     .context("Failed to calculate build plan")?;
 
     let ok = if cli.dry_run {
-        for (build_meta, build_graph) in planned_runs {
-            rr_build::print_dry_run(
-                &build_graph,
-                build_meta.artifacts.values(),
-                source_dir,
-                target_dir,
-            );
-        }
+        output.write_result(|writer| {
+            for (build_meta, build_graph) in planned_runs {
+                rr_build::write_dry_run(
+                    writer,
+                    &build_graph,
+                    build_meta.artifacts.values(),
+                    source_dir,
+                    target_dir,
+                )?;
+            }
+            Ok::<_, std::io::Error>(())
+        })?;
         true
     } else {
         let _lock = FileLock::lock(target_dir).with_context(|| {

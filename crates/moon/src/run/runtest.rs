@@ -151,6 +151,7 @@ pub(crate) fn run_tests(
     verbose: bool,
     no_parallelize: bool,
     parallelism: Option<usize>,
+    user_log: &moonutil::user_log::UserLog,
 ) -> anyhow::Result<ReplaceableTestResults> {
     let invocations = collect_test_invocations(build_meta, filter, include_skipped, bench)?;
     debug!(count = invocations.len(), "collected test invocations");
@@ -174,6 +175,7 @@ pub(crate) fn run_tests(
             source_dir,
             target_dir,
             verbose,
+            user_log,
         };
         for r in invocations {
             debug!(target = ?r.target, executable = %r.executable.display(), "running test invocation");
@@ -210,6 +212,7 @@ pub(crate) fn run_tests(
                         source_dir,
                         target_dir,
                         verbose,
+                        user_log,
                     };
 
                     loop {
@@ -276,6 +279,8 @@ struct TestRunCtx<'a> {
     target_dir: &'a Path,
     /// Enable verbose printing
     verbose: bool,
+    /// User-facing verbose command output.
+    user_log: &'a moonutil::user_log::UserLog,
 }
 
 /// A container of test results corresponding to each test artifact, and
@@ -769,7 +774,10 @@ fn run_one_test_executable(
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     if ctx.verbose {
-        crate::rr_build::dry_print_command(cmd.as_std(), ctx.source_dir, true);
+        ctx.user_log.info(crate::rr_build::format_dry_run_command(
+            cmd.as_std(),
+            ctx.source_dir,
+        ));
     }
     info!(package = %test.args.package, executable = %test.executable.display(), "launching test executable");
 

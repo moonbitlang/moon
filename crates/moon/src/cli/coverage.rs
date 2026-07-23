@@ -18,11 +18,11 @@
 
 //! CLI and utilities related to code coverage.
 
-use std::{ffi::OsStr, path::Path};
+use std::{ffi::OsStr, io::Write, path::Path};
 
 use anyhow::Context;
 use clap::Parser;
-use moonutil::{project::PackageDirs, user_log::UserLog};
+use moonutil::{command_output::CommandOutput, project::PackageDirs};
 use walkdir::WalkDir;
 
 use super::{TestSubcommand, UniversalFlags, run_test};
@@ -75,10 +75,14 @@ pub(crate) struct CoverageAnalyzeSubcommand {
     extra_flags: Vec<String>,
 }
 
-pub(crate) fn run_coverage(cli: UniversalFlags, cmd: CoverageSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_coverage(
+    cli: UniversalFlags,
+    cmd: CoverageSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     let res = match cmd.cmd {
-        CoverageSubcommands::Analyze(args) => run_coverage_analyze(cli, args),
-        CoverageSubcommands::Report(args) => run_coverage_report(cli, args),
+        CoverageSubcommands::Analyze(args) => run_coverage_analyze(cli, args, output),
+        CoverageSubcommands::Report(args) => run_coverage_report(cli, args, output),
         CoverageSubcommands::Clean => run_coverage_clean(cli),
     };
     res.context("Unable to run coverage command")
@@ -87,6 +91,7 @@ pub(crate) fn run_coverage(cli: UniversalFlags, cmd: CoverageSubcommand) -> anyh
 fn run_coverage_analyze(
     cli: UniversalFlags,
     args: CoverageAnalyzeSubcommand,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     run_coverage_clean(cli.clone())?;
 
@@ -98,8 +103,8 @@ fn run_coverage_analyze(
         quiet: true, // Disable output for `moon test` on success
         ..cli.clone()
     };
-    let test_user_log = UserLog::new(test_cli.user_log_level());
-    run_test(test_cli, test_flags, &test_user_log)?;
+    let test_output = CommandOutput::new(test_cli.user_log_level());
+    run_test(test_cli, test_flags, &test_output)?;
 
     let mut report_flags = CoverageReportSubcommand::default();
     report_flags.args.push("-f=simp_caret".into());
@@ -107,7 +112,7 @@ fn run_coverage_analyze(
         report_flags.args.push(format!("-p={package}"));
     }
     report_flags.args.extend(args.extra_flags);
-    run_coverage_report(cli, report_flags)
+    run_coverage_report(cli, report_flags, output)
 }
 
 fn run_coverage_clean(cli: UniversalFlags) -> Result<i32, anyhow::Error> {
@@ -123,14 +128,18 @@ fn run_coverage_clean(cli: UniversalFlags) -> Result<i32, anyhow::Error> {
     Ok(0)
 }
 
-fn run_coverage_report(cli: UniversalFlags, args: CoverageReportSubcommand) -> anyhow::Result<i32> {
+fn run_coverage_report(
+    cli: UniversalFlags,
+    args: CoverageReportSubcommand,
+    output: &CommandOutput,
+) -> anyhow::Result<i32> {
     // if help is requested, delegate to the external command
     if args.help {
-        return run_coverage_report_command(
+        return coverage_report_command(
             std::iter::once("--help"),
             &std::env::current_dir().unwrap_or(".".into()),
-            false,
         )
+        .status()
         .context("Unable to get help from coverage utility")?
         .code()
         .ok_or_else(|| anyhow::anyhow!("Unable to get exit code"));
@@ -145,8 +154,14 @@ fn run_coverage_report(cli: UniversalFlags, args: CoverageReportSubcommand) -> a
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
 
-    let res = run_coverage_report_command(args.args, &src, cli.dry_run);
-    res.context("Unable to run coverage report")?
+    let mut command = coverage_report_command(args.args, &src);
+    if cli.dry_run {
+        output.write_result(|writer| write_coverage_report_command(writer, &command, &src))?;
+        return Ok(0);
+    }
+    command
+        .status()
+        .context("Unable to run coverage report")?
         .code()
         .ok_or_else(|| anyhow::anyhow!("Coverage report command exited without a status code"))
 }
@@ -164,21 +179,24 @@ fn clean_coverage_artifacts(_src: &Path, tgt: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn run_coverage_report_command(
+fn coverage_report_command(
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
     cwd: &Path,
-    dry_run: bool,
-) -> std::io::Result<std::process::ExitStatus> {
+) -> std::process::Command {
     let mut cmd = std::process::Command::new(&*moonutil::toolchain::BINARIES.moon_cove_report);
     cmd.current_dir(cwd);
     cmd.args(args);
-    if dry_run {
-        let args = std::iter::once(cmd.get_program())
-            .chain(cmd.get_args())
-            .map(|s| s.to_string_lossy().clone())
-            .collect::<Vec<_>>();
-        println!("(cd {} && {})", cwd.display(), args.join(" "));
-        return Ok(Default::default());
-    }
-    cmd.status()
+    cmd
+}
+
+fn write_coverage_report_command(
+    output: &mut dyn Write,
+    command: &std::process::Command,
+    cwd: &Path,
+) -> std::io::Result<()> {
+    let args = std::iter::once(command.get_program())
+        .chain(command.get_args())
+        .map(|s| s.to_string_lossy())
+        .collect::<Vec<_>>();
+    writeln!(output, "(cd {} && {})", cwd.display(), args.join(" "))
 }

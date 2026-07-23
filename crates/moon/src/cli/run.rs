@@ -24,6 +24,7 @@ use moonbuild_rupes_recta::{
 };
 use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::cli_support::AutoSyncFlags;
+use moonutil::command_output::CommandOutput;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::{
     build_options::{RunMode, TestArtifacts},
@@ -222,7 +223,7 @@ impl RunExecutable {
 fn run_stdin_source_as_single_file(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let mut source = String::new();
     std::io::stdin()
@@ -236,14 +237,14 @@ fn run_stdin_source_as_single_file(
         "stdin.mbtx",
         "stdin",
         BuildRunExecutableOptions::for_run(cli),
-        user_log,
+        output,
     )
 }
 
 fn run_inline_source_as_single_file(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let source = cmd
         .command
@@ -257,7 +258,7 @@ fn run_inline_source_as_single_file(
         "command.mbtx",
         "command",
         BuildRunExecutableOptions::for_run(cli),
-        user_log,
+        output,
     )
 }
 
@@ -268,7 +269,7 @@ fn run_source_as_single_file(
     temp_name: &str,
     source_name: &str,
     options: BuildRunExecutableOptions,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let temp_dir = tempfile::TempDir::new()
         .with_context(|| format!("failed to create temporary directory for {source_name} run"))?;
@@ -300,7 +301,7 @@ fn run_source_as_single_file(
         build_only,
         profile,
     };
-    let result = run_single_file_from_arg_with_options(cli, cmd, options, user_log);
+    let result = run_single_file_from_arg_with_options(cli, cmd, options, output);
     drop(temp_dir);
     result
 }
@@ -321,6 +322,7 @@ fn resolve_run_start_dir(input: &str) -> anyhow::Result<std::path::PathBuf> {
 fn build_wasm_file_executable_from_arg(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
+    output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let input = cmd
         .package_or_mbt_file
@@ -342,7 +344,8 @@ fn build_wasm_file_executable_from_arg(
             cmd.moonrun_policy.as_deref(),
         );
         run_cmd.args(&cmd.args);
-        rr_build::dry_print_command(run_cmd.as_std(), &print_dir, false);
+        let command = rr_build::format_dry_run_command(run_cmd.as_std(), &print_dir);
+        output.write_result(|writer| writeln!(writer, "{command}"))?;
     }
 
     Ok(RunExecutable {
@@ -361,18 +364,18 @@ fn build_wasm_file_executable_from_arg(
 pub(crate) fn run_run(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     if cmd.profile {
-        return super::profile::run_profiled_run(cli, cmd, user_log);
+        return super::profile::run_profiled_run(cli, cmd, output);
     }
 
     if cmd.command.is_some() {
-        return run_inline_source_as_single_file(cli, cmd, user_log);
+        return run_inline_source_as_single_file(cli, cmd, output);
     }
 
     if cmd.package_or_mbt_file.as_deref() == Some("-") {
-        return run_stdin_source_as_single_file(cli, cmd, user_log);
+        return run_stdin_source_as_single_file(cli, cmd, output);
     }
 
     let executable = if cmd.package_or_mbt_file.as_deref().is_some_and(|input| {
@@ -381,11 +384,11 @@ pub(crate) fn run_run(
             .is_some_and(|ext| ext == "wasm")
             && std::fs::metadata(input).is_ok_and(|metadata| metadata.is_file())
     }) {
-        build_wasm_file_executable_from_arg(cli, &cmd)?
+        build_wasm_file_executable_from_arg(cli, &cmd, output)?
     } else {
-        build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli), user_log)?
+        build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli), output)?
     };
-    let result = run_executable(cli, &cmd, executable);
+    let result = run_executable(cli, &cmd, executable, output);
     if crate::run::shutdown_requested() {
         return Ok(130);
     }
@@ -401,7 +404,7 @@ pub(crate) fn build_run_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     options: BuildRunExecutableOptions,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let input = cmd
         .package_or_mbt_file
@@ -412,7 +415,7 @@ pub(crate) fn build_run_executable(
         .is_some_and(|extension| extension == "wasm")
         && std::fs::metadata(input).is_ok_and(|metadata| metadata.is_file())
     {
-        return build_wasm_file_executable_from_arg(cli, cmd);
+        return build_wasm_file_executable_from_arg(cli, cmd, output);
     }
     let is_mbt = input.ends_with(".mbt");
     let is_mbtx = input.ends_with(".mbtx");
@@ -424,26 +427,26 @@ pub(crate) fn build_run_executable(
     match query.probe_project()? {
         ProjectProbe::Found(_) => {
             if is_mbtx {
-                return build_single_file_executable_from_arg(cli, cmd, options, user_log);
+                return build_single_file_executable_from_arg(cli, cmd, options, output);
             }
             if is_mbt {
                 let moon_pkg_json_exist =
                     std::fs::metadata(input)?.is_file() && is_moon_pkg_exist(&run_start_dir);
                 if !moon_pkg_json_exist {
-                    return build_single_file_executable_from_arg(cli, cmd, options, user_log);
+                    return build_single_file_executable_from_arg(cli, cmd, options, output);
                 }
             }
         }
         ProjectProbe::NotFound(not_found) => {
             if is_mbt || is_mbtx {
-                return build_single_file_executable_from_arg(cli, cmd, options, user_log);
+                return build_single_file_executable_from_arg(cli, cmd, options, output);
             }
             return Err(not_found.into_error().into());
         }
     }
 
     let selected_target_backend = cmd.build_flags.resolve_single_target_backend()?;
-    build_package_executable(cli, cmd, selected_target_backend, options, user_log)
+    build_package_executable(cli, cmd, selected_target_backend, options, output)
 }
 
 #[instrument(skip_all)]
@@ -454,8 +457,9 @@ fn build_package_executable(
     cmd: &RunSubcommand,
     selected_target_backend: Option<TargetBackend>,
     options: BuildRunExecutableOptions,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
+    let user_log = output.user_log();
     let run_start_dir = resolve_run_start_dir(
         cmd.package_or_mbt_file
             .as_deref()
@@ -508,7 +512,7 @@ fn build_package_executable(
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
         },
-        user_log,
+        output,
     )
 }
 
@@ -620,10 +624,10 @@ fn run_single_file_from_arg_with_options(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
     options: BuildRunExecutableOptions,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let executable = build_single_file_executable_from_arg(cli, &cmd, options, user_log)?;
-    run_executable(cli, &cmd, executable)
+    let executable = build_single_file_executable_from_arg(cli, &cmd, options, output)?;
+    run_executable(cli, &cmd, executable, output)
 }
 
 /// Build a standalone `.mbt`/`.mbtx` input through the synthesized single-file
@@ -632,7 +636,7 @@ fn build_single_file_executable_from_arg(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     options: BuildRunExecutableOptions,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let single_file_dirs = cli.source_tgt_dir.single_file_package_dirs(
         cmd.package_or_mbt_file
@@ -650,7 +654,7 @@ fn build_single_file_executable_from_arg(
         mooncakes_dir,
         single_file_dirs.file_path,
         options,
-        user_log,
+        output,
     )
 }
 
@@ -665,8 +669,9 @@ fn build_single_file_executable(
     mooncakes_dir: std::path::PathBuf,
     input_path: std::path::PathBuf,
     options: BuildRunExecutableOptions,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
+    let user_log = output.user_log();
     std::fs::create_dir_all(&target_dir).context("failed to create target directory")?;
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
@@ -741,7 +746,7 @@ fn build_single_file_executable(
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
         },
-        user_log,
+        output,
     )
 }
 
@@ -757,20 +762,29 @@ fn build_executable_from_plan(
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
     options: BuildExecutableFromPlanOptions,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> Result<RunExecutable, anyhow::Error> {
+    let user_log = output.user_log();
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
+        output.write_result(|writer| {
+            rr_build::write_dry_run(
+                writer,
+                &build_graph,
+                build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            )?;
 
-        if options.print_dry_run_run_command {
-            let run_cmd = get_run_cmd(build_meta, &cmd.args, cmd.moonrun_policy.as_deref());
-            rr_build::dry_print_command(run_cmd.as_std(), source_dir, false);
-        }
+            if options.print_dry_run_run_command {
+                let run_cmd = get_run_cmd(build_meta, &cmd.args, cmd.moonrun_policy.as_deref());
+                writeln!(
+                    writer,
+                    "{}",
+                    rr_build::format_dry_run_command(run_cmd.as_std(), source_dir)
+                )?;
+            }
+            Ok::<_, std::io::Error>(())
+        })?;
         return Ok(RunExecutable {
             executable: get_run_executable(build_meta).to_path_buf(),
             target_backend: build_meta.target_backend,
@@ -813,6 +827,7 @@ fn run_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     mut executable: RunExecutable,
+    output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     if cli.dry_run {
         return Ok(0);
@@ -834,7 +849,10 @@ fn run_executable(
     );
     run_cmd.args(&cmd.args);
     if cli.verbose {
-        rr_build::dry_print_command(run_cmd.as_std(), &executable.source_dir, true);
+        output.user_log().info(rr_build::format_dry_run_command(
+            run_cmd.as_std(),
+            &executable.source_dir,
+        ));
     }
 
     // Release the lock before spawning the subprocess

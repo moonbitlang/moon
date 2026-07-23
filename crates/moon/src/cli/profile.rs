@@ -20,6 +20,7 @@ use std::{
     collections::HashMap,
     ffi::OsStr,
     fs::File,
+    io::Write,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -29,9 +30,9 @@ use chrono::Local;
 use moonbuild_rupes_recta::model::RunBackend;
 use moonutil::{
     build_options::RunMode,
+    command_output::CommandOutput,
     cond_expr::OptLevel,
     target::{SurfaceTarget, TargetBackend},
-    user_log::UserLog,
 };
 use serde::Serialize;
 
@@ -267,7 +268,7 @@ pub(crate) struct ProfileRequest {
 pub(crate) fn run_profiled_run(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     ensure_profile_available(MOON_RUN_PROFILE_COMMAND)?;
 
@@ -278,20 +279,20 @@ pub(crate) fn run_profiled_run(
         bail!("{MOON_RUN_PROFILE_COMMAND} does not support stdin source");
     }
 
-    run_profile_materialized(cli, cmd, user_log)
+    run_profile_materialized(cli, cmd, output)
 }
 
 fn run_profile_materialized(
     cli: &UniversalFlags,
     cmd: RunSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let run_cmd = profile_run_subcommand(cmd.clone())?;
     let mut built = build_run_executable(
         cli,
         &run_cmd,
         BuildRunExecutableOptions::for_profile(cli),
-        user_log,
+        output,
     )?;
     built.ensure_build_success()?;
 
@@ -320,7 +321,7 @@ fn run_profile_materialized(
         output_dir,
     };
 
-    profile_executable(cli, request)?;
+    profile_executable(cli, request, output)?;
     Ok(0)
 }
 
@@ -328,8 +329,14 @@ fn run_profile_materialized(
 pub(crate) fn profile_executable(
     cli: &UniversalFlags,
     request: ProfileRequest,
+    output: &CommandOutput,
 ) -> anyhow::Result<()> {
-    let Some(captured) = capture_profile_executable(cli, request)? else {
+    let captured = if cli.dry_run {
+        output.write_result(|writer| capture_profile_executable(cli, request, Some(writer)))?
+    } else {
+        capture_profile_executable(cli, request, None)?
+    };
+    let Some(captured) = captured else {
         return Ok(());
     };
     let json_path = captured.output_dir.join("profile.json");
@@ -351,6 +358,7 @@ pub(crate) fn profile_executable(
 fn capture_profile_executable(
     cli: &UniversalFlags,
     request: ProfileRequest,
+    dry_run_output: Option<&mut dyn Write>,
 ) -> anyhow::Result<Option<CapturedProfile>> {
     let ProfileRequest {
         executable,
@@ -379,27 +387,30 @@ fn capture_profile_executable(
     let display_executable = display_executable.unwrap_or_else(|| executable.clone());
 
     if cli.dry_run {
+        let output = dry_run_output.context("dry-run profile output requires a writer")?;
         match profiler_backend {
             ProfileBackend::Xctrace => {
-                print_xctrace_record_command(
+                write_xctrace_record_command(
+                    output,
                     &trace_path,
                     &stdout_path,
                     &executable,
                     &args,
                     current_dir.as_deref(),
-                );
-                print_xctrace_export_command(&trace_path, &xml_path);
+                )?;
+                write_xctrace_export_command(output, &trace_path, &xml_path)?;
             }
             ProfileBackend::Perf => {
-                print_perf_record_command(
+                write_perf_record_command(
+                    output,
                     &trace_path,
                     &stdout_path,
                     &stderr_path,
                     &executable,
                     &args,
                     current_dir.as_deref(),
-                );
-                print_perf_script_command(&trace_path, &perf_script_path);
+                )?;
+                write_perf_script_command(output, &trace_path, &perf_script_path)?;
             }
         }
         return Ok(None);
@@ -516,6 +527,7 @@ pub(crate) fn profile_test_invocations(
     build_meta: &crate::rr_build::BuildMeta,
     filter: &crate::run::TestFilter,
     include_skipped: bool,
+    output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
 
@@ -535,25 +547,25 @@ pub(crate) fn profile_test_invocations(
         build_meta.target_backend,
         build_meta.opt_level,
     );
-    let mut captured_profiles = Vec::new();
-    for (index, invocation) in invocations.into_iter().enumerate() {
-        // Each selected test executable is a separate process and therefore a
-        // separate xctrace recording. Keep raw trace artifacts separated, then
-        // merge the parsed profile statistics into one aggregate report.
-        let output_dir =
-            test_profile_output_dir_for_executable(&session_dir, index, &invocation.executable);
-        let package = build_meta
-            .resolve_output
-            .pkg_dirs
-            .get_package(invocation.target.package);
-        let module_root = build_meta.resolve_output.module_dirs[package.module].clone();
-        let executable = if invocation.executable.is_absolute() {
-            invocation.executable.clone()
-        } else {
-            source_dir.join(&invocation.executable)
-        };
-        if let Some(captured) = capture_profile_executable(
-            cli,
+    // Each selected test executable is a separate process and therefore a
+    // separate profiler recording. Keep raw artifacts separated, then merge
+    // the parsed profile statistics into one aggregate report.
+    let requests = invocations
+        .into_iter()
+        .enumerate()
+        .map(|(index, invocation)| {
+            let output_dir =
+                test_profile_output_dir_for_executable(&session_dir, index, &invocation.executable);
+            let package = build_meta
+                .resolve_output
+                .pkg_dirs
+                .get_package(invocation.target.package);
+            let module_root = build_meta.resolve_output.module_dirs[package.module].clone();
+            let executable = if invocation.executable.is_absolute() {
+                invocation.executable.clone()
+            } else {
+                source_dir.join(&invocation.executable)
+            };
             ProfileRequest {
                 executable,
                 display_executable: Some(invocation.executable),
@@ -563,32 +575,44 @@ pub(crate) fn profile_test_invocations(
                 run_mode: RunMode::Test,
                 target_backend: build_meta.target_backend,
                 opt_level: build_meta.opt_level,
-            },
-        )? {
-            captured_profiles.push(captured);
-        }
+            }
+        })
+        .collect::<Vec<_>>();
+    if cli.dry_run {
+        output.write_result(|writer| {
+            for request in requests {
+                capture_profile_executable(cli, request, Some(&mut *writer))?;
+            }
+            Ok::<_, anyhow::Error>(())
+        })?;
+        return Ok(0);
     }
-    if !cli.dry_run {
-        let json_path = session_dir.join("profile.json");
-        let profiler_backend = ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
-        let report = build_test_report(
-            profiler_backend,
-            build_meta.target_backend,
-            build_meta.opt_level,
-            with_json_report(ProfileArtifacts::default(), json_path.clone()),
-            captured_profiles,
-        );
-        let terminal_report = render_terminal_report(&report);
-        print!("{terminal_report}");
-        std::fs::write(&json_path, serde_json::to_string_pretty(&report)?)
-            .with_context(|| format!("failed to write profile json `{}`", json_path.display()))?;
 
-        // Profile mode intentionally focuses on performance. xctrace owns
-        // process execution here, and the profiling report is the primary
-        // output; users can inspect the captured stdout files if they need the
-        // underlying test output.
-        println!("{PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE}");
-    }
+    let captured_profiles = requests
+        .into_iter()
+        .map(|request| capture_profile_executable(cli, request, None))
+        .collect::<anyhow::Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+    let json_path = session_dir.join("profile.json");
+    let profiler_backend = ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
+    let report = build_test_report(
+        profiler_backend,
+        build_meta.target_backend,
+        build_meta.opt_level,
+        with_json_report(ProfileArtifacts::default(), json_path.clone()),
+        captured_profiles,
+    );
+    let terminal_report = render_terminal_report(&report);
+    print!("{terminal_report}");
+    std::fs::write(&json_path, serde_json::to_string_pretty(&report)?)
+        .with_context(|| format!("failed to write profile json `{}`", json_path.display()))?;
+
+    // Profile mode intentionally focuses on performance. The profiler owns
+    // process execution here, and the profiling report is the primary output;
+    // users can inspect captured stdout files for underlying test output.
+    println!("{PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE}");
     Ok(0)
 }
 
@@ -913,58 +937,73 @@ fn xctrace_export_command(trace_path: &Path, xml_path: &Path) -> Command {
     cmd
 }
 
-fn print_xctrace_record_command(
+fn write_xctrace_record_command(
+    output: &mut dyn Write,
     trace_path: &Path,
     stdout_path: &Path,
     executable: &Path,
     args: &[String],
     current_dir: Option<&Path>,
-) {
+) -> std::io::Result<()> {
     let cmd = xctrace_record_command(trace_path, stdout_path, executable, args, current_dir);
-    print_command(&cmd);
+    write_command(output, &cmd)
 }
 
-fn print_xctrace_export_command(trace_path: &Path, xml_path: &Path) {
+fn write_xctrace_export_command(
+    output: &mut dyn Write,
+    trace_path: &Path,
+    xml_path: &Path,
+) -> std::io::Result<()> {
     let cmd = xctrace_export_command(trace_path, xml_path);
-    print_command(&cmd);
+    write_command(output, &cmd)
 }
 
-fn print_perf_record_command(
+fn write_perf_record_command(
+    output: &mut dyn Write,
     data_path: &Path,
     stdout_path: &Path,
     stderr_path: &Path,
     executable: &Path,
     args: &[String],
     current_dir: Option<&Path>,
-) {
+) -> std::io::Result<()> {
     let cmd = perf_record_command(data_path, executable, args, current_dir);
-    print_command_with_output_redirects(&cmd, stdout_path, Some(stderr_path));
+    write_command_with_output_redirects(output, &cmd, stdout_path, Some(stderr_path))
 }
 
-fn print_perf_script_command(data_path: &Path, script_path: &Path) {
+fn write_perf_script_command(
+    output: &mut dyn Write,
+    data_path: &Path,
+    script_path: &Path,
+) -> std::io::Result<()> {
     let cmd = perf_script_command(data_path);
-    print_command_with_stdout_redirect(&cmd, script_path);
+    write_command_with_stdout_redirect(output, &cmd, script_path)
 }
 
-fn print_command(cmd: &Command) {
-    println!("{}", command_line(cmd));
+fn write_command(output: &mut dyn Write, cmd: &Command) -> std::io::Result<()> {
+    writeln!(output, "{}", command_line(cmd))
 }
 
-fn print_command_with_stdout_redirect(cmd: &Command, stdout_path: &Path) {
-    print_command_with_output_redirects(cmd, stdout_path, None);
+fn write_command_with_stdout_redirect(
+    output: &mut dyn Write,
+    cmd: &Command,
+    stdout_path: &Path,
+) -> std::io::Result<()> {
+    write_command_with_output_redirects(output, cmd, stdout_path, None)
 }
 
-fn print_command_with_output_redirects(
+fn write_command_with_output_redirects(
+    output: &mut dyn Write,
     cmd: &Command,
     stdout_path: &Path,
     stderr_path: Option<&Path>,
-) {
+) -> std::io::Result<()> {
     let mut line = command_line(cmd);
     append_shell_redirect(&mut line, " > ", stdout_path);
     if let Some(stderr_path) = stderr_path {
         append_shell_redirect(&mut line, " 2> ", stderr_path);
     }
-    println!("{line}");
+    writeln!(output, "{line}")
 }
 
 fn append_shell_redirect(line: &mut String, operator: &str, path: &Path) {

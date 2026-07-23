@@ -1,6 +1,6 @@
 # Command Output Migration
 
-Status: accepted; CO-1, CO-2, and CO-4 complete
+Status: accepted; CO-1, CO-2, CO-4, and CO-5 complete
 
 ## Goal
 
@@ -98,6 +98,8 @@ Blocks: CO-6, CO-7
 
 ### CO-5: Migrate dry-run and graph Command Results
 
+Status: complete
+
 Blocked by: CO-2
 
 Blocks: CO-7
@@ -105,6 +107,10 @@ Blocks: CO-7
 - Route dry-run commands, graph exports, and other build reports through writer-based renderers.
 - Preserve which reports intentionally use stdout versus stderr.
 - Keep planning data independent from CLI output types.
+- Render directly composed graph-plus-command previews, such as `run` and
+  `cram`, under one stdout lock.
+- Keep the test-only graph dump as an explicit file side effect after successful
+  dry-run rendering.
 - Done when Rupes Recta and legacy dry-run output share the Command Result policy without sharing renderer implementation unnecessarily.
 
 ### CO-6: Move package-manager presentation to the CLI seam

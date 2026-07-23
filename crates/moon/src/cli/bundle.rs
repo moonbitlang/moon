@@ -22,6 +22,7 @@ use moonutil::{
     build_options::RunMode,
     cli_support::AutoSyncFlags,
     cli_support::UniversalFlags,
+    command_output::CommandOutput,
     locks::FileLock,
     project::{PackageDirs, ProjectManifest},
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
@@ -53,7 +54,7 @@ pub(crate) struct BundleSubcommand {
 pub(crate) fn run_bundle(
     cli: UniversalFlags,
     cmd: BundleSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
@@ -79,7 +80,7 @@ pub(crate) fn run_bundle(
             &mooncakes_dir,
             &project_manifest,
             None,
-            user_log,
+            output,
         );
     }
 
@@ -95,7 +96,7 @@ pub(crate) fn run_bundle(
             &mooncakes_dir,
             &project_manifest,
             Some(t),
-            user_log,
+            output,
         )
         .context(format!("failed to run bundle for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -113,7 +114,7 @@ pub(crate) fn run_bundle_internal(
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     run_bundle_internal_rr(
         cli,
@@ -123,7 +124,7 @@ pub(crate) fn run_bundle_internal(
         mooncakes_dir,
         project_manifest,
         selected_target_backend,
-        user_log,
+        output,
     )
 }
 
@@ -137,8 +138,9 @@ pub(crate) fn run_bundle_internal_rr(
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let (build_meta, build_graph) = plan_bundle_rr(
         cli,
         cmd,
@@ -151,12 +153,15 @@ pub(crate) fn run_bundle_internal_rr(
     )?;
 
     if cli.dry_run {
-        rr_build::print_dry_run(
-            &build_graph,
-            build_meta.artifacts.values(),
-            source_dir,
-            target_dir,
-        );
+        output.write_result(|writer| {
+            rr_build::write_dry_run(
+                writer,
+                &build_graph,
+                build_meta.artifacts.values(),
+                source_dir,
+                target_dir,
+            )
+        })?;
         Ok(0)
     } else {
         let _lock = FileLock::lock(target_dir)?;

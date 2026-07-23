@@ -6,19 +6,17 @@ fn test_fmt_existing_moon_mod_dry_run() {
 
     assert!(dir.join("moon.mod").exists());
 
-    check(
-        get_stderr(&dir, ["fmt", "--dry-run", "--sort-input"]),
-        expect![[r#""#]],
-    );
+    moon_cmd(&dir)
+        .args(["fmt", "--dry-run", "--sort-input", "--quiet"])
+        .assert()
+        .success()
+        .stdout_eq(snapbox::str![[r#"
+moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
+moonfmt ./moon.mod -w -o ./_build/wasm-gc/release/format/moon.mod
+moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
 
-    check(
-        get_stdout(&dir, ["fmt", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            moonfmt ./main/moon.pkg -w -o ./_build/wasm-gc/release/format/main/moon.pkg
-            moonfmt ./moon.mod -w -o ./_build/wasm-gc/release/format/moon.mod
-            moonfmt ./main/main.mbt -w -o ./_build/wasm-gc/release/format/main/main.mbt
-        "#]],
-    );
+"#]])
+        .stderr_eq("");
 }
 
 #[test]

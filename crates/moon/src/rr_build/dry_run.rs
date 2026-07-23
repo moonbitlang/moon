@@ -18,21 +18,22 @@
 
 //! Handles dry-run printing of build commands.
 
-use std::{path::Path, process::Command};
+use std::{io::Write, path::Path, process::Command};
 
 use moonbuild_rupes_recta::model::Artifacts;
 
 use crate::rr_build::BuildInput;
 
-/// Print what would be executed in a dry-run.
+/// Write what would be executed in a dry-run.
 ///
-/// This is a helper function that prints the build commands from a build graph.
-pub fn print_dry_run<'a>(
+/// This is a helper function that renders the build commands from a build graph.
+pub fn write_dry_run<'a>(
+    output: &mut dyn Write,
     input: &BuildInput,
     artifacts: impl IntoIterator<Item = &'a Artifacts>,
     source_dir: &Path,
     target_dir: &Path,
-) {
+) -> std::io::Result<()> {
     let graph = &input.graph;
     let default_files = artifacts
         .into_iter()
@@ -43,35 +44,40 @@ pub fn print_dry_run<'a>(
         })
         .collect::<Vec<_>>();
 
-    moonbuild::dry_run::print_build_commands(
+    moonbuild::dry_run::write_build_commands(
+        output,
         graph,
         &default_files,
         &input.command_args_by_output,
         source_dir,
         target_dir,
-    );
+    )
 }
 
-/// Print all commands in a dry-run.
+/// Write all commands in a dry-run.
 ///
-/// Similar to [`print_dry_run`], but assumes *all* files in the build graph are to be built.
-pub fn print_dry_run_all(input: &BuildInput, source_dir: &Path, target_dir: &Path) {
+/// Similar to [`write_dry_run`], but assumes *all* files in the build graph are to be built.
+pub fn write_dry_run_all(
+    output: &mut dyn Write,
+    input: &BuildInput,
+    source_dir: &Path,
+    target_dir: &Path,
+) -> std::io::Result<()> {
     let default_files = input.graph.get_start_nodes();
-    moonbuild::dry_run::print_build_commands(
+    moonbuild::dry_run::write_build_commands(
+        output,
         &input.graph,
         &default_files,
         &input.command_args_by_output,
         source_dir,
         target_dir,
-    );
+    )
 }
 
-/// Print a command as it would be executed, with the proper escaping.
+/// Format a command as it would be executed, with the proper escaping.
 ///
-/// This also replaces paths like `print_dry_run` does.
-///
-/// If `stderr` is true, the command is assumed to write to stderr instead of stdout.
-pub fn dry_print_command(cmd: &Command, source_dir: &Path, stderr: bool) {
+/// This also replaces paths like [`write_dry_run`] does.
+pub fn format_dry_run_command(cmd: &Command, source_dir: &Path) -> String {
     let replacer = moonbuild::dry_run::PathNormalizer::new(source_dir);
 
     let args = std::iter::once(cmd.get_program())
@@ -80,10 +86,5 @@ pub fn dry_print_command(cmd: &Command, source_dir: &Path, stderr: bool) {
         .map(|x| replacer.normalize_command_arg(&x))
         .collect::<Vec<_>>();
 
-    let cmd = moonutil::shlex::join_unix(args.iter().map(|x| x.as_ref()));
-    if stderr {
-        eprintln!("{}", cmd);
-    } else {
-        println!("{}", cmd);
-    }
+    moonutil::shlex::join_unix(args.iter().map(|x| x.as_ref()))
 }

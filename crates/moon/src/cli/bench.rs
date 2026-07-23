@@ -20,9 +20,9 @@ use anyhow::Context;
 use moonutil::{
     build_options::TestIndexRange,
     cli_support::AutoSyncFlags,
+    command_output::CommandOutput,
     project::{PackageDirs, ProjectManifest},
     target::{TargetBackend, lower_surface_targets},
-    user_log::UserLog,
 };
 use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
@@ -69,7 +69,7 @@ pub(crate) struct BenchSubcommand {
 pub(crate) fn run_bench(
     cli: UniversalFlags,
     cmd: BenchSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
@@ -91,7 +91,7 @@ pub(crate) fn run_bench(
             &project_manifest,
             None,
             None,
-            user_log,
+            output,
         );
     }
     let surface_targets = cmd.build_flags.target.clone();
@@ -109,7 +109,7 @@ pub(crate) fn run_bench(
             &project_manifest,
             display_backend_hint,
             Some(t),
-            user_log,
+            output,
         )
         .context(format!("failed to run bench for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -128,7 +128,7 @@ fn run_bench_internal(
     project_manifest: &ProjectManifest,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     super::run_test_or_bench_internal(
         cli,
@@ -139,6 +139,6 @@ fn run_bench_internal(
         project_manifest,
         display_backend_hint,
         selected_target_backend,
-        user_log,
+        output,
     )
 }

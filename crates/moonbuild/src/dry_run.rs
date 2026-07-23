@@ -32,14 +32,15 @@ const ENV_VAR: &str = "MOON_TEST_DUMP_BUILD_GRAPH";
 static DRY_RUN_TEST_OUTPUT: LazyLock<Option<String>> =
     LazyLock::new(|| std::env::var(ENV_VAR).ok());
 
-/// Print build commands from a State
-pub fn print_build_commands(
+/// Write build commands from a State.
+pub fn write_build_commands(
+    output: &mut dyn Write,
     graph: &Graph,
     default: &[FileId],
     logical_commands: &BTreeMap<PathBuf, Vec<String>>,
     source_dir: &Path,
     target_dir: &Path,
-) {
+) -> std::io::Result<()> {
     let _ = target_dir; // TODO
     let replacer = PathNormalizer::new(source_dir);
 
@@ -52,7 +53,7 @@ pub fn print_build_commands(
             if let Some(cmdline) = build.cmdline.as_ref() {
                 let logical_args = logical_args_for_build(graph, build, logical_commands);
                 let command = command_for_display(cmdline, logical_args);
-                println!("{}", replacer.normalize_command(&command));
+                writeln!(output, "{}", replacer.normalize_command(&command))?;
             }
             if let Some(cwd) = build.cwd.as_deref().map(Path::new) {
                 let resolved_cwd = if cwd.is_absolute() {
@@ -60,18 +61,23 @@ pub fn print_build_commands(
                 } else {
                     source_dir.join(cwd)
                 };
-                println!("  cwd: {}", replacer.normalize_context_path(&resolved_cwd));
+                writeln!(
+                    output,
+                    "  cwd: {}",
+                    replacer.normalize_context_path(&resolved_cwd)
+                )?;
             }
             if !build.env.is_empty() {
-                println!("  env:");
+                writeln!(output, "  env:")?;
                 for line in normalized_env_lines(&build.env, &replacer) {
-                    println!("    {line}");
+                    writeln!(output, "    {line}")?;
                 }
             }
         }
     }
 
     try_debug_dump_build_graph_to_file(graph, default, logical_commands, source_dir);
+    Ok(())
 }
 
 fn logical_args_for_build<'a>(
@@ -432,7 +438,11 @@ fn stable_toposort_graph(graph: &Graph, inputs: &[FileId]) -> Vec<BuildId> {
 
 #[cfg(test)]
 mod tests {
-    use super::{PathNormalizer, command_for_display, normalized_env_lines};
+    use std::{collections::BTreeMap, io::Write, path::Path, rc::Rc};
+
+    use n2::graph::{Build, BuildIns, BuildOuts, FileLoc, Graph};
+
+    use super::{PathNormalizer, command_for_display, normalized_env_lines, write_build_commands};
 
     #[test]
     fn displays_logical_args_instead_of_the_execution_transport() {
@@ -543,5 +553,58 @@ mod tests {
         );
 
         assert_eq!(lines, ["LIB=C:/SDK/Lib", "INCLUDE=./crt/include"]);
+    }
+
+    #[test]
+    fn propagates_dry_run_write_errors() {
+        struct FailingWriter;
+
+        impl Write for FailingWriter {
+            fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("write failed"))
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut graph = Graph::default();
+        let input = graph
+            .files
+            .id_from_canonical("/workspace/main.mbt".to_owned());
+        let output = graph
+            .files
+            .id_from_canonical("/workspace/main.core".to_owned());
+        let mut build = Build::new(
+            FileLoc {
+                filename: Rc::new("test".into()),
+                line: 0,
+            },
+            BuildIns {
+                ids: vec![input],
+                explicit: 1,
+                implicit: 0,
+                order_only: 0,
+            },
+            BuildOuts {
+                ids: vec![output],
+                explicit: 1,
+            },
+        );
+        build.cmdline = Some("moonc main.mbt -o main.core".to_owned());
+        graph.add_build(build).unwrap();
+
+        let error = write_build_commands(
+            &mut FailingWriter,
+            &graph,
+            &[output],
+            &BTreeMap::new(),
+            Path::new("/workspace"),
+            Path::new("/workspace/_build"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::Other);
     }
 }
