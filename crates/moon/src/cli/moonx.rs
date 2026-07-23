@@ -18,7 +18,7 @@
 
 use std::{ffi::OsString, path::PathBuf};
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::user_diagnostics::UserDiagnostics;
 
@@ -36,13 +36,10 @@ pub(crate) enum MoonxTarget {
     name = "moonx",
     about = "Run a package from the Mooncakes registry without installing it",
     override_usage = "moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...",
+    help_template = "{about-with-newline}\n{usage-heading} {usage}\n\nArguments:\n  <PACKAGE>          Registry package coordinate\n  [PROGRAM_ARGS]...  Arguments passed to the program\n\n{all-args}",
     version
 )]
 pub(crate) struct MoonxCli {
-    /// Registry package coordinate
-    #[arg(value_name = "PACKAGE")]
-    pub package: String,
-
     #[arg(long, value_enum, default_value_t)]
     pub target: MoonxTarget,
 
@@ -54,13 +51,14 @@ pub(crate) struct MoonxCli {
     #[arg(short = 'v', long)]
     pub verbose: bool,
 
-    /// Arguments passed to the program
-    #[arg(
-        value_name = "PROGRAM_ARGS",
-        trailing_var_arg = true,
-        allow_hyphen_values = true
-    )]
-    pub args: Vec<String>,
+    #[command(subcommand)]
+    package: MoonxPackage,
+}
+
+#[derive(Debug, Subcommand)]
+enum MoonxPackage {
+    #[command(external_subcommand)]
+    External(Vec<String>),
 }
 
 pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
@@ -78,6 +76,16 @@ pub(crate) fn is_moonx_invocation(raw_args: &[OsString]) -> bool {
 
 pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
     let cli = MoonxCli::try_parse_from(raw_args).unwrap_or_else(|err| err.exit());
+    let MoonxPackage::External(package_and_args) = cli.package;
+    let mut package_and_args = package_and_args.into_iter();
+    let package = package_and_args
+        .next()
+        .expect("external subcommand always contains its name");
+    let args = package_and_args.collect::<Vec<_>>();
+    let args = match args.as_slice() {
+        [separator, args @ ..] if separator == "--" => args.to_vec(),
+        _ => args,
+    };
     // moonx is a transparent runner unless the user explicitly requests details.
     let quiet = !cli.verbose;
     let output = UserDiagnostics::new(cli.verbose, quiet);
@@ -91,7 +99,7 @@ pub(crate) fn run_from_args(raw_args: &[OsString]) -> i32 {
         }
         MoonxTarget::Native => RegistryRunTarget::Native,
     };
-    match registry_runner::run(cli.package, target, cli.args, quiet, cli.verbose) {
+    match registry_runner::run(package, target, args, quiet, cli.verbose) {
         Ok(code) => code,
         Err(err) => {
             output.error(format!("{:?}", err));
@@ -132,5 +140,14 @@ mod tests {
     fn rejects_removed_quiet_option() {
         let error = MoonxCli::try_parse_from(["moonx", "--quiet", "user/module"]).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn forwards_help_and_version_flags_after_package() {
+        for flag in ["-h", "--help", "-V", "--version"] {
+            let cli = MoonxCli::try_parse_from(["moonx", "user/module", flag]).unwrap();
+            let MoonxPackage::External(package_and_args) = cli.package;
+            assert_eq!(package_and_args, ["user/module", flag]);
+        }
     }
 }
