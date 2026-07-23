@@ -41,6 +41,7 @@ use moonutil::{
     cond_expr::OptLevel,
     constants::{MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOON_WORK},
     manifest::validate_module_dsl_deps,
+    user_log::UserLog,
 };
 use n2::graph::Build;
 
@@ -51,7 +52,6 @@ use crate::{
     pkg_name::{PackageFQN, PackagePath},
     resolve::ResolveError,
     target_layout::TargetLayout,
-    user_warning::UserWarning,
 };
 
 pub type FmtResolveOutput = DiscoveredLocalProject;
@@ -98,7 +98,8 @@ pub fn build_graph_for_fmt(
     target_dir: &Path,
     selected_packages: &[PackageId],
     project_manifest: &ProjectManifest,
-) -> anyhow::Result<(n2::graph::Graph, Vec<UserWarning>)> {
+    user_log: &UserLog,
+) -> anyhow::Result<n2::graph::Graph> {
     info!(
         "Building format graph for {} root modules",
         resolved.root_module_ids.len()
@@ -110,7 +111,6 @@ pub fn build_graph_for_fmt(
     debug!("Layout built for formatting");
 
     let mut graph = n2::graph::Graph::default();
-    let mut user_warnings = Vec::new();
     let mut package_count = 0;
     let selected_packages = (!selected_packages.is_empty())
         .then(|| selected_packages.iter().copied().collect::<HashSet<_>>());
@@ -124,14 +124,8 @@ pub fn build_graph_for_fmt(
             let module = &resolved.root_modules[module_id];
             match module.source().source() {
                 ModuleSourceKind::Local(path) | ModuleSourceKind::Stdlib(path) => {
-                    has_module_manifest |= format_moon_mod_node(
-                        &mut graph,
-                        cfg,
-                        &layout,
-                        module,
-                        path,
-                        &mut user_warnings,
-                    )?
+                    has_module_manifest |=
+                        format_moon_mod_node(&mut graph, cfg, &layout, module, path, user_log)?
                 }
                 ModuleSourceKind::Registry
                 | ModuleSourceKind::Git(_)
@@ -154,7 +148,7 @@ pub fn build_graph_for_fmt(
 
             let pkg = resolved.pkg_dirs.get_package(id);
             info!("Processing package {}", pkg.fqn);
-            build_for_package(&mut graph, cfg, &layout, pkg, &mut user_warnings)?;
+            build_for_package(&mut graph, cfg, &layout, pkg, user_log)?;
             package_count += 1;
         }
     }
@@ -163,7 +157,7 @@ pub fn build_graph_for_fmt(
         anyhow::bail!("No packages found in workspace to format");
     }
 
-    Ok((graph, user_warnings))
+    Ok(graph)
 }
 
 fn format_moon_mod_node(
@@ -172,7 +166,7 @@ fn format_moon_mod_node(
     layout: &TargetLayout,
     module: &ResolvedModule,
     module_dir: &Path,
-    user_warnings: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) -> anyhow::Result<bool> {
     let moon_mod = module_dir.join(MOON_MOD);
     let moon_mod_json = module_dir.join(MOON_MOD_JSON);
@@ -191,12 +185,12 @@ fn format_moon_mod_node(
     if has_dsl {
         format_moon_mod_dsl(graph, cfg, &moon_mod, &target_moon_mod, module_dir)?;
     } else if cfg.migrate_moon_mod_json {
-        user_warnings.push(UserWarning::new(format!(
+        user_log.warn(format!(
             "Migrating to {} at module root '{}', deprecated {} is removed.",
             MOON_MOD,
             module_dir.display(),
             MOON_MOD_JSON
-        )));
+        ));
         format_moon_mod_json_migrate(
             graph,
             cfg,
@@ -409,7 +403,7 @@ fn build_for_package(
     cfg: &FmtConfig,
     layout: &TargetLayout,
     pkg: &DiscoveredPackage,
-    user_warnings: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) -> anyhow::Result<()> {
     let ignore_set = &pkg.raw.formatter.ignore;
     let prebuild_outputs = pkg
@@ -453,7 +447,7 @@ fn build_for_package(
     }
 
     // Always format moon.pkg when present; migration from moon.pkg.json is gated.
-    format_moon_pkg_node(graph, cfg, layout, pkg, user_warnings)?;
+    format_moon_pkg_node(graph, cfg, layout, pkg, user_log)?;
 
     Ok(())
 }
@@ -579,7 +573,7 @@ fn format_moon_pkg_node(
     cfg: &FmtConfig,
     layout: &TargetLayout,
     pkg: &DiscoveredPackage,
-    user_warnings: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) -> anyhow::Result<()> {
     use moonutil::constants::{MOON_PKG, MOON_PKG_JSON};
 
@@ -612,7 +606,7 @@ fn format_moon_pkg_node(
             &target_moon_pkg,
             &moon_pkg_dsl,
             pkg,
-            user_warnings,
+            user_log,
         )
     } else {
         debug!(
@@ -703,13 +697,13 @@ fn format_moon_pkg_json_migrate(
     target_moon_pkg: &std::path::Path,
     moon_pkg: &std::path::Path,
     pkg: &DiscoveredPackage,
-    user_warnings: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) -> anyhow::Result<()> {
     // Warn the user about migration and prompt to remove the old config
-    user_warnings.push(UserWarning::new(format!(
+    user_log.warn(format!(
         "Migrating to {} in package '{}', deprecated {} is removed.",
         MOON_PKG, pkg.fqn, MOON_PKG_JSON
-    )));
+    ));
 
     if cfg.check_only || cfg.warn_only {
         // In check/warn mode, use format-and-diff to compare

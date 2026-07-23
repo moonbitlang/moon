@@ -49,7 +49,6 @@ use moonbuild_rupes_recta::{
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
-    user_warning::UserWarning,
 };
 use moonutil::{
     build_options::RunMode,
@@ -64,11 +63,11 @@ use moonutil::{
     render::MooncDiagnostic,
     target::TargetBackend,
     test_metadata::DiagnosticLevel,
+    user_log::UserLog,
 };
 use tracing::{Level, info, instrument};
 
 use crate::build_flags::{BuildFlags, OutputStyle};
-use crate::user_diagnostics::UserDiagnostics;
 
 mod dry_run;
 pub use dry_run::{dry_print_command, print_dry_run, print_dry_run_all};
@@ -79,29 +78,11 @@ pub struct CalcUserIntentOutput {
     pub intents: Vec<UserIntent>,
     /// The input directive that the user wants to apply to the packages
     pub directive: InputDirective,
-    /// User-facing warnings discovered while calculating intent.
-    pub warnings: Vec<UserWarning>,
 }
 
 impl CalcUserIntentOutput {
     pub fn new(intents: Vec<UserIntent>, directive: InputDirective) -> Self {
-        Self {
-            intents,
-            directive,
-            warnings: Vec::new(),
-        }
-    }
-
-    pub fn with_warnings(
-        intents: Vec<UserIntent>,
-        directive: InputDirective,
-        warnings: Vec<UserWarning>,
-    ) -> Self {
-        Self {
-            intents,
-            directive,
-            warnings,
-        }
+        Self { intents, directive }
     }
 }
 
@@ -110,22 +91,17 @@ impl From<Vec<UserIntent>> for CalcUserIntentOutput {
         Self {
             intents,
             directive: InputDirective::default(),
-            warnings: Vec::new(),
         }
     }
 }
 
 impl From<(Vec<UserIntent>, InputDirective)> for CalcUserIntentOutput {
     fn from((intents, directive): (Vec<UserIntent>, InputDirective)) -> Self {
-        Self {
-            intents,
-            directive,
-            warnings: Vec::new(),
-        }
+        Self { intents, directive }
     }
 }
 
-fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, output: UserDiagnostics) {
+fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, user_log: &UserLog) {
     let mut warned = BTreeSet::new();
     for &module_id in resolve_output.local_modules() {
         if let Some(pkgs) = resolve_output.pkg_dirs.packages_for_module(module_id) {
@@ -135,7 +111,7 @@ fn warn_local_legacy_supported_targets(resolve_output: &ResolveOutput, output: U
                 }
                 let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
                 if pkg.supported_targets_decl == SupportedTargetsDeclKind::LegacyArray {
-                    output.warn(format!(
+                    user_log.warn(format!(
                         "Package `{}` uses legacy array syntax for `supported_targets`; use expression syntax like `<backend>` instead",
                         pkg.fqn
                     ));
@@ -162,7 +138,7 @@ pub(crate) fn local_packages(
 
 fn local_modules_preferred_target(
     resolve_output: &ResolveOutput,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Option<TargetBackend> {
     let preferred = resolve_output
         .local_modules()
@@ -171,7 +147,7 @@ fn local_modules_preferred_target(
         .collect::<BTreeSet<_>>();
 
     if preferred.len() > 1 {
-        output.warn(
+        user_log.warn(
             "Multiple local modules specify different preferred targets; pass `--target` to choose one explicitly",
         );
         None
@@ -317,7 +293,7 @@ impl CompilePreConfig {
         is_core: bool,
         resolve_output: &ResolveOutput,
         input_nodes: &[BuildPlanNode],
-        output: UserDiagnostics,
+        user_log: &UserLog,
     ) -> anyhow::Result<CompileConfig> {
         info!("Determining compilation configuration");
 
@@ -351,7 +327,7 @@ impl CompilePreConfig {
                     info!("Disabling `tcc -run`: new native backend selected");
                     NativeBackendMode::DirectObject(self.direct_native_mode(native_target))
                 } else if let Some(tcc_run) =
-                    self.select_tcc_run_config(resolve_output, input_nodes, output)
+                    self.select_tcc_run_config(resolve_output, input_nodes, user_log)
                 {
                     NativeBackendMode::TccRun(tcc_run)
                 } else {
@@ -404,7 +380,7 @@ impl CompilePreConfig {
         &self,
         resolve_output: &ResolveOutput,
         input_nodes: &[BuildPlanNode],
-        output: UserDiagnostics,
+        user_log: &UserLog,
     ) -> Option<TccRunConfig> {
         if !self.try_tcc_run {
             info!("Disabling `tcc -run`: not requested");
@@ -419,7 +395,7 @@ impl CompilePreConfig {
             return None;
         }
 
-        let Some(internal_tcc) = check_tcc_run_availability(resolve_output, input_nodes, output)
+        let Some(internal_tcc) = check_tcc_run_availability(resolve_output, input_nodes, user_log)
         else {
             info!("`tcc -run` availability: false");
             return None;
@@ -506,13 +482,9 @@ pub(crate) fn prepare_resolved_build(
     preconfig: &CompilePreConfig,
     unstable_features: &FeatureGate,
     target_dir: &Path,
-    output: UserDiagnostics,
+    user_log: &UserLog,
     resolve_output: &ResolveOutput,
 ) -> anyhow::Result<ResolvedBuildPlanningContext> {
-    for message in &resolve_output.user_warnings {
-        output.user_message(message);
-    }
-
     // A couple of debug things:
     if unstable_features.rr_export_module_graph {
         info!("Exporting module graph DOT file");
@@ -539,7 +511,7 @@ pub(crate) fn prepare_resolved_build(
     let preferred_target = if preconfig.target_backend.is_some() {
         None
     } else {
-        local_modules_preferred_target(resolve_output, output)
+        local_modules_preferred_target(resolve_output, user_log)
     };
     info!("Preferred backend: {:?}", preferred_target);
 
@@ -550,11 +522,11 @@ pub(crate) fn prepare_resolved_build(
 
     // TODO: remove this once LLVM backend is well supported
     if target_backend == TargetBackend::LLVM {
-        output.warn(
+        user_log.warn(
             "LLVM backend is experimental and only supported on nightly moonbit toolchain for now",
         );
     }
-    warn_local_legacy_supported_targets(resolve_output, output);
+    warn_local_legacy_supported_targets(resolve_output, user_log);
 
     // std or no-std?
     // Ultimately we want to determine this from config instead of special cases.
@@ -576,7 +548,7 @@ pub(crate) fn prepare_resolved_build(
 pub(crate) fn plan_resolved_build_from_intent(
     preconfig: CompilePreConfig,
     unstable_features: &FeatureGate,
-    output: UserDiagnostics,
+    user_log: &UserLog,
     planning_context: ResolvedBuildPlanningContext,
     intent: CalcUserIntentOutput,
     mooncake_bin_dir: &Path,
@@ -584,9 +556,6 @@ pub(crate) fn plan_resolved_build_from_intent(
 ) -> anyhow::Result<(BuildMeta, BuildInput)> {
     let target_dir = preconfig.target_dir.clone();
     info!("User intent calculated: {:?}", intent.intents);
-    for warning in &intent.warnings {
-        output.user_message(warning);
-    }
 
     let prebuild_config = if preconfig.action == RunMode::Check {
         info!("Skipping prebuild configuration for check run mode");
@@ -600,25 +569,21 @@ pub(crate) fn plan_resolved_build_from_intent(
     // Expand user intents to concrete BuildPlanNode inputs
     info!("Expanding user intents to build plan nodes");
     let mut input_nodes: Vec<BuildPlanNode> = Vec::new();
-    let mut intent_messages = Vec::new();
     for i in &intent.intents {
         i.append_nodes(
             &resolve_output,
             &mut input_nodes,
-            &mut intent_messages,
+            user_log,
             &intent.directive,
             planning_context.target_backend,
         );
-    }
-    for message in &intent_messages {
-        output.user_message(message);
     }
     let cx = preconfig.into_compile_config(
         planning_context.target_backend,
         planning_context.is_core,
         &resolve_output,
         &input_nodes,
-        output,
+        user_log,
     )?;
     info!("Begin lowering to build graph");
     let compile_output = moonbuild_rupes_recta::compile(
@@ -628,10 +593,8 @@ pub(crate) fn plan_resolved_build_from_intent(
         &input_nodes,
         &intent.directive,
         prebuild_config.as_ref(),
+        user_log,
     )?;
-    for message in &compile_output.user_warnings {
-        output.user_message(message);
-    }
 
     if unstable_features.rr_export_build_plan
         && let Some(plan) = compile_output.build_plan
@@ -676,13 +639,15 @@ pub fn plan_fmt(
     target_dir: &Path,
     selected_packages: &[PackageId],
     project_manifest: &ProjectManifest,
-) -> anyhow::Result<(BuildInput, Vec<UserWarning>)> {
-    let (graph, user_warnings) = moonbuild_rupes_recta::fmt::build_graph_for_fmt(
+    user_log: &UserLog,
+) -> anyhow::Result<BuildInput> {
+    let graph = moonbuild_rupes_recta::fmt::build_graph_for_fmt(
         resolved,
         cfg,
         target_dir,
         selected_packages,
         project_manifest,
+        user_log,
     )?;
     let layout = TargetLayout::from_fmt_resolve_output(
         target_dir.to_path_buf(),
@@ -690,12 +655,11 @@ pub fn plan_fmt(
         BuildProfile::Debug,
     );
     let db_path = layout.n2_db_path(TargetBackend::default());
-    let input = BuildInput {
+    Ok(BuildInput {
         graph,
         command_args_by_output: Default::default(),
         db_path,
-    };
-    Ok((input, user_warnings))
+    })
 }
 
 /// Check if we can actually run `tcc -run`.
@@ -706,7 +670,7 @@ pub fn plan_fmt(
 fn check_tcc_run_availability(
     resolve_output: &ResolveOutput,
     input_nodes: &[BuildPlanNode],
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Option<CC> {
     if compiler_flags::has_cc_env_override() {
         info!("Disabling `tcc -run`: MOON_CC is set");
@@ -722,21 +686,21 @@ fn check_tcc_run_availability(
                 continue;
             };
             if native.cc.is_some() {
-                output.warn(format!(
+                user_log.warn(format!(
                     "Package '{}' overrides C/C++ toolchain, `tcc -run` will be disabled",
                     package.fqn
                 ));
                 return None;
             }
             if native.cc_flags.is_some() {
-                output.warn(format!(
+                user_log.warn(format!(
                     "Package '{}' overrides C/C++ compiler flags, `tcc -run` will be disabled",
                     package.fqn
                 ));
                 return None;
             }
             if native.cc_link_flags.is_some() {
-                output.warn(format!(
+                user_log.warn(format!(
                     "Package '{}' overrides C/C++ linker flags, `tcc -run` will be disabled",
                     package.fqn
                 ));
@@ -748,7 +712,7 @@ fn check_tcc_run_availability(
     match CC::internal_tcc() {
         Ok(tcc) => Some(tcc),
         Err(_) => {
-            output.warn("Cannot find TCC compiler in the system; disabling `tcc -run`");
+            user_log.warn("Cannot find TCC compiler in the system; disabling `tcc -run`");
             None
         }
     }
@@ -874,7 +838,6 @@ pub struct BuildConfig {
     /// Verbose output for build progress and command echo
     verbose: bool,
     suppress_progress: bool,
-    user_diagnostics: UserDiagnostics,
 
     /// The patch file to use
     pub patch_file: Option<PathBuf>,
@@ -885,7 +848,6 @@ impl BuildConfig {
         flags: &BuildFlags,
         unstable_features: &FeatureGate,
         verbose: bool,
-        user_diagnostics: UserDiagnostics,
     ) -> Self {
         BuildConfig {
             parallelism: flags.jobs,
@@ -897,7 +859,6 @@ impl BuildConfig {
             n2_explain: unstable_features.rr_n2_explain,
             verbose,
             suppress_progress: false,
-            user_diagnostics,
             patch_file: None,
         }
     }
@@ -920,7 +881,6 @@ impl Default for BuildConfig {
             n2_explain: false,
             verbose: false,
             suppress_progress: false,
-            user_diagnostics: UserDiagnostics::default(),
             patch_file: None,
         }
     }
@@ -964,6 +924,7 @@ pub fn execute_build(
     cfg: &BuildConfig,
     input: BuildInput,
     target_dir: &Path,
+    user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
     // Get start nodes (leaf outputs) before moving the graph
     let start_nodes = input.graph.get_start_nodes();
@@ -973,6 +934,7 @@ pub fn execute_build(
         input,
         target_dir,
         None,
+        user_log,
         Box::new(|work| {
             // Want only the leaf output files, not all files including stdlib
             for file_id in start_nodes {
@@ -993,6 +955,7 @@ pub fn execute_test_build(
     input: BuildInput,
     target_dir: &Path,
     build_meta: &BuildMeta,
+    user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
     let start_nodes = input.graph.get_start_nodes();
 
@@ -1001,6 +964,7 @@ pub fn execute_test_build(
         input,
         target_dir,
         Some(build_meta),
+        user_log,
         Box::new(|work| {
             for file_id in start_nodes {
                 work.want_file(file_id)?;
@@ -1025,6 +989,7 @@ pub fn execute_build_partial(
     input: BuildInput,
     target_dir: &Path,
     build_meta: Option<&BuildMeta>,
+    user_log: &UserLog,
     want_files: Box<WantFileFn>,
 ) -> anyhow::Result<N2RunStats> {
     // Ensure target directory exists
@@ -1089,7 +1054,13 @@ pub fn execute_build_partial(
     let build_succeeded = res.is_some();
 
     let mut result_catcher = result_catcher.lock().unwrap();
-    process_captured_diagnostics(&mut result_catcher, cfg, build_succeeded, build_meta);
+    process_captured_diagnostics(
+        &mut result_catcher,
+        cfg,
+        build_succeeded,
+        build_meta,
+        user_log,
+    );
     let stats = N2RunStats {
         n_tasks_executed: res,
         n_errors: result_catcher.n_errors,
@@ -1121,6 +1092,7 @@ fn process_captured_diagnostics(
     cfg: &BuildConfig,
     build_succeeded: bool,
     build_meta: Option<&BuildMeta>,
+    user_log: &UserLog,
 ) {
     let captured = catcher.content_writer.iter().map(|content| {
         let Some(meta) = build_meta else {
@@ -1211,7 +1183,6 @@ fn process_captured_diagnostics(
                     }
                 }
                 Some(limit) => {
-                    let build_config = cfg;
                     let mut displayed = 0;
                     let mut hidden_errors = 0;
                     let mut total_warnings = 0;
@@ -1255,7 +1226,7 @@ fn process_captured_diagnostics(
                     }
 
                     let hidden_warnings = total_warnings - displayed_warnings;
-                    warn_limited_diagnostics(hidden_errors, hidden_warnings, build_config);
+                    warn_limited_diagnostics(hidden_errors, hidden_warnings, user_log);
                     catcher.n_errors += hidden_errors;
                     catcher.n_warnings += hidden_warnings;
                 }
@@ -1355,7 +1326,7 @@ fn process_captured_diagnostics(
                     }
 
                     let hidden_warnings = total_warnings - displayed_warnings;
-                    warn_limited_diagnostics(hidden_errors, hidden_warnings, build_config);
+                    warn_limited_diagnostics(hidden_errors, hidden_warnings, user_log);
                     catcher.n_errors += hidden_errors;
                     catcher.n_warnings += hidden_warnings;
                 }
@@ -1389,13 +1360,9 @@ fn diagnostic_is_renderable(diag: &MooncDiagnostic, cfg: &BuildConfig) -> bool {
     DiagnosticLevel::from_str(&diag.level, true).is_ok_and(|level| level >= cfg.render_no_loc)
 }
 
-fn warn_limited_diagnostics(
-    hidden_errors: usize,
-    hidden_warnings: usize,
-    build_config: &BuildConfig,
-) {
+fn warn_limited_diagnostics(hidden_errors: usize, hidden_warnings: usize, user_log: &UserLog) {
     if hidden_errors != 0 || hidden_warnings != 0 {
-        build_config.user_diagnostics.warn(format!(
+        user_log.warn(format!(
             "diagnostic output limited by --diagnostic-limit: {} errors and {} warnings were not displayed.",
             hidden_errors, hidden_warnings
         ));
@@ -1451,7 +1418,13 @@ mod tests {
             output_style: OutputStyle::Json,
             ..Default::default()
         };
-        process_captured_diagnostics(&mut catcher, &cfg, false, None);
+        process_captured_diagnostics(
+            &mut catcher,
+            &cfg,
+            false,
+            None,
+            &UserLog::new(log::LevelFilter::Warn),
+        );
 
         assert_eq!(catcher.n_warnings, 0);
         assert_eq!(catcher.n_errors, 1);

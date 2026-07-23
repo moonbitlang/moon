@@ -25,12 +25,12 @@ use moonutil::{
     locks::FileLock,
     project::{PackageDirs, ProjectManifest},
     target::{SurfaceTarget, TargetBackend, lower_surface_targets},
+    user_log::UserLog,
 };
 use std::path::Path;
 use tracing::instrument;
 
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput};
-use crate::user_diagnostics::UserDiagnostics;
 
 use super::BuildFlags;
 
@@ -50,7 +50,11 @@ pub(crate) struct BundleSubcommand {
 }
 
 #[instrument(skip_all)]
-pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_bundle(
+    cli: UniversalFlags,
+    cmd: BundleSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let PackageDirs {
         source_dir,
         target_dir,
@@ -75,6 +79,7 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
             &mooncakes_dir,
             &project_manifest,
             None,
+            user_log,
         );
     }
 
@@ -90,6 +95,7 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
             &mooncakes_dir,
             &project_manifest,
             Some(t),
+            user_log,
         )
         .context(format!("failed to run bundle for target {t:?}"))?;
         ret_value = ret_value.max(x);
@@ -98,6 +104,7 @@ pub(crate) fn run_bundle(cli: UniversalFlags, cmd: BundleSubcommand) -> anyhow::
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_bundle_internal(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
@@ -106,6 +113,7 @@ pub(crate) fn run_bundle_internal(
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     run_bundle_internal_rr(
         cli,
@@ -115,10 +123,12 @@ pub(crate) fn run_bundle_internal(
         mooncakes_dir,
         project_manifest,
         selected_target_backend,
+        user_log,
     )
 }
 
 #[instrument(skip_all)]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_bundle_internal_rr(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
@@ -127,6 +137,7 @@ pub(crate) fn run_bundle_internal_rr(
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let (build_meta, build_graph) = plan_bundle_rr(
         cli,
@@ -136,6 +147,7 @@ pub(crate) fn run_bundle_internal_rr(
         mooncakes_dir,
         project_manifest,
         selected_target_backend,
+        user_log,
     )?;
 
     if cli.dry_run {
@@ -154,20 +166,17 @@ pub(crate) fn run_bundle_internal_rr(
         rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
         let result = rr_build::execute_build(
-            &BuildConfig::from_flags(
-                &cmd.build_flags,
-                &cli.unstable_feature,
-                cli.verbose,
-                UserDiagnostics::from_flags(cli),
-            ),
+            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose),
             build_graph,
             target_dir,
+            user_log,
         )?;
         result.print_info(cli.quiet, "bundling")?;
         Ok(result.return_code_for_success())
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn plan_bundle_rr(
     cli: &UniversalFlags,
     cmd: &BundleSubcommand,
@@ -176,6 +185,7 @@ pub(crate) fn plan_bundle_rr(
     mooncakes_dir: &Path,
     project_manifest: &ProjectManifest,
     selected_target_backend: Option<TargetBackend>,
+    user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
         cmd.auto_sync_flags.frozen,
@@ -190,7 +200,8 @@ pub(crate) fn plan_bundle_rr(
         mooncakes_dir,
         project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     plan_bundle_rr_from_resolved(
         cli,
         cmd,
@@ -198,6 +209,7 @@ pub(crate) fn plan_bundle_rr(
         &mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
+        user_log,
     )
 }
 
@@ -208,21 +220,21 @@ pub(crate) fn plan_bundle_rr_from_resolved(
     mooncake_bin_dir: &Path,
     selected_target_backend: Option<TargetBackend>,
     resolve_output: moonbuild_rupes_recta::ResolveOutput,
+    user_log: &UserLog,
 ) -> anyhow::Result<(rr_build::BuildMeta, rr_build::BuildInput)> {
     let preconfig = bundle_preconfig(cli, cmd, target_dir, selected_target_backend);
-    let output = UserDiagnostics::from_flags(cli);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     let intent = bundle_user_intent(&resolve_output);
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,

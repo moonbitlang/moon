@@ -596,7 +596,12 @@ mod tests {
             &dirs.project_manifest,
         )
         .unwrap();
-        moonbuild_rupes_recta::resolve_synced_project(&cfg, synced_env).unwrap()
+        moonbuild_rupes_recta::resolve_synced_project(
+            &cfg,
+            synced_env,
+            &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
+        )
+        .unwrap()
     }
 
     #[test]

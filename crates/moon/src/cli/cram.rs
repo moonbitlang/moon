@@ -38,7 +38,6 @@ use tracing::instrument;
 use crate::{
     cli::{BuildSubcommand, process},
     rr_build::{self, BuildConfig},
-    user_diagnostics::UserDiagnostics,
 };
 
 use super::{BuildFlags, UniversalFlags};
@@ -148,7 +147,8 @@ fn run_cram_test(
         &mooncakes_dir,
         &project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
     let planned_runs = crate::cli::plan_build_rr_from_resolved_all(
         cli,
@@ -176,15 +176,10 @@ fn run_cram_test(
     }
 
     let _lock = FileLock::lock(&target_dir)?;
-    let cfg = BuildConfig::from_flags(
-        &build_cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_user_log(user_log),
-    );
+    let cfg = BuildConfig::from_flags(&build_cmd.build_flags, &cli.unstable_feature, cli.verbose);
     for (build_meta, build_graph) in planned_runs {
         rr_build::generate_all_pkgs_json(&build_meta)?;
-        let result = rr_build::execute_build(&cfg, build_graph, &target_dir)?;
+        let result = rr_build::execute_build(&cfg, build_graph, &target_dir, user_log)?;
         result.print_info(cli.quiet, "building")?;
         if !result.successful() {
             return Ok(result.return_code_for_success());

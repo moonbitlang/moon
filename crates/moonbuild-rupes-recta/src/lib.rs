@@ -113,7 +113,6 @@ pub mod pkg_solve;
 pub mod compile;
 pub mod resolve;
 pub mod target_layout;
-pub mod user_warning;
 
 // Formatter
 pub mod fmt;
@@ -131,4 +130,3 @@ pub mod util;
 // Reexports
 pub use compile::{CompileConfig, CompileOutput, compile};
 pub use resolve::{ResolveConfig, ResolveOutput, resolve_synced_project, sync_dependencies};
-pub use user_warning::{UserMessageLevel, UserWarning};

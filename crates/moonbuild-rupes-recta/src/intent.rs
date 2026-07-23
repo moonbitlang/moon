@@ -23,7 +23,7 @@
 //! package definition and status. This is for simplifying the CLI command
 //! node generation logic.
 
-use moonutil::{resolution::ModuleId, target::TargetBackend};
+use moonutil::{resolution::ModuleId, target::TargetBackend, user_log::UserLog};
 
 use crate::{
     build_plan::InputDirective,
@@ -31,7 +31,6 @@ use crate::{
     discover::DiscoveredPackage,
     model::{BuildPlanNode, BuildTarget, PackageId, TargetKind},
     resolve::ResolveOutput,
-    user_warning::UserWarning,
 };
 
 /// A concise set of user actions that expand into concrete BuildPlanNode groups.
@@ -65,7 +64,7 @@ impl UserIntent {
         self,
         resolved: &ResolveOutput,
         out: &mut Vec<BuildPlanNode>,
-        user_messages: &mut Vec<UserWarning>,
+        user_log: &UserLog,
         directive: &InputDirective,
         target_backend: TargetBackend,
     ) {
@@ -123,7 +122,7 @@ impl UserIntent {
                                 source_supports_backend,
                                 whitebox_target,
                                 target_backend,
-                                user_messages,
+                                user_log,
                             ) {
                                 out.push(BuildPlanNode::check(whitebox_target));
                             }
@@ -134,7 +133,7 @@ impl UserIntent {
                             source_supports_backend,
                             blackbox_target,
                             target_backend,
-                            user_messages,
+                            user_log,
                         ) {
                             out.push(BuildPlanNode::check(blackbox_target));
                         }
@@ -177,7 +176,7 @@ impl UserIntent {
                                 source_supports_backend,
                                 t,
                                 target_backend,
-                                user_messages,
+                                user_log,
                             )
                         {
                             continue;
@@ -239,13 +238,13 @@ fn should_skip_test_target(
     source_supports_backend: bool,
     target: BuildTarget,
     target_backend: TargetBackend,
-    user_messages: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) -> bool {
     if !source_supports_backend || target_realizes_backend(resolved, target, target_backend) {
         return false;
     }
 
-    warn_or_info_test_target_skip(resolved, target, target_backend, user_messages);
+    warn_or_info_test_target_skip(resolved, target, target_backend, user_log);
     true
 }
 
@@ -279,7 +278,7 @@ fn warn_or_info_test_target_skip(
     resolved: &ResolveOutput,
     target: BuildTarget,
     target_backend: TargetBackend,
-    user_messages: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) {
     let realizable = realizable_supported_backends(resolved, target);
 
@@ -291,10 +290,10 @@ fn warn_or_info_test_target_skip(
     };
 
     if realizable.is_empty() {
-        user_messages.push(UserWarning::warn(format!(
+        user_log.warn(format!(
             "Skipping {test_kind} tests for package `{}`: the test target is unrealizable on every backend because its dependency graph has no supported backend intersection",
             pkg.fqn
-        )));
+        ));
         return;
     }
 
@@ -303,10 +302,10 @@ fn warn_or_info_test_target_skip(
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     supported_backends.sort();
-    user_messages.push(UserWarning::info(format!(
+    user_log.info(format!(
         "Skipping {test_kind} tests for package `{}` on backend `{}`: target is not realizable for this backend. Realizable backends: [{}]",
         pkg.fqn,
         target_backend,
         supported_backends.join(", ")
-    )));
+    ));
 }

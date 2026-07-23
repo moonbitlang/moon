@@ -32,8 +32,8 @@ use crate::{
         DepEdge,
         model::{DepRelationship, ImportLoop, SolveError},
     },
-    user_warning::UserWarning,
 };
+use moonutil::user_log::UserLog;
 
 use super::model::MultipleError;
 
@@ -45,7 +45,7 @@ use super::model::MultipleError;
 pub(super) fn verify(
     dep: &DepRelationship,
     packages: &DiscoverResult,
-    user_warnings: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) -> Result<(), SolveError> {
     debug!("Verifying package dependency graph integrity");
 
@@ -60,7 +60,7 @@ pub(super) fn verify(
     debug!("Done uniqueness verification");
     verify_no_forbidden_internal_imports(dep, packages, &mut errs);
     debug!("Done internal import verification");
-    warn_main_package_dependencies(dep, packages, user_warnings);
+    warn_main_package_dependencies(dep, packages, user_log);
     debug!("Done main package deprecation warnings");
 
     debug!("Package dependency graph verification completed successfully");
@@ -267,7 +267,7 @@ fn verify_no_forbidden_internal_imports(
 fn warn_main_package_dependencies(
     dep: &DepRelationship,
     packages: &DiscoverResult,
-    user_warnings: &mut Vec<UserWarning>,
+    user_log: &UserLog,
 ) {
     let mut seen: HashSet<(PackageId, PackageId, TargetKind)> = HashSet::new();
 
@@ -304,7 +304,7 @@ fn warn_main_package_dependencies(
                 _ => unreachable!("only package import fields should reach this warning"),
             };
 
-            user_warnings.push(UserWarning::new(format!(
+            user_log.warn(format!(
                 "Package `{}` depends on main package `{}` via `{}` in package directory \"{}\". \
 This dependency will become an error in a future release. \
 Move reusable APIs into a non-main package and keep main packages as entrypoints.",
@@ -312,7 +312,7 @@ Move reusable APIs into a non-main package and keep main packages as entrypoints
                 dependency_pkg.fqn,
                 import_field,
                 importer_pkg.root_path.display(),
-            )));
+            ));
         }
     }
 }

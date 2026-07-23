@@ -38,7 +38,6 @@ use crate::rr_build;
 use crate::rr_build::BuildConfig;
 use crate::rr_build::CalcUserIntentOutput;
 use crate::rr_build::preconfig_compile;
-use crate::user_diagnostics::UserDiagnostics;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -199,7 +198,8 @@ fn run_build_rr(
         mooncakes_dir,
         project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolve_output)
     } else {
@@ -231,16 +231,11 @@ fn run_build_rr(
         true
     } else {
         let _lock = FileLock::lock(target_dir)?;
-        let cfg = BuildConfig::from_flags(
-            &cmd.build_flags,
-            &cli.unstable_feature,
-            cli.verbose,
-            UserDiagnostics::from_user_log(user_log),
-        );
+        let cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
         let mut ok = true;
         for (build_meta, build_graph) in planned_runs {
             rr_build::generate_all_pkgs_json(&build_meta)?;
-            let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
+            let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
             result.print_info(cli.quiet, "building")?;
             ok &= result.successful();
         }
@@ -271,12 +266,11 @@ pub(crate) fn plan_build_rr_from_resolved(
         RunMode::Build,
     );
 
-    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     let intent = calc_user_intent(
@@ -289,7 +283,7 @@ pub(crate) fn plan_build_rr_from_resolved(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -317,12 +311,11 @@ fn plan_build_rr_from_resolved_with_scope(
         RunMode::Build,
     );
 
-    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     debug_assert_eq!(planning_context.target_backend(), target_backend);
@@ -334,7 +327,7 @@ fn plan_build_rr_from_resolved_with_scope(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -362,19 +355,18 @@ fn plan_build_rr_from_selection(
         RunMode::Build,
     );
 
-    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     debug_assert_eq!(planning_context.target_backend(), target_backend);
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         selection.into_user_intent(),
         mooncake_bin_dir,

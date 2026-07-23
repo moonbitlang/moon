@@ -26,8 +26,8 @@ use crate::{
     discover::{DiscoverResult, DiscoveredPackage},
     model::{PackageId, TargetKind},
     pkg_solve::model::VirtualUser,
-    user_warning::UserWarning,
 };
+use moonutil::user_log::UserLog;
 
 /// A grouped environment for resolving dependencies.
 struct ResolveEnv<'a> {
@@ -35,14 +35,15 @@ struct ResolveEnv<'a> {
     packages: &'a DiscoverResult,
     res: DepRelationship,
     inject_coverage: bool,
-    user_warnings: Vec<UserWarning>,
+    user_log: &'a UserLog,
 }
 
 pub(super) fn solve_only(
     modules: &ResolvedEnv,
     packages: &DiscoverResult,
     enable_coverage: bool,
-) -> Result<(DepRelationship, Vec<UserWarning>), SolveError> {
+    user_log: &UserLog,
+) -> Result<DepRelationship, SolveError> {
     debug!(
         "Building dependency resolution structures for {} packages",
         packages.package_count()
@@ -53,7 +54,7 @@ pub(super) fn solve_only(
         packages,
         res: DepRelationship::default(),
         inject_coverage: enable_coverage,
-        user_warnings: Vec::new(),
+        user_log,
     };
 
     debug!("Processing packages for dependency resolution");
@@ -81,16 +82,14 @@ pub(super) fn solve_only(
     }
     debug!("Processed packages");
 
-    let ResolveEnv {
-        res, user_warnings, ..
-    } = env;
+    let ResolveEnv { res, .. } = env;
 
     debug!(
         "Dependency resolution completed with {} nodes and {} edges",
         res.dep_graph.node_count(),
         res.dep_graph.edge_count()
     );
-    Ok((res, user_warnings))
+    Ok(res)
 }
 
 /// Solve the virtual package implementation (and only this field) for a given package.
@@ -234,7 +233,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
     // error instead).
     if let Some((f, t, edge)) = violating {
         let violating_pkg = env.packages.get_package(t.package);
-        env.user_warnings.push(UserWarning::new(format!(
+        env.user_log.warn(format!(
             "Duplicate alias `{}` at \"{}\". \
              \"test-import\" will automatically add \"import\" and current \
              package as dependency so you don't need to add it manually. \
@@ -245,7 +244,7 @@ fn insert_black_box_dep(env: &mut ResolveEnv<'_>, pid: PackageId, pkg_data: &Dis
             pkg_data.fqn.short_alias(),
             pkg_data.config_path().display(),
             violating_pkg.fqn
-        )));
+        ));
         // replace the existing one's alias with its full name
         let new_alias = arcstr::format!("{}", violating_pkg.fqn);
         trace!(

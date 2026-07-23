@@ -44,7 +44,6 @@ use crate::{
     cli::BuildFlags,
     filter::match_packages_by_name_rr,
     rr_build::{self, BuildConfig, BuildMeta, preconfig_compile},
-    user_diagnostics::UserDiagnostics,
 };
 
 #[derive(clap::Args, Debug)]
@@ -94,7 +93,8 @@ pub(crate) fn run_build_binary_dep(
         &mooncakes_dir,
         &project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
     // Note: There's a cyclic dependency!
     //
@@ -159,19 +159,18 @@ pub(crate) fn run_build_binary_dep(
             &target_dir,
             RunMode::Build,
         );
-        let output = UserDiagnostics::from_user_log(user_log);
         let planning_context = rr_build::prepare_resolved_build(
             &preconfig,
             &cli.unstable_feature,
             &target_dir,
-            output,
+            user_log,
             &resolve_output,
         )?;
         let intent = vec![UserIntent::Build(pkg)].into();
         let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
             preconfig,
             &cli.unstable_feature,
-            output,
+            user_log,
             planning_context,
             intent,
             &mooncake_bin_dir,
@@ -185,14 +184,10 @@ pub(crate) fn run_build_binary_dep(
         rr_build::generate_all_pkgs_json(&build_meta)?;
 
         let result = rr_build::execute_build(
-            &BuildConfig::from_flags(
-                &build_flags,
-                &cli.unstable_feature,
-                cli.verbose,
-                UserDiagnostics::from_user_log(user_log),
-            ),
+            &BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose),
             build_graph,
             &target_dir,
+            user_log,
         )?;
         result.print_info(cli.quiet, "building")?;
 

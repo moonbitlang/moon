@@ -41,7 +41,6 @@ use crate::{
         match_packages_with_fuzzy, package_supports_backend, select_packages,
     },
     rr_build::{self, BuildConfig, BuildMeta, CalcUserIntentOutput},
-    user_diagnostics::UserDiagnostics,
 };
 
 use super::UniversalFlags;
@@ -299,7 +298,7 @@ pub(crate) fn run_info(
     let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let synced_env =
         sync_dependencies(&resolve_cfg, &source_dir, &mooncakes_dir, &project_manifest)?;
-    let resolve_output = resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output = resolve_synced_project(&resolve_cfg, synced_env, output.user_log())?;
     let selection = PackageSelection::new(&cmd, &resolve_output, output.user_log())?;
 
     let requested_targets = cmd
@@ -369,7 +368,6 @@ fn run_info_rr_internal(
         RunMode::Check,
     );
     preconfig.info_no_alias = cmd.no_alias;
-    let user_diagnostics = UserDiagnostics::from_user_log(user_log);
     let ctx = InfoIntentContext {
         selection,
         output_plan,
@@ -380,7 +378,7 @@ fn run_info_rr_internal(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        user_diagnostics,
+        user_log,
         &resolve_output,
     )?;
     let intent =
@@ -388,7 +386,7 @@ fn run_info_rr_internal(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        user_diagnostics,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -399,13 +397,8 @@ fn run_info_rr_internal(
     rr_build::generate_all_pkgs_json(&build_meta)?;
 
     // TODO: UX: Consider mirroring flags from `moon check`?
-    let cfg = BuildConfig::from_flags(
-        &BuildFlags::default(),
-        &cli.unstable_feature,
-        cli.verbose,
-        user_diagnostics,
-    );
-    let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
+    let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
+    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     let success = result.successful();
     let print_result = result.print_info(cli.quiet, "generating mbti files");
     if success {

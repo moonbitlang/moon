@@ -32,7 +32,6 @@ use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
 use crate::run::collect_test_outline;
 use crate::run::perform_promotion;
 use crate::run::{TestFilter, TestIndex, TestOutlineEntry};
-use crate::user_diagnostics::UserDiagnostics;
 use anyhow::Context;
 use anyhow::bail;
 use clap::builder::ArgPredicate;
@@ -179,10 +178,10 @@ fn print_test_summary(
     passed: usize,
     quiet: bool,
     backend_hint: Option<&str>,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) {
     if total == 0 {
-        output.warn("no test entry found.");
+        user_log.warn("no test entry found.");
     }
 
     let failed = total - passed;
@@ -207,9 +206,9 @@ fn print_test_summary(
     }
 }
 
-fn print_test_outline(entries: &[TestOutlineEntry], output: UserDiagnostics) {
+fn print_test_outline(entries: &[TestOutlineEntry], user_log: &UserLog) {
     if entries.is_empty() {
-        output.warn("no test entry found.");
+        user_log.warn("no test entry found.");
         return;
     }
 
@@ -340,7 +339,6 @@ fn run_test_impl(
         ensure_test_profile_target_is_native(&cmd.build_flags)?;
     }
 
-    let output = UserDiagnostics::from_user_log(user_log);
     info!(
         update = cmd.update,
         build_only = cmd.build_only,
@@ -384,7 +382,7 @@ fn run_test_impl(
     );
 
     if cmd.doc_test {
-        output.warn(
+        user_log.warn(
             "--doc flag is deprecated and will be removed in the future, please use `moon test` directly",
         );
     }
@@ -553,6 +551,7 @@ fn run_test_in_single_file_rr(
         mooncakes_dir,
         single_file_path,
         false,
+        user_log,
     )?;
     let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = if cmd.profile {
@@ -573,12 +572,11 @@ fn run_test_in_single_file_rr(
     // Enable tcc-run to match legacy debug test graph shape
     preconfig.try_tcc_run = !cmd.profile;
 
-    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolved,
     )?;
     let pkg = rr_build::local_packages(&resolved)
@@ -608,7 +606,7 @@ fn run_test_in_single_file_rr(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         &mooncake_bin_dir,
@@ -738,12 +736,11 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         name_filter: cmd.filter.clone(),
         ..Default::default()
     };
-    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     let intent = calc_user_intent(
@@ -751,12 +748,12 @@ pub(crate) fn plan_test_or_bench_rr_from_resolved(
         cmd,
         &mut filter,
         planning_context.target_backend(),
-        output,
+        user_log,
     )?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -887,12 +884,11 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
         preconfig.try_tcc_run = true;
     }
 
-    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     debug_assert_eq!(planning_context.target_backend(), target_backend);
@@ -906,7 +902,7 @@ fn plan_test_or_bench_rr_from_resolved_scoped(
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -1012,7 +1008,8 @@ fn run_test_rr(
         mooncakes_dir,
         project_manifest,
     )?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let planned_runs = plan_test_or_bench_rr_from_resolved_all(
         cli,
         cmd,
@@ -1083,7 +1080,7 @@ fn apply_list_of_filters(
     value_tracing: bool,
     target_backend: TargetBackend,
     out_filter: &mut TestFilter,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<InputDirective, anyhow::Error> {
     let package_matches = match_packages_with_fuzzy(
         resolve_output,
@@ -1154,7 +1151,7 @@ fn apply_list_of_filters(
         }
     } else {
         // No package matched
-        output.warn(format!(
+        user_log.warn(format!(
             "package `{}` not found, make sure you have spelled it correctly, e.g. `moonbitlang/core/hashmap`(exact match) or `hashmap`(fuzzy match)",
             package_filter.join(", ")
         ));
@@ -1179,7 +1176,7 @@ fn calc_user_intent(
     cmd: &TestLikeSubcommand<'_>,
     out_filter: &mut TestFilter,
     target_backend: moonutil::target::TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
     let all_affected_packages: Vec<_> = resolve_output
         .local_modules()
@@ -1198,7 +1195,7 @@ fn calc_user_intent(
         out_filter,
         &all_affected_packages,
         target_backend,
-        output,
+        user_log,
         cmd.explicit_path_filters,
         cmd.package.as_deref(),
     )
@@ -1211,7 +1208,7 @@ fn calc_user_intent_from_packages(
     out_filter: &mut TestFilter,
     all_affected_packages: &[PackageId],
     target_backend: moonutil::target::TargetBackend,
-    output: UserDiagnostics,
+    user_log: &UserLog,
     explicit_path_filters: &[PathBuf],
     package_filter: Option<&[String]>,
 ) -> Result<CalcUserIntentOutput, anyhow::Error> {
@@ -1254,7 +1251,7 @@ fn calc_user_intent_from_packages(
                 debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
 
                 let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
-                    output.info(format!(
+                    user_log.info(format!(
                         "skipping path `{}` because it is not a package in the current work context.",
                         path.display()
                     ));
@@ -1286,7 +1283,7 @@ fn calc_user_intent_from_packages(
 
             for (path, pkg_id) in unsupported_paths {
                 let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-                output.info(format!(
+                user_log.info(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,
@@ -1311,7 +1308,7 @@ fn calc_user_intent_from_packages(
             value_tracing,
             target_backend,
             out_filter,
-            output,
+            user_log,
         )?
     } else {
         // No filter: emit one intent per package (Test/Bench)
@@ -1554,7 +1551,6 @@ fn rr_test_from_plan(
     build_only_artifacts: Option<&mut TestArtifacts>,
     user_log: &UserLog,
 ) -> Result<i32, anyhow::Error> {
-    let user_diagnostics = UserDiagnostics::from_user_log(user_log);
     let built = match execute_test_build_from_plan(
         cli,
         cmd,
@@ -1562,7 +1558,7 @@ fn rr_test_from_plan(
         target_dir,
         build_meta,
         build_graph,
-        user_diagnostics,
+        user_log,
     )? {
         TestBuildExecution::DryRun => return Ok(0),
         TestBuildExecution::BuildFailed(exit_code) => return Ok(exit_code),
@@ -1576,7 +1572,7 @@ fn rr_test_from_plan(
             cmd.include_skipped,
             cmd.run_mode == RunMode::Bench,
         )?;
-        print_test_outline(&entries, user_diagnostics);
+        print_test_outline(&entries, user_log);
         return Ok(0);
     }
 
@@ -1649,7 +1645,7 @@ fn rr_test_from_plan(
 
             // Apply loop count limits
             if loop_count >= cmd.update_limit {
-                user_diagnostics.warn(format!(
+                user_log.warn(format!(
                     "reached the limit of {} update passes, stopping further updates.",
                     cmd.update_limit
                 ));
@@ -1686,6 +1682,7 @@ fn rr_test_from_plan(
                 build_graph,
                 target_dir,
                 Some(build_meta),
+                user_log,
                 Box::new(|work| {
                     trace!("requesting rerun artifacts");
                     for file_path in want_files {
@@ -1734,7 +1731,7 @@ fn rr_test_from_plan(
         summary.passed,
         cli.quiet,
         backend_hint,
-        user_diagnostics,
+        user_log,
     );
 
     if summary.total == summary.passed {
@@ -1764,7 +1761,7 @@ fn execute_test_build_from_plan(
     target_dir: &Path,
     build_meta: &rr_build::BuildMeta,
     build_graph: rr_build::BuildInput,
-    user_diagnostics: UserDiagnostics,
+    user_log: &UserLog,
 ) -> Result<TestBuildExecution, anyhow::Error> {
     if cli.dry_run {
         rr_build::print_dry_run(
@@ -1783,16 +1780,12 @@ fn execute_test_build_from_plan(
     // before executing the build
     rr_build::generate_all_pkgs_json(build_meta)?;
 
-    let build_config = BuildConfig::from_flags(
-        cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        user_diagnostics,
-    );
+    let build_config = BuildConfig::from_flags(cmd.build_flags, &cli.unstable_feature, cli.verbose);
 
     // since n2 build consumes the graph, we back it up for reruns
     let build_graph_backup = cmd.update.then(|| build_graph.clone());
-    let result = rr_build::execute_test_build(&build_config, build_graph, target_dir, build_meta)?;
+    let result =
+        rr_build::execute_test_build(&build_config, build_graph, target_dir, build_meta, user_log)?;
     debug!(
         success = result.successful(),
         exit_code = result.return_code_for_success(),

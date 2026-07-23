@@ -31,6 +31,7 @@ use moonutil::{
     build_options::RunMode,
     cond_expr::OptLevel,
     target::{SurfaceTarget, TargetBackend},
+    user_log::UserLog,
 };
 use serde::Serialize;
 
@@ -263,7 +264,11 @@ pub(crate) struct ProfileRequest {
     pub(crate) opt_level: OptLevel,
 }
 
-pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_profiled_run(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     ensure_profile_available(MOON_RUN_PROFILE_COMMAND)?;
 
     if cmd.command.is_some() {
@@ -273,13 +278,21 @@ pub(crate) fn run_profiled_run(cli: &UniversalFlags, cmd: RunSubcommand) -> anyh
         bail!("{MOON_RUN_PROFILE_COMMAND} does not support stdin source");
     }
 
-    run_profile_materialized(cli, cmd)
+    run_profile_materialized(cli, cmd, user_log)
 }
 
-fn run_profile_materialized(cli: &UniversalFlags, cmd: RunSubcommand) -> anyhow::Result<i32> {
+fn run_profile_materialized(
+    cli: &UniversalFlags,
+    cmd: RunSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let run_cmd = profile_run_subcommand(cmd.clone())?;
-    let mut built =
-        build_run_executable(cli, &run_cmd, BuildRunExecutableOptions::for_profile(cli))?;
+    let mut built = build_run_executable(
+        cli,
+        &run_cmd,
+        BuildRunExecutableOptions::for_profile(cli),
+        user_log,
+    )?;
     built.ensure_build_success()?;
 
     if built.target_backend != RunBackend::Native {

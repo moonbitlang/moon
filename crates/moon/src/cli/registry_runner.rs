@@ -21,10 +21,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::model::RunBackend;
 use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
-use moonutil::{locks::FileLock, registry::RegistryConfig, resolution::ModuleName};
+use moonutil::{
+    locks::FileLock, registry::RegistryConfig, resolution::ModuleName, user_log::UserLog,
+};
 use semver::Version;
 
-use crate::{rr_build, user_diagnostics::UserDiagnostics};
+use crate::rr_build;
 
 pub(crate) enum RegistryRunTarget {
     Wasm {
@@ -82,13 +84,13 @@ impl ResolvedExecutablePackage {
 
 fn resolve_registry_package(
     package: &str,
-    output: UserDiagnostics,
+    user_log: &UserLog,
 ) -> anyhow::Result<ResolvedExecutablePackage> {
     let (module_name, package_path, requested_version) =
         parse_executable_package_coordinate(package)?;
     let version = match requested_version {
         Some(version) => version,
-        None => resolve_latest_version(&module_name, output)?,
+        None => resolve_latest_version(&module_name, user_log)?,
     };
     Ok(ResolvedExecutablePackage {
         module_name,
@@ -97,17 +99,14 @@ fn resolve_registry_package(
     })
 }
 
-fn resolve_latest_version(
-    module_name: &ModuleName,
-    output: UserDiagnostics,
-) -> anyhow::Result<Version> {
+fn resolve_latest_version(module_name: &ModuleName, user_log: &UserLog) -> anyhow::Result<Version> {
     let index_dir = moonutil::registry::index();
     let registry_config = RegistryConfig::load();
     let had_index = index_dir.exists();
 
     resolve_latest_version_with(
         module_name,
-        output,
+        user_log,
         had_index,
         || latest_version_from_local_registry(module_name),
         || {
@@ -135,23 +134,23 @@ fn latest_version_from_local_registry(module_name: &ModuleName) -> LatestVersion
 
 fn resolve_latest_version_with(
     module_name: &ModuleName,
-    output: UserDiagnostics,
+    user_log: &UserLog,
     had_index: bool,
     mut lookup_latest_version: impl FnMut() -> LatestVersionLookup,
     mut update_registry: impl FnMut() -> anyhow::Result<()>,
 ) -> anyhow::Result<Version> {
     if let LatestVersionLookup::Found(version) = lookup_latest_version() {
-        output.info(format!(
+        user_log.info(format!(
             "Resolved {module_name} latest version to {version}"
         ));
         return Ok(version);
     }
 
     match update_registry() {
-        Ok(_) => output.info("Updated registry index"),
+        Ok(_) => user_log.info("Updated registry index"),
         Err(e) => {
             if had_index {
-                output.warn(format!(
+                user_log.warn(format!(
                     "Failed to update registry index, using cached index: {}",
                     e
                 ));
@@ -173,7 +172,7 @@ fn resolve_latest_version_with(
             bail!("Module `{module_name}` not found in registry after updating the index")
         }
     };
-    output.info(format!(
+    user_log.info(format!(
         "Resolved {module_name} latest version to {version}"
     ));
     Ok(version)
@@ -207,11 +206,11 @@ fn parse_executable_package_coordinate(
 
 pub(super) fn ensure_cached_file(
     cache_path: &Path,
-    output: UserDiagnostics,
+    user_log: &UserLog,
     produce: impl FnOnce(&Path) -> anyhow::Result<()>,
 ) -> anyhow::Result<PathBuf> {
     if cache_path.exists() {
-        output.info(format!("Using cached {}", cache_path.to_string_lossy()));
+        user_log.info(format!("Using cached {}", cache_path.to_string_lossy()));
         return Ok(cache_path.to_path_buf());
     }
 
@@ -228,7 +227,7 @@ pub(super) fn ensure_cached_file(
         .with_context(|| format!("failed to lock cache directory {}", parent.display()))?;
 
     if cache_path.exists() {
-        output.info(format!("Using cached {}", cache_path.to_string_lossy()));
+        user_log.info(format!("Using cached {}", cache_path.to_string_lossy()));
         return Ok(cache_path.to_path_buf());
     }
 
@@ -254,14 +253,14 @@ pub(crate) fn run(
     args: Vec<String>,
     quiet: bool,
     verbose: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::new(verbose, quiet);
-    let package = resolve_registry_package(&package, output)?;
+    let package = resolve_registry_package(&package, user_log)?;
     match target {
         RegistryRunTarget::Wasm {
             experimental_policy,
         } => {
-            let wasm_path = super::runwasm::cached_wasm_path(&package, output)?;
+            let wasm_path = super::runwasm::cached_wasm_path(&package, user_log)?;
             run_artifact(
                 RunBackend::Wasm,
                 &wasm_path,
@@ -271,7 +270,7 @@ pub(crate) fn run(
             )
         }
         RegistryRunTarget::Native => {
-            let executable = cached_native_executable(&package, output, quiet, verbose)?;
+            let executable = cached_native_executable(&package, user_log, quiet, verbose)?;
             run_artifact(RunBackend::Native, &executable, None, &args, verbose)
         }
     }
@@ -279,13 +278,13 @@ pub(crate) fn run(
 
 fn cached_native_executable(
     package: &ResolvedExecutablePackage,
-    output: UserDiagnostics,
+    user_log: &UserLog,
     quiet: bool,
     verbose: bool,
 ) -> anyhow::Result<PathBuf> {
     let cache_path = package.cache_path(".exe");
 
-    ensure_cached_file(&cache_path, output, |staged| {
+    ensure_cached_file(&cache_path, user_log, |staged| {
         super::install_binary::build_registry_native_executable_to(
             &package.module_name,
             &package.version,
@@ -293,6 +292,7 @@ fn cached_native_executable(
             staged,
             quiet,
             verbose,
+            user_log,
         )
     })
 }
@@ -369,7 +369,7 @@ mod tests {
 
         let version = resolve_latest_version_with(
             &module_name,
-            UserDiagnostics::default(),
+            &UserLog::new(log::LevelFilter::Warn),
             true,
             || LatestVersionLookup::Found("0.3.3".parse().unwrap()),
             || {
@@ -391,7 +391,7 @@ mod tests {
 
         let version = resolve_latest_version_with(
             &module_name,
-            UserDiagnostics::default(),
+            &UserLog::new(log::LevelFilter::Warn),
             true,
             || {
                 lookup_count += 1;
@@ -420,7 +420,7 @@ mod tests {
 
         let err = resolve_latest_version_with(
             &module_name,
-            UserDiagnostics::default(),
+            &UserLog::new(log::LevelFilter::Warn),
             true,
             || LatestVersionLookup::NoVersionInformation,
             || {
@@ -465,7 +465,7 @@ mod tests {
         let cache = tempfile::TempDir::new().unwrap();
         let final_path = cache.path().join("artifact");
 
-        let error = ensure_cached_file(&final_path, UserDiagnostics::default(), |_| {
+        let error = ensure_cached_file(&final_path, &UserLog::new(log::LevelFilter::Warn), |_| {
             bail!("producer failed")
         })
         .unwrap_err();
@@ -488,12 +488,16 @@ mod tests {
                 let production_count = Arc::clone(&production_count);
                 std::thread::spawn(move || {
                     start.wait();
-                    ensure_cached_file(&final_path, UserDiagnostics::default(), |staged| {
-                        production_count.fetch_add(1, Ordering::SeqCst);
-                        std::thread::sleep(std::time::Duration::from_millis(50));
-                        std::fs::write(staged, b"artifact")?;
-                        Ok(())
-                    })
+                    ensure_cached_file(
+                        &final_path,
+                        &UserLog::new(log::LevelFilter::Warn),
+                        |staged| {
+                            production_count.fetch_add(1, Ordering::SeqCst);
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            std::fs::write(staged, b"artifact")?;
+                            Ok(())
+                        },
+                    )
                 })
             })
             .collect::<Vec<_>>();

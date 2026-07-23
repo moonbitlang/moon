@@ -24,7 +24,6 @@ use moonutil::{project::PackageDirs, user_log::UserLog};
 
 use crate::filter::{filter_pkg_by_dir_for_fmt, select_packages};
 use crate::rr_build::{self, BuildConfig, plan_fmt};
-use crate::user_diagnostics::UserDiagnostics;
 
 use super::UniversalFlags;
 
@@ -71,7 +70,6 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand, user_log: &UserLog) -> a
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
 
-    let output = UserDiagnostics::from_user_log(user_log);
     let resolved = moonbuild_rupes_recta::fmt::resolve_for_fmt(&source_dir, &project_manifest)
         .context("Failed to resolve environment")?;
 
@@ -94,22 +92,20 @@ fn run_fmt_rr(cli: &UniversalFlags, cmd: FmtSubcommand, user_log: &UserLog) -> a
         migrate_moon_mod_json: cli.unstable_feature.rr_moon_mod,
         migrate_moon_pkg_json: cli.unstable_feature.rr_moon_pkg,
     };
-    let (graph, user_warnings) = plan_fmt(
+    let graph = plan_fmt(
         &resolved,
         &fmt_config,
         &target_dir,
         &selected_packages,
         &project_manifest,
+        user_log,
     )?;
-    for message in &user_warnings {
-        output.user_message(message);
-    }
 
     if cli.dry_run {
         rr_build::print_dry_run_all(&graph, &source_dir, &target_dir);
         Ok(0)
     } else {
-        let res = rr_build::execute_build(&BuildConfig::default(), graph, &target_dir)?;
+        let res = rr_build::execute_build(&BuildConfig::default(), graph, &target_dir, user_log)?;
         res.print_info(cli.quiet, "formatting")?;
         Ok(res.return_code_for_success())
     }

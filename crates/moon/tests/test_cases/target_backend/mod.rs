@@ -683,6 +683,7 @@ fn test_check_skips_backend_mismatched_tests_as_info() {
     assert!(verbose_stderr.contains("Skipping whitebox tests for package"));
     assert!(verbose_stderr.contains("Skipping blackbox tests for package"));
     assert!(verbose_stderr.contains("target is not realizable for this backend"));
+    assert!(!verbose_stderr.contains("Info: Skipping"));
 }
 
 #[test]

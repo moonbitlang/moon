@@ -617,7 +617,6 @@ mod tests {
                 module_dirs,
                 pkg_dirs: packages,
                 pkg_rel: DepRelationship::default(),
-                user_warnings: Vec::new(),
             },
             package_id.build_target(TargetKind::Source),
         )

@@ -30,6 +30,7 @@
 //!    `packages.json`.
 //!
 use anyhow::Context;
+use log::LevelFilter;
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonbuild_rupes_recta::model::PackageId;
 use moonutil::build_options::RunMode;
@@ -51,7 +52,6 @@ use crate::filter::{
     select_supported_packages,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
-use crate::user_diagnostics::UserDiagnostics;
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
 use crate::watch::{WatchOutput, watching};
 
@@ -133,11 +133,10 @@ pub(crate) fn run_check(
     cmd: &CheckSubcommand,
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_user_log(user_log);
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;
-        let fmt_user_log = UserLog::new(cli_for_fmt.user_log_level());
+        let fmt_user_log = UserLog::new(LevelFilter::Error);
         let fmt_exit_code = crate::cli::fmt::run_fmt(
             &cli_for_fmt,
             crate::cli::FmtSubcommand {
@@ -150,7 +149,7 @@ pub(crate) fn run_check(
             &fmt_user_log,
         )?;
         if fmt_exit_code != 0 {
-            output.warn("formatting code failed");
+            user_log.warn("formatting code failed");
         }
     }
 
@@ -318,6 +317,7 @@ fn run_check_for_single_file_rr(
         mooncakes_dir,
         &single_file_path,
         false,
+        user_log,
     )?;
     let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
@@ -333,19 +333,18 @@ fn run_check_for_single_file_rr(
         RunMode::Check,
     );
 
-    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolved,
     )?;
     let intent = get_user_intents_single_file(&resolved, planning_context.target_backend())?;
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         &mooncake_bin_dir,
@@ -384,16 +383,11 @@ fn run_check_for_single_file_rr(
         filename.as_deref(),
     )?;
 
-    let mut cfg = BuildConfig::from_flags(
-        &cmd.build_flags,
-        &cli.unstable_feature,
-        cli.verbose,
-        UserDiagnostics::from_user_log(user_log),
-    );
+    let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
 
-    let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
+    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     result.print_info(cli.quiet, "checking")?;
 
     Ok(if result.successful() { 0 } else { 1 })
@@ -484,8 +478,9 @@ fn run_check_normal_internal_rr(
         project_manifest,
     )
     .context("Failed to calculate build plan")?;
-    let resolve_output = moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env)
-        .context("Failed to calculate build plan")?;
+    let resolve_output =
+        moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)
+            .context("Failed to calculate build plan")?;
     let prebuild_list = if watch {
         rr_get_prebuild_watch_paths(&resolve_output)
     } else {
@@ -523,12 +518,7 @@ fn run_check_normal_internal_rr(
                 target_dir.display()
             )
         })?;
-        let mut cfg = BuildConfig::from_flags(
-            &cmd.build_flags,
-            &cli.unstable_feature,
-            cli.verbose,
-            UserDiagnostics::from_user_log(user_log),
-        );
+        let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
         cfg.patch_file = cmd.patch_file.clone();
         cfg.explain_errors |= cmd.explain;
         let mut ok = true;
@@ -538,7 +528,7 @@ fn run_check_normal_internal_rr(
             // Generate metadata for IDE. The last executed backend wins.
             rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
-            let result = rr_build::execute_build(&cfg, build_graph, target_dir)?;
+            let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
             result.print_info(cli.quiet, "checking")?;
             ok &= result.successful();
         }
@@ -654,12 +644,11 @@ pub(crate) fn plan_check_rr_from_resolved(
         RunMode::Check,
     );
 
-    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     let intent = if let Some(filter_path) = cmd.package_path.as_deref() {
@@ -682,7 +671,7 @@ pub(crate) fn plan_check_rr_from_resolved(
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         intent,
         mooncake_bin_dir,
@@ -710,19 +699,18 @@ fn plan_check_rr_from_selection(
         RunMode::Check,
     );
 
-    let output = UserDiagnostics::from_user_log(user_log);
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
         target_dir,
-        output,
+        user_log,
         &resolve_output,
     )?;
     debug_assert_eq!(planning_context.target_backend(), target_backend);
     rr_build::plan_resolved_build_from_intent(
         preconfig,
         &cli.unstable_feature,
-        output,
+        user_log,
         planning_context,
         selection.into_user_intent()?,
         mooncake_bin_dir,

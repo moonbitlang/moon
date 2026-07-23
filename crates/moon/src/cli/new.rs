@@ -22,16 +22,16 @@ use anyhow::bail;
 use moonutil::{
     constants::{is_moon_mod_exist, is_moon_pkg_exist},
     registry::{Credentials, credentials_json, validate_username},
+    user_log::UserLog,
 };
 
 use super::UniversalFlags;
-use crate::user_diagnostics::UserDiagnostics;
 
 /// Read the existing username from the credentials file
-fn get_existing_username(output: UserDiagnostics) -> Option<String> {
+fn get_existing_username(user_log: &UserLog) -> Option<String> {
     let credentials_path = credentials_json();
     if !credentials_path.exists() {
-        output.warn(
+        user_log.warn(
             "Using default username. You may login with `moon login` to store your username, or provide one with `--user <username>`.",
         );
         return None;
@@ -43,7 +43,7 @@ fn get_existing_username(output: UserDiagnostics) -> Option<String> {
         if let Ok(credentials) = serde_json_lenient::from_reader::<_, Credentials>(reader) {
             return credentials.username;
         } else {
-            output.warn(
+            user_log.warn(
                 "Using default username. You may relogin with `moon login` to store your username, or provide one with `--user <username>`.",
             );
         }
@@ -66,9 +66,11 @@ pub(crate) struct NewSubcommand {
     pub name: Option<String>,
 }
 
-pub(crate) fn run_new(cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Result<i32> {
-    let output = UserDiagnostics::from_flags(cli);
-
+pub(crate) fn run_new(
+    cli: &UniversalFlags,
+    cmd: NewSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for new")
     }
@@ -81,7 +83,7 @@ pub(crate) fn run_new(cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Resul
 
     let username = cmd
         .user
-        .or_else(|| get_existing_username(output))
+        .or_else(|| get_existing_username(user_log))
         .unwrap_or("username".to_string());
     validate_username(&username).map_err(|e| anyhow::anyhow!(e))?;
 
@@ -117,7 +119,7 @@ pub(crate) fn run_new(cli: &UniversalFlags, cmd: NewSubcommand) -> anyhow::Resul
 
     // Warn about reserved suffixes that may cause template files to be misrecognized
     if project_name.ends_with("_test") || project_name.ends_with("_wbtest") {
-        output.warn(format!(
+        user_log.warn(format!(
             "Project name '{}' ends with a reserved suffix. \
              In MoonBit, files ending with '_test.mbt' or '_wbtest.mbt' are treated as test files. \
              Template files in this project may be incorrectly recognized as test files.",
