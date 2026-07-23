@@ -87,6 +87,7 @@ pub(crate) fn install_cli(
             SyncOutputOptions::new(cli.quiet, true),
             true,
             cli.workspace_env.clone(),
+            true,
         )?;
         return Ok(0);
     }

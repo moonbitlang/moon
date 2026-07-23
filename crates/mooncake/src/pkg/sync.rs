@@ -76,6 +76,7 @@ pub fn auto_sync(
     output_options: SyncOutputOptions,
     no_std: bool,
     workspace_env: WorkspaceEnv,
+    include_bin_deps: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
     if let ProjectManifest::Workspace(project_manifest) = &dirs.project_manifest
         && !matches!(workspace_env, WorkspaceEnv::Off)
@@ -90,10 +91,15 @@ pub fn auto_sync(
             no_std,
             workspace_root,
             read_workspace_file(project_manifest)?,
+            include_bin_deps,
         );
     }
 
-    let module = Arc::new(read_module_desc_file_in_dir(&dirs.source_dir)?);
+    let mut module = read_module_desc_file_in_dir(&dirs.source_dir)?;
+    if !include_bin_deps {
+        module.bin_deps = None;
+    }
+    let module = Arc::new(module);
     let source = ModuleSource::from_local_module(&module, &dirs.source_dir);
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
@@ -110,10 +116,15 @@ fn resolve_workspace_sync(
     no_std: bool,
     workspace_root: &Path,
     workspace: MoonWork,
+    include_bin_deps: bool,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult, Option<MoonWork>)> {
     let mut roots = ResolvedRootModules::with_key();
     for member_dir in canonical_workspace_module_dirs(workspace_root, &workspace)? {
-        let module = Arc::new(read_module_desc_file_in_dir(&member_dir)?);
+        let mut module = read_module_desc_file_in_dir(&member_dir)?;
+        if !include_bin_deps {
+            module.bin_deps = None;
+        }
+        let module = Arc::new(module);
         let source = ModuleSource::from_local_module(&module, &member_dir);
         roots.insert(ResolvedModule::new(source, module));
     }

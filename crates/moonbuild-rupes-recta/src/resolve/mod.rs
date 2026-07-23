@@ -89,6 +89,9 @@ pub struct ResolveConfig {
     sync_flags: AutoSyncFlags,
     sync_output: SyncOutputOptions,
     no_std: bool,
+    /// Whether direct bin-deps of the input modules participate in resolution
+    /// and are installed during dependency sync.
+    include_bin_deps: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
     workspace_env: WorkspaceEnv,
@@ -262,6 +265,7 @@ impl ResolveConfig {
             sync_flags: AutoSyncFlags { frozen },
             sync_output: SyncOutputOptions::default(),
             no_std,
+            include_bin_deps: true,
             enable_coverage,
             workspace_env,
         }
@@ -278,6 +282,7 @@ impl ResolveConfig {
             sync_flags,
             sync_output: SyncOutputOptions::default(),
             no_std,
+            include_bin_deps: true,
             enable_coverage,
             workspace_env,
         }
@@ -290,6 +295,11 @@ impl ResolveConfig {
 
     pub fn with_sync_output(mut self, sync_output: SyncOutputOptions) -> Self {
         self.sync_output = sync_output;
+        self
+    }
+
+    pub fn without_bin_deps(mut self) -> Self {
+        self.include_bin_deps = false;
         self
     }
 }
@@ -328,6 +338,7 @@ pub fn sync_dependencies(
         cfg.sync_output,
         cfg.no_std,
         cfg.workspace_env.clone(),
+        cfg.include_bin_deps,
     )
     .map_err(ResolveError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");

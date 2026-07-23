@@ -256,7 +256,9 @@ There are two types of dependencies in a module.
   private storage under `<project target dir>/__moonbin__`, and then removes
   the work directory. Compilation, pre-build outputs, and nested dependency
   state therefore do not modify the registry source under `.mooncakes`. Local
-  bin-deps retain their existing in-place build behavior.
+  bin-deps retain their existing in-place build behavior. The child build
+  resolves the bin-dep's regular dependencies but excludes its own bin-deps,
+  preserving the non-transitive bin-dep model.
 
 There are two kinds of sources that dependencies come from:
 

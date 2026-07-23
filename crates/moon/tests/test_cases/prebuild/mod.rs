@@ -233,8 +233,15 @@ fn test_pre_build_mooncake_bin_shape() {
         &[
             (
                 "moon.mod.json",
-                br#"{"name":"username/registry_shape_tool","version":"0.1.0","source":"src"}"#
-                    .to_vec(),
+                br#"{
+  "name": "username/registry_shape_tool",
+  "version": "0.1.0",
+  "source": "src",
+  "bin-deps": {
+    "username/missing_nested_tool": "0.1.0"
+  }
+}"#
+                .to_vec(),
             ),
             (
                 "src/main-js/moon.pkg.json",
