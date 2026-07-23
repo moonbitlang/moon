@@ -26,7 +26,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::constants::{
-    BUILD_DIR, DEP_PATH, MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK, MOON_WORK_ENV,
+    BUILD_DIR, DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK,
+    MOON_WORK_ENV,
 };
 use crate::workspace::{
     canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
@@ -106,10 +107,12 @@ impl SourceTargetDirs {
             .context("failed to resolve source directory")
             .map_err(PackageDirsError::from)?;
         let target_dir = self.resolve_target_dir(&source_dir)?;
+        let mooncake_bin_dir = target_dir.join(MOON_BIN_DIR);
         let mooncakes_dir = source_dir.join(DEP_PATH);
         Ok(PackageDirs {
             source_dir,
             target_dir,
+            mooncake_bin_dir,
             mooncakes_dir,
             project_manifest: ProjectManifest::None,
         })
@@ -205,9 +208,14 @@ pub enum ProjectManifest {
     Workspace(PathBuf),
 }
 
+/// Authoritative directories resolved at the start of a project operation.
+///
+/// Command setup and nested project handoffs construct this once. Downstream
+/// stages should pass it through instead of deriving paths again.
 pub struct PackageDirs {
     pub source_dir: PathBuf,
     pub target_dir: PathBuf,
+    pub mooncake_bin_dir: PathBuf,
     pub mooncakes_dir: PathBuf,
     pub project_manifest: ProjectManifest,
 }
@@ -445,11 +453,13 @@ impl ProjectQuery {
     pub fn package_dirs(&mut self) -> Result<PackageDirs, PackageDirsError> {
         let project = self.project()?;
         let target_dir = self.resolve_target_dir(project.root())?;
+        let mooncake_bin_dir = target_dir.join(MOON_BIN_DIR);
         let source_dir = project.root().to_path_buf();
         let mooncakes_dir = source_dir.join(DEP_PATH);
         Ok(PackageDirs {
             source_dir,
             target_dir,
+            mooncake_bin_dir,
             mooncakes_dir,
             project_manifest: ProjectManifest::from(&project),
         })
@@ -800,7 +810,7 @@ mod tests {
         PackageDirsError, ProjectContext, ProjectProbe, SourceTargetDirs, WorkspaceEnv,
         parse_workspace_env, project_query_from_start_dir, resolve_project_context_from_start_dir,
     };
-    use crate::constants::{DEP_PATH, MOON_MOD, MOON_MOD_JSON};
+    use crate::constants::{DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON};
     use std::{
         ffi::OsString,
         path::{Path, PathBuf},
@@ -843,7 +853,7 @@ mod tests {
     }
 
     #[test]
-    fn mooncakes_dir_comes_from_source_even_with_custom_target() {
+    fn package_dirs_follow_source_and_target_roots() {
         let project = tempfile::tempdir().expect("create test project");
         let target = project.path().join("tmp-target");
         let dirs = SourceTargetDirs {
@@ -853,6 +863,10 @@ mod tests {
         .source_root_package_dirs(project.path())
         .unwrap();
         assert_eq!(dirs.mooncakes_dir, canonical(project.path()).join(DEP_PATH));
+        assert_eq!(
+            dirs.mooncake_bin_dir,
+            canonical(project.path().join("tmp-target")).join(MOON_BIN_DIR)
+        );
     }
 
     #[test]

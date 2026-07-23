@@ -41,7 +41,7 @@ use moonutil::{
     front_matter::{MbtMdHeader, parse_front_matter_config},
     manifest::MoonMod,
     package::{Import, PkgJSONImport, pkg_json_imports_to_imports},
-    project::{ProjectManifest, WorkspaceEnv},
+    project::{PackageDirs, WorkspaceEnv},
     resolution::{DirSyncResult, ModuleId, ResolvedEnv},
     target::TargetBackend,
     user_log::UserLog,
@@ -89,6 +89,9 @@ pub struct ResolveConfig {
     sync_flags: AutoSyncFlags,
     sync_output: SyncOutputOptions,
     no_std: bool,
+    /// Whether direct bin-deps of the input modules participate in resolution
+    /// and are installed during dependency sync.
+    include_bin_deps: bool,
     /// Gate coverage injection in pkg_solve
     pub enable_coverage: bool,
     workspace_env: WorkspaceEnv,
@@ -262,6 +265,7 @@ impl ResolveConfig {
             sync_flags: AutoSyncFlags { frozen },
             sync_output: SyncOutputOptions::default(),
             no_std,
+            include_bin_deps: true,
             enable_coverage,
             workspace_env,
         }
@@ -278,6 +282,7 @@ impl ResolveConfig {
             sync_flags,
             sync_output: SyncOutputOptions::default(),
             no_std,
+            include_bin_deps: true,
             enable_coverage,
             workspace_env,
         }
@@ -290,6 +295,11 @@ impl ResolveConfig {
 
     pub fn with_sync_output(mut self, sync_output: SyncOutputOptions) -> Self {
         self.sync_output = sync_output;
+        self
+    }
+
+    pub fn without_bin_deps(mut self) -> Self {
+        self.include_bin_deps = false;
         self
     }
 }
@@ -314,24 +324,21 @@ pub enum ResolveError {
 #[instrument(skip_all)]
 pub fn sync_dependencies(
     cfg: &ResolveConfig,
-    source_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
 ) -> Result<(ResolvedEnv, DirSyncResult), ResolveError> {
     info!(
         "Starting dependency sync for source directory: {}",
-        source_dir.display()
+        dirs.source_dir.display()
     );
     debug!("Resolve config: sync_flags={:?}", cfg.sync_flags);
 
     let (resolved_env, dir_sync_result, _) = auto_sync(
-        source_dir,
-        mooncakes_dir,
+        dirs,
         &cfg.sync_flags,
         cfg.sync_output,
         cfg.no_std,
         cfg.workspace_env.clone(),
-        project_manifest,
+        cfg.include_bin_deps,
     )
     .map_err(ResolveError::SyncModulesError)?;
     info!("Module dependency resolution completed successfully");
@@ -392,23 +399,15 @@ pub fn resolve_synced_project(
 #[instrument(skip_all, fields(run_mode = run_mode))]
 pub fn resolve_single_file_project(
     cfg: &ResolveConfig,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    file: &Path,
+    dirs: &PackageDirs,
+    source_file: &Path,
     run_mode: bool,
     user_log: &UserLog,
 ) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
-    // Canonicalize input and classify by suffix first.
-    let source_file = dunce::canonicalize(file)
-        .context("Failed to resolve the file path")
-        .map_err(ResolveError::SingleFileParseError)?;
-    let source_dir = source_file
-        .parent()
-        .expect("File must have a parent directory");
     let is_mbtx = source_file.extension().is_some_and(|ext| ext == "mbtx");
     let (header, front_matter_config, compile_input_file) = if is_mbtx {
         let imports =
-            parse_mbtx_imports(&source_file).map_err(ResolveError::SingleFileParseError)?;
+            parse_mbtx_imports(source_file).map_err(ResolveError::SingleFileParseError)?;
         let mut config = FrontMatterConfig {
             deps_to_sync: None,
             package_imports: None,
@@ -420,15 +419,15 @@ pub fn resolve_single_file_project(
         }
         // Generate a temporary .mbt file under target_dir,
         // because moonc doesn't support import declarations in source files yet.
-        let compile_input_file = prepare_single_file_for_compile(&source_file, target_dir)
+        let compile_input_file = prepare_single_file_for_compile(source_file, &dirs.target_dir)
             .map_err(ResolveError::SingleFileParseError)?;
         (None, config, compile_input_file)
     } else {
         let header =
-            parse_front_matter_config(&source_file).map_err(ResolveError::SingleFileParseError)?;
+            parse_front_matter_config(source_file).map_err(ResolveError::SingleFileParseError)?;
         let config = extract_front_matter_config(header.as_ref())
             .map_err(ResolveError::SingleFileParseError)?;
-        (header, config, source_file.clone())
+        (header, config, source_file.to_path_buf())
     };
 
     let backend = header
@@ -450,8 +449,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
 
     // Sync modules as usual
     let (resolved_env, dir_sync_result) = auto_sync_for_single_file_rr(
-        source_dir,
-        mooncakes_dir,
+        dirs,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),
         cfg.sync_output,

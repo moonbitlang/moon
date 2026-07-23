@@ -465,15 +465,16 @@ fn build_package_executable(
             .as_deref()
             .expect("package run planning requires a positional input"),
     )?;
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest,
-    } = cli
+    let dirs = cli
         .source_tgt_dir
         .query_from(&run_start_dir, cli.workspace_env.clone())?
         .package_dirs()?;
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        mooncake_bin_dir,
+        ..
+    } = &dirs;
 
     let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new(
         cmd.auto_sync_flags.clone(),
@@ -482,20 +483,14 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        &source_dir,
-        &mooncakes_dir,
-        &project_manifest,
-    )?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(
         cli,
         cmd,
-        &target_dir,
-        &mooncake_bin_dir,
+        target_dir,
+        mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
         options.try_tcc_run,
@@ -504,8 +499,8 @@ fn build_package_executable(
     build_executable_from_plan(
         cli,
         cmd,
-        &source_dir,
-        &target_dir,
+        source_dir,
+        target_dir,
         &build_meta,
         build_graph,
         BuildExecutableFromPlanOptions {
@@ -643,15 +638,10 @@ fn build_single_file_executable_from_arg(
             .as_deref()
             .expect("single-file run from arg requires a positional input path"),
     )?;
-    let target_dir = single_file_dirs.package_dirs.target_dir;
-    let mooncakes_dir = single_file_dirs.package_dirs.mooncakes_dir;
-
     build_single_file_executable(
         cli,
         cmd,
-        single_file_dirs.package_dirs.source_dir,
-        target_dir,
-        mooncakes_dir,
+        single_file_dirs.package_dirs,
         single_file_dirs.file_path,
         options,
         output,
@@ -664,15 +654,19 @@ fn build_single_file_executable_from_arg(
 fn build_single_file_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
-    source_dir: std::path::PathBuf,
-    target_dir: std::path::PathBuf,
-    mooncakes_dir: std::path::PathBuf,
+    dirs: PackageDirs,
     input_path: std::path::PathBuf,
     options: BuildRunExecutableOptions,
     output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let user_log = output.user_log();
-    std::fs::create_dir_all(&target_dir).context("failed to create target directory")?;
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        mooncake_bin_dir,
+        ..
+    } = &dirs;
+    std::fs::create_dir_all(target_dir).context("failed to create target directory")?;
 
     let value_tracing = cmd.build_flags.enable_value_tracing;
 
@@ -688,13 +682,11 @@ fn build_single_file_executable(
     .with_sync_output(options.output.sync_output());
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
-        target_dir.as_path(),
-        &mooncakes_dir,
+        &dirs,
         &input_path,
         true,
         user_log,
     )?;
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);
@@ -704,7 +696,7 @@ fn build_single_file_executable(
         cli,
         &cmd.build_flags,
         Some(selected_target_backend),
-        &target_dir,
+        target_dir,
         RunMode::Run,
     );
     preconfig.try_tcc_run = options.try_tcc_run;
@@ -712,7 +704,7 @@ fn build_single_file_executable(
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
-        &target_dir,
+        target_dir,
         user_log,
         &resolved,
     )?;
@@ -731,15 +723,15 @@ fn build_single_file_executable(
         user_log,
         planning_context,
         intent,
-        &mooncake_bin_dir,
+        mooncake_bin_dir,
         resolved,
     )?;
 
     build_executable_from_plan(
         cli,
         cmd,
-        &source_dir,
-        &target_dir,
+        source_dir,
+        target_dir,
         &build_meta,
         build_graph,
         BuildExecutableFromPlanOptions {

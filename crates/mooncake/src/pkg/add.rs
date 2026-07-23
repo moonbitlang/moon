@@ -25,7 +25,7 @@ use moonutil::manifest::{
     convert_module_to_mod_json, read_module_desc_file_in_dir, write_module_json_to_file,
 };
 use moonutil::moon_mod_patch::{MoonModPatch, patch_module_dsl_to_file};
-use moonutil::project::ProjectManifest;
+use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleName;
 use semver::Version;
 use std::path::Path;
@@ -57,8 +57,7 @@ pub struct AddSubcommand {
 #[allow(clippy::too_many_arguments)]
 pub fn add_latest(
     module_dir: &Path,
-    project_manifest: &ProjectManifest,
-    mooncakes_dir: &Path,
+    dirs: &PackageDirs,
     pkg_name: &ModuleName,
     bin: bool,
     quiet: bool,
@@ -93,8 +92,7 @@ pub fn add_latest(
         })?;
     add(
         module_dir,
-        project_manifest,
-        mooncakes_dir,
+        dirs,
         pkg_name,
         bin,
         &latest_version,
@@ -112,8 +110,7 @@ fn test_module_name() {
 #[allow(clippy::too_many_arguments)]
 pub fn add(
     module_dir: &Path,
-    project_manifest: &ProjectManifest,
-    mooncakes_dir: &Path,
+    dirs: &PackageDirs,
     pkg_name: &ModuleName,
     bin: bool,
     version: &Version,
@@ -191,9 +188,9 @@ pub fn add(
     }
 
     let m = Arc::new(m);
-    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), project_manifest)?;
+    let roots = roots_for_selected_module(module_dir, Arc::clone(&m), &dirs.project_manifest)?;
     install_impl(
-        mooncakes_dir,
+        dirs,
         roots,
         SyncOutputOptions::new(quiet, true),
         false,

@@ -21,10 +21,10 @@ use moonutil::{
     build_options::TestIndexRange,
     cli_support::AutoSyncFlags,
     command_output::CommandOutput,
-    project::{PackageDirs, ProjectManifest},
+    project::PackageDirs,
     target::{TargetBackend, lower_surface_targets},
 };
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing::{Level, instrument};
 
 use super::{BuildFlags, UniversalFlags};
@@ -71,28 +71,13 @@ pub(crate) fn run_bench(
     cmd: BenchSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest,
-    } = cli
+    let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
-        return run_bench_internal(
-            &cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            &project_manifest,
-            None,
-            None,
-            output,
-        );
+        return run_bench_internal(&cli, &cmd, &dirs, None, None, output);
     }
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
@@ -100,18 +85,8 @@ pub(crate) fn run_bench(
 
     let mut ret_value = 0;
     for t in targets {
-        let x = run_bench_internal(
-            &cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            &project_manifest,
-            display_backend_hint,
-            Some(t),
-            output,
-        )
-        .context(format!("failed to run bench for target {t:?}"))?;
+        let x = run_bench_internal(&cli, &cmd, &dirs, display_backend_hint, Some(t), output)
+            .context(format!("failed to run bench for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -122,10 +97,7 @@ pub(crate) fn run_bench(
 fn run_bench_internal(
     cli: &UniversalFlags,
     cmd: &BenchSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     display_backend_hint: Option<()>,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
@@ -133,10 +105,7 @@ fn run_bench_internal(
     super::run_test_or_bench_internal(
         cli,
         cmd.into(),
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest,
+        dirs,
         display_backend_hint,
         selected_target_backend,
         output,

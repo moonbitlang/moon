@@ -77,23 +77,17 @@ pub(crate) fn install_cli(
             "`moon install` without arguments is deprecated and will be removed in a future version. \
              Use `moon install <package>` to install binaries globally, or use `moon build` to build your project.",
         );
-        let PackageDirs {
-            source_dir,
-            mooncakes_dir,
-            project_manifest,
-            ..
-        } = cli
+        let dirs = cli
             .source_tgt_dir
             .query(cli.workspace_env.clone())?
             .package_dirs()?;
         mooncake::pkg::sync::auto_sync(
-            &source_dir,
-            &mooncakes_dir,
+            &dirs,
             &AutoSyncFlags { frozen: false },
             SyncOutputOptions::new(cli.quiet, true),
             true,
             cli.workspace_env.clone(),
-            &project_manifest,
+            true,
         )?;
         return Ok(0);
     }
@@ -205,11 +199,7 @@ pub(crate) fn add_cli(
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
     let module_dir = require_selected_module(&project, "add")?;
-    let PackageDirs {
-        mooncakes_dir,
-        project_manifest,
-        ..
-    } = query.package_dirs()?;
+    let dirs = query.package_dirs()?;
 
     // Update registry index by default (issue #963).
     // - `--no-update` keeps the previous behavior.
@@ -258,8 +248,7 @@ pub(crate) fn add_cli(
         let version = version.parse()?;
         mooncake::pkg::add::add(
             &module_dir,
-            &project_manifest,
-            &mooncakes_dir,
+            &dirs,
             &pkg_name,
             cmd.bin,
             &version,
@@ -269,8 +258,7 @@ pub(crate) fn add_cli(
     } else {
         mooncake::pkg::add::add_latest(
             &module_dir,
-            &project_manifest,
-            &mooncakes_dir,
+            &dirs,
             &pkg_name,
             cmd.bin,
             cli.quiet,

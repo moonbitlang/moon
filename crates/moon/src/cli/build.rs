@@ -23,7 +23,7 @@ use moonutil::build_options::RunMode;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
 use moonutil::locks::FileLock;
-use moonutil::project::{PackageDirs, ProjectManifest};
+use moonutil::project::PackageDirs;
 use moonutil::target::TargetBackend;
 use moonutil::target::lower_surface_targets;
 use moonutil::user_log::UserLog;
@@ -87,44 +87,21 @@ pub(crate) fn run_build(
     cmd: BuildSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let PackageDirs {
-        source_dir,
-        target_dir,
-        mooncakes_dir,
-        project_manifest,
-    } = cli
+    let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
         .package_dirs()?;
 
     if cmd.build_flags.target.is_empty() {
-        return run_build_internal(
-            cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            &project_manifest,
-            None,
-            output,
-        );
+        return run_build_internal(cli, &cmd, &dirs, None, output);
     }
     let surface_targets = cmd.build_flags.target.clone();
     let targets = lower_surface_targets(&surface_targets);
 
     let mut ret_value = 0;
     for t in targets {
-        let x = run_build_internal(
-            cli,
-            &cmd,
-            &source_dir,
-            &target_dir,
-            &mooncakes_dir,
-            &project_manifest,
-            Some(t),
-            output,
-        )
-        .context(format!("failed to run build for target {t:?}"))?;
+        let x = run_build_internal(cli, &cmd, &dirs, Some(t), output)
+            .context(format!("failed to run build for target {t:?}"))?;
         ret_value = ret_value.max(x);
     }
     Ok(ret_value)
@@ -135,29 +112,14 @@ pub(crate) fn run_build(
 fn run_build_internal(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    let f = |watch: bool| {
-        run_build_rr(
-            cli,
-            cmd,
-            source_dir,
-            target_dir,
-            mooncakes_dir,
-            project_manifest,
-            watch,
-            selected_target_backend,
-            output,
-        )
-    };
+    let f = |watch: bool| run_build_rr(cli, cmd, dirs, watch, selected_target_backend, output);
 
     if cmd.watch {
-        watching(|| f(true), source_dir, target_dir)
+        watching(|| f(true), &dirs.source_dir, &dirs.target_dir)
     } else {
         f(false).map(|output| if output.ok { 0 } else { 1 })
     }
@@ -171,15 +133,18 @@ fn run_build_internal(
 fn run_build_rr(
     cli: &UniversalFlags,
     cmd: &BuildSubcommand,
-    source_dir: &Path,
-    target_dir: &Path,
-    mooncakes_dir: &Path,
-    project_manifest: &ProjectManifest,
+    dirs: &PackageDirs,
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
 ) -> anyhow::Result<WatchOutput> {
     let user_log = output.user_log();
+    let PackageDirs {
+        source_dir,
+        target_dir,
+        mooncake_bin_dir,
+        ..
+    } = dirs;
     std::fs::create_dir_all(target_dir).with_context(|| {
         format!(
             "Failed to create target directory: '{}'",
@@ -193,13 +158,7 @@ fn run_build_rr(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        source_dir,
-        mooncakes_dir,
-        project_manifest,
-    )?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, dirs)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let prebuild_list = if watch {
@@ -215,7 +174,7 @@ fn run_build_rr(
         cmd,
         source_dir,
         target_dir,
-        &mooncake_bin_dir,
+        mooncake_bin_dir,
         selected_target_backend,
         resolve_output,
         user_log,

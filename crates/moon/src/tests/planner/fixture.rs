@@ -24,8 +24,7 @@ use moonbuild_rupes_recta::{ResolveOutput, model::BuildPlanNode};
 use moonutil::{
     cli_support::UniversalFlags,
     cond_expr::OptLevel,
-    constants::BUILD_DIR,
-    project::{ProjectManifest, SourceTargetDirs, WorkspaceEnv},
+    project::{SourceTargetDirs, WorkspaceEnv},
     target::TargetBackend,
     user_log::UserLog,
 };
@@ -78,34 +77,27 @@ impl PlanningFixture {
         // These planner tests only inspect graph construction, so they can use
         // the checked-in fixture directly without copying it to a temp directory.
         let fixture_dir = dunce::canonicalize(case_root.join(case))?;
-        let project = SourceTargetDirs {
+        let dirs = SourceTargetDirs {
             cwd: None,
             target_dir: None,
         }
         .query_from(&fixture_dir, WorkspaceEnv::Auto)?
-        .project()?;
-        let source_dir = project.root().to_path_buf();
-        let project_manifest = ProjectManifest::from(&project);
-        let target_dir = source_dir.join(BUILD_DIR);
-        let mooncakes_dir = source_dir.join(".mooncakes");
+        .package_dirs()?;
         let resolve_cfg = moonbuild_rupes_recta::ResolveConfig::new_with_load_defaults(
             true,
             false,
             false,
             WorkspaceEnv::Auto,
         );
-        let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
-        let synced_env = moonbuild_rupes_recta::sync_dependencies(
-            &resolve_cfg,
-            &source_dir,
-            &mooncakes_dir,
-            &project_manifest,
-        )?;
+        let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs)?;
         let resolve_output = moonbuild_rupes_recta::resolve_synced_project(
             &resolve_cfg,
             synced_env,
             &UserLog::new(log::LevelFilter::Error),
         )?;
+        let source_dir = dirs.source_dir;
+        let target_dir = dirs.target_dir;
+        let mooncake_bin_dir = dirs.mooncake_bin_dir;
         Ok(Self {
             source_dir,
             target_dir,

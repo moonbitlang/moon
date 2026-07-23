@@ -119,12 +119,13 @@ pub(crate) fn run_prove(
                 })?,
         )
     };
+    let dirs = query.package_dirs()?;
     let PackageDirs {
         source_dir: project_root,
         target_dir,
-        mooncakes_dir,
-        project_manifest,
-    } = query.package_dirs()?;
+        mooncake_bin_dir,
+        ..
+    } = &dirs;
     let build_flags = cmd.to_build_flags();
     let verif_dir = target_dir.join("verif");
     let why3_config_path = cmd
@@ -143,27 +144,21 @@ pub(crate) fn run_prove(
         cli,
         &build_flags,
         None,
-        &target_dir,
+        target_dir,
         RunMode::Prove,
     );
     let path_filter = cmd.path.as_deref();
     let prove_why3_config = why3_config_path.clone();
 
     let resolve_cfg = preconfig.resolve_config();
-    let mooncake_bin_dir = mooncakes_dir.join(moonutil::constants::MOON_BIN_DIR);
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(
-        &resolve_cfg,
-        &project_root,
-        &mooncakes_dir,
-        &project_manifest,
-    )?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
 
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
         &cli.unstable_feature,
-        &target_dir,
+        target_dir,
         user_log,
         &resolve_output,
     )?;
@@ -181,7 +176,7 @@ pub(crate) fn run_prove(
         user_log,
         planning_context,
         intent,
-        &mooncake_bin_dir,
+        mooncake_bin_dir,
         resolve_output,
     )?;
     let proof_reports = planned_proof_reports(&build_meta);
@@ -192,19 +187,19 @@ pub(crate) fn run_prove(
                 writer,
                 &build_graph,
                 build_meta.artifacts.values(),
-                &project_root,
-                &target_dir,
+                project_root,
+                target_dir,
             )
         })?;
         return Ok(0);
     }
 
-    let _lock = FileLock::lock(&target_dir)?;
+    let _lock = FileLock::lock(target_dir)?;
     rr_build::generate_all_pkgs_json(&build_meta)?;
     let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
-    let result = rr_build::execute_build(&cfg, build_graph, &target_dir, user_log)?;
+    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     if !cli.quiet && !build_flags.output_json {
-        let _ = print_prove_summary(&project_root, &proof_reports);
+        let _ = print_prove_summary(project_root, &proof_reports);
     }
     Ok(result.return_code_for_success())
 }

@@ -4,6 +4,9 @@ Prebuild tasks let a package generate source files (typically `.mbt`) from other
 
 - Scope: Applies only to packages in the input module being built.
   Third-party dependencies are expected to already contain their generated outputs.
+- A registry module being built as a direct bin-dep is the input module of its
+  child build, so its package-level prebuild tasks run in the temporary source
+  copy rather than in the registry cache.
 
 ## Package Configuration
 
@@ -37,10 +40,11 @@ Notes:
 - `input`/`output` are resolved relative to the package directory for build dependency tracking.
 - `$input`/`$output` expand to paths relative to the prebuild command working directory. These substituted paths are lexically normalized and start with `./`, for example `./src/lib/input.txt`.
 - `$pkg_dir`/`$mod_dir` expand to absolute directories.
-- `$mooncake_bin` expands to `<project .mooncakes dir>/__moonbin__`.
-  The command adapter computes this `mooncake_bin_dir` from project discovery
-  before build planning; prebuild planning does not rediscover it from the
-  package or module directory.
+- `$mooncake_bin` expands to `<project target dir>/__moonbin__`.
+  Project discovery computes this `mooncake_bin_dir` with the other
+  authoritative project directories. Command adapters pass it unchanged
+  through dependency sync and build planning; downstream stages do not
+  reconstruct it from another directory.
 
 ## Placeholder Substitution
 
@@ -59,7 +63,7 @@ Only the `command` field is substituted. The following placeholders are recogniz
   Expands to the absolute path of the current package directory (the directory containing this `moon.pkg.json`).
 
 - `$mooncake_bin`  
-  Expands to the absolute path `<project .mooncakes dir>/__moonbin__`.
+  Expands to the absolute path `<project target dir>/__moonbin__`.
   This refers to launchers installed from the current project's direct
   `bin-deps`.
 

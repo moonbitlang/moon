@@ -224,14 +224,137 @@ fn test_package_local_rule_dev_build() {
 fn test_pre_build_mooncake_bin_shape() {
     let top_dir = TestDir::new("pre_build_mooncake_bin_shape.in");
     let dir = top_dir.join("user.in");
+    let target_dir = dir.join("artifacts");
+    let moon_home = tempfile::TempDir::new().expect("failed to create temp MOON_HOME");
+    cache_registry_package(
+        moon_home.path(),
+        "username/registry_shape_tool",
+        "0.1.0",
+        &[
+            (
+                "moon.mod.json",
+                br#"{
+  "name": "username/registry_shape_tool",
+  "version": "0.1.0",
+  "source": "src",
+  "bin-deps": {
+    "username/missing_nested_tool": "0.1.0"
+  }
+}"#
+                .to_vec(),
+            ),
+            (
+                "src/main-js/moon.pkg.json",
+                br#"{
+  "is-main": true,
+  "bin-target": "js",
+  "bin-name": "registry-shape-tool",
+  "pre-build": [
+    {
+      "input": [],
+      "output": ["generated.mbt"],
+      "command": "moon tool write-tcc-rsp-file \"$output\" fn \"generated()->Int{42}\""
+    }
+  ]
+}"#
+                .to_vec(),
+            ),
+            (
+                "src/main-js/main.mbt",
+                br#"fn main { println(generated()) }"#.to_vec(),
+            ),
+        ],
+    );
 
-    get_stderr(&dir, ["check"]);
+    get_stderr_with_envs(
+        &dir,
+        ["--target-dir", "artifacts", "check"],
+        [("MOON_HOME", moon_home.path())],
+    );
 
     #[cfg(unix)]
     let launcher = top_dir.join("provider.in").join("shape-tool");
     #[cfg(target_os = "windows")]
     let launcher = top_dir.join("provider.in").join("shape-tool.ps1");
     assert!(launcher.exists(), "expected bin-dep launcher: {launcher:?}");
+
+    #[cfg(unix)]
+    let registry_launcher = target_dir.join(MOON_BIN_DIR).join("registry-shape-tool");
+    #[cfg(target_os = "windows")]
+    let registry_launcher = target_dir
+        .join(MOON_BIN_DIR)
+        .join("registry-shape-tool.ps1");
+    assert!(
+        registry_launcher.exists(),
+        "expected registry bin-dep launcher: {registry_launcher:?}"
+    );
+    assert!(
+        !dir.join(".mooncakes")
+            .join("username")
+            .join("registry_shape_tool")
+            .join(registry_launcher.file_name().unwrap())
+            .exists(),
+        "registry launcher must not make mooncakes_dir mutable"
+    );
+    let registry_source = dir
+        .join(".mooncakes")
+        .join("username")
+        .join("registry_shape_tool");
+    assert!(
+        !registry_source.join(BUILD_DIR).exists(),
+        "registry bin-dep build must not write under mooncakes_dir"
+    );
+    assert!(
+        !registry_source.join("src/main-js/generated.mbt").exists(),
+        "registry bin-dep pre-build must not write under mooncakes_dir"
+    );
+    let bin_dep_temp_dirs = std::fs::read_dir(&target_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(".bin-dep-"))
+        .collect::<Vec<_>>();
+    assert!(
+        bin_dep_temp_dirs.is_empty(),
+        "registry bin-dep temporary work directories must be removed"
+    );
+
+    let installed_artifacts = target_dir
+        .join(MOON_BIN_DIR)
+        .join(".artifacts")
+        .join("registry-shape-tool");
+    assert!(
+        installed_artifacts.is_dir(),
+        "registry bin-dep artifact must be copied out of the temporary build"
+    );
+    let installed_artifacts = dunce::canonicalize(&installed_artifacts)
+        .expect("failed to canonicalize installed registry bin-dep artifact directory");
+    let launcher_contents = read(&registry_launcher).replace('\\', "/");
+    let installed_artifacts = installed_artifacts.to_string_lossy().replace('\\', "/");
+    // Windows launchers escape path separators as `//`; normalize them before
+    // checking that the launcher points at the stable copied artifact.
+    let normalized_launcher_contents = launcher_contents.replace("//", "/");
+    assert!(
+        normalized_launcher_contents.contains(&installed_artifacts),
+        "registry launcher must reference the copied artifact directory `{installed_artifacts}`; \
+         launcher contents: {launcher_contents:?}"
+    );
+    assert!(
+        !launcher_contents.contains(".bin-dep-"),
+        "registry launcher must not reference a temporary build directory"
+    );
+
+    #[cfg(unix)]
+    {
+        let output = std::process::Command::new(&registry_launcher)
+            .output()
+            .expect("failed to run installed registry bin-dep");
+        assert!(
+            output.status.success(),
+            "installed registry bin-dep failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "42");
+    }
 
     let actual_raw = read(dir.join("src/main/mooncake_bin.txt"));
     let actual_path = actual_raw.trim();
@@ -242,9 +365,8 @@ fn test_pre_build_mooncake_bin_shape() {
         .replace("\\\"", "\"")
         .replace('\\', "/");
 
-    let source_dir = dunce::canonicalize(&dir).unwrap();
-    let expected_path = source_dir
-        .join(".mooncakes")
+    let expected_path = dunce::canonicalize(&target_dir)
+        .unwrap()
         .join(MOON_BIN_DIR)
         .to_string_lossy()
         .replace('\\', "/");
