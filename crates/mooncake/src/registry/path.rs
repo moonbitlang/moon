@@ -68,6 +68,29 @@ fn parse_path_components(path: &str) -> anyhow::Result<Vec<&str>> {
     Ok(components)
 }
 
+pub(crate) fn validate_module_name(module: &ModuleName) -> anyhow::Result<()> {
+    let username_components = parse_path_components(&module.username)?;
+    if username_components.len() != 1
+        || !username_components.iter().all(|component| {
+            component
+                .chars()
+                .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+        })
+    {
+        anyhow::bail!("registry module `{module}` has an invalid username");
+    }
+    let name_components = parse_path_components(&module.unqual)
+        .map_err(|_| anyhow::anyhow!("registry module `{module}` has an invalid name"))?;
+    if !name_components.iter().all(|component| {
+        component
+            .chars()
+            .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+    }) {
+        anyhow::bail!("registry module `{module}` has an invalid name");
+    }
+    Ok(())
+}
+
 /// Parse `user/module[/package]` using the install/runwasm interpretation.
 ///
 /// The first two segments are always the module, and later segments are the
@@ -225,8 +248,9 @@ pub fn resolve_unversioned_registry_path(
 mod tests {
     use super::{
         parse_install_style_path, parse_module_at_version_path, parse_package_at_version_path,
-        resolve_unversioned_registry_path,
+        resolve_unversioned_registry_path, validate_module_name,
     };
+    use moonutil::resolution::ModuleName;
 
     #[test]
     fn parse_module_at_version_path_supports_package_suffix() {
@@ -267,6 +291,43 @@ mod tests {
         }
         assert!(parse_module_at_version_path(r"user/module@1.2.3/a\..\..\evil").is_err());
         assert!(parse_package_at_version_path(r"user/module/a\..\..\evil@1.2.3").is_err());
+    }
+
+    #[test]
+    fn cache_module_names_reject_unsafe_path_components() {
+        for module in [
+            ModuleName {
+                username: "..".into(),
+                unqual: "module".into(),
+            },
+            ModuleName {
+                username: "user".into(),
+                unqual: "../module".into(),
+            },
+            ModuleName {
+                username: "user".into(),
+                unqual: "module//package".into(),
+            },
+            ModuleName {
+                username: "user".into(),
+                unqual: "module.name".into(),
+            },
+            ModuleName {
+                username: r"C:\cache".into(),
+                unqual: "module".into(),
+            },
+        ] {
+            assert!(validate_module_name(&module).is_err(), "accepted {module}");
+        }
+    }
+
+    #[test]
+    fn cache_module_names_allow_multiple_name_components() {
+        let module = ModuleName {
+            username: "h".into(),
+            unqual: "e/l/l/o".into(),
+        };
+        validate_module_name(&module).unwrap();
     }
 
     #[test]

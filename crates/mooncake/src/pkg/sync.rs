@@ -28,8 +28,8 @@ use moonutil::{
     front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{
-        MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, canonical_workspace_module_dirs,
-        read_workspace_file,
+        DependencySource, MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv,
+        canonical_workspace_module_dirs, read_workspace_file,
     },
     resolution::{DirSyncResult, ModuleSource, ResolvedEnv, ResolvedModule, ResolvedRootModules},
 };
@@ -169,6 +169,7 @@ pub fn auto_sync_for_single_mbt_md(
         target_dir: moonbuild_opt.target_dir.clone(),
         mooncake_bin_dir: mooncake_bin_dir.to_path_buf(),
         mooncakes_dir: mooncakes_dir.to_path_buf(),
+        dependency_source: DependencySource::ProjectLocal,
         project_manifest: ProjectManifest::None,
     };
 

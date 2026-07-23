@@ -633,11 +633,18 @@ fn build_single_file_executable_from_arg(
     options: BuildRunExecutableOptions,
     output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
-    let single_file_dirs = cli.source_tgt_dir.single_file_package_dirs(
-        cmd.package_or_mbt_file
-            .as_deref()
-            .expect("single-file run from arg requires a positional input path"),
-    )?;
+    let input = cmd
+        .package_or_mbt_file
+        .as_deref()
+        .expect("single-file run from arg requires a positional input path");
+    let single_file_dirs = if Path::new(input)
+        .extension()
+        .is_some_and(|extension| extension == "mbtx")
+    {
+        cli.source_tgt_dir.cached_single_file_package_dirs(input)?
+    } else {
+        cli.source_tgt_dir.single_file_package_dirs(input)?
+    };
     build_single_file_executable(
         cli,
         cmd,

@@ -114,6 +114,7 @@ impl SourceTargetDirs {
             target_dir,
             mooncake_bin_dir,
             mooncakes_dir,
+            dependency_source: DependencySource::ProjectLocal,
             project_manifest: ProjectManifest::None,
         })
     }
@@ -156,6 +157,24 @@ impl SourceTargetDirs {
             file_path,
             package_dirs,
         })
+    }
+
+    /// Resolve a standalone file with registry sources prepared in the shared
+    /// dependency cache. `MOON_DEP_CACHE=off` preserves the project-local
+    /// `.mooncakes` layout.
+    pub fn cached_single_file_package_dirs(
+        &self,
+        file_path: impl AsRef<Path>,
+    ) -> Result<SingleFilePackageDirs, PackageDirsError> {
+        let mut dirs = self.single_file_package_dirs(file_path)?;
+        dirs.package_dirs.dependency_source =
+            match crate::cache::resolve_cache_root(crate::cache::CacheKind::DependencySources)
+                .map_err(PackageDirsError::from)?
+            {
+                crate::cache::CacheRoot::Disabled => DependencySource::ProjectLocal,
+                crate::cache::CacheRoot::Path(root) => DependencySource::SharedCache(root),
+            };
+        Ok(dirs)
     }
 
     pub fn work_root(
@@ -208,6 +227,16 @@ pub enum ProjectManifest {
     Workspace(PathBuf),
 }
 
+/// Where registry dependency sources are prepared for this operation.
+///
+/// This is resolved together with the other package directories so dependency
+/// sync does not rediscover cache policy from process state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DependencySource {
+    ProjectLocal,
+    SharedCache(PathBuf),
+}
+
 /// Authoritative directories resolved at the start of a project operation.
 ///
 /// Command setup and nested project handoffs construct this once. Downstream
@@ -217,6 +246,7 @@ pub struct PackageDirs {
     pub target_dir: PathBuf,
     pub mooncake_bin_dir: PathBuf,
     pub mooncakes_dir: PathBuf,
+    pub dependency_source: DependencySource,
     pub project_manifest: ProjectManifest,
 }
 
@@ -461,6 +491,7 @@ impl ProjectQuery {
             target_dir,
             mooncake_bin_dir,
             mooncakes_dir,
+            dependency_source: DependencySource::ProjectLocal,
             project_manifest: ProjectManifest::from(&project),
         })
     }
@@ -807,8 +838,9 @@ fn manifest_root(manifest_path: &Path) -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        PackageDirsError, ProjectContext, ProjectProbe, SourceTargetDirs, WorkspaceEnv,
-        parse_workspace_env, project_query_from_start_dir, resolve_project_context_from_start_dir,
+        DependencySource, PackageDirsError, ProjectContext, ProjectProbe, SourceTargetDirs,
+        WorkspaceEnv, parse_workspace_env, project_query_from_start_dir,
+        resolve_project_context_from_start_dir,
     };
     use crate::constants::{DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON};
     use std::{
@@ -863,6 +895,7 @@ mod tests {
         .source_root_package_dirs(project.path())
         .unwrap();
         assert_eq!(dirs.mooncakes_dir, canonical(project.path()).join(DEP_PATH));
+        assert_eq!(dirs.dependency_source, DependencySource::ProjectLocal);
         assert_eq!(
             dirs.mooncake_bin_dir,
             canonical(project.path().join("tmp-target")).join(MOON_BIN_DIR)
