@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::{
-    dep_dir::resolve_dep_dirs,
+    dep_dir::{prepare_cached_deps, resolve_dep_dirs},
     registry,
     resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
 };
@@ -26,7 +26,7 @@ use super::sync::SyncOutputOptions;
 use anyhow::Context;
 use moonutil::{
     constants::MOONBITLANG_CORE,
-    project::PackageDirs,
+    project::{DependencySource, PackageDirs},
     resolution::{
         DependencyKind, DirSyncResult, ModuleSourceKind, ResolvedEnv, ResolvedRootModules,
     },
@@ -108,19 +108,30 @@ pub(crate) fn install_impl(
     };
 
     let res = resolve_with_default_env_and_resolver(&resolve_config, roots)?;
-    let dep_dir = crate::dep_dir::DepDir::new(dirs.mooncakes_dir.clone());
-
-    crate::dep_dir::sync_deps(
-        &dep_dir,
-        resolve_config.registry.as_ref(),
-        &res,
-        output_options.quiet(),
-        dont_sync,
-        output_options.verbose(),
-    )
-    .context("When installing packages")?;
-
-    let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
+    let dir_sync_result = match &dirs.dependency_source {
+        DependencySource::ProjectLocal => {
+            let dep_dir = crate::dep_dir::DepDir::new(dirs.mooncakes_dir.clone());
+            crate::dep_dir::sync_deps(
+                &dep_dir,
+                resolve_config.registry.as_ref(),
+                &res,
+                output_options.quiet(),
+                dont_sync,
+                output_options.verbose(),
+            )
+            .context("When installing packages")?;
+            resolve_dep_dirs(&dep_dir, &res)
+        }
+        DependencySource::SharedCache(cache_root) => prepare_cached_deps(
+            cache_root,
+            resolve_config.registry.as_ref(),
+            &res,
+            output_options.quiet(),
+            dont_sync,
+            output_options.verbose(),
+        )
+        .context("When preparing cached packages")?,
+    };
 
     install_bin_deps(
         verbose,

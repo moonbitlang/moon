@@ -108,6 +108,7 @@ impl super::Registry for OnlineRegistry {
                     Version::parse(v)?,
                     RegistryVersionInfo {
                         deps: entry.deps.unwrap_or_default(),
+                        checksum: entry.checksum,
                     },
                 );
             }
@@ -131,6 +132,17 @@ impl super::Registry for OnlineRegistry {
     ) -> anyhow::Result<()> {
         self.install_to_impl(name, version, to, quiet)
     }
+
+    fn extract_to_verified(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        checksum: &str,
+        to: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()> {
+        self.extract_to_with_checksum(name, version, checksum, to, true, quiet)
+    }
 }
 
 fn calc_sha2(p: &Path) -> anyhow::Result<String> {
@@ -153,6 +165,21 @@ fn calc_sha2(p: &Path) -> anyhow::Result<String> {
     // read hash digest and consume hasher
     let result = hasher.finalize();
     Ok(format!("{result:x}"))
+}
+
+fn verify_archive_checksum(
+    name: &ModuleName,
+    version: &Version,
+    expected: &str,
+    data: &[u8],
+) -> anyhow::Result<()> {
+    use sha2::{Digest, Sha256};
+
+    let actual = format!("{:x}", Sha256::digest(data));
+    if actual != expected {
+        bail!("checksum mismatch for {name}@{version}: expected {expected}, downloaded {actual}");
+    }
+    Ok(())
 }
 
 impl OnlineRegistry {
@@ -192,6 +219,8 @@ impl OnlineRegistry {
         &self,
         name: &ModuleName,
         version: &Version,
+        checksum: &str,
+        verify_download: bool,
         quiet: bool,
     ) -> anyhow::Result<bytes::Bytes> {
         let pkg_index = self.index_file_of(name);
@@ -201,7 +230,6 @@ impl OnlineRegistry {
         let cache_file = cache_of(name, version);
         let mut checksum_ok = false;
         if cache_file.exists() {
-            let checksum = self.read_checksum_from_index_file(name, version)?;
             let current_checksum = calc_sha2(&cache_file);
             if current_checksum.is_ok() && current_checksum.unwrap() == checksum {
                 checksum_ok = true;
@@ -231,6 +259,9 @@ impl OnlineRegistry {
             .send()?
             .error_for_status()?
             .bytes()?;
+        if verify_download {
+            verify_archive_checksum(name, version, checksum, &data)?;
+        }
         std::fs::create_dir_all(cache_file.parent().unwrap())?;
         std::fs::write(cache_file, &data)?;
         Ok(data)
@@ -256,6 +287,19 @@ impl OnlineRegistry {
         pkg_install_dir: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
+        let checksum = self.read_checksum_from_index_file(name, version)?;
+        self.extract_to_with_checksum(name, version, &checksum, pkg_install_dir, false, quiet)
+    }
+
+    fn extract_to_with_checksum(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        checksum: &str,
+        pkg_install_dir: &Path,
+        verify_download: bool,
+        quiet: bool,
+    ) -> anyhow::Result<()> {
         // ensure dir exists and is empty
         if !pkg_install_dir.exists() {
             std::fs::create_dir_all(pkg_install_dir).unwrap();
@@ -264,7 +308,7 @@ impl OnlineRegistry {
             std::fs::create_dir_all(pkg_install_dir).unwrap();
         }
 
-        let data = self.download_or_using_cache(name, version, quiet)?;
+        let data = self.download_or_using_cache(name, version, checksum, verify_download, quiet)?;
         extract_zip_to_dir(pkg_install_dir, data)?;
         Ok(())
     }
@@ -361,5 +405,20 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(index);
+    }
+
+    #[test]
+    fn downloaded_archive_must_match_registry_checksum() {
+        let name = ModuleName {
+            username: "example".into(),
+            unqual: "package".into(),
+        };
+        let version = Version::parse("1.2.3").unwrap();
+        let error = verify_archive_checksum(&name, &version, &"0".repeat(64), b"archive")
+            .expect_err("mismatched archive should be rejected");
+
+        assert!(error.to_string().starts_with(
+            "checksum mismatch for example/package@1.2.3: expected 0000000000000000000000000000000000000000000000000000000000000000, downloaded "
+        ));
     }
 }

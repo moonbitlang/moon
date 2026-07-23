@@ -21,9 +21,9 @@
 //! Cache contents are intentionally opaque here. Source and artifact stores
 //! may choose their own representations without changing the CLI contract.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 
 const OWNERSHIP_MARKER: &str = ".moon-cache";
 
@@ -81,6 +81,115 @@ pub fn resolve_cache_root(kind: CacheKind) -> anyhow::Result<CacheRoot> {
     }
 }
 
+pub fn initialize_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()> {
+    match std::fs::symlink_metadata(root) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!(
+                "refusing to use symlinked Moon cache root `{}`",
+                root.display()
+            );
+        }
+        Ok(metadata) if !metadata.is_dir() => {
+            bail!("Moon cache root `{}` is not a directory", root.display());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(root).with_context(|| {
+                format!("failed to create Moon cache root `{}`", root.display())
+            })?;
+        }
+        Err(error) => return Err(error.into()),
+    }
+
+    let marker = root.join(OWNERSHIP_MARKER);
+    match std::fs::read(&marker) {
+        Ok(contents) if contents == kind.ownership() => Ok(()),
+        Ok(_) => bail!(
+            "Moon cache root `{}` has the wrong ownership",
+            root.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if std::fs::read_dir(root)?.next().transpose()?.is_some() {
+                bail!(
+                    "refusing to use unrecognized Moon cache root `{}`",
+                    root.display()
+                );
+            }
+            let parent = root.parent().with_context(|| {
+                format!(
+                    "Moon cache root `{}` has no parent directory",
+                    root.display()
+                )
+            })?;
+            // Stage outside the root so another initializer never mistakes our
+            // temporary marker for user-owned contents.
+            let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+            {
+                use std::io::Write;
+                staged.write_all(kind.ownership())?;
+                staged.as_file().sync_all()?;
+            }
+            match staged.persist_noclobber(&marker) {
+                Ok(_) => Ok(()),
+                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if std::fs::read(marker)? == kind.ownership() {
+                        Ok(())
+                    } else {
+                        bail!(
+                            "Moon cache root `{}` has the wrong ownership",
+                            root.display()
+                        )
+                    }
+                }
+                Err(error) => Err(error.error.into()),
+            }
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub fn make_cache_tree_readonly(root: &Path) -> anyhow::Result<()> {
+    set_cache_tree_readonly(root, true)
+}
+
+pub fn make_cache_tree_writable(root: &Path) -> anyhow::Result<()> {
+    set_cache_tree_readonly(root, false)
+}
+
+fn set_cache_tree_readonly(root: &Path, readonly: bool) -> anyhow::Result<()> {
+    let metadata = std::fs::symlink_metadata(root)?;
+    if metadata.file_type().is_symlink() {
+        bail!(
+            "refusing to change permissions through cache symlink `{}`",
+            root.display()
+        );
+    }
+    if metadata.is_dir() {
+        for entry in std::fs::read_dir(root)? {
+            set_cache_tree_readonly(&entry?.path(), readonly)?;
+        }
+    }
+
+    let mut permissions = metadata.permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = permissions.mode();
+        let mode = if readonly {
+            mode & !0o222
+        } else if metadata.is_dir() {
+            mode | 0o700
+        } else {
+            mode | 0o200
+        };
+        permissions.set_mode(mode);
+    }
+    #[cfg(not(unix))]
+    permissions.set_readonly(readonly);
+    std::fs::set_permissions(root, permissions)?;
+    Ok(())
+}
+
 pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
     let CacheRoot::Path(root) = resolve_cache_root(kind)? else {
         return Ok(());
@@ -106,6 +215,7 @@ pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
             Ok(contents) if contents == kind.ownership()
         )
     {
+        set_cache_tree_readonly(&root, false)?;
         std::fs::remove_dir_all(root)?;
         return Ok(());
     }

@@ -26,6 +26,7 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
+    cache::{CacheKind, initialize_cache_root},
     constants::MOONBITLANG_CORE,
     locks::FileLock,
     resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
@@ -34,6 +35,9 @@ use moonutil::{
 use semver::Version;
 
 use crate::registry::Registry;
+
+const PREPARED_SOURCE_CHECKSUM: &str = "checksum";
+const PREPARED_SOURCE_DIR: &str = "source";
 
 type DepDirState = HashMap<ArcStr, HashMap<ArcStr, Option<Version>>>;
 type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
@@ -274,7 +278,7 @@ pub(crate) fn sync_deps(
     Ok(())
 }
 
-fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
+pub(crate) fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
     // Special case: core library locates in ~/.moon
     if format!("{username}/{pkgname}") == MOONBITLANG_CORE {
         return toolchain::core();
@@ -308,6 +312,127 @@ pub(crate) fn resolve_dep_dirs(dep_dir: &DepDir, pkg_list: &ResolvedEnv) -> DirS
         res.insert(id, map_source_to_dir(dep_dir, module));
     }
     res
+}
+
+pub(crate) fn prepare_cached_deps(
+    cache_root: &Path,
+    registry: &dyn Registry,
+    pkg_list: &ResolvedEnv,
+    quiet: bool,
+    frozen: bool,
+    verbose: bool,
+) -> anyhow::Result<DirSyncResult> {
+    let has_registry_module = pkg_list
+        .all_modules()
+        .any(|module| matches!(module.source(), ModuleSourceKind::Registry));
+    if has_registry_module {
+        initialize_cache_root(CacheKind::DependencySources, cache_root)?;
+    }
+
+    let mut result = DirSyncResult::default();
+    for (id, module) in pkg_list.all_modules_and_id() {
+        let path = match module.source() {
+            ModuleSourceKind::Registry => {
+                prepare_cached_dep(cache_root, registry, module, quiet, frozen, verbose)?
+            }
+            ModuleSourceKind::Local(path) => path.clone(),
+            ModuleSourceKind::Git(url) => {
+                todo!("Git dependency is not yet supported. Got git url: {}", url)
+            }
+            ModuleSourceKind::Stdlib(path) => path.clone(),
+            ModuleSourceKind::SingleFile(path) => path.clone(),
+        };
+        result.insert(id, path);
+    }
+    Ok(result)
+}
+
+fn prepare_cached_dep(
+    cache_root: &Path,
+    registry: &dyn Registry,
+    module: &ModuleSource,
+    quiet: bool,
+    frozen: bool,
+    verbose: bool,
+) -> anyhow::Result<PathBuf> {
+    let name = module.name();
+    let version = module.version();
+    crate::registry::path::validate_module_name(name)?;
+    let expected_checksum = registry.checksum_of(name, version)?;
+    let module_root = cache_root
+        .join("registry")
+        .join(name.username.as_str())
+        .join(name.unqual.as_str());
+    std::fs::create_dir_all(&module_root)?;
+    let _lock = FileLock::lock_with_verbosity(&module_root, verbose)?;
+
+    let entry = module_root.join(version.to_string());
+    let source = entry.join(PREPARED_SOURCE_DIR);
+    if entry.exists() {
+        let published_checksum = std::fs::read_to_string(entry.join(PREPARED_SOURCE_CHECKSUM))
+            .with_context(|| {
+                format!(
+                    "prepared dependency source `{name}@{version}` is missing checksum metadata"
+                )
+            })?;
+        // A registry version is one immutable identity. A changed checksum is
+        // registry corruption, not a new cache variant to publish.
+        if published_checksum.trim() != expected_checksum {
+            anyhow::bail!(
+                "registry checksum for `{name}@{version}` changed; published versions are immutable"
+            );
+        }
+        return Ok(source);
+    }
+
+    if frozen {
+        anyhow::bail!(
+            "Failed to sync dependencies: `frozen` is set, so the build system cannot prepare `{name}@{version}` in the dependency cache"
+        );
+    }
+
+    let staging = tempfile::TempDir::new_in(&module_root)?;
+    let staging_source = staging.path().join(PREPARED_SOURCE_DIR);
+    registry.extract_to_verified(name, version, &expected_checksum, &staging_source, quiet)?;
+    let manifest = moonutil::manifest::read_module_desc_file_in_dir(&staging_source)?;
+    if manifest.name != name.to_string() || manifest.version.as_ref() != Some(version) {
+        anyhow::bail!(
+            "registry archive for `{name}@{version}` contains manifest for `{}@{}`",
+            manifest.name,
+            manifest
+                .version
+                .as_ref()
+                .map_or_else(|| "<missing>".to_string(), ToString::to_string)
+        );
+    }
+    if manifest
+        .scripts
+        .as_ref()
+        .is_some_and(|scripts| scripts.contains_key("postadd"))
+    {
+        anyhow::bail!(
+            "dependency `{name}@{version}` declares `scripts.postadd`, which is not supported by the shared dependency cache"
+        );
+    }
+    if manifest.__moonbit_unstable_prebuild.is_some() {
+        anyhow::bail!(
+            "dependency `{name}@{version}` declares a prebuild configuration script, which is not supported by the shared dependency cache"
+        );
+    }
+    std::fs::write(
+        staging.path().join(PREPARED_SOURCE_CHECKSUM),
+        format!("{expected_checksum}\n"),
+    )?;
+    moonutil::cache::make_cache_tree_readonly(&staging_source)?;
+    // The lock makes the version path single-writer; renaming makes it
+    // impossible for readers to observe a partially extracted source.
+    if let Err(error) = std::fs::rename(staging.path(), &entry) {
+        // TempDir cleanup needs write permission if publication fails.
+        moonutil::cache::make_cache_tree_writable(&staging_source)?;
+        return Err(error.into());
+    }
+
+    Ok(source)
 }
 
 #[cfg(test)]

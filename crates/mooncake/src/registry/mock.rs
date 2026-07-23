@@ -161,6 +161,7 @@ impl Registry for MockRegistry {
                             version.clone(),
                             RegistryVersionInfo {
                                 deps: module.deps.clone(),
+                                checksum: None,
                             },
                         )
                     })
@@ -178,6 +179,17 @@ impl Registry for MockRegistry {
         _quiet: bool,
     ) -> anyhow::Result<()> {
         panic!("Mock registry does not support installing")
+    }
+
+    fn extract_to_verified(
+        &self,
+        _name: &ModuleName,
+        _version: &Version,
+        _checksum: &str,
+        _to: &std::path::Path,
+        _quiet: bool,
+    ) -> anyhow::Result<()> {
+        panic!("Mock registry does not support extracting")
     }
 }
 
