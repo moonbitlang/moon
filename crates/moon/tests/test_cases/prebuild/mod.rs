@@ -245,8 +245,8 @@ fn test_pre_build_mooncake_bin_shape() {
   "pre-build": [
     {
       "input": [],
-      "output": ["generated.txt"],
-      "command": "moon tool write-tcc-rsp-file \"$output\" registry-work"
+      "output": ["generated.mbt"],
+      "command": "moon tool write-tcc-rsp-file \"$output\" fn \"generated()->Int{42}\""
     }
   ]
 }"#
@@ -254,7 +254,7 @@ fn test_pre_build_mooncake_bin_shape() {
             ),
             (
                 "src/main-js/main.mbt",
-                br#"fn main { println("registry-shape-tool") }"#.to_vec(),
+                br#"fn main { println(generated()) }"#.to_vec(),
             ),
         ],
     );
@@ -298,7 +298,7 @@ fn test_pre_build_mooncake_bin_shape() {
         "registry bin-dep build must not write under mooncakes_dir"
     );
     assert!(
-        !registry_source.join("src/main-js/generated.txt").exists(),
+        !registry_source.join("src/main-js/generated.mbt").exists(),
         "registry bin-dep pre-build must not write under mooncakes_dir"
     );
     let bin_dep_temp_dirs = std::fs::read_dir(&target_dir)
@@ -319,10 +319,14 @@ fn test_pre_build_mooncake_bin_shape() {
         installed_artifacts.is_dir(),
         "registry bin-dep artifact must be copied out of the temporary build"
     );
+    let installed_artifacts = dunce::canonicalize(&installed_artifacts)
+        .expect("failed to canonicalize installed registry bin-dep artifact directory");
     let launcher_contents = read(&registry_launcher).replace('\\', "/");
+    let installed_artifacts = installed_artifacts.to_string_lossy().replace('\\', "/");
     assert!(
-        launcher_contents.contains(&installed_artifacts.to_string_lossy().replace('\\', "/")),
-        "registry launcher must reference the copied artifact"
+        launcher_contents.contains(&installed_artifacts),
+        "registry launcher must reference the copied artifact directory `{installed_artifacts}`; \
+         launcher contents: {launcher_contents:?}"
     );
     assert!(
         !launcher_contents.contains(".bin-dep-"),
@@ -339,10 +343,7 @@ fn test_pre_build_mooncake_bin_shape() {
             "installed registry bin-dep failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        assert_eq!(
-            String::from_utf8_lossy(&output.stdout).trim(),
-            "registry-shape-tool"
-        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "42");
     }
 
     let actual_raw = read(dir.join("src/main/mooncake_bin.txt"));
