@@ -1391,6 +1391,21 @@ fn test_moon_run_command_string_removes_temporary_project() {
     assert_eq!(std::fs::read_dir(temp_root).unwrap().count(), 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn test_moon_run_flushes_trace() {
+    let dir = TestDir::new("moon_commands");
+
+    moon_cmd(&dir)
+        .args(["run", "--trace", "main1"])
+        .assert()
+        .success();
+
+    let trace = std::fs::read_to_string(dir.join("trace.json")).unwrap();
+    let events: serde_json::Value = serde_json::from_str(&trace).unwrap();
+    assert!(events.as_array().is_some_and(|events| !events.is_empty()));
+}
+
 #[test]
 fn test_moon_run_command_string_short_alias_c_reads_inline_script() {
     let dir = TestDir::new_empty();

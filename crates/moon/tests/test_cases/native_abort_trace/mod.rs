@@ -37,10 +37,13 @@ RUNTIME ERROR: abort() called
         .env_remove("MOONBIT_NEW_NATIVE")
         .args(["run", "--target", "native", "cmd/main"])
         .assert();
-    let assert = if exits_via_signal {
-        assert.interrupted()
+    let expected_code = if exits_via_signal {
+        128 + libc::SIGABRT
     } else {
-        assert.code(255)
+        255
     };
-    assert.stdout_eq("Hello\n").stderr_eq(expected_stderr);
+    assert
+        .code(expected_code)
+        .stdout_eq("Hello\n")
+        .stderr_eq(expected_stderr);
 }

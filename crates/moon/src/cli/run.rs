@@ -16,8 +16,6 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 use std::{io::Read, path::Path, path::PathBuf};
@@ -202,12 +200,6 @@ pub(crate) struct RunExecutable {
     lock: Option<FileLock>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RunExecution {
-    ReplaceProcess,
-    WaitForCleanup,
-}
-
 struct BuildExecutableFromPlanOptions {
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
@@ -311,9 +303,7 @@ fn run_source_as_single_file(
         profile,
     };
     let executable = build_single_file_executable_from_arg(cli, &cmd, options, output)?;
-    // The source and build outputs live under `temp_dir`, so this invocation
-    // must return before the directory can be removed.
-    let result = run_executable(cli, &cmd, executable, RunExecution::WaitForCleanup, output);
+    let result = run_executable(cli, &cmd, executable, output);
     drop(temp_dir);
     result
 }
@@ -400,7 +390,7 @@ pub(crate) fn run_run(
     } else {
         build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli), output)?
     };
-    run_executable(cli, &cmd, executable, RunExecution::ReplaceProcess, output)
+    run_executable(cli, &cmd, executable, output)
 }
 
 /// Resolve the run input, plan it, and build the executable artifact.
@@ -816,7 +806,6 @@ fn run_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     mut executable: RunExecutable,
-    execution: RunExecution,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     if cli.dry_run {
@@ -855,18 +844,13 @@ fn run_executable(
         return Ok(0);
     }
 
+    // Keep Moon as the parent on every platform. We deliberately avoid `exec`
+    // on Unix: although it preserves raw signal status, it skips RAII cleanup
+    // in `main` and callers, including the Chrome trace guard and temporary
+    // source/build directories. Standard spawning also avoids the Tokio runner
+    // that temporarily masks SIGCHLD on macOS.
     #[cfg(unix)]
-    if execution == RunExecution::ReplaceProcess {
-        let error = run_cmd.exec();
-        return Err(error).context("failed to execute command");
-    }
-
-    #[cfg(unix)]
-    // Keep the parent alive until a temp-backed child exits so its build tree
-    // can be removed. The child receives terminal signals independently.
     ctrlc::set_handler(|| {}).context("failed to install signal handler")?;
-    #[cfg(not(unix))]
-    let _ = execution;
     #[cfg(windows)]
     super::process::install_ctrl_c_passthrough_handler()?;
 
