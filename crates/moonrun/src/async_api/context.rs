@@ -17,12 +17,16 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::ptr::NonNull;
+use std::sync::OnceLock;
 
 use crate::async_host::{AsyncHost, AsyncHostError, AsyncHostResult};
 
 pub(super) struct AsyncContext {
     pub(super) host: AsyncHost,
     imports: v8::Global<v8::Object>,
+    // The memory object is stable, but memory.grow may replace its buffer.
+    // Cache the object while reacquiring buffer storage for every import.
+    memory: OnceLock<v8::Global<v8::WasmMemoryObject>>,
 }
 
 impl AsyncContext {
@@ -34,6 +38,7 @@ impl AsyncContext {
         Self {
             host,
             imports: v8::Global::new(scope, imports),
+            memory: OnceLock::new(),
         }
     }
 }
@@ -56,6 +61,7 @@ pub(super) struct ImportContext<'a, 'scope> {
     pub(super) scope: &'a mut v8::HandleScope<'scope>,
     pub(super) host: &'a AsyncHost,
     imports: &'a v8::Global<v8::Object>,
+    memory: &'a OnceLock<v8::Global<v8::WasmMemoryObject>>,
 }
 
 impl<'a, 'scope> ImportContext<'a, 'scope> {
@@ -64,6 +70,7 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
             scope,
             host: &context.host,
             imports: &context.imports,
+            memory: &context.memory,
         }
     }
 
@@ -72,7 +79,7 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
         f: impl FnOnce(&AsyncHost, &mut [u8]) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
         let host = self.host;
-        let memory_object = memory_object(self.scope, self.imports)?;
+        let memory_object = memory_object(self.scope, self.imports, self.memory)?;
         let buffer = memory_object.buffer();
         let len = buffer.byte_length();
 
@@ -156,13 +163,21 @@ impl<'a, 'scope, 'args> ImportArgs<'a, 'scope, 'args> {
 fn memory_object<'s>(
     scope: &mut v8::HandleScope<'s>,
     imports: &v8::Global<v8::Object>,
+    cached: &OnceLock<v8::Global<v8::WasmMemoryObject>>,
 ) -> AsyncHostResult<v8::Local<'s, v8::WasmMemoryObject>> {
+    if let Some(memory) = cached.get() {
+        return Ok(v8::Local::new(scope, memory));
+    }
+
     let imports = v8::Local::new(scope, imports);
     let key = v8::String::new(scope, "memory").ok_or(AsyncHostError::Fault)?;
     let memory = imports
         .get(scope, key.into())
         .ok_or(AsyncHostError::Fault)?;
-    v8::Local::<v8::WasmMemoryObject>::try_from(memory).map_err(|_| AsyncHostError::Fault)
+    let memory =
+        v8::Local::<v8::WasmMemoryObject>::try_from(memory).map_err(|_| AsyncHostError::Fault)?;
+    let _ = cached.set(v8::Global::new(scope, memory));
+    Ok(memory)
 }
 
 pub(super) fn throw_import_error(

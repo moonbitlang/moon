@@ -51,12 +51,28 @@ pub(crate) const WRITE_EVENT: i32 = 2;
 #[cfg(target_os = "macos")]
 pub(crate) const PROCESS_EVENT: i32 = 4;
 
+#[cfg(target_os = "macos")]
+#[derive(Debug)]
+struct KeventBuffer(Vec<libc::kevent>);
+
+#[cfg(target_os = "macos")]
+// SAFETY: libc::kevent is plain kernel event storage. Its udata field prevents
+// automatic Send, but moonrun always registers null udata and never dereferences
+// values returned in that field. The buffer owns every event value.
+unsafe impl Send for KeventBuffer {}
+
 #[derive(Debug)]
 pub(crate) struct PollInstance {
     #[cfg(unix)]
     fd: OwnedFd,
     #[cfg(windows)]
     fd: Arc<OwnedHandle>,
+    // Unix pollers retain both buffers so waits do not allocate or initialize
+    // 1024 native events before copying the ready subset on every call.
+    #[cfg(target_os = "linux")]
+    raw_events: Vec<libc::epoll_event>,
+    #[cfg(target_os = "macos")]
+    raw_events: KeventBuffer,
     events: Vec<PollEvent>,
 }
 

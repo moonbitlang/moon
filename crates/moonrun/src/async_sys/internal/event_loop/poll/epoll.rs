@@ -37,7 +37,11 @@ ported_fns! {
         } else {
             Ok(PollInstance {
                 fd: unsafe { OwnedFd::from_raw_fd(fd) },
-                events: Vec::new(),
+                raw_events: vec![
+                    libc::epoll_event { events: 0, u64: 0 };
+                    EVENT_BUFFER_SIZE
+                ],
+                events: Vec::with_capacity(EVENT_BUFFER_SIZE),
             })
         }
     }
@@ -86,11 +90,10 @@ ported_fns! {
         original = "moonbitlang_async_event_bus_wait"
     )]
     pub(crate) fn poll_wait(instance: &mut PollInstance, timeout: i32) -> AsyncHostResult<i32> {
-        let mut events = vec![libc::epoll_event { events: 0, u64: 0 }; EVENT_BUFFER_SIZE];
         let count = unsafe {
             libc::epoll_wait(
                 instance.raw_fd(),
-                events.as_mut_ptr(),
+                instance.raw_events.as_mut_ptr(),
                 EVENT_BUFFER_SIZE as i32,
                 timeout,
             )
@@ -98,14 +101,17 @@ ported_fns! {
         if count < 0 {
             return Err(last_native_error());
         }
-        instance.events = events
-            .into_iter()
+        instance.events.clear();
+        instance.events.extend(
+            instance
+            .raw_events
+            .iter()
             .take(count as usize)
             .map(|event| PollEvent {
                 fd: event.u64 as RawFd,
                 events: epoll_result_events(event.events),
-            })
-            .collect();
+            }),
+        );
         Ok(count)
     }
 
