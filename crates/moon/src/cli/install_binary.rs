@@ -576,7 +576,6 @@ fn build_selected_package(
     pkg: &SelectedPackage,
     user_log: &UserLog,
 ) -> anyhow::Result<Option<PathBuf>> {
-    let quiet = cli.quiet;
     std::fs::create_dir_all(&prepared.target_dir).context("Failed to create build directory")?;
 
     user_log.info(format!("Building `{}`...", pkg.full_pkg_name));
@@ -623,11 +622,8 @@ fn build_selected_package(
         user_log,
     )?;
     if !result.successful() {
-        result.print_info(quiet, "building").ok();
-        user_log.error(format!("Failed to build `{}`", pkg.full_pkg_name));
         return Ok(None);
     }
-    result.print_info(quiet, "building").ok();
 
     let target = BuildTarget {
         package: pkg.pkg_id,

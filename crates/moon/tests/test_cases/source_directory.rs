@@ -21,23 +21,13 @@ use super::*;
 #[test]
 fn test_specify_source_dir_003() {
     let dir = TestDir::new("specify_source_dir_003_empty_string.in");
-    check(
-        get_stderr(&dir, ["check"]),
-        expect![[r#"
-            Finished. moon: ran 2 tasks, now up to date
-        "#]],
-    );
+    check(get_stderr(&dir, ["check"]), expect![""]);
 }
 
 #[test]
 fn test_specify_source_dir_004() {
     let dir = TestDir::new("specify_source_dir_004.in");
-    check(
-        get_stderr(&dir, ["check"]),
-        expect![[r#"
-            Finished. moon: ran 4 tasks, now up to date
-        "#]],
-    );
+    check(get_stderr(&dir, ["check"]), expect![""]);
 
     get_stdout(&dir, ["clean"]);
     check(
@@ -80,18 +70,8 @@ fn test_specify_source_dir_with_deps() {
         expect_file!["./specify_source_dir_with_deps_001.in/test_graph.jsonl.snap"],
     );
 
-    check(
-        get_stderr(&dir, ["check"]),
-        expect![[r#"
-            Finished. moon: ran 6 tasks, now up to date
-        "#]],
-    );
-    check(
-        get_stderr(&dir, ["build"]),
-        expect![[r#"
-            Finished. moon: ran 5 tasks, now up to date
-        "#]],
-    );
+    check(get_stderr(&dir, ["check"]), expect![""]);
+    check(get_stderr(&dir, ["build"]), expect![""]);
     check(
         get_stdout(&dir, ["test"]),
         expect![[r#"
@@ -117,7 +97,6 @@ fn test_specify_source_dir_with_deps_002() {
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
-            Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
     check(
@@ -126,7 +105,6 @@ fn test_specify_source_dir_with_deps_002() {
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello004/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello003/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello003/source003/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello002/lib`
             Warning: Duplicate alias `lib` at "$ROOT/deps/hello002/lib/moon.pkg.json". "test-import" will automatically add "import" and current package as dependency so you don't need to add it manually. If you're test-importing a dependency with the same default alias as your current package, considering give it a different alias than the current package. Violating import: `just/hello001/lib`
-            Finished. moon: ran 10 tasks, now up to date
         "#]],
     );
     check(

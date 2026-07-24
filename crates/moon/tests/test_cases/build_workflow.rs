@@ -70,18 +70,45 @@ fn test_need_link() {
 }
 
 #[test]
-fn test_no_work_to_do() {
+fn test_build_summary_follows_user_log_level() {
     let dir = TestDir::new("moon_new/plain");
-    let out = get_stderr(&dir, ["check"]);
-    assert!(out.contains("now up to date"));
+    assert_eq!(get_stderr(&dir, ["check"]), "");
 
-    let out = get_stderr(&dir, ["check"]);
+    let out = get_stderr(&dir, ["check", "--verbose"]);
     assert!(out.contains("moon: no work to do"));
 
-    let out = get_stderr(&dir, ["build"]);
-    assert!(out.contains("now up to date"));
-    let out = get_stderr(&dir, ["build"]);
+    assert_eq!(get_stderr(&dir, ["build"]), "");
+    let out = get_stderr(&dir, ["build", "--verbose"]);
     assert!(out.contains("moon: no work to do"));
+}
+
+#[test]
+fn failed_binary_dependency_build_is_not_installed() {
+    let dir = TestDir::new("build_binary_dep_failure.in");
+    let assert = moon_cmd(&dir)
+        .args([
+            "tool",
+            "build-binary-dep",
+            "main",
+            "--install-path",
+            "installed",
+        ])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+
+    assert!(
+        stderr.contains("Expr Type Mismatch"),
+        "expected the compiler diagnostic, stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Failed to build"),
+        "build failure should not add a synthetic summary, stderr: {stderr}"
+    );
+    assert!(
+        !dir.join("installed").exists(),
+        "a failed binary dependency build must not install any artifact"
+    );
 }
 
 #[test]
@@ -140,9 +167,7 @@ fn test_failed_to_fill_whole_buffer() {
     let dir = TestDir::new("hello");
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc"]),
-        expect![[r#"
-            Finished. moon: ran 2 tasks, now up to date
-        "#]],
+        expect![""],
     );
 
     // corrupt the DB intentionally
@@ -368,8 +393,6 @@ fn test_diag_source_map_remaps_generated_sources() {
                     has type : String
                     wanted   : Int
             ─────╯
-            Failed with 0 warnings, 1 errors.
-            Error: failed when checking project
         "#]],
     );
 
@@ -388,8 +411,6 @@ fn test_diag_source_map_remaps_generated_sources() {
                     has type : String
                     wanted   : Int
             ───╯
-            Failed with 0 warnings, 1 errors.
-            Error: failed when checking project
         "#]],
     );
 }
@@ -415,22 +436,7 @@ fn test_no_warn_deps() {
     let dir = TestDir::new("no_warn_deps.in");
     let dir = dir.join("user.in");
 
-    check(
-        get_stderr(&dir, ["check"]),
-        expect![[r#"
-            Finished. moon: ran 5 tasks, now up to date
-        "#]],
-    );
-    check(
-        get_stderr(&dir, ["check", "--deny-warn"]),
-        expect![[r#"
-            Finished. moon: ran 5 tasks, now up to date
-        "#]],
-    );
-    check(
-        get_stderr(&dir, ["build"]),
-        expect![[r#"
-            Finished. moon: ran 3 tasks, now up to date
-        "#]],
-    );
+    check(get_stderr(&dir, ["check"]), expect![""]);
+    check(get_stderr(&dir, ["check", "--deny-warn"]), expect![""]);
+    check(get_stderr(&dir, ["build"]), expect![""]);
 }

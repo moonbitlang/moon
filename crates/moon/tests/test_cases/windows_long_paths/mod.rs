@@ -206,9 +206,6 @@ Fatal error: exception Sys_error("[..]_build[..]wasm-gc[..]release[..]format[..]
 ...
 "#]])
         .stderr_eq(snapbox::str![[r#"
-Failed with 0 warnings, 0 errors.
-Error: failed when formatting project
-
 "#]]);
 }
 

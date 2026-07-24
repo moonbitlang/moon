@@ -72,6 +72,8 @@ use crate::build_flags::{BuildFlags, OutputStyle};
 mod dry_run;
 pub use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_all};
 
+const FINISHED_STYLE: anstyle::Style = anstyle::AnsiColor::Green.on_default().bold();
+
 /// The output of a calculate user intent operation.
 pub struct CalcUserIntentOutput {
     /// The list of user intents; will be expanded to concrete BuildPlanNode(s) later.
@@ -212,39 +214,6 @@ pub struct BuildMeta {
 
     /// Physical artifact path resolver selected for this build.
     pub artifact_paths: ArtifactPathResolver,
-}
-
-/// Represents the result of the build process
-#[derive(Debug, Clone)]
-pub enum BuildResult {
-    /// The build succeeded with the given number of tasks executed.
-    Succeeded(usize),
-    /// The build failed.
-    Failed,
-}
-
-impl BuildResult {
-    /// Whether the build was successful.
-    pub fn successful(&self) -> bool {
-        matches!(self, BuildResult::Succeeded(_))
-    }
-
-    /// Get the return code that should be returned to the shell.
-    pub fn return_code_for_success(&self) -> i32 {
-        if self.successful() { 0 } else { 1 }
-    }
-
-    /// Print information about the build result.
-    pub fn print_info(&self) {
-        match self {
-            BuildResult::Succeeded(n) => {
-                println!("{} task(s) executed.", n);
-            }
-            BuildResult::Failed => {
-                println!("Build failed.");
-            }
-        }
-    }
 }
 
 /// A preliminary configuration that does not require run-time information to
@@ -929,7 +898,7 @@ pub fn execute_build(
     // Get start nodes (leaf outputs) before moving the graph
     let start_nodes = input.graph.get_start_nodes();
 
-    execute_build_partial(
+    let result = execute_build_partial(
         cfg,
         input,
         target_dir,
@@ -942,7 +911,9 @@ pub fn execute_build(
             }
             Ok(())
         }),
-    )
+    )?;
+    report_build_success(&result, user_log);
+    Ok(result)
 }
 
 /// Execute a test build.
@@ -959,7 +930,7 @@ pub fn execute_test_build(
 ) -> anyhow::Result<N2RunStats> {
     let start_nodes = input.graph.get_start_nodes();
 
-    execute_build_partial(
+    let result = execute_build_partial(
         cfg,
         input,
         target_dir,
@@ -971,7 +942,36 @@ pub fn execute_test_build(
             }
             Ok(())
         }),
-    )
+    )?;
+    report_build_success(&result, user_log);
+    Ok(result)
+}
+
+fn report_build_success(result: &N2RunStats, user_log: &UserLog) {
+    let Some(n_tasks) = result.n_tasks_executed else {
+        // Failed tasks already emitted their diagnostics. Reporting another error here
+        // would duplicate that output, and diagnostic counts vary by output renderer.
+        return;
+    };
+
+    let warnings_errors = if result.n_warnings > 0 || result.n_errors > 0 {
+        format!(
+            " ({} warnings, {} errors)",
+            result.n_warnings, result.n_errors
+        )
+    } else {
+        String::new()
+    };
+    if n_tasks == 0 {
+        user_log.info(format_args!(
+            "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: no work to do{warnings_errors}"
+        ));
+    } else {
+        let task_plural = if n_tasks == 1 { "" } else { "s" };
+        user_log.info(format_args!(
+            "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: ran {n_tasks} task{task_plural}, now up to date{warnings_errors}"
+        ));
+    }
 }
 
 /// Callback on the [`n2::work::Work`] to be done for target artifacts.

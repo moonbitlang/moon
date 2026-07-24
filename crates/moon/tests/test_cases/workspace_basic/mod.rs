@@ -266,8 +266,12 @@ fn test_workspace_commands() {
         );
     }
 
-    let stderr = get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
-    assert!(stderr.contains("Finished. moon: ran "));
+    check(
+        get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
+        expect![[r#"
+            Warning: Main package `alice/app/main` uses blackbox-only test inputs (`_test.mbt` files) in package directory "$ROOT/app/src/main". Main packages will stop generating blackbox tests in a future release. Move public behavior into a non-main package and keep the main package as an entrypoint.
+        "#]],
+    );
 
     check(
         get_stdout(&dir, ["info", "--target", "wasm-gc"]),
@@ -350,18 +354,8 @@ fn test_workspace_commands() {
 fn test_empty_workspace_commands_do_not_panic() {
     let dir = empty_workspace_dir();
 
-    check(
-        get_stderr(&dir, ["build"]),
-        expect![[r#"
-            Finished. moon: no work to do
-        "#]],
-    );
-    check(
-        get_stderr(&dir, ["check"]),
-        expect![[r#"
-            Finished. moon: no work to do
-        "#]],
-    );
+    check(get_stderr(&dir, ["build"]), expect![""]);
+    check(get_stderr(&dir, ["check"]), expect![""]);
     check(
         get_stderr(&dir, ["test"]),
         expect![[r#"

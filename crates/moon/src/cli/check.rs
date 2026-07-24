@@ -352,7 +352,6 @@ fn run_check_for_single_file_rr(
     cfg.explain_errors |= cmd.explain;
 
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-    result.print_info(cli.quiet, "checking")?;
 
     Ok(if result.successful() { 0 } else { 1 })
 }
@@ -481,7 +480,6 @@ fn run_check_normal_internal_rr(
             rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
             let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-            result.print_info(cli.quiet, "checking")?;
             ok &= result.successful();
         }
         ok

@@ -398,10 +398,6 @@ fn run_info_rr_internal(
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
     let success = result.successful();
-    let print_result = result.print_info(cli.quiet, "generating mbti files");
-    if success {
-        print_result?;
-    }
 
     Ok((success, build_meta))
 }

@@ -27,7 +27,6 @@
   
   $ moon check --sort-input
   
-  Finished. moon: ran 4 tasks, now up to date
   
   $ xcat _build/packages.json
   {
@@ -120,7 +119,6 @@
   }
   $ moon build
   
-  Finished. moon: ran 3 tasks, now up to date
   
   $ moon test
   Total tests: 1, passed: 1, failed: 0.

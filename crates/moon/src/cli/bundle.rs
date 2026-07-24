@@ -135,7 +135,6 @@ pub(crate) fn run_bundle_internal_rr(
             target_dir,
             user_log,
         )?;
-        result.print_info(cli.quiet, "bundling")?;
         Ok(result.return_code_for_success())
     }
 }

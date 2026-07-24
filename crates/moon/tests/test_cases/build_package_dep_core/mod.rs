@@ -6,7 +6,7 @@ use super::*;
 fn test_build_package_tracks_dependency_core_artifact() {
     let dir = TestDir::new("build_package_dep_core/build_package_dep_core.in");
 
-    let first_build = get_stderr(&dir, ["build", "--target", "wasm-gc"]);
+    let first_build = get_stderr(&dir, ["build", "--target", "wasm-gc", "--verbose"]);
     assert!(
         first_build.contains("Finished. moon: ran 3 tasks, now up to date"),
         "initial build should compile lib, main, and linked core; got:\n{first_build}"
@@ -27,11 +27,9 @@ fn test_build_package_tracks_dependency_core_artifact() {
         .expect("lib core edit should succeed");
     drop(lib_core_file);
 
-    let second_build = get_stderr(&dir, ["build", "--target", "wasm-gc"]);
-    check(
-        second_build,
-        expect![[r#"
-            Finished. moon: ran 3 tasks, now up to date
-        "#]],
+    let second_build = get_stderr(&dir, ["build", "--target", "wasm-gc", "--verbose"]);
+    assert!(
+        second_build.contains("Finished. moon: ran 3 tasks, now up to date"),
+        "editing the dependency core should rebuild lib, main, and the link; got:\n{second_build}"
     );
 }

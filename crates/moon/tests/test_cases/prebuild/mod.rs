@@ -412,18 +412,8 @@ fn test_pre_build_dirty() {
     assert!(file.exists(), "prebuild.txt should exist after prebuild");
     let mtime = file.metadata().unwrap().modified().unwrap();
 
-    check(
-        get_stderr(&dir, ["check"]),
-        expect![[r#"
-            Finished. moon: no work to do
-        "#]],
-    );
-    check(
-        get_stderr(&dir, ["check"]),
-        expect![[r#"
-            Finished. moon: no work to do
-        "#]],
-    );
+    check(get_stderr(&dir, ["check"]), expect![""]);
+    check(get_stderr(&dir, ["check"]), expect![""]);
 
     let mtime_end = file.metadata().unwrap().modified().unwrap();
     assert_eq!(mtime, mtime_end, "file should not be modified");

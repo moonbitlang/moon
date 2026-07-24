@@ -36,9 +36,7 @@ fn test_all_pkgs() {
     let _ = get_stdout(&dir, ["clean"]);
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc"]),
-        expect![[r#"
-        Finished. moon: ran 10 tasks, now up to date
-    "#]],
+        expect![""],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
@@ -48,9 +46,7 @@ fn test_all_pkgs() {
     let _ = get_stdout(&dir, ["clean"]);
     check(
         get_stderr(&dir, ["build", "--target", "wasm-gc"]),
-        expect![[r#"
-            Finished. moon: ran 7 tasks, now up to date
-        "#]],
+        expect![""],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/debug/build/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
@@ -85,9 +81,7 @@ fn test_all_pkgs() {
     let _ = get_stdout(&dir, ["clean"]);
     check(
         get_stderr(&dir, ["info", "--target", "wasm-gc"]),
-        expect![[r#"
-            Finished. moon: ran 10 tasks, now up to date
-        "#]],
+        expect![""],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);
@@ -101,9 +95,7 @@ fn test_indirect_dep_bundle() {
     let _ = get_stdout(&dir, ["clean"]);
     check(
         get_stderr(&dir, ["bundle", "--target", "wasm-gc"]),
-        expect![[r#"
-            Finished. moon: ran 7 tasks, now up to date
-        "#]],
+        expect![""],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/release/bundle/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);

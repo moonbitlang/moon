@@ -20,9 +20,7 @@ fn test_specify_source_dir_001() {
     );
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
-        expect![[r#"
-            Finished. moon: ran 4 tasks, now up to date
-        "#]],
+        expect![""],
     );
     #[cfg(unix)]
     {
@@ -284,9 +282,7 @@ fn test_specify_source_dir_001() {
     }
     check(
         get_stderr(&dir, ["build", "--target", "wasm-gc"]),
-        expect![[r#"
-            Finished. moon: ran 3 tasks, now up to date
-        "#]],
+        expect![""],
     );
     check(
         get_stdout(&dir, ["test", "--target", "wasm-gc"]),

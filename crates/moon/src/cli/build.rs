@@ -201,7 +201,6 @@ fn run_build_rr(
         for (build_meta, build_graph) in planned_runs {
             rr_build::generate_all_pkgs_json(&build_meta)?;
             let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-            result.print_info(cli.quiet, "building")?;
             ok &= result.successful();
         }
         ok
