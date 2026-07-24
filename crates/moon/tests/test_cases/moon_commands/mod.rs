@@ -1367,6 +1367,30 @@ fn test_moon_run_command_string_reads_inline_script() {
         .stderr_eq("");
 }
 
+#[cfg(unix)]
+#[test]
+fn test_moon_run_command_string_removes_temporary_project() {
+    let dir = TestDir::new_empty();
+    let temp_root = dir.join("tmp");
+    std::fs::create_dir(&temp_root).unwrap();
+
+    moon_cmd(&dir)
+        .env("TMPDIR", &temp_root)
+        .args([
+            "run",
+            "-e",
+            r#"fn main {
+  println("hello")
+}
+"#,
+        ])
+        .assert()
+        .success()
+        .stdout_eq("hello\n");
+
+    assert_eq!(std::fs::read_dir(temp_root).unwrap().count(), 0);
+}
+
 #[test]
 fn test_moon_run_command_string_short_alias_c_reads_inline_script() {
     let dir = TestDir::new_empty();

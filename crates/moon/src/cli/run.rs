@@ -202,6 +202,12 @@ pub(crate) struct RunExecutable {
     lock: Option<FileLock>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RunExecution {
+    ReplaceProcess,
+    WaitForCleanup,
+}
+
 struct BuildExecutableFromPlanOptions {
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
@@ -304,7 +310,10 @@ fn run_source_as_single_file(
         build_only,
         profile,
     };
-    let result = run_single_file_from_arg_with_options(cli, cmd, options, output);
+    let executable = build_single_file_executable_from_arg(cli, &cmd, options, output)?;
+    // The source and build outputs live under `temp_dir`, so this invocation
+    // must return before the directory can be removed.
+    let result = run_executable(cli, &cmd, executable, RunExecution::WaitForCleanup, output);
     drop(temp_dir);
     result
 }
@@ -391,7 +400,7 @@ pub(crate) fn run_run(
     } else {
         build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli), output)?
     };
-    run_executable(cli, &cmd, executable, output)
+    run_executable(cli, &cmd, executable, RunExecution::ReplaceProcess, output)
 }
 
 /// Resolve the run input, plan it, and build the executable artifact.
@@ -613,17 +622,6 @@ fn resolve_run_selection(
     Ok(ResolvedRunSelection { package })
 }
 
-#[instrument(level = Level::DEBUG, skip_all)]
-fn run_single_file_from_arg_with_options(
-    cli: &UniversalFlags,
-    cmd: RunSubcommand,
-    options: BuildRunExecutableOptions,
-    output: &CommandOutput,
-) -> anyhow::Result<i32> {
-    let executable = build_single_file_executable_from_arg(cli, &cmd, options, output)?;
-    run_executable(cli, &cmd, executable, output)
-}
-
 /// Build a standalone `.mbt`/`.mbtx` input through the synthesized single-file
 /// package machinery.
 fn build_single_file_executable_from_arg(
@@ -818,6 +816,7 @@ fn run_executable(
     cli: &UniversalFlags,
     cmd: &RunSubcommand,
     mut executable: RunExecutable,
+    execution: RunExecution,
     output: &CommandOutput,
 ) -> Result<i32, anyhow::Error> {
     if cli.dry_run {
@@ -857,27 +856,38 @@ fn run_executable(
     }
 
     #[cfg(unix)]
-    {
+    if execution == RunExecution::ReplaceProcess {
         let error = run_cmd.exec();
-        Err(error).context("failed to execute command")
+        return Err(error).context("failed to execute command");
     }
 
+    #[cfg(unix)]
+    // Keep the parent alive until a temp-backed child exits so its build tree
+    // can be removed. The child receives terminal signals independently.
+    ctrlc::set_handler(|| {}).context("failed to install signal handler")?;
     #[cfg(not(unix))]
+    let _ = execution;
+    #[cfg(windows)]
+    super::process::install_ctrl_c_passthrough_handler()?;
+
+    let mut child = run_cmd
+        .spawn()
+        .with_context(|| format!("Failed to spawn command {:?}", run_cmd))?;
+    #[cfg(windows)]
+    if let Err(err) = crate::run::assign_process_to_job(child.as_raw_handle()) {
+        tracing::warn!(?err, "Failed to assign child process to job object");
+    }
+    let status = child.wait().context("failed to wait for command")?;
+    if let Some(code) = status.code() {
+        return Ok(code);
+    }
+    #[cfg(unix)]
     {
-        #[cfg(windows)]
-        super::process::install_ctrl_c_passthrough_handler()?;
-        let mut child = run_cmd
-            .spawn()
-            .with_context(|| format!("Failed to spawn command {:?}", run_cmd))?;
-        #[cfg(windows)]
-        if let Err(err) = crate::run::assign_process_to_job(child.as_raw_handle()) {
-            tracing::warn!(?err, "Failed to assign child process to job object");
-        }
-        let status = child.wait().context("failed to wait for command")?;
-        if let Some(code) = status.code() {
-            Ok(code)
-        } else {
-            bail!("Command exited without a return code")
+        use std::os::unix::process::ExitStatusExt;
+
+        if let Some(signal) = status.signal() {
+            return Ok(128 + signal);
         }
     }
+    bail!("Command exited without a return code")
 }
