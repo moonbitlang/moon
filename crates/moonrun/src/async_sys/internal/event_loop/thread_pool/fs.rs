@@ -25,7 +25,7 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, HostCBuffer};
+use crate::async_host::{AsyncHostError, AsyncHostResult, SharedCBuffer};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 
@@ -261,7 +261,7 @@ ported_fns! {
     )]
     pub(super) fn run_readdir_job(
         dir: &Resource,
-        buffer: &HostCBuffer,
+        buffer: &SharedCBuffer,
         len: i32,
         restart: bool,
     ) -> AsyncHostResult<i64> {

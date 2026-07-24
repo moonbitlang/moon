@@ -55,7 +55,7 @@ pub(crate) fn run_host_job(job: &mut Job) {
             result,
         } => run_open_job(
             result,
-            filename.clone(),
+            std::mem::take(filename),
             *access,
             *create_mode,
             *append,
@@ -85,7 +85,7 @@ pub(crate) fn run_host_job(job: &mut Job) {
             follow_symlink,
         } => {
             let parent = parent.take();
-            run_file_kind_by_path_job(parent.as_deref(), path.clone(), *follow_symlink)
+            run_file_kind_by_path_job(parent.as_deref(), std::mem::take(path), *follow_symlink)
         }
         JobPayload::FileSize { file, result } => match file.take() {
             Some(file) => run_file_size_job(&file, result),
@@ -100,9 +100,9 @@ pub(crate) fn run_host_job(job: &mut Job) {
             follow_symlink,
             result,
             ..
-        } => run_file_time_by_path_job(path.clone(), *follow_symlink, result),
-        JobPayload::Access { path, access } => run_access_job(path.clone(), *access),
-        JobPayload::Chmod { path, mode } => run_chmod_job(path.clone(), *mode),
+        } => run_file_time_by_path_job(std::mem::take(path), *follow_symlink, result),
+        JobPayload::Access { path, access } => run_access_job(std::mem::take(path), *access),
+        JobPayload::Chmod { path, mode } => run_chmod_job(std::mem::take(path), *mode),
         JobPayload::Fsync { file, only_data } => match file.take() {
             Some(file) => run_fsync_job(&file, *only_data),
             None => Err(AsyncHostError::Badf),
@@ -111,19 +111,19 @@ pub(crate) fn run_host_job(job: &mut Job) {
             Some(file) => run_flock_job(&file, *exclusive),
             None => Err(AsyncHostError::Badf),
         },
-        JobPayload::Remove { path } => run_remove_job(path.clone()),
+        JobPayload::Remove { path } => run_remove_job(std::mem::take(path)),
         JobPayload::Rename {
             old_path,
             new_path,
             replace,
-        } => run_rename_job(old_path.clone(), new_path.clone(), *replace),
+        } => run_rename_job(std::mem::take(old_path), std::mem::take(new_path), *replace),
         JobPayload::Symlink {
             target,
             path,
             force_symlink,
-        } => run_symlink_job(target.clone(), path.clone(), *force_symlink),
-        JobPayload::Mkdir { path, mode } => run_mkdir_job(path.clone(), *mode),
-        JobPayload::Rmdir { path } => run_rmdir_job(path.clone()),
+        } => run_symlink_job(std::mem::take(target), std::mem::take(path), *force_symlink),
+        JobPayload::Mkdir { path, mode } => run_mkdir_job(std::mem::take(path), *mode),
+        JobPayload::Rmdir { path } => run_rmdir_job(std::mem::take(path)),
         JobPayload::Readdir {
             dir,
             buffer,
@@ -138,7 +138,7 @@ pub(crate) fn run_host_job(job: &mut Job) {
             None => Err(AsyncHostError::Badf),
         },
         JobPayload::GetAddrInfo { host, result } => run_getaddrinfo_job(host.clone(), result),
-        JobPayload::Realpath { path, result, .. } => run_realpath_job(path.clone(), result),
+        JobPayload::Realpath { path, result, .. } => run_realpath_job(std::mem::take(path), result),
         #[cfg(unix)]
         JobPayload::SpawnUnix {
             path,
@@ -149,11 +149,11 @@ pub(crate) fn run_host_job(job: &mut Job) {
             cwd,
             result,
         } => run_spawn_job_unix(
-            path.clone(),
-            args.clone(),
-            env.clone(),
-            stdio.clone(),
-            cwd.clone(),
+            std::mem::take(path),
+            std::mem::take(args),
+            std::mem::take(env),
+            std::mem::take(stdio),
+            cwd.take(),
             *options,
             result,
         ),
@@ -166,10 +166,10 @@ pub(crate) fn run_host_job(job: &mut Job) {
             cwd,
             result,
         } => run_spawn_job_windows(
-            command_line.clone(),
-            env.clone(),
-            stdio.clone(),
-            cwd.clone(),
+            std::mem::take(command_line),
+            std::mem::take(env),
+            std::mem::take(stdio),
+            cwd.take(),
             *options,
             result,
         ),

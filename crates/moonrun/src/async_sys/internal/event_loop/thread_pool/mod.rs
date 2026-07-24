@@ -52,10 +52,10 @@ pub(crate) use types::{
     RealpathJobResult, Resource, ResourceClass, ResourceRef, ResourceTable, SpawnOptions,
 };
 #[cfg(windows)]
-pub(crate) use worker::worker_cancellable_job;
+pub(crate) use worker::worker_cancellation_resource;
 pub(crate) use worker::{
-    HostWorkerHandle, HostWorkerJob, WorkerCompletionId, cancel_worker, free_worker, spawn_worker,
-    wake_worker, worker_enter_idle,
+    HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,
+    free_worker, spawn_worker, wake_worker, worker_enter_idle,
 };
 
 #[cfg(test)]

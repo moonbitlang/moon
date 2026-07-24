@@ -41,23 +41,41 @@ impl WorkerCompletionId {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub(crate) struct HostWorkerJob {
     pub(crate) completion_id: WorkerCompletionId,
     pub(crate) job_key: HandleKey,
+    pub(crate) job: Job,
+    #[cfg(windows)]
+    cancel: Option<super::ResourceRef>,
+}
+
+impl HostWorkerJob {
+    pub(crate) fn new(completion_id: WorkerCompletionId, job_key: HandleKey, job: Job) -> Self {
+        #[cfg(windows)]
+        let cancel = super::job_cancel_resource(&job);
+        Self {
+            completion_id,
+            job_key,
+            job,
+            #[cfg(windows)]
+            cancel,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub(crate) struct HostWorkerJobResult {
     pub(crate) completion_id: WorkerCompletionId,
     pub(crate) job_key: HandleKey,
-    pub(crate) job: Option<Job>,
+    pub(crate) job: Job,
 }
 
 #[derive(Debug)]
 struct HostWorkerState {
     job: Option<HostWorkerJob>,
-    running: Option<HostWorkerJob>,
+    #[cfg(windows)]
+    running_cancel: Option<super::ResourceRef>,
     waiting: bool,
     terminating: bool,
 }
@@ -74,8 +92,6 @@ struct HostWorkerShared {
 pub(crate) struct HostWorkerHandle {
     shared: Arc<HostWorkerShared>,
     thread: Option<JoinHandle<()>>,
-    #[cfg(unix)]
-    thread_id: Arc<Mutex<Option<libc::pthread_t>>>,
 }
 
 impl std::fmt::Debug for HostWorkerHandle {
@@ -112,7 +128,7 @@ fn init_worker_signal_handler() {
 impl HostWorkerHandle {
     pub(crate) fn spawn(
         init_job: HostWorkerJob,
-        mut run_job: impl FnMut(HostWorkerJob) -> Option<Job> + Send + 'static,
+        mut run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
         mut complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
     ) -> Self {
         #[cfg(unix)]
@@ -121,7 +137,8 @@ impl HostWorkerHandle {
         let shared = Arc::new(HostWorkerShared {
             state: Mutex::new(HostWorkerState {
                 job: Some(init_job),
-                running: None,
+                #[cfg(windows)]
+                running_cancel: None,
                 waiting: false,
                 terminating: false,
             }),
@@ -129,16 +146,11 @@ impl HostWorkerHandle {
         });
         let worker_shared = Arc::clone(&shared);
         #[cfg(unix)]
-        let thread_id = Arc::new(Mutex::new(None));
-        #[cfg(unix)]
-        let worker_thread_id = Arc::clone(&thread_id);
-        #[cfg(unix)]
         let parent_signal_mask = crate::async_sys::signal::set_worker_thread_signal_mask().ok();
         let thread = std::thread::spawn(move || {
             #[cfg(unix)]
             {
                 let _ = crate::async_sys::signal::set_worker_thread_signal_mask();
-                *worker_thread_id.lock().unwrap() = Some(unsafe { libc::pthread_self() });
             }
 
             loop {
@@ -148,20 +160,24 @@ impl HostWorkerHandle {
                         state.waiting = true;
                         state = worker_shared.wakeup.wait(state).unwrap();
                     }
-                    (!state.terminating).then(|| state.job.take()).flatten()
+                    let job = (!state.terminating).then(|| state.job.take()).flatten();
+                    #[cfg(windows)]
+                    {
+                        state.running_cancel = job.as_ref().and_then(|job| job.cancel.clone());
+                    }
+                    job
                 };
-                let Some(job) = job else {
+                let Some(mut job) = job else {
                     break;
                 };
-                {
-                    let mut state = worker_shared.state.lock().unwrap();
-                    state.running = Some(job);
-                }
-                let result = run_job(job);
+                run_job(&mut job);
 
                 let terminating = {
                     let mut state = worker_shared.state.lock().unwrap();
-                    state.running = None;
+                    #[cfg(windows)]
+                    {
+                        state.running_cancel = None;
+                    }
                     if !state.terminating && state.job.is_none() {
                         state.waiting = true;
                     }
@@ -170,21 +186,15 @@ impl HostWorkerHandle {
                 complete_job(HostWorkerJobResult {
                     completion_id: job.completion_id,
                     job_key: job.job_key,
-                    job: result,
+                    job: job.job,
                 });
                 if terminating {
                     break;
                 }
             }
-
-            #[cfg(unix)]
-            {
-                *worker_thread_id.lock().unwrap() = None;
-            }
         });
         #[cfg(unix)]
         {
-            *thread_id.lock().unwrap() = Some(thread.as_pthread_t());
             if let Some(parent_signal_mask) = parent_signal_mask {
                 let _ =
                     crate::async_sys::signal::restore_thread_pool_signal_mask(&parent_signal_mask);
@@ -193,8 +203,6 @@ impl HostWorkerHandle {
         Self {
             shared,
             thread: Some(thread),
-            #[cfg(unix)]
-            thread_id,
         }
     }
 
@@ -217,22 +225,27 @@ impl HostWorkerHandle {
     }
 
     #[cfg(windows)]
-    pub(crate) fn cancellable_job(&self) -> Option<HostWorkerJob> {
+    pub(crate) fn cancellation_resource(&self) -> Option<super::ResourceRef> {
         let state = self.shared.state.lock().unwrap();
-        state.running.or(state.job)
+        state
+            .running_cancel
+            .as_ref()
+            .cloned()
+            .or_else(|| state.job.as_ref().and_then(|job| job.cancel.clone()))
     }
 
     pub(crate) fn cancel(&self) -> AsyncHostResult<i32> {
-        if self.shared.state.lock().unwrap().waiting {
-            return Ok(1);
-        }
-
         #[cfg(unix)]
         {
-            if let Some(thread_id) = *self.thread_id.lock().unwrap() {
-                unsafe {
-                    libc::pthread_kill(thread_id, libc::SIGUSR2);
-                }
+            let state = self.shared.state.lock().unwrap();
+            if state.waiting {
+                return Ok(1);
+            }
+            let Some(thread) = &self.thread else {
+                return Err(crate::async_host::AsyncHostError::Badf);
+            };
+            unsafe {
+                libc::pthread_kill(thread.as_pthread_t(), libc::SIGUSR2);
             }
             Ok(0)
         }
@@ -243,6 +256,9 @@ impl HostWorkerHandle {
             use windows_sys::Win32::Foundation::{ERROR_NOT_FOUND, GetLastError};
             use windows_sys::Win32::System::IO::CancelSynchronousIo;
 
+            if self.shared.state.lock().unwrap().waiting {
+                return Ok(1);
+            }
             let Some(thread) = &self.thread else {
                 return Err(AsyncHostError::Badf);
             };
@@ -279,7 +295,7 @@ ported_fns! {
     )]
     pub(crate) fn spawn_worker(
         init_job: HostWorkerJob,
-        run_job: impl FnMut(HostWorkerJob) -> Option<Job> + Send + 'static,
+        run_job: impl FnMut(&mut HostWorkerJob) + Send + 'static,
         complete_job: impl FnMut(HostWorkerJobResult) + Send + 'static,
     ) -> HostWorkerHandle {
         HostWorkerHandle::spawn(init_job, run_job, complete_job)
@@ -322,8 +338,10 @@ ported_fns! {
 }
 
 #[cfg(windows)]
-pub(crate) fn worker_cancellable_job(worker: &HostWorkerHandle) -> Option<HostWorkerJob> {
-    worker.cancellable_job()
+pub(crate) fn worker_cancellation_resource(
+    worker: &HostWorkerHandle,
+) -> Option<super::ResourceRef> {
+    worker.cancellation_resource()
 }
 
 #[cfg(test)]
@@ -346,10 +364,11 @@ mod tests {
     }
 
     fn make_worker_job(completion_id: i32, job_key: u64) -> HostWorkerJob {
-        HostWorkerJob {
-            completion_id: WorkerCompletionId::from_abi(completion_id),
-            job_key: make_job_key(job_key),
-        }
+        HostWorkerJob::new(
+            WorkerCompletionId::from_abi(completion_id),
+            make_job_key(job_key),
+            make_sleep_job(0),
+        )
     }
 
     #[test]
@@ -359,8 +378,7 @@ mod tests {
         let worker = spawn_worker(
             make_worker_job(7, 11),
             move |job| {
-                sender.send(worker_job_summary(&job)).unwrap();
-                Some(make_sleep_job(0))
+                sender.send(worker_job_summary(job)).unwrap();
             },
             move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
@@ -394,8 +412,7 @@ mod tests {
         let worker = spawn_worker(
             make_worker_job(1, 2),
             move |job| {
-                sender.send(worker_job_summary(&job)).unwrap();
-                Some(make_sleep_job(0))
+                sender.send(worker_job_summary(job)).unwrap();
             },
             move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
@@ -425,11 +442,10 @@ mod tests {
         let worker = spawn_worker(
             make_worker_job(1, 2),
             move |job| {
-                started_sender.send(worker_job_summary(&job)).unwrap();
+                started_sender.send(worker_job_summary(job)).unwrap();
                 if job.completion_id == WorkerCompletionId::from_abi(1) {
                     release_receiver.recv().unwrap();
                 }
-                Some(make_sleep_job(0))
             },
             move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
@@ -464,12 +480,8 @@ mod tests {
         let (completion_sender, completion_receiver) = mpsc::channel();
         let worker = spawn_worker(
             make_worker_job(1, 2),
-            move |_| {
-                let mut job = make_sleep_job(0);
-                job.set_ret(123);
-                Some(job)
-            },
-            move |job| completion_sender.send(job.job.unwrap().ret()).unwrap(),
+            move |job| job.job.set_ret(123),
+            move |job| completion_sender.send(job.job.ret()).unwrap(),
         );
 
         assert_eq!(completion_receiver.recv().unwrap(), 123);
@@ -477,20 +489,15 @@ mod tests {
     }
 
     #[test]
-    fn completion_reports_missing_job_and_worker_continues() {
+    fn worker_continues_after_completion() {
         let (started_sender, started_receiver) = mpsc::channel();
         let (completion_sender, completion_receiver) = mpsc::channel();
         let worker = spawn_worker(
             make_worker_job(1, 2),
             move |job| {
-                started_sender.send(worker_job_summary(&job)).unwrap();
-                None
+                started_sender.send(worker_job_summary(job)).unwrap();
             },
-            move |job| {
-                completion_sender
-                    .send((worker_result_summary(&job), job.job.is_some()))
-                    .unwrap()
-            },
+            move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
 
         assert_eq!(
@@ -499,7 +506,7 @@ mod tests {
         );
         assert_eq!(
             completion_receiver.recv().unwrap(),
-            ((WorkerCompletionId::from_abi(1), make_job_key(2)), false)
+            (WorkerCompletionId::from_abi(1), make_job_key(2))
         );
 
         assert!(wake_worker(&worker, make_worker_job(3, 4)).is_none());
@@ -509,7 +516,7 @@ mod tests {
         );
         assert_eq!(
             completion_receiver.recv().unwrap(),
-            ((WorkerCompletionId::from_abi(3), make_job_key(4)), false)
+            (WorkerCompletionId::from_abi(3), make_job_key(4))
         );
         assert!(free_worker(worker).is_none());
     }
@@ -522,9 +529,8 @@ mod tests {
         let worker = spawn_worker(
             make_worker_job(1, 2),
             move |job| {
-                started_sender.send(worker_job_summary(&job)).unwrap();
+                started_sender.send(worker_job_summary(job)).unwrap();
                 release_receiver.recv().unwrap();
-                Some(make_sleep_job(0))
             },
             move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );
@@ -568,9 +574,8 @@ mod tests {
         let worker = spawn_worker(
             make_worker_job(21, 34),
             move |job| {
-                started_sender.send(worker_job_summary(&job)).unwrap();
+                started_sender.send(worker_job_summary(job)).unwrap();
                 release_receiver.recv().unwrap();
-                Some(make_sleep_job(0))
             },
             move |job| completion_sender.send(worker_result_summary(&job)).unwrap(),
         );

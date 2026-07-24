@@ -382,7 +382,7 @@ pub(super) fn make_readdir_job(
     restart: i32,
 ) -> AsyncHostResult<u64> {
     let dir = context.host.resource_of_class(dir, ResourceClass::File)?;
-    let buffer = context.host.c_buffer(buf)?;
+    let buffer = context.host.share_c_buffer(buf)?;
     context.host
         .insert_job(thread_pool::make_readdir_job(
             dir,

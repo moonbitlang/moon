@@ -55,7 +55,8 @@ ported_fns! {
         } else {
             Ok(PollInstance {
                 fd: Arc::new(unsafe { OwnedHandle::from_raw_handle(fd) }),
-                events: Vec::new(),
+                raw_events: vec![empty_overlapped_entry(); EVENT_BUFFER_SIZE].into_boxed_slice(),
+                events: Vec::with_capacity(EVENT_BUFFER_SIZE),
             })
         }
     }
@@ -103,12 +104,11 @@ ported_fns! {
         use windows_sys::Win32::System::IO::GetQueuedCompletionStatusEx;
         use windows_sys::Win32::System::Threading::INFINITE;
 
-        let mut entries = vec![empty_overlapped_entry(); EVENT_BUFFER_SIZE];
         let mut count = 0;
         let ok = unsafe {
             GetQueuedCompletionStatusEx(
                 instance.raw_fd(),
-                entries.as_mut_ptr(),
+                instance.raw_events.as_mut_ptr(),
                 EVENT_BUFFER_SIZE as u32,
                 &mut count,
                 if timeout < 0 { INFINITE } else { timeout as u32 },
@@ -122,10 +122,13 @@ ported_fns! {
             }
             return Err(last_native_error());
         }
-        instance.events = entries
-            .into_iter()
-            .take(count as usize)
-            .map(|entry| {
+        instance.events.clear();
+        instance.events.extend(
+            instance
+                .raw_events
+                .iter()
+                .take(count as usize)
+                .map(|entry| {
                 let fd = entry.lpCompletionKey as RawFd;
                 let worker_generation = if is_thread_pool_completion(fd) {
                     worker_generation_from_overlapped(entry.lpOverlapped)
@@ -146,8 +149,8 @@ ported_fns! {
                     bytes_transferred: entry.dwNumberOfBytesTransferred as i32,
                     worker_generation,
                 }
-            })
-            .collect();
+            }),
+        );
         i32::try_from(count).map_err(|_| AsyncHostError::Fault)
     }
 
