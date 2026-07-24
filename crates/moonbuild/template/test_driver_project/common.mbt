@@ -66,7 +66,7 @@ fn fixedarray_to_bytes(arr : FixedArray[Byte]) -> Bytes = "%identity"
 fn moonbit_test_driver_internal_string_from_extern(
   e : MoonbitTestDriverInternalExternString,
 ) -> String {
-  let buf = FixedArray::make(512, Byte::default())
+  let buf = FixedArray::make(512, b'\x00')
   let mut len = 0
   let handle = moonbit_test_driver_internal_begin_read_string(e)
   while true {
