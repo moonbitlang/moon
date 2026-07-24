@@ -220,6 +220,27 @@ fn test_moon_install_global_local_path_wildcard_with_path_flag_warns() {
 }
 
 #[test]
+fn test_moon_install_global_hosted_tree_url_rejects_extra_path() {
+    let dir = TestDir::new_empty();
+
+    let stderr = get_err_stderr(
+        &dir,
+        [
+            "install",
+            "https://github.com/owner/repo/tree/main/cmd/tool",
+            "other/path",
+        ],
+    );
+    assert!(
+        stderr.contains(
+            "PATH_IN_REPO must not be used when SOURCE already contains a /tree/... path"
+        ),
+        "Expected hosted tree URL ambiguity error in stderr, got: {}",
+        stderr
+    );
+}
+
+#[test]
 fn test_moon_install_global_git_url_default_root_package() {
     // Test installing from git URL without PATH_IN_REPO.
     // Default behavior installs the module root package only.

@@ -525,6 +525,20 @@ Install a binary package globally or install project dependencies (deprecated wi
 
 **Usage:** `moon install [OPTIONS] [SOURCE] [PATH_IN_REPO]`
 
+Examples:
+  moon install user/module/pkg
+  moon install user/module/cmd/...
+  moon install ./cmd/tool
+  moon install ./cmd/...
+  moon install https://github.com/owner/repo/tree/main/cmd/tool
+  moon install https://github.com/owner/repo.git cmd/tool --branch main
+  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+
+For a GitHub URL without `/tree/`, like:
+  https://github.com/owner/repo/main/cmd/tool
+use:
+  moon install https://github.com/owner/repo.git cmd/tool --branch main
+
 ###### **Arguments:**
 
 * `<SOURCE>` — Install source.

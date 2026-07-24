@@ -44,7 +44,20 @@ struct PreparedBinDep {
 #[derive(Debug, clap::Parser)]
 #[clap(
     group = clap::ArgGroup::new("git_ref").multiple(false),
-    verbatim_doc_comment
+    verbatim_doc_comment,
+    after_help = "Examples:
+  moon install user/module/pkg
+  moon install user/module/cmd/...
+  moon install ./cmd/tool
+  moon install ./cmd/...
+  moon install https://github.com/owner/repo/tree/main/cmd/tool
+  moon install https://github.com/owner/repo.git cmd/tool --branch main
+  moon install https://github.com/owner/repo.git cmd/... --tag v1.0.0
+
+For a GitHub URL without `/tree/`, like:
+  https://github.com/owner/repo/main/cmd/tool
+use:
+  moon install https://github.com/owner/repo.git cmd/tool --branch main"
 )]
 pub struct InstallSubcommand {
     #[clap(
