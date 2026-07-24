@@ -127,9 +127,7 @@ fn main {
 //   "moonbitlang/hello" @lib,
 // }
 
-options(
-  "is-main": true,
-)
+pkgtype(kind: "executable")
 
 === ./hello.mbt ===
 // Main package file for your library code.

@@ -127,9 +127,7 @@ fn main {
 //   "moonbitlang/wow" @lib,
 // }
 
-options(
-  "is-main": true,
-)
+pkgtype(kind: "executable")
 
 === ./moon.mod ===
 // Learn more about moon.mod configuration:
