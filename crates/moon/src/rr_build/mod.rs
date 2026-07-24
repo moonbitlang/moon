@@ -29,6 +29,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -54,6 +55,7 @@ use moonutil::{
     build_options::RunMode,
     cli_support::AutoSyncFlags,
     cli_support::UniversalFlags,
+    command_output::CommandOutput,
     compiler_flags::{self, CC},
     cond_expr::OptLevel as BuildProfile,
     constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
@@ -71,6 +73,8 @@ use crate::build_flags::{BuildFlags, OutputStyle};
 
 mod dry_run;
 pub use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_all};
+
+const FINISHED_STYLE: anstyle::Style = anstyle::AnsiColor::Green.on_default().bold();
 
 /// The output of a calculate user intent operation.
 pub struct CalcUserIntentOutput {
@@ -212,39 +216,6 @@ pub struct BuildMeta {
 
     /// Physical artifact path resolver selected for this build.
     pub artifact_paths: ArtifactPathResolver,
-}
-
-/// Represents the result of the build process
-#[derive(Debug, Clone)]
-pub enum BuildResult {
-    /// The build succeeded with the given number of tasks executed.
-    Succeeded(usize),
-    /// The build failed.
-    Failed,
-}
-
-impl BuildResult {
-    /// Whether the build was successful.
-    pub fn successful(&self) -> bool {
-        matches!(self, BuildResult::Succeeded(_))
-    }
-
-    /// Get the return code that should be returned to the shell.
-    pub fn return_code_for_success(&self) -> i32 {
-        if self.successful() { 0 } else { 1 }
-    }
-
-    /// Print information about the build result.
-    pub fn print_info(&self) {
-        match self {
-            BuildResult::Succeeded(n) => {
-                println!("{} task(s) executed.", n);
-            }
-            BuildResult::Failed => {
-                println!("Build failed.");
-            }
-        }
-    }
 }
 
 /// A preliminary configuration that does not require run-time information to
@@ -972,6 +943,82 @@ pub fn execute_test_build(
             Ok(())
         }),
     )
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BuildOperation {
+    Build,
+    Bundle,
+    Check,
+    Format,
+    GenerateMbti,
+}
+
+fn ignore_broken_pipe(result: io::Result<()>) -> io::Result<()> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        result => result,
+    }
+}
+
+/// Report the user-facing result of a complete command build.
+///
+/// Compiler diagnostics are emitted independently during execution. This
+/// function owns only Moon's durable command result and status messages.
+pub fn report_build_result(
+    result: &N2RunStats,
+    operation: BuildOperation,
+    cfg: &BuildConfig,
+    output: &CommandOutput,
+) -> anyhow::Result<()> {
+    let Some(n_tasks) = result.n_tasks_executed else {
+        if cfg.output_style != OutputStyle::Json {
+            ignore_broken_pipe(output.write_result(|writer| {
+                writeln!(
+                    writer,
+                    "Failed with {} warnings, {} errors.",
+                    result.n_warnings, result.n_errors
+                )
+            }))?;
+        }
+        let operation = match operation {
+            BuildOperation::Build => "building",
+            BuildOperation::Bundle => "bundling",
+            BuildOperation::Check => "checking",
+            BuildOperation::Format => "formatting",
+            BuildOperation::GenerateMbti => "generating mbti files",
+        };
+        output
+            .user_log()
+            .error(format!("failed when {operation} project"));
+        return Ok(());
+    };
+
+    let warnings_errors = if result.n_warnings > 0 || result.n_errors > 0 {
+        format!(
+            " ({} warnings, {} errors)",
+            result.n_warnings, result.n_errors
+        )
+    } else {
+        String::new()
+    };
+    if cfg.output_style != OutputStyle::Json {
+        ignore_broken_pipe(output.write_status(|writer| {
+            if n_tasks == 0 {
+                writeln!(
+                    writer,
+                    "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: no work to do{warnings_errors}"
+                )
+            } else {
+                let task_plural = if n_tasks == 1 { "" } else { "s" };
+                writeln!(
+                    writer,
+                    "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: ran {n_tasks} task{task_plural}, now up to date{warnings_errors}"
+                )
+            }
+        }))?;
+    }
+    Ok(())
 }
 
 /// Callback on the [`n2::work::Work`] to be done for target artifacts.

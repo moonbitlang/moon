@@ -37,7 +37,8 @@ use moonbuild_rupes_recta::{
 };
 use moonutil::{
     build_options::RunMode, cli_support::AutoSyncFlags, cli_support::UniversalFlags,
-    locks::FileLock, project::PackageDirs, target::TargetBackend, user_log::UserLog,
+    command_output::CommandOutput, locks::FileLock, project::PackageDirs, target::TargetBackend,
+    user_log::UserLog,
 };
 
 use crate::{
@@ -66,8 +67,9 @@ pub(crate) struct BuildBinaryDepArgs {
 pub(crate) fn run_build_binary_dep(
     cli: &UniversalFlags,
     cmd: &BuildBinaryDepArgs,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
@@ -180,13 +182,12 @@ pub(crate) fn run_build_binary_dep(
         // Generate all_pkgs.json for indirect dependency resolution
         rr_build::generate_all_pkgs_json(&build_meta)?;
 
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose),
-            build_graph,
-            target_dir,
-            user_log,
-        )?;
-        result.print_info(cli.quiet, "building")?;
+        let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
+        let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
+        rr_build::report_build_result(&result, rr_build::BuildOperation::Build, &cfg, output)?;
+        if !result.successful() {
+            return Ok(result.return_code_for_success());
+        }
 
         install_build_rr(&build_meta, &cmd.install_path, bin_name)?;
     }

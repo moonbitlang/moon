@@ -47,9 +47,10 @@ fn run_info_and_clear(
         std::fs::remove_file(&generated).unwrap();
     }
 
-    check(
-        get_stdout(working_dir, args.iter().copied()),
-        expect![[r#""#]],
+    let stdout = get_stdout(working_dir, args.iter().copied());
+    assert!(
+        stdout.contains("now up to date") || stdout.contains("no work to do"),
+        "stdout: {stdout}"
     );
 
     assert!(
@@ -136,7 +137,8 @@ fn test_moon_info_compile_failure_exits_with_status_1() {
         .current_dir(&dir)
         .args(["info"])
         .assert()
-        .failure();
+        .failure()
+        .stdout_eq("Failed with 0 warnings, 1 errors.\n");
 
     assert_eq!(assert.get_output().status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
@@ -145,7 +147,7 @@ fn test_moon_info_compile_failure_exits_with_status_1() {
         "stderr: {stderr}"
     );
     assert!(
-        !stderr.contains("Error: failed when generating mbti files project"),
+        stderr.contains("Error: failed when generating mbti files project"),
         "stderr: {stderr}"
     );
 }
@@ -161,7 +163,12 @@ fn test_moon_info_filter_by_multiple_paths_success() {
         }
     }
 
-    check(get_stdout(&dir, ["info", "A", "lib"]), expect![[r#""#]]);
+    check(
+        get_stdout(&dir, ["info", "A", "lib"]),
+        expect![[r#"
+            Finished. moon: ran 4 tasks, now up to date
+        "#]],
+    );
 
     for pkg in ["A", "lib"] {
         let generated = dir.join(pkg).join(MBTI_GENERATED);
@@ -202,7 +209,9 @@ fn test_moon_info_filter_by_multiple_paths_skips_outside_current_root() {
                 other_pkg.as_os_str().to_os_string(),
             ],
         ),
-        expect![[r#""#]],
+        expect![[r#"
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
     );
 
     let generated = dir.join("A").join(MBTI_GENERATED);
@@ -242,7 +251,12 @@ fn test_moon_info_filter_by_multiple_paths_skips_same_root_non_packages() {
         }
     }
 
-    check(get_stdout(&dir, ["info", "A", "notes"]), expect![[r#""#]]);
+    check(
+        get_stdout(&dir, ["info", "A", "notes"]),
+        expect![[r#"
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
+    );
 
     let generated = dir.join("A").join(MBTI_GENERATED);
     assert!(generated.exists(), "missing {}", generated.display());
@@ -265,7 +279,9 @@ fn test_moon_info_filter_by_multiple_paths_skips_pkg_like_dirs_outside_source() 
 
     check(
         get_stdout(&dir, ["info", "src/main", "generated/ghost"]),
-        expect![[r#""#]],
+        expect![[r#"
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
     );
 
     assert!(generated.exists(), "missing {}", generated.display());
@@ -515,7 +531,14 @@ fn test_moon_build_filter_by_multiple_paths_skips_outside_current_root() {
             OsString::from("--sort-input"),
         ],
     );
-    assert!(!stderr.contains("skipping path"), "stderr: {stderr}");
+    assert!(
+        stderr.contains(&format!("Warning: skipping path `{outside_display}`")),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("Warning: skipping path `{other_pkg_display}`")),
+        "stderr: {stderr}"
+    );
 }
 
 #[test]
@@ -704,7 +727,14 @@ fn test_moon_check_filter_by_multiple_paths_skips_outside_current_root() {
             OsString::from("--sort-input"),
         ],
     );
-    assert!(!stderr.contains("skipping path"), "stderr: {stderr}");
+    assert!(
+        stderr.contains(&format!("Warning: skipping path `{outside_display}`")),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("Warning: skipping path `{other_pkg_display}`")),
+        "stderr: {stderr}"
+    );
 }
 
 #[test]

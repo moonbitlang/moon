@@ -266,12 +266,15 @@ fn test_workspace_commands() {
         );
     }
 
-    let stderr = get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
-    assert!(stderr.contains("Finished. moon: ran "));
+    let stdout = get_stdout(&dir, ["check", "--target", "wasm-gc", "--sort-input"]);
+    assert!(stdout.contains("Finished. moon: ran "));
 
     check(
         get_stdout(&dir, ["info", "--target", "wasm-gc"]),
-        expect![[r#""#]],
+        expect![[r#"
+            Finished. moon: ran 2 tasks, now up to date
+            Finished. moon: ran 4 tasks, now up to date
+        "#]],
     );
 
     let lib_mi_out =
@@ -351,13 +354,13 @@ fn test_empty_workspace_commands_do_not_panic() {
     let dir = empty_workspace_dir();
 
     check(
-        get_stderr(&dir, ["build"]),
+        get_stdout(&dir, ["build"]),
         expect![[r#"
             Finished. moon: no work to do
         "#]],
     );
     check(
-        get_stderr(&dir, ["check"]),
+        get_stdout(&dir, ["check"]),
         expect![[r#"
             Finished. moon: no work to do
         "#]],
@@ -498,13 +501,17 @@ fn test_workspace_root_path_selector_is_skipped() {
 
     let build_stderr = get_stderr(&dir, ["build", ".", "--dry-run"]);
     assert!(
-        !build_stderr.contains("skipping path"),
+        build_stderr.contains(
+            "Warning: skipping path `.` because it is not a package in the current work context."
+        ),
         "stderr: {build_stderr}"
     );
 
     let check_stderr = get_stderr(&dir, ["check", ".", "--dry-run"]);
     assert!(
-        !check_stderr.contains("skipping path"),
+        check_stderr.contains(
+            "Warning: skipping path `.` because it is not a package in the current work context."
+        ),
         "stderr: {check_stderr}"
     );
 
@@ -747,7 +754,12 @@ fn test_workspace_commands_find_ancestor_workspace_from_nested_non_module_dir() 
     let dir = TestDir::new("workspace_basic.in");
     std::fs::create_dir_all(dir.join("tools")).unwrap();
 
-    check(get_stdout(&dir, ["-C", "tools", "info"]), expect![[r#""#]]);
+    check(
+        get_stdout(&dir, ["-C", "tools", "info"]),
+        expect![[r#"
+            Finished. moon: ran 4 tasks, now up to date
+        "#]],
+    );
 }
 
 #[test]

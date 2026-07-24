@@ -23,6 +23,7 @@ use mooncake::pkg::{
 };
 use moonutil::{
     cli_support::AutoSyncFlags,
+    command_output::CommandOutput,
     project::{PackageDirs, ProjectContext},
     registry::RegistryConfig,
     resolution::ModuleName,
@@ -69,8 +70,9 @@ fn local_wildcard_path(source: &str) -> Option<PathBuf> {
 pub(crate) fn install_cli(
     cli: UniversalFlags,
     cmd: InstallSubcommand,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     // If no package path and no local path, use legacy behavior
     if cmd.source.is_none() && cmd.path.is_none() {
         user_log.warn(
@@ -108,7 +110,7 @@ pub(crate) fn install_cli(
                 local_path_str
             );
         }
-        return install_from_local(&cli, &local_path, &install_dir, false, user_log);
+        return install_from_local(&cli, &local_path, &install_dir, false, output);
     }
 
     let source = cmd.source.ok_or_else(|| {
@@ -132,7 +134,7 @@ pub(crate) fn install_cli(
             Path::new(&local_path),
             &install_dir,
             install_all,
-            user_log,
+            output,
         );
     }
 
@@ -158,7 +160,7 @@ pub(crate) fn install_cli(
             cmd.path_in_repo.as_deref(),
             &install_dir,
             install_all,
-            user_log,
+            output,
         );
     }
 
@@ -171,7 +173,7 @@ pub(crate) fn install_cli(
     }
     let spec = parse_package_spec(&source)?;
     let install_all = spec.is_wildcard;
-    install_binary(&cli, &spec, &install_dir, install_all, user_log)
+    install_binary(&cli, &spec, &install_dir, install_all, output)
 }
 
 pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {

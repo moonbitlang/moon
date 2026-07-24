@@ -1,6 +1,6 @@
 # Command Output Migration
 
-Status: accepted; CO-1, CO-2, CO-4, and CO-5 complete
+Status: accepted; CO-1, CO-2, CO-4, and CO-5 complete; CO-7 in progress
 
 ## Goal
 
@@ -8,14 +8,16 @@ Every MoonBuild-authored Command Result and User Log has one explicit owner and 
 
 The migration must preserve observable command behavior unless a slice names and tests an intentional change. Each slice should be independently reviewable and leave the tree ready for the next slice.
 
-Splitting stdout from stderr is independent from normalizing default verbosity. The quiet user-log level is error-only, whether selected explicitly or by a command default, but commands such as `moonx` may retain a quieter default until a later slice deliberately changes it.
+Splitting stdout from stderr is independent from normalizing default verbosity. The shared CLI mapping is error-only under `--quiet`, informational by default, and debug under `--verbose`. Commands such as `moonx` may retain an explicitly quieter default when transparency is part of their contract.
 
 ## Interface Shape
 
-`moonutil` should expose a `CommandOutput` facade constructed from the command's user-log level. Its intentionally small interface is:
+`moonutil` should expose a `CommandOutput` facade constructed from the command's
+user-log level and quiet policy. Its intentionally small interface is:
 
 - borrow its `UserLog` for filtered stderr messages;
-- run one closure against locked stdout to render a fallible Command Result.
+- run a closure against locked stdout to render a fallible Command Result;
+- render an informational stdout status unless quiet output was requested.
 
 The stdout operation should preserve the renderer's result type, propagate its `std::io::Write` failures, and hold the lock for the entire logical result. It should not grow methods for every output format.
 
@@ -30,14 +32,16 @@ The facade does not own Process Passthrough, Progress Displays, compiler diagnos
 | Communication | Channel | Filtered | Write policy | Initial owner |
 | --- | --- | --- | --- | --- |
 | Command Result | stdout | never | return failures | `CommandOutput` |
+| Command Status | stdout | `--quiet` | return failures | `CommandOutput` |
 | User Log | stderr | by user-log level | best effort, matching `UserLog` | `UserLog` |
+| Compiler diagnostics | renderer-selected | diagnostic policy | renderer-specific | diagnostic renderer |
 | Process Passthrough | original child channel | never | preserve bytes and ordering as far as the executor permits | run/build executor |
 | Progress Display | terminal stderr | quiet-aware | renderer-specific lifecycle | progress renderer |
 | tracing | configured tracing sink | `RUST_LOG`/trace configuration | tracing subscriber policy | tracing setup |
 
-`UserLog` is the sole owner of filtered user-facing stderr. Informational messages are rendered as bare lines, while warnings and errors retain their canonical labels.
+`UserLog` is the sole owner of filtered user-facing stderr. Informational and debug messages are rendered as bare lines, while warnings and errors retain their canonical labels.
 
-The quiet user-log level follows `UserLog` and suppresses warnings. Default levels and informational formatting remain command-specific until affected command snapshots make any intended behavior change visible.
+The quiet user-log level follows `UserLog` and suppresses warnings. Explicit inputs that are skipped while other work continues are warnings. Automatic workspace filtering is silent; the existing behavior when all explicit inputs are skipped remains a separate command-semantics concern.
 
 ## Slices and Blocking Edges
 
@@ -124,12 +128,27 @@ Blocked by: CO-3, CO-4
 
 ### CO-7: Classify build execution output
 
+Status: in progress
+
 Blocked by: CO-4, CO-5
 
 Blocks: CO-8
 
 - Separate durable build summaries from Progress Displays and Process Passthrough.
-- Migrate durable summaries to `UserLog` and build reports to writer-based Command Results.
+- Keep build execution independent from durable result presentation: it emits
+  diagnostics and progress through their existing seams and returns build
+  statistics to its caller.
+- Write human `Finished ...` and `Failed with ...` build results to stdout.
+  Quiet output suppresses successful status, while failed results remain
+  visible. Write failure context through `UserLog::error`; compiler
+  diagnostics remain independently owned.
+- Treat a closed stdout pipe as the consumer finishing early, without changing
+  the semantic build exit status. Propagate other stdout write failures.
+- Omit the build result when a command owns a subsequent primary result, such
+  as running a program, reporting proof results, or running tests.
+- Normalize the shared CLI user-log mapping after reclassifying command echoes
+  and cache details as debug-only messages.
+- Migrate build reports to writer-based Command Results.
 - Keep child stdout/stderr forwarding byte-preserving and keep concurrent progress behind its own renderer seam.
 - Cover both Rupes Recta and the legacy engine in each applicable behavior test.
 - Done when every executor print site is either migrated or documented as passthrough/progress.

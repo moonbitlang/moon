@@ -1,8 +1,6 @@
 use expect_test::{expect, expect_file};
 
-use crate::{
-    TestDir, build_graph::compare_graphs, get_stderr, get_stdout, snap_dry_run_graph, util::check,
-};
+use crate::{TestDir, build_graph::compare_graphs, get_stdout, snap_dry_run_graph, util::check};
 
 #[test]
 fn test_third_party() {
@@ -12,7 +10,7 @@ fn test_third_party() {
     get_stdout(&dir, ["build", "--target", "wasm-gc"]);
     get_stdout(&dir, ["clean"]);
 
-    let actual = get_stderr(&dir, ["check", "--target", "wasm-gc"]);
+    let actual = get_stdout(&dir, ["check", "--target", "wasm-gc"]);
     expect![[r#"
         Finished. moon: ran 5 tasks, now up to date
     "#]]
@@ -35,7 +33,7 @@ fn test_third_party() {
         "#]],
     );
 
-    let actual = get_stderr(&dir, ["build", "--target", "wasm-gc"]);
+    let actual = get_stdout(&dir, ["build", "--target", "wasm-gc"]);
     expect![[r#"
         Finished. moon: ran 3 tasks, now up to date
     "#]]

@@ -186,7 +186,7 @@ fn run_cram_test(
     for (build_meta, build_graph) in planned_runs {
         rr_build::generate_all_pkgs_json(&build_meta)?;
         let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-        result.print_info(cli.quiet, "building")?;
+        rr_build::report_build_result(&result, rr_build::BuildOperation::Build, &cfg, output)?;
         if !result.successful() {
             return Ok(result.return_code_for_success());
         }

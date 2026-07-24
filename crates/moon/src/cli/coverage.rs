@@ -103,7 +103,7 @@ fn run_coverage_analyze(
         quiet: true, // Disable output for `moon test` on success
         ..cli.clone()
     };
-    let test_output = CommandOutput::new(test_cli.user_log_level());
+    let test_output = CommandOutput::new(test_cli.user_log_level(), test_cli.quiet);
     run_test(test_cli, test_flags, &test_output)?;
 
     let mut report_flags = CoverageReportSubcommand::default();

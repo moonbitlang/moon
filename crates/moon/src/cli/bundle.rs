@@ -129,13 +129,9 @@ pub(crate) fn run_bundle_internal_rr(
         // Generate metadata for IDE & bundler
         rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
-        let result = rr_build::execute_build(
-            &BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose),
-            build_graph,
-            target_dir,
-            user_log,
-        )?;
-        result.print_info(cli.quiet, "bundling")?;
+        let cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+        let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
+        rr_build::report_build_result(&result, rr_build::BuildOperation::Bundle, &cfg, output)?;
         Ok(result.return_code_for_success())
     }
 }

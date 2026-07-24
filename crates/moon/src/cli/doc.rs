@@ -176,7 +176,7 @@ pub(crate) fn run_doc_rr(
     // Execute the build
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-    result.print_info(cli.quiet, "checking")?;
+    rr_build::report_build_result(&result, rr_build::BuildOperation::Check, &cfg, output)?;
 
     if !result.successful() {
         return Ok(result.return_code_for_success());

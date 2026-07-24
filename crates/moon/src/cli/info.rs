@@ -217,7 +217,7 @@ fn calc_user_intent_for_info(
 
             for (path, pkg_id) in &unsupported {
                 let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
-                ctx.user_log.info(format!(
+                ctx.user_log.warn(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,
@@ -321,7 +321,7 @@ pub(crate) fn run_info(
             resolve_output.clone(),
             &selection,
             &output_plan,
-            output.user_log(),
+            output,
         )?;
         if !success {
             ok = false;
@@ -355,8 +355,9 @@ fn run_info_rr_internal(
     resolve_output: ResolveOutput,
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<(bool, BuildMeta)> {
+    let user_log = output.user_log();
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
@@ -397,11 +398,13 @@ fn run_info_rr_internal(
     // TODO: UX: Consider mirroring flags from `moon check`?
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
+    rr_build::report_build_result(
+        &result,
+        rr_build::BuildOperation::GenerateMbti,
+        &cfg,
+        output,
+    )?;
     let success = result.successful();
-    let print_result = result.print_info(cli.quiet, "generating mbti files");
-    if success {
-        print_result?;
-    }
 
     Ok((success, build_meta))
 }

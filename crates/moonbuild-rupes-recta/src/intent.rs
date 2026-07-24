@@ -244,7 +244,7 @@ fn should_skip_test_target(
         return false;
     }
 
-    warn_or_info_test_target_skip(resolved, target, target_backend, user_log);
+    report_test_target_skip(resolved, target, target_backend, user_log);
     true
 }
 
@@ -274,7 +274,7 @@ fn realizable_supported_backends(
         )
 }
 
-fn warn_or_info_test_target_skip(
+fn report_test_target_skip(
     resolved: &ResolveOutput,
     target: BuildTarget,
     target_backend: TargetBackend,
@@ -302,7 +302,7 @@ fn warn_or_info_test_target_skip(
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     supported_backends.sort();
-    user_log.info(format!(
+    user_log.debug(format!(
         "Skipping {test_kind} tests for package `{}` on backend `{}`: target is not realizable for this backend. Realizable backends: [{}]",
         pkg.fqn,
         target_backend,

@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::process::Stdio;
+
 use super::*;
 
 #[test]
@@ -70,18 +72,99 @@ fn test_need_link() {
 }
 
 #[test]
-fn test_no_work_to_do() {
+fn test_build_summary_uses_stdout_and_respects_quiet() {
     let dir = TestDir::new("moon_new/plain");
-    let out = get_stderr(&dir, ["check"]);
+    let out = get_stdout(&dir, ["check"]);
     assert!(out.contains("now up to date"));
+    assert_eq!(get_stderr(&dir, ["check"]), "");
 
-    let out = get_stderr(&dir, ["check"]);
+    assert_eq!(get_stdout(&dir, ["check", "--quiet"]), "");
+
+    let out = get_stdout(&dir, ["check"]);
     assert!(out.contains("moon: no work to do"));
 
-    let out = get_stderr(&dir, ["build"]);
+    let dir = TestDir::new("moon_new/plain");
+    let out = get_stdout(&dir, ["build"]);
     assert!(out.contains("now up to date"));
-    let out = get_stderr(&dir, ["build"]);
+    assert_eq!(get_stderr(&dir, ["build"]), "");
+
+    assert_eq!(get_stdout(&dir, ["build", "--quiet"]), "");
+
+    let out = get_stdout(&dir, ["build"]);
     assert!(out.contains("moon: no work to do"));
+}
+
+#[test]
+fn test_closed_summary_pipe_does_not_change_build_status() {
+    let dir = TestDir::new("moon_new/plain");
+    let mut child = moon_process_cmd(&dir)
+        .args(["check"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "a closed summary pipe changed a successful build to {output:?}"
+    );
+    assert_eq!(output.stderr, b"");
+
+    let dir = TestDir::new("build_binary_dep_failure.in");
+    let mut child = moon_process_cmd(&dir)
+        .args([
+            "tool",
+            "build-binary-dep",
+            "main",
+            "--install-path",
+            "installed",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a closed summary pipe changed the failed build status: {output:?}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Error: failed when building project"));
+    assert!(!stderr.contains("Broken pipe"));
+}
+
+#[test]
+fn failed_binary_dependency_build_is_not_installed() {
+    let dir = TestDir::new("build_binary_dep_failure.in");
+    let assert = moon_cmd(&dir)
+        .args([
+            "tool",
+            "build-binary-dep",
+            "main",
+            "--install-path",
+            "installed",
+        ])
+        .assert()
+        .failure();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+
+    assert_eq!(stdout, "Failed with 0 warnings, 1 errors.\n");
+    assert!(
+        stderr.contains("Expr Type Mismatch"),
+        "expected the compiler diagnostic, stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("Error: failed when building project"),
+        "expected the command failure context, stderr: {stderr}"
+    );
+    assert!(
+        !dir.join("installed").exists(),
+        "a failed binary dependency build must not install any artifact"
+    );
 }
 
 #[test]
@@ -139,7 +222,7 @@ fn test_failed_to_fill_whole_buffer() {
 
     let dir = TestDir::new("hello");
     check(
-        get_stderr(&dir, ["check", "--target", "wasm-gc"]),
+        get_stdout(&dir, ["check", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 2 tasks, now up to date
         "#]],
@@ -368,7 +451,6 @@ fn test_diag_source_map_remaps_generated_sources() {
                     has type : String
                     wanted   : Int
             ─────╯
-            Failed with 0 warnings, 1 errors.
             Error: failed when checking project
         "#]],
     );
@@ -388,7 +470,6 @@ fn test_diag_source_map_remaps_generated_sources() {
                     has type : String
                     wanted   : Int
             ───╯
-            Failed with 0 warnings, 1 errors.
             Error: failed when checking project
         "#]],
     );
@@ -416,19 +497,19 @@ fn test_no_warn_deps() {
     let dir = dir.join("user.in");
 
     check(
-        get_stderr(&dir, ["check"]),
+        get_stdout(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(
-        get_stderr(&dir, ["check", "--deny-warn"]),
+        get_stdout(&dir, ["check", "--deny-warn"]),
         expect![[r#"
             Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(
-        get_stderr(&dir, ["build"]),
+        get_stdout(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],
