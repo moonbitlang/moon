@@ -447,6 +447,7 @@ fn module_prebuild_config_runs_with_shared_dependency_source() {
     let moon_home = tempfile::tempdir().unwrap();
     let dependency_cache = tempfile::tempdir().unwrap();
     let source_dir = tempfile::tempdir().unwrap();
+    let prebuild_runs = source_dir.path().join("prebuild-runs");
     cache_registry_package_with_manifest_and_files(
         moon_home.path(),
         MODULE_NAME,
@@ -454,15 +455,31 @@ fn module_prebuild_config_runs_with_shared_dependency_source() {
             r#"{{"name":"{MODULE_NAME}","version":"{MODULE_VERSION}","source":"src","--moonbit-unstable-prebuild":"build.js"}}"#
         ),
         0,
-        &[("build.js", "console.log(\"{}\")\n")],
+        &[(
+            "build.js",
+            "require('node:fs').appendFileSync(process.env.MOON_CACHE_TEST_PREBUILD_RUNS, 'run\\n')\nconsole.log('{}')\n",
+        )],
     );
     let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
 
     run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .env("MOON_CACHE_TEST_PREBUILD_RUNS", &prebuild_runs)
         .args(["run", script.to_str().unwrap()])
         .assert()
         .success()
         .stdout_eq("42\n");
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .env("MOON_CACHE_TEST_PREBUILD_RUNS", &prebuild_runs)
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout_eq("42\n");
+
+    assert_eq!(
+        std::fs::read_to_string(prebuild_runs).unwrap(),
+        "run\nrun\n"
+    );
 }
 
 #[test]

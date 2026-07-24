@@ -110,10 +110,22 @@ pub fn initialize_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()>
         ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             if std::fs::read_dir(root)?.next().transpose()?.is_some() {
-                bail!(
-                    "refusing to use unrecognized Moon cache root `{}`",
-                    root.display()
-                );
+                // Another initializer may have published the marker after our
+                // first read. Accept that completed initialization.
+                return match std::fs::read(&marker) {
+                    Ok(contents) if contents == kind.ownership() => Ok(()),
+                    Ok(_) => bail!(
+                        "Moon cache root `{}` has the wrong ownership",
+                        root.display()
+                    ),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        bail!(
+                            "refusing to use unrecognized Moon cache root `{}`",
+                            root.display()
+                        )
+                    }
+                    Err(error) => Err(error.into()),
+                };
             }
             let parent = root.parent().with_context(|| {
                 format!(
