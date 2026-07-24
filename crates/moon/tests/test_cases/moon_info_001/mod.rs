@@ -14,7 +14,7 @@ fn test_moon_info_user_log_output() {
         .success()
         .stdout_eq("")
         .stderr_eq(
-            "Warning: `--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092\n",
+            "Warning: `--no-alias` will be removed soon. See: https://github.com/moonbitlang/moon/issues/1092\nFinished. moon: ran 4 tasks, now up to date\n",
         );
 
     let verbose_dir = TestDir::new("moon_info_001.in");

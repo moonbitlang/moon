@@ -420,6 +420,7 @@ fn test_render_diagnostic_in_patch_file() {
                │      ────────────┬────────────  
                │                  ╰────────────── Warning (unused_value): Unused variable 'unused_in_patch_test_json'
             ───╯
+            Finished. moon: ran 3 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
     check(
@@ -443,6 +444,7 @@ fn test_render_diagnostic_in_patch_file() {
                │      ─────────────┬─────────────  
                │                   ╰─────────────── Warning (unused_value): Unused variable 'unused_in_patch_wbtest_json'
             ───╯
+            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
     check(
@@ -466,6 +468,7 @@ fn test_render_diagnostic_in_patch_file() {
                │      ──────────┬─────────  
                │                ╰─────────── Warning (unused_value): Unused variable 'unused_in_patch_json'
             ───╯
+            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 
@@ -576,6 +579,7 @@ fn test_render_diagnostic_in_patch_file() {
                │       }
                │       ```
             ───╯
+            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 }
@@ -603,7 +607,12 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
 
     check(get_stdout(&dir, ["check"]), expect![""]);
     get_stdout(&dir, ["clean"]);
-    check(get_stderr(&dir, ["check"]), expect![""]);
+    check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+        Finished. moon: ran 8 tasks, now up to date
+    "#]],
+    );
 
     check(
         get_stdout(&dir, ["test", "--no-parallelize", "--sort-input"]),
@@ -784,6 +793,7 @@ fn test_in_main_pkg() {
                │       ┬  
                │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
+            Finished. moon: ran 6 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 

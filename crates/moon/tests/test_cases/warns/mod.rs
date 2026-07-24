@@ -187,7 +187,9 @@ fn test_warn_list_real_run() {
 
     check(
         get_stderr(&dir, ["build", "--sort-input", "--no-render"]),
-        expect![""],
+        expect![[r#"
+            Finished. moon: ran 4 tasks, now up to date
+        "#]],
     );
 
     check(
@@ -206,7 +208,9 @@ fn test_warn_list_real_run() {
 
     check(
         get_stderr(&dir, ["bundle", "--sort-input", "--no-render"]),
-        expect![""],
+        expect![[r#"
+            Finished. moon: ran 4 tasks, now up to date
+        "#]],
     );
 
     // to cover `moon bundle` no work to do
@@ -214,7 +218,9 @@ fn test_warn_list_real_run() {
 
     check(
         get_stderr(&dir, ["check", "--sort-input", "--no-render"]),
-        expect![""],
+        expect![[r#"
+            Finished. moon: ran 6 tasks, now up to date
+        "#]],
     );
 }
 
@@ -327,6 +333,7 @@ fn test_warn_list_alerts() {
                │   ───────┬───────  
                │          ╰───────── Warning (alert_two): two
             ───╯
+            Finished. moon: ran 4 tasks, now up to date (2 warnings, 0 errors)
         "#]],
     );
 
@@ -404,6 +411,7 @@ fn test_deny_warn() {
                │       ┬  
                │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
+            Finished. moon: ran 4 tasks, now up to date (4 warnings, 0 errors)
         "#]],
     );
 
@@ -443,6 +451,7 @@ fn test_deny_warn() {
                │       ┬  
                │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
+            Finished. moon: ran 3 tasks, now up to date (4 warnings, 0 errors)
         "#]],
     );
 

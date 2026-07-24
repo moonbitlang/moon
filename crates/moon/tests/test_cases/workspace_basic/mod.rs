@@ -270,6 +270,7 @@ fn test_workspace_commands() {
         get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
             Warning: Main package `alice/app/main` uses blackbox-only test inputs (`_test.mbt` files) in package directory "$ROOT/app/src/main". Main packages will stop generating blackbox tests in a future release. Move public behavior into a non-main package and keep the main package as an entrypoint.
+            Finished. moon: ran 4 tasks, now up to date
         "#]],
     );
 
@@ -354,8 +355,18 @@ fn test_workspace_commands() {
 fn test_empty_workspace_commands_do_not_panic() {
     let dir = empty_workspace_dir();
 
-    check(get_stderr(&dir, ["build"]), expect![""]);
-    check(get_stderr(&dir, ["check"]), expect![""]);
+    check(
+        get_stderr(&dir, ["build"]),
+        expect![[r#"
+        Finished. moon: no work to do
+    "#]],
+    );
+    check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+        Finished. moon: no work to do
+    "#]],
+    );
     check(
         get_stderr(&dir, ["test"]),
         expect![[r#"
@@ -492,13 +503,17 @@ fn test_workspace_root_path_selector_is_skipped() {
 
     let build_stderr = get_stderr(&dir, ["build", ".", "--dry-run"]);
     assert!(
-        !build_stderr.contains("skipping path"),
+        build_stderr.contains(
+            "Warning: skipping path `.` because it is not a package in the current work context."
+        ),
         "stderr: {build_stderr}"
     );
 
     let check_stderr = get_stderr(&dir, ["check", ".", "--dry-run"]);
     assert!(
-        !check_stderr.contains("skipping path"),
+        check_stderr.contains(
+            "Warning: skipping path `.` because it is not a package in the current work context."
+        ),
         "stderr: {check_stderr}"
     );
 

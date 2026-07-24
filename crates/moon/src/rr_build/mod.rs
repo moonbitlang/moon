@@ -895,10 +895,26 @@ pub fn execute_build(
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
+    let result = execute_build_silently(cfg, input, target_dir, user_log)?;
+    report_build_success(&result, user_log);
+    Ok(result)
+}
+
+/// Execute a build plan without a durable completion summary.
+///
+/// This is for commands such as `run` and `prove` whose own result follows the
+/// build. Diagnostics and progress still use `user_log` during execution.
+#[instrument(skip_all)]
+pub fn execute_build_silently(
+    cfg: &BuildConfig,
+    input: BuildInput,
+    target_dir: &Path,
+    user_log: &UserLog,
+) -> anyhow::Result<N2RunStats> {
     // Get start nodes (leaf outputs) before moving the graph
     let start_nodes = input.graph.get_start_nodes();
 
-    let result = execute_build_partial(
+    execute_build_partial(
         cfg,
         input,
         target_dir,
@@ -911,9 +927,7 @@ pub fn execute_build(
             }
             Ok(())
         }),
-    )?;
-    report_build_success(&result, user_log);
-    Ok(result)
+    )
 }
 
 /// Execute a test build.
@@ -930,7 +944,7 @@ pub fn execute_test_build(
 ) -> anyhow::Result<N2RunStats> {
     let start_nodes = input.graph.get_start_nodes();
 
-    let result = execute_build_partial(
+    execute_build_partial(
         cfg,
         input,
         target_dir,
@@ -942,9 +956,7 @@ pub fn execute_test_build(
             }
             Ok(())
         }),
-    )?;
-    report_build_success(&result, user_log);
-    Ok(result)
+    )
 }
 
 fn report_build_success(result: &N2RunStats, user_log: &UserLog) {

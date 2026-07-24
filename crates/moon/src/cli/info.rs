@@ -217,7 +217,7 @@ fn calc_user_intent_for_info(
 
             for (path, pkg_id) in &unsupported {
                 let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
-                ctx.user_log.info(format!(
+                ctx.user_log.warn(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,

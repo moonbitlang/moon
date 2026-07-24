@@ -796,7 +796,8 @@ fn build_executable_from_plan(
     let build_config =
         BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
             .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?;
+    let build_result =
+        rr_build::execute_build_silently(&build_config, build_graph, target_dir, user_log)?;
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
@@ -840,7 +841,7 @@ fn run_executable(
         cmd.moonrun_policy.as_deref(),
     );
     run_cmd.args(&cmd.args);
-    output.user_log().info(rr_build::format_dry_run_command(
+    output.user_log().debug(rr_build::format_dry_run_command(
         run_cmd.as_std(),
         &executable.source_dir,
     ));

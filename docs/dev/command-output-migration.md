@@ -8,7 +8,7 @@ Every MoonBuild-authored Command Result and User Log has one explicit owner and 
 
 The migration must preserve observable command behavior unless a slice names and tests an intentional change. Each slice should be independently reviewable and leave the tree ready for the next slice.
 
-Splitting stdout from stderr is independent from normalizing default verbosity. The quiet user-log level is error-only, whether selected explicitly or by a command default, but commands such as `moonx` may retain a quieter default until a later slice deliberately changes it.
+Splitting stdout from stderr is independent from normalizing default verbosity. The shared CLI mapping is error-only under `--quiet`, informational by default, and debug under `--verbose`. Commands such as `moonx` may retain an explicitly quieter default when transparency is part of their contract.
 
 ## Interface Shape
 
@@ -35,9 +35,9 @@ The facade does not own Process Passthrough, Progress Displays, compiler diagnos
 | Progress Display | terminal stderr | quiet-aware | renderer-specific lifecycle | progress renderer |
 | tracing | configured tracing sink | `RUST_LOG`/trace configuration | tracing subscriber policy | tracing setup |
 
-`UserLog` is the sole owner of filtered user-facing stderr. Informational messages are rendered as bare lines, while warnings and errors retain their canonical labels.
+`UserLog` is the sole owner of filtered user-facing stderr. Informational and debug messages are rendered as bare lines, while warnings and errors retain their canonical labels.
 
-The quiet user-log level follows `UserLog` and suppresses warnings. Default levels and informational formatting remain command-specific until affected command snapshots make any intended behavior change visible.
+The quiet user-log level follows `UserLog` and suppresses warnings. Explicit inputs that are skipped while other work continues are warnings. Automatic workspace filtering is silent; the existing behavior when all explicit inputs are skipped remains a separate command-semantics concern.
 
 ## Slices and Blocking Edges
 
@@ -134,6 +134,10 @@ Blocks: CO-8
 - Let full build executors emit successful completion summaries through
   `UserLog`; failed executions rely on diagnostics plus their nonzero status,
   and partial execution remains summary-free.
+- Keep execution silent when a command owns a subsequent primary result, such
+  as running a program, reporting proof results, or running tests.
+- Normalize the shared CLI user-log mapping after reclassifying command echoes
+  and cache details as debug-only messages.
 - Migrate build reports to writer-based Command Results.
 - Keep child stdout/stderr forwarding byte-preserving and keep concurrent progress behind its own renderer seam.
 - Cover both Rupes Recta and the legacy engine in each applicable behavior test.

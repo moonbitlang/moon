@@ -1208,7 +1208,7 @@ fn calc_user_intent_from_packages(
                 debug!(dir = %dir.display(), filename = ?filename, "resolved explicit path filter");
 
                 let Ok(pkg) = filter_pkg_by_dir(resolve_output, &dir) else {
-                    user_log.info(format!(
+                    user_log.warn(format!(
                         "skipping path `{}` because it is not a package in the current work context.",
                         path.display()
                     ));
@@ -1240,7 +1240,7 @@ fn calc_user_intent_from_packages(
 
             for (path, pkg_id) in unsupported_paths {
                 let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-                user_log.info(format!(
+                user_log.warn(format!(
                     "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
                     path.display(),
                     pkg.fqn,

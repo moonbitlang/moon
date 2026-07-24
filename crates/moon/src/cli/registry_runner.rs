@@ -210,7 +210,7 @@ pub(super) fn ensure_cached_file(
     produce: impl FnOnce(&Path) -> anyhow::Result<()>,
 ) -> anyhow::Result<PathBuf> {
     if cache_path.exists() {
-        user_log.info(format!("Using cached {}", cache_path.to_string_lossy()));
+        user_log.debug(format!("Using cached {}", cache_path.to_string_lossy()));
         return Ok(cache_path.to_path_buf());
     }
 
@@ -227,7 +227,7 @@ pub(super) fn ensure_cached_file(
         .with_context(|| format!("failed to lock cache directory {}", parent.display()))?;
 
     if cache_path.exists() {
-        user_log.info(format!("Using cached {}", cache_path.to_string_lossy()));
+        user_log.debug(format!("Using cached {}", cache_path.to_string_lossy()));
         return Ok(cache_path.to_path_buf());
     }
 
@@ -313,7 +313,7 @@ fn run_artifact(
     );
     run_cmd.args(args);
 
-    user_log.info(rr_build::format_dry_run_command(
+    user_log.debug(rr_build::format_dry_run_command(
         run_cmd.as_std(),
         Path::new("."),
     ));

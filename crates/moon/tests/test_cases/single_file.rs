@@ -527,6 +527,7 @@ fn test_single_file_commands_work_with_workspace_disabled() {
         String::from_utf8(check_result).unwrap(),
         expect![[r#"
             Warning: `MOON_NO_WORKSPACE` is deprecated. Use `MOON_WORK=off` to disable workspace mode.
+            Finished. moon: ran 2 tasks, now up to date
         "#]],
     );
 
