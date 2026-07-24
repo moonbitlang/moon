@@ -22,8 +22,8 @@ use crate::async_sys::ported_fns;
 use std::os::fd::{FromRawFd, OwnedFd};
 
 use super::{
-    EVENT_BUFFER_SIZE, PROCESS_EVENT, PollEvent, PollInstance, READ_EVENT, WRITE_EVENT, last_errno,
-    last_native_error,
+    EVENT_BUFFER_SIZE, KeventBuffer, PROCESS_EVENT, PollEvent, PollInstance, READ_EVENT,
+    WRITE_EVENT, last_errno, last_native_error,
 };
 
 ported_fns! {
@@ -38,7 +38,10 @@ ported_fns! {
         } else {
             Ok(PollInstance {
                 fd: unsafe { OwnedFd::from_raw_fd(fd) },
-                events: Vec::new(),
+                raw_events: KeventBuffer(
+                    vec![empty_kevent(); EVENT_BUFFER_SIZE].into_boxed_slice(),
+                ),
+                events: Vec::with_capacity(EVENT_BUFFER_SIZE),
             })
         }
     }
@@ -132,13 +135,12 @@ ported_fns! {
             tv_sec: (timeout / 1000) as libc::time_t,
             tv_nsec: ((timeout % 1000) * 1_000_000) as libc::c_long,
         };
-        let mut events = vec![empty_kevent(); EVENT_BUFFER_SIZE];
         let count = unsafe {
             libc::kevent(
                 instance.raw_fd(),
                 std::ptr::null(),
                 0,
-                events.as_mut_ptr(),
+                instance.raw_events.0.as_mut_ptr(),
                 EVENT_BUFFER_SIZE as i32,
                 if timeout < 0 {
                     std::ptr::null()
@@ -150,14 +152,18 @@ ported_fns! {
         if count < 0 {
             return Err(last_native_error());
         }
-        instance.events = events
-            .into_iter()
+        instance.events.clear();
+        instance.events.extend(
+            instance
+                .raw_events
+                .0
+                .iter()
             .take(count as usize)
             .map(|event| PollEvent {
                 fd: event.ident as RawFd,
-                events: kqueue_result_events(&event),
-            })
-            .collect();
+                events: kqueue_result_events(event),
+            }),
+        );
         Ok(count)
     }
 

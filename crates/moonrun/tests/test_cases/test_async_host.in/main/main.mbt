@@ -150,6 +150,12 @@ extern "wasm" fn string_to_ptr(str : String) -> Int =
   #|(func (param i32) (result i32) local.get 0)
 
 ///|
+extern "wasm" fn grow_memory_for_test(pages : Int) -> Int =
+  #|(func (param i32) (result i32)
+  #|  local.get 0
+  #|  memory.grow)
+
+///|
 fn errno_is_lock_violation(errno : Int) -> Bool = "moonbitlang/async" "fs/errno_is_lock_violation"
 
 ///|
@@ -196,6 +202,11 @@ fn main {
     }
   }
   assert_true(random_byte_changed, "secure random fill wrote only zeroes")
+  assert_true(grow_memory_for_test(1) >= 0, "failed to grow wasm memory")
+  assert_true(
+    random_fill(random_bytes, random_bytes.length()) == 0,
+    "secure random fill failed after memory.grow",
+  )
   assert_true(
     random_fill(random_bytes, 2_147_483_647) == -1,
     "invalid async random range did not use the native error convention",
