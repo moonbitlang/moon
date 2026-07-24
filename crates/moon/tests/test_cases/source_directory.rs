@@ -24,8 +24,8 @@ fn test_specify_source_dir_003() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-        Finished. moon: ran 2 tasks, now up to date
-    "#]],
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
     );
 }
 
@@ -35,8 +35,8 @@ fn test_specify_source_dir_004() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-        Finished. moon: ran 4 tasks, now up to date
-    "#]],
+            Finished. moon: ran 4 tasks, now up to date
+        "#]],
     );
 
     get_stdout(&dir, ["clean"]);
@@ -83,14 +83,14 @@ fn test_specify_source_dir_with_deps() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-        Finished. moon: ran 6 tasks, now up to date
-    "#]],
+            Finished. moon: ran 6 tasks, now up to date
+        "#]],
     );
     check(
         get_stderr(&dir, ["build"]),
         expect![[r#"
-        Finished. moon: ran 5 tasks, now up to date
-    "#]],
+            Finished. moon: ran 5 tasks, now up to date
+        "#]],
     );
     check(
         get_stdout(&dir, ["test"]),

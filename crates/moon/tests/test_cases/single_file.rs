@@ -319,6 +319,7 @@ Total tests: 1, passed: 1, failed: 0.
                    │       ─────┬────  
                    │            ╰────── Warning (unused_value): Unused variable 'single_mbt'
                 ───╯
+                Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
             "#]],
         );
         // abs path
@@ -332,6 +333,7 @@ Total tests: 1, passed: 1, failed: 0.
                    │       ─────┬────  
                    │            ╰────── Warning (unused_value): Unused variable 'single_mbt'
                 ───╯
+                Finished. moon: ran 1 task, now up to date (1 warnings, 0 errors)
             "#]],
         );
     }
@@ -412,6 +414,7 @@ Warning: [0002]
                     │         ──────┬──────  
                     │               ╰──────── Warning (unused_value): Unused variable 'single_mbt_md'
                 ────╯
+                Finished. moon: ran 1 task, now up to date (1 warnings, 0 errors)
             "#]],
         );
     }

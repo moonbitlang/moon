@@ -204,6 +204,7 @@ fn run_build_rr(
             if result.successful() {
                 crate::resources::reconcile_resource_mappings(&build_meta)?;
             }
+            rr_build::report_build_result(&result, rr_build::BuildOperation::Build, &cfg, output)?;
             ok &= result.successful();
         }
         ok

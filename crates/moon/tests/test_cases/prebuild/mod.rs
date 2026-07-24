@@ -415,14 +415,14 @@ fn test_pre_build_dirty() {
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-        Finished. moon: no work to do
-    "#]],
+            Finished. moon: no work to do
+        "#]],
     );
     check(
         get_stderr(&dir, ["check"]),
         expect![[r#"
-        Finished. moon: no work to do
-    "#]],
+            Finished. moon: no work to do
+        "#]],
     );
 
     let mtime_end = file.metadata().unwrap().modified().unwrap();

@@ -5,11 +5,15 @@ fn test_import_stdlib() {
     let dir = TestDir::new("import_stdlib/import_stdlib.in");
 
     let check = get_stderr(&dir, ["check"]);
-    expect![""]
+    expect![[r#"
+        Finished. moon: ran 4 tasks, now up to date
+    "#]]
     .assert_eq(&check);
 
     let build = get_stderr(&dir, ["build"]);
-    expect![""]
+    expect![[r#"
+        Finished. moon: ran 2 tasks, now up to date
+    "#]]
     .assert_eq(&build);
 
     let test = get_stderr(&dir, ["test"]);

@@ -31,6 +31,7 @@ The facade does not own Process Passthrough, Progress Displays, compiler diagnos
 | --- | --- | --- | --- | --- |
 | Command Result | stdout | never | return failures | `CommandOutput` |
 | User Log | stderr | by user-log level | best effort, matching `UserLog` | `UserLog` |
+| Compiler diagnostics | renderer-selected | diagnostic policy | renderer-specific | diagnostic renderer |
 | Process Passthrough | original child channel | never | preserve bytes and ordering as far as the executor permits | run/build executor |
 | Progress Display | terminal stderr | quiet-aware | renderer-specific lifecycle | progress renderer |
 | tracing | configured tracing sink | `RUST_LOG`/trace configuration | tracing subscriber policy | tracing setup |
@@ -131,10 +132,13 @@ Blocked by: CO-4, CO-5
 Blocks: CO-8
 
 - Separate durable build summaries from Progress Displays and Process Passthrough.
-- Let full build executors emit successful completion summaries through
-  `UserLog`; failed executions rely on diagnostics plus their nonzero status,
-  and partial execution remains summary-free.
-- Keep execution silent when a command owns a subsequent primary result, such
+- Keep build execution independent from durable result presentation: it emits
+  diagnostics and progress through their existing seams and returns build
+  statistics to its caller.
+- Report successful completion through `UserLog`. For human failure output,
+  write the `Failed with ...` command result to stdout and the command context
+  through `UserLog::error`; compiler diagnostics remain independently owned.
+- Omit the build result when a command owns a subsequent primary result, such
   as running a program, reporting proof results, or running tests.
 - Normalize the shared CLI user-log mapping after reclassifying command echoes
   and cache details as debug-only messages.

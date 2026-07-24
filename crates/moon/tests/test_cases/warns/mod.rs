@@ -417,7 +417,9 @@ fn test_deny_warn() {
 
     check(
         get_err_stdout(&dir, ["check", "--deny-warn", "--sort-input"]),
-        expect![""],
+        expect![[r#"
+            Failed with 0 warnings, 3 errors.
+        "#]],
     );
 
     check(
@@ -457,6 +459,8 @@ fn test_deny_warn() {
 
     check(
         get_err_stdout(&dir, ["build", "--deny-warn", "--sort-input"]),
-        expect![""],
+        expect![[r#"
+            Failed with 0 warnings, 3 errors.
+        "#]],
     );
 }
