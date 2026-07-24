@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use super::{AsyncHostError, AsyncHostResult};
 
@@ -133,8 +132,6 @@ pub(crate) enum TlsConfig {
         pfx_content: Vec<u8>,
     },
 }
-
-pub(crate) type TlsHandleRef = Arc<Mutex<TlsHandle>>;
 
 // The wasm ABI exposes one TLS handle. New handles start empty and become a
 // live connection as soon as a client/server setter has enough data.

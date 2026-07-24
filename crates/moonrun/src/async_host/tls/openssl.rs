@@ -16,9 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::cell::RefCell;
 use std::io::{self, Read, Write};
 use std::net::IpAddr;
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 
 use openssl::hash::MessageDigest;
 use openssl::nid::Nid;
@@ -36,7 +37,9 @@ use super::{
 pub(crate) struct TlsConnection {
     stream: Option<SslStream<QueueStream>>,
     pending_ssl: Option<Ssl>,
-    state: Arc<Mutex<BioState>>,
+    // OpenSSL calls QueueStream synchronously on the V8 thread. Share the
+    // scoped buffers with that adapter without implying cross-thread access.
+    state: Rc<RefCell<BioState>>,
     mode: TlsMode,
     shutdown_started: bool,
     shutdown_complete: bool,
@@ -141,7 +144,7 @@ impl TlsConnection {
     }
 
     fn new(ssl: Ssl, mode: TlsMode) -> Result<Self, String> {
-        let state = Arc::new(Mutex::new(BioState::new()));
+        let state = Rc::new(RefCell::new(BioState::new()));
         Ok(Self {
             stream: None,
             pending_ssl: Some(ssl),
@@ -277,22 +280,14 @@ impl TlsConnection {
     ) -> i32 {
         self.last_bytes_read = 0;
         self.last_bytes_to_write = 0;
-        let scoped = self
-            .state
-            .lock()
-            .map_err(|_| "TLS BIO state lock poisoned".to_string())
-            .and_then(|mut state| state.begin_scoped(input, output));
+        let scoped = self.state.borrow_mut().begin_scoped(input, output);
         if let Err(error) = scoped {
             return self.error(error);
         }
 
         let status = f(self);
 
-        let counters = self
-            .state
-            .lock()
-            .map_err(|_| "TLS BIO state lock poisoned".to_string())
-            .and_then(|mut state| state.end_scoped());
+        let counters = self.state.borrow_mut().end_scoped();
         match counters {
             Ok((bytes_read, bytes_to_write)) => {
                 self.last_bytes_read = bytes_read;
@@ -504,7 +499,7 @@ impl TlsConnection {
                 .take()
                 .ok_or_else(|| "TLS stream is not initialized".to_string())?;
             let stream = QueueStream {
-                state: Arc::clone(&self.state),
+                state: Rc::clone(&self.state),
             };
             self.stream = Some(
                 SslStream::new(ssl, stream)
@@ -526,10 +521,7 @@ impl TlsConnection {
     }
 
     fn last_bio_blocked(&self) -> Option<BioBlocked> {
-        self.state
-            .lock()
-            .ok()
-            .and_then(|state| state.last_blocked())
+        self.state.borrow().last_blocked()
     }
 }
 
@@ -627,8 +619,7 @@ struct ScopedBio {
 
 // The raw pointers are borrowed guest-memory slices registered only while a
 // single synchronous OpenSSL call is active. `QueueStream` reaches them through
-// the same mutex and `advance_state` always clears them before returning.
-unsafe impl Send for ScopedBio {}
+// the same RefCell and `advance_state` always clears them before returning.
 
 impl ScopedBio {
     fn new(input: &mut [u8], output: &mut [u8]) -> Self {
@@ -679,7 +670,7 @@ impl ScopedBio {
 
 #[derive(Debug, Clone)]
 struct QueueStream {
-    state: Arc<Mutex<BioState>>,
+    state: Rc<RefCell<BioState>>,
 }
 
 impl Read for QueueStream {
@@ -687,10 +678,7 @@ impl Read for QueueStream {
         if dst.is_empty() {
             return Ok(0);
         }
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("TLS BIO state lock poisoned"))?;
+        let mut state = self.state.borrow_mut();
         if !state.input_pending() {
             state.block_on_read();
             Err(io::Error::from(io::ErrorKind::WouldBlock))
@@ -702,10 +690,7 @@ impl Read for QueueStream {
 
 impl Write for QueueStream {
     fn write(&mut self, src: &[u8]) -> io::Result<usize> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("TLS BIO state lock poisoned"))?;
+        let mut state = self.state.borrow_mut();
         let written = state.write_output(src);
         if written == 0 && !src.is_empty() {
             state.block_on_write();
