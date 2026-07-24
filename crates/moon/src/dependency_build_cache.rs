@@ -19,9 +19,9 @@
 //! Complete registry dependency graphs cached for standalone script execution.
 //!
 //! n2 still schedules every cold dependency action together. On a hit this
-//! module restores the complete `.mi`/`.core` output set into the invocation's
-//! target directory, after which those producer nodes are detached from the
-//! project-local n2 graph.
+//! module restores the complete reusable output set into the invocation's
+//! target directory, including native dependency C objects and archives, after
+//! which those producer nodes are detached from the project-local n2 graph.
 
 use std::{
     collections::HashMap,
@@ -108,8 +108,9 @@ impl DependencyGraphCache {
         let mut descriptions = actions.iter().collect::<Vec<_>>();
         descriptions.sort_by(|left, right| {
             left.description
-                .package
-                .cmp(&right.description.package)
+                .kind
+                .cmp(&right.description.kind)
+                .then_with(|| left.description.package.cmp(&right.description.package))
                 .then_with(|| {
                     left.description
                         .canonical_args
@@ -292,8 +293,9 @@ fn dependency_graph_id(actions: &[DependencyBuildAction], root: &Path) -> anyhow
     let mut actions = actions.iter().collect::<Vec<_>>();
     actions.sort_by(|left, right| {
         left.description
-            .package
-            .cmp(&right.description.package)
+            .kind
+            .cmp(&right.description.kind)
+            .then_with(|| left.description.package.cmp(&right.description.package))
             .then_with(|| {
                 left.description
                     .canonical_args
@@ -312,8 +314,36 @@ fn dependency_graph_id(actions: &[DependencyBuildAction], root: &Path) -> anyhow
     hash_field(&mut hash, &(actions.len() as u64).to_le_bytes());
     for action in actions {
         let description = &action.description;
+        hash_field(&mut hash, b"kind");
+        hash_field(
+            &mut hash,
+            match description.kind {
+                moonbuild_rupes_recta::dependency_build_cache::DependencyBuildKind::MooncBuildCore => {
+                    b"moonc-build-core"
+                }
+                moonbuild_rupes_recta::dependency_build_cache::DependencyBuildKind::CStubObject => {
+                    b"c-stub-object"
+                }
+                moonbuild_rupes_recta::dependency_build_cache::DependencyBuildKind::CStubLibrary => {
+                    b"c-stub-library"
+                }
+                moonbuild_rupes_recta::dependency_build_cache::DependencyBuildKind::NativeRuntime => {
+                    b"native-runtime"
+                }
+            },
+        );
         hash_field(&mut hash, b"package");
         hash_field(&mut hash, description.package.as_bytes());
+
+        hash_field(&mut hash, b"environment");
+        hash_field(
+            &mut hash,
+            &(description.environment.len() as u64).to_le_bytes(),
+        );
+        for (name, value) in &description.environment {
+            hash_field(&mut hash, name.as_bytes());
+            hash_field(&mut hash, value.as_bytes());
+        }
 
         hash_field(&mut hash, b"resolution");
         hash_field(
@@ -348,16 +378,27 @@ fn dependency_graph_id(actions: &[DependencyBuildAction], root: &Path) -> anyhow
         for input in inputs {
             hash_field(&mut hash, input.label.as_bytes());
             match input.identity {
-                InputIdentity::Content => {
+                InputIdentity::Content | InputIdentity::Tool => {
                     let digest = match digests.get(&input.path) {
                         Some(digest) => *digest,
                         None => {
-                            let digest = digest_cache.digest(&input.path)?;
+                            let digest = if input.identity == InputIdentity::Tool {
+                                digest_cache.digest_tool(&input.path)?
+                            } else {
+                                digest_cache.digest(&input.path)?
+                            };
                             digests.insert(input.path.clone(), digest);
                             digest
                         }
                     };
-                    hash_field(&mut hash, b"content");
+                    hash_field(
+                        &mut hash,
+                        if input.identity == InputIdentity::Tool {
+                            b"tool"
+                        } else {
+                            b"content"
+                        },
+                    );
                     hash_field(&mut hash, &digest);
                 }
                 InputIdentity::Logical => hash_field(&mut hash, b"logical"),
@@ -376,6 +417,20 @@ fn dependency_graph_id(actions: &[DependencyBuildAction], root: &Path) -> anyhow
 }
 
 impl FileDigestCache {
+    fn digest_tool(&self, path: &Path) -> anyhow::Result<[u8; 32]> {
+        let resolved = if path.is_file() {
+            path.to_path_buf()
+        } else {
+            which::which(path).with_context(|| {
+                format!(
+                    "failed to resolve build tool `{}` through PATH",
+                    path.display()
+                )
+            })?
+        };
+        self.digest(&resolved)
+    }
+
     #[tracing::instrument(level = "debug", skip_all, fields(path = %path.display()))]
     fn digest(&self, path: &Path) -> anyhow::Result<[u8; 32]> {
         let metadata = std::fs::metadata(path)

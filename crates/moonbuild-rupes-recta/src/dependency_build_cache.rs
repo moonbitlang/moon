@@ -41,6 +41,9 @@ pub enum InputIdentity {
     Logical,
     /// Hash the physical file bytes and include the digest.
     Content,
+    /// Resolve an executable through `PATH` when necessary, then hash its
+    /// bytes. The physical installation path is not part of the identity.
+    Tool,
 }
 
 #[derive(Debug, Clone)]
@@ -57,11 +60,21 @@ pub struct DependencyBuildAction {
 
 #[derive(Debug, Clone)]
 pub struct DependencyBuildDescription {
+    pub kind: DependencyBuildKind,
     pub package: String,
     pub canonical_args: Vec<String>,
+    pub environment: Vec<(String, String)>,
     pub resolution: Vec<DependencyResolution>,
     pub inputs: Vec<DependencyBuildInput>,
     pub outputs: Vec<DependencyBuildOutput>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DependencyBuildKind {
+    MooncBuildCore,
+    CStubObject,
+    CStubLibrary,
+    NativeRuntime,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

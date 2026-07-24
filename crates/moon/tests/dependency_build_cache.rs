@@ -71,8 +71,15 @@ fn cache_registry_package_with_files(
     let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (path, contents) in [
         ("moon.mod.json", manifest.to_owned()),
-        ("src/moon.pkg.json", "{}".to_owned()),
+        (
+            "src/moon.pkg.json",
+            r#"{"native-stub":["stub.c"]}"#.to_owned(),
+        ),
         ("src/lib.mbt", "pub fn answer() -> Int { 42 }\n".to_owned()),
+        (
+            "src/stub.c",
+            "void moon_cache_test_stub(void) {}\n".to_owned(),
+        ),
     ] {
         archive
             .start_file(path, zip::write::FileOptions::default())
@@ -131,6 +138,50 @@ fn write_compiler_logger(path: &Path, identity: &str) {
     .unwrap();
 }
 
+#[cfg(unix)]
+fn cc_logger(root: &Path) -> (PathBuf, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = root.join("cc-logger");
+    let real_cc = which::which("cc").unwrap();
+    write_cc_logger(&path, "initial");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (path, real_cc)
+}
+
+#[cfg(unix)]
+fn write_cc_logger(path: &Path, identity: &str) {
+    std::fs::write(
+        path,
+        format!(
+            "#!/bin/sh\n# {identity}\nprintf '%s\\n' \"$*\" >> \"$MOON_CC_LOG\"\nexec \"$MOON_REAL_CC\" \"$@\"\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[cfg(unix)]
+fn ar_logger(root: &Path) -> (PathBuf, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = root.join("ar-logger");
+    let real_ar = which::which("ar").unwrap();
+    write_ar_logger(&path, "initial");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (path, real_ar)
+}
+
+#[cfg(unix)]
+fn write_ar_logger(path: &Path, identity: &str) {
+    std::fs::write(
+        path,
+        format!(
+            "#!/bin/sh\n# {identity}\nprintf '%s\\n' \"$*\" >> \"$MOON_AR_LOG\"\nexec \"$MOON_REAL_AR\" \"$@\"\n"
+        ),
+    )
+    .unwrap();
+}
+
 #[cfg(windows)]
 fn compiler_logger(root: &Path) -> PathBuf {
     let path = root.join("moonc-logger.cmd");
@@ -156,6 +207,18 @@ struct BuildCacheFixture {
     build_cache: tempfile::TempDir,
     compiler_log: PathBuf,
     compiler_logger: PathBuf,
+    #[cfg(unix)]
+    cc_log: PathBuf,
+    #[cfg(unix)]
+    cc_logger: PathBuf,
+    #[cfg(unix)]
+    real_cc: PathBuf,
+    #[cfg(unix)]
+    ar_log: PathBuf,
+    #[cfg(unix)]
+    ar_logger: PathBuf,
+    #[cfg(unix)]
+    real_ar: PathBuf,
 }
 
 impl BuildCacheFixture {
@@ -170,6 +233,14 @@ impl BuildCacheFixture {
         );
         let compiler_log = workspace.path().join("moonc.log");
         let compiler_logger = compiler_logger(workspace.path());
+        #[cfg(unix)]
+        let (cc_logger, real_cc) = cc_logger(workspace.path());
+        #[cfg(unix)]
+        let cc_log = workspace.path().join("cc.log");
+        #[cfg(unix)]
+        let (ar_logger, real_ar) = ar_logger(workspace.path());
+        #[cfg(unix)]
+        let ar_log = workspace.path().join("ar.log");
         Self {
             workspace,
             moon_home,
@@ -177,11 +248,23 @@ impl BuildCacheFixture {
             build_cache: tempfile::tempdir().unwrap(),
             compiler_log,
             compiler_logger,
+            #[cfg(unix)]
+            cc_log,
+            #[cfg(unix)]
+            cc_logger,
+            #[cfg(unix)]
+            real_cc,
+            #[cfg(unix)]
+            ar_log,
+            #[cfg(unix)]
+            ar_logger,
+            #[cfg(unix)]
+            real_ar,
         }
     }
 
     fn command(&self, current_dir: &Path) -> snapbox::cmd::Command {
-        snapbox::cmd::Command::new(moon_bin())
+        let command = snapbox::cmd::Command::new(moon_bin())
             .current_dir(current_dir)
             .env("MOON_HOME", self.moon_home.path())
             .env("MOON_DEP_CACHE", self.dependency_cache.path())
@@ -194,7 +277,16 @@ impl BuildCacheFixture {
                 moonutil::toolchain::BINARIES.moonc.as_path(),
             )
             .env("MOONC_LOG", &self.compiler_log)
-            .arg("--quiet")
+            .arg("--quiet");
+        #[cfg(unix)]
+        let command = command
+            .env("MOON_CC", &self.cc_logger)
+            .env("MOON_REAL_CC", &self.real_cc)
+            .env("MOON_CC_LOG", &self.cc_log)
+            .env("MOON_AR", &self.ar_logger)
+            .env("MOON_REAL_AR", &self.real_ar)
+            .env("MOON_AR_LOG", &self.ar_log);
+        command
     }
 
     fn process_command(&self, current_dir: &Path) -> std::process::Command {
@@ -213,6 +305,14 @@ impl BuildCacheFixture {
             )
             .env("MOONC_LOG", &self.compiler_log)
             .arg("--quiet");
+        #[cfg(unix)]
+        command
+            .env("MOON_CC", &self.cc_logger)
+            .env("MOON_REAL_CC", &self.real_cc)
+            .env("MOON_CC_LOG", &self.cc_log)
+            .env("MOON_AR", &self.ar_logger)
+            .env("MOON_REAL_AR", &self.real_ar)
+            .env("MOON_AR_LOG", &self.ar_log);
         command
     }
 
@@ -227,6 +327,23 @@ impl BuildCacheFixture {
             .unwrap()
             .lines()
             .filter(|line| line.contains("build-package") && line.contains("-pkg cachetest/shared"))
+            .count()
+    }
+
+    #[cfg(unix)]
+    fn cc_stub_builds(&self) -> usize {
+        std::fs::read_to_string(&self.cc_log)
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains("stub.c"))
+            .count()
+    }
+
+    #[cfg(unix)]
+    fn archive_builds(&self) -> usize {
+        std::fs::read_to_string(&self.ar_log)
+            .unwrap()
+            .lines()
             .count()
     }
 }
@@ -284,7 +401,8 @@ fn disabled_build_cache_rebuilds_script_dependencies() {
 }
 
 #[test]
-fn native_scripts_keep_the_existing_local_build_graph() {
+#[cfg(unix)]
+fn native_scripts_reuse_registry_cc_outputs() {
     let fixture = BuildCacheFixture::new();
     for name in ["first", "second"] {
         let directory = fixture.directory(name);
@@ -295,8 +413,60 @@ fn native_scripts_keep_the_existing_local_build_graph() {
             .assert()
             .success();
     }
-    assert_eq!(fixture.dependency_builds(), 2);
-    assert!(!fixture.build_cache.path().join(".moon-cache").exists());
+    assert_eq!(fixture.dependency_builds(), 1);
+    assert_eq!(fixture.cc_stub_builds(), 1);
+    assert_eq!(fixture.archive_builds(), 1);
+    assert!(fixture.build_cache.path().join(".moon-cache").exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn cc_contents_are_part_of_native_dependency_graph_identity() {
+    let fixture = BuildCacheFixture::new();
+    let directories = ["first", "second", "third"].map(|name| fixture.directory(name));
+
+    fixture
+        .command(&directories[0])
+        .args(["run", "--target", "native", "--build-only", "-e"])
+        .arg(mbtx_source(MODULE_NAME))
+        .assert()
+        .success();
+    write_cc_logger(&fixture.cc_logger, "changed");
+    for directory in &directories[1..] {
+        fixture
+            .command(directory)
+            .args(["run", "--target", "native", "--build-only", "-e"])
+            .arg(mbtx_source(MODULE_NAME))
+            .assert()
+            .success();
+    }
+    assert_eq!(fixture.cc_stub_builds(), 2);
+    assert_eq!(fixture.archive_builds(), 2);
+}
+
+#[test]
+#[cfg(unix)]
+fn archiver_contents_are_part_of_native_dependency_graph_identity() {
+    let fixture = BuildCacheFixture::new();
+    let directories = ["first", "second", "third"].map(|name| fixture.directory(name));
+
+    fixture
+        .command(&directories[0])
+        .args(["run", "--target", "native", "--build-only", "-e"])
+        .arg(mbtx_source(MODULE_NAME))
+        .assert()
+        .success();
+    write_ar_logger(&fixture.ar_logger, "changed");
+    for directory in &directories[1..] {
+        fixture
+            .command(directory)
+            .args(["run", "--target", "native", "--build-only", "-e"])
+            .arg(mbtx_source(MODULE_NAME))
+            .assert()
+            .success();
+    }
+    assert_eq!(fixture.cc_stub_builds(), 2);
+    assert_eq!(fixture.archive_builds(), 2);
 }
 
 #[test]

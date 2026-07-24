@@ -207,14 +207,17 @@ impl ActionProducts {
 /// Canonicalize the structured `moonc build-package` argv without rewriting
 /// arbitrary substrings. Most path arguments are standalone values; `-i` and
 /// `-pkg-sources` are the two documented compound forms.
-fn canonicalize_build_package_args(
+fn canonicalize_dependency_command_args(
     args: &[String],
     path_bindings: &[(String, String)],
 ) -> Option<Vec<String>> {
-    let exact_path = |value: &str| {
-        path_bindings
-            .iter()
-            .find_map(|(path, label)| (value == path).then(|| label.clone()))
+    let path_value = |value: &str| {
+        path_bindings.iter().find_map(|(path, label)| {
+            value.strip_prefix(path).and_then(|suffix| {
+                (suffix.is_empty() || suffix.starts_with('/') || suffix.starts_with('\\'))
+                    .then(|| format!("{label}{suffix}"))
+            })
+        })
     };
     let package_source = |value: &str| {
         path_bindings.iter().find_map(|(path, label)| {
@@ -229,16 +232,40 @@ fn canonicalize_build_package_args(
                 .strip_prefix(path)
                 .and_then(|suffix| suffix.strip_prefix(':'))
                 .map(|alias| {
-                    let alias = exact_path(alias).unwrap_or_else(|| alias.to_owned());
+                    let alias = path_value(alias).unwrap_or_else(|| alias.to_owned());
                     format!("{label}:{alias}")
                 })
+        })
+    };
+    let prefixed_path = |value: &str| {
+        [
+            "-Wl,-rpath,",
+            "-Wl,-rpath=",
+            "/LIBPATH:",
+            "/libpath:",
+            "/Out:",
+            "/OUT:",
+            "/Fo",
+            "/Fe",
+            "/Fd",
+            "/I",
+            "-isystem",
+            "-I",
+            "-L",
+        ]
+        .into_iter()
+        .find_map(|prefix| {
+            value
+                .strip_prefix(prefix)
+                .and_then(&path_value)
+                .map(|path| format!("{prefix}{path}"))
         })
     };
 
     let mut canonical = Vec::with_capacity(args.len());
     for (index, argument) in args.iter().enumerate() {
         let previous = index.checked_sub(1).and_then(|index| args.get(index));
-        if let Some(label) = exact_path(argument) {
+        if let Some(label) = path_value(argument) {
             canonical.push(label);
         } else if previous.is_some_and(|previous| previous == "-i")
             && let Some(value) = mi_dependency(argument)
@@ -247,6 +274,8 @@ fn canonicalize_build_package_args(
         } else if previous.is_some_and(|previous| previous == "-pkg-sources")
             && let Some(value) = package_source(argument)
         {
+            canonical.push(value);
+        } else if let Some(value) = prefixed_path(argument) {
             canonical.push(value);
         } else if path_bindings
             .iter()
@@ -460,27 +489,48 @@ impl<'a> LoweringContext<'a> {
         products: &ActionProducts,
         cmd: &BuildCommand,
     ) -> Option<DependencyBuildDescription> {
-        let BuildAction::BuildCore { target, .. } = action else {
-            return None;
-        };
-        if target.kind != crate::model::TargetKind::Source {
-            return None;
-        }
+        use crate::dependency_build_cache::DependencyBuildKind;
 
-        let package = self.get_package(target);
-        if !matches!(
-            self.modules.module_source(package.module).source(),
-            ModuleSourceKind::Registry
-        ) {
+        let (kind, package, build_core_target) = match action {
+            BuildAction::BuildCore { target, .. }
+                if target.kind == crate::model::TargetKind::Source =>
+            {
+                (
+                    DependencyBuildKind::MooncBuildCore,
+                    Some(self.get_package(target)),
+                    Some(target),
+                )
+            }
+            BuildAction::BuildCStub { package, .. } => (
+                DependencyBuildKind::CStubObject,
+                Some(self.packages.get_package(package)),
+                None,
+            ),
+            BuildAction::ArchiveOrLinkCStubs { package, .. } => (
+                DependencyBuildKind::CStubLibrary,
+                Some(self.packages.get_package(package)),
+                None,
+            ),
+            BuildAction::BuildRuntimeLib { .. } if !self.prepared_sources.is_empty() => {
+                (DependencyBuildKind::NativeRuntime, None, None)
+            }
+            _ => return None,
+        };
+        if package.is_some_and(|package| {
+            !matches!(
+                self.modules.module_source(package.module).source(),
+                ModuleSourceKind::Registry
+            )
+        }) {
             return None;
         }
-        if cmd.commandline.cwd.is_some() || !cmd.commandline.env.is_empty() {
+        if cmd.commandline.cwd.is_some() {
             return None;
         }
         let args = cmd.commandline.args()?.clone();
 
-        let module = self.modules.module_source(package.module);
-        let module_dir = &self.module_dirs[package.module];
+        let module = package.map(|package| self.modules.module_source(package.module));
+        let module_dir = package.map(|package| &self.module_dirs[package.module]);
         let target_dir = self.artifact_paths.target_layout().target_base_dir();
         let all_pkgs = self
             .artifact_paths
@@ -504,33 +554,41 @@ impl<'a> LoweringContext<'a> {
             .collect::<Vec<_>>();
 
         for (index, path) in cmd.extra_inputs.iter().enumerate() {
-            let label = if let Ok(relative) = path.strip_prefix(&package.root_path) {
-                format!(
+            let package_relative = package.and_then(|package| {
+                path.strip_prefix(&package.root_path)
+                    .ok()
+                    .map(|relative| (package, relative))
+            });
+            let module_relative = module_dir.and_then(|module_dir| {
+                path.strip_prefix(module_dir)
+                    .ok()
+                    .map(|relative| (module.expect("module directory requires module"), relative))
+            });
+            let label = match (package_relative, module_relative) {
+                (Some((package, relative)), _) => format!(
                     "module:{}@{}:package:{}:{}",
-                    module.name(),
-                    module.version(),
+                    module.expect("registry package requires module").name(),
+                    module.expect("registry package requires module").version(),
                     package.fqn,
                     relative.to_string_lossy()
-                )
-            } else if let Ok(relative) = path.strip_prefix(module_dir) {
-                format!(
+                ),
+                (None, Some((module, relative))) => format!(
                     "module:{}@{}:{}",
                     module.name(),
                     module.version(),
                     relative.to_string_lossy()
-                )
-            } else {
-                format!(
+                ),
+                (None, None) => format!(
                     "external-input:{index}:{}",
                     path.file_name()
                         .map(|name| name.to_string_lossy())
                         .unwrap_or_default()
-                )
+                ),
             };
             inputs.push(DependencyBuildInput {
                 label,
                 path: path.clone(),
-                identity: if path.starts_with(module_dir)
+                identity: if module_dir.is_some_and(|module_dir| path.starts_with(module_dir))
                     || path.starts_with(target_dir)
                     || path == &all_pkgs
                 {
@@ -540,42 +598,52 @@ impl<'a> LoweringContext<'a> {
                 },
             });
         }
-        for (index, dependency) in self.mi_inputs_of(target).into_iter().enumerate() {
-            let path = dependency.path.into_owned();
-            if !inputs.iter().any(|input| input.path == path) {
-                inputs.push(DependencyBuildInput {
-                    label: format!(
-                        "compiler-interface:{}",
-                        dependency
-                            .alias
-                            .as_deref()
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| index.to_string())
-                    ),
-                    identity: if path.starts_with(target_dir) {
-                        InputIdentity::Logical
-                    } else {
-                        InputIdentity::Content
-                    },
-                    path,
-                });
+        if let Some(target) = build_core_target {
+            for (index, dependency) in self.mi_inputs_of(target).into_iter().enumerate() {
+                let path = dependency.path.into_owned();
+                if !inputs.iter().any(|input| input.path == path) {
+                    inputs.push(DependencyBuildInput {
+                        label: format!(
+                            "compiler-interface:{}",
+                            dependency
+                                .alias
+                                .as_deref()
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| index.to_string())
+                        ),
+                        identity: if path.starts_with(target_dir) {
+                            InputIdentity::Logical
+                        } else {
+                            InputIdentity::Content
+                        },
+                        path,
+                    });
+                }
             }
-        }
 
-        let module_manifest = if module_dir.join(MOON_MOD).is_file() {
-            module_dir.join(MOON_MOD)
-        } else {
-            module_dir.join(MOON_MOD_JSON)
+            let module = module.expect("BuildCore dependency requires module");
+            let module_dir = module_dir.expect("BuildCore dependency requires module directory");
+            let module_manifest = if module_dir.join(MOON_MOD).is_file() {
+                module_dir.join(MOON_MOD)
+            } else {
+                module_dir.join(MOON_MOD_JSON)
+            };
+            inputs.push(DependencyBuildInput {
+                label: format!("module:{}@{}:manifest", module.name(), module.version()),
+                path: module_manifest,
+                identity: InputIdentity::Logical,
+            });
+        }
+        let tool = match kind {
+            DependencyBuildKind::MooncBuildCore => BINARIES.moonc.clone(),
+            DependencyBuildKind::CStubObject
+            | DependencyBuildKind::CStubLibrary
+            | DependencyBuildKind::NativeRuntime => PathBuf::from(args.first()?),
         };
         inputs.push(DependencyBuildInput {
-            label: format!("module:{}@{}:manifest", module.name(), module.version()),
-            path: module_manifest,
-            identity: InputIdentity::Logical,
-        });
-        inputs.push(DependencyBuildInput {
-            label: "tool:moonc".to_owned(),
-            path: BINARIES.moonc.clone(),
-            identity: InputIdentity::Content,
+            label: format!("tool:{kind:?}"),
+            path: tool,
+            identity: InputIdentity::Tool,
         });
         inputs.sort_by(|left, right| left.label.cmp(&right.label));
         inputs.dedup_by(|left, right| {
@@ -615,15 +683,19 @@ impl<'a> LoweringContext<'a> {
                     format!("$output:{}", output.label),
                 )
             }))
-            .chain([
+            .chain(package.into_iter().map(|package| {
                 (
                     package.root_path.to_string_lossy().into_owned(),
                     "$package-root".to_owned(),
-                ),
+                )
+            }))
+            .chain(module_dir.into_iter().map(|module_dir| {
                 (
                     module_dir.to_string_lossy().into_owned(),
                     "$module-root".to_owned(),
-                ),
+                )
+            }))
+            .chain([
                 (
                     target_dir.to_string_lossy().into_owned(),
                     "$target-root".to_owned(),
@@ -635,12 +707,21 @@ impl<'a> LoweringContext<'a> {
             ])
             .collect::<Vec<_>>();
         path_bindings.sort_by(|left, right| right.0.len().cmp(&left.0.len()));
-        let canonical_args = canonicalize_build_package_args(&args, &path_bindings)?;
+        let canonical_args = canonicalize_dependency_command_args(&args, &path_bindings)?;
+        let mut environment = cmd.commandline.env.clone();
+        environment.sort();
 
         Some(DependencyBuildDescription {
-            package: package.fqn.to_string(),
+            kind,
+            package: package.map_or_else(
+                || "$native-runtime".to_owned(),
+                |package| package.fqn.to_string(),
+            ),
             canonical_args,
-            resolution: self.resolution_closure(package.module),
+            environment,
+            resolution: package
+                .map(|package| self.resolution_closure(package.module))
+                .unwrap_or_default(),
             inputs,
             outputs,
         })
@@ -679,6 +760,15 @@ impl<'a> LoweringContext<'a> {
             BuildProduct::PackageCoreIr { target } => {
                 Some(format!("package-core-ir:{}", self.get_package(*target).fqn))
             }
+            BuildProduct::CStubObject { package, index } => Some(format!(
+                "c-stub-object:{}:{index}",
+                self.packages.get_package(*package).fqn
+            )),
+            BuildProduct::CStubLibrary { package } => Some(format!(
+                "c-stub-library:{}",
+                self.packages.get_package(*package).fqn
+            )),
+            BuildProduct::RuntimeLib => Some("native-runtime-library".to_owned()),
             _ => None,
         }
     }
@@ -727,7 +817,7 @@ impl<'a> LoweringContext<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::canonicalize_build_package_args;
+    use super::canonicalize_dependency_command_args;
 
     #[test]
     fn canonical_build_package_args_understand_compiler_path_forms() {
@@ -749,7 +839,7 @@ mod tests {
         .map(str::to_owned);
 
         assert_eq!(
-            canonicalize_build_package_args(&args, &paths)
+            canonicalize_dependency_command_args(&args, &paths)
                 .expect("known compiler path forms should canonicalize"),
             [
                 "build-package",
@@ -769,6 +859,6 @@ mod tests {
         let paths = vec![("/target/output.core".to_owned(), "$output".to_owned())];
         let args = ["build-package", "--future=/target/output.core"].map(str::to_owned);
 
-        assert!(canonicalize_build_package_args(&args, &paths).is_none());
+        assert!(canonicalize_dependency_command_args(&args, &paths).is_none());
     }
 }

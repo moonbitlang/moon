@@ -701,8 +701,7 @@ fn build_single_file_executable(
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);
-    let cache_registry_dependencies =
-        has_shared_registry_sources && !selected_target_backend.is_native();
+    let cache_registry_dependencies = has_shared_registry_sources;
 
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
@@ -713,8 +712,6 @@ fn build_single_file_executable(
         RunMode::Run,
     );
     preconfig.try_tcc_run = options.try_tcc_run;
-    // The MVP caches `.mi`/`.core` outputs only. Native builds also schedule C
-    // stubs and currently lose more overlap than the cache saves.
     preconfig.collect_dependency_build_actions = cache_registry_dependencies;
 
     let planning_context = rr_build::prepare_resolved_build(
