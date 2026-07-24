@@ -23,9 +23,35 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, bail};
+use thiserror::Error;
 
 const OWNERSHIP_MARKER: &str = ".moon-cache";
+
+#[derive(Debug, Error)]
+pub enum CacheError {
+    #[error("{environment} must be an absolute path or `off`")]
+    InvalidEnvironment { environment: &'static str },
+    #[error("refusing to use symlinked Moon cache root `{0}`")]
+    SymlinkedRoot(PathBuf),
+    #[error("Moon cache root `{0}` is not a directory")]
+    RootNotDirectory(PathBuf),
+    #[error("Moon cache root `{0}` has the wrong ownership")]
+    WrongOwnership(PathBuf),
+    #[error("refusing to use unrecognized Moon cache root `{0}`")]
+    UnrecognizedRoot(PathBuf),
+    #[error("Moon cache root `{0}` disappeared during initialization")]
+    RootDisappeared(PathBuf),
+    #[error("Moon cache root `{0}` has no parent directory")]
+    RootWithoutParent(PathBuf),
+    #[error("refusing to change permissions through cache symlink `{0}`")]
+    SymlinkedEntry(PathBuf),
+    #[error("refusing to clean symlinked Moon cache root `{0}`")]
+    CleanSymlinkedRoot(PathBuf),
+    #[error("refusing to clean unrecognized Moon cache root `{0}`")]
+    CleanUnrecognizedRoot(PathBuf),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheKind {
@@ -62,14 +88,14 @@ pub enum CacheRoot {
     Path(PathBuf),
 }
 
-pub fn resolve_cache_root(kind: CacheKind) -> anyhow::Result<CacheRoot> {
+pub fn resolve_cache_root(kind: CacheKind) -> Result<CacheRoot, CacheError> {
     let environment = kind.environment_variable();
     match std::env::var_os(environment) {
         Some(value) if value == "off" => Ok(CacheRoot::Disabled),
         Some(value) => {
             let path = PathBuf::from(value);
             if !path.is_absolute() {
-                bail!("{environment} must be an absolute path or `off`");
+                return Err(CacheError::InvalidEnvironment { environment });
             }
             Ok(CacheRoot::Path(path))
         }
@@ -88,16 +114,13 @@ enum CacheRootState {
     Initialized,
 }
 
-fn cache_root_state(kind: CacheKind, root: &Path) -> anyhow::Result<CacheRootState> {
+fn cache_root_state(kind: CacheKind, root: &Path) -> Result<CacheRootState, CacheError> {
     match std::fs::symlink_metadata(root) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
-            bail!(
-                "refusing to use symlinked Moon cache root `{}`",
-                root.display()
-            );
+            return Err(CacheError::SymlinkedRoot(root.to_path_buf()));
         }
         Ok(metadata) if !metadata.is_dir() => {
-            bail!("Moon cache root `{}` is not a directory", root.display());
+            return Err(CacheError::RootNotDirectory(root.to_path_buf()));
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -109,10 +132,7 @@ fn cache_root_state(kind: CacheKind, root: &Path) -> anyhow::Result<CacheRootSta
     let marker = root.join(OWNERSHIP_MARKER);
     match std::fs::read(&marker) {
         Ok(contents) if contents == kind.ownership() => Ok(CacheRootState::Initialized),
-        Ok(_) => bail!(
-            "Moon cache root `{}` has the wrong ownership",
-            root.display()
-        ),
+        Ok(_) => Err(CacheError::WrongOwnership(root.to_path_buf())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             if std::fs::read_dir(root)?.next().transpose()?.is_none() {
                 return Ok(CacheRootState::Empty);
@@ -122,15 +142,9 @@ fn cache_root_state(kind: CacheKind, root: &Path) -> anyhow::Result<CacheRootSta
             // first read. Accept that completed initialization.
             match std::fs::read(&marker) {
                 Ok(contents) if contents == kind.ownership() => Ok(CacheRootState::Initialized),
-                Ok(_) => bail!(
-                    "Moon cache root `{}` has the wrong ownership",
-                    root.display()
-                ),
+                Ok(_) => Err(CacheError::WrongOwnership(root.to_path_buf())),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    bail!(
-                        "refusing to use unrecognized Moon cache root `{}`",
-                        root.display()
-                    )
+                    Err(CacheError::UnrecognizedRoot(root.to_path_buf()))
                 }
                 Err(error) => Err(error.into()),
             }
@@ -140,16 +154,16 @@ fn cache_root_state(kind: CacheKind, root: &Path) -> anyhow::Result<CacheRootSta
 }
 
 /// Validate an existing cache root without creating it or its ownership marker.
-pub fn validate_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()> {
+#[tracing::instrument(level = "debug", skip_all, fields(kind = ?kind, root = %root.display()))]
+pub fn validate_cache_root(kind: CacheKind, root: &Path) -> Result<(), CacheError> {
     cache_root_state(kind, root).map(|_| ())
 }
 
-pub fn initialize_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()> {
+#[tracing::instrument(level = "debug", skip_all, fields(kind = ?kind, root = %root.display()))]
+pub fn initialize_cache_root(kind: CacheKind, root: &Path) -> Result<(), CacheError> {
     let state = match cache_root_state(kind, root)? {
         CacheRootState::Missing => {
-            std::fs::create_dir_all(root).with_context(|| {
-                format!("failed to create Moon cache root `{}`", root.display())
-            })?;
+            std::fs::create_dir_all(root)?;
             cache_root_state(kind, root)?
         }
         state => state,
@@ -158,20 +172,14 @@ pub fn initialize_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()>
         CacheRootState::Initialized => return Ok(()),
         CacheRootState::Empty => {}
         CacheRootState::Missing => {
-            bail!(
-                "Moon cache root `{}` disappeared during initialization",
-                root.display()
-            )
+            return Err(CacheError::RootDisappeared(root.to_path_buf()));
         }
     }
 
     let marker = root.join(OWNERSHIP_MARKER);
-    let parent = root.parent().with_context(|| {
-        format!(
-            "Moon cache root `{}` has no parent directory",
-            root.display()
-        )
-    })?;
+    let parent = root
+        .parent()
+        .ok_or_else(|| CacheError::RootWithoutParent(root.to_path_buf()))?;
     // Stage outside the root so another initializer never mistakes our
     // temporary marker for user-owned contents.
     let mut staged = tempfile::NamedTempFile::new_in(parent)?;
@@ -186,32 +194,28 @@ pub fn initialize_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()>
             if std::fs::read(marker)? == kind.ownership() {
                 Ok(())
             } else {
-                bail!(
-                    "Moon cache root `{}` has the wrong ownership",
-                    root.display()
-                )
+                Err(CacheError::WrongOwnership(root.to_path_buf()))
             }
         }
         Err(error) => Err(error.error.into()),
     }
 }
 
-pub fn make_cache_tree_readonly(root: &Path) -> anyhow::Result<()> {
+#[tracing::instrument(level = "debug", skip_all, fields(root = %root.display()))]
+pub fn make_cache_tree_readonly(root: &Path) -> Result<(), CacheError> {
     set_cache_tree_readonly(root, true)
 }
 
-pub fn make_cache_tree_writable(root: &Path) -> anyhow::Result<()> {
+#[tracing::instrument(level = "debug", skip_all, fields(root = %root.display()))]
+pub fn make_cache_tree_writable(root: &Path) -> Result<(), CacheError> {
     set_cache_tree_readonly(root, false)
 }
 
-fn set_cache_tree_readonly(root: &Path, readonly: bool) -> anyhow::Result<()> {
+fn set_cache_tree_readonly(root: &Path, readonly: bool) -> Result<(), CacheError> {
     let metadata = std::fs::symlink_metadata(root)?;
     if metadata.file_type().is_symlink() {
         if readonly {
-            bail!(
-                "refusing to change permissions through cache symlink `{}`",
-                root.display()
-            );
+            return Err(CacheError::SymlinkedEntry(root.to_path_buf()));
         }
         // A cache clean removes this directory entry without following it.
         return Ok(());
@@ -242,7 +246,8 @@ fn set_cache_tree_readonly(root: &Path, readonly: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
+#[tracing::instrument(level = "debug", skip_all, fields(kind = ?kind))]
+pub fn clean_cache(kind: CacheKind) -> Result<(), CacheError> {
     let CacheRoot::Path(root) = resolve_cache_root(kind)? else {
         return Ok(());
     };
@@ -252,10 +257,7 @@ pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
         Err(error) => return Err(error.into()),
     };
     if metadata.file_type().is_symlink() {
-        bail!(
-            "refusing to clean symlinked Moon cache root `{}`",
-            root.display()
-        );
+        return Err(CacheError::CleanSymlinkedRoot(root));
     }
     if metadata.is_dir() && std::fs::read_dir(&root)?.next().transpose()?.is_none() {
         std::fs::remove_dir(root)?;
@@ -271,8 +273,5 @@ pub fn clean_cache(kind: CacheKind) -> anyhow::Result<()> {
         std::fs::remove_dir_all(root)?;
         return Ok(());
     }
-    bail!(
-        "refusing to clean unrecognized Moon cache root `{}`",
-        root.display()
-    )
+    Err(CacheError::CleanUnrecognizedRoot(root))
 }

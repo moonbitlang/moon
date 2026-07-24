@@ -55,6 +55,7 @@ shlex.workspace = true
 logos = "0.15.1"
 globset = "0.4"
 tempfile.workspace = true
+tracing.workspace = true
 
 [target."cfg(unix)".dependencies]
 libc.workspace = true

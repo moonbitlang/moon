@@ -59,6 +59,8 @@ pub enum PackageDirsError {
     #[error("pinned workspace `{workspace}` from MOON_WORK does not apply to module `{module}`")]
     PinnedWorkspaceDoesNotApply { workspace: PathBuf, module: PathBuf },
     #[error(transparent)]
+    Cache(#[from] crate::cache::CacheError),
+    #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
@@ -168,9 +170,7 @@ impl SourceTargetDirs {
     ) -> Result<SingleFilePackageDirs, PackageDirsError> {
         let mut dirs = self.single_file_package_dirs(file_path)?;
         dirs.package_dirs.dependency_source =
-            match crate::cache::resolve_cache_root(crate::cache::CacheKind::DependencySources)
-                .map_err(PackageDirsError::from)?
-            {
+            match crate::cache::resolve_cache_root(crate::cache::CacheKind::DependencySources)? {
                 crate::cache::CacheRoot::Disabled => DependencySource::ProjectLocal,
                 crate::cache::CacheRoot::Path(root) => DependencySource::SharedCache(root),
             };

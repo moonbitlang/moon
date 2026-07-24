@@ -17,7 +17,8 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::{
-    dep_dir::{prepare_cached_deps, resolve_dep_dirs},
+    dep_dir::resolve_dep_dirs,
+    prepared_source::prepare_cached_deps,
     registry,
     resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
 };

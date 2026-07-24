@@ -640,7 +640,94 @@ Error: Failed to resolve the module dependency graph
 
 Caused by:
     0: When preparing cached packages
-    1: prepared dependency source `cachetest/shared@1.0.0` has an invalid source directory
+    1: prepared dependency source `cachetest/shared@1.0.0` has an invalid entry
+    2: prepared dependency source contains symlink `[..]/source`
+
+"#]]);
+}
+
+#[test]
+#[cfg(unix)]
+fn cached_dependency_source_rejects_nested_symlink() {
+    let moon_home = tempfile::tempdir().unwrap();
+    let dependency_cache = tempfile::tempdir().unwrap();
+    let source_dir = tempfile::tempdir().unwrap();
+    cache_registry_package(moon_home.path());
+    let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let entry = dependency_cache
+        .path()
+        .join("registry/cachetest/shared/1.0.0");
+    moonutil::cache::make_cache_tree_writable(&entry).unwrap();
+    let source_file = entry.join("source/src/lib.mbt");
+    let moved_source_file = entry.join("source/src/lib.real.mbt");
+    std::fs::rename(&source_file, &moved_source_file).unwrap();
+    std::os::unix::fs::symlink(&moved_source_file, &source_file).unwrap();
+    for cache_entry in walkdir::WalkDir::new(&entry) {
+        let cache_entry = cache_entry.unwrap();
+        let metadata = std::fs::symlink_metadata(cache_entry.path()).unwrap();
+        if !metadata.file_type().is_symlink() {
+            let mut permissions = metadata.permissions();
+            permissions.set_readonly(true);
+            std::fs::set_permissions(cache_entry.path(), permissions).unwrap();
+        }
+    }
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to resolve the module dependency graph
+
+Caused by:
+    0: When preparing cached packages
+    1: prepared dependency source `cachetest/shared@1.0.0` has an invalid entry
+    2: prepared dependency source contains symlink `[..]/source/src/lib.mbt`
+
+"#]]);
+}
+
+#[test]
+#[cfg(unix)]
+fn cached_dependency_source_rejects_nested_writable_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let moon_home = tempfile::tempdir().unwrap();
+    let dependency_cache = tempfile::tempdir().unwrap();
+    let source_dir = tempfile::tempdir().unwrap();
+    cache_registry_package(moon_home.path());
+    let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let entry = dependency_cache
+        .path()
+        .join("registry/cachetest/shared/1.0.0");
+    let source_file = entry.join("source/src/lib.mbt");
+    let mut permissions = std::fs::metadata(&source_file).unwrap().permissions();
+    permissions.set_mode(permissions.mode() | 0o200);
+    std::fs::set_permissions(&source_file, permissions).unwrap();
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to resolve the module dependency graph
+
+Caused by:
+    0: When preparing cached packages
+    1: prepared dependency source `cachetest/shared@1.0.0` has an invalid entry
+    2: prepared dependency source contains writable entry `[..]/source/src/lib.mbt`
 
 "#]]);
 }

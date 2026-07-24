@@ -26,7 +26,6 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    cache::{CacheKind, initialize_cache_root, validate_cache_root},
     constants::MOONBITLANG_CORE,
     locks::FileLock,
     resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
@@ -35,9 +34,6 @@ use moonutil::{
 use semver::Version;
 
 use crate::registry::Registry;
-
-const PREPARED_SOURCE_CHECKSUM: &str = "checksum";
-const PREPARED_SOURCE_DIR: &str = "source";
 
 type DepDirState = HashMap<ArcStr, HashMap<ArcStr, Option<Version>>>;
 type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
@@ -293,7 +289,7 @@ fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
         .unwrap_or_else(|| pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual))
 }
 
-fn non_registry_source_dir(module: &ModuleSource) -> Option<PathBuf> {
+pub(crate) fn non_registry_source_dir(module: &ModuleSource) -> Option<PathBuf> {
     match module.source() {
         ModuleSourceKind::Registry => None,
         ModuleSourceKind::Local(path) => Some(path.clone()),
@@ -315,155 +311,6 @@ pub(crate) fn resolve_dep_dirs(dep_dir: &DepDir, pkg_list: &ResolvedEnv) -> DirS
         res.insert(id, map_source_to_dir(dep_dir, module));
     }
     res
-}
-
-pub(crate) fn prepare_cached_deps(
-    cache_root: &Path,
-    registry: &dyn Registry,
-    pkg_list: &ResolvedEnv,
-    quiet: bool,
-    frozen: bool,
-    verbose: bool,
-) -> anyhow::Result<DirSyncResult> {
-    let has_registry_module = pkg_list
-        .all_modules()
-        .any(|module| matches!(module.source(), ModuleSourceKind::Registry));
-    if has_registry_module {
-        if frozen {
-            validate_cache_root(CacheKind::DependencySources, cache_root)?;
-        } else {
-            initialize_cache_root(CacheKind::DependencySources, cache_root)?;
-        }
-    }
-
-    let mut result = DirSyncResult::default();
-    for (id, module) in pkg_list.all_modules_and_id() {
-        let path = match non_registry_source_dir(module) {
-            Some(path) => path,
-            None => prepare_cached_dep(cache_root, registry, module, quiet, frozen, verbose)?,
-        };
-        result.insert(id, path);
-    }
-    Ok(result)
-}
-
-fn prepare_cached_dep(
-    cache_root: &Path,
-    registry: &dyn Registry,
-    module: &ModuleSource,
-    quiet: bool,
-    frozen: bool,
-    verbose: bool,
-) -> anyhow::Result<PathBuf> {
-    let name = module.name();
-    let version = module.version();
-    crate::registry::path::validate_module_name(name)?;
-    let expected_checksum = registry.checksum_of(name, version)?;
-    let module_root = cache_root
-        .join("registry")
-        .join(name.username.as_str())
-        .join(name.unqual.as_str());
-    let _lock = if frozen {
-        None
-    } else {
-        std::fs::create_dir_all(&module_root)?;
-        Some(FileLock::lock_with_verbosity(&module_root, verbose)?)
-    };
-
-    let entry = module_root.join(version.to_string());
-    let source = entry.join(PREPARED_SOURCE_DIR);
-    match std::fs::symlink_metadata(&entry) {
-        Ok(entry_metadata) => {
-            if !entry_metadata.is_dir() || !entry_metadata.permissions().readonly() {
-                anyhow::bail!(
-                    "prepared dependency source `{name}@{version}` has an invalid entry directory"
-                );
-            }
-            let checksum_path = entry.join(PREPARED_SOURCE_CHECKSUM);
-            let Ok(checksum_metadata) = std::fs::symlink_metadata(&checksum_path) else {
-                anyhow::bail!(
-                    "prepared dependency source `{name}@{version}` has invalid checksum metadata"
-                );
-            };
-            if !checksum_metadata.is_file() || !checksum_metadata.permissions().readonly() {
-                anyhow::bail!(
-                    "prepared dependency source `{name}@{version}` has invalid checksum metadata"
-                );
-            }
-            let Ok(source_metadata) = std::fs::symlink_metadata(&source) else {
-                anyhow::bail!(
-                    "prepared dependency source `{name}@{version}` has an invalid source directory"
-                );
-            };
-            if !source_metadata.is_dir() || !source_metadata.permissions().readonly() {
-                anyhow::bail!(
-                    "prepared dependency source `{name}@{version}` has an invalid source directory"
-                );
-            }
-            let published_checksum =
-                std::fs::read_to_string(&checksum_path).with_context(|| {
-                    format!(
-                        "prepared dependency source `{name}@{version}` is missing checksum metadata"
-                    )
-                })?;
-            // A registry version is one immutable identity. A changed checksum is
-            // registry corruption, not a new cache variant to publish.
-            if published_checksum.trim() != expected_checksum {
-                anyhow::bail!(
-                    "registry checksum for `{name}@{version}` changed; published versions are immutable"
-                );
-            }
-            return Ok(source);
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-
-    if frozen {
-        anyhow::bail!(
-            "Failed to sync dependencies: `frozen` is set, so the build system cannot prepare `{name}@{version}` in the dependency cache"
-        );
-    }
-
-    let staging = tempfile::TempDir::new_in(&module_root)?;
-    let staging_source = staging.path().join(PREPARED_SOURCE_DIR);
-    registry.extract_to_verified(name, version, &expected_checksum, &staging_source, quiet)?;
-    let manifest = moonutil::manifest::read_module_desc_file_in_dir(&staging_source)?;
-    if manifest.name != name.to_string() || manifest.version.as_ref() != Some(version) {
-        anyhow::bail!(
-            "registry archive for `{name}@{version}` contains manifest for `{}@{}`",
-            manifest.name,
-            manifest
-                .version
-                .as_ref()
-                .map_or_else(|| "<missing>".to_string(), ToString::to_string)
-        );
-    }
-    if manifest
-        .scripts
-        .as_ref()
-        .is_some_and(|scripts| scripts.contains_key("postadd"))
-    {
-        anyhow::bail!(
-            "dependency `{name}@{version}` declares `scripts.postadd`, which is not supported by the shared dependency cache"
-        );
-    }
-    std::fs::write(
-        staging.path().join(PREPARED_SOURCE_CHECKSUM),
-        format!("{expected_checksum}\n"),
-    )?;
-    // The lock keeps readers out until the atomically renamed entry is fully
-    // read-only. Some platforms do not allow renaming a read-only directory.
-    std::fs::rename(staging.path(), &entry)?;
-    if let Err(error) = moonutil::cache::make_cache_tree_readonly(&entry) {
-        // Do not leave a visible entry that a later cache hit could accept as
-        // a complete publication.
-        let _ = moonutil::cache::make_cache_tree_writable(&entry);
-        let _ = std::fs::remove_dir_all(&entry);
-        return Err(error);
-    }
-
-    Ok(source)
 }
 
 #[cfg(test)]
