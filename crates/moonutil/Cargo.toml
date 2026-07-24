@@ -55,9 +55,6 @@ shlex.workspace = true
 logos = "0.15.1"
 globset = "0.4"
 
-[target."cfg(unix)".dependencies]
-libc.workspace = true
-
 [target."cfg(windows)".dependencies]
 find-msvc-tools.workspace = true
 

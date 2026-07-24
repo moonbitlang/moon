@@ -12,9 +12,8 @@ parallel execution.
 ## Context
 
 `moon run` used to pass the requested program through the shared Tokio child
-runner. On macOS, that runner wraps process creation in
-`macos_with_sigchild_blocked`, which temporarily blocks `SIGCHLD` to work
-around a suspected Tokio child-wait race.
+runner. On macOS, that runner temporarily blocks `SIGCHLD` during process
+creation to work around a suspected Tokio child-wait race.
 
 Signal masks are inherited at process creation. Blocking `SIGCHLD` around
 spawn therefore also started the requested user program with `SIGCHLD`
@@ -61,7 +60,9 @@ responsibility: it cleans up the child process tree if the parent exits.
 
 Command construction remains shared between run and test paths. The test
 runner converts the standard command into a Tokio command only at its own
-execution seam.
+execution seam. On macOS, that seam retains the historical wait workaround but
+restores the parent's original signal mask in the child before `exec`, so the
+temporary block does not escape into the test program.
 
 ## Why Unix `exec` was rejected
 
@@ -113,7 +114,9 @@ Unconditionally unblocking `SIGCHLD` in the child can conceal a bug in the
 parent runner and silently changes the signal-mask contract inherited from the
 caller. `moon run` has no need to manipulate the mask at all once it avoids the
 masking runner. Defensive normalization in a general process library would be
-a separate decision with separate compatibility requirements.
+a separate decision with separate compatibility requirements. This differs
+from the test runner restoring the exact mask that existed before its own
+temporary block.
 
 ### Use a cleanup helper process
 
@@ -162,6 +165,9 @@ The process-lifecycle behavior is anchored by integration tests:
   ensures Moon does not add a wrapper error to the child's panic output.
 - The run-command suite covers normal Wasm, JavaScript, native error, argument,
   and backtrace behavior.
+- On macOS, `spawned_child_can_asynchronously_wait_for_its_child` verifies that
+  the test runner does not pass its temporary `SIGCHLD` block into a child
+  which asynchronously waits for another process.
 
 Prefer end-to-end child behavior over signal-mask probes when adding
 regressions. A representative program that spawns and waits for its own child

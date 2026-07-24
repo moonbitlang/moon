@@ -69,6 +69,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-chrome.workspace = true
 
+[target."cfg(target_os = \"macos\")".dependencies]
+libc.workspace = true
+
 [target."cfg(windows)".dependencies.windows-sys]
 features = [
     "Win32_Foundation",
@@ -90,7 +93,6 @@ escargot.workspace = true
 clap-markdown = "0.1.4"
 similar.workspace = true
 colored.workspace = true
-libc.workspace = true
 moonbuild-debug.workspace = true
 moon-test-util = { path = "../moon-test-util" }
 zip.workspace = true
