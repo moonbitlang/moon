@@ -38,10 +38,7 @@ fn whitespace_test() {
     );
 
     let out = get_stderr(&dir, ["check", "--target", "wasm-gc"]);
-    expect![[r#"
-        Finished. moon: ran 5 tasks, now up to date
-    "#]]
-    .assert_eq(&out);
+    expect![""].assert_eq(&out);
 }
 
 #[test]
@@ -89,11 +86,6 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     );
 
     copy(&dir, &path_with_space)?;
-    check(
-        &out,
-        expect![[r#"
-            Finished. moon: ran 3 tasks, now up to date
-        "#]],
-    );
+    check(&out, expect![""]);
     Ok(())
 }

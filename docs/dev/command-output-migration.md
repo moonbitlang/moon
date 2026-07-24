@@ -1,6 +1,6 @@
 # Command Output Migration
 
-Status: accepted; CO-1, CO-2, CO-4, and CO-5 complete
+Status: accepted; CO-1, CO-2, CO-4, and CO-5 complete; CO-7 in progress
 
 ## Goal
 
@@ -124,12 +124,17 @@ Blocked by: CO-3, CO-4
 
 ### CO-7: Classify build execution output
 
+Status: in progress
+
 Blocked by: CO-4, CO-5
 
 Blocks: CO-8
 
 - Separate durable build summaries from Progress Displays and Process Passthrough.
-- Migrate durable summaries to `UserLog` and build reports to writer-based Command Results.
+- Let full build executors emit successful completion summaries through
+  `UserLog`; failed executions rely on diagnostics plus their nonzero status,
+  and partial execution remains summary-free.
+- Migrate build reports to writer-based Command Results.
 - Keep child stdout/stderr forwarding byte-preserving and keep concurrent progress behind its own renderer seam.
 - Cover both Rupes Recta and the legacy engine in each applicable behavior test.
 - Done when every executor print site is either migrated or documented as passthrough/progress.

@@ -186,7 +186,9 @@ pub(crate) fn run_build_binary_dep(
             target_dir,
             user_log,
         )?;
-        result.print_info(cli.quiet, "building")?;
+        if !result.successful() {
+            return Ok(result.return_code_for_success());
+        }
 
         install_build_rr(&build_meta, &cmd.install_path, bin_name)?;
     }

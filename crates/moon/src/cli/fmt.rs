@@ -113,7 +113,6 @@ fn run_fmt_rr(
         Ok(0)
     } else {
         let res = rr_build::execute_build(&BuildConfig::default(), graph, &target_dir, user_log)?;
-        res.print_info(cli.quiet, "formatting")?;
         Ok(res.return_code_for_success())
     }
 }

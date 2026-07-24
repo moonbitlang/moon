@@ -38,45 +38,6 @@ pub fn create_progress_console(
     }
 }
 
-fn render_result(result: &N2RunStats, quiet: bool, mode: &str) -> anyhow::Result<i32> {
-    match result.n_tasks_executed {
-        None => {
-            eprintln!(
-                "Failed with {} warnings, {} errors.",
-                result.n_warnings, result.n_errors
-            );
-            anyhow::bail!("failed when {mode} project");
-        }
-        Some(n_tasks) => {
-            if !quiet {
-                let finished = "Finished.".green().bold();
-                let warnings_errors = format_warnings_errors(result.n_warnings, result.n_errors);
-
-                match n_tasks {
-                    0 => {
-                        eprintln!("{finished} moon: no work to do{warnings_errors}");
-                    }
-                    n => {
-                        let task_plural = if n == 1 { "" } else { "s" };
-                        eprintln!(
-                            "{finished} moon: ran {n} task{task_plural}, now up to date{warnings_errors}"
-                        );
-                    }
-                }
-            }
-        }
-    }
-    Ok(0)
-}
-
-fn format_warnings_errors(n_warnings: usize, n_errors: usize) -> String {
-    if n_warnings > 0 || n_errors > 0 {
-        format!(" ({n_warnings} warnings, {n_errors} errors)")
-    } else {
-        String::new()
-    }
-}
-
 #[derive(Default)]
 pub struct ResultCatcher {
     pub content_writer: Vec<String>, // todo: might be better to directly write to string
@@ -129,11 +90,6 @@ impl N2RunStats {
     /// Get the return code that should be returned to the shell.
     pub fn return_code_for_success(&self) -> i32 {
         if self.successful() { 0 } else { 1 }
-    }
-
-    pub fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {
-        render_result(self, quiet, mode)?;
-        Ok(())
     }
 }
 

@@ -111,8 +111,6 @@ fn test_multi_process() {
 
                 if output.status.success() {
                     success.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    let out = String::from_utf8(output.stderr).unwrap();
-                    assert!(out.contains("no work to do") || out.contains("now up to date"));
                 } else {
                     println!("moon output: {:?}", String::from_utf8(output.stdout));
                     let error_message = String::from_utf8_lossy(&output.stderr);
@@ -422,7 +420,6 @@ fn test_render_diagnostic_in_patch_file() {
                │      ────────────┬────────────  
                │                  ╰────────────── Warning (unused_value): Unused variable 'unused_in_patch_test_json'
             ───╯
-            Finished. moon: ran 3 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
     check(
@@ -446,7 +443,6 @@ fn test_render_diagnostic_in_patch_file() {
                │      ─────────────┬─────────────  
                │                   ╰─────────────── Warning (unused_value): Unused variable 'unused_in_patch_wbtest_json'
             ───╯
-            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
     check(
@@ -470,7 +466,6 @@ fn test_render_diagnostic_in_patch_file() {
                │      ──────────┬─────────  
                │                ╰─────────── Warning (unused_value): Unused variable 'unused_in_patch_json'
             ───╯
-            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 
@@ -581,7 +576,6 @@ fn test_render_diagnostic_in_patch_file() {
                │       }
                │       ```
             ───╯
-            Finished. moon: ran 2 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 }
@@ -609,12 +603,7 @@ fn test_add_mi_if_self_not_set_in_test_imports() {
 
     check(get_stdout(&dir, ["check"]), expect![""]);
     get_stdout(&dir, ["clean"]);
-    check(
-        get_stderr(&dir, ["check"]),
-        expect![[r#"
-            Finished. moon: ran 8 tasks, now up to date
-        "#]],
-    );
+    check(get_stderr(&dir, ["check"]), expect![""]);
 
     check(
         get_stdout(&dir, ["test", "--no-parallelize", "--sort-input"]),
@@ -795,7 +784,6 @@ fn test_in_main_pkg() {
                │       ┬  
                │       ╰── Warning (unused_value): Unused variable 'a'
             ───╯
-            Finished. moon: ran 6 tasks, now up to date (1 warnings, 0 errors)
         "#]],
     );
 

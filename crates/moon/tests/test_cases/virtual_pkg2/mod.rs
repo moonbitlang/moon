@@ -14,12 +14,7 @@ fn implement_third_party1() {
     );
 
     let s = get_stderr(&dir, ["check", "--target", "wasm-gc", "."]);
-    check(
-        s,
-        expect![[r#"
-            Finished. moon: ran 2 tasks, now up to date
-        "#]],
-    );
+    check(s, expect![""]);
 
     let packages_json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
@@ -83,10 +78,5 @@ fn implement_third_party2() {
     );
 
     let s = get_stderr(&dir, ["build", "--target", "wasm-gc"]);
-    check(
-        s,
-        expect![[r#"
-        Finished. moon: ran 2 tasks, now up to date
-    "#]],
-    );
+    check(s, expect![""]);
 }

@@ -82,8 +82,6 @@ fn test_diagnostic_limit_prioritizes_errors() {
                │            ╰────────── The value identifier missing_identifier is unbound.
             ───╯
             Warning: diagnostic output limited by --diagnostic-limit: 0 errors and 3 warnings were not displayed.
-            Failed with 3 warnings, 1 errors.
-            Error: failed when checking project
         "#]],
     )
 }
