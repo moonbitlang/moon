@@ -38,7 +38,9 @@ ported_fns! {
         } else {
             Ok(PollInstance {
                 fd: unsafe { OwnedFd::from_raw_fd(fd) },
-                raw_events: KeventBuffer(vec![empty_kevent(); EVENT_BUFFER_SIZE]),
+                raw_events: KeventBuffer(
+                    vec![empty_kevent(); EVENT_BUFFER_SIZE].into_boxed_slice(),
+                ),
                 events: Vec::with_capacity(EVENT_BUFFER_SIZE),
             })
         }

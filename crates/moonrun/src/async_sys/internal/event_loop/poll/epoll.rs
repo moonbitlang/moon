@@ -40,7 +40,8 @@ ported_fns! {
                 raw_events: vec![
                     libc::epoll_event { events: 0, u64: 0 };
                     EVENT_BUFFER_SIZE
-                ],
+                ]
+                .into_boxed_slice(),
                 events: Vec::with_capacity(EVENT_BUFFER_SIZE),
             })
         }

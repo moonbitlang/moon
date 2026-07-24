@@ -53,7 +53,7 @@ pub(crate) const PROCESS_EVENT: i32 = 4;
 
 #[cfg(target_os = "macos")]
 #[derive(Debug)]
-struct KeventBuffer(Vec<libc::kevent>);
+struct KeventBuffer(Box<[libc::kevent]>);
 
 #[cfg(target_os = "macos")]
 // SAFETY: libc::kevent is plain kernel event storage. Its udata field prevents
@@ -70,7 +70,7 @@ pub(crate) struct PollInstance {
     // Unix pollers retain both buffers so waits do not allocate or initialize
     // 1024 native events before copying the ready subset on every call.
     #[cfg(target_os = "linux")]
-    raw_events: Vec<libc::epoll_event>,
+    raw_events: Box<[libc::epoll_event]>,
     #[cfg(target_os = "macos")]
     raw_events: KeventBuffer,
     events: Vec<PollEvent>,
