@@ -223,6 +223,60 @@ fn run_mbtx_forms_reuse_prepared_dependency_source() {
 }
 
 #[test]
+fn frozen_cache_miss_does_not_initialize_dependency_cache() {
+    let moon_home = tempfile::tempdir().unwrap();
+    let cache_parent = tempfile::tempdir().unwrap();
+    let dependency_cache = cache_parent.path().join("missing");
+    let source_dir = tempfile::tempdir().unwrap();
+    cache_registry_package(moon_home.path());
+    let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
+
+    run_moon(source_dir.path(), moon_home.path(), &dependency_cache)
+        .args(["run", script.to_str().unwrap(), "--frozen"])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to resolve the module dependency graph
+
+Caused by:
+    0: When preparing cached packages
+    1: Failed to sync dependencies: `frozen` is set, so the build system cannot prepare `cachetest/shared@1.0.0` in the dependency cache
+
+"#]]);
+
+    assert!(!dependency_cache.exists());
+}
+
+#[test]
+fn frozen_cache_hit_does_not_touch_dependency_lock() {
+    let moon_home = tempfile::tempdir().unwrap();
+    let dependency_cache = tempfile::tempdir().unwrap();
+    let source_dir = tempfile::tempdir().unwrap();
+    cache_registry_package(moon_home.path());
+    let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout_eq("42\n");
+
+    let lock = dependency_cache
+        .path()
+        .join("registry/cachetest/shared")
+        .join(moonutil::constants::MOON_LOCK);
+    std::fs::write(&lock, "unchanged").unwrap();
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap(), "--frozen"])
+        .assert()
+        .success()
+        .stdout_eq("42\n");
+
+    assert_eq!(std::fs::read_to_string(lock).unwrap(), "unchanged");
+}
+
+#[test]
 fn ordinary_project_commands_keep_project_local_mooncakes() {
     let moon_home = tempfile::tempdir().unwrap();
     let dependency_cache = tempfile::tempdir().unwrap();

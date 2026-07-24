@@ -26,7 +26,7 @@ use std::{
 use anyhow::Context;
 use arcstr::ArcStr;
 use moonutil::{
-    cache::{CacheKind, initialize_cache_root},
+    cache::{CacheKind, initialize_cache_root, validate_cache_root},
     constants::MOONBITLANG_CORE,
     locks::FileLock,
     resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
@@ -329,7 +329,11 @@ pub(crate) fn prepare_cached_deps(
         .all_modules()
         .any(|module| matches!(module.source(), ModuleSourceKind::Registry));
     if has_registry_module {
-        initialize_cache_root(CacheKind::DependencySources, cache_root)?;
+        if frozen {
+            validate_cache_root(CacheKind::DependencySources, cache_root)?;
+        } else {
+            initialize_cache_root(CacheKind::DependencySources, cache_root)?;
+        }
     }
 
     let mut result = DirSyncResult::default();
@@ -359,8 +363,12 @@ fn prepare_cached_dep(
         .join("registry")
         .join(name.username.as_str())
         .join(name.unqual.as_str());
-    std::fs::create_dir_all(&module_root)?;
-    let _lock = FileLock::lock_with_verbosity(&module_root, verbose)?;
+    let _lock = if frozen {
+        None
+    } else {
+        std::fs::create_dir_all(&module_root)?;
+        Some(FileLock::lock_with_verbosity(&module_root, verbose)?)
+    };
 
     let entry = module_root.join(version.to_string());
     let source = entry.join(PREPARED_SOURCE_DIR);
