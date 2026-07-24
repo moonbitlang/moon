@@ -23,7 +23,6 @@ use std::time::Instant;
 
 use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
-use moonutil::platform::macos_with_sigchild_blocked;
 use tokio::process::Command;
 use tracing::debug;
 #[cfg(windows)]
@@ -67,12 +66,10 @@ pub(crate) async fn run<'a>(
     }
     cmd.kill_on_drop(true); // to prevent zombie processes;
 
-    // Preventing race conditions with SIGCHLD handlers, see definition for info
     let spawn_start = Instant::now();
-    let mut child = macos_with_sigchild_blocked(|| {
-        cmd.spawn()
-            .with_context(|| format!("Failed to spawn command {:?}", cmd))
-    })?;
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("Failed to spawn command {:?}", cmd))?;
     let child_pid = child.id();
     let child_start = Instant::now();
     debug!(
