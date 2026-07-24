@@ -391,11 +391,7 @@ pub(crate) fn run_run(
     } else {
         build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli), output)?
     };
-    let result = run_executable(cli, &cmd, executable, output);
-    if crate::run::shutdown_requested() {
-        return Ok(130);
-    }
-    result
+    run_executable(cli, &cmd, executable, output)
 }
 
 /// Resolve the run input, plan it, and build the executable artifact.
@@ -868,6 +864,8 @@ fn run_executable(
 
     #[cfg(not(unix))]
     {
+        #[cfg(windows)]
+        super::process::install_ctrl_c_passthrough_handler()?;
         let mut child = run_cmd
             .spawn()
             .with_context(|| format!("Failed to spawn command {:?}", run_cmd))?;
