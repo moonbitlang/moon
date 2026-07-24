@@ -294,46 +294,6 @@ fn multi_segment_registry_module_uses_nested_cache_path() {
 }
 
 #[test]
-fn path_safe_registry_module_characters_are_preserved_in_cache() {
-    let moon_home = tempfile::tempdir().unwrap();
-    let dependency_cache = tempfile::tempdir().unwrap();
-    let source_dir = tempfile::tempdir().unwrap();
-    cache_registry_package_with_manifest(
-        moon_home.path(),
-        "user/foo.bar",
-        r#"{"name":"user/foo.bar","version":"1.0.0","source":"src"}"#,
-        0,
-    );
-    cache_registry_package_with_manifest(
-        moon_home.path(),
-        MODULE_NAME,
-        r#"{
-  "name": "cachetest/shared",
-  "version": "1.0.0",
-  "source": "src",
-  "deps": {
-    "user/foo.bar": "1.0.0"
-  }
-}"#,
-        0,
-    );
-    let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
-
-    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
-        .args(["run", script.to_str().unwrap()])
-        .assert()
-        .success()
-        .stdout_eq("42\n");
-
-    assert!(
-        dependency_cache
-            .path()
-            .join("registry/user/foo.bar/1.0.0/source/src/lib.mbt")
-            .is_file()
-    );
-}
-
-#[test]
 fn major_version_module_suffixes_coexist_in_nested_cache() {
     let moon_home = tempfile::tempdir().unwrap();
     let dependency_cache = tempfile::tempdir().unwrap();

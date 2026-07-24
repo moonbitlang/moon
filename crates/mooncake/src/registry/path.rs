@@ -70,13 +70,24 @@ fn parse_path_components(path: &str) -> anyhow::Result<Vec<&str>> {
 
 pub(crate) fn validate_module_name(module: &ModuleName) -> anyhow::Result<()> {
     let username_components = parse_path_components(&module.username)?;
-    if username_components.len() != 1 {
+    if username_components.len() != 1
+        || !username_components.iter().all(|component| {
+            component
+                .chars()
+                .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+        })
+    {
         anyhow::bail!("registry module `{module}` has an invalid username");
     }
-    // Cache paths must preserve the registry's existing module-name grammar.
-    // Validate path safety here without imposing an additional character set.
-    parse_path_components(&module.unqual)
+    let name_components = parse_path_components(&module.unqual)
         .map_err(|_| anyhow::anyhow!("registry module `{module}` has an invalid name"))?;
+    if !name_components.iter().all(|component| {
+        component
+            .chars()
+            .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
+    }) {
+        anyhow::bail!("registry module `{module}` has an invalid name");
+    }
     Ok(())
 }
 
@@ -298,6 +309,10 @@ mod tests {
                 unqual: "module//package".into(),
             },
             ModuleName {
+                username: "user".into(),
+                unqual: "module.name".into(),
+            },
+            ModuleName {
                 username: r"C:\cache".into(),
                 unqual: "module".into(),
             },
@@ -307,14 +322,12 @@ mod tests {
     }
 
     #[test]
-    fn cache_module_names_allow_path_safe_name_components() {
-        for name in ["e/l/l/o", "foo.bar"] {
-            let module = ModuleName {
-                username: "h".into(),
-                unqual: name.into(),
-            };
-            validate_module_name(&module).unwrap();
-        }
+    fn cache_module_names_allow_multiple_name_components() {
+        let module = ModuleName {
+            username: "h".into(),
+            unqual: "e/l/l/o".into(),
+        };
+        validate_module_name(&module).unwrap();
     }
 
     #[test]
