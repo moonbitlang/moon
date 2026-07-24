@@ -76,6 +76,7 @@
      │     ──────────┬─────────  
      │               ╰─────────── Warning (unused_package): Unused package 'username/hello/lib'
   ───╯
+  Finished. moon: ran 4 tasks, now up to date (2 warnings, 0 errors)
   
   $ xcat _build/packages.json
   {

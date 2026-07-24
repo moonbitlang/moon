@@ -87,7 +87,7 @@ where
         let path = path.as_ref();
         let (dir, _) = canonicalize_with_filename(path)?;
         let Ok(pkg_id) = filter_pkg_by_dir(&dir) else {
-            user_log.info(format!(
+            user_log.warn(format!(
                 "skipping path `{}` because it is not a package in the current work context.",
                 path.display()
             ));
@@ -449,7 +449,7 @@ where
 
     for (path, pkg_id) in &unsupported {
         let pkg = resolve_output.pkg_dirs.get_package(*pkg_id);
-        user_log.info(format!(
+        user_log.warn(format!(
             "skipping path `{}` because package `{}` does not support target backend `{}`. Supported backends: {}",
             path.display(),
             pkg.fqn,

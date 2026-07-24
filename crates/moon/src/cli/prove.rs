@@ -197,7 +197,7 @@ pub(crate) fn run_prove(
     let _lock = FileLock::lock(target_dir)?;
     rr_build::generate_all_pkgs_json(&build_meta)?;
     let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
-    let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
+    let result = rr_build::execute_build_silently(&cfg, build_graph, target_dir, user_log)?;
     if !cli.quiet && !build_flags.output_json {
         let _ = print_prove_summary(project_root, &proof_reports);
     }

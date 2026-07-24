@@ -48,9 +48,8 @@ use tracing::{Level, instrument};
 
 use crate::filter::{
     TargetPackageGroup, canonicalize_with_filename, ensure_package_supports_backend,
-    ensure_packages_support_backend, filter_pkg_by_dir, format_supported_backends,
-    group_packages_by_preferred_backend, package_supports_backend, select_packages,
-    select_supported_packages,
+    ensure_packages_support_backend, filter_pkg_by_dir, group_packages_by_preferred_backend,
+    package_supports_backend, select_packages, select_supported_packages,
 };
 use crate::rr_build::{self, BuildConfig, CalcUserIntentOutput, preconfig_compile};
 use crate::watch::prebuild_output::{PrebuildWatchPaths, rr_get_prebuild_watch_paths};
@@ -698,7 +697,6 @@ pub(crate) fn resolve_check_target_selections(
             resolve_output,
             selection.packages,
             selection.target_backend,
-            user_log,
         )?;
         if !packages.is_empty() {
             filtered.push(TargetPackageGroup {
@@ -751,7 +749,6 @@ fn filter_packages_for_backend(
     resolve_output: &moonbuild_rupes_recta::ResolveOutput,
     packages: Vec<PackageId>,
     target_backend: TargetBackend,
-    user_log: &UserLog,
 ) -> anyhow::Result<Vec<PackageId>> {
     let mut supported = Vec::new();
     let mut unsupported = Vec::new();
@@ -774,17 +771,6 @@ fn filter_packages_for_backend(
                 target_backend,
             )?;
         }
-    }
-
-    for pkg in unsupported {
-        let pkg_id = pkg;
-        let pkg = resolve_output.pkg_dirs.get_package(pkg_id);
-        user_log.info(format!(
-            "skipping package `{}` because it does not support the selected target backend `{}`. Supported backends: {}",
-            pkg.fqn,
-            target_backend,
-            format_supported_backends(resolve_output, pkg_id),
-        ));
     }
 
     Ok(supported)

@@ -5,4 +5,5 @@
   $ moon build --target wasm-gc --build-graph --sort-input
   
   Warning: `--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead
+  Finished. moon: ran 2 tasks, now up to date
   

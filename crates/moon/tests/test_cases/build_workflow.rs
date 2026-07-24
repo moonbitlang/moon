@@ -72,13 +72,21 @@ fn test_need_link() {
 #[test]
 fn test_build_summary_follows_user_log_level() {
     let dir = TestDir::new("moon_new/plain");
-    assert_eq!(get_stderr(&dir, ["check"]), "");
+    let out = get_stderr(&dir, ["check"]);
+    assert!(out.contains("now up to date"));
 
-    let out = get_stderr(&dir, ["check", "--verbose"]);
+    assert_eq!(get_stderr(&dir, ["check", "--quiet"]), "");
+
+    let out = get_stderr(&dir, ["check"]);
     assert!(out.contains("moon: no work to do"));
 
-    assert_eq!(get_stderr(&dir, ["build"]), "");
-    let out = get_stderr(&dir, ["build", "--verbose"]);
+    let dir = TestDir::new("moon_new/plain");
+    let out = get_stderr(&dir, ["build"]);
+    assert!(out.contains("now up to date"));
+
+    assert_eq!(get_stderr(&dir, ["build", "--quiet"]), "");
+
+    let out = get_stderr(&dir, ["build"]);
     assert!(out.contains("moon: no work to do"));
 }
 
@@ -167,7 +175,9 @@ fn test_failed_to_fill_whole_buffer() {
     let dir = TestDir::new("hello");
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc"]),
-        expect![""],
+        expect![[r#"
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
     );
 
     // corrupt the DB intentionally
@@ -436,7 +446,22 @@ fn test_no_warn_deps() {
     let dir = TestDir::new("no_warn_deps.in");
     let dir = dir.join("user.in");
 
-    check(get_stderr(&dir, ["check"]), expect![""]);
-    check(get_stderr(&dir, ["check", "--deny-warn"]), expect![""]);
-    check(get_stderr(&dir, ["build"]), expect![""]);
+    check(
+        get_stderr(&dir, ["check"]),
+        expect![[r#"
+            Finished. moon: ran 5 tasks, now up to date
+        "#]],
+    );
+    check(
+        get_stderr(&dir, ["check", "--deny-warn"]),
+        expect![[r#"
+            Finished. moon: ran 5 tasks, now up to date
+        "#]],
+    );
+    check(
+        get_stderr(&dir, ["build"]),
+        expect![[r#"
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
+    );
 }

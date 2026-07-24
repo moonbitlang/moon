@@ -1013,22 +1013,37 @@ pub fn execute_build(
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
-    let execution = execute_build_capturing(cfg, input, target_dir)?;
-    let result = finish_captured_build(cfg, &execution, None, user_log);
+    let result = execute_build_silently(cfg, input, target_dir, user_log)?;
     report_build_success(&result, user_log);
     Ok(result)
 }
 
-/// Execute standalone dependency-package work before script-package work.
+/// Execute a build plan without a durable completion summary.
+///
+/// This is for commands such as `run` and `prove` whose own result follows the
+/// build. Diagnostics and progress still use `user_log` during execution.
 #[instrument(skip_all)]
-pub fn execute_standalone_build(
+pub fn execute_build_silently(
+    cfg: &BuildConfig,
+    input: BuildInput,
+    target_dir: &Path,
+    user_log: &UserLog,
+) -> anyhow::Result<N2RunStats> {
+    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    Ok(finish_captured_build(cfg, &execution, None, user_log))
+}
+
+/// Execute standalone dependency-package work before script-package work
+/// without a durable completion summary.
+#[instrument(skip_all)]
+pub fn execute_standalone_build_silently(
     cfg: &BuildConfig,
     input: StandaloneBuildInput,
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
     let Some(dependencies) = input.dependencies else {
-        return execute_build(cfg, input.script, target_dir, user_log);
+        return execute_build_silently(cfg, input.script, target_dir, user_log);
     };
 
     let dependency_execution = execute_build_capturing(cfg, dependencies, target_dir)?;
@@ -1083,7 +1098,7 @@ pub fn execute_test_build(
 ) -> anyhow::Result<N2RunStats> {
     let start_nodes = input.graph.get_start_nodes();
 
-    let result = execute_build_partial(
+    execute_build_partial(
         cfg,
         input,
         target_dir,
@@ -1095,9 +1110,7 @@ pub fn execute_test_build(
             }
             Ok(())
         }),
-    )?;
-    report_build_success(&result, user_log);
-    Ok(result)
+    )
 }
 
 fn report_build_success(result: &N2RunStats, user_log: &UserLog) {

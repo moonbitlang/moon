@@ -23,7 +23,6 @@ use log::LevelFilter;
 
 const ERROR_STYLE: Style = AnsiColor::Red.on_default().bold();
 const WARNING_STYLE: Style = AnsiColor::Yellow.on_default().bold();
-const DEBUG_STYLE: Style = AnsiColor::BrightBlack.on_default().bold();
 
 #[derive(Debug, Clone, Copy)]
 pub struct UserLog {
@@ -37,9 +36,9 @@ pub fn user_log_level(verbose: bool, quiet: bool) -> LevelFilter {
     if quiet {
         LevelFilter::Error
     } else if verbose {
-        LevelFilter::Info
+        LevelFilter::Debug
     } else {
-        LevelFilter::Warn
+        LevelFilter::Info
     }
 }
 
@@ -88,7 +87,7 @@ impl UserLog {
 
     fn debug_to(&self, writer: &mut impl Write, message: impl Display) {
         if self.level >= LevelFilter::Debug {
-            let _ = writeln!(writer, "{DEBUG_STYLE}Debug{DEBUG_STYLE:#}: {message}");
+            let _ = writeln!(writer, "{message}");
         }
     }
 }
@@ -100,7 +99,7 @@ mod tests {
     use anstream::{AutoStream, ColorChoice};
     use log::LevelFilter;
 
-    use super::UserLog;
+    use super::{UserLog, user_log_level};
 
     #[test]
     fn error_level_renders_error_and_suppresses_other_messages() {
@@ -143,13 +142,21 @@ mod tests {
     }
 
     #[test]
-    fn debug_level_renders_debug() {
+    fn debug_level_renders_bare_debug() {
         let output = UserLog::new(LevelFilter::Debug);
         let mut writer = AutoStream::new(Vec::new(), ColorChoice::Never);
 
         output.debug_to(&mut writer, "internal context");
 
-        assert_eq!(writer.into_inner(), b"Debug: internal context\n");
+        assert_eq!(writer.into_inner(), b"internal context\n");
+    }
+
+    #[test]
+    fn cli_verbosity_maps_to_user_log_detail() {
+        assert_eq!(user_log_level(false, true), LevelFilter::Error);
+        assert_eq!(user_log_level(false, false), LevelFilter::Info);
+        assert_eq!(user_log_level(true, false), LevelFilter::Debug);
+        assert_eq!(user_log_level(true, true), LevelFilter::Error);
     }
 
     #[test]

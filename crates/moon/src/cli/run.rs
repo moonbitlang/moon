@@ -797,11 +797,14 @@ fn build_executable_from_plan(
             .with_suppressed_progress(options.output.suppress_build_progress());
     let build_result = match build_graph {
         RunBuildInput::Ordinary(build_graph) => {
-            rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?
+            rr_build::execute_build_silently(&build_config, build_graph, target_dir, user_log)?
         }
-        RunBuildInput::Standalone(build_graph) => {
-            rr_build::execute_standalone_build(&build_config, build_graph, target_dir, user_log)?
-        }
+        RunBuildInput::Standalone(build_graph) => rr_build::execute_standalone_build_silently(
+            &build_config,
+            build_graph,
+            target_dir,
+            user_log,
+        )?,
     };
     if build_result.successful() {
         crate::resources::reconcile_resource_mappings(build_meta)?;
@@ -847,7 +850,7 @@ fn run_executable(
         cmd.moonrun_policy.as_deref(),
     );
     run_cmd.args(&cmd.args);
-    output.user_log().info(rr_build::format_dry_run_command(
+    output.user_log().debug(rr_build::format_dry_run_command(
         &run_cmd,
         &executable.source_dir,
     ));

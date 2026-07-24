@@ -767,7 +767,7 @@ fn run_one_test_executable(
     cmd.current_dir(module_root);
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
-    ctx.user_log.info(crate::rr_build::format_dry_run_command(
+    ctx.user_log.debug(crate::rr_build::format_dry_run_command(
         &cmd,
         ctx.source_dir,
     ));

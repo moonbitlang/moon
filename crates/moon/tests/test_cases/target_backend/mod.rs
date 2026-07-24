@@ -158,8 +158,18 @@ fn test_mixed_backend_explicit_multi_path_selection_filters_unsupported_packages
 }
 
 #[test]
-fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode() {
+fn test_mixed_backend_explicit_multi_path_selection_warns_by_default() {
     let dir = TestDir::new("mixed_backend_local_dep.in");
+
+    let stderr = get_stderr(
+        &dir,
+        ["check", "web", "server", "--target", "js", "--dry-run"],
+    );
+    assert!(
+        stderr.contains("skipping path `server`"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("mixed/localdep/server"), "stderr: {stderr}");
 
     let stderr = get_stderr(
         &dir,
@@ -170,18 +180,8 @@ fn test_mixed_backend_explicit_multi_path_selection_warns_only_in_verbose_mode()
             "--target",
             "js",
             "--dry-run",
-            "--verbose",
+            "--quiet",
         ],
-    );
-    assert!(
-        stderr.contains("skipping path `server`"),
-        "stderr: {stderr}"
-    );
-    assert!(stderr.contains("mixed/localdep/server"), "stderr: {stderr}");
-
-    let stderr = get_stderr(
-        &dir,
-        ["check", "web", "server", "--target", "js", "--dry-run"],
     );
     assert!(
         !stderr.contains("skipping path `server`"),
@@ -206,19 +206,30 @@ fn test_moon_build_package_selection_uses_user_log_policy() {
         .success();
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
     let message = "skipping path `never` because package `supported/empty/never` does not support target backend `wasm-gc`. Supported backends: []";
+    let warning = format!("Warning: {message}");
 
     assert!(
-        stderr.lines().any(|line| line == message),
-        "stderr: {stderr}"
-    );
-    assert!(
-        !stderr.contains(&format!("Info: {message}")),
+        stderr.lines().any(|line| line == warning),
         "stderr: {stderr}"
     );
 
     let stderr = get_stderr(
         &dir,
         ["build", "lib", "never", "--target", "wasm-gc", "--dry-run"],
+    );
+    assert!(stderr.contains(&warning), "stderr: {stderr}");
+
+    let stderr = get_stderr(
+        &dir,
+        [
+            "build",
+            "lib",
+            "never",
+            "--target",
+            "wasm-gc",
+            "--dry-run",
+            "--quiet",
+        ],
     );
     assert!(!stderr.contains(message), "stderr: {stderr}");
 }
@@ -403,7 +414,7 @@ fn test_supported_targets_empty_list_is_never_selected() {
 }
 
 #[test]
-fn test_moon_info_verbose_unsupported_path_is_bare_stderr() {
+fn test_moon_info_unsupported_path_is_warning() {
     let dir = TestDir::new("supported_targets_empty.in");
     let assert = moon_cmd(&dir)
         .args(["info", "lib", "never", "--verbose", "--target", "wasm-gc"])
@@ -414,11 +425,9 @@ fn test_moon_info_verbose_unsupported_path_is_bare_stderr() {
     let message = "skipping path `never` because package `supported/empty/never` does not support target backend `wasm-gc`. Supported backends: []";
 
     assert!(
-        stderr.lines().any(|line| line == message),
-        "stderr: {stderr}"
-    );
-    assert!(
-        !stderr.contains(&format!("Info: {message}")),
+        stderr
+            .lines()
+            .any(|line| line == format!("Warning: {message}")),
         "stderr: {stderr}"
     );
 }
@@ -673,7 +682,7 @@ fn test_test_warns_when_test_target_is_never_realizable() {
 }
 
 #[test]
-fn test_check_skips_backend_mismatched_tests_as_info() {
+fn test_check_reports_backend_mismatched_tests_only_in_debug() {
     let dir = TestDir::new("supported_targets_test_target_mismatch.in");
 
     let stderr = get_stderr(&dir, ["check", "--target", "js", "--dry-run"]);

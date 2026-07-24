@@ -515,7 +515,14 @@ fn test_moon_build_filter_by_multiple_paths_skips_outside_current_root() {
             OsString::from("--sort-input"),
         ],
     );
-    assert!(!stderr.contains("skipping path"), "stderr: {stderr}");
+    assert!(
+        stderr.contains(&format!("Warning: skipping path `{outside_display}`")),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("Warning: skipping path `{other_pkg_display}`")),
+        "stderr: {stderr}"
+    );
 }
 
 #[test]
@@ -704,7 +711,14 @@ fn test_moon_check_filter_by_multiple_paths_skips_outside_current_root() {
             OsString::from("--sort-input"),
         ],
     );
-    assert!(!stderr.contains("skipping path"), "stderr: {stderr}");
+    assert!(
+        stderr.contains(&format!("Warning: skipping path `{outside_display}`")),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("Warning: skipping path `{other_pkg_display}`")),
+        "stderr: {stderr}"
+    );
 }
 
 #[test]
