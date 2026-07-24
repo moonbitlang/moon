@@ -898,6 +898,7 @@ fn test_async_wasm_upstream_signal_package() {
     check(
         run_upstream_async_wasm_package("moonbitlang/async/signal"),
         expect![[r#"
+            Finished. moon: no work to do
             Total tests: 3, passed: 3, failed: 0.
         "#]],
     );

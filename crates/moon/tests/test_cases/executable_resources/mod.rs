@@ -128,8 +128,8 @@ fn changing_data_directory_contents_does_not_rebuild_the_executable() {
         .args(["build", "--target", "wasm"])
         .assert()
         .success()
-        .stdout_eq("")
-        .stderr_eq("Finished. moon: no work to do\n");
+        .stdout_eq("Finished. moon: no work to do\n")
+        .stderr_eq("");
     assert_eq!(
         std::fs::read_to_string(dir.join("_build/wasm/debug/build/app/assets/template.mbt"))
             .unwrap(),

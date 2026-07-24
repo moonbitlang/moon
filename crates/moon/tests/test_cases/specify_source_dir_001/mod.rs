@@ -19,7 +19,7 @@ fn test_specify_source_dir_001() {
         expect_file!["test_graph.jsonl.snap"],
     );
     check(
-        get_stderr(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
+        get_stdout(&dir, ["check", "--target", "wasm-gc", "--sort-input"]),
         expect![[r#"
             Finished. moon: ran 4 tasks, now up to date
         "#]],
@@ -283,7 +283,7 @@ fn test_specify_source_dir_001() {
         )
     }
     check(
-        get_stderr(&dir, ["build", "--target", "wasm-gc"]),
+        get_stdout(&dir, ["build", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],

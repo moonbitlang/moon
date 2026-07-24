@@ -12,10 +12,12 @@ Splitting stdout from stderr is independent from normalizing default verbosity. 
 
 ## Interface Shape
 
-`moonutil` should expose a `CommandOutput` facade constructed from the command's user-log level. Its intentionally small interface is:
+`moonutil` should expose a `CommandOutput` facade constructed from the command's
+user-log level and quiet policy. Its intentionally small interface is:
 
 - borrow its `UserLog` for filtered stderr messages;
-- run one closure against locked stdout to render a fallible Command Result.
+- run a closure against locked stdout to render a fallible Command Result;
+- render an informational stdout status unless quiet output was requested.
 
 The stdout operation should preserve the renderer's result type, propagate its `std::io::Write` failures, and hold the lock for the entire logical result. It should not grow methods for every output format.
 
@@ -30,6 +32,7 @@ The facade does not own Process Passthrough, Progress Displays, compiler diagnos
 | Communication | Channel | Filtered | Write policy | Initial owner |
 | --- | --- | --- | --- | --- |
 | Command Result | stdout | never | return failures | `CommandOutput` |
+| Command Status | stdout | `--quiet` | return failures | `CommandOutput` |
 | User Log | stderr | by user-log level | best effort, matching `UserLog` | `UserLog` |
 | Compiler diagnostics | renderer-selected | diagnostic policy | renderer-specific | diagnostic renderer |
 | Process Passthrough | original child channel | never | preserve bytes and ordering as far as the executor permits | run/build executor |
@@ -135,9 +138,10 @@ Blocks: CO-8
 - Keep build execution independent from durable result presentation: it emits
   diagnostics and progress through their existing seams and returns build
   statistics to its caller.
-- Report successful completion through `UserLog`. For human failure output,
-  write the `Failed with ...` command result to stdout and the command context
-  through `UserLog::error`; compiler diagnostics remain independently owned.
+- Write human `Finished ...` and `Failed with ...` build results to stdout.
+  Quiet output suppresses successful status, while failed results remain
+  visible. Write failure context through `UserLog::error`; compiler
+  diagnostics remain independently owned.
 - Omit the build result when a command owns a subsequent primary result, such
   as running a program, reporting proof results, or running tests.
 - Normalize the shared CLI user-log mapping after reclassifying command echoes

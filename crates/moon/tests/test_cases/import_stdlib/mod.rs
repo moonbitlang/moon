@@ -4,13 +4,13 @@ use super::*;
 fn test_import_stdlib() {
     let dir = TestDir::new("import_stdlib/import_stdlib.in");
 
-    let check = get_stderr(&dir, ["check"]);
+    let check = get_stdout(&dir, ["check"]);
     expect![[r#"
         Finished. moon: ran 4 tasks, now up to date
     "#]]
     .assert_eq(&check);
 
-    let build = get_stderr(&dir, ["build"]);
+    let build = get_stdout(&dir, ["build"]);
     expect![[r#"
         Finished. moon: ran 2 tasks, now up to date
     "#]]

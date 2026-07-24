@@ -31,12 +31,14 @@ use crate::user_log::UserLog;
 #[derive(Debug)]
 pub struct CommandOutput {
     user_log: UserLog,
+    quiet: bool,
 }
 
 impl CommandOutput {
-    pub fn new(user_log_level: LevelFilter) -> Self {
+    pub fn new(user_log_level: LevelFilter, quiet: bool) -> Self {
         Self {
             user_log: UserLog::new(user_log_level),
+            quiet,
         }
     }
 
@@ -51,5 +53,16 @@ impl CommandOutput {
     ) -> Result<T, E> {
         let mut stdout = anstream::stdout().lock();
         render(&mut stdout)
+    }
+
+    /// Render an informational command status unless quiet output was requested.
+    pub fn write_status<E>(
+        &self,
+        render: impl FnOnce(&mut dyn Write) -> Result<(), E>,
+    ) -> Result<(), E> {
+        if self.quiet {
+            return Ok(());
+        }
+        self.write_result(render)
     }
 }

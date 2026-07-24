@@ -70,23 +70,25 @@ fn test_need_link() {
 }
 
 #[test]
-fn test_build_summary_follows_user_log_level() {
+fn test_build_summary_uses_stdout_and_respects_quiet() {
     let dir = TestDir::new("moon_new/plain");
-    let out = get_stderr(&dir, ["check"]);
+    let out = get_stdout(&dir, ["check"]);
     assert!(out.contains("now up to date"));
+    assert_eq!(get_stderr(&dir, ["check"]), "");
 
-    assert_eq!(get_stderr(&dir, ["check", "--quiet"]), "");
+    assert_eq!(get_stdout(&dir, ["check", "--quiet"]), "");
 
-    let out = get_stderr(&dir, ["check"]);
+    let out = get_stdout(&dir, ["check"]);
     assert!(out.contains("moon: no work to do"));
 
     let dir = TestDir::new("moon_new/plain");
-    let out = get_stderr(&dir, ["build"]);
+    let out = get_stdout(&dir, ["build"]);
     assert!(out.contains("now up to date"));
+    assert_eq!(get_stderr(&dir, ["build"]), "");
 
-    assert_eq!(get_stderr(&dir, ["build", "--quiet"]), "");
+    assert_eq!(get_stdout(&dir, ["build", "--quiet"]), "");
 
-    let out = get_stderr(&dir, ["build"]);
+    let out = get_stdout(&dir, ["build"]);
     assert!(out.contains("moon: no work to do"));
 }
 
@@ -176,7 +178,7 @@ fn test_failed_to_fill_whole_buffer() {
 
     let dir = TestDir::new("hello");
     check(
-        get_stderr(&dir, ["check", "--target", "wasm-gc"]),
+        get_stdout(&dir, ["check", "--target", "wasm-gc"]),
         expect![[r#"
             Finished. moon: ran 2 tasks, now up to date
         "#]],
@@ -451,19 +453,19 @@ fn test_no_warn_deps() {
     let dir = dir.join("user.in");
 
     check(
-        get_stderr(&dir, ["check"]),
+        get_stdout(&dir, ["check"]),
         expect![[r#"
             Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(
-        get_stderr(&dir, ["check", "--deny-warn"]),
+        get_stdout(&dir, ["check", "--deny-warn"]),
         expect![[r#"
             Finished. moon: ran 5 tasks, now up to date
         "#]],
     );
     check(
-        get_stderr(&dir, ["build"]),
+        get_stdout(&dir, ["build"]),
         expect![[r#"
             Finished. moon: ran 3 tasks, now up to date
         "#]],

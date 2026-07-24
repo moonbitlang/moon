@@ -3,7 +3,7 @@
   moonc build-package ./src/top.mbt -o ./_build/wasm-gc/debug/build/hello.core -pkg username/hello -pkg-type library -std-path '[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle' -i ./_build/wasm-gc/debug/build/lib/lib.mi:lib -i '[MOON_HOME]/lib/core/_build/wasm-gc/release/bundle/prelude/prelude.mi:prelude' -pkg-sources username/hello:./src -target wasm-gc -g -O0 -source-map -workspace-path . -all-pkgs ./_build/wasm-gc/debug/build/all_pkgs.json
   
   $ moon build --target wasm-gc --build-graph --sort-input
+  Finished. moon: ran 2 tasks, now up to date
   
   Warning: `--build-graph` is deprecated. Use -Z rr_export_module_graph, -Z rr_export_package_graph, or -Z rr_export_build_plan instead
-  Finished. moon: ran 2 tasks, now up to date
   

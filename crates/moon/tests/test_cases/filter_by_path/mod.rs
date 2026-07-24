@@ -47,9 +47,10 @@ fn run_info_and_clear(
         std::fs::remove_file(&generated).unwrap();
     }
 
-    check(
-        get_stdout(working_dir, args.iter().copied()),
-        expect![[r#""#]],
+    let stdout = get_stdout(working_dir, args.iter().copied());
+    assert!(
+        stdout.contains("now up to date") || stdout.contains("no work to do"),
+        "stdout: {stdout}"
     );
 
     assert!(
@@ -162,7 +163,12 @@ fn test_moon_info_filter_by_multiple_paths_success() {
         }
     }
 
-    check(get_stdout(&dir, ["info", "A", "lib"]), expect![[r#""#]]);
+    check(
+        get_stdout(&dir, ["info", "A", "lib"]),
+        expect![[r#"
+            Finished. moon: ran 4 tasks, now up to date
+        "#]],
+    );
 
     for pkg in ["A", "lib"] {
         let generated = dir.join(pkg).join(MBTI_GENERATED);
@@ -203,7 +209,9 @@ fn test_moon_info_filter_by_multiple_paths_skips_outside_current_root() {
                 other_pkg.as_os_str().to_os_string(),
             ],
         ),
-        expect![[r#""#]],
+        expect![[r#"
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
     );
 
     let generated = dir.join("A").join(MBTI_GENERATED);
@@ -243,7 +251,12 @@ fn test_moon_info_filter_by_multiple_paths_skips_same_root_non_packages() {
         }
     }
 
-    check(get_stdout(&dir, ["info", "A", "notes"]), expect![[r#""#]]);
+    check(
+        get_stdout(&dir, ["info", "A", "notes"]),
+        expect![[r#"
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
+    );
 
     let generated = dir.join("A").join(MBTI_GENERATED);
     assert!(generated.exists(), "missing {}", generated.display());
@@ -266,7 +279,9 @@ fn test_moon_info_filter_by_multiple_paths_skips_pkg_like_dirs_outside_source() 
 
     check(
         get_stdout(&dir, ["info", "src/main", "generated/ghost"]),
-        expect![[r#""#]],
+        expect![[r#"
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
     );
 
     assert!(generated.exists(), "missing {}", generated.display());
