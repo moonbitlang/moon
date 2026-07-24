@@ -313,12 +313,9 @@ fn run_artifact(
     );
     run_cmd.args(args);
 
-    user_log.info(rr_build::format_dry_run_command(
-        run_cmd.as_std(),
-        Path::new("."),
-    ));
+    user_log.info(rr_build::format_dry_run_command(&run_cmd, Path::new(".")));
 
-    let status = super::process::delegate(run_cmd.as_std_mut())
+    let status = super::process::delegate(&mut run_cmd)
         .context("failed to delegate to registry executable")?;
     status
         .code()

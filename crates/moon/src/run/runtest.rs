@@ -769,7 +769,7 @@ fn run_one_test_executable(
     let mut cov_cap = mk_coverage_capture();
     let mut test_cap = make_test_capture();
     ctx.user_log.info(crate::rr_build::format_dry_run_command(
-        cmd.as_std(),
+        &cmd,
         ctx.source_dir,
     ));
     info!(package = %test.args.package, executable = %test.executable.display(), "launching test executable");

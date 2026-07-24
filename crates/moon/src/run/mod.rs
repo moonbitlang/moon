@@ -22,6 +22,8 @@ mod child;
 mod runtest;
 mod runtime;
 
+#[cfg(windows)]
+pub(crate) use child::assign_process_to_job;
 pub(crate) use child::run;
 pub(crate) use runtest::{
     PackageFilter, TestFilter, TestIndex, TestOutlineEntry, collect_test_invocations,

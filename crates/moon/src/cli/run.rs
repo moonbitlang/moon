@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 use std::{io::Read, path::Path, path::PathBuf};
 
 use anyhow::{Context, bail};
@@ -39,7 +41,6 @@ use crate::filter::ensure_package_supports_backend;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
-use crate::run::default_rt;
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -301,7 +302,8 @@ fn run_source_as_single_file(
         build_only,
         profile,
     };
-    let result = run_single_file_from_arg_with_options(cli, cmd, options, output);
+    let executable = build_single_file_executable_from_arg(cli, &cmd, options, output)?;
+    let result = run_executable(cli, &cmd, executable, output);
     drop(temp_dir);
     result
 }
@@ -344,7 +346,7 @@ fn build_wasm_file_executable_from_arg(
             cmd.moonrun_policy.as_deref(),
         );
         run_cmd.args(&cmd.args);
-        let command = rr_build::format_dry_run_command(run_cmd.as_std(), &print_dir);
+        let command = rr_build::format_dry_run_command(&run_cmd, &print_dir);
         output.write_result(|writer| writeln!(writer, "{command}"))?;
     }
 
@@ -388,11 +390,7 @@ pub(crate) fn run_run(
     } else {
         build_run_executable(cli, &cmd, BuildRunExecutableOptions::for_run(cli), output)?
     };
-    let result = run_executable(cli, &cmd, executable, output);
-    if crate::run::shutdown_requested() {
-        return Ok(130);
-    }
-    result
+    run_executable(cli, &cmd, executable, output)
 }
 
 /// Resolve the run input, plan it, and build the executable artifact.
@@ -579,7 +577,7 @@ fn get_run_cmd(
     build_meta: &rr_build::BuildMeta,
     argv: &[String],
     moonrun_policy: Option<&Path>,
-) -> tokio::process::Command {
+) -> std::process::Command {
     let executable = get_run_executable(build_meta);
     let mut cmd = crate::run::command_for_with_moonrun_policy(
         build_meta.target_backend,
@@ -612,17 +610,6 @@ fn resolve_run_selection(
     let (dir, _filename) = crate::filter::canonicalize_with_filename(Path::new(input_path))?;
     let package = crate::filter::filter_pkg_by_dir(resolve_output, &dir)?;
     Ok(ResolvedRunSelection { package })
-}
-
-#[instrument(level = Level::DEBUG, skip_all)]
-fn run_single_file_from_arg_with_options(
-    cli: &UniversalFlags,
-    cmd: RunSubcommand,
-    options: BuildRunExecutableOptions,
-    output: &CommandOutput,
-) -> anyhow::Result<i32> {
-    let executable = build_single_file_executable_from_arg(cli, &cmd, options, output)?;
-    run_executable(cli, &cmd, executable, output)
 }
 
 /// Build a standalone `.mbt`/`.mbtx` input through the synthesized single-file
@@ -772,7 +759,7 @@ fn build_executable_from_plan(
                 writeln!(
                     writer,
                     "{}",
-                    rr_build::format_dry_run_command(run_cmd.as_std(), source_dir)
+                    rr_build::format_dry_run_command(&run_cmd, source_dir)
                 )?;
             }
             Ok::<_, std::io::Error>(())
@@ -841,11 +828,11 @@ fn run_executable(
     );
     run_cmd.args(&cmd.args);
     output.user_log().info(rr_build::format_dry_run_command(
-        run_cmd.as_std(),
+        &run_cmd,
         &executable.source_dir,
     ));
 
-    // Release the lock before spawning the subprocess
+    // Release the lock before handing control to the executable.
     executable.release_lock();
 
     if cmd.build_only {
@@ -857,14 +844,35 @@ fn run_executable(
         return Ok(0);
     }
 
-    let res = default_rt()
-        .context("Failed to create runtime")?
-        .block_on(crate::run::run(&mut [], false, run_cmd))
-        .context("failed to run command")?;
+    // Keep Moon as the parent on every platform. We deliberately avoid `exec`
+    // on Unix: although it preserves raw signal status, it skips RAII cleanup
+    // in `main` and callers, including the Chrome trace guard and temporary
+    // source/build directories. Standard spawning also avoids the Tokio runner
+    // that temporarily masks SIGCHLD on macOS. See
+    // `docs/dev/design/moon-run-process-lifecycle.md`.
+    #[cfg(unix)]
+    ctrlc::set_handler(|| {}).context("failed to install signal handler")?;
+    #[cfg(windows)]
+    super::process::install_ctrl_c_passthrough_handler()?;
 
-    if let Some(code) = res.code() {
-        Ok(code)
-    } else {
-        bail!("Command exited without a return code")
+    let mut child = run_cmd
+        .spawn()
+        .with_context(|| format!("Failed to spawn command {:?}", run_cmd))?;
+    #[cfg(windows)]
+    if let Err(err) = crate::run::assign_process_to_job(child.as_raw_handle()) {
+        tracing::warn!(?err, "Failed to assign child process to job object");
     }
+    let status = child.wait().context("failed to wait for command")?;
+    if let Some(code) = status.code() {
+        return Ok(code);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+
+        if let Some(signal) = status.signal() {
+            return Ok(128 + signal);
+        }
+    }
+    bail!("Command exited without a return code")
 }

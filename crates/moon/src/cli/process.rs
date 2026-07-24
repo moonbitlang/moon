@@ -30,19 +30,15 @@ pub(crate) fn delegate(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
     Err(cmd.exec().into())
 }
 
-/// Delegate to a command as directly as the platform allows.
-///
-/// On Unix this replaces the current process. On Windows there is no direct
-/// equivalent, so we run the child and wait while letting it handle Ctrl-C.
-/// Use this only for command paths that return directly to process exit.
+/// Keep the parent alive while its Windows console delivers Ctrl-C to children.
 #[cfg(windows)]
-pub(crate) fn delegate(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
+pub(crate) fn install_ctrl_c_passthrough_handler() -> anyhow::Result<()> {
     use anyhow::bail;
     use windows_sys::Win32::Foundation::{BOOL, FALSE, TRUE};
     use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
 
     unsafe extern "system" fn ctrlc_handler(_: u32) -> BOOL {
-        // Do nothing. Let the child process handle it.
+        // The child receives the console event independently.
         TRUE
     }
 
@@ -51,6 +47,16 @@ pub(crate) fn delegate(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
             bail!("could not set Ctrl-C handler")
         }
     }
+    Ok(())
+}
 
+/// Delegate to a command as directly as the platform allows.
+///
+/// On Unix this replaces the current process. On Windows there is no direct
+/// equivalent, so we run the child and wait while letting it handle Ctrl-C.
+/// Use this only for command paths that return directly to process exit.
+#[cfg(windows)]
+pub(crate) fn delegate(cmd: &mut Command) -> anyhow::Result<ExitStatus> {
+    install_ctrl_c_passthrough_handler()?;
     Ok(cmd.status()?)
 }

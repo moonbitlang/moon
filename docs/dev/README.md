@@ -72,6 +72,7 @@ cargo install --path ./crates/moon --debug --offline
 ### Design
 
 - [Global build state and cache design](design/global-build-cache.md)
+- [`moon run` process lifecycle](design/moon-run-process-lifecycle.md)
 - [`docs/dev/reference`](reference/readme.md): implemented MoonBuild behavior.
 
 - `crates/moon`
