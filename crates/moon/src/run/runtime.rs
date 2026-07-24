@@ -19,10 +19,10 @@
 //! Handles which runtime to use to run a specific output.
 
 use std::path::Path;
+use std::process::Command;
 
 use moonbuild::entry::TestArgs;
 use moonbuild_rupes_recta::model::{RunBackend, TccRunConfig};
-use tokio::process::Command;
 
 /// Returns a command to run the given MoonBit executable of a specific
 /// `backend`. The returning command is suitable for adding more commandline

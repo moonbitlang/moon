@@ -277,8 +277,8 @@ fn install_build_rr(
         &installed_artifact,
         None,
     );
-    let parts = std::iter::once(guard.as_std().get_program())
-        .chain(guard.as_std().get_args())
+    let parts = std::iter::once(guard.get_program())
+        .chain(guard.get_args())
         .map(|x| x.to_string_lossy().to_string())
         .collect::<Vec<_>>();
     let line = shlex::try_join(parts.iter().map(|s| &**s))

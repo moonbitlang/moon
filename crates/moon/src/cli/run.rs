@@ -16,6 +16,10 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 use std::{io::Read, path::Path, path::PathBuf};
 
 use anyhow::{Context, bail};
@@ -39,7 +43,6 @@ use crate::filter::ensure_package_supports_backend;
 use crate::rr_build;
 use crate::rr_build::preconfig_compile;
 use crate::rr_build::{BuildConfig, CalcUserIntentOutput};
-use crate::run::default_rt;
 
 use super::{BuildFlags, UniversalFlags};
 
@@ -344,7 +347,7 @@ fn build_wasm_file_executable_from_arg(
             cmd.moonrun_policy.as_deref(),
         );
         run_cmd.args(&cmd.args);
-        let command = rr_build::format_dry_run_command(run_cmd.as_std(), &print_dir);
+        let command = rr_build::format_dry_run_command(&run_cmd, &print_dir);
         output.write_result(|writer| writeln!(writer, "{command}"))?;
     }
 
@@ -579,7 +582,7 @@ fn get_run_cmd(
     build_meta: &rr_build::BuildMeta,
     argv: &[String],
     moonrun_policy: Option<&Path>,
-) -> tokio::process::Command {
+) -> std::process::Command {
     let executable = get_run_executable(build_meta);
     let mut cmd = crate::run::command_for_with_moonrun_policy(
         build_meta.target_backend,
@@ -772,7 +775,7 @@ fn build_executable_from_plan(
                 writeln!(
                     writer,
                     "{}",
-                    rr_build::format_dry_run_command(run_cmd.as_std(), source_dir)
+                    rr_build::format_dry_run_command(&run_cmd, source_dir)
                 )?;
             }
             Ok::<_, std::io::Error>(())
@@ -841,11 +844,11 @@ fn run_executable(
     );
     run_cmd.args(&cmd.args);
     output.user_log().info(rr_build::format_dry_run_command(
-        run_cmd.as_std(),
+        &run_cmd,
         &executable.source_dir,
     ));
 
-    // Release the lock before spawning the subprocess
+    // Release the lock before handing control to the executable.
     executable.release_lock();
 
     if cmd.build_only {
@@ -857,14 +860,26 @@ fn run_executable(
         return Ok(0);
     }
 
-    let res = default_rt()
-        .context("Failed to create runtime")?
-        .block_on(crate::run::run(&mut [], false, run_cmd))
-        .context("failed to run command")?;
+    #[cfg(unix)]
+    {
+        let error = run_cmd.exec();
+        Err(error).context("failed to execute command")
+    }
 
-    if let Some(code) = res.code() {
-        Ok(code)
-    } else {
-        bail!("Command exited without a return code")
+    #[cfg(not(unix))]
+    {
+        let mut child = run_cmd
+            .spawn()
+            .with_context(|| format!("Failed to spawn command {:?}", run_cmd))?;
+        #[cfg(windows)]
+        if let Err(err) = crate::run::assign_process_to_job(child.as_raw_handle()) {
+            tracing::warn!(?err, "Failed to assign child process to job object");
+        }
+        let status = child.wait().context("failed to wait for command")?;
+        if let Some(code) = status.code() {
+            Ok(code)
+        } else {
+            bail!("Command exited without a return code")
+        }
     }
 }

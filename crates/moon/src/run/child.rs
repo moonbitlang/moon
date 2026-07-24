@@ -18,13 +18,12 @@
 
 //! Handles spawning of a child process under the govern of `moon run`
 
-use std::process::{ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::Instant;
 
 use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
 use moonutil::platform::macos_with_sigchild_blocked;
-use tokio::process::Command;
 use tracing::debug;
 #[cfg(windows)]
 use tracing::warn;
@@ -45,8 +44,9 @@ use tracing::warn;
 pub(crate) async fn run<'a>(
     captures: &mut [&mut SectionCapture<'a>],
     capture: bool,
-    mut cmd: Command,
+    cmd: Command,
 ) -> anyhow::Result<ExitStatus> {
+    let mut cmd = tokio::process::Command::from(cmd);
     let shutdown = super::shutdown_token();
     if capture {
         // If we want to capture some/all of the output, we want to set piped
@@ -81,7 +81,11 @@ pub(crate) async fn run<'a>(
         "spawn_child_process_finished"
     );
     #[cfg(windows)]
-    if let Err(err) = assign_child_to_job(&child) {
+    if let Err(err) = child
+        .raw_handle()
+        .ok_or_else(|| anyhow::anyhow!("Missing child process handle"))
+        .and_then(assign_process_to_job)
+    {
         warn!(?err, "Failed to assign child process to job object");
     }
 
@@ -148,7 +152,9 @@ pub(crate) async fn run<'a>(
 }
 
 #[cfg(windows)]
-fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
+pub(crate) fn assign_process_to_job(
+    proc_handle: std::os::windows::io::RawHandle,
+) -> anyhow::Result<()> {
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, HANDLE};
     use windows_sys::Win32::System::JobObjects::{
@@ -191,9 +197,6 @@ fn assign_child_to_job(child: &tokio::process::Child) -> anyhow::Result<()> {
         }
     };
 
-    let Some(proc_handle) = child.raw_handle() else {
-        return Err(anyhow::anyhow!("Missing child process handle"));
-    };
     let job_handle = job.0;
     let ok = unsafe { AssignProcessToJobObject(job_handle, proc_handle) };
     if ok == 0 {
