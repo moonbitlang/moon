@@ -142,6 +142,8 @@ Blocks: CO-8
   Quiet output suppresses successful status, while failed results remain
   visible. Write failure context through `UserLog::error`; compiler
   diagnostics remain independently owned.
+- Treat a closed stdout pipe as the consumer finishing early, without changing
+  the semantic build exit status. Propagate other stdout write failures.
 - Omit the build result when a command owns a subsequent primary result, such
   as running a program, reporting proof results, or running tests.
 - Normalize the shared CLI user-log mapping after reclassifying command echoes

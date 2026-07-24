@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::process::Stdio;
+
 use super::*;
 
 #[test]
@@ -90,6 +92,48 @@ fn test_build_summary_uses_stdout_and_respects_quiet() {
 
     let out = get_stdout(&dir, ["build"]);
     assert!(out.contains("moon: no work to do"));
+}
+
+#[test]
+fn test_closed_summary_pipe_does_not_change_build_status() {
+    let dir = TestDir::new("moon_new/plain");
+    let mut child = moon_process_cmd(&dir)
+        .args(["check"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "a closed summary pipe changed a successful build to {output:?}"
+    );
+    assert_eq!(output.stderr, b"");
+
+    let dir = TestDir::new("build_binary_dep_failure.in");
+    let mut child = moon_process_cmd(&dir)
+        .args([
+            "tool",
+            "build-binary-dep",
+            "main",
+            "--install-path",
+            "installed",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "a closed summary pipe changed the failed build status: {output:?}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Error: failed when building project"));
+    assert!(!stderr.contains("Broken pipe"));
 }
 
 #[test]

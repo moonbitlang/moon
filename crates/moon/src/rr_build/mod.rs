@@ -29,6 +29,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -1106,6 +1107,13 @@ pub enum BuildOperation {
     GenerateMbti,
 }
 
+fn ignore_broken_pipe(result: io::Result<()>) -> io::Result<()> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        result => result,
+    }
+}
+
 /// Report the user-facing result of a complete command build.
 ///
 /// Compiler diagnostics are emitted independently during execution. This
@@ -1118,13 +1126,13 @@ pub fn report_build_result(
 ) -> anyhow::Result<()> {
     let Some(n_tasks) = result.n_tasks_executed else {
         if cfg.output_style != OutputStyle::Json {
-            output.write_result(|writer| {
+            ignore_broken_pipe(output.write_result(|writer| {
                 writeln!(
                     writer,
                     "Failed with {} warnings, {} errors.",
                     result.n_warnings, result.n_errors
                 )
-            })?;
+            }))?;
         }
         let operation = match operation {
             BuildOperation::Build => "building",
@@ -1148,7 +1156,7 @@ pub fn report_build_result(
         String::new()
     };
     if cfg.output_style != OutputStyle::Json {
-        output.write_status(|writer| {
+        ignore_broken_pipe(output.write_status(|writer| {
             if n_tasks == 0 {
                 writeln!(
                     writer,
@@ -1161,7 +1169,7 @@ pub fn report_build_result(
                     "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: ran {n_tasks} task{task_plural}, now up to date{warnings_errors}"
                 )
             }
-        })?;
+        }))?;
     }
     Ok(())
 }
