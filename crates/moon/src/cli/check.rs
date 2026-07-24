@@ -90,6 +90,20 @@ pub(crate) struct CheckSubcommand {
     #[clap(flatten)]
     pub build_flags: BuildFlags,
 
+    /// Output diagnostics as one JSON array
+    #[clap(
+        long,
+        conflicts_with_all = ["jsonl", "output_json", "no_render", "watch", "dry_run", "fmt"]
+    )]
+    pub json: bool,
+
+    /// Output one JSON diagnostic per line
+    #[clap(
+        long,
+        conflicts_with_all = ["json", "output_json", "no_render", "watch", "dry_run", "fmt"]
+    )]
+    pub jsonl: bool,
+
     #[clap(flatten)]
     pub auto_sync_flags: AutoSyncFlags,
 
@@ -134,6 +148,13 @@ pub(crate) fn run_check(
     cmd: &CheckSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let mut cmd = cmd.clone();
+    if cmd.json || cmd.jsonl {
+        // Both machine formats require moonc's structured diagnostics. The
+        // framing difference is handled after the diagnostics are collected.
+        cmd.build_flags.output_json = true;
+    }
+    let cmd = &cmd;
     let user_log = output.user_log();
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
@@ -182,8 +203,9 @@ pub(crate) fn run_check(
         dirs.mooncake_bin_dir = dirs.target_dir.join(moonutil::constants::MOON_BIN_DIR);
     }
 
-    if cmd.build_flags.target.is_empty() {
-        return run_check_internal(
+    let mut json_diagnostics = Vec::new();
+    let ret_value = if cmd.build_flags.target.is_empty() {
+        let (ret_value, diagnostics) = run_check_internal(
             cli,
             cmd,
             &dirs,
@@ -191,25 +213,51 @@ pub(crate) fn run_check(
             single_file.as_deref(),
             None,
             output,
-        );
+        )?;
+        json_diagnostics.extend(diagnostics);
+        ret_value
+    } else {
+        let surface_targets = cmd.build_flags.target.clone();
+        let targets = lower_surface_targets(&surface_targets);
+        let mut ret_value = 0;
+        for t in targets {
+            let (x, diagnostics) = run_check_internal(
+                cli,
+                cmd,
+                &dirs,
+                &watch_ignored_subtree,
+                single_file.as_deref(),
+                Some(t),
+                output,
+            )
+            .context(format!("failed to run check for target {t:?}"))?;
+            json_diagnostics.extend(diagnostics);
+            ret_value = ret_value.max(x);
+        }
+        ret_value
+    };
+
+    if cmd.json {
+        output.write_result(|writer| -> anyhow::Result<()> {
+            write!(writer, "[")?;
+            for (index, diagnostic) in json_diagnostics.iter().enumerate() {
+                if index != 0 {
+                    write!(writer, ",")?;
+                }
+                write!(writer, "{diagnostic}")?;
+            }
+            writeln!(writer, "]")?;
+            Ok(())
+        })?;
+    } else if cmd.jsonl {
+        output.write_result(|writer| -> anyhow::Result<()> {
+            for diagnostic in &json_diagnostics {
+                writeln!(writer, "{diagnostic}")?;
+            }
+            Ok(())
+        })?;
     }
 
-    let surface_targets = cmd.build_flags.target.clone();
-    let targets = lower_surface_targets(&surface_targets);
-    let mut ret_value = 0;
-    for t in targets {
-        let x = run_check_internal(
-            cli,
-            cmd,
-            &dirs,
-            &watch_ignored_subtree,
-            single_file.as_deref(),
-            Some(t),
-            output,
-        )
-        .context(format!("failed to run check for target {t:?}"))?;
-        ret_value = ret_value.max(x);
-    }
     Ok(ret_value)
 }
 
@@ -223,7 +271,7 @@ fn run_check_internal(
     single_file: Option<&Path>,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<(i32, Vec<String>)> {
     if let Some(single_file_path) = single_file {
         run_check_for_single_file_rr(
             cli,
@@ -253,7 +301,7 @@ fn run_check_for_single_file_rr(
     dirs: &PackageDirs,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<(i32, Vec<String>)> {
     let user_log = output.user_log();
     let PackageDirs {
         source_dir,
@@ -323,7 +371,7 @@ fn run_check_for_single_file_rr(
                 target_dir,
             )
         })?;
-        return Ok(0);
+        return Ok((0, Vec::new()));
     }
 
     let _lock = FileLock::lock(target_dir).with_context(|| {
@@ -347,14 +395,25 @@ fn run_check_for_single_file_rr(
         filename.as_deref(),
     )?;
 
-    let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+    let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
+        .with_output_style(if cmd.json || cmd.jsonl {
+            crate::build_flags::OutputStyle::Json
+        } else {
+            cmd.build_flags.output_style()
+        });
     cfg.patch_file = cmd.patch_file.clone();
     cfg.explain_errors |= cmd.explain;
 
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-    result.print_info(cli.quiet, "checking")?;
+    if !cmd.json && !cmd.jsonl {
+        result.print_info(cli.quiet, "checking")?;
+    }
+    let successful = result.successful();
 
-    Ok(if result.successful() { 0 } else { 1 })
+    Ok((
+        if successful { 0 } else { 1 },
+        result.into_json_diagnostics(),
+    ))
 }
 
 fn get_user_intents_single_file(
@@ -383,14 +442,20 @@ fn run_check_normal_internal(
     watch_ignored_subtree: &Path,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
-) -> anyhow::Result<i32> {
-    let run_once = || -> anyhow::Result<WatchOutput> {
+) -> anyhow::Result<(i32, Vec<String>)> {
+    let run_once = || -> anyhow::Result<(WatchOutput, Vec<String>)> {
         run_check_normal_internal_rr(cli, cmd, dirs, cmd.watch, selected_target_backend, output)
     };
     if cmd.watch {
-        watching(run_once, &dirs.source_dir, watch_ignored_subtree)
+        watching(
+            || run_once().map(|(output, _)| output),
+            &dirs.source_dir,
+            watch_ignored_subtree,
+        )
+        .map(|status| (status, Vec::new()))
     } else {
-        run_once().map(|output| if output.ok { 0 } else { 1 })
+        let (output, diagnostics) = run_once()?;
+        Ok((if output.ok { 0 } else { 1 }, diagnostics))
     }
 }
 
@@ -403,7 +468,7 @@ fn run_check_normal_internal_rr(
     watch: bool,
     selected_target_backend: Option<TargetBackend>,
     output: &CommandOutput,
-) -> anyhow::Result<WatchOutput> {
+) -> anyhow::Result<(WatchOutput, Vec<String>)> {
     let user_log = output.user_log();
     let PackageDirs {
         source_dir,
@@ -449,6 +514,7 @@ fn run_check_normal_internal_rr(
     )
     .context("Failed to calculate build plan")?;
 
+    let mut json_diagnostics = Vec::new();
     let ok = if cli.dry_run {
         output.write_result(|writer| {
             for (build_meta, build_graph) in planned_runs {
@@ -470,7 +536,12 @@ fn run_check_normal_internal_rr(
                 target_dir.display()
             )
         })?;
-        let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose);
+        let mut cfg = BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
+            .with_output_style(if cmd.json || cmd.jsonl {
+                crate::build_flags::OutputStyle::Json
+            } else {
+                cmd.build_flags.output_style()
+            });
         cfg.patch_file = cmd.patch_file.clone();
         cfg.explain_errors |= cmd.explain;
         let mut ok = true;
@@ -481,17 +552,24 @@ fn run_check_normal_internal_rr(
             rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
             let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
-            result.print_info(cli.quiet, "checking")?;
-            ok &= result.successful();
+            if !cmd.json && !cmd.jsonl {
+                result.print_info(cli.quiet, "checking")?;
+            }
+            let successful = result.successful();
+            json_diagnostics.extend(result.into_json_diagnostics());
+            ok &= successful;
         }
         ok
     };
 
-    Ok(WatchOutput {
-        ok,
-        additional_ignored_paths: prebuild_list.ignored_paths,
-        additional_watched_paths: prebuild_list.watched_paths,
-    })
+    Ok((
+        WatchOutput {
+            ok,
+            additional_ignored_paths: prebuild_list.ignored_paths,
+            additional_watched_paths: prebuild_list.watched_paths,
+        },
+        json_diagnostics,
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]

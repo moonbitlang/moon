@@ -1,6 +1,6 @@
 # Command Output Migration
 
-Status: accepted; CO-1, CO-2, CO-4, and CO-5 complete
+Status: accepted; CO-1, CO-2, CO-4, and CO-5 complete; CO-7 in progress
 
 ## Goal
 
@@ -24,6 +24,13 @@ Both standard-stream boundaries are adaptive. Renderers emit ANSI styles, and th
 Renderers below the CLI seam should accept a writer. Library operations should return data when the CLI owns presentation. A lower-level operation may accept `UserLog` when emitting a user-facing event is inherently part of that operation, but pure build planning should not depend on `CommandOutput`.
 
 The facade does not own Process Passthrough, Progress Displays, compiler diagnostics, or tracing. Those paths have different byte-preservation, concurrency, terminal, and configuration contracts and should be migrated only within their own seams.
+
+Machine-readable formats apply to Command Results on stdout, not to `UserLog`
+on stderr. Each command owns its result schema: `--json` writes one complete
+JSON document, while `--jsonl` may stream the same result items one per line.
+The two flags are mutually exclusive. Commands should expose them only after
+their complete stdout contract is defined; unrelated human output must not be
+mixed into either format.
 
 ## Behavioral Policy
 
@@ -124,12 +131,17 @@ Blocked by: CO-3, CO-4
 
 ### CO-7: Classify build execution output
 
+Status: in progress
+
 Blocked by: CO-4, CO-5
 
 Blocks: CO-8
 
 - Separate durable build summaries from Progress Displays and Process Passthrough.
 - Migrate durable summaries to `UserLog` and build reports to writer-based Command Results.
+- Migrate structured diagnostics and other stdout results through
+  `CommandOutput`. `moon check` is the first command to define both JSON-array
+  and JSON-lines contracts.
 - Keep child stdout/stderr forwarding byte-preserving and keep concurrent progress behind its own renderer seam.
 - Cover both Rupes Recta and the legacy engine in each applicable behavior test.
 - Done when every executor print site is either migrated or documented as passthrough/progress.
