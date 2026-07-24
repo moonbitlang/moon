@@ -71,21 +71,18 @@ fn parse_path_components(path: &str) -> anyhow::Result<Vec<&str>> {
 pub(crate) fn validate_module_name(module: &ModuleName) -> anyhow::Result<()> {
     let username_components = parse_path_components(&module.username)?;
     if username_components.len() != 1
-        || !username_components.iter().all(|component| {
-            component
-                .chars()
-                .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
-        })
+        || username_components
+            .iter()
+            .any(|component| component.contains('.'))
     {
         anyhow::bail!("registry module `{module}` has an invalid username");
     }
     let name_components = parse_path_components(&module.unqual)
         .map_err(|_| anyhow::anyhow!("registry module `{module}` has an invalid name"))?;
-    if !name_components.iter().all(|component| {
-        component
-            .chars()
-            .all(|character| character.is_alphanumeric() || matches!(character, '_' | '-'))
-    }) {
+    if name_components
+        .iter()
+        .any(|component| component.contains('.'))
+    {
         anyhow::bail!("registry module `{module}` has an invalid name");
     }
     Ok(())

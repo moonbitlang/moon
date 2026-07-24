@@ -47,13 +47,15 @@ A prepared registry source is identified by its resolved `module@version`.
 The registry checksum is immutable metadata for that identity, not another
 component that permits multiple source variants. On first use, Moon verifies
 the downloaded archive against the registry checksum, extracts into staging,
-marks the prepared source tree read-only, and publishes it atomically.
-Concurrent publishers of the same identity must be harmless.
+renames the complete entry while holding the module lock, and marks the entry,
+including its checksum metadata and source tree, read-only before releasing
+the lock. Concurrent publishers of the same identity must be harmless.
 
 On a cache hit, Moon compares the current registry checksum with the checksum
-recorded at publication. A mismatch is an error: published registry versions
-are immutable, so Moon must not replace the source or create a second
-checksum-keyed variant for the same `module@version`.
+recorded at publication after validating the entry's expected shape and
+read-only state. A mismatch is an error: published registry versions are
+immutable, so Moon must not replace the source or create a second checksum-keyed
+variant for the same `module@version`.
 
 The first rollout is limited to standalone `.mbtx` execution: `moon run -e`,
 `moon run -`, and `moon run <file>.mbtx` resolve registry dependencies from
@@ -197,10 +199,12 @@ rather than execute the hook, silently skip it, or fall back to a mutable local
 installation. A sandboxed, explicitly keyed hook model would require a
 separate design.
 
-Top-level module prebuild configuration is also rejected because it executes
-during build preparation and can write relative to the dependency source.
-Package-level prebuild commands and source generators are skipped for registry
-dependencies; published archives must already contain their generated outputs.
+Top-level module prebuild configuration remains a build-time operation. It runs
+for each invocation against the prepared read-only source, and its structured
+output affects that invocation's build plan rather than the dependency-source
+cache. Package-level prebuild commands and source generators are skipped for
+registry dependencies; published archives must already contain their generated
+outputs.
 
 `__moonbin__` belongs in the invocation's mutable work directory, initially
 under `_build`. If its producer later becomes cacheable, its outputs may be

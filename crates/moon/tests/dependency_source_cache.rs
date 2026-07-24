@@ -78,12 +78,34 @@ fn cache_registry_package_with_manifest(
     manifest: &str,
     padding_files: usize,
 ) -> PathBuf {
+    cache_registry_package_with_manifest_and_files(
+        moon_home,
+        published_name,
+        manifest,
+        padding_files,
+        &[],
+    )
+}
+
+fn cache_registry_package_with_manifest_and_files(
+    moon_home: &Path,
+    published_name: &str,
+    manifest: &str,
+    padding_files: usize,
+    extra_files: &[(&str, &str)],
+) -> PathBuf {
     let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (path, contents) in [
         ("moon.mod.json", manifest.to_string()),
         ("src/moon.pkg.json", "{}".to_string()),
         ("src/lib.mbt", "pub fn answer() -> Int { 42 }\n".to_string()),
     ] {
+        archive
+            .start_file(path, zip::write::FileOptions::default())
+            .unwrap();
+        archive.write_all(contents.as_bytes()).unwrap();
+    }
+    for &(path, contents) in extra_files {
         archive
             .start_file(path, zip::write::FileOptions::default())
             .unwrap();
@@ -377,60 +399,70 @@ fn changed_checksum_for_published_version_is_rejected() {
     )
     .unwrap();
 
-    let output = run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
         .args(["run", script.to_str().unwrap()])
         .assert()
         .failure()
-        .get_output()
-        .stderr
-        .clone();
-    let stderr = String::from_utf8_lossy(&output);
-    assert!(
-        stderr.contains(
-            "registry checksum for `cachetest/shared@1.0.0` changed; published versions are immutable"
-        ),
-        "unexpected stderr:\n{stderr}"
-    );
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to resolve the module dependency graph
+
+Caused by:
+    0: When preparing cached packages
+    1: registry checksum for `cachetest/shared@1.0.0` changed; published versions are immutable
+
+"#]]);
 }
 
 #[test]
-fn source_mutating_module_hooks_are_rejected() {
-    for (manifest_field, expected) in [
-        (
-            r#""scripts":{"postadd":"command-that-must-not-run"}"#,
-            "declares `scripts.postadd`",
+fn postadd_is_rejected() {
+    let moon_home = tempfile::tempdir().unwrap();
+    let dependency_cache = tempfile::tempdir().unwrap();
+    let source_dir = tempfile::tempdir().unwrap();
+    cache_registry_package_with_manifest(
+        moon_home.path(),
+        MODULE_NAME,
+        &format!(
+            r#"{{"name":"{MODULE_NAME}","version":"{MODULE_VERSION}","source":"src","scripts":{{"postadd":"command-that-must-not-run"}}}}"#
         ),
-        (
-            r#""--moonbit-unstable-prebuild":"build.js""#,
-            "declares a prebuild configuration script",
-        ),
-    ] {
-        let moon_home = tempfile::tempdir().unwrap();
-        let dependency_cache = tempfile::tempdir().unwrap();
-        let source_dir = tempfile::tempdir().unwrap();
-        cache_registry_package_with_manifest(
-            moon_home.path(),
-            MODULE_NAME,
-            &format!(
-                r#"{{"name":"{MODULE_NAME}","version":"{MODULE_VERSION}","source":"src",{manifest_field}}}"#
-            ),
-            0,
-        );
-        let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
+        0,
+    );
+    let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
 
-        let output = run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
-            .args(["run", script.to_str().unwrap()])
-            .assert()
-            .failure()
-            .get_output()
-            .stderr
-            .clone();
-        let stderr = String::from_utf8_lossy(&output);
-        assert!(
-            stderr.contains(expected),
-            "expected {expected:?} in stderr:\n{stderr}"
-        );
-    }
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to resolve the module dependency graph
+
+Caused by:
+    0: When preparing cached packages
+    1: dependency `cachetest/shared@1.0.0` declares `scripts.postadd`, which is not supported by the shared dependency cache
+
+"#]]);
+}
+
+#[test]
+fn module_prebuild_config_runs_with_shared_dependency_source() {
+    let moon_home = tempfile::tempdir().unwrap();
+    let dependency_cache = tempfile::tempdir().unwrap();
+    let source_dir = tempfile::tempdir().unwrap();
+    cache_registry_package_with_manifest_and_files(
+        moon_home.path(),
+        MODULE_NAME,
+        &format!(
+            r#"{{"name":"{MODULE_NAME}","version":"{MODULE_VERSION}","source":"src","--moonbit-unstable-prebuild":"build.js"}}"#
+        ),
+        0,
+        &[("build.js", "console.log(\"{}\")\n")],
+    );
+    let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout_eq("42\n");
 }
 
 #[test]
@@ -446,10 +478,22 @@ fn published_dependency_source_is_read_only_and_cleanable() {
         .assert()
         .success();
 
-    let source_file = dependency_cache
+    let entry = dependency_cache
         .path()
-        .join("registry/cachetest/shared/1.0.0/source/src/lib.mbt");
-    assert!(source_file.metadata().unwrap().permissions().readonly());
+        .join("registry/cachetest/shared/1.0.0");
+    for path in [
+        entry.clone(),
+        entry.join("checksum"),
+        entry.join("source"),
+        entry.join("source/src/lib.mbt"),
+    ] {
+        assert!(
+            path.metadata().unwrap().permissions().readonly(),
+            "{} is writable",
+            path.display()
+        );
+    }
+    assert!(std::fs::write(entry.join("checksum"), "replacement\n").is_err());
 
     run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
         .args(["clean", "--dep-cache"])
@@ -484,6 +528,50 @@ fn disabled_dependency_cache_uses_file_local_mooncakes() {
             .next()
             .is_none()
     );
+}
+
+#[test]
+#[cfg(unix)]
+fn cached_dependency_source_must_not_be_a_symlink() {
+    let moon_home = tempfile::tempdir().unwrap();
+    let dependency_cache = tempfile::tempdir().unwrap();
+    let source_dir = tempfile::tempdir().unwrap();
+    cache_registry_package(moon_home.path());
+    let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let entry = dependency_cache
+        .path()
+        .join("registry/cachetest/shared/1.0.0");
+    moonutil::cache::make_cache_tree_writable(&entry).unwrap();
+    let source = entry.join("source");
+    let moved_source = entry.join("moved-source");
+    std::fs::rename(&source, &moved_source).unwrap();
+    std::os::unix::fs::symlink(&moved_source, &source).unwrap();
+    let checksum = entry.join("checksum");
+    let mut checksum_permissions = std::fs::metadata(&checksum).unwrap().permissions();
+    checksum_permissions.set_readonly(true);
+    std::fs::set_permissions(checksum, checksum_permissions).unwrap();
+    let mut entry_permissions = std::fs::metadata(&entry).unwrap().permissions();
+    entry_permissions.set_readonly(true);
+    std::fs::set_permissions(&entry, entry_permissions).unwrap();
+
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+        .args(["run", script.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to resolve the module dependency graph
+
+Caused by:
+    0: When preparing cached packages
+    1: prepared dependency source `cachetest/shared@1.0.0` has an invalid source directory
+
+"#]]);
 }
 
 #[test]
@@ -523,16 +611,8 @@ fn concurrent_first_use_publishes_one_complete_source() {
     let first_output = first.wait_with_output().unwrap();
     let second_output = second.wait_with_output().unwrap();
 
-    assert!(
-        first_output.status.success(),
-        "first command failed:\n{}",
-        String::from_utf8_lossy(&first_output.stderr)
-    );
-    assert!(
-        second_output.status.success(),
-        "second command failed:\n{}",
-        String::from_utf8_lossy(&second_output.stderr)
-    );
+    snapbox::cmd::OutputAssert::new(first_output).success();
+    snapbox::cmd::OutputAssert::new(second_output).success();
     assert!(
         dependency_cache
             .path()
@@ -554,20 +634,18 @@ fn archive_manifest_must_match_requested_module() {
     );
     let script = write_mbtx(source_dir.path(), "main.mbtx", MODULE_NAME);
 
-    let output = run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
+    run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())
         .args(["run", script.to_str().unwrap()])
         .assert()
         .failure()
-        .get_output()
-        .stderr
-        .clone();
-    let stderr = String::from_utf8_lossy(&output);
-    assert!(
-        stderr.contains(
-            "registry archive for `cachetest/shared@1.0.0` contains manifest for `cachetest/different@1.0.0`"
-        ),
-        "unexpected stderr:\n{stderr}"
-    );
+        .stderr_eq(snapbox::str![[r#"
+Error: Failed to resolve the module dependency graph
+
+Caused by:
+    0: When preparing cached packages
+    1: registry archive for `cachetest/shared@1.0.0` contains manifest for `cachetest/different@1.0.0`
+
+"#]]);
 
     cache_registry_package(moon_home.path());
     run_moon(source_dir.path(), moon_home.path(), dependency_cache.path())

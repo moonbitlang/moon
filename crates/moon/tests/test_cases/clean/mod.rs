@@ -201,3 +201,29 @@ fn test_clean_refuses_symlinked_cache_root() {
         "must survive"
     );
 }
+
+#[test]
+#[cfg(unix)]
+fn test_clean_removes_descendant_symlink_without_following_it() {
+    let dir = TestDir::new_empty();
+    let cache = tempfile::TempDir::new().unwrap();
+    let outside = tempfile::TempDir::new().unwrap();
+    let outside_file = outside.path().join("must-survive");
+    std::fs::write(cache.path().join(".moon-cache"), "dependency-sources\n").unwrap();
+    std::fs::write(&outside_file, "outside cache").unwrap();
+    std::os::unix::fs::symlink(outside.path(), cache.path().join("outside-link")).unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_DEP_CACHE", cache.path())
+        .args(["clean", "--dep-cache"])
+        .assert()
+        .success()
+        .stdout_eq("")
+        .stderr_eq("");
+
+    assert!(!cache.path().exists());
+    assert_eq!(
+        std::fs::read_to_string(outside_file).unwrap(),
+        "outside cache"
+    );
+}

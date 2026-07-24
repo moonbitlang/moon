@@ -368,21 +368,51 @@ fn prepare_cached_dep(
 
     let entry = module_root.join(version.to_string());
     let source = entry.join(PREPARED_SOURCE_DIR);
-    if entry.exists() {
-        let published_checksum = std::fs::read_to_string(entry.join(PREPARED_SOURCE_CHECKSUM))
-            .with_context(|| {
-                format!(
-                    "prepared dependency source `{name}@{version}` is missing checksum metadata"
-                )
-            })?;
-        // A registry version is one immutable identity. A changed checksum is
-        // registry corruption, not a new cache variant to publish.
-        if published_checksum.trim() != expected_checksum {
-            anyhow::bail!(
-                "registry checksum for `{name}@{version}` changed; published versions are immutable"
-            );
+    match std::fs::symlink_metadata(&entry) {
+        Ok(entry_metadata) => {
+            if !entry_metadata.is_dir() || !entry_metadata.permissions().readonly() {
+                anyhow::bail!(
+                    "prepared dependency source `{name}@{version}` has an invalid entry directory"
+                );
+            }
+            let checksum_path = entry.join(PREPARED_SOURCE_CHECKSUM);
+            let Ok(checksum_metadata) = std::fs::symlink_metadata(&checksum_path) else {
+                anyhow::bail!(
+                    "prepared dependency source `{name}@{version}` has invalid checksum metadata"
+                );
+            };
+            if !checksum_metadata.is_file() || !checksum_metadata.permissions().readonly() {
+                anyhow::bail!(
+                    "prepared dependency source `{name}@{version}` has invalid checksum metadata"
+                );
+            }
+            let Ok(source_metadata) = std::fs::symlink_metadata(&source) else {
+                anyhow::bail!(
+                    "prepared dependency source `{name}@{version}` has an invalid source directory"
+                );
+            };
+            if !source_metadata.is_dir() || !source_metadata.permissions().readonly() {
+                anyhow::bail!(
+                    "prepared dependency source `{name}@{version}` has an invalid source directory"
+                );
+            }
+            let published_checksum =
+                std::fs::read_to_string(&checksum_path).with_context(|| {
+                    format!(
+                        "prepared dependency source `{name}@{version}` is missing checksum metadata"
+                    )
+                })?;
+            // A registry version is one immutable identity. A changed checksum is
+            // registry corruption, not a new cache variant to publish.
+            if published_checksum.trim() != expected_checksum {
+                anyhow::bail!(
+                    "registry checksum for `{name}@{version}` changed; published versions are immutable"
+                );
+            }
+            return Ok(source);
         }
-        return Ok(source);
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
 
     if frozen {
@@ -414,22 +444,19 @@ fn prepare_cached_dep(
             "dependency `{name}@{version}` declares `scripts.postadd`, which is not supported by the shared dependency cache"
         );
     }
-    if manifest.__moonbit_unstable_prebuild.is_some() {
-        anyhow::bail!(
-            "dependency `{name}@{version}` declares a prebuild configuration script, which is not supported by the shared dependency cache"
-        );
-    }
     std::fs::write(
         staging.path().join(PREPARED_SOURCE_CHECKSUM),
         format!("{expected_checksum}\n"),
     )?;
-    moonutil::cache::make_cache_tree_readonly(&staging_source)?;
-    // The lock makes the version path single-writer; renaming makes it
-    // impossible for readers to observe a partially extracted source.
-    if let Err(error) = std::fs::rename(staging.path(), &entry) {
-        // TempDir cleanup needs write permission if publication fails.
-        moonutil::cache::make_cache_tree_writable(&staging_source)?;
-        return Err(error.into());
+    // The lock keeps readers out until the atomically renamed entry is fully
+    // read-only. Some platforms do not allow renaming a read-only directory.
+    std::fs::rename(staging.path(), &entry)?;
+    if let Err(error) = moonutil::cache::make_cache_tree_readonly(&entry) {
+        // Do not leave a visible entry that a later cache hit could accept as
+        // a complete publication.
+        let _ = moonutil::cache::make_cache_tree_writable(&entry);
+        let _ = std::fs::remove_dir_all(&entry);
+        return Err(error);
     }
 
     Ok(source)
