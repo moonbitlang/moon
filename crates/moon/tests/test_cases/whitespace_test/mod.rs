@@ -37,7 +37,7 @@ fn whitespace_test() {
         "#]],
     );
 
-    let out = get_stderr(&dir, ["check", "--target", "wasm-gc"]);
+    let out = get_stdout(&dir, ["check", "--target", "wasm-gc"]);
     expect![[r#"
         Finished. moon: ran 5 tasks, now up to date
     "#]]
@@ -75,7 +75,7 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
         expect_file!["../whitespace_test.in/parent_space_build_graph.jsonl.snap"],
     );
 
-    let out = get_stderr(
+    let out = get_stdout(
         &path_with_space,
         ["build", "--target", "wasm-gc", "--no-render"],
     );

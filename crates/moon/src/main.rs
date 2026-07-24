@@ -170,7 +170,7 @@ pub fn main() {
             }
         };
     flags.workspace_env = workspace_env;
-    let output = CommandOutput::new(flags.user_log_level());
+    let output = CommandOutput::new(flags.user_log_level(), flags.quiet);
 
     // Check for deprecated flags and emit warnings (after tracing is initialized)
     for warning in flags.deprecation_warnings() {

@@ -137,7 +137,7 @@ pub(crate) fn run_check(
     if cmd.fmt {
         let mut cli_for_fmt = cli.clone();
         cli_for_fmt.quiet = true;
-        let fmt_output = CommandOutput::new(LevelFilter::Error);
+        let fmt_output = CommandOutput::new(LevelFilter::Error, true);
         let fmt_exit_code = crate::cli::fmt::run_fmt(
             &cli_for_fmt,
             crate::cli::FmtSubcommand {

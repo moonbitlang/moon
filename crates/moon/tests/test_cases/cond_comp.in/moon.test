@@ -61,6 +61,7 @@
   moonc bundle-core ./_build/js/release/bundle/lib/lib.core ./_build/js/release/bundle/main/main.core -o ./_build/js/release/bundle/hello.core
   
   $ moon check --target wasm-gc --sort-input
+  Finished. moon: ran 4 tasks, now up to date (2 warnings, 0 errors)
   
   Warning: [0002]
      ╭─[ [WORK_DIR]/src/lib/only_debug.mbt:2:7 ]
@@ -76,7 +77,6 @@
      │     ──────────┬─────────  
      │               ╰─────────── Warning (unused_package): Unused package 'username/hello/lib'
   ───╯
-  Finished. moon: ran 4 tasks, now up to date (2 warnings, 0 errors)
   
   $ xcat _build/packages.json
   {

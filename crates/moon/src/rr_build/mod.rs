@@ -994,15 +994,21 @@ pub fn report_build_result(
     } else {
         String::new()
     };
-    if n_tasks == 0 {
-        output.user_log().info(format_args!(
-            "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: no work to do{warnings_errors}"
-        ));
-    } else {
-        let task_plural = if n_tasks == 1 { "" } else { "s" };
-        output.user_log().info(format_args!(
-            "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: ran {n_tasks} task{task_plural}, now up to date{warnings_errors}"
-        ));
+    if cfg.output_style != OutputStyle::Json {
+        output.write_status(|writer| {
+            if n_tasks == 0 {
+                writeln!(
+                    writer,
+                    "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: no work to do{warnings_errors}"
+                )
+            } else {
+                let task_plural = if n_tasks == 1 { "" } else { "s" };
+                writeln!(
+                    writer,
+                    "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: ran {n_tasks} task{task_plural}, now up to date{warnings_errors}"
+                )
+            }
+        })?;
     }
     Ok(())
 }

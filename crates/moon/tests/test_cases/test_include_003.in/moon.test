@@ -1,7 +1,6 @@
   $ moon package --list
   
   Running moon check ...
-  Finished. moon: ran 4 tasks, now up to date
   Check passed
   moon.mod.json
   src/lib/hello.mbt

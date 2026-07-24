@@ -420,7 +420,9 @@ fn test_moon_info_unsupported_path_is_warning() {
         .args(["info", "lib", "never", "--verbose", "--target", "wasm-gc"])
         .assert()
         .success()
-        .stdout_eq("");
+        .stdout_eq(
+            "Finished. moon: ran 2 tasks, now up to date\nFinished. moon: ran 2 tasks, now up to date\n",
+        );
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
     let message = "skipping path `never` because package `supported/empty/never` does not support target backend `wasm-gc`. Supported backends: []";
 
