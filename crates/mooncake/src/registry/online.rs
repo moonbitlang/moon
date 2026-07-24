@@ -141,7 +141,10 @@ impl super::Registry for OnlineRegistry {
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        self.extract_to_with_checksum(name, version, checksum, to, true, quiet)
+        self.prepare_install_dir(to)?;
+        let data = self.download_or_using_cache_verified(name, version, checksum, quiet)?;
+        extract_zip_to_dir(to, data)?;
+        Ok(())
     }
 }
 
@@ -183,64 +186,68 @@ fn verify_archive_checksum(
 }
 
 impl OnlineRegistry {
-    fn read_checksum_from_index_file(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-    ) -> anyhow::Result<String> {
-        let p = self.index_file_of(name);
-        let file = std::fs::File::open(&p)?;
-        let reader = std::io::BufReader::new(file);
-
-        let lines = reader.lines().collect::<std::io::Result<Vec<String>>>()?;
-        let version_str = version.to_string();
-        for line in lines.iter().rev() {
-            let entry = serde_json_lenient::from_str::<RegistryIndexEntry>(line)?;
-            if entry.version.as_deref() == Some(version_str.as_str()) {
-                if let Some(checksum) = entry.checksum {
-                    return Ok(checksum);
-                } else {
-                    bail!(
-                        "No checksum found for version {} in index file {:?}",
-                        version,
-                        p
-                    );
-                }
-            }
-        }
-        bail!(
-            "No description found for version {} in index file {:?}",
-            version,
-            p,
-        );
-    }
-
     fn download_or_using_cache(
         &self,
         name: &ModuleName,
         version: &Version,
-        checksum: &str,
-        verify_download: bool,
         quiet: bool,
     ) -> anyhow::Result<bytes::Bytes> {
-        let pkg_index = self.index_file_of(name);
-        if !pkg_index.exists() {
-            anyhow::bail!("Module {}@{} not found", name, version);
-        }
         let cache_file = cache_of(name, version);
-        let mut checksum_ok = false;
         if cache_file.exists() {
-            let current_checksum = calc_sha2(&cache_file);
-            if current_checksum.is_ok() && current_checksum.unwrap() == checksum {
-                checksum_ok = true;
+            let checksum = super::Registry::checksum_of(self, name, version)?;
+            if let Some(data) = self.cached_archive_matching(name, version, &checksum, quiet)? {
+                return Ok(data);
             }
         }
-        if checksum_ok {
-            if !quiet {
-                eprintln!("Using cached {name}@{version}");
-            }
-            let data = std::fs::read(cache_file)?;
-            return Ok(bytes::Bytes::from(data));
+        let data = self.download_archive(name, version, quiet)?;
+        std::fs::create_dir_all(cache_file.parent().unwrap())?;
+        std::fs::write(cache_file, &data)?;
+        Ok(data)
+    }
+
+    fn download_or_using_cache_verified(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        checksum: &str,
+        quiet: bool,
+    ) -> anyhow::Result<bytes::Bytes> {
+        if let Some(data) = self.cached_archive_matching(name, version, checksum, quiet)? {
+            return Ok(data);
+        }
+        let data = self.download_archive(name, version, quiet)?;
+        verify_archive_checksum(name, version, checksum, &data)?;
+        let cache_file = cache_of(name, version);
+        std::fs::create_dir_all(cache_file.parent().unwrap())?;
+        std::fs::write(cache_file, &data)?;
+        Ok(data)
+    }
+
+    fn cached_archive_matching(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        checksum: &str,
+        quiet: bool,
+    ) -> anyhow::Result<Option<bytes::Bytes>> {
+        let cache_file = cache_of(name, version);
+        if !cache_file.exists() || !calc_sha2(&cache_file).is_ok_and(|actual| actual == checksum) {
+            return Ok(None);
+        }
+        if !quiet {
+            eprintln!("Using cached {name}@{version}");
+        }
+        Ok(Some(bytes::Bytes::from(std::fs::read(cache_file)?)))
+    }
+
+    fn download_archive(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        quiet: bool,
+    ) -> anyhow::Result<bytes::Bytes> {
+        if !self.index_file_of(name).exists() {
+            anyhow::bail!("Module {}@{} not found", name, version);
         }
         if !quiet {
             eprintln!("Downloading {name}@{version}");
@@ -259,11 +266,6 @@ impl OnlineRegistry {
             .send()?
             .error_for_status()?
             .bytes()?;
-        if verify_download {
-            verify_archive_checksum(name, version, checksum, &data)?;
-        }
-        std::fs::create_dir_all(cache_file.parent().unwrap())?;
-        std::fs::write(cache_file, &data)?;
         Ok(data)
     }
 
@@ -287,29 +289,17 @@ impl OnlineRegistry {
         pkg_install_dir: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        let checksum = self.read_checksum_from_index_file(name, version)?;
-        self.extract_to_with_checksum(name, version, &checksum, pkg_install_dir, false, quiet)
+        self.prepare_install_dir(pkg_install_dir)?;
+        let data = self.download_or_using_cache(name, version, quiet)?;
+        extract_zip_to_dir(pkg_install_dir, data)?;
+        Ok(())
     }
 
-    fn extract_to_with_checksum(
-        &self,
-        name: &ModuleName,
-        version: &Version,
-        checksum: &str,
-        pkg_install_dir: &Path,
-        verify_download: bool,
-        quiet: bool,
-    ) -> anyhow::Result<()> {
-        // ensure dir exists and is empty
-        if !pkg_install_dir.exists() {
-            std::fs::create_dir_all(pkg_install_dir).unwrap();
-        } else {
-            std::fs::remove_dir_all(pkg_install_dir).unwrap();
-            std::fs::create_dir_all(pkg_install_dir).unwrap();
+    fn prepare_install_dir(&self, pkg_install_dir: &Path) -> anyhow::Result<()> {
+        if pkg_install_dir.exists() {
+            std::fs::remove_dir_all(pkg_install_dir)?;
         }
-
-        let data = self.download_or_using_cache(name, version, checksum, verify_download, quiet)?;
-        extract_zip_to_dir(pkg_install_dir, data)?;
+        std::fs::create_dir_all(pkg_install_dir)?;
         Ok(())
     }
 }
@@ -392,16 +382,10 @@ mod tests {
         let version = Version::parse("0.2.1").unwrap();
         assert!(versions.contains_key(&version));
         assert_eq!(
-            registry
-                .read_checksum_from_index_file(
-                    &ModuleName {
-                        username: "bobzhang".into(),
-                        unqual: "openseek".into(),
-                    },
-                    &version,
-                )
-                .unwrap(),
-            "abc123"
+            versions
+                .get(&version)
+                .and_then(|info| info.checksum.as_deref()),
+            Some("abc123")
         );
 
         let _ = std::fs::remove_dir_all(index);

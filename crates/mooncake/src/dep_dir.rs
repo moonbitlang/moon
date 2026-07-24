@@ -278,7 +278,7 @@ pub(crate) fn sync_deps(
     Ok(())
 }
 
-pub(crate) fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
+fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
     // Special case: core library locates in ~/.moon
     if format!("{username}/{pkgname}") == MOONBITLANG_CORE {
         return toolchain::core();
@@ -289,16 +289,19 @@ pub(crate) fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> Pat
 
 /// The result of a directory sync.
 fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
+    non_registry_source_dir(module)
+        .unwrap_or_else(|| pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual))
+}
+
+fn non_registry_source_dir(module: &ModuleSource) -> Option<PathBuf> {
     match module.source() {
-        ModuleSourceKind::Registry => {
-            pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual)
-        }
-        ModuleSourceKind::Local(path) => path.clone(),
+        ModuleSourceKind::Registry => None,
+        ModuleSourceKind::Local(path) => Some(path.clone()),
         ModuleSourceKind::Git(url) => {
             todo!("Git dependency is not yet supported. Got git url: {}", url)
         }
-        ModuleSourceKind::Stdlib(path) => path.clone(),
-        ModuleSourceKind::SingleFile(path) => path.clone(),
+        ModuleSourceKind::Stdlib(path) => Some(path.clone()),
+        ModuleSourceKind::SingleFile(path) => Some(path.clone()),
     }
 }
 
@@ -331,16 +334,9 @@ pub(crate) fn prepare_cached_deps(
 
     let mut result = DirSyncResult::default();
     for (id, module) in pkg_list.all_modules_and_id() {
-        let path = match module.source() {
-            ModuleSourceKind::Registry => {
-                prepare_cached_dep(cache_root, registry, module, quiet, frozen, verbose)?
-            }
-            ModuleSourceKind::Local(path) => path.clone(),
-            ModuleSourceKind::Git(url) => {
-                todo!("Git dependency is not yet supported. Got git url: {}", url)
-            }
-            ModuleSourceKind::Stdlib(path) => path.clone(),
-            ModuleSourceKind::SingleFile(path) => path.clone(),
+        let path = match non_registry_source_dir(module) {
+            Some(path) => path,
+            None => prepare_cached_dep(cache_root, registry, module, quiet, frozen, verbose)?,
         };
         result.insert(id, path);
     }
