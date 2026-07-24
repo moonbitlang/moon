@@ -54,6 +54,7 @@ use moonutil::{
     build_options::RunMode,
     cli_support::AutoSyncFlags,
     cli_support::UniversalFlags,
+    command_output::CommandOutput,
     compiler_flags::{self, CC},
     cond_expr::OptLevel as BuildProfile,
     constants::{BLACKBOX_TEST_PATCH, MOONBITLANG_CORE, WHITEBOX_TEST_PATCH},
@@ -895,22 +896,6 @@ pub fn execute_build(
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
-    let result = execute_build_silently(cfg, input, target_dir, user_log)?;
-    report_build_success(&result, user_log);
-    Ok(result)
-}
-
-/// Execute a build plan without a durable completion summary.
-///
-/// This is for commands such as `run` and `prove` whose own result follows the
-/// build. Diagnostics and progress still use `user_log` during execution.
-#[instrument(skip_all)]
-pub fn execute_build_silently(
-    cfg: &BuildConfig,
-    input: BuildInput,
-    target_dir: &Path,
-    user_log: &UserLog,
-) -> anyhow::Result<N2RunStats> {
     // Get start nodes (leaf outputs) before moving the graph
     let start_nodes = input.graph.get_start_nodes();
 
@@ -959,11 +944,46 @@ pub fn execute_test_build(
     )
 }
 
-fn report_build_success(result: &N2RunStats, user_log: &UserLog) {
+#[derive(Debug, Clone, Copy)]
+pub enum BuildOperation {
+    Build,
+    Bundle,
+    Check,
+    Format,
+    GenerateMbti,
+}
+
+/// Report the user-facing result of a complete command build.
+///
+/// Compiler diagnostics are emitted independently during execution. This
+/// function owns only Moon's durable command result and status messages.
+pub fn report_build_result(
+    result: &N2RunStats,
+    operation: BuildOperation,
+    cfg: &BuildConfig,
+    output: &CommandOutput,
+) -> anyhow::Result<()> {
     let Some(n_tasks) = result.n_tasks_executed else {
-        // Failed tasks already emitted their diagnostics. Reporting another error here
-        // would duplicate that output, and diagnostic counts vary by output renderer.
-        return;
+        if cfg.output_style != OutputStyle::Json {
+            output.write_result(|writer| {
+                writeln!(
+                    writer,
+                    "Failed with {} warnings, {} errors.",
+                    result.n_warnings, result.n_errors
+                )
+            })?;
+        }
+        let operation = match operation {
+            BuildOperation::Build => "building",
+            BuildOperation::Bundle => "bundling",
+            BuildOperation::Check => "checking",
+            BuildOperation::Format => "formatting",
+            BuildOperation::GenerateMbti => "generating mbti files",
+        };
+        output
+            .user_log()
+            .error(format!("failed when {operation} project"));
+        return Ok(());
     };
 
     let warnings_errors = if result.n_warnings > 0 || result.n_errors > 0 {
@@ -975,15 +995,16 @@ fn report_build_success(result: &N2RunStats, user_log: &UserLog) {
         String::new()
     };
     if n_tasks == 0 {
-        user_log.info(format_args!(
+        output.user_log().info(format_args!(
             "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: no work to do{warnings_errors}"
         ));
     } else {
         let task_plural = if n_tasks == 1 { "" } else { "s" };
-        user_log.info(format_args!(
+        output.user_log().info(format_args!(
             "{FINISHED_STYLE}Finished.{FINISHED_STYLE:#} moon: ran {n_tasks} task{task_plural}, now up to date{warnings_errors}"
         ));
     }
+    Ok(())
 }
 
 /// Callback on the [`n2::work::Work`] to be done for target artifacts.

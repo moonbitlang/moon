@@ -103,15 +103,17 @@ fn failed_binary_dependency_build_is_not_installed() {
         ])
         .assert()
         .failure();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
 
+    assert_eq!(stdout, "Failed with 0 warnings, 1 errors.\n");
     assert!(
         stderr.contains("Expr Type Mismatch"),
         "expected the compiler diagnostic, stderr: {stderr}"
     );
     assert!(
-        !stderr.contains("Failed to build"),
-        "build failure should not add a synthetic summary, stderr: {stderr}"
+        stderr.contains("Error: failed when building project"),
+        "expected the command failure context, stderr: {stderr}"
     );
     assert!(
         !dir.join("installed").exists(),
@@ -403,6 +405,7 @@ fn test_diag_source_map_remaps_generated_sources() {
                     has type : String
                     wanted   : Int
             ─────╯
+            Error: failed when checking project
         "#]],
     );
 
@@ -421,6 +424,7 @@ fn test_diag_source_map_remaps_generated_sources() {
                     has type : String
                     wanted   : Int
             ───╯
+            Error: failed when checking project
         "#]],
     );
 }

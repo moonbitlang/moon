@@ -92,8 +92,8 @@ fn test_whitespace_parent_space() -> anyhow::Result<()> {
     check(
         &out,
         expect![[r#"
-        Finished. moon: ran 3 tasks, now up to date
-    "#]],
+            Finished. moon: ran 3 tasks, now up to date
+        "#]],
     );
     Ok(())
 }

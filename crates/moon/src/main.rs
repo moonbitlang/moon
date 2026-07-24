@@ -199,7 +199,7 @@ pub fn main() {
         GenerateTestDriver(g) => cli::generate_test_driver(flags, g),
         Info(i) => cli::run_info(flags, i, &output),
         Explain(e) => cli::run_explain(&flags, e),
-        Install(i) => cli::install_cli(flags, i, output.user_log()),
+        Install(i) => cli::install_cli(flags, i, &output),
         Login(l) => cli::mooncake_adapter::login_cli(flags, l),
         Whoami(w) => cli::run_whoami(&flags, w),
         New(n) => cli::run_new(&flags, n, output.user_log()),
@@ -215,7 +215,7 @@ pub fn main() {
         Upgrade(u) => cli::run_upgrade(flags, u),
         ShellCompletion(gs) => cli::gen_shellcomp(&flags, gs),
         Version(v) => cli::run_version(&flags, v),
-        Tool(v) => cli::run_tool(&flags, v, output.user_log()),
+        Tool(v) => cli::run_tool(&flags, v, &output),
         External(args) => cli::run_external(args),
     };
 

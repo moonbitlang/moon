@@ -321,7 +321,7 @@ pub(crate) fn run_info(
             resolve_output.clone(),
             &selection,
             &output_plan,
-            output.user_log(),
+            output,
         )?;
         if !success {
             ok = false;
@@ -355,8 +355,9 @@ fn run_info_rr_internal(
     resolve_output: ResolveOutput,
     selection: &PackageSelection,
     output_plan: &imp::InfoOutputPlan,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<(bool, BuildMeta)> {
+    let user_log = output.user_log();
     let mut preconfig = rr_build::preconfig_compile(
         &cmd.auto_sync_flags,
         cli,
@@ -397,6 +398,12 @@ fn run_info_rr_internal(
     // TODO: UX: Consider mirroring flags from `moon check`?
     let cfg = BuildConfig::from_flags(&BuildFlags::default(), &cli.unstable_feature, cli.verbose);
     let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
+    rr_build::report_build_result(
+        &result,
+        rr_build::BuildOperation::GenerateMbti,
+        &cfg,
+        output,
+    )?;
     let success = result.successful();
 
     Ok((success, build_meta))

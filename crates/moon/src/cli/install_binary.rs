@@ -30,6 +30,7 @@ use mooncake::{
 use moonutil::{
     build_options::RunMode,
     cli_support::UniversalFlags,
+    command_output::CommandOutput,
     constants::{MOON_MOD, MOON_MOD_JSON},
     locks::FileLock,
     project::{PackageDirs, SourceTargetDirs, WorkspaceEnv},
@@ -238,8 +239,9 @@ pub(super) fn install_binary(
     spec: &PackageSpec,
     install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let quiet = cli.quiet;
 
     let index_dir = moonutil::registry::index();
@@ -289,7 +291,7 @@ pub(super) fn install_binary(
         package_dirs,
         install_dir,
         filter,
-        user_log,
+        output,
     )
 }
 
@@ -299,7 +301,7 @@ pub(super) fn install_from_local(
     local_path: &Path,
     install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
     let input_path = dunce::canonicalize(local_path).with_context(|| {
         format!(
@@ -336,7 +338,7 @@ pub(super) fn install_from_local(
         package_dirs,
         install_dir,
         filter,
-        user_log,
+        output,
     )
 }
 
@@ -360,8 +362,9 @@ pub(super) fn install_from_git(
     path_in_repo: Option<&str>,
     install_dir: &Path,
     install_all: bool,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     user_log.info(format!("Cloning `{}`...", git_url));
 
     let tmp_dir = tempfile::TempDir::new().context("Failed to create temporary directory")?;
@@ -461,7 +464,7 @@ pub(super) fn install_from_git(
         module_dirs.package_dirs,
         install_dir,
         filter,
-        user_log,
+        output,
     )
 }
 
@@ -469,6 +472,11 @@ struct SelectedPackage {
     pkg_id: PackageId,
     full_pkg_name: String,
     binary_name: String,
+}
+
+enum BuildResultDestination<'a> {
+    Command(&'a CommandOutput),
+    Internal,
 }
 
 struct PreparedNativeBuild {
@@ -575,6 +583,7 @@ fn build_selected_package(
     prepared: &PreparedNativeBuild,
     pkg: &SelectedPackage,
     user_log: &UserLog,
+    result_destination: BuildResultDestination<'_>,
 ) -> anyhow::Result<Option<PathBuf>> {
     std::fs::create_dir_all(&prepared.target_dir).context("Failed to create build directory")?;
 
@@ -615,12 +624,11 @@ fn build_selected_package(
     let _lock = FileLock::lock(&prepared.target_dir)?;
     rr_build::generate_all_pkgs_json(&build_meta)?;
 
-    let result = rr_build::execute_build(
-        &BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose),
-        build_graph,
-        &prepared.target_dir,
-        user_log,
-    )?;
+    let cfg = BuildConfig::from_flags(&build_flags, &cli.unstable_feature, cli.verbose);
+    let result = rr_build::execute_build(&cfg, build_graph, &prepared.target_dir, user_log)?;
+    if let BuildResultDestination::Command(output) = result_destination {
+        rr_build::report_build_result(&result, rr_build::BuildOperation::Build, &cfg, output)?;
+    }
     if !result.successful() {
         return Ok(None);
     }
@@ -656,8 +664,14 @@ fn build_native_executable_to(
         .selected_packages
         .first()
         .context("exact package selection returned no package")?;
-    let binary_src = build_selected_package(cli, &prepared, pkg, user_log)?
-        .ok_or_else(|| anyhow::anyhow!("Failed to build `{}`", pkg.full_pkg_name))?;
+    let binary_src = build_selected_package(
+        cli,
+        &prepared,
+        pkg,
+        user_log,
+        BuildResultDestination::Internal,
+    )?
+    .ok_or_else(|| anyhow::anyhow!("Failed to build `{}`", pkg.full_pkg_name))?;
     std::fs::copy(&binary_src, destination).with_context(|| {
         format!(
             "Failed to copy binary from `{}` to `{}`",
@@ -764,8 +778,9 @@ fn build_and_install_packages(
     package_dirs: PackageDirs,
     install_dir: &Path,
     filter: PackageFilter,
-    user_log: &UserLog,
+    output: &CommandOutput,
 ) -> anyhow::Result<i32> {
+    let user_log = output.user_log();
     let quiet = cli.quiet;
     let prepared = prepare_native_build(
         cli,
@@ -827,7 +842,14 @@ fn build_and_install_packages(
             continue;
         }
 
-        let Some(binary_src) = build_selected_package(cli, &prepared, pkg, user_log)? else {
+        let Some(binary_src) = build_selected_package(
+            cli,
+            &prepared,
+            pkg,
+            user_log,
+            BuildResultDestination::Command(output),
+        )?
+        else {
             continue;
         };
         let dst_name = if cfg!(windows) {

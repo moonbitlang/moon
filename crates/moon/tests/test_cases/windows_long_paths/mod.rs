@@ -204,8 +204,11 @@ fn fmt_reports_its_long_format_directory() {
         .stdout_eq(snapbox::str![[r#"
 Fatal error: exception Sys_error("[..]_build[..]wasm-gc[..]release[..]format[..]: No such file or directory")
 ...
+Failed with 0 warnings, 0 errors.
 "#]])
         .stderr_eq(snapbox::str![[r#"
+Error: failed when formatting project
+
 "#]]);
 }
 

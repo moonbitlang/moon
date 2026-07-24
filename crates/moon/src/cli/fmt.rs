@@ -112,7 +112,9 @@ fn run_fmt_rr(
         })?;
         Ok(0)
     } else {
-        let res = rr_build::execute_build(&BuildConfig::default(), graph, &target_dir, user_log)?;
+        let cfg = BuildConfig::default();
+        let res = rr_build::execute_build(&cfg, graph, &target_dir, user_log)?;
+        rr_build::report_build_result(&res, rr_build::BuildOperation::Format, &cfg, output)?;
         Ok(res.return_code_for_success())
     }
 }

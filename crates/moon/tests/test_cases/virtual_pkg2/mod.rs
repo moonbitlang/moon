@@ -17,8 +17,8 @@ fn implement_third_party1() {
     check(
         s,
         expect![[r#"
-        Finished. moon: ran 2 tasks, now up to date
-    "#]],
+            Finished. moon: ran 2 tasks, now up to date
+        "#]],
     );
 
     let packages_json: serde_json::Value =

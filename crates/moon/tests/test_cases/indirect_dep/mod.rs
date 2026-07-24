@@ -37,8 +37,8 @@ fn test_all_pkgs() {
     check(
         get_stderr(&dir, ["check", "--target", "wasm-gc"]),
         expect![[r#"
-            Finished. moon: ran 10 tasks, now up to date
-        "#]],
+        Finished. moon: ran 10 tasks, now up to date
+    "#]],
     );
     let all_pkgs_path = dir.join("_build/wasm-gc/debug/check/all_pkgs.json");
     let all_pkgs_json = normalize_all_pkgs_json(&dir, &all_pkgs_path);

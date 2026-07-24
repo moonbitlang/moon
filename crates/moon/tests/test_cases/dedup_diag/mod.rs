@@ -69,6 +69,13 @@ fn test_diagnostic_limit_rendered_output() {
 #[test]
 fn test_diagnostic_limit_prioritizes_errors() {
     let dir = TestDir::new("dedup_diag_error_limit.in");
+    check(
+        get_err_stdout(&dir, ["check", "--diagnostic-limit", "1"]),
+        expect![[r#"
+            Failed with 3 warnings, 1 errors.
+        "#]],
+    );
+
     let err = trim_trailing_spaces(get_err_stderr(&dir, ["check", "--diagnostic-limit", "1"]));
 
     check(
@@ -82,6 +89,30 @@ fn test_diagnostic_limit_prioritizes_errors() {
                │            ╰────────── The value identifier missing_identifier is unbound.
             ───╯
             Warning: diagnostic output limited by --diagnostic-limit: 0 errors and 3 warnings were not displayed.
+            Error: failed when checking project
         "#]],
     )
+}
+
+#[test]
+fn test_json_diagnostics_do_not_include_human_failure_summary() {
+    let dir = TestDir::new("dedup_diag_error_limit.in");
+    let stdout = get_err_stdout(
+        &dir,
+        [
+            "check",
+            "--output-json",
+            "--diagnostic-limit",
+            "1",
+            "--sort-input",
+        ],
+    );
+
+    assert!(!stdout.contains("Failed with"), "stdout: {stdout}");
+    assert!(
+        stdout
+            .lines()
+            .all(|line| serde_json::from_str::<serde_json::Value>(line).is_ok()),
+        "stdout must remain JSONL diagnostics: {stdout}"
+    );
 }

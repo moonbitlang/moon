@@ -136,7 +136,8 @@ fn test_moon_info_compile_failure_exits_with_status_1() {
         .current_dir(&dir)
         .args(["info"])
         .assert()
-        .failure();
+        .failure()
+        .stdout_eq("Failed with 0 warnings, 1 errors.\n");
 
     assert_eq!(assert.get_output().status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
@@ -145,7 +146,7 @@ fn test_moon_info_compile_failure_exits_with_status_1() {
         "stderr: {stderr}"
     );
     assert!(
-        !stderr.contains("Error: failed when generating mbti files project"),
+        stderr.contains("Error: failed when generating mbti files project"),
         "stderr: {stderr}"
     );
 }

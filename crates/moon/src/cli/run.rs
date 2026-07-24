@@ -796,8 +796,7 @@ fn build_executable_from_plan(
     let build_config =
         BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
             .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result =
-        rr_build::execute_build_silently(&build_config, build_graph, target_dir, user_log)?;
+    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?;
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
