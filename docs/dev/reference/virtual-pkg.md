@@ -12,20 +12,22 @@ During the scan phase, Moon records virtual metadata alongside the rest of the p
 - Any package that lists `overrides` gets a consumer-local mapping `<virtual> → <implementation>`.
 
 Doing this during the scan phase ensures every build mode sees a consistent view of virtual contracts, their implementations, and any consumer-specific overrides.
-See [`scan::scan_one_package()`](crates/moonutil/src/scan.rs:311).
+The current RR pipeline records this in discovery and package solving; see
+[`discover::model::Package`](../../../crates/moonbuild-rupes-recta/src/discover/model.rs)
+and [`pkg_solve`](../../../crates/moonbuild-rupes-recta/src/pkg_solve/mod.rs).
 
 ## Build pipeline
 
 The build stage adds three behaviours on top of what regular packages already do:
 
 1. **Compile the interface first.** The scanner chooses the `.mbti` file referenced in `virtual_pkg.interface`. Build compiles that file and pulls in the `.mi` files of any imports, producing the contract other packages must satisfy.
-   See [`gen_build::gen_build_interface_item()`](crates/moonbuild/src/gen/gen_build.rs:98) and [`gen_build::gen_build_interface_command()`](crates/moonbuild/src/gen/gen_build.rs:369).
+   See [`BuildPlanNode::BuildVirtual`](../../../crates/moonbuild-rupes-recta/src/model.rs) and [`LoweringCtx::lower_parse_mbti()`](../../../crates/moonbuild-rupes-recta/src/build_lower/lower_build.rs).
 
 2. **Validate the default body (if any).** When `virtual_pkg.has_default` is true, Moon compiles the bundled body right after the interface and checks that the resulting `.core` stays compatible with the interface before exposing it.
-   See [`gen_build::gen_build_command()`](crates/moonbuild/src/gen/gen_build.rs:440).
+   See [`BuildTargetInfo::check_mi_against`](../../../crates/moonbuild-rupes-recta/src/build_plan/mod.rs) and [`BuildLoweringCtx::lower_build_common_config()`](../../../crates/moonbuild-rupes-recta/src/build_lower/lower_build.rs).
 
 3. **Validate concrete implementations.** Packages that implement the virtual are compiled with the same compatibility checks and they reuse the virtual package’s `.mi` instead of emitting another one.
-   See [`gen_build::gen_build_build_item()`](crates/moonbuild/src/gen/gen_build.rs:195).
+   See [`BuildCommonConfig::add_virtual_package_implementation_build()`](../../../crates/moonbuild-rupes-recta/src/build_lower/compiler/build_common.rs).
 
 As long as interface compilation happens first and every body passes those checks, the dependency graph can treat virtual packages like ordinary ones: their `.mi` products feed downstream builds, and consumers will never see an out-of-date interface.
 
@@ -37,17 +39,17 @@ During traversal this also redirects the walk: once a virtual node is matched wi
 
 If a virtual package ships no default body, the build simply errors: dependency traversal stops with “virtual package … has no implementation” if no override is provided, so the failure happens before any link step runs.
 
-See [`gen_build::replace_virtual_pkg_core_with_impl_pkg_core()`](crates/moonbuild/src/gen/gen_build.rs:270) and [`gen::util::topo_from_node()`](crates/moonbuild/src/gen/util.rs:50).
+See the virtual usage information in [`pkg_solve::model`](../../../crates/moonbuild-rupes-recta/src/pkg_solve/model.rs) and the artifact/dependency construction in [`build_plan`](../../../crates/moonbuild-rupes-recta/src/build_plan/mod.rs).
 
 ## Consistency across build, check, and test
 
 The same behaviour repeats in every build mode:
 
 - **Check** mode regenerates interfaces, reruns default validation with `-check-mi`, and enforces `-check-mi/-impl-virtual` for implementations so diagnostics match the normal build.
-  See [`gen_check::gen_check()`](crates/moonbuild/src/gen/gen_check.rs:452).
+  See [`build_lower::compiler::check`](../../../crates/moonbuild-rupes-recta/src/build_lower/compiler/check.rs) and [`BuildCommonConfig::add_virtual_package_implementation_check()`](../../../crates/moonbuild-rupes-recta/src/build_lower/compiler/build_common.rs).
 
 - **Test** mode builds test drivers on top of the same interface/implementation pipeline, then applies overrides before generating runnable artifacts.
-  See [`gen_runtest::gen_runtest()`](crates/moonbuild/src/gen/gen_runtest.rs:966).
+  See [`BuildPlanNode`](../../../crates/moonbuild-rupes-recta/src/model.rs), [`build_plan`](../../../crates/moonbuild-rupes-recta/src/build_plan/mod.rs), and [`build_lower`](../../../crates/moonbuild-rupes-recta/src/build_lower/mod.rs).
 
 Test-only packages that implement a virtual package go through the same validation: their compiled artifacts are checked against the virtual interface before any test harness links them in, so mismatched implementations fail during the test build stage rather than at runtime. Black-box tests do not re-run that check; they import the already-validated package core instead of recompiling it.
 

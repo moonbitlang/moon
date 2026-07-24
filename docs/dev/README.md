@@ -84,22 +84,23 @@ cargo install --path ./crates/moon --debug --offline
   - `tests/test_cases`: end-to-end tests organized into modules by purpose;
     `mod.rs` contains their shared imports and module registrations
 
-- `crates/moonbuild-rupes-recta`: the new build graph generation engine (now default)
+- `crates/moonbuild-rupes-recta`: the build graph generation engine
   - `src/build_lower`: lowers resolved modules to n2 build commands
   - `src/fmt.rs`: formatting support
   - `src/metadata.rs`: metadata generation for IDE/tooling
   - See `docs/dev/reference/compiler-cmd-ref.md` for compiler command reference
 
-- `crates/moonbuild`: the legacy build graph generation engine
-  - Being phased out in favor of `moonbuild-rupes-recta`
-  - `src/{check, gen, build, bundle, entry, runtest}`: generate
-    commands and n2 state according to `moon.mod.json` and `moon.pkg.json`
-  - `src/bundle.rs`: only for `moonbitlang/core`, not visible
-    to users
-  - `src/dry_run.rs`: prints commands without executing them,
-    mainly used by end-to-end tests.
-  - `src/expect.rs`: the implementation of expect tests in
-    `moon`
+- `crates/moonbuild`: shared support code that still has the historical crate
+  name. The old build graph generator was removed in
+  `cbb17459b refactor: remove legacy code`; current build graph generation is
+  in `moonbuild-rupes-recta`.
+  - `src/entry.rs`: n2 execution helpers, progress output, and result handling
+  - `src/dry_run.rs`: dry-run command rendering and the integration snapshot
+    graph-dump hook
+  - `src/build_script.rs`: prebuild/build-script support used by RR
+  - `src/expect.rs` and `src/runtest.rs`: expect/snapshot and test helpers
+  - `src/{new,upgrade,doc_http,bench,benchmark,section_capture,test_utils}.rs`:
+    command support utilities retained outside the RR graph generator
 
 - `crates/mooncake`: package manager
   - `src/pkg/add`: `moon add`
@@ -122,7 +123,8 @@ cargo install --path ./crates/moon --debug --offline
 
 - `crates/moonrun`: runtime for executing WASM MoonBit programs
 
-- `crates/moonbuild-debug`: debugging utilities for dry-run printing and snapshotting
+- `crates/moonbuild-debug`: test/debug utilities for dry-run graph
+  comparison. It is not intended to be on normal production dependency paths.
 
 ## Before PR
 
