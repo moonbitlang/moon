@@ -214,36 +214,27 @@ pub struct BuildMeta {
     pub artifact_paths: ArtifactPathResolver,
 }
 
-/// Represents the result of the build process
-#[derive(Debug, Clone)]
-pub enum BuildResult {
-    /// The build succeeded with the given number of tasks executed.
-    Succeeded(usize),
-    /// The build failed.
-    Failed,
+/// The result of executing one build graph.
+pub struct BuildResult {
+    stats: N2RunStats,
+    json_diagnostics: Vec<String>,
 }
 
 impl BuildResult {
-    /// Whether the build was successful.
     pub fn successful(&self) -> bool {
-        matches!(self, BuildResult::Succeeded(_))
+        self.stats.successful()
     }
 
-    /// Get the return code that should be returned to the shell.
     pub fn return_code_for_success(&self) -> i32 {
-        if self.successful() { 0 } else { 1 }
+        self.stats.return_code_for_success()
     }
 
-    /// Print information about the build result.
-    pub fn print_info(&self) {
-        match self {
-            BuildResult::Succeeded(n) => {
-                println!("{} task(s) executed.", n);
-            }
-            BuildResult::Failed => {
-                println!("Build failed.");
-            }
-        }
+    pub fn print_info(&self, quiet: bool, mode: &str) -> anyhow::Result<()> {
+        self.stats.print_info(quiet, mode)
+    }
+
+    pub fn into_json_diagnostics(self) -> Vec<String> {
+        self.json_diagnostics
     }
 }
 
@@ -867,6 +858,11 @@ impl BuildConfig {
         self.suppress_progress = suppress_progress;
         self
     }
+
+    pub(crate) fn with_output_style(mut self, output_style: OutputStyle) -> Self {
+        self.output_style = output_style;
+        self
+    }
 }
 
 impl Default for BuildConfig {
@@ -925,7 +921,7 @@ pub fn execute_build(
     input: BuildInput,
     target_dir: &Path,
     user_log: &UserLog,
-) -> anyhow::Result<N2RunStats> {
+) -> anyhow::Result<BuildResult> {
     // Get start nodes (leaf outputs) before moving the graph
     let start_nodes = input.graph.get_start_nodes();
 
@@ -956,7 +952,7 @@ pub fn execute_test_build(
     target_dir: &Path,
     build_meta: &BuildMeta,
     user_log: &UserLog,
-) -> anyhow::Result<N2RunStats> {
+) -> anyhow::Result<BuildResult> {
     let start_nodes = input.graph.get_start_nodes();
 
     execute_build_partial(
@@ -991,7 +987,7 @@ pub fn execute_build_partial(
     build_meta: Option<&BuildMeta>,
     user_log: &UserLog,
     want_files: Box<WantFileFn>,
-) -> anyhow::Result<N2RunStats> {
+) -> anyhow::Result<BuildResult> {
     // Ensure target directory exists
     std::fs::create_dir_all(target_dir).context(format!(
         "Failed to create target directory: '{}'",
@@ -1054,7 +1050,7 @@ pub fn execute_build_partial(
     let build_succeeded = res.is_some();
 
     let mut result_catcher = result_catcher.lock().unwrap();
-    process_captured_diagnostics(
+    let json_diagnostics = process_captured_diagnostics(
         &mut result_catcher,
         cfg,
         build_succeeded,
@@ -1067,7 +1063,10 @@ pub fn execute_build_partial(
         n_warnings: result_catcher.n_warnings,
     };
 
-    Ok(stats)
+    Ok(BuildResult {
+        stats,
+        json_diagnostics,
+    })
 }
 
 /// Capture compiler output from n2 so it can be processed after the build.
@@ -1093,7 +1092,7 @@ fn process_captured_diagnostics(
     build_succeeded: bool,
     build_meta: Option<&BuildMeta>,
     user_log: &UserLog,
-) {
+) -> Vec<String> {
     let captured = catcher.content_writer.iter().map(|content| {
         let Some(meta) = build_meta else {
             return content.to_owned();
@@ -1151,7 +1150,7 @@ fn process_captured_diagnostics(
     });
 
     match cfg.output_style {
-        OutputStyle::Json => {
+        OutputStyle::Json | OutputStyle::JsonLines => {
             let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
             for content in captured {
                 match serde_json::from_str::<moonutil::render::MooncDiagnostic>(&content) {
@@ -1172,51 +1171,42 @@ fn process_captured_diagnostics(
                 };
             }
 
-            // In JSON mode, just print raw content after dedup.
-            match cfg.diagnostic_limit {
-                None => {
-                    for file_diagnostics in by_file.values() {
-                        for (diag, content) in file_diagnostics {
-                            println!("{content}");
-                            catcher.append_diag(diag);
-                        }
-                    }
-                }
+            let diagnostics = by_file.into_values().flatten().collect::<Vec<_>>();
+            let selected = match cfg.diagnostic_limit {
+                None => diagnostics,
                 Some(limit) => {
                     let mut displayed = 0;
                     let mut hidden_errors = 0;
                     let mut total_warnings = 0;
                     let mut displayed_warnings = 0;
                     let mut non_errors = Vec::new();
+                    let mut selected = Vec::new();
 
-                    for file_diagnostics in by_file.values() {
-                        for (diag, content) in file_diagnostics {
-                            if diagnostic_is_error(diag) {
-                                if displayed < limit {
-                                    println!("{content}");
-                                    catcher.append_diag(diag);
-                                    displayed += 1;
-                                } else {
-                                    hidden_errors += 1;
-                                }
-                                continue;
-                            }
-
-                            if diagnostic_is_warning(diag) {
-                                total_warnings += 1;
-                            }
+                    for (diag, content) in diagnostics {
+                        if diagnostic_is_error(&diag) {
                             if displayed < limit {
-                                non_errors.push((diag, content));
+                                selected.push((diag, content));
+                                displayed += 1;
+                            } else {
+                                hidden_errors += 1;
                             }
+                            continue;
+                        }
+
+                        if diagnostic_is_warning(&diag) {
+                            total_warnings += 1;
+                        }
+                        if displayed < limit {
+                            non_errors.push((diag, content));
                         }
                     }
 
                     if displayed < limit {
                         for (diag, content) in non_errors {
-                            println!("{content}");
-                            catcher.append_diag(diag);
+                            let is_warning = diagnostic_is_warning(&diag);
+                            selected.push((diag, content));
                             displayed += 1;
-                            if diagnostic_is_warning(diag) {
+                            if is_warning {
                                 displayed_warnings += 1;
                             }
                             if displayed == limit {
@@ -1229,7 +1219,21 @@ fn process_captured_diagnostics(
                     warn_limited_diagnostics(hidden_errors, hidden_warnings, user_log);
                     catcher.n_errors += hidden_errors;
                     catcher.n_warnings += hidden_warnings;
+                    selected
                 }
+            };
+
+            for (diag, _) in &selected {
+                catcher.append_diag(diag);
+            }
+
+            if cfg.output_style == OutputStyle::JsonLines {
+                for (_, content) in selected {
+                    println!("{content}");
+                }
+                Vec::new()
+            } else {
+                selected.into_iter().map(|(_, content)| content).collect()
             }
         }
         OutputStyle::Fancy => {
@@ -1331,11 +1335,13 @@ fn process_captured_diagnostics(
                     catcher.n_warnings += hidden_warnings;
                 }
             }
+            Vec::new()
         }
         OutputStyle::Raw => {
             for content in captured {
                 println!("{content}");
             }
+            Vec::new()
         }
     }
 }

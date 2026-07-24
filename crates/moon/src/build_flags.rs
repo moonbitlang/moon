@@ -83,7 +83,7 @@ pub struct BuildFlags {
     #[clap(long)]
     pub no_render: bool,
 
-    /// Output diagnostics in JSON format
+    /// Output one JSON diagnostic per line
     #[clap(long, conflicts_with = "no_render")]
     pub output_json: bool,
 
@@ -161,19 +161,27 @@ pub enum OutputStyle {
     Raw,
     /// Source code snippets with colors and formatting, rendered from JSON
     Fancy,
-    /// Machine-readable output in JSON
+    /// One machine-readable JSON document
     Json,
+    /// One machine-readable JSON value per line
+    JsonLines,
 }
 
 impl OutputStyle {
     /// Whether the output style requires `moonc` to emit JSON diagnostics.
     pub fn needs_moonc_json(&self) -> bool {
-        matches!(self, OutputStyle::Fancy | OutputStyle::Json)
+        matches!(
+            self,
+            OutputStyle::Fancy | OutputStyle::Json | OutputStyle::JsonLines
+        )
     }
 
     /// Whether the output style requires no rendering (i.e., raw diagnostics).
     pub fn needs_no_render(&self) -> bool {
-        matches!(self, OutputStyle::Raw | OutputStyle::Json)
+        matches!(
+            self,
+            OutputStyle::Raw | OutputStyle::Json | OutputStyle::JsonLines
+        )
     }
 }
 
@@ -243,7 +251,7 @@ impl BuildFlags {
     pub fn output_style(&self) -> OutputStyle {
         match (self.no_render, self.output_json) {
             (true, false) => OutputStyle::Raw,
-            (false, true) => OutputStyle::Json,
+            (false, true) => OutputStyle::JsonLines,
             (false, false) => OutputStyle::Fancy,
             (true, true) => unreachable!(
                 "unreachable: both no_render and output_json flags are set (should be prevented by conflicts_with)"

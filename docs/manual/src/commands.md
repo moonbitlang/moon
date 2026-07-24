@@ -123,7 +123,7 @@ Build the current package
 * `--output-wat` — Output WAT instead of WASM
 * `-d`, `--deny-warn` — Treat all warnings as errors
 * `--no-render` — Don't render diagnostics (in raw human-readable format)
-* `--output-json` — Output diagnostics in JSON format
+* `--output-json` — Output one JSON diagnostic per line
 * `--warn-list <WARN_LIST>` — Warn list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
@@ -164,6 +164,8 @@ Check the current package, but don't build object files
 * `-d`, `--deny-warn` — Treat all warnings as errors
 * `--no-render` — Don't render diagnostics (in raw human-readable format)
 * `--output-json` — Output diagnostics in JSON format
+* `--json` — Output diagnostics as one JSON array
+* `--jsonl` — Output one JSON diagnostic per line
 * `--warn-list <WARN_LIST>` — Warn list config
 * `-j`, `--jobs <JOBS>` — Set the max number of jobs to run in parallel
 * `--render-no-loc <MIN_LEVEL>` — Render no-location diagnostics starting from a certain level
