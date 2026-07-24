@@ -28,12 +28,14 @@ use moonutil::{
     front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
     project::{
-        MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv, canonical_workspace_module_dirs,
-        read_workspace_file,
+        DependencySource, MoonWork, PackageDirs, ProjectManifest, WorkspaceEnv,
+        canonical_workspace_module_dirs, read_workspace_file,
     },
     resolution::{DirSyncResult, ModuleSource, ResolvedEnv, ResolvedModule, ResolvedRootModules},
 };
 use semver::Version;
+
+use crate::prepared_source::PreparedDependencySources;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SyncOutputOptions {
@@ -103,8 +105,9 @@ pub fn auto_sync(
     let source = ModuleSource::from_local_module(&module, &dirs.source_dir);
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
-    let (resolved_env, sync_result) =
+    let (resolved_env, prepared_sources) =
         super::install::install_impl(dirs, roots, output_options, false, cli.dont_sync(), no_std)?;
+    let sync_result = prepared_sources.into_module_dirs();
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((resolved_env, sync_result, None))
 }
@@ -129,8 +132,9 @@ fn resolve_workspace_sync(
         roots.insert(ResolvedModule::new(source, module));
     }
 
-    let (resolved_env, sync_result) =
+    let (resolved_env, prepared_sources) =
         super::install::install_impl(dirs, roots, output_options, false, cli.dont_sync(), no_std)?;
+    let sync_result = prepared_sources.into_module_dirs();
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((resolved_env, sync_result, Some(workspace)))
 }
@@ -169,10 +173,11 @@ pub fn auto_sync_for_single_mbt_md(
         target_dir: moonbuild_opt.target_dir.clone(),
         mooncake_bin_dir: mooncake_bin_dir.to_path_buf(),
         mooncakes_dir: mooncakes_dir.to_path_buf(),
+        dependency_source: DependencySource::ProjectLocal,
         project_manifest: ProjectManifest::None,
     };
 
-    let (resolved_env, dir_sync_result) = super::install::install_impl(
+    let (resolved_env, prepared_sources) = super::install::install_impl(
         &dirs,
         roots,
         SyncOutputOptions::new(moonbuild_opt.quiet, true),
@@ -180,6 +185,7 @@ pub fn auto_sync_for_single_mbt_md(
         dont_sync,
         false,
     )?;
+    let dir_sync_result = prepared_sources.into_module_dirs();
     log::debug!("Dir sync result: {:?}", dir_sync_result);
     Ok((resolved_env, dir_sync_result, m))
 }
@@ -189,7 +195,7 @@ pub fn auto_sync_for_single_file_rr(
     sync_flags: &AutoSyncFlags,
     front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
     output_options: SyncOutputOptions,
-) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
+) -> anyhow::Result<(ResolvedEnv, PreparedDependencySources)> {
     let mut synth_deps = IndexMap::new();
     if let Some(deps_map) = front_matter_deps {
         for (k, v) in deps_map.iter() {
@@ -206,7 +212,7 @@ pub fn auto_sync_for_single_file_rr(
     let ms = ModuleSource::single_file(&m, &dirs.source_dir);
     let (roots, _) = ResolvedModule::only_one_module(ms, Arc::clone(&m));
 
-    let (resolved_env, dir_sync_result) = super::install::install_impl(
+    let (resolved_env, prepared_sources) = super::install::install_impl(
         dirs,
         roots,
         output_options,
@@ -215,6 +221,6 @@ pub fn auto_sync_for_single_file_rr(
         false,
     )?;
 
-    log::debug!("Dir sync result: {:?}", dir_sync_result);
-    Ok((resolved_env, dir_sync_result))
+    log::debug!("Dir sync result: {:?}", prepared_sources.module_dirs());
+    Ok((resolved_env, prepared_sources))
 }

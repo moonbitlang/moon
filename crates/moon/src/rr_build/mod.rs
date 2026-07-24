@@ -274,6 +274,9 @@ pub struct CompilePreConfig {
     pub info_no_alias: bool,
     /// Attempt to use `tcc -run` when possible
     pub try_tcc_run: bool,
+    /// Collect the registry dependency action descriptions used by standalone
+    /// script build caching.
+    pub(crate) collect_dependency_build_actions: bool,
     warn_list: Option<String>,
 }
 
@@ -373,6 +376,7 @@ impl CompilePreConfig {
             warning_condition: self.warning_condition,
             warn_list: self.warn_list,
             info_no_alias: self.info_no_alias,
+            collect_dependency_build_actions: self.collect_dependency_build_actions,
         })
     }
 
@@ -451,6 +455,7 @@ pub fn preconfig_compile(
         docs_serve: false,
         info_no_alias: false,
         try_tcc_run: false,
+        collect_dependency_build_actions: false,
         warning_condition: if build_flags.deny_warn {
             WarningCondition::Deny
         } else {
@@ -625,6 +630,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     let input = BuildInput {
         graph: compile_output.build_graph,
         command_args_by_output: compile_output.command_args_by_output,
+        dependency_build_actions: compile_output.dependency_build_actions,
         db_path,
     };
 
@@ -658,6 +664,7 @@ pub fn plan_fmt(
     Ok(BuildInput {
         graph,
         command_args_by_output: Default::default(),
+        dependency_build_actions: Vec::new(),
         db_path,
     })
 }
@@ -895,6 +902,11 @@ pub struct BuildInput {
     /// Structured command argv keyed by generated output path.
     command_args_by_output: moonbuild_rupes_recta::build_lower::CommandArgMap,
 
+    /// Registry dependency actions that standalone script execution may build
+    /// and restore as one dependency-graph cache entry.
+    dependency_build_actions:
+        Vec<moonbuild_rupes_recta::dependency_build_cache::DependencyBuildAction>,
+
     /// The build cache database path for n2
     ///
     /// This path is passed here because it changes between different execution configurations.
@@ -943,6 +955,70 @@ pub fn execute_build(
             Ok(())
         }),
     )
+}
+
+/// Execute a standalone script build with its registry dependency graph
+/// prepared as one cacheable phase.
+///
+/// Cache hits restore all dependency products and detach their producer nodes
+/// before the project-local n2 run. Cache misses first ask one n2 work graph to
+/// build every dependency product, publish the complete result, then run the
+/// project graph.
+#[instrument(skip_all)]
+pub fn execute_script_build(
+    cfg: &BuildConfig,
+    mut input: BuildInput,
+    target_dir: &Path,
+    build_meta: &BuildMeta,
+    user_log: &UserLog,
+) -> anyhow::Result<N2RunStats> {
+    let Some(cache) =
+        crate::dependency_build_cache::DependencyGraphCache::open(&input.dependency_build_actions)?
+    else {
+        return execute_build(cfg, input, target_dir, user_log);
+    };
+
+    if cache.restore()? {
+        cache.detach_builds(&mut input.graph);
+        return execute_build(cfg, input, target_dir, user_log);
+    }
+
+    let lock = cache.lock()?;
+    if cache.restore()? {
+        drop(lock);
+        cache.detach_builds(&mut input.graph);
+        return execute_build(cfg, input, target_dir, user_log);
+    }
+
+    let dependency_outputs = cache.output_file_ids(&input.graph);
+    let dependency_stats = execute_build_partial(
+        cfg,
+        input.clone(),
+        target_dir,
+        Some(build_meta),
+        user_log,
+        Box::new(move |work| {
+            for file_id in dependency_outputs {
+                work.want_file(file_id)?;
+            }
+            Ok(())
+        }),
+    )?;
+    if !dependency_stats.successful() {
+        return Ok(dependency_stats);
+    }
+
+    cache.publish()?;
+    drop(lock);
+    cache.detach_builds(&mut input.graph);
+    let project_stats = execute_build(cfg, input, target_dir, user_log)?;
+    Ok(N2RunStats {
+        n_tasks_executed: project_stats
+            .n_tasks_executed
+            .map(|tasks| tasks + dependency_stats.n_tasks_executed.unwrap_or_default()),
+        n_errors: project_stats.n_errors + dependency_stats.n_errors,
+        n_warnings: project_stats.n_warnings + dependency_stats.n_warnings,
+    })
 }
 
 /// Execute a test build.

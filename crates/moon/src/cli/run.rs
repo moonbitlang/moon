@@ -27,7 +27,7 @@ use moonbuild_rupes_recta::{
 use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::project::{PackageDirs, ProjectProbe};
+use moonutil::project::{DependencySource, PackageDirs, ProjectProbe};
 use moonutil::{
     build_options::{RunMode, TestArtifacts},
     constants::is_moon_pkg_exist,
@@ -203,6 +203,7 @@ pub(crate) struct RunExecutable {
 struct BuildExecutableFromPlanOptions {
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
+    cache_registry_dependencies: bool,
 }
 
 impl RunExecutable {
@@ -235,7 +236,7 @@ fn run_stdin_source_as_single_file(
         cli,
         cmd,
         source,
-        "stdin.mbtx",
+        "source.mbtx",
         "stdin",
         BuildRunExecutableOptions::for_run(cli),
         output,
@@ -256,7 +257,7 @@ fn run_inline_source_as_single_file(
         cli,
         cmd,
         source,
-        "command.mbtx",
+        "source.mbtx",
         "command",
         BuildRunExecutableOptions::for_run(cli),
         output,
@@ -504,6 +505,7 @@ fn build_package_executable(
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
+            cache_registry_dependencies: false,
         },
         output,
     )
@@ -620,11 +622,18 @@ fn build_single_file_executable_from_arg(
     options: BuildRunExecutableOptions,
     output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
-    let single_file_dirs = cli.source_tgt_dir.single_file_package_dirs(
-        cmd.package_or_mbt_file
-            .as_deref()
-            .expect("single-file run from arg requires a positional input path"),
-    )?;
+    let input = cmd
+        .package_or_mbt_file
+        .as_deref()
+        .expect("single-file run from arg requires a positional input path");
+    let single_file_dirs = if Path::new(input)
+        .extension()
+        .is_some_and(|extension| extension == "mbtx")
+    {
+        cli.source_tgt_dir.cached_single_file_package_dirs(input)?
+    } else {
+        cli.source_tgt_dir.single_file_package_dirs(input)?
+    };
     build_single_file_executable(
         cli,
         cmd,
@@ -647,6 +656,8 @@ fn build_single_file_executable(
     output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let user_log = output.user_log();
+    let has_shared_registry_sources =
+        matches!(dirs.dependency_source, DependencySource::SharedCache(_));
     let PackageDirs {
         source_dir,
         target_dir,
@@ -677,6 +688,7 @@ fn build_single_file_executable(
     let selected_target_backend = selected_target_backend
         .or(backend)
         .unwrap_or(options.default_target_backend);
+    let cache_registry_dependencies = has_shared_registry_sources;
 
     let mut preconfig = preconfig_compile(
         &cmd.auto_sync_flags,
@@ -687,6 +699,7 @@ fn build_single_file_executable(
         RunMode::Run,
     );
     preconfig.try_tcc_run = options.try_tcc_run;
+    preconfig.collect_dependency_build_actions = cache_registry_dependencies;
 
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
@@ -724,6 +737,7 @@ fn build_single_file_executable(
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
+            cache_registry_dependencies,
         },
         output,
     )
@@ -783,7 +797,17 @@ fn build_executable_from_plan(
     let build_config =
         BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
             .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?;
+    let build_result = if options.cache_registry_dependencies {
+        rr_build::execute_script_build(
+            &build_config,
+            build_graph,
+            target_dir,
+            build_meta,
+            user_log,
+        )?
+    } else {
+        rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?
+    };
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),

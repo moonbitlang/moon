@@ -29,6 +29,7 @@ use moonutil::{command_output::CommandOutput, user_log::UserLog};
 
 mod build_flags;
 mod cli;
+mod dependency_build_cache;
 mod filter;
 mod panic;
 pub mod rr_build;

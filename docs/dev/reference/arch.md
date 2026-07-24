@@ -129,8 +129,11 @@ project paths, the command layer captures user input and passes the result
 forward instead of letting later phases infer it again. In particular:
 
 - project and workspace selection are captured before package discovery;
-- the `.mooncakes` directory is computed during project discovery and passed
-  into dependency sync;
+- the `.mooncakes` directory and dependency-source mode are computed during
+  project discovery and passed into dependency sync; currently only
+  `moon run -e`, `moon run -`, and `moon run <file>.mbtx` select the shared
+  dependency cache, while other operations select project-local
+  `.mooncakes`;
 - `$mooncake_bin` is resolved by the command adapter to a `mooncake_bin_dir`
   path before build planning, so RR planning substitutes an already-computed
   launcher directory instead of deriving it from project layout;
@@ -139,10 +142,11 @@ forward instead of letting later phases infer it again. In particular:
 - package and module directories come from discovery results, not from later
   path guessing.
 
-Source directory, `.mooncakes` directory, target directory, and optional project
-manifest path are user/config facts from project discovery. The synced
-dependency result is derived data: it contains the resolved module
-relationships and module source directories produced by dependency sync.
+Source directory, `.mooncakes` directory, dependency-source mode, target
+directory, and optional project manifest path are user/config facts from
+project discovery. The synced dependency result is derived data: it contains
+the resolved module relationships and module source directories produced by
+dependency sync.
 `ResolveOutput` should contain resolved
 build-model data derived from those inputs, not repeat the captured discovery
 paths.

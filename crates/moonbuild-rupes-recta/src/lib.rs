@@ -111,6 +111,7 @@ pub mod pkg_solve;
 
 // High-level actions
 pub mod compile;
+pub mod dependency_build_cache;
 pub mod resolve;
 pub mod target_layout;
 

@@ -64,6 +64,9 @@ pub struct ResolveOutput {
     pub module_rel: ResolvedEnv,
     /// Module directories
     pub module_dirs: DirSyncResult,
+    /// Registry sources whose immutable archive checksums were verified while
+    /// preparing the shared dependency cache.
+    pub prepared_sources: mooncake::prepared_source::PreparedSourceMap,
     /// Package directories
     pub pkg_dirs: DiscoverResult,
     /// Package dependency relationship
@@ -389,6 +392,7 @@ pub fn resolve_synced_project(
     Ok(ResolveOutput {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
+        prepared_sources: Default::default(),
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
     })
@@ -448,13 +452,14 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     }
 
     // Sync modules as usual
-    let (resolved_env, dir_sync_result) = auto_sync_for_single_file_rr(
+    let (resolved_env, prepared_sources) = auto_sync_for_single_file_rr(
         dirs,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),
         cfg.sync_output,
     )
     .map_err(ResolveError::SyncModulesError)?;
+    let (dir_sync_result, prepared_sources) = prepared_sources.into_parts();
     // Discover all packages in resolved modules
     let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
     warn_virtual_mbti_deprecations(&discover_result, user_log);
@@ -480,6 +485,7 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
     let res = ResolveOutput {
         module_rel: resolved_env,
         module_dirs: dir_sync_result,
+        prepared_sources,
         pkg_dirs: discover_result,
         pkg_rel: dep_relationship,
     };

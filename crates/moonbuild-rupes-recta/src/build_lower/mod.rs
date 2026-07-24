@@ -18,7 +18,12 @@
 
 //! Lowers the normalized action plan into `n2`'s build graph.
 
-use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
+    str::FromStr,
+    sync::OnceLock,
+};
 
 use log::{debug, info};
 use moonutil::{
@@ -113,6 +118,7 @@ pub struct BuildOptions {
     pub warning_condition: WarningCondition,
     pub info_no_alias: bool,
     pub wasi_link: bool,
+    pub collect_dependency_build_actions: bool,
 
     // Environments
     /// Only `Some` if we import standard library.
@@ -220,6 +226,10 @@ pub struct LoweringResult {
     /// Structured argv for lowered commands that are represented as argument
     /// vectors before they are rendered into n2 command strings.
     pub command_args_by_output: CommandArgMap,
+
+    /// Registry dependency `BuildCore` actions that can be prepared as one
+    /// standalone-script dependency graph.
+    pub dependency_build_actions: Vec<crate::dependency_build_cache::DependencyBuildAction>,
 
     /// Artifacts corresponding to the root input actions, in input action order.
     pub artifacts: Vec<(BuildActionId, Vec<PathBuf>)>,
@@ -397,11 +407,35 @@ pub fn lower_build_plan(
         let artifacts = ctx.output_paths_for_action(action);
         out_artifacts.push((action, artifacts));
     }
+    let dependency_build_ids = ctx
+        .dependency_build_actions
+        .iter()
+        .map(|action| action.build_id)
+        .collect::<HashSet<_>>();
+    // The cache unit is the complete producer closure. A selected action must
+    // never depend on an n2 producer that is absent from the cache identity.
+    let dependency_build_actions_closed = ctx.dependency_build_actions.iter().all(|action| {
+        ctx.graph.builds[action.build_id]
+            .ordering_ins()
+            .iter()
+            .all(|input| {
+                ctx.graph.files.by_id[*input]
+                    .input
+                    .is_none_or(|producer| dependency_build_ids.contains(&producer))
+            })
+    });
+    let dependency_build_actions =
+        if ctx.dependency_build_actions_complete && dependency_build_actions_closed {
+            ctx.dependency_build_actions
+        } else {
+            Vec::new()
+        };
 
     info!("Action plan lowering completed successfully");
     Ok(LoweringResult {
         build_graph: ctx.graph,
         command_args_by_output: ctx.command_args_by_output,
+        dependency_build_actions,
         artifacts: out_artifacts,
     })
 }
@@ -468,6 +502,7 @@ mod tests {
                 warning_condition: WarningCondition::Default,
                 info_no_alias: false,
                 wasi_link: false,
+                collect_dependency_build_actions: false,
                 stdlib_path: None,
                 lowering_environment: LoweringEnvironment::default(),
             };
@@ -615,6 +650,7 @@ mod tests {
             ResolveOutput {
                 module_rel: modules,
                 module_dirs,
+                prepared_sources: Default::default(),
                 pkg_dirs: packages,
                 pkg_rel: DepRelationship::default(),
             },
@@ -716,6 +752,7 @@ mod tests {
             warning_condition: WarningCondition::Default,
             info_no_alias: false,
             wasi_link: false,
+            collect_dependency_build_actions: false,
             stdlib_path: None,
             lowering_environment,
         };

@@ -1724,9 +1724,11 @@ dependencies = [
  "serde_json",
  "serde_json_lenient",
  "sha2",
+ "slotmap",
  "tempfile",
  "test-log",
  "thiserror 1.0.63",
+ "tracing",
  "walkdir",
  "zip",
 ]
@@ -1792,6 +1794,7 @@ dependencies = [
  "slotmap",
  "tempfile",
  "thiserror 1.0.63",
+ "tracing",
  "vergen",
  "which 6.0.2",
 ]
