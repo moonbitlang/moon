@@ -285,16 +285,19 @@ fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
 
 /// The result of a directory sync.
 fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
+    non_registry_source_dir(module)
+        .unwrap_or_else(|| pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual))
+}
+
+pub(crate) fn non_registry_source_dir(module: &ModuleSource) -> Option<PathBuf> {
     match module.source() {
-        ModuleSourceKind::Registry => {
-            pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual)
-        }
-        ModuleSourceKind::Local(path) => path.clone(),
+        ModuleSourceKind::Registry => None,
+        ModuleSourceKind::Local(path) => Some(path.clone()),
         ModuleSourceKind::Git(url) => {
             todo!("Git dependency is not yet supported. Got git url: {}", url)
         }
-        ModuleSourceKind::Stdlib(path) => path.clone(),
-        ModuleSourceKind::SingleFile(path) => path.clone(),
+        ModuleSourceKind::Stdlib(path) => Some(path.clone()),
+        ModuleSourceKind::SingleFile(path) => Some(path.clone()),
     }
 }
 

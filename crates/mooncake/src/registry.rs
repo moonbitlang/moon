@@ -32,6 +32,7 @@ use semver::Version;
 #[derive(Debug, Clone, Default)]
 pub struct RegistryVersionInfo {
     pub deps: IndexMap<String, SourceDependencyInfo>,
+    pub checksum: Option<String>,
 }
 
 pub trait Registry {
@@ -77,6 +78,22 @@ pub trait Registry {
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()>;
+
+    fn extract_to_verified(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        checksum: &str,
+        to: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()>;
+
+    fn checksum_of(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
+        self.all_versions_of(name)?
+            .get(version)
+            .and_then(|info| info.checksum.clone())
+            .ok_or_else(|| anyhow::anyhow!("No checksum found for {name}@{version}"))
+    }
 }
 
 impl<R> Registry for &mut R
@@ -98,6 +115,21 @@ where
         quiet: bool,
     ) -> anyhow::Result<()> {
         (**self).install_to(name, version, to, quiet)
+    }
+
+    fn extract_to_verified(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        checksum: &str,
+        to: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()> {
+        (**self).extract_to_verified(name, version, checksum, to, quiet)
+    }
+
+    fn checksum_of(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
+        (**self).checksum_of(name, version)
     }
 
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {
@@ -128,6 +160,21 @@ where
         quiet: bool,
     ) -> anyhow::Result<()> {
         (**self).install_to(name, version, to, quiet)
+    }
+
+    fn extract_to_verified(
+        &self,
+        name: &ModuleName,
+        version: &Version,
+        checksum: &str,
+        to: &Path,
+        quiet: bool,
+    ) -> anyhow::Result<()> {
+        (**self).extract_to_verified(name, version, checksum, to, quiet)
+    }
+
+    fn checksum_of(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
+        (**self).checksum_of(name, version)
     }
 
     fn get_latest_version(&self, name: &ModuleName) -> Option<Version> {

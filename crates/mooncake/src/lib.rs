@@ -20,6 +20,7 @@
 
 pub(crate) mod dep_dir;
 pub mod pkg;
+pub mod prepared_source;
 pub mod registry;
 pub(crate) mod resolver;
 pub mod update;

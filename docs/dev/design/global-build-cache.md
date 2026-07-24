@@ -3,13 +3,11 @@
 ## Status
 
 This document records the intended direction for global dependency and build
-caches. Only the cache-root configuration and cleaning contract described
-below is implemented today. Builds do not yet read from or write to either
-global cache.
-
-The first implementation step is intentionally small. It gives later work a
-stable public configuration and lifecycle seam without committing Moon to an
-internal cache layout too early.
+caches. The cache-root contract, explicit cleaning, and globally prepared
+registry dependency sources for `moon run -e`, `moon run -`, and
+`moon run <file>.mbtx` are implemented today. Other commands retain
+project-local `.mooncakes`, and compiler artifacts do not yet use the global
+build cache.
 
 ## Problem
 
@@ -43,6 +41,29 @@ and cleanup rules, so they use separate caches. An artifact is reusable only
 when all compiler-observable inputs have the same identity. Directory names
 are for storage organization, not correctness.
 
+### Prepared dependency source identity
+
+A prepared registry source is identified by its resolved `module@version`.
+The registry checksum is immutable metadata for that identity, not another
+component that permits multiple source variants. On first use, Moon verifies
+the downloaded archive against the registry checksum, extracts into staging,
+renames the complete entry while holding the module lock, and marks the entry,
+including its checksum metadata and source tree, read-only before releasing
+the lock. Concurrent publishers of the same identity must be harmless.
+
+On a cache hit, Moon compares the current registry checksum with the checksum
+recorded at publication after validating the entry's expected shape and
+read-only state. A mismatch is an error: published registry versions are
+immutable, so Moon must not replace the source or create a second checksum-keyed
+variant for the same `module@version`.
+
+The first rollout is limited to standalone `.mbtx` execution: `moon run -e`,
+`moon run -`, and `moon run <file>.mbtx` resolve registry dependencies from
+the shared cache. Other project and single-file commands retain the existing
+project-local `.mooncakes` installation behavior. This keeps the initial
+migration narrow while preserving the cache format and correctness rules
+needed by later command migrations.
+
 ## Implemented public seam
 
 Two environment variables select the cache roots:
@@ -52,14 +73,12 @@ Two environment variables select the cache roots:
 | `MOON_DEP_CACHE` | `$MOON_HOME/cache/deps` | Disable dependency caching | Use that dependency-cache root |
 | `MOON_BUILD_CACHE` | `$MOON_HOME/cache/build` | Disable build caching | Use that build-cache root |
 
-A relative path is rejected. `off` means that a future build must use
-invocation-private temporary state instead of the corresponding global cache.
-For a disabled dependency cache, dependencies still have to be downloaded and
-prepared somewhere private; disabling the cache must not disable dependency
-resolution.
-
-The environment variables currently configure and clean roots only. Their
-presence does not yet change build execution.
+A relative path is rejected when a command selects the corresponding cache.
+`off` makes the three standalone `.mbtx` run forms use their file-local
+`.mooncakes` flow instead; disabling the cache does not disable dependency
+resolution. Commands that have not migrated do not consult `MOON_DEP_CACHE`
+during dependency sync. `MOON_BUILD_CACHE` currently configures and cleans its
+root only.
 
 ### Cleaning
 
@@ -175,14 +194,27 @@ startup.
 
 `post-add` hooks will not run in globally shared prepared sources. They make
 source state mutable and can have effects that are not captured by an artifact
-key. The initial shared-source flow should reject a dependency that requires
-`post-add`, rather than execute the hook or silently skip it. A sandboxed,
-explicitly keyed hook model would require a separate design.
+key. The shared-source flow rejects a dependency that requires `post-add`,
+rather than execute the hook, silently skip it, or fall back to a mutable local
+installation. A sandboxed, explicitly keyed hook model would require a
+separate design.
+
+Top-level module prebuild configuration remains a build-time operation. It runs
+for each invocation against the prepared read-only source, and its structured
+output affects that invocation's build plan rather than the dependency-source
+cache. Package-level prebuild commands and source generators are skipped for
+registry dependencies; published archives must already contain their generated
+outputs.
 
 `__moonbin__` belongs in the invocation's mutable work directory, initially
 under `_build`. If its producer later becomes cacheable, its outputs may be
 published like other action results, but a cache location must not become the
 command-visible executable path.
+
+Binary-dependency build isolation is independent of this first shared-source
+rollout. Registry bin-deps are copied to target-owned temporary work before
+building, as described in the architecture reference; local bin-deps retain
+their existing behavior.
 
 Moving `.mooncakes` wholesale into `_build` is not a prerequisite. Acquisition,
 prepared immutable sources, mutable work, and final outputs have different
@@ -194,10 +226,13 @@ Each stage should be useful and reviewable without requiring the next:
 
 1. **Root contract and lifecycle (implemented):** environment selection,
    disabled semantics, safe explicit cleaning, and no internal data layout.
-2. **Prepared dependency sources:** immutable publication in the dependency
-   cache, no shared `post-add`, and private fallback when caching is off.
-3. **Private standalone work:** stop sharing mutable `_build` trees between
-   standalone invocations; place `__moonbin__` there.
+2. **Prepared dependency sources (partially implemented):** immutable
+   publication for the three standalone `.mbtx` run forms, no shared
+   `post-add`, and file-local fallback when caching is off. Other commands can
+   migrate separately after this path is established.
+3. **Private binary-dependency work (implemented):** stop sharing mutable
+   `_build` trees between binary-dependency invocations; place `__moonbin__`
+   there.
 4. **Action model:** define and test canonical action inputs at the Rupes Recta
    compiler boundary, including resolved interfaces and target facts.
 5. **Artifact cache:** publish and restore complete `.mi`/`.core` result sets
@@ -207,9 +242,8 @@ Each stage should be useful and reviewable without requiring the next:
 7. **Operations:** add recency tracking, pruning, diagnostics, and format
    migration only after real cache data exists.
 
-The next implementation should choose one stage, write a failing end-to-end
-test first, and avoid introducing speculative directory structure for later
-stages.
+Each implementation should choose one stage, write a failing end-to-end test
+first, and avoid introducing speculative directory structure for later stages.
 
 ## References
 

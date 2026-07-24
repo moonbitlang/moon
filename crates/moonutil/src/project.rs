@@ -22,9 +22,9 @@
 //! module or workspace before building, resolving dependencies, or packaging.
 
 pub use crate::dirs::{
-    ModuleRef, PackageDirs, PackageDirsError, ProjectContext, ProjectManifest, ProjectNotFound,
-    ProjectProbe, ProjectQuery, SingleFilePackageDirs, SourceModulePackageDirs, SourceTargetDirs,
-    WorkRootSelection, WorkspaceEnv, WorkspaceRef, current_workspace_env,
+    DependencySource, ModuleRef, PackageDirs, PackageDirsError, ProjectContext, ProjectManifest,
+    ProjectNotFound, ProjectProbe, ProjectQuery, SingleFilePackageDirs, SourceModulePackageDirs,
+    SourceTargetDirs, WorkRootSelection, WorkspaceEnv, WorkspaceRef, current_workspace_env,
 };
 pub use crate::workspace::{
     MoonWork, canonical_workspace_module_dirs, format_workspace_file, read_workspace,
