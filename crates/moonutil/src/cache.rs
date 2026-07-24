@@ -159,10 +159,14 @@ pub fn make_cache_tree_writable(root: &Path) -> anyhow::Result<()> {
 fn set_cache_tree_readonly(root: &Path, readonly: bool) -> anyhow::Result<()> {
     let metadata = std::fs::symlink_metadata(root)?;
     if metadata.file_type().is_symlink() {
-        bail!(
-            "refusing to change permissions through cache symlink `{}`",
-            root.display()
-        );
+        if readonly {
+            bail!(
+                "refusing to change permissions through cache symlink `{}`",
+                root.display()
+            );
+        }
+        // A cache clean removes this directory entry without following it.
+        return Ok(());
     }
     if metadata.is_dir() {
         for entry in std::fs::read_dir(root)? {
