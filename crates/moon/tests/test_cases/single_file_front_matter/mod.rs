@@ -61,6 +61,7 @@ fn test_single_file_mbtx_run() {
     let dependency_cache = tempfile::tempdir().unwrap();
     moon_cmd(&dir)
         .env("MOON_DEP_CACHE", dependency_cache.path())
+        .env("MOON_BUILD_CACHE", "off")
         .args(["run", "import_ok.mbtx"])
         .assert()
         .success()
@@ -73,6 +74,7 @@ fn test_single_file_mbtx_run_block_import() {
     let dependency_cache = tempfile::tempdir().unwrap();
     moon_cmd(&dir)
         .env("MOON_DEP_CACHE", dependency_cache.path())
+        .env("MOON_BUILD_CACHE", "off")
         .args(["run", "import_block_ok.mbtx"])
         .assert()
         .success()

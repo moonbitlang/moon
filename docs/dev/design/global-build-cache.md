@@ -5,9 +5,10 @@
 This document records the intended direction for global dependency and build
 caches. The cache-root contract, explicit cleaning, and globally prepared
 registry dependency sources for `moon run -e`, `moon run -`, and
-`moon run <file>.mbtx` are implemented today. Other commands retain
-project-local `.mooncakes`, and compiler artifacts do not yet use the global
-build cache.
+`moon run <file>.mbtx` are implemented today. Those commands also reuse one
+complete registry dependency build graph through the global build cache.
+Other commands retain project-local `.mooncakes` and do not read or publish
+global compiler artifacts.
 
 ## Problem
 
@@ -64,6 +65,34 @@ project-local `.mooncakes` installation behavior. This keeps the initial
 migration narrow while preserving the cache format and correctness rules
 needed by later command migrations.
 
+### Standalone dependency build identity
+
+The first compiler-artifact rollout uses the complete registry dependency
+subgraph of one standalone script as its cache unit. It does not yet reuse a
+partially overlapping set of dependency packages. Rupes Recta identifies the
+registry-source `BuildCore` actions during normal lowering; it does not create
+a second build model for the cache.
+
+The dependency graph ID is a SHA-256 digest over the selected packages,
+canonical compiler arguments, exact resolved module versions, logical
+dependency-product edges, and the contents of compiler, standard-library,
+source, and configuration inputs. Physical checkout, target, and cache paths
+are replaced by logical labels, so equivalent standalone scripts in different
+directories can share the graph. File digests are memoized within an
+invocation, so the compiler binary is hashed only once.
+
+On a miss, one n2 graph builds all dependency products with its normal
+parallelism. Moon publishes the complete `.mi`/`.core` set while holding the
+graph lock, then runs the script's project-local graph. On a hit, Moon
+validates every recorded artifact and restores it into the invocation's
+private target directory; the local n2 graph then treats those files as
+external inputs. The n2 database, `packages.json`, and mutable build workspace
+remain invocation-local and are never shared through the cache.
+
+A later implementation may partition this graph into package or action
+records to reuse partial overlap. That changes the reuse granularity, not the
+current graph identity or publication invariants.
+
 ## Implemented public seam
 
 Two environment variables select the cache roots:
@@ -77,8 +106,9 @@ A relative path is rejected when a command selects the corresponding cache.
 `off` makes the three standalone `.mbtx` run forms use their file-local
 `.mooncakes` flow instead; disabling the cache does not disable dependency
 resolution. Commands that have not migrated do not consult `MOON_DEP_CACHE`
-during dependency sync. `MOON_BUILD_CACHE` currently configures and cleans its
-root only.
+during dependency sync. For the three migrated forms,
+`MOON_BUILD_CACHE=off` disables compiler-artifact reuse. Other commands do not
+consult the build cache.
 
 ### Cleaning
 
@@ -118,16 +148,19 @@ Moon does not guarantee that `.mi` or `.core` is invariant under such an
 upstream change. The cache must conservatively identify a complete compilation
 action, not merely a package version.
 
-## Future artifact identity
+## Artifact identity
 
 Artifact identity has three concepts:
 
-- **Action ID:** a digest of everything that can affect the compilation.
+- **Dependency graph ID:** the first implementation's digest of all inputs to
+  the standalone script's registry dependency compilation.
+- **Action ID:** a future finer-grained digest of everything that can affect
+  one compilation action.
 - **Output ID:** a digest of the complete published result.
-- **Action record:** a small mapping from an action ID to its output ID and
-  output metadata.
+- **Cache record:** a mapping from the graph or action ID to its output
+  metadata.
 
-An action ID should include, in a deterministic encoding:
+An artifact ID includes, in a deterministic encoding:
 
 - package source contents and relevant generated inputs;
 - compiler and tool identities;
@@ -137,15 +170,15 @@ An action ID should include, in a deterministic encoding:
 - environment values only when the compiler action actually observes them.
 
 This list is semantic, not a fixed serialization format. The first artifact
-cache implementation should begin from the compiler action already produced by
-Rupes Recta and audit every input at that boundary. It should prefer a
-conservative dependency set over an unsound hit. Later measurements can narrow
-the key to the interfaces actually read.
+cache implementation begins from compiler actions already produced by Rupes
+Recta and combines all registry dependency actions into one conservative graph
+identity. Later measurements can justify narrowing the key or partitioning the
+graph into independently reusable actions.
 
-All outputs of one action must be treated as a unit. Moon should publish
-objects first and the action record last, using staging and atomic rename where
-the platform permits. A reader must see either a complete validated result or
-a miss. Concurrent writers of the same action should be harmless.
+All outputs of the dependency graph are treated as a unit. Moon publishes into
+staging and renames the complete entry atomically where the platform permits.
+A reader sees either a complete validated result or a miss. Concurrent writers
+of the same graph are serialized by its lock.
 
 The command that requested compilation is not automatically part of the key.
 For dependency packages, `build`, `run`, and `test` may share artifacts when
@@ -184,8 +217,9 @@ The desired standalone flow is:
 1. Resolve the package graph.
 2. Reuse or prepare immutable dependency sources.
 3. Create a private work directory for the invocation.
-4. Reuse matching dependency artifacts by action ID.
-5. Compile misses privately and publish complete reusable results.
+4. Reuse the matching complete dependency graph.
+5. On a miss, compile the dependency graph privately and publish its complete
+   reusable result.
 6. Link or run from private state, then remove it when appropriate.
 
 The script's own rapidly changing compilation may often miss, but its stable
@@ -233,10 +267,12 @@ Each stage should be useful and reviewable without requiring the next:
 3. **Private binary-dependency work (implemented):** stop sharing mutable
    `_build` trees between binary-dependency invocations; place `__moonbin__`
    there.
-4. **Action model:** define and test canonical action inputs at the Rupes Recta
-   compiler boundary, including resolved interfaces and target facts.
-5. **Artifact cache:** publish and restore complete `.mi`/`.core` result sets
-   with concurrency and corruption tests.
+4. **Standalone dependency graph cache (implemented):** define canonical
+   compiler inputs at the Rupes Recta boundary and publish or restore the
+   complete registry dependency `.mi`/`.core` set.
+5. **Finer-grained artifact cache:** partition reusable package or action
+   results when partial graph overlap justifies the added model and storage
+   complexity.
 6. **Build constraints and cross compilation:** extend the target descriptor
    and action identity without changing storage-path semantics.
 7. **Operations:** add recency tracking, pruning, diagnostics, and format

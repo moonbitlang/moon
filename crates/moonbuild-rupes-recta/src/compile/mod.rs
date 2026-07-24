@@ -75,6 +75,9 @@ pub struct CompileConfig {
     pub warn_list: Option<String>,
     /// Whether to not emit alias when running `mooninfo`
     pub info_no_alias: bool,
+    /// Whether lowering should describe registry dependency build actions for
+    /// standalone script cache preparation.
+    pub collect_dependency_build_actions: bool,
 }
 
 /// The output information of the compilation.
@@ -84,6 +87,10 @@ pub struct CompileOutput {
 
     /// Structured argv for lowered commands keyed by their generated output paths.
     pub command_args_by_output: build_lower::CommandArgMap,
+
+    /// Registry dependency compiler actions eligible for dependency-graph
+    /// preparation by standalone script execution.
+    pub dependency_build_actions: Vec<crate::dependency_build_cache::DependencyBuildAction>,
 
     /// The final artifacts corresponding to the input nodes
     pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
@@ -158,12 +165,13 @@ pub fn compile(
         docs_serve: cx.docs_serve,
         warning_condition: cx.warning_condition,
         info_no_alias: cx.info_no_alias,
+        collect_dependency_build_actions: cx.collect_dependency_build_actions,
         wasi_link: cx.wasi_link,
 
         stdlib_path: cx.stdlib_path.clone(),
         lowering_environment: cx.lowering_environment.clone(),
     };
-    let (build_graph, command_args_by_output, artifacts) = {
+    let (build_graph, command_args_by_output, dependency_build_actions, artifacts) = {
         let action_plan = plan.build_action_plan();
         let res = build_lower::lower_build_plan(resolve_output, &action_plan, &lower_env)?;
         let artifacts = res
@@ -174,7 +182,12 @@ pub fn compile(
                 (node, Artifacts { node, artifacts })
             })
             .collect();
-        (res.build_graph, res.command_args_by_output, artifacts)
+        (
+            res.build_graph,
+            res.command_args_by_output,
+            res.dependency_build_actions,
+            artifacts,
+        )
     };
 
     info!("Build graph lowering completed successfully");
@@ -183,6 +196,7 @@ pub fn compile(
     Ok(CompileOutput {
         build_graph,
         command_args_by_output,
+        dependency_build_actions,
         artifacts,
         build_plan: if cx.debug_export_build_plan {
             Some(Box::new(plan))

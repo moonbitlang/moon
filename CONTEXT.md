@@ -68,6 +68,10 @@ _Avoid_: Install source, wildcard package selector, runwasm coordinate
 The final runnable file retained for an Executable Package Coordinate and Target Backend so later executions can skip acquisition or building.
 _Avoid_: Installed binary, cached build workspace, source cache
 
+**Prepared Dependency Build Graph**:
+The complete set of validated compiler products for the resolved registry dependencies of one standalone script compilation. It is immutable after publication and excludes the script package, `packages.json`, and mutable n2 workspace.
+_Avoid_: Shared build directory, global `packages.json`, Cached Executable Artifact
+
 ## Naming
 
 **Process Name**:

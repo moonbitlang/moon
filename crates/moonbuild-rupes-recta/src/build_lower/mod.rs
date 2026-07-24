@@ -113,6 +113,7 @@ pub struct BuildOptions {
     pub warning_condition: WarningCondition,
     pub info_no_alias: bool,
     pub wasi_link: bool,
+    pub collect_dependency_build_actions: bool,
 
     // Environments
     /// Only `Some` if we import standard library.
@@ -220,6 +221,10 @@ pub struct LoweringResult {
     /// Structured argv for lowered commands that are represented as argument
     /// vectors before they are rendered into n2 command strings.
     pub command_args_by_output: CommandArgMap,
+
+    /// Registry dependency `BuildCore` actions that can be prepared as one
+    /// standalone-script dependency graph.
+    pub dependency_build_actions: Vec<crate::dependency_build_cache::DependencyBuildAction>,
 
     /// Artifacts corresponding to the root input actions, in input action order.
     pub artifacts: Vec<(BuildActionId, Vec<PathBuf>)>,
@@ -402,6 +407,7 @@ pub fn lower_build_plan(
     Ok(LoweringResult {
         build_graph: ctx.graph,
         command_args_by_output: ctx.command_args_by_output,
+        dependency_build_actions: ctx.dependency_build_actions,
         artifacts: out_artifacts,
     })
 }
@@ -468,6 +474,7 @@ mod tests {
                 warning_condition: WarningCondition::Default,
                 info_no_alias: false,
                 wasi_link: false,
+                collect_dependency_build_actions: false,
                 stdlib_path: None,
                 lowering_environment: LoweringEnvironment::default(),
             };
@@ -716,6 +723,7 @@ mod tests {
             warning_condition: WarningCondition::Default,
             info_no_alias: false,
             wasi_link: false,
+            collect_dependency_build_actions: false,
             stdlib_path: None,
             lowering_environment,
         };

@@ -21,13 +21,20 @@
 use std::path::PathBuf;
 
 use log::debug;
-use moonutil::resolution::{DirSyncResult, ResolvedEnv};
+use moonutil::{
+    constants::{MOON_MOD, MOON_MOD_JSON},
+    resolution::{DirSyncResult, ModuleId, ModuleSourceKind, ResolvedEnv},
+};
 use n2::graph::{Build, Graph as N2Graph};
 use tracing::{Level, instrument};
 
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, BuildProduct},
+    dependency_build_cache::{
+        DependencyBuildAction, DependencyBuildDescription, DependencyBuildInput,
+        DependencyBuildOutput,
+    },
     discover::{DiscoverResult, DiscoveredPackage},
     model::BuildTarget,
     pkg_solve::DepRelationship,
@@ -36,7 +43,7 @@ use crate::{
 use moonutil::toolchain::BINARIES;
 
 use super::{
-    BuildOptions, CommandArgMap, LoweringError,
+    BuildCommand, BuildOptions, CommandArgMap, LoweringError,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
@@ -45,6 +52,8 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) graph: N2Graph,
 
     pub(crate) command_args_by_output: CommandArgMap,
+
+    pub(crate) dependency_build_actions: Vec<DependencyBuildAction>,
 
     // Physical paths for logical build products.
     pub(crate) artifact_paths: ArtifactPathResolver,
@@ -204,6 +213,7 @@ impl<'a> LoweringContext<'a> {
         Self {
             graph: N2Graph::default(),
             command_args_by_output: CommandArgMap::new(),
+            dependency_build_actions: Vec::new(),
             artifact_paths,
             rel: &resolve_output.pkg_rel,
             modules: &resolve_output.module_rel,
@@ -311,13 +321,25 @@ impl<'a> LoweringContext<'a> {
         // twice, once for the commandline and another here. This is currently
         // not a performance concern, but if you have found a way to optimize
         // this, or if you are duplicating a lot of code for it, please refactor.
+        let dependency_build = self
+            .opt
+            .collect_dependency_build_actions
+            .then(|| self.dependency_build_description(action, &action_products, &cmd))
+            .flatten();
         let mut ins = action_products.dependency_paths();
-        ins.extend(cmd.extra_inputs);
+        ins.extend(cmd.extra_inputs.iter().cloned());
         // Track tool binary dependencies so that n2 detects when compilers
         // or other toolchain binaries change (e.g. after a toolchain update)
         // and triggers a rebuild.
         if self.plan.needs_moonc_tool_dep(id) {
             ins.push(BINARIES.moonc.clone());
+        }
+        if let Some(description) = &dependency_build {
+            for input in &description.inputs {
+                if !ins.contains(&input.path) {
+                    ins.push(input.path.clone());
+                }
+            }
         }
         ins.sort(); // make sure the order is deterministic
         let ins = build_ins(&mut self.graph, ins);
@@ -358,14 +380,240 @@ impl<'a> LoweringContext<'a> {
             .plan
             .package_for_error(id)
             .map(|x| self.get_package(x).fqn.clone());
-        self.graph
-            .add_build(build)
-            .map(|_| ())
-            .map_err(|e| LoweringError::N2 {
-                package: fqn.into(),
-                action: id,
-                source: e,
+        let build_id = self.graph.add_build(build).map_err(|e| LoweringError::N2 {
+            package: fqn.into(),
+            action: id,
+            source: e,
+        })?;
+        if let Some(description) = dependency_build {
+            self.dependency_build_actions.push(DependencyBuildAction {
+                build_id,
+                description,
+            });
+        }
+        Ok(())
+    }
+
+    fn dependency_build_description(
+        &self,
+        action: BuildAction<'_>,
+        products: &ActionProducts,
+        cmd: &BuildCommand,
+    ) -> Option<DependencyBuildDescription> {
+        let BuildAction::BuildCore { target, .. } = action else {
+            return None;
+        };
+        if target.kind != crate::model::TargetKind::Source {
+            return None;
+        }
+
+        let package = self.get_package(target);
+        if !matches!(
+            self.modules.module_source(package.module).source(),
+            ModuleSourceKind::Registry
+        ) {
+            return None;
+        }
+        if cmd.commandline.cwd.is_some() || !cmd.commandline.env.is_empty() {
+            return None;
+        }
+        let args = cmd.commandline.args()?.clone();
+
+        let module = self.modules.module_source(package.module);
+        let module_dir = &self.module_dirs[package.module];
+        let target_dir = self.artifact_paths.target_layout().target_base_dir();
+        let all_pkgs = self
+            .artifact_paths
+            .target_layout()
+            .all_pkgs_of_build_target(self.opt.target_backend.into());
+
+        let mut inputs = products
+            .dependencies
+            .iter()
+            .filter_map(|realized| {
+                self.product_label(&realized.product)
+                    .map(|label| (label, &realized.paths))
             })
+            .flat_map(|(label, paths)| {
+                paths.iter().cloned().map(move |path| DependencyBuildInput {
+                    label: label.clone(),
+                    path,
+                    hash_content: false,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for (index, path) in cmd.extra_inputs.iter().enumerate() {
+            let label = if let Ok(relative) = path.strip_prefix(&package.root_path) {
+                format!(
+                    "module:{}@{}:package:{}:{}",
+                    module.name(),
+                    module.version(),
+                    package.fqn,
+                    relative.to_string_lossy()
+                )
+            } else if let Ok(relative) = path.strip_prefix(module_dir) {
+                format!(
+                    "module:{}@{}:{}",
+                    module.name(),
+                    module.version(),
+                    relative.to_string_lossy()
+                )
+            } else {
+                format!(
+                    "external-input:{index}:{}",
+                    path.file_name()
+                        .map(|name| name.to_string_lossy())
+                        .unwrap_or_default()
+                )
+            };
+            inputs.push(DependencyBuildInput {
+                label,
+                path: path.clone(),
+                hash_content: !path.starts_with(target_dir) && path != &all_pkgs,
+            });
+        }
+        for (index, dependency) in self.mi_inputs_of(target).into_iter().enumerate() {
+            let path = dependency.path.into_owned();
+            if !inputs.iter().any(|input| input.path == path) {
+                inputs.push(DependencyBuildInput {
+                    label: format!(
+                        "compiler-interface:{}",
+                        dependency
+                            .alias
+                            .as_deref()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| index.to_string())
+                    ),
+                    hash_content: !path.starts_with(target_dir),
+                    path,
+                });
+            }
+        }
+
+        let module_manifest = if module_dir.join(MOON_MOD).is_file() {
+            module_dir.join(MOON_MOD)
+        } else {
+            module_dir.join(MOON_MOD_JSON)
+        };
+        inputs.push(DependencyBuildInput {
+            label: format!("module:{}@{}:manifest", module.name(), module.version()),
+            path: module_manifest,
+            hash_content: true,
+        });
+        inputs.push(DependencyBuildInput {
+            label: "tool:moonc".to_owned(),
+            path: BINARIES.moonc.clone(),
+            hash_content: true,
+        });
+        inputs.sort_by(|left, right| left.label.cmp(&right.label));
+        inputs.dedup_by(|left, right| {
+            left.label == right.label
+                && left.path == right.path
+                && left.hash_content == right.hash_content
+        });
+
+        let mut outputs = products
+            .outputs
+            .iter()
+            .filter_map(|realized| {
+                self.product_label(&realized.product)
+                    .map(|label| (label, &realized.paths))
+            })
+            .flat_map(|(label, paths)| {
+                paths
+                    .iter()
+                    .cloned()
+                    .map(move |path| DependencyBuildOutput {
+                        label: label.clone(),
+                        path,
+                    })
+            })
+            .collect::<Vec<_>>();
+        outputs.sort_by(|left, right| left.label.cmp(&right.label));
+
+        let mut replacements = inputs
+            .iter()
+            .map(|input| {
+                (
+                    input.path.to_string_lossy().into_owned(),
+                    format!("$input:{}", input.label),
+                )
+            })
+            .chain(outputs.iter().map(|output| {
+                (
+                    output.path.to_string_lossy().into_owned(),
+                    format!("$output:{}", output.label),
+                )
+            }))
+            .chain([
+                (
+                    package.root_path.to_string_lossy().into_owned(),
+                    "$package-root".to_owned(),
+                ),
+                (
+                    module_dir.to_string_lossy().into_owned(),
+                    "$module-root".to_owned(),
+                ),
+                (
+                    target_dir.to_string_lossy().into_owned(),
+                    "$target-root".to_owned(),
+                ),
+                (
+                    all_pkgs.to_string_lossy().into_owned(),
+                    "$resolved-packages".to_owned(),
+                ),
+            ])
+            .collect::<Vec<_>>();
+        replacements.sort_by(|left, right| right.0.len().cmp(&left.0.len()));
+        let canonical_args = args
+            .iter()
+            .map(|arg| {
+                replacements
+                    .iter()
+                    .fold(arg.clone(), |normalized, (path, label)| {
+                        normalized.replace(path, label)
+                    })
+            })
+            .collect();
+
+        Some(DependencyBuildDescription {
+            package: package.fqn.to_string(),
+            canonical_args,
+            resolution: self.resolution_closure(package.module),
+            inputs,
+            outputs,
+        })
+    }
+
+    fn resolution_closure(&self, root: ModuleId) -> Vec<String> {
+        let mut visited = std::collections::HashSet::new();
+        let mut pending = vec![root];
+        let mut resolution = Vec::new();
+
+        while let Some(module) = pending.pop() {
+            if !visited.insert(module) {
+                continue;
+            }
+            let source = self.modules.module_source(module);
+            resolution.push(format!("{}@{}", source.name(), source.version()));
+            pending.extend(self.modules.deps(module));
+        }
+        resolution.sort();
+        resolution
+    }
+
+    fn product_label(&self, product: &BuildProduct) -> Option<String> {
+        match product {
+            BuildProduct::PackageInterface { target } => Some(format!(
+                "package-interface:{}",
+                self.get_package(*target).fqn
+            )),
+            BuildProduct::PackageCoreIr { target } => {
+                Some(format!("package-core-ir:{}", self.get_package(*target).fqn))
+            }
+            _ => None,
+        }
     }
 
     /// **For debug use only.** Prints debug information about a lowered action,

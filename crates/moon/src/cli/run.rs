@@ -25,7 +25,7 @@ use moonbuild_rupes_recta::{
 use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
-use moonutil::project::{PackageDirs, ProjectProbe};
+use moonutil::project::{DependencySource, PackageDirs, ProjectProbe};
 use moonutil::{
     build_options::{RunMode, TestArtifacts},
     constants::is_moon_pkg_exist,
@@ -202,6 +202,7 @@ pub(crate) struct RunExecutable {
 struct BuildExecutableFromPlanOptions {
     print_dry_run_run_command: bool,
     output: RunOutputVerbosity,
+    cache_registry_dependencies: bool,
 }
 
 impl RunExecutable {
@@ -506,6 +507,7 @@ fn build_package_executable(
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
+            cache_registry_dependencies: false,
         },
         output,
     )
@@ -667,6 +669,8 @@ fn build_single_file_executable(
     output: &CommandOutput,
 ) -> anyhow::Result<RunExecutable> {
     let user_log = output.user_log();
+    let cache_registry_dependencies =
+        matches!(dirs.dependency_source, DependencySource::SharedCache(_));
     let PackageDirs {
         source_dir,
         target_dir,
@@ -707,6 +711,7 @@ fn build_single_file_executable(
         RunMode::Run,
     );
     preconfig.try_tcc_run = options.try_tcc_run;
+    preconfig.collect_dependency_build_actions = cache_registry_dependencies;
 
     let planning_context = rr_build::prepare_resolved_build(
         &preconfig,
@@ -744,6 +749,7 @@ fn build_single_file_executable(
         BuildExecutableFromPlanOptions {
             print_dry_run_run_command: options.print_dry_run_run_command,
             output: options.output,
+            cache_registry_dependencies,
         },
         output,
     )
@@ -803,7 +809,17 @@ fn build_executable_from_plan(
     let build_config =
         BuildConfig::from_flags(&cmd.build_flags, &cli.unstable_feature, cli.verbose)
             .with_suppressed_progress(options.output.suppress_build_progress());
-    let build_result = rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?;
+    let build_result = if options.cache_registry_dependencies {
+        rr_build::execute_script_build(
+            &build_config,
+            build_graph,
+            target_dir,
+            build_meta,
+            user_log,
+        )?
+    } else {
+        rr_build::execute_build(&build_config, build_graph, target_dir, user_log)?
+    };
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
