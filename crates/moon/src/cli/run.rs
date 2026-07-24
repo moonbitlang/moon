@@ -848,7 +848,8 @@ fn run_executable(
     // on Unix: although it preserves raw signal status, it skips RAII cleanup
     // in `main` and callers, including the Chrome trace guard and temporary
     // source/build directories. Standard spawning also avoids the Tokio runner
-    // that temporarily masks SIGCHLD on macOS.
+    // that temporarily masks SIGCHLD on macOS. See
+    // `docs/dev/design/moon-run-process-lifecycle.md`.
     #[cfg(unix)]
     ctrlc::set_handler(|| {}).context("failed to install signal handler")?;
     #[cfg(windows)]
