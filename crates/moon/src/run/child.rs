@@ -23,10 +23,85 @@ use std::time::Instant;
 
 use anyhow::Context;
 use moonbuild::section_capture::{SectionCapture, handle_stdout_async};
-use moonutil::platform::macos_with_sigchild_blocked;
 use tracing::debug;
 #[cfg(windows)]
 use tracing::warn;
+
+#[cfg(target_os = "macos")]
+fn spawn_child(cmd: &mut tokio::process::Command) -> std::io::Result<tokio::process::Child> {
+    use std::os::unix::process::CommandExt;
+
+    struct RestoreSigmask(Option<libc::sigset_t>);
+
+    impl RestoreSigmask {
+        fn restore(mut self) -> std::io::Result<()> {
+            let original = self.0.take().unwrap();
+            let error = unsafe {
+                libc::pthread_sigmask(libc::SIG_SETMASK, &original, std::ptr::null_mut())
+            };
+            if error == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::from_raw_os_error(error))
+            }
+        }
+    }
+
+    impl Drop for RestoreSigmask {
+        fn drop(&mut self) {
+            if let Some(original) = self.0.take() {
+                // Best effort during unwinding; normal control flow reports errors.
+                unsafe {
+                    libc::pthread_sigmask(libc::SIG_SETMASK, &original, std::ptr::null_mut());
+                }
+            }
+        }
+    }
+
+    let mut sigchld = unsafe { std::mem::zeroed() };
+    if unsafe { libc::sigemptyset(&mut sigchld) } != 0
+        || unsafe { libc::sigaddset(&mut sigchld, libc::SIGCHLD) } != 0
+    {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    // Tokio 1.39 registers its SIGCHLD listener after spawning. This preserves
+    // the historical workaround for a macOS wait hang by keeping a
+    // fast-exiting child pending until that listener exists:
+    // https://github.com/tokio-rs/tokio/issues/6770
+    // https://github.com/tokio-rs/tokio/pull/6953
+    //
+    // Restore the original mask in the child before exec so user code does not
+    // inherit this implementation detail. pthread_sigmask is async-signal-safe,
+    // as required for the pre_exec closure.
+    let mut original = unsafe { std::mem::zeroed() };
+    let error = unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, &sigchld, &mut original) };
+    if error != 0 {
+        return Err(std::io::Error::from_raw_os_error(error));
+    }
+    let restore_parent = RestoreSigmask(Some(original));
+    let child_sigmask = original;
+    unsafe {
+        cmd.as_std_mut().pre_exec(move || {
+            let error =
+                libc::pthread_sigmask(libc::SIG_SETMASK, &child_sigmask, std::ptr::null_mut());
+            if error == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::from_raw_os_error(error))
+            }
+        });
+    }
+
+    let child = cmd.spawn();
+    restore_parent.restore()?;
+    child
+}
+
+#[cfg(not(target_os = "macos"))]
+fn spawn_child(cmd: &mut tokio::process::Command) -> std::io::Result<tokio::process::Child> {
+    cmd.spawn()
+}
 
 /// Run a command under the governing of `moon run`.
 ///
@@ -67,12 +142,9 @@ pub(crate) async fn run<'a>(
     }
     cmd.kill_on_drop(true); // to prevent zombie processes;
 
-    // Preventing race conditions with SIGCHLD handlers, see definition for info
     let spawn_start = Instant::now();
-    let mut child = macos_with_sigchild_blocked(|| {
-        cmd.spawn()
-            .with_context(|| format!("Failed to spawn command {:?}", cmd))
-    })?;
+    let mut child =
+        spawn_child(&mut cmd).with_context(|| format!("Failed to spawn command {:?}", cmd))?;
     let child_pid = child.id();
     let child_start = Instant::now();
     debug!(
@@ -212,4 +284,61 @@ pub(crate) fn assign_process_to_job(
         return Err(err).context("AssignProcessToJobObject failed");
     }
     Ok(())
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use std::process::Stdio;
+    use std::time::Duration;
+
+    use super::spawn_child;
+
+    const SIGCHLD_GRANDCHILD_HELPER: &str = "MOON_SIGCHLD_GRANDCHILD_HELPER";
+
+    #[test]
+    fn spawned_child_can_asynchronously_wait_for_its_child() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        if std::env::var_os(SIGCHLD_GRANDCHILD_HELPER).is_some() {
+            runtime.block_on(async {
+                let mut command = tokio::process::Command::new("/bin/sh");
+                command.args(["-c", "sleep 0.1"]);
+                let status = tokio::select! {
+                    biased;
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                        panic!("waiting for grandchild timed out");
+                    }
+                    status = command.status() => status.unwrap(),
+                };
+                assert!(status.success());
+            });
+            return;
+        }
+
+        runtime.block_on(async {
+            let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .arg("spawned_child_can_asynchronously_wait_for_its_child")
+                .arg("--nocapture")
+                .env(SIGCHLD_GRANDCHILD_HELPER, "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+
+            let child = spawn_child(&mut command).unwrap();
+            let output = tokio::time::timeout(Duration::from_secs(10), child.wait_with_output())
+                .await
+                .expect("child test process did not exit")
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "child test process failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        });
+    }
 }

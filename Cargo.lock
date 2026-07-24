@@ -1777,7 +1777,6 @@ dependencies = [
  "globset",
  "home",
  "indexmap",
- "libc",
  "line-index",
  "log",
  "logos",
