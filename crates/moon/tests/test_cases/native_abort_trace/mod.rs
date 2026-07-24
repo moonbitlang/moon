@@ -4,7 +4,10 @@ use super::*;
 fn test_native_abort_trace() {
     let dir = TestDir::new("native_abort_trace/native_abort_trace.in");
     let redactions = moon_test_util::stack_trace::stack_trace_redactions(dir.as_ref());
-    let expected_stderr = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    let expected_stderr = if cfg!(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "linux", target_arch = "x86_64")
+    )) {
         snapbox::str![[r#"
 PanicError
     at @moonbitlang/core/option.Option::unwrap[Int] (/option.mbt:[..])
@@ -12,6 +15,7 @@ PanicError
     at @username/scratch/cmd/main.f (/main.mbt:[..])
     at moonbit_main (/main.mbt:[..])
     at main (/main.mbt:[..])
+...
 Error: Command exited without a return code
 
 "#]]
