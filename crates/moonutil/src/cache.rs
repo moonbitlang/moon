@@ -81,7 +81,14 @@ pub fn resolve_cache_root(kind: CacheKind) -> anyhow::Result<CacheRoot> {
     }
 }
 
-pub fn initialize_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CacheRootState {
+    Missing,
+    Empty,
+    Initialized,
+}
+
+fn cache_root_state(kind: CacheKind, root: &Path) -> anyhow::Result<CacheRootState> {
     match std::fs::symlink_metadata(root) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             bail!(
@@ -94,69 +101,98 @@ pub fn initialize_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()>
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::fs::create_dir_all(root).with_context(|| {
-                format!("failed to create Moon cache root `{}`", root.display())
-            })?;
+            return Ok(CacheRootState::Missing);
         }
         Err(error) => return Err(error.into()),
     }
 
     let marker = root.join(OWNERSHIP_MARKER);
     match std::fs::read(&marker) {
-        Ok(contents) if contents == kind.ownership() => Ok(()),
+        Ok(contents) if contents == kind.ownership() => Ok(CacheRootState::Initialized),
         Ok(_) => bail!(
             "Moon cache root `{}` has the wrong ownership",
             root.display()
         ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if std::fs::read_dir(root)?.next().transpose()?.is_some() {
-                // Another initializer may have published the marker after our
-                // first read. Accept that completed initialization.
-                return match std::fs::read(&marker) {
-                    Ok(contents) if contents == kind.ownership() => Ok(()),
-                    Ok(_) => bail!(
-                        "Moon cache root `{}` has the wrong ownership",
-                        root.display()
-                    ),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        bail!(
-                            "refusing to use unrecognized Moon cache root `{}`",
-                            root.display()
-                        )
-                    }
-                    Err(error) => Err(error.into()),
-                };
+            if std::fs::read_dir(root)?.next().transpose()?.is_none() {
+                return Ok(CacheRootState::Empty);
             }
-            let parent = root.parent().with_context(|| {
-                format!(
-                    "Moon cache root `{}` has no parent directory",
+
+            // Another initializer may have published the marker after our
+            // first read. Accept that completed initialization.
+            match std::fs::read(&marker) {
+                Ok(contents) if contents == kind.ownership() => Ok(CacheRootState::Initialized),
+                Ok(_) => bail!(
+                    "Moon cache root `{}` has the wrong ownership",
                     root.display()
-                )
-            })?;
-            // Stage outside the root so another initializer never mistakes our
-            // temporary marker for user-owned contents.
-            let mut staged = tempfile::NamedTempFile::new_in(parent)?;
-            {
-                use std::io::Write;
-                staged.write_all(kind.ownership())?;
-                staged.as_file().sync_all()?;
-            }
-            match staged.persist_noclobber(&marker) {
-                Ok(_) => Ok(()),
-                Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    if std::fs::read(marker)? == kind.ownership() {
-                        Ok(())
-                    } else {
-                        bail!(
-                            "Moon cache root `{}` has the wrong ownership",
-                            root.display()
-                        )
-                    }
+                ),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    bail!(
+                        "refusing to use unrecognized Moon cache root `{}`",
+                        root.display()
+                    )
                 }
-                Err(error) => Err(error.error.into()),
+                Err(error) => Err(error.into()),
             }
         }
         Err(error) => Err(error.into()),
+    }
+}
+
+/// Validate an existing cache root without creating it or its ownership marker.
+pub fn validate_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()> {
+    cache_root_state(kind, root).map(|_| ())
+}
+
+pub fn initialize_cache_root(kind: CacheKind, root: &Path) -> anyhow::Result<()> {
+    let state = match cache_root_state(kind, root)? {
+        CacheRootState::Missing => {
+            std::fs::create_dir_all(root).with_context(|| {
+                format!("failed to create Moon cache root `{}`", root.display())
+            })?;
+            cache_root_state(kind, root)?
+        }
+        state => state,
+    };
+    match state {
+        CacheRootState::Initialized => return Ok(()),
+        CacheRootState::Empty => {}
+        CacheRootState::Missing => {
+            bail!(
+                "Moon cache root `{}` disappeared during initialization",
+                root.display()
+            )
+        }
+    }
+
+    let marker = root.join(OWNERSHIP_MARKER);
+    let parent = root.parent().with_context(|| {
+        format!(
+            "Moon cache root `{}` has no parent directory",
+            root.display()
+        )
+    })?;
+    // Stage outside the root so another initializer never mistakes our
+    // temporary marker for user-owned contents.
+    let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+    {
+        use std::io::Write;
+        staged.write_all(kind.ownership())?;
+        staged.as_file().sync_all()?;
+    }
+    match staged.persist_noclobber(&marker) {
+        Ok(_) => Ok(()),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if std::fs::read(marker)? == kind.ownership() {
+                Ok(())
+            } else {
+                bail!(
+                    "Moon cache root `{}` has the wrong ownership",
+                    root.display()
+                )
+            }
+        }
+        Err(error) => Err(error.error.into()),
     }
 }
 
