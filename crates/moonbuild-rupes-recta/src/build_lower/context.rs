@@ -54,6 +54,9 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) command_args_by_output: CommandArgMap,
 
     pub(crate) dependency_build_actions: Vec<DependencyBuildAction>,
+    /// False when an action in the reusable registry dependency graph could
+    /// not be represented without invocation-local state.
+    pub(crate) dependency_build_actions_complete: bool,
 
     // Physical paths for logical build products.
     pub(crate) artifact_paths: ArtifactPathResolver,
@@ -71,6 +74,12 @@ pub(crate) struct LoweringContext<'a> {
 pub(super) struct ActionProducts {
     outputs: Vec<RealizedProduct>,
     dependencies: Vec<RealizedProduct>,
+}
+
+enum DependencyBuildCandidate {
+    NotDependency,
+    Cacheable(DependencyBuildDescription),
+    Uncacheable { inputs: Vec<DependencyBuildInput> },
 }
 
 struct RealizedProduct {
@@ -302,6 +311,7 @@ impl<'a> LoweringContext<'a> {
             graph: N2Graph::default(),
             command_args_by_output: CommandArgMap::new(),
             dependency_build_actions: Vec::new(),
+            dependency_build_actions_complete: true,
             artifact_paths,
             rel: &resolve_output.pkg_rel,
             modules: &resolve_output.module_rel,
@@ -348,7 +358,7 @@ impl<'a> LoweringContext<'a> {
         let action_products = ActionProducts::new(self, id);
 
         // Lower the action to its command and tool-specific execution transport.
-        let cmd = match action {
+        let mut cmd = match action {
             BuildAction::Check { target, info } => {
                 self.lower_check(&action_products, target, info)?
             }
@@ -404,17 +414,30 @@ impl<'a> LoweringContext<'a> {
             }
         };
 
+        if self.opt.collect_dependency_build_actions
+            && let Some(cwd) = self.dependency_build_working_directory(action)
+        {
+            // C debug information can record the compiler's working directory.
+            // Run reusable package actions from their shared prepared source
+            // instead of leaking the standalone invocation's directory.
+            debug_assert!(
+                cmd.commandline.cwd.is_none(),
+                "registry dependency action already has a working directory"
+            );
+            cmd.commandline.cwd = Some(cwd);
+        }
+
         // Collect n2 inputs and outputs.
         //
         // MAINTAINERS: some of the inputs and outputs might be calculated
         // twice, once for the commandline and another here. This is currently
         // not a performance concern, but if you have found a way to optimize
         // this, or if you are duplicating a lot of code for it, please refactor.
-        let dependency_build = self
-            .opt
-            .collect_dependency_build_actions
-            .then(|| self.dependency_build_description(action, &action_products, &cmd))
-            .flatten();
+        let dependency_build = if self.opt.collect_dependency_build_actions {
+            self.dependency_build_description(action, &action_products, &cmd)
+        } else {
+            DependencyBuildCandidate::NotDependency
+        };
         let mut ins = action_products.dependency_paths();
         ins.extend(cmd.extra_inputs.iter().cloned());
         // Track tool binary dependencies so that n2 detects when compilers
@@ -423,11 +446,14 @@ impl<'a> LoweringContext<'a> {
         if self.plan.needs_moonc_tool_dep(id) {
             ins.push(BINARIES.moonc.clone());
         }
-        if let Some(description) = &dependency_build {
-            for input in &description.inputs {
-                if !ins.contains(&input.path) {
-                    ins.push(input.path.clone());
-                }
+        let dependency_inputs: &[DependencyBuildInput] = match &dependency_build {
+            DependencyBuildCandidate::Cacheable(description) => &description.inputs,
+            DependencyBuildCandidate::Uncacheable { inputs } => inputs,
+            DependencyBuildCandidate::NotDependency => &[],
+        };
+        for input in dependency_inputs {
+            if !ins.contains(&input.path) {
+                ins.push(input.path.clone());
             }
         }
         ins.sort(); // make sure the order is deterministic
@@ -474,13 +500,48 @@ impl<'a> LoweringContext<'a> {
             action: id,
             source: e,
         })?;
-        if let Some(description) = dependency_build {
-            self.dependency_build_actions.push(DependencyBuildAction {
-                build_id,
-                description,
-            });
+        match dependency_build {
+            DependencyBuildCandidate::Cacheable(description) => {
+                self.dependency_build_actions.push(DependencyBuildAction {
+                    build_id,
+                    description,
+                });
+            }
+            DependencyBuildCandidate::Uncacheable { .. } => {
+                self.dependency_build_actions_complete = false;
+            }
+            DependencyBuildCandidate::NotDependency => {}
         }
         Ok(())
+    }
+
+    fn dependency_build_working_directory(&self, action: BuildAction<'_>) -> Option<PathBuf> {
+        let package = match action {
+            BuildAction::BuildCore { target, .. }
+                if target.kind == crate::model::TargetKind::Source =>
+            {
+                Some(self.get_package(target))
+            }
+            BuildAction::BuildCStub { package, .. }
+            | BuildAction::ArchiveOrLinkCStubs { package, .. } => {
+                Some(self.packages.get_package(package))
+            }
+            BuildAction::BuildRuntimeLib { .. } if !self.prepared_sources.is_empty() => {
+                return Some(
+                    self.opt
+                        .runtime_dot_c_path()
+                        .parent()
+                        .expect("runtime source should have a parent directory")
+                        .to_path_buf(),
+                );
+            }
+            _ => None,
+        }?;
+        matches!(
+            self.modules.module_source(package.module).source(),
+            ModuleSourceKind::Registry
+        )
+        .then(|| package.root_path.clone())
     }
 
     fn dependency_build_description(
@@ -488,7 +549,7 @@ impl<'a> LoweringContext<'a> {
         action: BuildAction<'_>,
         products: &ActionProducts,
         cmd: &BuildCommand,
-    ) -> Option<DependencyBuildDescription> {
+    ) -> DependencyBuildCandidate {
         use crate::dependency_build_cache::DependencyBuildKind;
 
         let (kind, package, build_core_target) = match action {
@@ -514,7 +575,7 @@ impl<'a> LoweringContext<'a> {
             BuildAction::BuildRuntimeLib { .. } if !self.prepared_sources.is_empty() => {
                 (DependencyBuildKind::NativeRuntime, None, None)
             }
-            _ => return None,
+            _ => return DependencyBuildCandidate::NotDependency,
         };
         if package.is_some_and(|package| {
             !matches!(
@@ -522,12 +583,14 @@ impl<'a> LoweringContext<'a> {
                 ModuleSourceKind::Registry
             )
         }) {
-            return None;
+            return DependencyBuildCandidate::NotDependency;
         }
-        if cmd.commandline.cwd.is_some() {
-            return None;
-        }
-        let args = cmd.commandline.args()?.clone();
+        let Some(working_directory) = cmd.commandline.cwd.as_ref() else {
+            return DependencyBuildCandidate::Uncacheable { inputs: Vec::new() };
+        };
+        let Some(args) = cmd.commandline.args().cloned() else {
+            return DependencyBuildCandidate::Uncacheable { inputs: Vec::new() };
+        };
 
         let module = package.map(|package| self.modules.module_source(package.module));
         let module_dir = package.map(|package| &self.module_dirs[package.module]);
@@ -638,7 +701,12 @@ impl<'a> LoweringContext<'a> {
             DependencyBuildKind::MooncBuildCore => BINARIES.moonc.clone(),
             DependencyBuildKind::CStubObject
             | DependencyBuildKind::CStubLibrary
-            | DependencyBuildKind::NativeRuntime => PathBuf::from(args.first()?),
+            | DependencyBuildKind::NativeRuntime => {
+                let Some(tool) = args.first() else {
+                    return DependencyBuildCandidate::Uncacheable { inputs };
+                };
+                PathBuf::from(tool)
+            }
         };
         inputs.push(DependencyBuildInput {
             label: format!("tool:{kind:?}"),
@@ -707,16 +775,20 @@ impl<'a> LoweringContext<'a> {
             ])
             .collect::<Vec<_>>();
         path_bindings.sort_by(|left, right| right.0.len().cmp(&left.0.len()));
-        let canonical_args = canonicalize_dependency_command_args(&args, &path_bindings)?;
+        let Some(canonical_args) = canonicalize_dependency_command_args(&args, &path_bindings)
+        else {
+            return DependencyBuildCandidate::Uncacheable { inputs };
+        };
         let mut environment = cmd.commandline.env.clone();
         environment.sort();
 
-        Some(DependencyBuildDescription {
+        DependencyBuildCandidate::Cacheable(DependencyBuildDescription {
             kind,
             package: package.map_or_else(
                 || "$native-runtime".to_owned(),
                 |package| package.fqn.to_string(),
             ),
+            working_directory: working_directory.display().to_string(),
             canonical_args,
             environment,
             resolution: package

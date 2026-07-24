@@ -18,7 +18,12 @@
 
 //! Lowers the normalized action plan into `n2`'s build graph.
 
-use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
+    str::FromStr,
+    sync::OnceLock,
+};
 
 use log::{debug, info};
 use moonutil::{
@@ -402,12 +407,35 @@ pub fn lower_build_plan(
         let artifacts = ctx.output_paths_for_action(action);
         out_artifacts.push((action, artifacts));
     }
+    let dependency_build_ids = ctx
+        .dependency_build_actions
+        .iter()
+        .map(|action| action.build_id)
+        .collect::<HashSet<_>>();
+    // The cache unit is the complete producer closure. A selected action must
+    // never depend on an n2 producer that is absent from the cache identity.
+    let dependency_build_actions_closed = ctx.dependency_build_actions.iter().all(|action| {
+        ctx.graph.builds[action.build_id]
+            .ordering_ins()
+            .iter()
+            .all(|input| {
+                ctx.graph.files.by_id[*input]
+                    .input
+                    .is_none_or(|producer| dependency_build_ids.contains(&producer))
+            })
+    });
+    let dependency_build_actions =
+        if ctx.dependency_build_actions_complete && dependency_build_actions_closed {
+            ctx.dependency_build_actions
+        } else {
+            Vec::new()
+        };
 
     info!("Action plan lowering completed successfully");
     Ok(LoweringResult {
         build_graph: ctx.graph,
         command_args_by_output: ctx.command_args_by_output,
-        dependency_build_actions: ctx.dependency_build_actions,
+        dependency_build_actions,
         artifacts: out_artifacts,
     })
 }

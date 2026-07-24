@@ -62,6 +62,7 @@ pub struct DependencyBuildAction {
 pub struct DependencyBuildDescription {
     pub kind: DependencyBuildKind,
     pub package: String,
+    pub working_directory: String,
     pub canonical_args: Vec<String>,
     pub environment: Vec<(String, String)>,
     pub resolution: Vec<DependencyResolution>,

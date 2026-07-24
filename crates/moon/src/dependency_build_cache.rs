@@ -335,6 +335,9 @@ fn dependency_graph_id(actions: &[DependencyBuildAction], root: &Path) -> anyhow
         hash_field(&mut hash, b"package");
         hash_field(&mut hash, description.package.as_bytes());
 
+        hash_field(&mut hash, b"working-directory");
+        hash_field(&mut hash, description.working_directory.as_bytes());
+
         hash_field(&mut hash, b"environment");
         hash_field(
             &mut hash,

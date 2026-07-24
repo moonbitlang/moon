@@ -79,16 +79,29 @@ a second build model for the cache.
 The dependency graph ID is a SHA-256 digest over the selected packages,
 canonical build-command arguments, exact resolved module versions, logical
 dependency-product edges, each prepared module's verified archive checksum,
-the observed command environment, and the contents of compiler, C toolchain,
-or standard-library inputs outside those archives. For native graphs this
-includes the selected C compiler and archiver executables, their exact
-arguments and environment, the dependency C-stub actions, and the runtime
-library action. Physical checkout, target, tool installation, and cache paths
-are represented by logical labels, so equivalent standalone scripts in
-different directories can share the graph. Content digests remain SHA-256
-values in the graph identity. Their computation is memoized persistently by
-file metadata identity, so an unchanged tool binary is not reread for each
-command.
+the action's explicit environment overrides and working directory, and the
+contents of compiler, C toolchain, or standard-library inputs outside those
+archives. For native graphs this includes the selected C compiler and archiver
+executables, their exact arguments and explicit environment, the dependency
+C-stub actions, and the runtime library action. Invocation-local source,
+target, and cache-output paths are represented by logical labels. Cacheable
+registry actions run from their prepared package directory, and runtime actions
+run from the toolchain runtime-source directory; that physical working
+directory remains in the graph identity until Moon has an explicit path-mapping
+contract. Equivalent standalone scripts in different directories can therefore
+share the graph when they use the same prepared-source and toolchain roots.
+Content digests remain SHA-256 values in the graph identity. Their computation
+is memoized persistently by file metadata identity, so an unchanged tool binary
+is not reread for each command.
+
+Like Go's build cache, this MVP is not a hermetic C build. Compiler subprocesses
+inherit the ambient process environment, but arbitrary variables such as
+`CPATH`, `SDKROOT`, and compiler-wrapper-private settings are not copied into
+the graph identity. Moon deliberately keys supported, explicit build settings
+instead. Users who change undeclared system C inputs must clean or disable the
+build cache. See
+[Go build-cache environment behavior](go-build-cache-environment-research.md)
+for the source analysis behind this boundary.
 
 On a miss, one n2 graph builds all dependency products with its normal
 parallelism. Moon publishes the complete reusable output set while holding the
@@ -184,7 +197,7 @@ An artifact ID includes, in a deterministic encoding:
 - target and all compiler options that affect emitted artifacts;
 - the exact resolved dependency graph visible to the action;
 - identities of imported dependency interfaces; and
-- environment values only when the compiler action actually observes them.
+- explicit environment values that Moon configures for the compiler action.
 
 This list is semantic, not a fixed serialization format. The first artifact
 cache implementation begins from compiler actions already produced by Rupes

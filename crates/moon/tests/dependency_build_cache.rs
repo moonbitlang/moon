@@ -25,6 +25,7 @@ use sha2::{Digest, Sha256};
 
 const MODULE_NAME: &str = "cachetest/shared";
 const MODULE_VERSION: &str = "1.0.0";
+const DEFAULT_PACKAGE_MANIFEST: &str = r#"{"native-stub":["stub.c"]}"#;
 
 fn moon_bin() -> PathBuf {
     snapbox::cargo_bin!("moon").to_owned()
@@ -58,7 +59,14 @@ fn registry_index(moon_home: &Path, module: &str) -> PathBuf {
 }
 
 fn cache_registry_package(moon_home: &Path, module: &str, version: &str, manifest: &str) {
-    cache_registry_package_with_files(moon_home, module, version, manifest, &[]);
+    cache_registry_package_with_files(
+        moon_home,
+        module,
+        version,
+        manifest,
+        DEFAULT_PACKAGE_MANIFEST,
+        &[],
+    );
 }
 
 fn cache_registry_package_with_files(
@@ -66,15 +74,13 @@ fn cache_registry_package_with_files(
     module: &str,
     version: &str,
     manifest: &str,
+    package_manifest: &str,
     extra_files: &[(&str, &str)],
 ) {
     let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (path, contents) in [
         ("moon.mod.json", manifest.to_owned()),
-        (
-            "src/moon.pkg.json",
-            r#"{"native-stub":["stub.c"]}"#.to_owned(),
-        ),
+        ("src/moon.pkg.json", package_manifest.to_owned()),
         ("src/lib.mbt", "pub fn answer() -> Int { 42 }\n".to_owned()),
         (
             "src/stub.c",
@@ -154,7 +160,7 @@ fn write_cc_logger(path: &Path, identity: &str) {
     std::fs::write(
         path,
         format!(
-            "#!/bin/sh\n# {identity}\nprintf '%s\\n' \"$*\" >> \"$MOON_CC_LOG\"\nexec \"$MOON_REAL_CC\" \"$@\"\n"
+            "#!/bin/sh\n# {identity}\nprintf '%s\\t%s\\n' \"$PWD\" \"$*\" >> \"$MOON_CC_LOG\"\nexec \"$MOON_REAL_CC\" \"$@\"\n"
         ),
     )
     .unwrap();
@@ -340,6 +346,16 @@ impl BuildCacheFixture {
     }
 
     #[cfg(unix)]
+    fn cc_stub_working_directories(&self) -> Vec<PathBuf> {
+        std::fs::read_to_string(&self.cc_log)
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains("stub.c"))
+            .map(|line| PathBuf::from(line.split_once('\t').unwrap().0))
+            .collect()
+    }
+
+    #[cfg(unix)]
     fn archive_builds(&self) -> usize {
         std::fs::read_to_string(&self.ar_log)
             .unwrap()
@@ -417,6 +433,94 @@ fn native_scripts_reuse_registry_cc_outputs() {
     assert_eq!(fixture.cc_stub_builds(), 1);
     assert_eq!(fixture.archive_builds(), 1);
     assert!(fixture.build_cache.path().join(".moon-cache").exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn cacheable_registry_cc_actions_use_a_stable_working_directory() {
+    let fixture = BuildCacheFixture::new();
+    for name in ["first", "second"] {
+        let directory = fixture.directory(name);
+        fixture
+            .command(&directory)
+            .env("MOON_BUILD_CACHE", "off")
+            .args(["run", "--target", "native", "--build-only", "-e"])
+            .arg(mbtx_source(MODULE_NAME))
+            .assert()
+            .success();
+    }
+
+    let working_directories = fixture.cc_stub_working_directories();
+    assert_eq!(working_directories.len(), 2);
+    assert_eq!(working_directories[0], working_directories[1]);
+    let dependency_cache = dunce::canonicalize(fixture.dependency_cache.path()).unwrap();
+    assert!(
+        working_directories[0].starts_with(&dependency_cache),
+        "registry C stub ran outside its prepared source: {}",
+        working_directories[0].display()
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn an_opaque_dependency_action_disables_the_whole_graph_cache() {
+    let fixture = BuildCacheFixture::new();
+    let prepared_source = fixture
+        .dependency_cache
+        .path()
+        .join("registry/cachetest/shared/1.0.0/source");
+    let package_manifest = serde_json::json!({
+        "native-stub": ["stub.c"],
+        "link": {
+            "native": {
+                "stub-cc-flags": format!(
+                    "-fdebug-prefix-map={}=/moon/cachetest/shared",
+                    prepared_source.display()
+                )
+            }
+        }
+    })
+    .to_string();
+    cache_registry_package_with_files(
+        fixture.moon_home.path(),
+        MODULE_NAME,
+        MODULE_VERSION,
+        &format!(r#"{{"name":"{MODULE_NAME}","version":"{MODULE_VERSION}","source":"src"}}"#),
+        &package_manifest,
+        &[],
+    );
+
+    for name in ["first", "second"] {
+        let directory = fixture.directory(name);
+        fixture
+            .command(&directory)
+            .args(["run", "--target", "native", "--build-only", "-e"])
+            .arg(mbtx_source(MODULE_NAME))
+            .assert()
+            .success();
+    }
+
+    assert_eq!(fixture.dependency_builds(), 2);
+    assert_eq!(fixture.cc_stub_builds(), 2);
+    assert_eq!(fixture.archive_builds(), 2);
+}
+
+#[test]
+#[cfg(unix)]
+fn llvm_scripts_reuse_registry_cc_outputs() {
+    let fixture = BuildCacheFixture::new();
+    for name in ["first", "second"] {
+        let directory = fixture.directory(name);
+        fixture
+            .command(&directory)
+            .args(["run", "--target", "llvm", "--build-only", "-e"])
+            .arg(mbtx_source(MODULE_NAME))
+            .assert()
+            .success();
+    }
+    assert_eq!(fixture.dependency_builds(), 1);
+    assert_eq!(fixture.cc_stub_builds(), 1);
+    assert_eq!(fixture.archive_builds(), 1);
 }
 
 #[test]
@@ -516,6 +620,7 @@ fn prepared_source_checksum_is_part_of_script_dependency_graph_identity() {
         MODULE_NAME,
         MODULE_VERSION,
         &format!(r#"{{"name":"{MODULE_NAME}","version":"{MODULE_VERSION}","source":"src"}}"#),
+        DEFAULT_PACKAGE_MANIFEST,
         &[("new-archive-entry.txt", "new bytes")],
     );
 
