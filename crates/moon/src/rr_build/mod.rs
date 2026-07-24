@@ -964,6 +964,7 @@ pub fn execute_build(
 /// before the project-local n2 run. Cache misses first ask one n2 work graph to
 /// build every dependency product, publish the complete result, then run the
 /// project graph.
+#[instrument(skip_all)]
 pub fn execute_script_build(
     cfg: &BuildConfig,
     mut input: BuildInput,

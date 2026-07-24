@@ -622,6 +622,7 @@ mod tests {
             ResolveOutput {
                 module_rel: modules,
                 module_dirs,
+                prepared_sources: Default::default(),
                 pkg_dirs: packages,
                 pkg_rel: DepRelationship::default(),
             },

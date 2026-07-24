@@ -20,8 +20,8 @@
 //! script's project-local build graph.
 //!
 //! Physical paths are invocation-local adapters. Labels, canonical arguments,
-//! resolution facts, and the contents of inputs marked `hash_content` form the
-//! portable dependency-graph identity.
+//! resolution facts, and explicit input identities form the portable
+//! dependency-graph identity.
 
 use std::path::PathBuf;
 
@@ -31,7 +31,16 @@ use n2::graph::BuildId;
 pub struct DependencyBuildInput {
     pub label: String,
     pub path: PathBuf,
-    pub hash_content: bool,
+    pub identity: InputIdentity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputIdentity {
+    /// The label is sufficient because another identity fact covers the
+    /// immutable bytes, such as a prepared registry archive checksum.
+    Logical,
+    /// Hash the physical file bytes and include the digest.
+    Content,
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +59,14 @@ pub struct DependencyBuildAction {
 pub struct DependencyBuildDescription {
     pub package: String,
     pub canonical_args: Vec<String>,
-    pub resolution: Vec<String>,
+    pub resolution: Vec<DependencyResolution>,
     pub inputs: Vec<DependencyBuildInput>,
     pub outputs: Vec<DependencyBuildOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DependencyResolution {
+    pub module: String,
+    pub version: String,
+    pub source_checksum: Option<String>,
 }

@@ -6,7 +6,9 @@ This document records the intended direction for global dependency and build
 caches. The cache-root contract, explicit cleaning, and globally prepared
 registry dependency sources for `moon run -e`, `moon run -`, and
 `moon run <file>.mbtx` are implemented today. Those commands also reuse one
-complete registry dependency build graph through the global build cache.
+complete registry dependency build graph through the global build cache for
+Wasm, WasmGC, and JavaScript targets. Native and LLVM retain the existing
+invocation-local build graph.
 Other commands retain project-local `.mooncakes` and do not read or publish
 global compiler artifacts.
 
@@ -53,10 +55,12 @@ including its checksum metadata and source tree, read-only before releasing
 the lock. Concurrent publishers of the same identity must be harmless.
 
 On a cache hit, Moon compares the current registry checksum with the checksum
-recorded at publication after validating the entry's expected shape and
-read-only state. A mismatch is an error: published registry versions are
-immutable, so Moon must not replace the source or create a second checksum-keyed
-variant for the same `module@version`.
+recorded at publication after recursively rejecting writable entries,
+symlinks, and non-file/non-directory nodes. The prepared-source seam returns
+the source directory together with that verified checksum. A mismatch is an
+error: published registry versions are immutable, so Moon must not replace the
+source or create a second checksum-keyed variant for the same
+`module@version`.
 
 The first rollout is limited to standalone `.mbtx` execution: `moon run -e`,
 `moon run -`, and `moon run <file>.mbtx` resolve registry dependencies from
@@ -75,11 +79,13 @@ a second build model for the cache.
 
 The dependency graph ID is a SHA-256 digest over the selected packages,
 canonical compiler arguments, exact resolved module versions, logical
-dependency-product edges, and the contents of compiler, standard-library,
-source, and configuration inputs. Physical checkout, target, and cache paths
-are replaced by logical labels, so equivalent standalone scripts in different
-directories can share the graph. File digests are memoized within an
-invocation, so the compiler binary is hashed only once.
+dependency-product edges, each prepared module's verified archive checksum,
+and the contents of compiler or standard-library inputs outside those
+archives. Physical checkout, target, and cache paths are represented by
+logical labels, so equivalent standalone scripts in different directories can
+share the graph. Content digests remain SHA-256 values in the graph identity.
+Their computation is memoized persistently by file metadata identity, so an
+unchanged compiler binary is not reread for each command.
 
 On a miss, one n2 graph builds all dependency products with its normal
 parallelism. Moon publishes the complete `.mi`/`.core` set while holding the
@@ -92,6 +98,14 @@ remain invocation-local and are never shared through the cache.
 A later implementation may partition this graph into package or action
 records to reuse partial overlap. That changes the reuse granularity, not the
 current graph identity or publication invariants.
+
+The MVP intentionally excludes Native and LLVM. It currently publishes only
+the dependency `.mi`/`.core` set, so a native hit would still rebuild each C
+stub into an object file. Separating that incomplete restore from the local n2
+graph also loses the overlap between Moon compilation and C compilation.
+Native reuse should publish the dependency C-stub objects as part of the same
+complete result and include the observed C toolchain identity before it is
+enabled.
 
 ## Implemented public seam
 
@@ -107,8 +121,8 @@ A relative path is rejected when a command selects the corresponding cache.
 `.mooncakes` flow instead; disabling the cache does not disable dependency
 resolution. Commands that have not migrated do not consult `MOON_DEP_CACHE`
 during dependency sync. For the three migrated forms,
-`MOON_BUILD_CACHE=off` disables compiler-artifact reuse. Other commands do not
-consult the build cache.
+`MOON_BUILD_CACHE=off` disables compiler-artifact reuse. Native and LLVM
+standalone runs and other commands do not consult the build cache.
 
 ### Cleaning
 
@@ -269,7 +283,8 @@ Each stage should be useful and reviewable without requiring the next:
    there.
 4. **Standalone dependency graph cache (implemented):** define canonical
    compiler inputs at the Rupes Recta boundary and publish or restore the
-   complete registry dependency `.mi`/`.core` set.
+   complete registry dependency `.mi`/`.core` set for Wasm, WasmGC, and
+   JavaScript.
 5. **Finer-grained artifact cache:** partition reusable package or action
    results when partial graph overlap justifies the added model and storage
    complexity.

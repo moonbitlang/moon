@@ -38,6 +38,7 @@ bytes.workspace = true
 semver.workspace = true
 clap.workspace = true
 sha2.workspace = true
+slotmap.workspace = true
 log.workspace = true
 walkdir.workspace = true
 tempfile.workspace = true

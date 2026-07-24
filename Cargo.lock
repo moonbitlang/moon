@@ -1724,6 +1724,7 @@ dependencies = [
  "serde_json",
  "serde_json_lenient",
  "sha2",
+ "slotmap",
  "tempfile",
  "test-log",
  "thiserror 1.0.63",

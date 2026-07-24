@@ -33,7 +33,7 @@ use crate::{
     build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, BuildProduct},
     dependency_build_cache::{
         DependencyBuildAction, DependencyBuildDescription, DependencyBuildInput,
-        DependencyBuildOutput,
+        DependencyBuildOutput, DependencyResolution, InputIdentity,
     },
     discover::{DiscoverResult, DiscoveredPackage},
     model::BuildTarget,
@@ -62,6 +62,7 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) packages: &'a DiscoverResult,
     pub(crate) modules: &'a ResolvedEnv,
     pub(crate) module_dirs: &'a DirSyncResult,
+    pub(crate) prepared_sources: &'a mooncake::prepared_source::PreparedSourceMap,
     pub(crate) rel: &'a DepRelationship,
     pub(crate) plan: &'a BuildActionPlan<'a>,
     pub(crate) opt: &'a BuildOptions,
@@ -203,6 +204,64 @@ impl ActionProducts {
     }
 }
 
+/// Canonicalize the structured `moonc build-package` argv without rewriting
+/// arbitrary substrings. Most path arguments are standalone values; `-i` and
+/// `-pkg-sources` are the two documented compound forms.
+fn canonicalize_build_package_args(
+    args: &[String],
+    path_bindings: &[(String, String)],
+) -> Option<Vec<String>> {
+    let exact_path = |value: &str| {
+        path_bindings
+            .iter()
+            .find_map(|(path, label)| (value == path).then(|| label.clone()))
+    };
+    let package_source = |value: &str| {
+        path_bindings.iter().find_map(|(path, label)| {
+            value
+                .strip_suffix(path)
+                .and_then(|prefix| prefix.ends_with(':').then(|| format!("{prefix}{label}")))
+        })
+    };
+    let mi_dependency = |value: &str| {
+        path_bindings.iter().find_map(|(path, label)| {
+            value
+                .strip_prefix(path)
+                .and_then(|suffix| suffix.strip_prefix(':'))
+                .map(|alias| {
+                    let alias = exact_path(alias).unwrap_or_else(|| alias.to_owned());
+                    format!("{label}:{alias}")
+                })
+        })
+    };
+
+    let mut canonical = Vec::with_capacity(args.len());
+    for (index, argument) in args.iter().enumerate() {
+        let previous = index.checked_sub(1).and_then(|index| args.get(index));
+        if let Some(label) = exact_path(argument) {
+            canonical.push(label);
+        } else if previous.is_some_and(|previous| previous == "-i")
+            && let Some(value) = mi_dependency(argument)
+        {
+            canonical.push(value);
+        } else if previous.is_some_and(|previous| previous == "-pkg-sources")
+            && let Some(value) = package_source(argument)
+        {
+            canonical.push(value);
+        } else if path_bindings
+            .iter()
+            .any(|(path, _)| argument.contains(path))
+        {
+            // Unknown compound path syntax is not safe to share across
+            // invocation-local target/source directories.
+            return None;
+        } else {
+            canonical.push(argument.clone());
+        }
+    }
+    Some(canonical)
+}
+
 impl<'a> LoweringContext<'a> {
     pub(super) fn new(
         artifact_paths: ArtifactPathResolver,
@@ -219,6 +278,7 @@ impl<'a> LoweringContext<'a> {
             modules: &resolve_output.module_rel,
             packages: &resolve_output.pkg_dirs,
             module_dirs: &resolve_output.module_dirs,
+            prepared_sources: &resolve_output.prepared_sources,
             plan,
             opt,
         }
@@ -438,7 +498,7 @@ impl<'a> LoweringContext<'a> {
                 paths.iter().cloned().map(move |path| DependencyBuildInput {
                     label: label.clone(),
                     path,
-                    hash_content: false,
+                    identity: InputIdentity::Logical,
                 })
             })
             .collect::<Vec<_>>();
@@ -470,7 +530,14 @@ impl<'a> LoweringContext<'a> {
             inputs.push(DependencyBuildInput {
                 label,
                 path: path.clone(),
-                hash_content: !path.starts_with(target_dir) && path != &all_pkgs,
+                identity: if path.starts_with(module_dir)
+                    || path.starts_with(target_dir)
+                    || path == &all_pkgs
+                {
+                    InputIdentity::Logical
+                } else {
+                    InputIdentity::Content
+                },
             });
         }
         for (index, dependency) in self.mi_inputs_of(target).into_iter().enumerate() {
@@ -485,7 +552,11 @@ impl<'a> LoweringContext<'a> {
                             .map(str::to_owned)
                             .unwrap_or_else(|| index.to_string())
                     ),
-                    hash_content: !path.starts_with(target_dir),
+                    identity: if path.starts_with(target_dir) {
+                        InputIdentity::Logical
+                    } else {
+                        InputIdentity::Content
+                    },
                     path,
                 });
             }
@@ -499,18 +570,16 @@ impl<'a> LoweringContext<'a> {
         inputs.push(DependencyBuildInput {
             label: format!("module:{}@{}:manifest", module.name(), module.version()),
             path: module_manifest,
-            hash_content: true,
+            identity: InputIdentity::Logical,
         });
         inputs.push(DependencyBuildInput {
             label: "tool:moonc".to_owned(),
             path: BINARIES.moonc.clone(),
-            hash_content: true,
+            identity: InputIdentity::Content,
         });
         inputs.sort_by(|left, right| left.label.cmp(&right.label));
         inputs.dedup_by(|left, right| {
-            left.label == right.label
-                && left.path == right.path
-                && left.hash_content == right.hash_content
+            left.label == right.label && left.path == right.path && left.identity == right.identity
         });
 
         let mut outputs = products
@@ -532,7 +601,7 @@ impl<'a> LoweringContext<'a> {
             .collect::<Vec<_>>();
         outputs.sort_by(|left, right| left.label.cmp(&right.label));
 
-        let mut replacements = inputs
+        let mut path_bindings = inputs
             .iter()
             .map(|input| {
                 (
@@ -565,17 +634,8 @@ impl<'a> LoweringContext<'a> {
                 ),
             ])
             .collect::<Vec<_>>();
-        replacements.sort_by(|left, right| right.0.len().cmp(&left.0.len()));
-        let canonical_args = args
-            .iter()
-            .map(|arg| {
-                replacements
-                    .iter()
-                    .fold(arg.clone(), |normalized, (path, label)| {
-                        normalized.replace(path, label)
-                    })
-            })
-            .collect();
+        path_bindings.sort_by(|left, right| right.0.len().cmp(&left.0.len()));
+        let canonical_args = canonicalize_build_package_args(&args, &path_bindings)?;
 
         Some(DependencyBuildDescription {
             package: package.fqn.to_string(),
@@ -586,7 +646,7 @@ impl<'a> LoweringContext<'a> {
         })
     }
 
-    fn resolution_closure(&self, root: ModuleId) -> Vec<String> {
+    fn resolution_closure(&self, root: ModuleId) -> Vec<DependencyResolution> {
         let mut visited = std::collections::HashSet::new();
         let mut pending = vec![root];
         let mut resolution = Vec::new();
@@ -596,7 +656,14 @@ impl<'a> LoweringContext<'a> {
                 continue;
             }
             let source = self.modules.module_source(module);
-            resolution.push(format!("{}@{}", source.name(), source.version()));
+            resolution.push(DependencyResolution {
+                module: source.name().to_string(),
+                version: source.version().to_string(),
+                source_checksum: self
+                    .prepared_sources
+                    .get(module)
+                    .map(|prepared| prepared.verified_checksum().to_owned()),
+            });
             pending.extend(self.modules.deps(module));
         }
         resolution.sort();
@@ -655,5 +722,53 @@ impl<'a> LoweringContext<'a> {
                 action, build.cmdline, in_files, out_files
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonicalize_build_package_args;
+
+    #[test]
+    fn canonical_build_package_args_understand_compiler_path_forms() {
+        let paths = vec![
+            ("/cache/module/src/lib.mbt".to_owned(), "$source".to_owned()),
+            ("/target/dependency.mi".to_owned(), "$dependency".to_owned()),
+            ("/cache/module/src".to_owned(), "$package-root".to_owned()),
+        ];
+        let args = [
+            "build-package",
+            "/cache/module/src/lib.mbt",
+            "-i",
+            "/target/dependency.mi:alias",
+            "-i",
+            "/target/dependency.mi:/target/dependency.mi",
+            "-pkg-sources",
+            "example/pkg:/cache/module/src",
+        ]
+        .map(str::to_owned);
+
+        assert_eq!(
+            canonicalize_build_package_args(&args, &paths)
+                .expect("known compiler path forms should canonicalize"),
+            [
+                "build-package",
+                "$source",
+                "-i",
+                "$dependency:alias",
+                "-i",
+                "$dependency:$dependency",
+                "-pkg-sources",
+                "example/pkg:$package-root",
+            ]
+        );
+    }
+
+    #[test]
+    fn canonical_build_package_args_reject_unknown_compound_paths() {
+        let paths = vec![("/target/output.core".to_owned(), "$output".to_owned())];
+        let args = ["build-package", "--future=/target/output.core"].map(str::to_owned);
+
+        assert!(canonicalize_build_package_args(&args, &paths).is_none());
     }
 }

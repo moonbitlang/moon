@@ -18,7 +18,7 @@
 
 use crate::{
     dep_dir::resolve_dep_dirs,
-    prepared_source::prepare_cached_deps,
+    prepared_source::{PreparedDependencySources, prepare_cached_deps},
     registry,
     resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
 };
@@ -95,7 +95,7 @@ pub(crate) fn install_impl(
     verbose: bool,
     dont_sync: bool,
     no_std: bool,
-) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
+) -> anyhow::Result<(ResolvedEnv, PreparedDependencySources)> {
     let includes_core = roots
         .iter()
         .any(|(_, module)| module.module_info().name == MOONBITLANG_CORE);
@@ -109,7 +109,7 @@ pub(crate) fn install_impl(
     };
 
     let res = resolve_with_default_env_and_resolver(&resolve_config, roots)?;
-    let dir_sync_result = match &dirs.dependency_source {
+    let prepared_sources = match &dirs.dependency_source {
         DependencySource::ProjectLocal => {
             let dep_dir = crate::dep_dir::DepDir::new(dirs.mooncakes_dir.clone());
             crate::dep_dir::sync_deps(
@@ -121,7 +121,7 @@ pub(crate) fn install_impl(
                 output_options.verbose(),
             )
             .context("When installing packages")?;
-            resolve_dep_dirs(&dep_dir, &res)
+            PreparedDependencySources::local(resolve_dep_dirs(&dep_dir, &res))
         }
         DependencySource::SharedCache(cache_root) => prepare_cached_deps(
             cache_root,
@@ -137,12 +137,12 @@ pub(crate) fn install_impl(
     install_bin_deps(
         verbose,
         &res,
-        &dir_sync_result,
+        prepared_sources.module_dirs(),
         &dirs.target_dir,
         &dirs.mooncake_bin_dir,
     )?;
 
-    Ok((res, dir_sync_result))
+    Ok((res, prepared_sources))
 }
 
 fn install_bin_deps(

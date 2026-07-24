@@ -28,13 +28,16 @@ use anyhow::Context;
 use moonutil::{
     cache::{CacheKind, initialize_cache_root, validate_cache_root},
     locks::FileLock,
-    resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
+    resolution::{DirSyncResult, ModuleId, ModuleSource, ModuleSourceKind, ResolvedEnv},
 };
+use slotmap::SecondaryMap;
 
 use crate::{dep_dir::non_registry_source_dir, registry::Registry};
 
 const PREPARED_SOURCE_CHECKSUM: &str = "checksum";
 const PREPARED_SOURCE_DIR: &str = "source";
+
+pub type PreparedSourceMap = SecondaryMap<ModuleId, PreparedDependencySource>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedDependencySource {
@@ -52,6 +55,33 @@ impl PreparedDependencySource {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct PreparedDependencySources {
+    module_dirs: DirSyncResult,
+    registry_sources: PreparedSourceMap,
+}
+
+impl PreparedDependencySources {
+    pub(crate) fn local(module_dirs: DirSyncResult) -> Self {
+        Self {
+            module_dirs,
+            registry_sources: SecondaryMap::new(),
+        }
+    }
+
+    pub fn module_dirs(&self) -> &DirSyncResult {
+        &self.module_dirs
+    }
+
+    pub fn into_module_dirs(self) -> DirSyncResult {
+        self.module_dirs
+    }
+
+    pub fn into_parts(self) -> (DirSyncResult, PreparedSourceMap) {
+        (self.module_dirs, self.registry_sources)
+    }
+}
+
 #[tracing::instrument(level = "debug", skip_all, fields(cache_root = %cache_root.display()))]
 pub(crate) fn prepare_cached_deps(
     cache_root: &Path,
@@ -60,7 +90,7 @@ pub(crate) fn prepare_cached_deps(
     quiet: bool,
     frozen: bool,
     verbose: bool,
-) -> anyhow::Result<DirSyncResult> {
+) -> anyhow::Result<PreparedDependencySources> {
     let has_registry_module = pkg_list
         .all_modules()
         .any(|module| matches!(module.source(), ModuleSourceKind::Registry));
@@ -72,17 +102,25 @@ pub(crate) fn prepare_cached_deps(
         }
     }
 
-    let mut result = DirSyncResult::default();
+    let mut module_dirs = DirSyncResult::default();
+    let mut registry_sources = SecondaryMap::new();
     for (id, module) in pkg_list.all_modules_and_id() {
-        let path = match non_registry_source_dir(module) {
-            Some(path) => path,
-            None => {
-                prepare_cached_dep(cache_root, registry, module, quiet, frozen, verbose)?.source_dir
+        match non_registry_source_dir(module) {
+            Some(path) => {
+                module_dirs.insert(id, path);
             }
-        };
-        result.insert(id, path);
+            None => {
+                let prepared =
+                    prepare_cached_dep(cache_root, registry, module, quiet, frozen, verbose)?;
+                module_dirs.insert(id, prepared.source_dir.clone());
+                registry_sources.insert(id, prepared);
+            }
+        }
     }
-    Ok(result)
+    Ok(PreparedDependencySources {
+        module_dirs,
+        registry_sources,
+    })
 }
 
 #[tracing::instrument(
