@@ -432,13 +432,6 @@ impl HandleTable {
         Ok(Arc::clone(resource))
     }
 
-    fn contains_resource(&self, handle: HostHandle) -> bool {
-        self.key(handle, HandleKind::Resource)
-            .ok()
-            .and_then(|key| self.resources.get(key))
-            .is_some_and(|resource| !resource.is_invalid())
-    }
-
     fn remove_resource(&mut self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
         let key = self.key(handle, HandleKind::Resource)?;
         if key == self.invalid_resource || self.stdio_resources.contains(&key) {
@@ -791,7 +784,8 @@ impl OverlappedAddr {
 #[derive(Debug)]
 struct HostPoll {
     instance: PollInstance,
-    registered_fds: HashMap<isize, HostHandle>,
+    #[cfg(unix)]
+    registered_fds: HashSet<RawFd>,
     #[cfg(unix)]
     completion_notifier: Option<Arc<ThreadPoolCompletionNotifier>>,
 }
@@ -1487,7 +1481,8 @@ impl AsyncHost {
             key,
             HostPoll {
                 instance,
-                registered_fds: HashMap::new(),
+                #[cfg(unix)]
+                registered_fds: HashSet::new(),
                 #[cfg(unix)]
                 completion_notifier: None,
             },
@@ -1560,7 +1555,6 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         let handles = self.handles.borrow();
         let resource = handles.resource(fd_handle)?;
-        let resource_identity = resource.raw_identity();
         #[cfg(unix)]
         let raw_fd = resource.as_file()?.as_raw_fd();
         let poll_key = handles.poll(poll_handle)?;
@@ -1580,7 +1574,8 @@ impl AsyncHost {
                 token,
             )?;
         }
-        poll.registered_fds.insert(resource_identity, fd_handle);
+        #[cfg(unix)]
+        poll.registered_fds.insert(raw_fd);
         Ok(())
     }
 
@@ -1676,12 +1671,7 @@ impl AsyncHost {
         };
         #[cfg(unix)]
         let token = token.ok_or(AsyncHostError::Badf)?;
-        let handle = token.get();
-        self.handles
-            .borrow()
-            .contains_resource(handle)
-            .then_some(handle)
-            .ok_or(AsyncHostError::Badf)
+        Ok(token.get())
     }
 
     #[cfg(target_os = "macos")]
@@ -1762,7 +1752,7 @@ impl AsyncHost {
                 }
                 // Publish the poll-side mapping before exposing the notifier:
                 // workers can notify as soon as completions.notifier is visible.
-                poll.registered_fds.insert(raw_fd_key(event_fd), source);
+                poll.registered_fds.insert(event_fd);
                 poll.completion_notifier = Some(Arc::clone(&completion_notifier));
                 completions.notifier = Some(completion_notifier);
                 completions.source = Some(source);
@@ -1828,10 +1818,10 @@ impl AsyncHost {
             {
                 let raw_fd = file.as_raw_fd();
                 for poll in polls.polls.values_mut() {
-                    if poll.registered_fds.contains_key(&raw_fd_key(raw_fd)) {
+                    if poll.registered_fds.contains(&raw_fd) {
                         let _ = poll::poll_unregister(&poll.instance, raw_fd);
                     }
-                    poll.registered_fds.remove(&raw_fd_key(raw_fd));
+                    poll.registered_fds.remove(&raw_fd);
                 }
             }
             for poll in polls.polls.values_mut() {
@@ -2326,19 +2316,17 @@ impl AsyncHost {
             handles.remove_resource(handle)?
         };
         self.untrack_process_handle(handle);
-        let resource_identity = file.raw_identity();
-        #[cfg(unix)]
-        let raw_fd = file.as_fd()?.as_raw_fd();
-        let mut polls = self.polls.borrow_mut();
-        for poll in polls.polls.values_mut() {
-            if poll.registered_fds.contains_key(&resource_identity) {
-                #[cfg(unix)]
-                let _ = poll::poll_unregister(&poll.instance, raw_fd);
-            }
-            poll.registered_fds.remove(&resource_identity);
-        }
+        #[cfg(windows)]
+        drop(file);
         #[cfg(unix)]
         {
+            let raw_fd = file.as_fd()?.as_raw_fd();
+            let mut polls = self.polls.borrow_mut();
+            for poll in polls.polls.values_mut() {
+                if poll.registered_fds.remove(&raw_fd) {
+                    let _ = poll::poll_unregister(&poll.instance, raw_fd);
+                }
+            }
             let (completion_source_closed, old_signal_mask) = {
                 let mut completions = self.thread_pool_completions.borrow_mut();
                 if completions.source == Some(handle) {
@@ -4199,11 +4187,6 @@ fn event_index(event: u64) -> AsyncHostResult<i32> {
     i32::try_from(event).map_err(|_| AsyncHostError::Fault)
 }
 
-#[cfg(unix)]
-fn raw_fd_key(fd: RawFd) -> isize {
-    fd as isize
-}
-
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
@@ -4798,12 +4781,7 @@ mod tests {
         {
             let polls = host.polls.borrow();
             let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
-            assert_eq!(
-                poll.registered_fds
-                    .get(&raw_fd_key(raw_completion_fd))
-                    .copied(),
-                Some(completion_source)
-            );
+            assert!(poll.registered_fds.contains(&raw_completion_fd));
         }
 
         {
@@ -6338,7 +6316,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn unregistered_iocp_completion_token_is_rejected() {
+    fn unregistered_iocp_completion_token_is_returned() {
         use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
         let host = AsyncHost::default();
@@ -6348,21 +6326,43 @@ mod tests {
             let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
             poll.instance.raw_fd()
         };
-        let raw_fd = 0x1234usize as RawFd;
+        let completion_key = 0x1234usize;
         let posted = unsafe {
-            PostQueuedCompletionStatus(completion_port, 0, raw_fd as usize, std::ptr::null_mut())
+            PostQueuedCompletionStatus(completion_port, 0, completion_key, std::ptr::null_mut())
         };
         assert_ne!(posted, 0);
 
         assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
 
-        assert_eq!(host.poll_event_fd(event), Err(AsyncHostError::Badf));
+        assert_eq!(host.poll_event_fd(event).unwrap(), completion_key as u64);
     }
 
     #[cfg(windows)]
     #[test]
-    fn close_fd_invalidates_polled_iocp_resource_token() {
+    fn zero_iocp_completion_token_is_returned() {
+        use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
+
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let completion_port = {
+            let polls = host.polls.borrow();
+            let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
+            poll.instance.raw_fd()
+        };
+        let posted =
+            unsafe { PostQueuedCompletionStatus(completion_port, 0, 0, std::ptr::null_mut()) };
+        assert_ne!(posted, 0);
+
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+
+        assert_eq!(host.poll_event_fd(event).unwrap(), 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn close_fd_preserves_polled_iocp_resource_token() {
         use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
         let host = AsyncHost::default();
@@ -6388,7 +6388,8 @@ mod tests {
 
         host.close_fd(read).unwrap();
 
-        assert_eq!(host.poll_event_fd(event), Err(AsyncHostError::Badf));
+        assert_eq!(host.poll_event_fd(event).unwrap(), read);
+        assert_eq!(host.close_fd(read), Err(AsyncHostError::Badf));
         host.close_fd(write).unwrap();
     }
 
@@ -6425,7 +6426,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn close_fd_invalidates_polled_resource_token() {
+    fn close_fd_preserves_polled_resource_token() {
         let host = AsyncHost::default();
         let poll = host.poll_create().unwrap();
         let [read, write] = host.pipe(true, true).unwrap();
@@ -6445,7 +6446,8 @@ mod tests {
 
         host.close_fd(read).unwrap();
 
-        assert_eq!(host.poll_event_fd(event), Err(AsyncHostError::Badf));
+        assert_eq!(host.poll_event_fd(event).unwrap(), read);
+        assert_eq!(host.close_fd(read), Err(AsyncHostError::Badf));
         host.close_fd(write).unwrap();
     }
 

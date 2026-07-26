@@ -141,7 +141,7 @@ ported_fns! {
                     token: if worker_generation.is_some() {
                         None
                     } else {
-                        PollToken::from_usize(entry.lpCompletionKey)
+                        Some(PollToken::from_completion_key(entry.lpCompletionKey))
                     },
                     events: 0,
                     // Worker completion packets use lpOverlapped only as a

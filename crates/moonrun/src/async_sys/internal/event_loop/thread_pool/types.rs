@@ -27,10 +27,12 @@ use crate::async_sys::internal::fd_util;
 
 #[cfg(unix)]
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd};
+#[cfg(all(test, windows))]
+use std::os::windows::io::AsRawSocket;
 #[cfg(windows)]
 use std::os::windows::io::{
-    AsHandle, AsRawHandle, AsRawSocket, AsSocket, BorrowedHandle, BorrowedSocket, FromRawHandle,
-    FromRawSocket, OwnedHandle, OwnedSocket, RawHandle, RawSocket,
+    AsHandle, AsRawHandle, AsSocket, BorrowedHandle, BorrowedSocket, FromRawHandle, FromRawSocket,
+    OwnedHandle, OwnedSocket, RawHandle, RawSocket,
 };
 
 pub(crate) type ResourceHandle = u64;
@@ -210,6 +212,7 @@ impl Resource {
         self.class
     }
 
+    #[cfg(all(test, windows))]
     pub(crate) fn raw_identity(&self) -> isize {
         match &self.raw {
             RawResource::Invalid => -1,

@@ -119,9 +119,14 @@ impl PollToken {
         usize::try_from(self.0).map_err(|_| AsyncHostError::Fault)
     }
 
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(target_os = "macos")]
     fn from_usize(value: usize) -> Option<Self> {
         (value != 0).then_some(Self(value as u64))
+    }
+
+    #[cfg(windows)]
+    fn from_completion_key(value: usize) -> Self {
+        Self(value as u64)
     }
 }
 
