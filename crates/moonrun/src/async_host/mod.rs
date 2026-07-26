@@ -2358,7 +2358,7 @@ impl AsyncHost {
             #[cfg(windows)]
             {
                 let file = handles.resource(handle)?;
-                if self.io_results.borrow().has_pending_io_for_resource(&file) {
+                if self.io_results.borrow().has_pending_io_for_resource(file) {
                     return Err(AsyncHostError::Inval);
                 }
             }
