@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-07-14.
+// Snapshot generated from `moonc check -warn-help` on 2026-07-26.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -430,6 +430,11 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "type_param_method",
         description: "Calling method of type parameter in a deprecated way.",
         id: 83,
+    },
+    WarningEntry {
+        mnemonic: "unqualified_record",
+        description: "Struct literal in a `let` binding without a type prefix.",
+        id: 84,
     },
 ];
 

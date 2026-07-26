@@ -76,3 +76,4 @@
 0081	regex_match_missing_after	Missing `after` binding in `regex match`.
 0082	ambiguous_braces	Ambiguous `{}` braces.
 0083	type_param_method	Calling method of type parameter in a deprecated way.
+0084	unqualified_record	Struct literal in a `let` binding without a type prefix.
