@@ -462,8 +462,11 @@ impl HandleTable {
         self.key(handle, HandleKind::Job)
     }
 
-    fn remove_job(&mut self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
-        self.remove(handle, HandleKind::Job)
+    fn remove_job_key(&mut self, key: HandleKey) {
+        assert!(
+            matches!(self.handles.remove(key), Some(HandleKind::Job)),
+            "validated Job Handle must remain reserved until removal"
+        );
     }
 
     fn poll(&self, handle: HostHandle) -> AsyncHostResult<HandleKey> {
@@ -594,12 +597,12 @@ impl ResourceTable for HandleTable {
     }
 }
 
-// Jobs are one-shot work items with result handles. A worker owns the Job while
-// it is running; this table keeps only a reservation so a malicious guest cannot
-// reuse that handle until the completed Job returns to the V8 thread.
+// Jobs are one-shot work items with result handles. Once a Job leaves this
+// table for synchronous execution or worker submission, its slot stays reserved
+// so a malicious guest cannot reuse the Handle before the Job returns.
 enum HostJobState {
     Ready(Job),
-    Running,
+    Reserved,
     ResultReady(Job),
 }
 
@@ -636,7 +639,7 @@ impl JobTable {
 
     fn take_ready_job(&mut self, key: HandleKey) -> AsyncHostResult<Job> {
         let slot = self.jobs.get_mut(key).ok_or(AsyncHostError::Badf)?;
-        match std::mem::replace(slot, HostJobState::Running) {
+        match std::mem::replace(slot, HostJobState::Reserved) {
             HostJobState::Ready(job) => Ok(job),
             other => {
                 *slot = other;
@@ -647,7 +650,7 @@ impl JobTable {
 
     fn restore_job(&mut self, key: HandleKey, job: Job) -> Option<Job> {
         match self.jobs.get_mut(key) {
-            Some(slot @ HostJobState::Running) => {
+            Some(slot @ HostJobState::Reserved) => {
                 *slot = HostJobState::ResultReady(job);
                 None
             }
@@ -657,11 +660,22 @@ impl JobTable {
 
     fn restore_unrun_job(&mut self, key: HandleKey, job: Job) -> Option<Job> {
         match self.jobs.get_mut(key) {
-            Some(slot @ HostJobState::Running) => {
+            Some(slot @ HostJobState::Reserved) => {
                 *slot = HostJobState::Ready(job);
                 None
             }
             _ => Some(job),
+        }
+    }
+
+    fn take_for_free(&mut self, key: HandleKey) -> AsyncHostResult<Job> {
+        match self.jobs.remove(key) {
+            Some(HostJobState::Ready(job) | HostJobState::ResultReady(job)) => Ok(job),
+            Some(HostJobState::Reserved) => {
+                self.jobs.insert(key, HostJobState::Reserved);
+                Err(AsyncHostError::Inval)
+            }
+            None => Err(AsyncHostError::Badf),
         }
     }
 }
@@ -801,27 +815,18 @@ enum HostIoKind {
 
 #[cfg(windows)]
 impl HostIoKind {
-    fn resource(self, handles: &HandleTable, handle: HostHandle) -> AsyncHostResult<&Resource> {
-        match self {
-            Self::File => handles.resource_of_class(handle, ResourceClass::File),
-            Self::Socket => handles.socket(handle),
-            Self::SocketWithAddr => handles.resource_of_class(handle, ResourceClass::UdpSocket),
-            Self::Connect | Self::Accept => Err(AsyncHostError::Inval),
-        }
-    }
-
-    fn acquire_resource(
+    fn resource_ref(
         self,
         handles: &HandleTable,
         handle: HostHandle,
-    ) -> AsyncHostResult<ResourceRef> {
+    ) -> AsyncHostResult<&ResourceRef> {
+        let resource = handles.resource_ref(handle)?;
+        let class = resource.resource_class();
         match self {
-            Self::File => handles.acquire_resource_of_class(handle, ResourceClass::File),
-            Self::Socket => handles.acquire_socket(handle),
-            Self::SocketWithAddr => {
-                handles.acquire_resource_of_class(handle, ResourceClass::UdpSocket)
-            }
-            Self::Connect | Self::Accept => Err(AsyncHostError::Inval),
+            Self::File if class == ResourceClass::File => Ok(resource),
+            Self::Socket if class.is_socket() => Ok(resource),
+            Self::SocketWithAddr if class == ResourceClass::UdpSocket => Ok(resource),
+            _ => Err(AsyncHostError::Inval),
         }
     }
 }
@@ -2182,38 +2187,24 @@ impl AsyncHost {
     }
 
     pub(crate) fn free_job(&self, handle: u64) -> AsyncHostResult<()> {
-        let key = self.handles.borrow().job(handle)?;
+        let mut handles = self.handles.borrow_mut();
+        let key = handles.job(handle)?;
         // Native freeing an in-flight job would be a use-after-free. Reject the
         // invalid guest operation while keeping the worker-owned Job alive.
-        if matches!(
-            self.jobs.borrow().jobs.get(key),
-            Some(HostJobState::Running)
-        ) {
-            return Err(AsyncHostError::Inval);
-        }
-        self.handles.borrow_mut().remove_job(handle)?;
-        let state = self
-            .jobs
-            .borrow_mut()
-            .jobs
-            .remove(key)
-            .ok_or(AsyncHostError::Badf)?;
-        match state {
-            HostJobState::Ready(job) | HostJobState::ResultReady(job) => {
-                Self::revoke_unclaimed_spawn(self.process_policy_state.as_deref(), &job);
+        let job = self.jobs.borrow_mut().take_for_free(key)?;
+        handles.remove_job_key(key);
+        drop(handles);
+        Self::revoke_unclaimed_spawn(self.process_policy_state.as_deref(), &job);
 
-                // Native realpath frees its resolved path from the job finalizer.
-                // After get_realpath_result exposes that path as a host c_buffer,
-                // freeing the job must also release the c_buffer slot.
-                if let thread_pool::JobPayload::Realpath {
-                    result: Some(thread_pool::RealpathJobResult::Published(buffer_handle)),
-                    ..
-                } = job.payload()
-                {
-                    let _ = self.free_c_buffer(*buffer_handle);
-                }
-            }
-            HostJobState::Running => unreachable!("running jobs are rejected before removal"),
+        // Native realpath frees its resolved path from the job finalizer.
+        // After get_realpath_result exposes that path as a host c_buffer,
+        // freeing the job must also release the c_buffer slot.
+        if let thread_pool::JobPayload::Realpath {
+            result: Some(thread_pool::RealpathJobResult::Published(buffer_handle)),
+            ..
+        } = job.payload()
+        {
+            let _ = self.free_c_buffer(*buffer_handle);
         }
         Ok(())
     }
@@ -2963,7 +2954,7 @@ impl AsyncHost {
         if result.is_pending() || result.event != IO_RESULT_READ_EVENT {
             return Err(AsyncHostError::Inval);
         }
-        let file = result.kind.resource(&handles, fd_handle)?;
+        let file = result.kind.resource_ref(&handles, fd_handle)?;
         let mut bytes_transferred = 0;
         let success = match result.kind {
             HostIoKind::File => {
@@ -3030,7 +3021,7 @@ impl AsyncHost {
         if errno == ERROR_HANDLE_EOF as i32 {
             Ok(0)
         } else if errno == ERROR_IO_PENDING as i32 {
-            result.mark_pending(result.kind.acquire_resource(&handles, fd_handle)?)?;
+            result.mark_pending(Arc::clone(file))?;
             Err(AsyncHostError::Native(errno))
         } else {
             Err(AsyncHostError::Native(errno))
@@ -3059,7 +3050,7 @@ impl AsyncHost {
         if result.is_pending() || result.event != IO_RESULT_WRITE_EVENT {
             return Err(AsyncHostError::Inval);
         }
-        let file = result.kind.resource(&handles, fd_handle)?;
+        let file = result.kind.resource_ref(&handles, fd_handle)?;
         if result.kind == HostIoKind::SocketWithAddr {
             self.policy.connect_socket(&result.addr_buffer)?;
         }
@@ -3122,7 +3113,7 @@ impl AsyncHost {
             };
             let error = AsyncHostError::Native(errno);
             if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32) {
-                result.mark_pending(result.kind.acquire_resource(&handles, fd_handle)?)?;
+                result.mark_pending(Arc::clone(file))?;
             }
             Err(error)
         }
