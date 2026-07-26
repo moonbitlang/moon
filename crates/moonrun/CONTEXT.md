@@ -89,7 +89,7 @@ The V8-free native-stub port layer. Implemented files follow the `moonbitlang/as
 _Avoid_: V8 adapter, placeholder unsupported imports
 
 **Host Poller**:
-The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque `Instance` handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`; the Host Poller returns Poll Tokens that moonrun validates as live Resource Handles.
+The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque `Instance` handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`; the Host Poller returns opaque Poll Tokens unchanged. Resource registrations encode their generation-bearing Resource Handle in the token, while later Resource operations—not the event accessor—validate that identity.
 _Avoid_: Completion queue, worker wakeup
 
 **Thread-Pool Completion Source**:
