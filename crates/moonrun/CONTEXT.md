@@ -59,6 +59,7 @@ _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
 **Poll Token**:
 An opaque snapshot of Resource Handle identity attached to a Host Poller registration and returned with its events.
 It preserves the handle generation across Resource closure and platform identifier reuse.
+Supported moonrun hosts are 64-bit, so the complete Handle identity fits platform-sized poll fields without truncation.
 _Avoid_: Resource Handle, raw fd, completion key, pointer
 
 **Acquired Resource**:
