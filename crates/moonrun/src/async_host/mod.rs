@@ -463,8 +463,9 @@ impl HandleTable {
     }
 
     fn remove_job_key(&mut self, key: HandleKey) {
-        assert!(
-            matches!(self.handles.remove(key), Some(HandleKind::Job)),
+        let removed = self.handles.remove(key);
+        debug_assert!(
+            matches!(removed, Some(HandleKind::Job)),
             "validated Job Handle must remain reserved until removal"
         );
     }
@@ -599,7 +600,7 @@ impl ResourceTable for HandleTable {
 
 // Jobs are one-shot work items with result handles. Once a Job leaves this
 // table for synchronous execution or worker submission, its slot stays reserved
-// so a malicious guest cannot reuse the Handle before the Job returns.
+// until the Job returns or the guest detaches it with free_job.
 enum HostJobState {
     Ready(Job),
     Reserved,
@@ -668,13 +669,12 @@ impl JobTable {
         }
     }
 
-    fn take_for_free(&mut self, key: HandleKey) -> AsyncHostResult<Job> {
+    fn take_for_free(&mut self, key: HandleKey) -> AsyncHostResult<Option<Job>> {
         match self.jobs.remove(key) {
-            Some(HostJobState::Ready(job) | HostJobState::ResultReady(job)) => Ok(job),
-            Some(HostJobState::Reserved) => {
-                self.jobs.insert(key, HostJobState::Reserved);
-                Err(AsyncHostError::Inval)
-            }
+            Some(HostJobState::Ready(job) | HostJobState::ResultReady(job)) => Ok(Some(job)),
+            // The worker owns an in-flight Job. Removing its reservation
+            // detaches the guest handle; completion will discard the result.
+            Some(HostJobState::Reserved) => Ok(None),
             None => Err(AsyncHostError::Badf),
         }
     }
@@ -854,14 +854,6 @@ struct HostIoResult {
     // close protection must cover the accepted socket as well until completion.
     extra_pending_close_resource: Option<ResourceRef>,
 }
-
-#[cfg(windows)]
-// SAFETY: IoResultTable stores each value in a Box before its OVERLAPPED
-// address can be submitted to Windows, never removes a pending result, and
-// serializes all access through its mutex. Moving the Box between threads does
-// not move the HostIoResult allocation; its buffers and ResourceRefs are owned
-// and remain alive until the operation reaches a terminal state.
-unsafe impl Send for HostIoResult {}
 
 #[cfg(windows)]
 impl HostIoResult {
@@ -2189,11 +2181,12 @@ impl AsyncHost {
     pub(crate) fn free_job(&self, handle: u64) -> AsyncHostResult<()> {
         let mut handles = self.handles.borrow_mut();
         let key = handles.job(handle)?;
-        // Native freeing an in-flight job would be a use-after-free. Reject the
-        // invalid guest operation while keeping the worker-owned Job alive.
         let job = self.jobs.borrow_mut().take_for_free(key)?;
         handles.remove_job_key(key);
         drop(handles);
+        let Some(job) = job else {
+            return Ok(());
+        };
         Self::revoke_unclaimed_spawn(self.process_policy_state.as_deref(), &job);
 
         // Native realpath frees its resolved path from the job finalizer.
@@ -5655,7 +5648,7 @@ mod tests {
     }
 
     #[test]
-    fn free_running_worker_job_is_rejected_until_completion() {
+    fn free_running_worker_job_detaches_its_result() {
         let host = AsyncHost::default();
         let first_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let first_key = job_key(&host, first_job);
@@ -5687,7 +5680,8 @@ mod tests {
             started_receiver.recv().unwrap(),
             WorkerCompletionId::from_abi(1)
         );
-        assert_eq!(host.free_job(first_job), Err(AsyncHostError::Inval));
+        host.free_job(first_job).unwrap();
+        let replacement_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
 
         release_sender.send(()).unwrap();
         assert_eq!(
@@ -5695,15 +5689,17 @@ mod tests {
             WorkerCompletionId::from_abi(1)
         );
         host.restore_completed_worker_jobs();
-        assert_eq!(host.job_get_ret(first_job), Ok(0));
-        host.free_job(first_job).unwrap();
+        assert_eq!(host.job_get_ret(first_job), Err(AsyncHostError::Badf));
+        host.run_job(replacement_job).unwrap();
+        assert_eq!(host.job_get_ret(replacement_job), Ok(0));
+        host.free_job(replacement_job).unwrap();
 
         host.free_worker(worker).unwrap();
         host.destroy_thread_pool();
     }
 
     #[test]
-    fn free_queued_worker_job_is_rejected_until_completion() {
+    fn free_queued_worker_job_detaches_without_cancelling_it() {
         let host = AsyncHost::default();
         let first_job = host.insert_job(thread_pool::make_sleep_job(0)).unwrap();
         let first_key = job_key(&host, first_job);
@@ -5767,7 +5763,7 @@ mod tests {
         assert_eq!(host.job_get_ret(queued_job), Err(AsyncHostError::Badf));
         assert_eq!(host.run_job(queued_job), Err(AsyncHostError::Badf));
         assert_eq!(host.spawn_worker(4, queued_job), Err(AsyncHostError::Badf));
-        assert_eq!(host.free_job(queued_job), Err(AsyncHostError::Inval));
+        host.free_job(queued_job).unwrap();
 
         release_sender.send(()).unwrap();
         assert_eq!(
@@ -5783,7 +5779,7 @@ mod tests {
         host.restore_completed_worker_jobs();
         host.free_job(first_job).unwrap();
         assert!(!queued_path.exists());
-        host.free_job(queued_job).unwrap();
+        assert_eq!(host.job_get_ret(queued_job), Err(AsyncHostError::Badf));
 
         host.free_worker(worker).unwrap();
         let _ = std::fs::remove_file(displaced_path);

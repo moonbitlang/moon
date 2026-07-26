@@ -247,13 +247,9 @@ impl HostWorkerHandle {
             RunningCancellation::Active(Some(cancel)) => {
                 WorkerCancellationTarget::Resource(Arc::clone(cancel))
             }
-            RunningCancellation::Active(None) => WorkerCancellationTarget::Thread,
-            RunningCancellation::Idle => state
-                .job
-                .as_ref()
-                .and_then(|job| job.cancel.as_ref())
-                .map(|cancel| WorkerCancellationTarget::Resource(Arc::clone(cancel)))
-                .unwrap_or(WorkerCancellationTarget::Thread),
+            RunningCancellation::Active(None) | RunningCancellation::Idle => {
+                WorkerCancellationTarget::Thread
+            }
         }
     }
 
@@ -687,5 +683,33 @@ mod tests {
                 .is_some_and(|thread| thread.is_finished())
         );
         assert!(free_worker(worker).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn queued_job_cancellation_targets_the_worker_thread() {
+        let queued_job = HostWorkerJob::new(
+            WorkerCompletionId::from_abi(3),
+            make_job_key(4),
+            make_wait_for_process_job(None, None, 0).unwrap(),
+        );
+        assert!(queued_job.cancel.is_some());
+        let worker = HostWorkerHandle {
+            shared: Arc::new(HostWorkerShared {
+                state: Mutex::new(HostWorkerState {
+                    job: Some(queued_job),
+                    running_cancel: RunningCancellation::Idle,
+                    waiting: false,
+                    terminating: false,
+                }),
+                wakeup: Condvar::new(),
+            }),
+            thread: None,
+        };
+
+        assert!(matches!(
+            worker.cancellation_target(),
+            WorkerCancellationTarget::Thread
+        ));
     }
 }
