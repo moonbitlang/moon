@@ -51,12 +51,12 @@ pub(crate) use types::{
     FileRef, FileTimeResult, HostHandle, Job, JobPayload, OpenJobResource, OpenJobResult,
     RealpathJobResult, Resource, ResourceClass, ResourceRef, ResourceTable, SpawnOptions,
 };
-#[cfg(windows)]
-pub(crate) use worker::worker_cancellation_resource;
 pub(crate) use worker::{
     HostWorkerHandle, HostWorkerJob, HostWorkerJobResult, WorkerCompletionId, cancel_worker,
     free_worker, spawn_worker, wake_worker, worker_enter_idle,
 };
+#[cfg(windows)]
+pub(crate) use worker::{WorkerCancellationTarget, worker_cancellation_target};
 
 #[cfg(test)]
 pub(crate) fn ported_symbols() -> Vec<crate::async_sys::PortedSymbol> {

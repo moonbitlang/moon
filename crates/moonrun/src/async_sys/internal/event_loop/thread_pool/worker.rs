@@ -71,11 +71,24 @@ pub(crate) struct HostWorkerJobResult {
     pub(crate) job: Job,
 }
 
+#[cfg(windows)]
+#[derive(Debug)]
+enum RunningCancellation {
+    Idle,
+    Active(Option<super::ResourceRef>),
+}
+
+#[cfg(windows)]
+pub(crate) enum WorkerCancellationTarget {
+    Thread,
+    Resource(super::ResourceRef),
+}
+
 #[derive(Debug)]
 struct HostWorkerState {
     job: Option<HostWorkerJob>,
     #[cfg(windows)]
-    running_cancel: Option<super::ResourceRef>,
+    running_cancel: RunningCancellation,
     waiting: bool,
     terminating: bool,
 }
@@ -138,7 +151,7 @@ impl HostWorkerHandle {
             state: Mutex::new(HostWorkerState {
                 job: Some(init_job),
                 #[cfg(windows)]
-                running_cancel: None,
+                running_cancel: RunningCancellation::Idle,
                 waiting: false,
                 terminating: false,
             }),
@@ -163,7 +176,10 @@ impl HostWorkerHandle {
                     let job = (!state.terminating).then(|| state.job.take()).flatten();
                     #[cfg(windows)]
                     {
-                        state.running_cancel = job.as_ref().and_then(|job| job.cancel.clone());
+                        state.running_cancel = match job.as_ref() {
+                            Some(job) => RunningCancellation::Active(job.cancel.clone()),
+                            None => RunningCancellation::Idle,
+                        };
                     }
                     job
                 };
@@ -176,7 +192,7 @@ impl HostWorkerHandle {
                     let mut state = worker_shared.state.lock().unwrap();
                     #[cfg(windows)]
                     {
-                        state.running_cancel = None;
+                        state.running_cancel = RunningCancellation::Idle;
                     }
                     if !state.terminating && state.job.is_none() {
                         state.waiting = true;
@@ -225,13 +241,20 @@ impl HostWorkerHandle {
     }
 
     #[cfg(windows)]
-    pub(crate) fn cancellation_resource(&self) -> Option<super::ResourceRef> {
+    pub(crate) fn cancellation_target(&self) -> WorkerCancellationTarget {
         let state = self.shared.state.lock().unwrap();
-        state
-            .running_cancel
-            .as_ref()
-            .cloned()
-            .or_else(|| state.job.as_ref().and_then(|job| job.cancel.clone()))
+        match &state.running_cancel {
+            RunningCancellation::Active(Some(cancel)) => {
+                WorkerCancellationTarget::Resource(Arc::clone(cancel))
+            }
+            RunningCancellation::Active(None) => WorkerCancellationTarget::Thread,
+            RunningCancellation::Idle => state
+                .job
+                .as_ref()
+                .and_then(|job| job.cancel.as_ref())
+                .map(|cancel| WorkerCancellationTarget::Resource(Arc::clone(cancel)))
+                .unwrap_or(WorkerCancellationTarget::Thread),
+        }
     }
 
     pub(crate) fn cancel(&self) -> AsyncHostResult<i32> {
@@ -338,16 +361,16 @@ ported_fns! {
 }
 
 #[cfg(windows)]
-pub(crate) fn worker_cancellation_resource(
-    worker: &HostWorkerHandle,
-) -> Option<super::ResourceRef> {
-    worker.cancellation_resource()
+pub(crate) fn worker_cancellation_target(worker: &HostWorkerHandle) -> WorkerCancellationTarget {
+    worker.cancellation_target()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::async_sys::internal::event_loop::thread_pool::make_sleep_job;
+    #[cfg(windows)]
+    use crate::async_sys::internal::event_loop::thread_pool::make_wait_for_process_job;
     use slotmap::KeyData;
     use std::sync::mpsc;
 
@@ -470,6 +493,63 @@ mod tests {
         );
         assert_eq!(
             completion_receiver.recv().unwrap().0,
+            WorkerCompletionId::from_abi(3)
+        );
+        assert!(free_worker(worker).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn running_job_cancellation_does_not_target_queued_job() {
+        let (started_sender, started_receiver) = mpsc::channel();
+        let (release_sender, release_receiver) = mpsc::channel();
+        let (completion_sender, completion_receiver) = mpsc::channel();
+        let worker = spawn_worker(
+            make_worker_job(1, 2),
+            move |job| {
+                started_sender.send(job.completion_id).unwrap();
+                if job.completion_id == WorkerCompletionId::from_abi(1) {
+                    release_receiver.recv().unwrap();
+                }
+            },
+            move |job| completion_sender.send(job.completion_id).unwrap(),
+        );
+
+        assert_eq!(
+            started_receiver
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap(),
+            WorkerCompletionId::from_abi(1)
+        );
+        let queued_job = HostWorkerJob::new(
+            WorkerCompletionId::from_abi(3),
+            make_job_key(4),
+            make_wait_for_process_job(None, None, 0).unwrap(),
+        );
+        assert!(queued_job.cancel.is_some());
+        assert!(wake_worker(&worker, queued_job).is_none());
+        assert!(matches!(
+            worker.cancellation_target(),
+            WorkerCancellationTarget::Thread
+        ));
+
+        release_sender.send(()).unwrap();
+        assert_eq!(
+            completion_receiver
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap(),
+            WorkerCompletionId::from_abi(1)
+        );
+        assert_eq!(
+            started_receiver
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap(),
+            WorkerCompletionId::from_abi(3)
+        );
+        assert_eq!(
+            completion_receiver
+                .recv_timeout(std::time::Duration::from_secs(1))
+                .unwrap(),
             WorkerCompletionId::from_abi(3)
         );
         assert!(free_worker(worker).is_none());

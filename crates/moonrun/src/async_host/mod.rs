@@ -3644,9 +3644,12 @@ impl AsyncHost {
     fn cancel_host_worker(&self, worker: &HostWorkerHandle) -> AsyncHostResult<i32> {
         #[cfg(windows)]
         {
-            if let Some(cancel) = thread_pool::worker_cancellation_resource(worker) {
-                thread_pool::cancel_job_resource(&cancel)?;
-                return Ok(1);
+            match thread_pool::worker_cancellation_target(worker) {
+                thread_pool::WorkerCancellationTarget::Resource(cancel) => {
+                    thread_pool::cancel_job_resource(&cancel)?;
+                    return Ok(1);
+                }
+                thread_pool::WorkerCancellationTarget::Thread => {}
             }
         }
         thread_pool::cancel_worker(worker)
