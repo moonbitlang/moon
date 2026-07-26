@@ -375,20 +375,24 @@ impl HandleTable {
         handle_from_key(self.invalid_resource)
     }
 
-    fn resource(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
+    fn resource_ref(&self, handle: HostHandle) -> AsyncHostResult<&ResourceRef> {
         let key = self.key(handle, HandleKind::Resource)?;
         let resource = self.resources.get(key).ok_or(AsyncHostError::Badf)?;
         if resource.is_invalid() {
             return Err(AsyncHostError::Badf);
         }
-        Ok(Arc::clone(resource))
+        Ok(resource)
+    }
+
+    fn resource(&self, handle: HostHandle) -> AsyncHostResult<&Resource> {
+        self.resource_ref(handle).map(ResourceRef::as_ref)
     }
 
     fn resource_of_class(
         &self,
         handle: HostHandle,
         class: ResourceClass,
-    ) -> AsyncHostResult<ResourceRef> {
+    ) -> AsyncHostResult<&Resource> {
         let resource = self.resource(handle)?;
         if resource.resource_class() != class {
             return Err(AsyncHostError::Inval);
@@ -396,7 +400,7 @@ impl HandleTable {
         Ok(resource)
     }
 
-    fn socket(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
+    fn socket(&self, handle: HostHandle) -> AsyncHostResult<&Resource> {
         let resource = self.resource(handle)?;
         if !resource.resource_class().is_socket() {
             return Err(AsyncHostError::Inval);
@@ -404,11 +408,28 @@ impl HandleTable {
         Ok(resource)
     }
 
-    fn resource_is(&self, handle: HostHandle, resource: &ResourceRef) -> bool {
-        self.key(handle, HandleKind::Resource)
-            .ok()
-            .and_then(|key| self.resources.get(key))
-            .is_some_and(|current| Arc::ptr_eq(current, resource))
+    fn acquire_resource(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
+        self.resource_ref(handle).map(Arc::clone)
+    }
+
+    fn acquire_resource_of_class(
+        &self,
+        handle: HostHandle,
+        class: ResourceClass,
+    ) -> AsyncHostResult<ResourceRef> {
+        let resource = self.resource_ref(handle)?;
+        if resource.resource_class() != class {
+            return Err(AsyncHostError::Inval);
+        }
+        Ok(Arc::clone(resource))
+    }
+
+    fn acquire_socket(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
+        let resource = self.resource_ref(handle)?;
+        if !resource.resource_class().is_socket() {
+            return Err(AsyncHostError::Inval);
+        }
+        Ok(Arc::clone(resource))
     }
 
     fn contains_resource(&self, handle: HostHandle) -> bool {
@@ -727,7 +748,7 @@ impl Default for IoResultTable {
 
 #[cfg(windows)]
 impl IoResultTable {
-    fn has_pending_io_for_resource(&self, file: &ResourceRef) -> bool {
+    fn has_pending_io_for_resource(&self, file: &Resource) -> bool {
         self.io_results
             .values()
             .any(|result| result.protects_pending_resource(file))
@@ -780,11 +801,26 @@ enum HostIoKind {
 
 #[cfg(windows)]
 impl HostIoKind {
-    fn resource(self, handles: &HandleTable, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
+    fn resource(self, handles: &HandleTable, handle: HostHandle) -> AsyncHostResult<&Resource> {
         match self {
             Self::File => handles.resource_of_class(handle, ResourceClass::File),
             Self::Socket => handles.socket(handle),
             Self::SocketWithAddr => handles.resource_of_class(handle, ResourceClass::UdpSocket),
+            Self::Connect | Self::Accept => Err(AsyncHostError::Inval),
+        }
+    }
+
+    fn acquire_resource(
+        self,
+        handles: &HandleTable,
+        handle: HostHandle,
+    ) -> AsyncHostResult<ResourceRef> {
+        match self {
+            Self::File => handles.acquire_resource_of_class(handle, ResourceClass::File),
+            Self::Socket => handles.acquire_socket(handle),
+            Self::SocketWithAddr => {
+                handles.acquire_resource_of_class(handle, ResourceClass::UdpSocket)
+            }
             Self::Connect | Self::Accept => Err(AsyncHostError::Inval),
         }
     }
@@ -1043,14 +1079,14 @@ impl HostIoResult {
         self.pending_resource.is_some() || self.extra_pending_close_resource.is_some()
     }
 
-    fn protects_pending_resource(&self, file: &ResourceRef) -> bool {
+    fn protects_pending_resource(&self, file: &Resource) -> bool {
         self.pending_resource
             .as_ref()
-            .is_some_and(|pending| Arc::ptr_eq(pending, file))
+            .is_some_and(|pending| std::ptr::eq(pending.as_ref(), file))
             || self
                 .extra_pending_close_resource
                 .as_ref()
-                .is_some_and(|pending| Arc::ptr_eq(pending, file))
+                .is_some_and(|pending| std::ptr::eq(pending.as_ref(), file))
     }
 
     fn mark_pending(&mut self, file: ResourceRef) -> AsyncHostResult<()> {
@@ -1076,18 +1112,18 @@ impl HostIoResult {
         self.extra_pending_close_resource = None;
     }
 
-    fn validate_pending_resource(&self, file: &ResourceRef) -> AsyncHostResult<()> {
+    fn validate_pending_resource(&self, file: &Resource) -> AsyncHostResult<()> {
         // The import boundary may receive malformed/stale fd handles. Validate
         // before asserting the internal "pending operation uses submitter fd"
         // invariant so debug builds do not panic on bad guest input.
         if let Some(pending_resource) = &self.pending_resource
-            && !Arc::ptr_eq(pending_resource, file)
+            && !std::ptr::eq(pending_resource.as_ref(), file)
         {
             return Err(AsyncHostError::Badf);
         }
         debug_assert!(
             match &self.pending_resource {
-                Some(pending_resource) => Arc::ptr_eq(pending_resource, file),
+                Some(pending_resource) => std::ptr::eq(pending_resource.as_ref(), file),
                 None => true,
             },
             "pending IO operation must use the submitting handle"
@@ -1527,11 +1563,12 @@ impl AsyncHost {
         fd_handle: HostHandle,
         read_only: bool,
     ) -> AsyncHostResult<()> {
-        let resource = self.resource(fd_handle)?;
+        let handles = self.handles.borrow();
+        let resource = handles.resource(fd_handle)?;
         let resource_identity = resource.raw_identity();
         #[cfg(unix)]
         let raw_fd = resource.as_file()?.as_raw_fd();
-        let poll_key = self.handles.borrow().poll(poll_handle)?;
+        let poll_key = handles.poll(poll_handle)?;
         let mut polls = self.polls.borrow_mut();
         let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
         #[cfg(unix)]
@@ -1545,13 +1582,6 @@ impl AsyncHost {
                 resource.as_file()?.as_raw_handle(),
                 read_only,
             )?;
-        }
-        let handles = self.handles.borrow();
-        if !handles.resource_is(fd_handle, &resource) {
-            drop(handles);
-            #[cfg(unix)]
-            poll::poll_unregister(&poll.instance, raw_fd)?;
-            return Err(AsyncHostError::Badf);
         }
         poll.registered_fds.insert(resource_identity, fd_handle);
         Ok(())
@@ -2515,12 +2545,13 @@ impl AsyncHost {
         f: impl FnOnce(RawSocket) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
         debug_assert!(class.is_socket());
-        let file = self.resource_of_class(handle, class)?;
-        #[cfg(unix)]
-        let socket = file.as_fd()?.as_raw_fd();
-        #[cfg(windows)]
-        let socket = file.as_socket()?.as_raw_socket();
-        f(socket)
+        self.with_resource_of_class(handle, class, |file| {
+            #[cfg(unix)]
+            let socket = file.as_fd()?.as_raw_fd();
+            #[cfg(windows)]
+            let socket = file.as_socket()?.as_raw_socket();
+            f(socket)
+        })
     }
 
     pub(crate) fn with_raw_socket<T>(
@@ -2528,7 +2559,8 @@ impl AsyncHost {
         handle: HostHandle,
         f: impl FnOnce(RawSocket) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
-        let file = self.socket_resource(handle)?;
+        let handles = self.handles.borrow();
+        let file = handles.socket(handle)?;
         #[cfg(unix)]
         let socket = file.as_fd()?.as_raw_fd();
         #[cfg(windows)]
@@ -2546,20 +2578,44 @@ impl AsyncHost {
         handle
     }
 
-    pub(crate) fn resource(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
-        self.handles.borrow().resource(handle)
+    pub(crate) fn with_resource<T>(
+        &self,
+        handle: HostHandle,
+        f: impl FnOnce(&Resource) -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        let handles = self.handles.borrow();
+        f(handles.resource(handle)?)
     }
 
-    pub(crate) fn resource_of_class(
+    pub(crate) fn with_resource_of_class<T>(
+        &self,
+        handle: HostHandle,
+        class: ResourceClass,
+        f: impl FnOnce(&Resource) -> AsyncHostResult<T>,
+    ) -> AsyncHostResult<T> {
+        let handles = self.handles.borrow();
+        f(handles.resource_of_class(handle, class)?)
+    }
+
+    pub(crate) fn acquire_resource(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
+        self.handles.borrow().acquire_resource(handle)
+    }
+
+    pub(crate) fn acquire_resource_of_class(
         &self,
         handle: HostHandle,
         class: ResourceClass,
     ) -> AsyncHostResult<ResourceRef> {
-        self.handles.borrow().resource_of_class(handle, class)
+        self.handles
+            .borrow()
+            .acquire_resource_of_class(handle, class)
     }
 
-    pub(crate) fn socket_resource(&self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
-        self.handles.borrow().socket(handle)
+    pub(crate) fn acquire_socket_resource(
+        &self,
+        handle: HostHandle,
+    ) -> AsyncHostResult<ResourceRef> {
+        self.handles.borrow().acquire_socket(handle)
     }
 
     pub(crate) fn pipe(
@@ -2576,32 +2632,34 @@ impl AsyncHost {
     }
 
     pub(crate) fn kind_of_fd(&self, handle: HostHandle) -> AsyncHostResult<i32> {
-        let file = self.resource(handle)?;
-        #[cfg(unix)]
-        {
-            crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
-        }
-        #[cfg(windows)]
-        {
-            if file.resource_class().is_socket() {
-                crate::async_sys::internal::fd_util::stub::kind_of_socket(file.as_socket()?)
-            } else {
+        self.with_resource(handle, |file| {
+            #[cfg(unix)]
+            {
                 crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
             }
-        }
+            #[cfg(windows)]
+            {
+                if file.resource_class().is_socket() {
+                    crate::async_sys::internal::fd_util::stub::kind_of_socket(file.as_socket()?)
+                } else {
+                    crate::async_sys::internal::fd_util::stub::kind_of_file(file.as_file()?)
+                }
+            }
+        })
     }
 
     pub(crate) fn set_cloexec(&self, handle: HostHandle) -> AsyncHostResult<()> {
-        let file = self.resource(handle)?;
-        #[cfg(unix)]
-        {
-            crate::async_sys::internal::fd_util::stub::set_cloexec(file.as_file()?.as_raw_fd())
-        }
-        #[cfg(windows)]
-        {
-            let _ = file;
-            Ok(())
-        }
+        self.with_resource(handle, |file| {
+            #[cfg(unix)]
+            {
+                crate::async_sys::internal::fd_util::stub::set_cloexec(file.as_file()?.as_raw_fd())
+            }
+            #[cfg(windows)]
+            {
+                let _ = file;
+                Ok(())
+            }
+        })
     }
 
     #[cfg(unix)]
@@ -2615,9 +2673,10 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         let offset_dst = dst.checked_add(offset).ok_or(AsyncHostError::Fault)?;
         let dst = memory.read_exact_mut(offset_dst, len)?;
-        let file = self.resource(handle)?;
-        crate::async_sys::internal::event_loop::io::read(file.as_file()?.as_raw_fd(), dst)
-            .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
+        self.with_resource(handle, |file| {
+            crate::async_sys::internal::event_loop::io::read(file.as_file()?.as_raw_fd(), dst)
+                .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
+        })
     }
 
     #[cfg(unix)]
@@ -2631,9 +2690,10 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         let offset_src = src.checked_add(offset).ok_or(AsyncHostError::Fault)?;
         let src = memory.read_exact(offset_src, len)?;
-        let file = self.resource(handle)?;
-        crate::async_sys::internal::event_loop::io::write(file.as_file()?.as_raw_fd(), src)
-            .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
+        self.with_resource(handle, |file| {
+            crate::async_sys::internal::event_loop::io::write(file.as_file()?.as_raw_fd(), src)
+                .and_then(|ret| i32::try_from(ret).map_err(|_| AsyncHostError::Fault))
+        })
     }
 
     #[cfg(windows)]
@@ -2793,14 +2853,15 @@ impl AsyncHost {
         result_handle: u64,
         fd_handle: HostHandle,
     ) -> AsyncHostResult<i32> {
-        let file = self.resource(fd_handle)?;
-        let result_key = self.handles.borrow().io_result(result_handle)?;
+        let handles = self.handles.borrow();
+        let file = handles.resource(fd_handle)?;
+        let result_key = handles.io_result(result_handle)?;
         let mut io_results = self.io_results.borrow_mut();
         let result = io_results
             .io_results
             .get_mut(result_key)
             .ok_or(AsyncHostError::Badf)?;
-        result.validate_pending_resource(&file)?;
+        result.validate_pending_resource(file)?;
         result.cancel_pending()
     }
 
@@ -2812,15 +2873,16 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::System::IO::GetOverlappedResult;
 
-        let file = self.resource(fd_handle)?;
-        let raw_handle = raw_overlapped_handle(&file)?;
-        let result_key = self.handles.borrow().io_result(result_handle)?;
+        let handles = self.handles.borrow();
+        let file = handles.resource(fd_handle)?;
+        let raw_handle = raw_overlapped_handle(file)?;
+        let result_key = handles.io_result(result_handle)?;
         let mut io_results = self.io_results.borrow_mut();
         let result = io_results
             .io_results
             .get_mut(result_key)
             .ok_or(AsyncHostError::Badf)?;
-        result.validate_pending_resource(&file)?;
+        result.validate_pending_resource(file)?;
         let mut bytes_transferred = 0;
         if unsafe {
             GetOverlappedResult(
@@ -2902,7 +2964,6 @@ impl AsyncHost {
             return Err(AsyncHostError::Inval);
         }
         let file = result.kind.resource(&handles, fd_handle)?;
-        drop(handles);
         let mut bytes_transferred = 0;
         let success = match result.kind {
             HostIoKind::File => {
@@ -2969,7 +3030,7 @@ impl AsyncHost {
         if errno == ERROR_HANDLE_EOF as i32 {
             Ok(0)
         } else if errno == ERROR_IO_PENDING as i32 {
-            result.mark_pending(file)?;
+            result.mark_pending(result.kind.acquire_resource(&handles, fd_handle)?)?;
             Err(AsyncHostError::Native(errno))
         } else {
             Err(AsyncHostError::Native(errno))
@@ -2999,7 +3060,6 @@ impl AsyncHost {
             return Err(AsyncHostError::Inval);
         }
         let file = result.kind.resource(&handles, fd_handle)?;
-        drop(handles);
         if result.kind == HostIoKind::SocketWithAddr {
             self.policy.connect_socket(&result.addr_buffer)?;
         }
@@ -3062,7 +3122,7 @@ impl AsyncHost {
             };
             let error = AsyncHostError::Native(errno);
             if matches!(error, AsyncHostError::Native(errno) if errno == ERROR_IO_PENDING as i32) {
-                result.mark_pending(file)?;
+                result.mark_pending(result.kind.acquire_resource(&handles, fd_handle)?)?;
             }
             Err(error)
         }
@@ -3076,13 +3136,10 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let (file, raw_socket, result_key) = {
-            let handles = self.handles.borrow();
-            let file = handles.resource_of_class(fd_handle, ResourceClass::TcpSocket)?;
-            let raw_socket = file.as_socket()?.as_raw_socket();
-            let result_key = handles.io_result(result_handle)?;
-            (file, raw_socket, result_key)
-        };
+        let handles = self.handles.borrow();
+        let file = handles.resource_of_class(fd_handle, ResourceClass::TcpSocket)?;
+        let raw_socket = file.as_socket()?.as_raw_socket();
+        let result_key = handles.io_result(result_handle)?;
         let mut io_results = self.io_results.borrow_mut();
         let result = io_results
             .io_results
@@ -3113,7 +3170,9 @@ impl AsyncHost {
         } else {
             let errno = last_wsa_errno();
             if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32 {
-                result.mark_pending(file)?;
+                result.mark_pending(
+                    handles.acquire_resource_of_class(fd_handle, ResourceClass::TcpSocket)?,
+                )?;
             }
             Err(AsyncHostError::Native(errno))
         }
@@ -3123,22 +3182,23 @@ impl AsyncHost {
     pub(crate) fn setup_connected_socket(&self, fd_handle: HostHandle) -> AsyncHostResult<()> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let file = self.resource_of_class(fd_handle, ResourceClass::TcpSocket)?;
-        let yes: u32 = 1;
-        if unsafe {
-            ws::setsockopt(
-                file.as_socket()?.as_raw_socket() as usize,
-                ws::SOL_SOCKET,
-                ws::SO_UPDATE_CONNECT_CONTEXT,
-                (&yes as *const u32).cast(),
-                std::mem::size_of_val(&yes) as i32,
-            )
-        } == ws::SOCKET_ERROR
-        {
-            Err(AsyncHostError::Native(last_wsa_errno()))
-        } else {
-            Ok(())
-        }
+        self.with_resource_of_class(fd_handle, ResourceClass::TcpSocket, |file| {
+            let yes: u32 = 1;
+            if unsafe {
+                ws::setsockopt(
+                    file.as_socket()?.as_raw_socket() as usize,
+                    ws::SOL_SOCKET,
+                    ws::SO_UPDATE_CONNECT_CONTEXT,
+                    (&yes as *const u32).cast(),
+                    std::mem::size_of_val(&yes) as i32,
+                )
+            } == ws::SOCKET_ERROR
+            {
+                Err(AsyncHostError::Native(last_wsa_errno()))
+            } else {
+                Ok(())
+            }
+        })
     }
 
     #[cfg(windows)]
@@ -3150,22 +3210,12 @@ impl AsyncHost {
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let (server_file, conn_file, server_socket, conn_socket, result_key) = {
-            let handles = self.handles.borrow();
-            let server_file =
-                handles.resource_of_class(server_fd_handle, ResourceClass::TcpSocket)?;
-            let conn_file = handles.resource_of_class(conn_fd_handle, ResourceClass::TcpSocket)?;
-            let server_socket = server_file.as_socket()?.as_raw_socket();
-            let conn_socket = conn_file.as_socket()?.as_raw_socket();
-            let result_key = handles.io_result(result_handle)?;
-            (
-                server_file,
-                conn_file,
-                server_socket,
-                conn_socket,
-                result_key,
-            )
-        };
+        let handles = self.handles.borrow();
+        let server_file = handles.resource_of_class(server_fd_handle, ResourceClass::TcpSocket)?;
+        let conn_file = handles.resource_of_class(conn_fd_handle, ResourceClass::TcpSocket)?;
+        let server_socket = server_file.as_socket()?.as_raw_socket();
+        let conn_socket = conn_file.as_socket()?.as_raw_socket();
+        let result_key = handles.io_result(result_handle)?;
         let mut io_results = self.io_results.borrow_mut();
         let result = io_results
             .io_results
@@ -3196,7 +3246,11 @@ impl AsyncHost {
         } else {
             let errno = last_wsa_errno();
             if errno == windows_sys::Win32::Foundation::ERROR_IO_PENDING as i32 {
-                result.mark_pending_with_close_guard(server_file, conn_file)?;
+                result.mark_pending_with_close_guard(
+                    handles
+                        .acquire_resource_of_class(server_fd_handle, ResourceClass::TcpSocket)?,
+                    handles.acquire_resource_of_class(conn_fd_handle, ResourceClass::TcpSocket)?,
+                )?;
             }
             Err(AsyncHostError::Native(errno))
         }
@@ -3234,8 +3288,9 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         use windows_sys::Win32::Networking::WinSock as ws;
 
-        let listen_file = self.resource_of_class(listen_fd_handle, ResourceClass::TcpSocket)?;
-        let accept_file = self.resource_of_class(accept_fd_handle, ResourceClass::TcpSocket)?;
+        let handles = self.handles.borrow();
+        let listen_file = handles.resource_of_class(listen_fd_handle, ResourceClass::TcpSocket)?;
+        let accept_file = handles.resource_of_class(accept_fd_handle, ResourceClass::TcpSocket)?;
         let listen_socket = listen_file.as_socket()?.as_raw_socket() as usize;
         if unsafe {
             ws::setsockopt(
@@ -3254,20 +3309,16 @@ impl AsyncHost {
     }
 
     pub(crate) fn try_lock_file(&self, handle: HostHandle, exclusive: bool) -> AsyncHostResult<()> {
-        let file = self
-            .handles
-            .borrow()
-            .resource_of_class(handle, ResourceClass::File)?;
-        Self::check_file_lock_policy(&self.policy, Some(&file), exclusive)?;
-        crate::async_sys::fs::stub::try_lock_acquired_file(&file, exclusive)
+        self.with_resource_of_class(handle, ResourceClass::File, |file| {
+            Self::check_file_lock_policy(&self.policy, Some(file), exclusive)?;
+            crate::async_sys::fs::stub::try_lock_acquired_file(file, exclusive)
+        })
     }
 
     pub(crate) fn unlock_file(&self, handle: HostHandle) -> AsyncHostResult<()> {
-        let file = self
-            .handles
-            .borrow()
-            .resource_of_class(handle, ResourceClass::File)?;
-        crate::async_sys::fs::stub::unlock_acquired_file(&file)
+        self.with_resource_of_class(handle, ResourceClass::File, |file| {
+            crate::async_sys::fs::stub::unlock_acquired_file(file)
+        })
     }
 
     pub(crate) fn run_job(&self, handle: u64) -> AsyncHostResult<()> {
@@ -3317,12 +3368,12 @@ impl AsyncHost {
                 follow_symlink,
             } => Self::check_path_metadata_policy(
                 policy,
-                Self::resource_path_base(parent.as_ref()),
+                Self::resource_path_base(parent.as_deref()),
                 path,
                 *follow_symlink,
             ),
             JobPayload::FileSize { file, .. } | JobPayload::FileTime { file, .. } => {
-                Self::check_file_metadata_policy(policy, file.as_ref())
+                Self::check_file_metadata_policy(policy, file.as_deref())
             }
             JobPayload::FileTimeByPath {
                 path,
@@ -3340,7 +3391,7 @@ impl AsyncHost {
             JobPayload::Access { path, access } => policy.access_path(path, *access),
             JobPayload::Chmod { path, .. } => policy.chmod_path(path),
             JobPayload::Flock { file, exclusive } => {
-                Self::check_file_lock_policy(policy, file.as_ref(), *exclusive)
+                Self::check_file_lock_policy(policy, file.as_deref(), *exclusive)
             }
             JobPayload::Remove { path } => policy.remove_path(path),
             JobPayload::Rename {
@@ -3448,7 +3499,7 @@ impl AsyncHost {
 
     fn check_file_metadata_policy(
         policy: &AsyncPolicy,
-        file: Option<&ResourceRef>,
+        file: Option<&Resource>,
     ) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
         match file.policy_path() {
@@ -3472,7 +3523,7 @@ impl AsyncHost {
 
     fn check_file_lock_policy(
         policy: &AsyncPolicy,
-        file: Option<&ResourceRef>,
+        file: Option<&Resource>,
         exclusive: bool,
     ) -> AsyncHostResult<()> {
         let file = file.ok_or(AsyncHostError::Badf)?;
@@ -3490,7 +3541,7 @@ impl AsyncHost {
         }
     }
 
-    fn resource_path_base(parent: Option<&ResourceRef>) -> RuntimePathBase<'_> {
+    fn resource_path_base(parent: Option<&Resource>) -> RuntimePathBase<'_> {
         match parent {
             None => RuntimePathBase::CurrentDirectory,
             Some(parent) => parent
@@ -4312,7 +4363,7 @@ mod tests {
         let process_resource = if process_handle == host.invalid_fd() {
             None
         } else {
-            Some(host.resource(process_handle).unwrap())
+            Some(host.acquire_resource(process_handle).unwrap())
         };
         let process_handle_pid = host.process_handle_pid(process_handle).unwrap();
         if process_resource.is_some() {
@@ -4372,7 +4423,7 @@ mod tests {
             .extend([checked_pid, tracked_pid]);
         let [process_handle, other] = host.pipe(false, false).unwrap();
         host.track_process_handle(process_handle, tracked_pid);
-        let process_resource = host.resource(process_handle).unwrap();
+        let process_resource = host.acquire_resource(process_handle).unwrap();
 
         assert_eq!(
             host.check_process_handle_pid(process_handle, checked_pid),
@@ -4699,10 +4750,13 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
 
         assert_eq!(
-            host.socket_resource(read).unwrap_err(),
+            host.acquire_socket_resource(read).unwrap_err(),
             AsyncHostError::Inval
         );
-        assert!(host.resource_of_class(read, ResourceClass::File).is_ok());
+        assert!(
+            host.acquire_resource_of_class(read, ResourceClass::File)
+                .is_ok()
+        );
 
         host.close_fd(read).unwrap();
         host.close_fd(write).unwrap();
@@ -4717,8 +4771,18 @@ mod tests {
             [(false, false), (true, false), (false, true), (true, true)]
         {
             let [read, write] = host.pipe(read_is_async, write_is_async).unwrap();
-            let read_fd = host.resource(read).unwrap().as_fd().unwrap().as_raw_fd();
-            let write_fd = host.resource(write).unwrap().as_fd().unwrap().as_raw_fd();
+            let read_fd = host
+                .acquire_resource(read)
+                .unwrap()
+                .as_fd()
+                .unwrap()
+                .as_raw_fd();
+            let write_fd = host
+                .acquire_resource(write)
+                .unwrap()
+                .as_fd()
+                .unwrap()
+                .as_raw_fd();
             let read_flags = unsafe { libc::fcntl(read_fd, libc::F_GETFL) };
             let write_flags = unsafe { libc::fcntl(write_fd, libc::F_GETFL) };
 
@@ -4753,7 +4817,7 @@ mod tests {
             host.with_raw_resource_class(tcp, ResourceClass::TcpSocket, |_| Ok(()))
                 .is_ok()
         );
-        assert_eq!(host.resource(tcp).unwrap().socket_family(), Some(4));
+        assert_eq!(host.acquire_resource(tcp).unwrap().socket_family(), Some(4));
         assert_eq!(
             host.with_raw_resource_class(tcp, ResourceClass::UdpSocket, |_| Ok(())),
             Err(AsyncHostError::Inval)
@@ -4781,7 +4845,7 @@ mod tests {
         let poll = host.poll_create().unwrap();
         let completion_source = host.init_thread_pool(poll).unwrap();
         let raw_completion_fd = host
-            .resource(completion_source)
+            .acquire_resource(completion_source)
             .unwrap()
             .as_fd()
             .unwrap()
@@ -5004,7 +5068,7 @@ mod tests {
         assert_eq!(host.open_job_get_fd(job).unwrap(), opened);
         assert_eq!(host.run_job(job), Err(AsyncHostError::Badf));
         assert_eq!(resource_count(&host), 1);
-        assert!(host.resource(opened).is_ok());
+        assert!(host.acquire_resource(opened).is_ok());
 
         host.close_fd(opened).unwrap();
         host.free_job(job).unwrap();
@@ -5304,7 +5368,7 @@ mod tests {
 
         host.run_job(parent_open_job).unwrap();
         let parent_fd = host.open_job_get_fd(parent_open_job).unwrap();
-        let parent = host.resource(parent_fd).unwrap();
+        let parent = host.acquire_resource(parent_fd).unwrap();
         let allowed_link_job = host
             .insert_job(thread_pool::make_file_kind_by_path_job(
                 Some(Arc::clone(&parent)),
@@ -5358,7 +5422,7 @@ mod tests {
 
         host.run_job(open_job).unwrap();
         let fd = host.open_job_get_fd(open_job).unwrap();
-        let resource = host.resource(fd).unwrap();
+        let resource = host.acquire_resource(fd).unwrap();
         let size_job = host
             .insert_job(thread_pool::make_file_size_job(Arc::clone(&resource)))
             .unwrap();
@@ -5441,7 +5505,7 @@ mod tests {
 
         host.run_job(open_job).unwrap();
         let fd = host.open_job_get_fd(open_job).unwrap();
-        let resource = host.resource(fd).unwrap();
+        let resource = host.acquire_resource(fd).unwrap();
         let flock_job = host
             .insert_job(thread_pool::make_flock_job(Arc::clone(&resource), true))
             .unwrap();
@@ -5904,7 +5968,7 @@ mod tests {
     fn acquired_resource_survives_guest_close() {
         let host = AsyncHost::default();
         let [read, write] = host.pipe(false, false).unwrap();
-        let file = host.resource(read).unwrap();
+        let file = host.acquire_resource(read).unwrap();
 
         host.close_fd(read).unwrap();
         let mut input = *b"x";
@@ -5933,14 +5997,19 @@ mod tests {
         host.poll_register(poll, read, true).unwrap();
         let job = host
             .insert_job(thread_pool::make_read_job(
-                host.resource(read).unwrap(),
+                host.acquire_resource(read).unwrap(),
                 1,
                 -1,
             ))
             .unwrap();
 
         host.close_fd(read).unwrap();
-        let fd = host.resource(write).unwrap().as_fd().unwrap().as_raw_fd();
+        let fd = host
+            .acquire_resource(write)
+            .unwrap()
+            .as_fd()
+            .unwrap()
+            .as_raw_fd();
         let byte = b"x";
         let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
         assert_eq!(ret, 1);
@@ -6049,7 +6118,7 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         let raw_read = {
-            let read_file = host.resource(read).unwrap();
+            let read_file = host.acquire_resource(read).unwrap();
             let raw_read = read_file.raw_identity();
             host.io_results
                 .borrow_mut()
@@ -6087,7 +6156,7 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         {
-            let read_file = host.resource(read).unwrap();
+            let read_file = host.acquire_resource(read).unwrap();
             host.io_results
                 .borrow_mut()
                 .io_results
@@ -6119,7 +6188,7 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         let raw_read = {
-            let read_file = host.resource(read).unwrap();
+            let read_file = host.acquire_resource(read).unwrap();
             let raw_read = read_file.raw_identity();
             let mut io_results = host.io_results.borrow_mut();
             let result = io_results
@@ -6156,7 +6225,7 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         let raw_read = {
-            let read_file = host.resource(read).unwrap();
+            let read_file = host.acquire_resource(read).unwrap();
             let raw_read = read_file.raw_identity();
             host.io_results
                 .borrow_mut()
@@ -6170,7 +6239,7 @@ mod tests {
 
         assert_eq!(host.close_fd(read), Err(AsyncHostError::Inval));
         {
-            assert!(host.resource(read).is_ok());
+            assert!(host.acquire_resource(read).is_ok());
             let mut io_results = host.io_results.borrow_mut();
             let result = io_results
                 .io_results
@@ -6192,8 +6261,8 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         let (raw_read, raw_write) = {
-            let read_file = host.resource(read).unwrap();
-            let write_file = host.resource(write).unwrap();
+            let read_file = host.acquire_resource(read).unwrap();
+            let write_file = host.acquire_resource(write).unwrap();
             let raw_read = read_file.raw_identity();
             let raw_write = write_file.raw_identity();
             host.io_results
@@ -6213,15 +6282,15 @@ mod tests {
         );
         assert_eq!(host.close_fd(read), Err(AsyncHostError::Inval));
         {
-            assert!(host.resource(read).is_ok());
-            assert!(host.resource(write).is_ok());
+            assert!(host.acquire_resource(read).is_ok());
+            assert!(host.acquire_resource(write).is_ok());
             let mut io_results = host.io_results.borrow_mut();
             let result = io_results
                 .io_results
                 .get_mut(io_result_key(&host, result))
                 .unwrap();
             assert_eq!(result.pending_resource_identity(), Some(raw_read));
-            assert!(result.protects_pending_resource(&host.resource(write).unwrap()));
+            assert!(result.protects_pending_resource(&host.acquire_resource(write).unwrap()));
             assert_eq!(
                 result
                     .extra_pending_close_resource
@@ -6244,7 +6313,7 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         let result = host.make_file_read_io_result(0, 0).unwrap();
         {
-            let read_file = host.resource(read).unwrap();
+            let read_file = host.acquire_resource(read).unwrap();
             host.io_results
                 .borrow_mut()
                 .io_results
@@ -6286,7 +6355,7 @@ mod tests {
         };
         let result = host.make_file_read_io_result(0, 0).unwrap();
         let [read, write] = host.pipe(true, true).unwrap();
-        let read_file = host.resource(read).unwrap();
+        let read_file = host.acquire_resource(read).unwrap();
         let raw_fd = read_file.raw_identity();
         let overlapped = {
             let mut io_results = host.io_results.borrow_mut();
@@ -6351,7 +6420,12 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         host.poll_register(poll, read, true).unwrap();
 
-        let fd = host.resource(write).unwrap().as_fd().unwrap().as_raw_fd();
+        let fd = host
+            .acquire_resource(write)
+            .unwrap()
+            .as_fd()
+            .unwrap()
+            .as_raw_fd();
         let byte = b"x";
         let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
         assert_eq!(ret, 1);
@@ -6377,7 +6451,12 @@ mod tests {
         let [read, write] = host.pipe(true, true).unwrap();
         host.poll_register(poll, read, true).unwrap();
 
-        let fd = host.resource(write).unwrap().as_fd().unwrap().as_raw_fd();
+        let fd = host
+            .acquire_resource(write)
+            .unwrap()
+            .as_fd()
+            .unwrap()
+            .as_raw_fd();
         let byte = b"x";
         let ret = unsafe { libc::write(fd, byte.as_ptr().cast(), byte.len()) };
         assert_eq!(ret, 1);
