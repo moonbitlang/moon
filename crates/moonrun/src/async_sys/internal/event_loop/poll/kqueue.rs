@@ -22,7 +22,7 @@ use crate::async_sys::ported_fns;
 use std::os::fd::{FromRawFd, OwnedFd};
 
 use super::{
-    EVENT_BUFFER_SIZE, KeventBuffer, PROCESS_EVENT, PollEvent, PollInstance, READ_EVENT,
+    EVENT_BUFFER_SIZE, KeventBuffer, PROCESS_EVENT, PollEvent, PollInstance, PollToken, READ_EVENT,
     WRITE_EVENT, last_errno, last_native_error,
 };
 
@@ -62,6 +62,7 @@ ported_fns! {
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
+        token: PollToken,
     ) -> AsyncHostResult<()> {
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
@@ -72,8 +73,22 @@ ported_fns! {
 
         let flags = libc::EV_ADD | libc::EV_CLEAR;
         let events = [
-            new_kevent(fd as libc::uintptr_t, libc::EVFILT_READ, flags, 0, 0),
-            new_kevent(fd as libc::uintptr_t, libc::EVFILT_WRITE, flags, 0, 0),
+            new_kevent(
+                fd as libc::uintptr_t,
+                libc::EVFILT_READ,
+                flags,
+                0,
+                0,
+                Some(token),
+            )?,
+            new_kevent(
+                fd as libc::uintptr_t,
+                libc::EVFILT_WRITE,
+                flags,
+                0,
+                0,
+                Some(token),
+            )?,
         ];
         if unsafe {
             libc::kevent(
@@ -102,7 +117,14 @@ ported_fns! {
         let fflags = libc::NOTE_EXITSTATUS;
         #[cfg(not(target_os = "macos"))]
         let fflags = libc::NOTE_EXIT;
-        let event = new_kevent(pid as libc::uintptr_t, libc::EVFILT_PROC, flags, fflags, 0);
+        let event = new_kevent(
+            pid as libc::uintptr_t,
+            libc::EVFILT_PROC,
+            flags,
+            fflags,
+            0,
+            None,
+        )?;
         let ret = unsafe {
             libc::kevent(
                 instance.raw_fd(),
@@ -160,7 +182,8 @@ ported_fns! {
                 .iter()
             .take(count as usize)
             .map(|event| PollEvent {
-                fd: event.ident as RawFd,
+                token: PollToken::from_usize(event.udata as usize),
+                ident: event.ident as RawFd,
                 events: kqueue_result_events(event),
             }),
         );
@@ -180,8 +203,8 @@ ported_fns! {
         source = "src/internal/event_loop/kqueue.c",
         original = "moonbitlang_async_event_get_fd"
     )]
-    pub(crate) fn event_get_fd(event: &PollEvent) -> RawFd {
-        event.fd
+    pub(crate) fn event_get_token(event: &PollEvent) -> Option<PollToken> {
+        event.token
     }
 
     #[ported(
@@ -193,9 +216,13 @@ ported_fns! {
     }
 }
 
+pub(crate) fn event_get_pid(event: &PollEvent) -> RawFd {
+    event.ident
+}
+
 pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostResult<()> {
     for filter in [libc::EVFILT_READ, libc::EVFILT_WRITE] {
-        let event = new_kevent(fd as libc::uintptr_t, filter, libc::EV_DELETE, 0, 0);
+        let event = new_kevent(fd as libc::uintptr_t, filter, libc::EV_DELETE, 0, 0, None)?;
         if unsafe {
             libc::kevent(
                 instance.raw_fd(),
@@ -238,15 +265,19 @@ fn new_kevent(
     flags: u16,
     fflags: u32,
     data: libc::intptr_t,
-) -> libc::kevent {
+    token: Option<PollToken>,
+) -> AsyncHostResult<libc::kevent> {
     let mut event = empty_kevent();
     event.ident = ident;
     event.filter = filter;
     event.flags = flags;
     event.fflags = fflags;
     event.data = data;
-    event.udata = std::ptr::null_mut();
-    event
+    event.udata = token
+        .map(PollToken::as_usize)
+        .transpose()?
+        .map_or(std::ptr::null_mut(), |token| token as *mut libc::c_void);
+    Ok(event)
 }
 
 fn empty_kevent() -> libc::kevent {

@@ -56,6 +56,11 @@ A Resource Handle is a Handle that names a Resource while it remains reachable t
 Closing a Resource Handle removes future reachability; it does not describe ownership of already-acquired references.
 _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
 
+**Poll Token**:
+An opaque snapshot of Resource Handle identity attached to a Host Poller registration and returned with its events.
+It preserves the handle generation across Resource closure and platform identifier reuse.
+_Avoid_: Resource Handle, raw fd, completion key, pointer
+
 **Acquired Resource**:
 A host-owned reference to a Resource captured before a Job runs.
 It lets an already-submitted Job finish without duplicating OS handles, even if the Resource Handle is closed later.
@@ -83,7 +88,7 @@ The V8-free native-stub port layer. Implemented files follow the `moonbitlang/as
 _Avoid_: V8 adapter, placeholder unsupported imports
 
 **Host Poller**:
-The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque `Instance` handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`; moonrun resolves registered file-like Resource Handles to platform fds or HANDLEs.
+The `async_sys::internal::event_loop::poll` port of native epoll, kqueue, or IOCP. The wasm event loop owns opaque `Instance` handles and calls `poll/wait`, `poll/event_fd`, and `poll/event_events`; the Host Poller returns Poll Tokens that moonrun validates as live Resource Handles.
 _Avoid_: Completion queue, worker wakeup
 
 **Thread-Pool Completion Source**:

@@ -25,7 +25,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
 
-use super::{EVENT_BUFFER_SIZE, PollEvent, PollInstance, last_errno, last_native_error};
+use super::{EVENT_BUFFER_SIZE, PollEvent, PollInstance, PollToken, last_errno, last_native_error};
 
 #[derive(Debug, Clone)]
 pub(crate) struct CompletionPort(Arc<OwnedHandle>);
@@ -77,6 +77,7 @@ ported_fns! {
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
+        token: PollToken,
     ) -> AsyncHostResult<()> {
         use windows_sys::Win32::Storage::FileSystem::SetFileCompletionNotificationModes;
         use windows_sys::Win32::System::IO::CreateIoCompletionPort;
@@ -86,8 +87,9 @@ ported_fns! {
         if unsafe { SetFileCompletionNotificationModes(fd, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS as u8) } == 0 {
             return Err(last_native_error());
         }
-        let registered =
-            unsafe { CreateIoCompletionPort(fd, instance.raw_fd(), fd as usize, 0) };
+        let registered = unsafe {
+            CreateIoCompletionPort(fd, instance.raw_fd(), token.as_usize()?, 0)
+        };
         if registered.is_null() {
             Err(last_native_error())
         } else {
@@ -136,7 +138,11 @@ ported_fns! {
                     None
                 };
                 PollEvent {
-                    fd: entry.lpCompletionKey,
+                    token: if worker_generation.is_some() {
+                        None
+                    } else {
+                        PollToken::from_usize(entry.lpCompletionKey)
+                    },
                     events: 0,
                     // Worker completion packets use lpOverlapped only as a
                     // host generation token; guest-visible worker events match
@@ -167,8 +173,8 @@ ported_fns! {
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_get_fd"
     )]
-    pub(crate) fn event_get_fd(event: &PollEvent) -> RawFd {
-        event.fd as RawFd
+    pub(crate) fn event_get_token(event: &PollEvent) -> Option<PollToken> {
+        event.token
     }
 
     #[ported(
@@ -194,18 +200,20 @@ pub(crate) fn poll_register_file(
     instance: &PollInstance,
     handle: RawHandle,
     read_only: bool,
+    token: PollToken,
 ) -> AsyncHostResult<()> {
-    poll_register(instance, handle, read_only)
+    poll_register(instance, handle, read_only, token)
 }
 
 pub(crate) fn poll_register_socket(
     instance: &PollInstance,
     socket: BorrowedSocket<'_>,
     read_only: bool,
+    token: PollToken,
 ) -> AsyncHostResult<()> {
     // IOCP accepts a socket value in the HANDLE parameter. Keep that Windows
     // ABI conversion inside the IOCP adapter rather than the resource model.
-    poll_register(instance, socket.as_raw_socket() as RawFd, read_only)
+    poll_register(instance, socket.as_raw_socket() as RawFd, read_only, token)
 }
 
 pub(crate) fn post_thread_pool_completion(

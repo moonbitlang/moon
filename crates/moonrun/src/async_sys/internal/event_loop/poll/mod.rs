@@ -57,8 +57,9 @@ struct KeventBuffer(Box<[libc::kevent]>);
 
 #[cfg(target_os = "macos")]
 // SAFETY: libc::kevent is plain kernel event storage. Its udata field prevents
-// automatic Send, but moonrun always registers null udata and never dereferences
-// values returned in that field. The buffer owns every event value.
+// automatic Send, but moonrun stores only opaque integer PollTokens in udata
+// and never dereferences values returned in that field. The buffer owns every
+// event value.
 unsafe impl Send for KeventBuffer {}
 
 pub(crate) struct PollInstance {
@@ -101,13 +102,34 @@ impl PollInstance {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PollToken(u64);
+
+impl PollToken {
+    pub(crate) fn new(value: u64) -> Self {
+        debug_assert_ne!(value, 0);
+        Self(value)
+    }
+
+    pub(crate) fn get(self) -> u64 {
+        self.0
+    }
+
+    #[cfg(any(target_os = "macos", windows))]
+    fn as_usize(self) -> crate::async_host::AsyncHostResult<usize> {
+        usize::try_from(self.0).map_err(|_| AsyncHostError::Fault)
+    }
+
+    #[cfg(any(target_os = "macos", windows))]
+    fn from_usize(value: usize) -> Option<Self> {
+        (value != 0).then_some(Self(value as u64))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct PollEvent {
-    #[cfg(unix)]
-    fd: RawFd,
-    #[cfg(windows)]
-    // IOCP completion keys are opaque values. Store the address bits rather
-    // than a pointer so cached events carry no false pointer provenance.
-    fd: usize,
+    token: Option<PollToken>,
+    #[cfg(target_os = "macos")]
+    ident: RawFd,
     events: i32,
     #[cfg(windows)]
     io_result: usize,
@@ -177,7 +199,8 @@ mod tests {
         let write_fd = fds[1];
 
         let mut poll = poll_create().unwrap();
-        poll_register(&poll, read_fd, true).unwrap();
+        let token = PollToken::new(0x1234);
+        poll_register(&poll, read_fd, true, token).unwrap();
         let byte = b"x";
         assert_eq!(
             unsafe { libc::write(write_fd, byte.as_ptr().cast(), byte.len()) },
@@ -187,7 +210,7 @@ mod tests {
         let count = poll_wait(&mut poll, 100).unwrap();
         assert_eq!(count, 1);
         let event = *event_list_get(&poll, 0).unwrap();
-        assert_eq!(event_get_fd(&event), read_fd);
+        assert_eq!(event_get_token(&event), Some(token));
         assert_eq!(event_get_events(&event) & READ_EVENT, READ_EVENT);
 
         unsafe {
@@ -204,7 +227,7 @@ mod tests {
         let write_fd = fds[1];
 
         let mut poll = poll_create().unwrap();
-        poll_register(&poll, read_fd, true).unwrap();
+        poll_register(&poll, read_fd, true, PollToken::new(0x1234)).unwrap();
         poll_unregister(&poll, read_fd).unwrap();
         let byte = b"x";
         assert_eq!(

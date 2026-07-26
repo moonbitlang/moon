@@ -22,7 +22,8 @@ use crate::async_sys::ported_fns;
 use std::os::fd::{FromRawFd, OwnedFd};
 
 use super::{
-    EVENT_BUFFER_SIZE, PollEvent, PollInstance, READ_EVENT, WRITE_EVENT, last_native_error,
+    EVENT_BUFFER_SIZE, PollEvent, PollInstance, PollToken, READ_EVENT, WRITE_EVENT,
+    last_native_error,
 };
 
 ported_fns! {
@@ -63,6 +64,7 @@ ported_fns! {
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
+        token: PollToken,
     ) -> AsyncHostResult<()> {
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
@@ -77,7 +79,7 @@ ported_fns! {
         };
         let mut event = libc::epoll_event {
             events: epoll_event_mask(events)?,
-            u64: fd as u64,
+            u64: token.get(),
         };
         if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
             Err(last_native_error())
@@ -109,7 +111,7 @@ ported_fns! {
             .iter()
             .take(count as usize)
             .map(|event| PollEvent {
-                fd: event.u64 as RawFd,
+                token: Some(PollToken::new(event.u64)),
                 events: epoll_result_events(event.events),
             }),
         );
@@ -129,8 +131,8 @@ ported_fns! {
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_get_fd"
     )]
-    pub(crate) fn event_get_fd(event: &PollEvent) -> RawFd {
-        event.fd
+    pub(crate) fn event_get_token(event: &PollEvent) -> Option<PollToken> {
+        event.token
     }
 
     #[ported(
