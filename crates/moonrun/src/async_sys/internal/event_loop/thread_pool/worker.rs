@@ -247,9 +247,12 @@ impl HostWorkerHandle {
             RunningCancellation::Active(Some(cancel)) => {
                 WorkerCancellationTarget::Resource(Arc::clone(cancel))
             }
-            RunningCancellation::Active(None) | RunningCancellation::Idle => {
-                WorkerCancellationTarget::Thread
-            }
+            RunningCancellation::Active(None) => WorkerCancellationTarget::Thread,
+            // A queued Job is not yet the worker thread's current operation.
+            // Match native by targeting the thread; if cancellation races job
+            // startup, CancelSynchronousIo returns RetryLater and MoonBit
+            // retries after the worker publishes the Active target.
+            RunningCancellation::Idle => WorkerCancellationTarget::Thread,
         }
     }
 
