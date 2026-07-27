@@ -54,6 +54,15 @@ The project has transitioned from the legacy `moonbuild` to the new `moonbuild-r
 - Unstable features can be enabled via `-Z` flags (e.g., `-Z rr_export_module_graph`)
 - See `crates/moonutil/src/features.rs` for all feature flags
 
+### Moon and MoonBuild context
+
+- For implementation, design, review, diagnosis, or testing work on the `moon`
+  CLI and build system, use the repository-local `$moon-development` skill.
+- Start with `CONTEXT.md`, then use `docs/dev/README.md` to select only the
+  relevant decisions, designs, behavioral references, and testing guidance.
+- Work on `crates/moonrun` runtime internals follows its crate-local developer
+  documentation instead of the MoonBuild route.
+
 ## Coding guidelines
 
 ### Generic rules
