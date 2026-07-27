@@ -22,7 +22,7 @@ use crate::async_sys::ported_fns;
 use std::os::fd::{FromRawFd, OwnedFd};
 
 use super::{
-    EVENT_BUFFER_SIZE, KeventBuffer, PROCESS_EVENT, PollEvent, PollInstance, PollToken, READ_EVENT,
+    EVENT_BUFFER_SIZE, KeventBuffer, PROCESS_EVENT, PollEvent, PollInstance, READ_EVENT,
     WRITE_EVENT, last_errno, last_native_error,
 };
 
@@ -41,7 +41,7 @@ ported_fns! {
                 raw_events: KeventBuffer(
                     vec![empty_kevent(); EVENT_BUFFER_SIZE].into_boxed_slice(),
                 ),
-                events: Vec::with_capacity(EVENT_BUFFER_SIZE),
+                event_count: 0,
             })
         }
     }
@@ -62,7 +62,7 @@ ported_fns! {
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
-        token: PollToken,
+        fd_handle: u64,
     ) -> AsyncHostResult<()> {
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
@@ -79,7 +79,7 @@ ported_fns! {
                 flags,
                 0,
                 0,
-                Some(token),
+                Some(fd_handle),
             )?,
             new_kevent(
                 fd as libc::uintptr_t,
@@ -87,7 +87,7 @@ ported_fns! {
                 flags,
                 0,
                 0,
-                Some(token),
+                Some(fd_handle),
             )?,
         ];
         if unsafe {
@@ -174,19 +174,7 @@ ported_fns! {
         if count < 0 {
             return Err(last_native_error());
         }
-        instance.events.clear();
-        instance.events.extend(
-            instance
-                .raw_events
-                .0
-                .iter()
-            .take(count as usize)
-            .map(|event| PollEvent {
-                token: PollToken::from_usize(event.udata as usize),
-                ident: event.ident as RawFd,
-                events: kqueue_result_events(event),
-            }),
-        );
+        instance.event_count = count as usize;
         Ok(count)
     }
 
@@ -196,15 +184,29 @@ ported_fns! {
     )]
     pub(crate) fn event_list_get(instance: &PollInstance, index: i32) -> AsyncHostResult<&PollEvent> {
         let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-        instance.events.get(index).ok_or(AsyncHostError::Fault)
+        if index >= instance.event_count {
+            return Err(AsyncHostError::Fault);
+        }
+        instance
+            .raw_events
+            .0
+            .get(index)
+            .ok_or(AsyncHostError::Fault)
     }
 
     #[ported(
         source = "src/internal/event_loop/kqueue.c",
         original = "moonbitlang_async_event_get_fd"
     )]
-    pub(crate) fn event_get_token(event: &PollEvent) -> Option<PollToken> {
-        event.token
+    pub(crate) fn event_get_fd(event: &PollEvent) -> u64 {
+        let fd_handle = event.udata as usize;
+        // Resource filters carry the guest Resource Handle in udata. Process
+        // filters have no Resource Handle and preserve native's ident result.
+        if fd_handle == 0 {
+            event.ident as u64
+        } else {
+            fd_handle as u64
+        }
     }
 
     #[ported(
@@ -212,12 +214,12 @@ ported_fns! {
         original = "moonbitlang_async_event_get_events"
     )]
     pub(crate) fn event_get_events(event: &PollEvent) -> i32 {
-        event.events
+        kqueue_result_events(event)
     }
 }
 
 pub(crate) fn event_get_pid(event: &PollEvent) -> RawFd {
-    event.ident
+    event.ident as RawFd
 }
 
 pub(crate) fn poll_unregister(instance: &PollInstance, fd: RawFd) -> AsyncHostResult<()> {
@@ -265,7 +267,7 @@ fn new_kevent(
     flags: u16,
     fflags: u32,
     data: libc::intptr_t,
-    token: Option<PollToken>,
+    fd_handle: Option<u64>,
 ) -> AsyncHostResult<libc::kevent> {
     let mut event = empty_kevent();
     event.ident = ident;
@@ -273,10 +275,10 @@ fn new_kevent(
     event.flags = flags;
     event.fflags = fflags;
     event.data = data;
-    event.udata = token
-        .map(PollToken::as_usize)
+    event.udata = fd_handle
+        .map(|handle| usize::try_from(handle).map_err(|_| AsyncHostError::Fault))
         .transpose()?
-        .map_or(std::ptr::null_mut(), |token| token as *mut libc::c_void);
+        .map_or(std::ptr::null_mut(), |handle| handle as *mut libc::c_void);
     Ok(event)
 }
 

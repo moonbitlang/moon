@@ -25,7 +25,7 @@ use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util::stub::RawFd;
 use crate::async_sys::ported_fns;
 
-use super::{EVENT_BUFFER_SIZE, PollEvent, PollInstance, PollToken, last_errno, last_native_error};
+use super::{EVENT_BUFFER_SIZE, PollEvent, PollInstance, last_errno, last_native_error};
 
 #[derive(Debug, Clone)]
 pub(crate) struct CompletionPort(Arc<OwnedHandle>);
@@ -56,7 +56,7 @@ ported_fns! {
             Ok(PollInstance {
                 fd: Arc::new(unsafe { OwnedHandle::from_raw_handle(fd) }),
                 raw_events: vec![empty_overlapped_entry(); EVENT_BUFFER_SIZE].into_boxed_slice(),
-                events: Vec::with_capacity(EVENT_BUFFER_SIZE),
+                event_count: 0,
             })
         }
     }
@@ -77,7 +77,7 @@ ported_fns! {
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
-        token: PollToken,
+        fd_handle: u64,
     ) -> AsyncHostResult<()> {
         use windows_sys::Win32::Storage::FileSystem::SetFileCompletionNotificationModes;
         use windows_sys::Win32::System::IO::CreateIoCompletionPort;
@@ -87,9 +87,9 @@ ported_fns! {
         if unsafe { SetFileCompletionNotificationModes(fd, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS as u8) } == 0 {
             return Err(last_native_error());
         }
-        let registered = unsafe {
-            CreateIoCompletionPort(fd, instance.raw_fd(), token.as_usize()?, 0)
-        };
+        let completion_key = usize::try_from(fd_handle).map_err(|_| AsyncHostError::Fault)?;
+        let registered =
+            unsafe { CreateIoCompletionPort(fd, instance.raw_fd(), completion_key, 0) };
         if registered.is_null() {
             Err(last_native_error())
         } else {
@@ -119,44 +119,12 @@ ported_fns! {
         };
         if ok == 0 {
             if last_errno() == WAIT_TIMEOUT as i32 {
-                instance.events.clear();
+                instance.event_count = 0;
                 return Ok(0);
             }
             return Err(last_native_error());
         }
-        instance.events.clear();
-        instance.events.extend(
-            instance
-                .raw_events
-                .iter()
-                .take(count as usize)
-                .map(|entry| {
-                let fd = entry.lpCompletionKey as RawFd;
-                let worker_generation = if is_thread_pool_completion(fd) {
-                    worker_generation_from_overlapped(entry.lpOverlapped)
-                } else {
-                    None
-                };
-                PollEvent {
-                    token: if worker_generation.is_some() {
-                        None
-                    } else {
-                        Some(PollToken::from_completion_key(entry.lpCompletionKey))
-                    },
-                    events: 0,
-                    // Worker completion packets use lpOverlapped only as a
-                    // host generation token; guest-visible worker events match
-                    // native and expose no IO result.
-                    io_result: if worker_generation.is_some() {
-                        0
-                    } else {
-                        entry.lpOverlapped as usize
-                    },
-                    bytes_transferred: entry.dwNumberOfBytesTransferred as i32,
-                    worker_generation,
-                }
-            }),
-        );
+        instance.event_count = count as usize;
         i32::try_from(count).map_err(|_| AsyncHostError::Fault)
     }
 
@@ -166,15 +134,21 @@ ported_fns! {
     )]
     pub(crate) fn event_list_get(instance: &PollInstance, index: i32) -> AsyncHostResult<&PollEvent> {
         let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-        instance.events.get(index).ok_or(AsyncHostError::Fault)
+        if index >= instance.event_count {
+            return Err(AsyncHostError::Fault);
+        }
+        instance
+            .raw_events
+            .get(index)
+            .ok_or(AsyncHostError::Fault)
     }
 
     #[ported(
         source = "src/internal/event_loop/iocp.c",
         original = "moonbitlang_async_event_get_fd"
     )]
-    pub(crate) fn event_get_token(event: &PollEvent) -> Option<PollToken> {
-        event.token
+    pub(crate) fn event_get_fd(event: &PollEvent) -> u64 {
+        event.lpCompletionKey as u64
     }
 
     #[ported(
@@ -184,7 +158,7 @@ ported_fns! {
     pub(crate) fn event_get_io_result(
         event: &PollEvent,
     ) -> *mut windows_sys::Win32::System::IO::OVERLAPPED {
-        event.io_result as *mut windows_sys::Win32::System::IO::OVERLAPPED
+        event.lpOverlapped
     }
 
     #[ported(
@@ -192,7 +166,7 @@ ported_fns! {
         original = "moonbitlang_async_event_get_bytes_transferred"
     )]
     pub(crate) fn event_get_bytes_transferred(event: &PollEvent) -> i32 {
-        event.bytes_transferred
+        event.dwNumberOfBytesTransferred as i32
     }
 }
 
@@ -200,75 +174,49 @@ pub(crate) fn poll_register_file(
     instance: &PollInstance,
     handle: RawHandle,
     read_only: bool,
-    token: PollToken,
+    fd_handle: u64,
 ) -> AsyncHostResult<()> {
-    poll_register(instance, handle, read_only, token)
+    poll_register(instance, handle, read_only, fd_handle)
 }
 
 pub(crate) fn poll_register_socket(
     instance: &PollInstance,
     socket: BorrowedSocket<'_>,
     read_only: bool,
-    token: PollToken,
+    fd_handle: u64,
 ) -> AsyncHostResult<()> {
     // IOCP accepts a socket value in the HANDLE parameter. Keep that Windows
     // ABI conversion inside the IOCP adapter rather than the resource model.
-    poll_register(instance, socket.as_raw_socket() as RawFd, read_only, token)
+    poll_register(
+        instance,
+        socket.as_raw_socket() as RawFd,
+        read_only,
+        fd_handle,
+    )
 }
 
 pub(crate) fn post_thread_pool_completion(
     completion_port: &CompletionPort,
     completion_id: i32,
-    generation: usize,
 ) -> AsyncHostResult<()> {
     use windows_sys::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
-    debug_assert_ne!(generation, 0);
     // Native thread_pool.c posts worker completions to the event bus IOCP with
     // INVALID_HANDLE_VALUE as the completion key and the native job id as
-    // transferred bytes. Rust treats that value as an opaque completion id.
+    // transferred bytes.
     if unsafe {
         PostQueuedCompletionStatus(
             completion_port.0.as_raw_handle(),
             completion_id as u32,
             INVALID_HANDLE_VALUE as usize,
-            worker_generation_to_overlapped(generation),
+            std::ptr::null_mut(),
         )
     } == 0
     {
         return Err(AsyncHostError::Native(unsafe { GetLastError() } as i32));
     }
     Ok(())
-}
-
-pub(crate) fn retain_current_thread_pool_completions(
-    instance: &mut PollInstance,
-    generation: Option<usize>,
-) -> AsyncHostResult<i32> {
-    instance.events.retain(|event| {
-        event
-            .worker_generation
-            .is_none_or(|event_generation| Some(event_generation) == generation)
-    });
-    i32::try_from(instance.events.len()).map_err(|_| AsyncHostError::Fault)
-}
-
-fn is_thread_pool_completion(fd: RawFd) -> bool {
-    fd == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE
-}
-
-fn worker_generation_to_overlapped(
-    generation: usize,
-) -> *mut windows_sys::Win32::System::IO::OVERLAPPED {
-    generation as *mut windows_sys::Win32::System::IO::OVERLAPPED
-}
-
-fn worker_generation_from_overlapped(
-    overlapped: *mut windows_sys::Win32::System::IO::OVERLAPPED,
-) -> Option<usize> {
-    let generation = overlapped as usize;
-    (generation != 0).then_some(generation)
 }
 
 fn empty_overlapped_entry() -> windows_sys::Win32::System::IO::OVERLAPPED_ENTRY {

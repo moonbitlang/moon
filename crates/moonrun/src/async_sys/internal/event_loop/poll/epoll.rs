@@ -22,8 +22,7 @@ use crate::async_sys::ported_fns;
 use std::os::fd::{FromRawFd, OwnedFd};
 
 use super::{
-    EVENT_BUFFER_SIZE, PollEvent, PollInstance, PollToken, READ_EVENT, WRITE_EVENT,
-    last_native_error,
+    EVENT_BUFFER_SIZE, PollEvent, PollInstance, READ_EVENT, WRITE_EVENT, last_native_error,
 };
 
 ported_fns! {
@@ -43,7 +42,7 @@ ported_fns! {
                     EVENT_BUFFER_SIZE
                 ]
                 .into_boxed_slice(),
-                events: Vec::with_capacity(EVENT_BUFFER_SIZE),
+                event_count: 0,
             })
         }
     }
@@ -64,7 +63,7 @@ ported_fns! {
         instance: &PollInstance,
         fd: RawFd,
         read_only: bool,
-        token: PollToken,
+        fd_handle: u64,
     ) -> AsyncHostResult<()> {
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags >= 0 && (flags & libc::O_NONBLOCK) == 0 {
@@ -79,7 +78,7 @@ ported_fns! {
         };
         let mut event = libc::epoll_event {
             events: epoll_event_mask(events)?,
-            u64: token.get(),
+            u64: fd_handle,
         };
         if unsafe { libc::epoll_ctl(instance.raw_fd(), libc::EPOLL_CTL_ADD, fd, &mut event) } < 0 {
             Err(last_native_error())
@@ -104,17 +103,7 @@ ported_fns! {
         if count < 0 {
             return Err(last_native_error());
         }
-        instance.events.clear();
-        instance.events.extend(
-            instance
-            .raw_events
-            .iter()
-            .take(count as usize)
-            .map(|event| PollEvent {
-                token: Some(PollToken::new(event.u64)),
-                events: epoll_result_events(event.events),
-            }),
-        );
+        instance.event_count = count as usize;
         Ok(count)
     }
 
@@ -124,15 +113,21 @@ ported_fns! {
     )]
     pub(crate) fn event_list_get(instance: &PollInstance, index: i32) -> AsyncHostResult<&PollEvent> {
         let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-        instance.events.get(index).ok_or(AsyncHostError::Fault)
+        if index >= instance.event_count {
+            return Err(AsyncHostError::Fault);
+        }
+        instance
+            .raw_events
+            .get(index)
+            .ok_or(AsyncHostError::Fault)
     }
 
     #[ported(
         source = "src/internal/event_loop/epoll.c",
         original = "moonbitlang_async_event_get_fd"
     )]
-    pub(crate) fn event_get_token(event: &PollEvent) -> Option<PollToken> {
-        event.token
+    pub(crate) fn event_get_fd(event: &PollEvent) -> u64 {
+        event.u64
     }
 
     #[ported(
@@ -140,7 +135,7 @@ ported_fns! {
         original = "moonbitlang_async_event_get_events"
     )]
     pub(crate) fn event_get_events(event: &PollEvent) -> i32 {
-        event.events
+        epoll_result_events(event.events)
     }
 }
 

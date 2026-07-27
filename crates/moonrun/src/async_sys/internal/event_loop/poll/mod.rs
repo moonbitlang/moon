@@ -57,25 +57,32 @@ struct KeventBuffer(Box<[libc::kevent]>);
 
 #[cfg(target_os = "macos")]
 // SAFETY: libc::kevent is plain kernel event storage. Its udata field prevents
-// automatic Send, but moonrun stores only opaque integer PollTokens in udata
-// and never dereferences values returned in that field. The buffer owns every
-// event value.
+// automatic Send, but moonrun stores only Resource Handle integer bits in
+// udata and never dereferences values returned in that field. The buffer owns
+// every event value.
 unsafe impl Send for KeventBuffer {}
+
+#[cfg(target_os = "linux")]
+pub(crate) type PollEvent = libc::epoll_event;
+#[cfg(target_os = "macos")]
+pub(crate) type PollEvent = libc::kevent;
+#[cfg(windows)]
+pub(crate) type PollEvent = windows_sys::Win32::System::IO::OVERLAPPED_ENTRY;
 
 pub(crate) struct PollInstance {
     #[cfg(unix)]
     fd: OwnedFd,
     #[cfg(windows)]
     fd: Arc<OwnedHandle>,
-    // Unix pollers retain both buffers so waits do not allocate or initialize
-    // 1024 native events before copying the ready subset on every call.
+    // poll/wait returns only a count. Later event accessor imports read the
+    // ready prefix of this reusable native buffer directly.
     #[cfg(target_os = "linux")]
     raw_events: Box<[libc::epoll_event]>,
     #[cfg(target_os = "macos")]
     raw_events: KeventBuffer,
     #[cfg(windows)]
     raw_events: Box<[windows_sys::Win32::System::IO::OVERLAPPED_ENTRY]>,
-    events: Vec<PollEvent>,
+    event_count: usize,
 }
 
 impl std::fmt::Debug for PollInstance {
@@ -83,7 +90,7 @@ impl std::fmt::Debug for PollInstance {
         f.debug_struct("PollInstance")
             .field("fd", &self.fd)
             .field("raw_event_capacity", &EVENT_BUFFER_SIZE)
-            .field("events", &self.events)
+            .field("event_count", &self.event_count)
             .finish()
     }
 }
@@ -99,49 +106,6 @@ impl PollInstance {
             self.fd.as_raw_handle()
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PollToken(u64);
-
-impl PollToken {
-    pub(crate) fn new(value: u64) -> Self {
-        debug_assert_ne!(value, 0);
-        Self(value)
-    }
-
-    pub(crate) fn get(self) -> u64 {
-        self.0
-    }
-
-    #[cfg(any(target_os = "macos", windows))]
-    fn as_usize(self) -> crate::async_host::AsyncHostResult<usize> {
-        usize::try_from(self.0).map_err(|_| AsyncHostError::Fault)
-    }
-
-    #[cfg(target_os = "macos")]
-    fn from_usize(value: usize) -> Option<Self> {
-        (value != 0).then_some(Self(value as u64))
-    }
-
-    #[cfg(windows)]
-    fn from_completion_key(value: usize) -> Self {
-        Self(value as u64)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct PollEvent {
-    token: Option<PollToken>,
-    #[cfg(target_os = "macos")]
-    ident: RawFd,
-    events: i32,
-    #[cfg(windows)]
-    io_result: usize,
-    #[cfg(windows)]
-    bytes_transferred: i32,
-    #[cfg(windows)]
-    worker_generation: Option<usize>,
 }
 
 pub(super) fn last_errno() -> i32 {
@@ -204,8 +168,8 @@ mod tests {
         let write_fd = fds[1];
 
         let mut poll = poll_create().unwrap();
-        let token = PollToken::new(0x1234);
-        poll_register(&poll, read_fd, true, token).unwrap();
+        let fd_handle = 0x1234;
+        poll_register(&poll, read_fd, true, fd_handle).unwrap();
         let byte = b"x";
         assert_eq!(
             unsafe { libc::write(write_fd, byte.as_ptr().cast(), byte.len()) },
@@ -215,7 +179,7 @@ mod tests {
         let count = poll_wait(&mut poll, 100).unwrap();
         assert_eq!(count, 1);
         let event = *event_list_get(&poll, 0).unwrap();
-        assert_eq!(event_get_token(&event), Some(token));
+        assert_eq!(event_get_fd(&event), fd_handle);
         assert_eq!(event_get_events(&event) & READ_EVENT, READ_EVENT);
 
         unsafe {
@@ -232,7 +196,7 @@ mod tests {
         let write_fd = fds[1];
 
         let mut poll = poll_create().unwrap();
-        poll_register(&poll, read_fd, true, PollToken::new(0x1234)).unwrap();
+        poll_register(&poll, read_fd, true, 0x1234).unwrap();
         poll_unregister(&poll, read_fd).unwrap();
         let byte = b"x";
         assert_eq!(
