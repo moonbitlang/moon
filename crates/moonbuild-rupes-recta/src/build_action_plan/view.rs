@@ -183,6 +183,15 @@ impl<'a> BuildActionPlan<'a> {
             .collect()
     }
 
+    pub(crate) fn dependency_action_ids(
+        &self,
+        id: BuildActionId,
+    ) -> impl Iterator<Item = BuildActionId> + '_ {
+        self.plan
+            .dependency_nodes(self.node(id))
+            .map(|node| self.id_for_node(node))
+    }
+
     pub fn output_products(&self, id: BuildActionId) -> Vec<BuildProduct> {
         self.output_products_for_node(self.node(id))
     }

@@ -1,4 +1,5 @@
 use super::*;
+use std::{fs, thread, time::Duration};
 
 #[test]
 fn test_single_file_front_matter_import_ok() {
@@ -60,6 +61,71 @@ fn test_single_file_mbtx_run() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stdout = get_stdout(&dir, ["run", "import_ok.mbtx"]);
     assert!(stdout.contains("hello"));
+}
+
+#[test]
+fn test_single_file_mbtx_dry_run_prints_dependencies_before_script() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let stdout = get_stdout(
+        &dir,
+        ["run", "import_ok.mbtx", "--target", "wasm", "--dry-run"],
+    );
+    let dependency_command = stdout
+        .lines()
+        .position(|line| line.contains(".mooncakes/moonbitlang/x/stack/stack.mbt"))
+        .expect("dry run should print the dependency package command");
+    let script_command = stdout
+        .lines()
+        .position(|line| line.contains("_build/import_ok.mbt"))
+        .expect("dry run should print the script package command");
+
+    assert!(
+        dependency_command < script_command,
+        "dependency commands should be printed before script commands:\n{stdout}"
+    );
+}
+
+#[test]
+fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let args = ["run", "import_ok.mbtx", "--target", "wasm"];
+    let stdout = get_stdout(&dir, args);
+    assert!(stdout.contains("hello"));
+
+    let build_dir = dir.join("_build/wasm/debug/build");
+    let dependency_core = build_dir.join(".mooncakes/moonbitlang/x/stack/stack.core");
+    let dependency_db = build_dir.join("standalone-dependencies.moon_db");
+    let script_db = build_dir.join("build.moon_db");
+    assert!(dependency_core.is_file());
+    assert!(dependency_db.is_file());
+    assert!(script_db.is_file());
+
+    let dependency_modified = fs::metadata(&dependency_core)
+        .expect("dependency artifact should have metadata")
+        .modified()
+        .expect("dependency artifact should have a modification time");
+    thread::sleep(Duration::from_millis(100));
+    let script = dir.join("import_ok.mbtx");
+    let source = fs::read_to_string(&script).expect("script fixture should be readable");
+    let original_output = r#"println("hello")"#;
+    assert_eq!(
+        source.matches(original_output).count(),
+        1,
+        "script fixture should contain exactly one output to replace",
+    );
+    let source = source.replacen(original_output, r#"println("updated script")"#, 1);
+    fs::write(&script, source).expect("script fixture should be writable");
+
+    let stdout = get_stdout(&dir, args);
+    assert!(stdout.contains("updated script"));
+    assert_eq!(
+        fs::metadata(dependency_core)
+            .expect("dependency artifact should still have metadata")
+            .modified()
+            .expect("dependency artifact should still have a modification time"),
+        dependency_modified,
+        "changing only the script should not rebuild dependency packages",
+    );
 }
 
 #[test]

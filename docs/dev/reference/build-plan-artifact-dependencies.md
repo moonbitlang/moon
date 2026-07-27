@@ -182,6 +182,46 @@ This keeps responsibilities separate:
 - `ArtifactPathResolver` owns logical product to path resolution.
 - `build_lower` owns command construction and n2 graph output.
 
+## Standalone script boundary
+
+Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`.
+Package dependencies use the same edges as ordinary project compilation. After
+the plan is normalized once, a temporary action-level adapter projects it into
+two disjoint n2 graphs.
+
+All actions owned by packages other than the synthesized script package seed
+the dependency projection. Following their producer edges to a fixed point
+also includes package-less shared prerequisites such as `BuildRuntimeLib`.
+Package-less actions needed only by the script stay in the script projection.
+The projection is invalid if dependency preparation reaches a script-owned
+producer.
+
+The script projection keeps the original product edges. If a producer belongs
+to the dependency projection, normal product realization still resolves its
+concrete `.mooncakes` paths using that producer's action context. Those paths
+become ordinary n2 inputs with no producer in the script graph; no external
+product or path vocabulary is needed.
+
+Execution runs the dependency graph first using
+`standalone-dependencies.moon_db`, then runs the script graph using the existing
+mode database. There is no file-existence scan between the phases: n2 currently
+decides whether dependency actions are current.
+
+The dependency n2 graph is an adapter for the current preparation mechanism.
+A future action-to-output implementation can replace that first stage, then
+feed the materialized outputs into a narrower script plan without changing the
+dependency product contract.
+
+For `.mbt` and `.mbtx` files built from persistent paths, the dependency n2
+database remains available to later invocations. `moon run -e` and
+`moon run -` also use the split graphs, but their synthesized temporary projects
+are removed after each invocation, so they do not currently reuse the
+dependency database across invocations. Stable or global cache storage for
+those entry points remains future work.
+
+Ordinary project and workspace commands continue to produce and execute one
+plan and one n2 graph.
+
 ## Compatibility
 
 `LoweringResult` returns root action artifacts as `(BuildActionId, paths)` pairs
