@@ -52,7 +52,8 @@ pub(crate) struct MooncBuildPackage<'a> {
 
     pub flags: CompilationFlags,
 
-    /// Whether to accept and ignore an inline import declaration.
+    /// Whether `moonc build-package` should accept the inline import
+    /// declaration of an already-resolved `.mbtx` single-file input.
     pub ignore_import_declaration: bool,
 
     /// Extra build options to append at the end.

@@ -136,6 +136,22 @@ fn test_single_file_mbtx_run_block_import() {
 }
 
 #[test]
+fn test_single_file_mbtx_builds_original_source() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let stdout = get_stdout(&dir, ["run", "import_ok.mbtx", "--dry-run"]);
+    let command = stdout
+        .lines()
+        .find(|line| line.contains("-pkg moon/test/single "))
+        .expect("dry-run should contain the synthetic package build");
+
+    assert!(command.contains("import_ok.mbtx"), "command: {command}");
+    assert!(
+        command.contains("-ignore-import-declaration"),
+        "command: {command}"
+    );
+}
+
+#[test]
 fn test_single_file_check_rejects_patch_file() {
     let dir = TestDir::new("moon_test_single_file.in");
 

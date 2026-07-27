@@ -26,6 +26,13 @@ There are 4 kinds of source files within each package:
 - **C stub**. These are C files manually specified in `moon.pkg.json`,
   and recognized by the build system to be built.
 
+Standalone inputs are represented as synthetic single-file packages. Their
+source format is recorded while resolving the input. In particular, an
+original `.mbtx` input is kept as a regular, unconditional source file, and
+`moonc build-package` receives `-ignore-import-declaration` when lowering that
+synthetic package. This does not make `.mbtx` a source extension discovered in
+ordinary packages.
+
 ### Build targets
 
 Source files may also be conditionally included into the build --

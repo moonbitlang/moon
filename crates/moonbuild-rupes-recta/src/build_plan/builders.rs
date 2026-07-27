@@ -507,8 +507,18 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let pkg = self.input.pkg_dirs.get_package(package);
 
-        // Iterator of all existing source files in the package
-        let source_iter = pkg.source_files.iter().map(|x| Cow::Borrowed(x.as_path()));
+        // `.mbtx` is interpreted as a standalone source during resolution. It
+        // is not a package source filename, so it does not participate in
+        // package conditional-compilation or test-file classification.
+        let is_mbtx_single_file = pkg.is_mbtx_single_file();
+        let source_files_for_classification = if is_mbtx_single_file {
+            &[][..]
+        } else {
+            pkg.source_files.as_slice()
+        };
+        let source_iter = source_files_for_classification
+            .iter()
+            .map(|x| Cow::Borrowed(x.as_path()));
 
         // Iterator over all prebuild output files that are .mbt or .mbt.md
         // Or else they will not be picked up by the build system.
@@ -548,6 +558,10 @@ impl<'a> BuildPlanConstructor<'a> {
         let mut no_test_files = IndexSet::new();
         let mut whitebox_files = IndexSet::new();
         let mut blackbox_files = IndexSet::new();
+
+        if is_mbtx_single_file {
+            no_test_files.extend(pkg.source_files.iter().cloned());
+        }
 
         let _classify_span = tracing::debug_span!("classifying_package_files").entered();
         for (file, file_kind) in cond_comp::classify_files(

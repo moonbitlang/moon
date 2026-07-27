@@ -30,7 +30,9 @@ mod model;
 pub mod special_case;
 pub mod synth;
 
-pub use model::{DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage};
+pub use model::{
+    DiscoverError, DiscoverResult, DiscoveredLocalProject, DiscoveredPackage, SingleFileSourceKind,
+};
 use moonutil::constants::{PackageSourceFileKind, package_source_file_kind};
 use moonutil::project::ProjectManifest;
 
@@ -459,7 +461,7 @@ fn discover_one_package(
         root_path: abs.to_path_buf(),
         module: mid,
         fqn,
-        is_single_file: false,
+        single_file_source_kind: None,
         manifest_path: Some(pkg_manifest_path.to_owned()),
         raw: Box::new(pkg_json),
         supported_targets_decl,

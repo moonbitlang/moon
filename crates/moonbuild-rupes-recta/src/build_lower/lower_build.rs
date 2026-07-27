@@ -415,14 +415,14 @@ impl<'a> LoweringContext<'a> {
             ),
             defaults: self.set_build_commons(package, info, is_main),
             mi_out: mi_output.into(),
-            single_file: package.is_single_file,
+            single_file: package.is_single_file(),
             extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
         };
 
         // Track doctest-only files as inputs as well
         let mut extra_inputs = files_vec.clone();
         extra_inputs.extend(info.doctest_files.clone());
-        if !package.is_single_file {
+        if !package.is_single_file() {
             extra_inputs.push(package.config_path());
         }
 
@@ -482,13 +482,13 @@ impl<'a> LoweringContext<'a> {
             why3_loadpaths: Vec::new(),
             dep_proofs,
             emit_only: true,
-            single_file: package.is_single_file,
+            single_file: package.is_single_file(),
             extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
         };
 
         let mut extra_inputs = files_vec.clone();
         extra_inputs.extend(info.doctest_files.clone());
-        if !package.is_single_file {
+        if !package.is_single_file() {
             extra_inputs.push(package.config_path());
         }
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
@@ -562,7 +562,7 @@ impl<'a> LoweringContext<'a> {
             why3_loadpaths: why3_loadpaths.clone(),
             dep_proofs,
             emit_only: false,
-            single_file: package.is_single_file,
+            single_file: package.is_single_file(),
             extra_flags: module.compile_flags.as_deref().unwrap_or_default(),
         };
 
@@ -570,7 +570,7 @@ impl<'a> LoweringContext<'a> {
         extra_inputs.extend(info.doctest_files.clone());
         extra_inputs.push(why3_config);
         extra_inputs.extend(why3_loadpaths);
-        if !package.is_single_file {
+        if !package.is_single_file() {
             extra_inputs.push(package.config_path());
         }
         self.extend_extra_inputs(&cmd.defaults, &mut extra_inputs);
@@ -648,10 +648,6 @@ impl<'a> LoweringContext<'a> {
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
         let backend = self.opt.target_backend.into();
-        let ignore_import_declaration = package.is_single_file
-            && files
-                .iter()
-                .any(|file| file.extension().is_some_and(|ext| ext == "mbtx"));
         let mut cmd = compiler::MooncBuildPackage {
             required: BuildCommonInput::new(
                 &files,
@@ -669,7 +665,7 @@ impl<'a> LoweringContext<'a> {
             core_out: core_output.clone().into(),
             mi_out: mi_output.into(),
             flags: self.set_flags(),
-            ignore_import_declaration,
+            ignore_import_declaration: package.is_mbtx_single_file(),
             extra_build_opts: module.compile_flags.as_deref().unwrap_or_default(),
         };
         // Propagate debug/coverage flags and common settings
@@ -682,7 +678,7 @@ impl<'a> LoweringContext<'a> {
         // tracked via the build graph.
         let mut extra_inputs = self.compiler_source_files(info);
         extra_inputs.extend(info.doctest_files.clone());
-        if !package.is_single_file {
+        if !package.is_single_file() {
             extra_inputs.push(package.config_path());
         }
 
@@ -803,7 +799,7 @@ impl<'a> LoweringContext<'a> {
                 self.opt.target_backend.into(),
             ));
         }
-        if !package.is_single_file {
+        if !package.is_single_file() {
             extra_inputs.push(config_path);
         }
 

@@ -36,6 +36,18 @@ use crate::{
     pkg_name::{PackageFQN, PackageFQNWithSource, PackagePath},
 };
 
+/// The source format of a synthetic single-file package.
+///
+/// This is determined when resolving the single-file input. Later build
+/// stages consume this interpretation instead of inferring semantics from the
+/// source path again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SingleFileSourceKind {
+    Mbt,
+    MbtMd,
+    Mbtx,
+}
+
 // Be careful adding more fields to this struct. If it's not needed everywhere,
 // consider calculating it on-demand instead of storing it.
 #[derive(Debug, Clone)]
@@ -47,11 +59,11 @@ pub struct DiscoveredPackage {
     /// The fully-qualified name of the package
     pub fqn: PackageFQN,
 
-    /// Whether this is a synthetic single-file package
+    /// The source format when this is a synthetic single-file package.
     ///
     /// Single-file packages behave differently in certain aspects, such as
     /// file determination and import resolution.
-    pub is_single_file: bool,
+    pub single_file_source_kind: Option<SingleFileSourceKind>,
 
     /// The selected package manifest path for normal package layouts.
     ///
@@ -68,8 +80,9 @@ pub struct DiscoveredPackage {
     /// module's supported targets.
     pub effective_supported_targets: indexmap::IndexSet<TargetBackend>,
 
-    /// `.mbt` files contained by this package. This list contains absolute
-    /// paths of the files. The same applies to all other file lists below.
+    /// `.mbt` files contained by this package, or the original `.mbtx` input of
+    /// a synthetic single-file package. This list contains absolute paths of
+    /// the files. The same applies to all other file lists below.
     ///
     /// This is an **unfiltered** list of source files contained by this
     /// package, which requires further classifying into e.g. source files, test
@@ -104,6 +117,14 @@ pub struct DiscoveredPackage {
 }
 
 impl DiscoveredPackage {
+    pub fn is_single_file(&self) -> bool {
+        self.single_file_source_kind.is_some()
+    }
+
+    pub fn is_mbtx_single_file(&self) -> bool {
+        self.single_file_source_kind == Some(SingleFileSourceKind::Mbtx)
+    }
+
     /// Get the configuration file `moon.pkg.json` or `moon.pkg` of this package.
     pub fn config_path(&self) -> PathBuf {
         self.manifest_path

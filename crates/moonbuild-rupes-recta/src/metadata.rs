@@ -110,14 +110,30 @@ fn gen_package_json(
     let mut files = IndexMap::new();
     let mut wbtest_files = IndexMap::new();
     let mut test_files = IndexMap::new();
-    for (path, test_kind, cond) in
-        file_metadatas(&pkg.raw, pkg.source_files.iter().map(|x| x.as_path()))
-    {
-        match test_kind {
-            crate::cond_comp::FileTestKind::NoTest => files.insert(path.to_owned(), cond),
-            crate::cond_comp::FileTestKind::Whitebox => wbtest_files.insert(path.to_owned(), cond),
-            crate::cond_comp::FileTestKind::Blackbox => test_files.insert(path.to_owned(), cond),
-        };
+    if pkg.is_mbtx_single_file() {
+        for path in &pkg.source_files {
+            files.insert(
+                path.to_owned(),
+                CompileCondition {
+                    backend: TargetBackend::all().to_vec(),
+                    optlevel: OptLevel::all().to_vec(),
+                },
+            );
+        }
+    } else {
+        for (path, test_kind, cond) in
+            file_metadatas(&pkg.raw, pkg.source_files.iter().map(|x| x.as_path()))
+        {
+            match test_kind {
+                crate::cond_comp::FileTestKind::NoTest => files.insert(path.to_owned(), cond),
+                crate::cond_comp::FileTestKind::Whitebox => {
+                    wbtest_files.insert(path.to_owned(), cond)
+                }
+                crate::cond_comp::FileTestKind::Blackbox => {
+                    test_files.insert(path.to_owned(), cond)
+                }
+            };
+        }
     }
     for path in &pkg.mbtp_files {
         files.insert(
