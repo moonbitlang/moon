@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 
 use anyhow::Context;
@@ -39,12 +39,11 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
     let content = std::fs::read_to_string(file)
         .with_context(|| format!("failed to read .mbtx file `{}`", file.display()))?;
     let registry = mooncake::registry::OnlineRegistry::mooncakes_io();
-    let (import_source, _) = split_mbtx(&content)?;
-    if import_source.is_empty() {
+    let Some(import_source) = extract_mbtx_import_source(&content) else {
         return Ok(MbtxFrontMatterImports::default());
-    }
+    };
 
-    let parsed = moonutil::moon_pkg::parse(&import_source)
+    let parsed = moonutil::moon_pkg::parse(import_source)
         .with_context(|| format!("invalid .mbtx import syntax: `{import_source}`"))?;
     let object: std::collections::HashMap<_, _> = parsed.iter().collect();
     if object.len() != 1 {
@@ -130,11 +129,7 @@ pub(super) fn parse_mbtx_imports(file: &Path) -> anyhow::Result<MbtxFrontMatterI
     Ok(MbtxFrontMatterImports { deps, imports })
 }
 
-/// split "import {...}; code" into ("import {...}", "\n; code")
-///
-/// Note: this is a temporary solution to handle `import {...}` declaration in mbtx,
-/// since moonc doesn't support import syntax in mbt yet.
-fn split_mbtx(content: &str) -> anyhow::Result<(String, String)> {
+fn extract_mbtx_import_source(content: &str) -> Option<&str> {
     static IMPORT_BLOCK_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let import_block_re = IMPORT_BLOCK_RE.get_or_init(|| {
         regex::Regex::new(
@@ -142,26 +137,10 @@ fn split_mbtx(content: &str) -> anyhow::Result<(String, String)> {
         )
         .expect("valid .mbtx import-block regex")
     });
-    if let Some(caps) = import_block_re.captures(content) {
-        let m = caps
-            .name("import")
-            .expect("named group `import` must exist");
-        let import_source = m.as_str().to_string();
-        let blanked = import_source
-            .chars()
-            .map(|ch| if matches!(ch, '\n' | '\r') { ch } else { ' ' })
-            .collect::<String>();
-        return Ok((
-            import_source,
-            format!(
-                "{}{}{}",
-                &content[..m.start()],
-                blanked,
-                &content[m.end()..]
-            ),
-        ));
-    }
-    Ok((String::new(), content.to_string()))
+    import_block_re
+        .captures(content)
+        .and_then(|captures| captures.name("import"))
+        .map(|import| import.as_str())
 }
 
 fn split_mbtx_import_path(
@@ -198,49 +177,14 @@ if version is omitted, the module path must be resolvable from local registry in
     Ok((module.to_string(), version, full_path_without_version))
 }
 
-/// Remove the leading `import {...}` declaration in `.mbtx`, then write the
-/// remaining code into `<target-dir>/<stem>.mbt` for compilation.
-pub(super) fn prepare_single_file_for_compile(
-    file: &Path,
-    temp_workspace: &Path,
-) -> anyhow::Result<PathBuf> {
-    if file.extension().is_none_or(|x| x != "mbtx") {
-        return Ok(file.to_path_buf());
-    }
-
-    #[allow(clippy::disallowed_methods)] // .mbtx preprocessing writes a temp compile input.
-    let content = std::fs::read_to_string(file)
-        .with_context(|| format!("failed to read .mbtx file `{}`", file.display()))?;
-    let (_, mbt_code) = split_mbtx(&content)?;
-
-    #[allow(clippy::disallowed_methods)] // .mbtx preprocessing writes a temp compile input.
-    std::fs::create_dir_all(temp_workspace).with_context(|| {
-        format!(
-            "failed to create directory for preprocessed single-file input `{}`",
-            temp_workspace.display()
-        )
-    })?;
-    let mut out_file_name = file
-        .file_stem()
-        .expect(".mbtx input file should have a filename")
-        .to_os_string();
-    out_file_name.push(".mbt");
-    let out_path = temp_workspace.join(out_file_name);
-    #[allow(clippy::disallowed_methods)] // .mbtx preprocessing writes a temp compile input.
-    std::fs::write(&out_path, mbt_code).with_context(|| {
-        format!(
-            "failed to write preprocessed .mbtx input file `{}`",
-            out_path.display()
-        )
-    })?;
-    Ok(out_path)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use super::{MbtxFrontMatterImports, parse_mbtx_imports, split_mbtx, split_mbtx_import_path};
+    use super::{
+        MbtxFrontMatterImports, extract_mbtx_import_source, parse_mbtx_imports,
+        split_mbtx_import_path,
+    };
     use mooncake::registry::OnlineRegistry;
     use moonutil::package::Import;
     use moonutil::resolution::DEFAULT_VERSION;
@@ -307,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn split_mbtx_supports_block_syntax_and_alias() {
+    fn parse_mbtx_imports_supports_block_syntax_and_alias() {
         let input = r#"import {
   "moonbitlang/x@0.4.38/stack" @xstack,
   "moonbitlang/x@0.4.38/queue",
@@ -315,7 +259,6 @@ mod tests {
 
         fn main {}
 "#;
-        let (_import_source, mbt_code) = split_mbtx(input).expect("split should succeed");
         let imports = parse_imports_from_source(input).expect("import should decode");
         assert_eq!(imports.imports.len(), 2);
         assert_eq!(imports.imports[0].get_path(), "moonbitlang/x/stack");
@@ -328,49 +271,43 @@ mod tests {
                 ..
             } if alias == "xstack"
         ));
-        assert!(mbt_code.contains("fn main {}"));
     }
 
     #[test]
-    fn split_mbtx_keeps_non_import_file_unchanged() {
+    fn extract_mbtx_import_source_returns_none_without_import() {
         let input = "fn main { println(\"ok\") }\n";
-        let (import_source, output) = split_mbtx(input).expect("split should succeed");
-        assert!(import_source.is_empty());
-        assert_eq!(output, input);
+        assert_eq!(extract_mbtx_import_source(input), None);
     }
 
     #[test]
-    fn split_mbtx_preserves_crlf_newlines() {
+    fn extract_mbtx_import_source_supports_crlf() {
         let input = "import {\r\n  \"a/b@0.1.0/c\",\r\n}\r\n\r\nfn main {}\r\n";
-        let (import_source, output) = split_mbtx(input).expect("split should succeed");
-        let blanked_import = import_source
-            .chars()
-            .map(|ch| if matches!(ch, '\n' | '\r') { ch } else { ' ' })
-            .collect::<String>();
-        assert_eq!(output, format!("{blanked_import}\r\nfn main {{}}\r\n"));
+        assert_eq!(
+            extract_mbtx_import_source(input),
+            Some("import {\r\n  \"a/b@0.1.0/c\",\r\n}\r\n")
+        );
     }
 
     #[test]
-    fn split_mbtx_stops_before_doc_comment_sentinel() {
+    fn extract_mbtx_import_source_stops_before_doc_comment_sentinel() {
         let input = "import {\n  \"a/b@0.1.0/c\",\n}\n///|\nfn main {}\n";
-        let (import_source, output) = split_mbtx(input).expect("split should succeed");
-        assert!(!import_source.is_empty());
-        assert!(output.lines().take(3).all(|line| line.trim().is_empty()));
-        assert!(output.contains("///|"));
-        assert!(output.contains("fn main {}"));
+        assert_eq!(
+            extract_mbtx_import_source(input),
+            Some("import {\n  \"a/b@0.1.0/c\",\n}\n")
+        );
     }
 
     #[test]
-    fn split_mbtx_stops_before_pub_sentinel() {
+    fn extract_mbtx_import_source_stops_before_pub_sentinel() {
         let input = "import {\n  \"a/b@0.1.0/c\",\n}\npub fn main {}\n";
-        let (import_source, output) = split_mbtx(input).expect("split should succeed");
-        assert!(!import_source.is_empty());
-        assert!(output.lines().take(3).all(|line| line.trim().is_empty()));
-        assert!(output.contains("pub fn main {}"));
+        assert_eq!(
+            extract_mbtx_import_source(input),
+            Some("import {\n  \"a/b@0.1.0/c\",\n}\n")
+        );
     }
 
     #[test]
-    fn split_mbtx_keeps_following_import_statement() {
+    fn extract_mbtx_import_source_only_returns_first_import_statement() {
         let input = r#"import {
   "a/b@0.1.0/c",
 }
@@ -378,29 +315,19 @@ import {
   "x/y@1.2.3",
 }
 "#;
-        let (import_source, mbt_code) = split_mbtx(input).expect("split should succeed");
-        assert_eq!(import_source, "import {\n  \"a/b@0.1.0/c\",\n}\n");
-        assert!(mbt_code.contains("import {\n  \"x/y@1.2.3\",\n}\n"));
+        assert_eq!(
+            extract_mbtx_import_source(input),
+            Some("import {\n  \"a/b@0.1.0/c\",\n}\n")
+        );
     }
 
     #[test]
-    fn split_mbtx_finds_import_after_leading_comment() {
+    fn extract_mbtx_import_source_finds_import_after_leading_comment() {
         let input = "// leading comment\nimport {\n  \"a/b@0.1.0/c\",\n}\nfn main {}\n";
-        let (import_source, mbt_code) = split_mbtx(input).expect("split should succeed");
-        assert_eq!(import_source, "import {\n  \"a/b@0.1.0/c\",\n}\n");
-        assert!(mbt_code.starts_with("// leading comment\n"));
-    }
-
-    #[test]
-    fn split_mbtx_splits_import_and_mbt_code() {
-        let input = "import {\n  \"a/b@0.1.0/c\",\n}\n\nfn main {}\n";
-        let (import_source, mbt_code) = split_mbtx(input).expect("split should succeed");
-        assert_eq!(import_source, "import {\n  \"a/b@0.1.0/c\",\n}\n");
-        let blanked_import = import_source
-            .chars()
-            .map(|ch| if ch == '\n' { '\n' } else { ' ' })
-            .collect::<String>();
-        assert_eq!(mbt_code, format!("{blanked_import}\nfn main {{}}\n"));
+        assert_eq!(
+            extract_mbtx_import_source(input),
+            Some("import {\n  \"a/b@0.1.0/c\",\n}\n")
+        );
     }
 
     #[test]

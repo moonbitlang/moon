@@ -648,6 +648,10 @@ impl<'a> LoweringContext<'a> {
             TargetKind::InlineTest | TargetKind::WhiteboxTest | TargetKind::BlackboxTest => true,
         };
         let backend = self.opt.target_backend.into();
+        let ignore_import_declaration = package.is_single_file
+            && files
+                .iter()
+                .any(|file| file.extension().is_some_and(|ext| ext == "mbtx"));
         let mut cmd = compiler::MooncBuildPackage {
             required: BuildCommonInput::new(
                 &files,
@@ -665,6 +669,7 @@ impl<'a> LoweringContext<'a> {
             core_out: core_output.clone().into(),
             mi_out: mi_output.into(),
             flags: self.set_flags(),
+            ignore_import_declaration,
             extra_build_opts: module.compile_flags.as_deref().unwrap_or_default(),
         };
         // Propagate debug/coverage flags and common settings

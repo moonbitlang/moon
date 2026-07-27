@@ -42,6 +42,10 @@ pub(crate) fn classify_files<'a, P: AsRef<Path> + 'a>(
             .expect("Input source file should have a filename");
         let str_filename = filename.to_string_lossy();
 
+        if str_filename.ends_with(".mbtx") {
+            return Some((file, FileTestKind::NoTest));
+        }
+
         let should_include = if let Some(expect_cond) = pkg
             .targets
             .as_ref()
