@@ -198,6 +198,13 @@ planning invocation. Execution still runs the dependency graph first using
 mode database. There is no file-existence scan between the phases: n2 decides
 whether dependency actions are current.
 
+For `.mbt` and `.mbtx` files built from persistent paths, the dependency n2
+database remains available to later invocations. `moon run -e` and
+`moon run -` also use the split graphs, but their synthesized temporary projects
+are removed after each invocation, so they do not currently reuse the
+dependency database across invocations. Stable or global cache storage for
+those entry points remains future work.
+
 Ordinary project and workspace commands continue to produce and execute one
 plan and one n2 graph.
 

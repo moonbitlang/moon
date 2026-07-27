@@ -104,14 +104,20 @@ fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
         .expect("dependency artifact should have metadata")
         .modified()
         .expect("dependency artifact should have a modification time");
-    thread::sleep(Duration::from_millis(20));
+    thread::sleep(Duration::from_millis(100));
     let script = dir.join("import_ok.mbtx");
-    let mut source = fs::read_to_string(&script).expect("script fixture should be readable");
-    source.push('\n');
+    let source = fs::read_to_string(&script).expect("script fixture should be readable");
+    let original_output = r#"println("hello")"#;
+    assert_eq!(
+        source.matches(original_output).count(),
+        1,
+        "script fixture should contain exactly one output to replace",
+    );
+    let source = source.replacen(original_output, r#"println("updated script")"#, 1);
     fs::write(&script, source).expect("script fixture should be writable");
 
     let stdout = get_stdout(&dir, args);
-    assert!(stdout.contains("hello"));
+    assert!(stdout.contains("updated script"));
     assert_eq!(
         fs::metadata(dependency_core)
             .expect("dependency artifact should still have metadata")

@@ -20,6 +20,13 @@ Moon will not decide freshness by scanning for missing files: the dependency
 executor owns freshness checking and guarantees that requested dependency
 products are materialized before script execution.
 
+Standalone `.mbt` and `.mbtx` files built from persistent paths retain the
+dependency n2 database across invocations. `moon run -e` and `moon run -` use
+the same split planning path, but their synthesized temporary projects are
+deleted after each invocation, so they do not currently reuse dependency work
+across invocations. Stable or global cache storage for those entry points is
+deferred.
+
 ## Consequences
 
 - The initial change is limited to standalone `.mbt` and `.mbtx` builds.
