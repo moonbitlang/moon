@@ -1304,10 +1304,13 @@ impl AsyncHost {
     }
 
     fn restore_unrun_worker_job(&self, worker_job: HostWorkerJob) {
-        let _ = self
+        let discarded = self
             .jobs
             .borrow_mut()
             .restore_unrun_job(worker_job.job_key, worker_job.job);
+        if let Some(mut job) = discarded {
+            self.restore_c_buffer_lease(&mut job);
+        }
     }
 
     fn restore_completed_worker_jobs(&self) {
@@ -4869,6 +4872,31 @@ mod tests {
         let job = host.insert_job(job).unwrap();
 
         host.free_job(job).unwrap();
+
+        host.with_c_buffer(handle, |buffer| {
+            assert_eq!(buffer, b"abcd");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn discarded_queued_readdir_job_restores_c_buffer() {
+        let host = AsyncHost::default();
+        let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
+        let lease = host.lease_c_buffer(handle).unwrap();
+        let job = thread_pool::make_readdir_job(Arc::new(Resource::invalid()), lease, 4, false);
+        let job = host.insert_job(job).unwrap();
+        let worker_job = host
+            .take_worker_job(WorkerCompletionId::from_abi(1), job_key(&host, job))
+            .unwrap();
+
+        host.free_job(job).unwrap();
+        assert_eq!(
+            host.with_c_buffer(handle, |_| Ok(())).unwrap_err(),
+            AsyncHostError::Badf
+        );
+        host.restore_unrun_worker_job(worker_job);
 
         host.with_c_buffer(handle, |buffer| {
             assert_eq!(buffer, b"abcd");
