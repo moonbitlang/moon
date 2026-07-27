@@ -4,6 +4,11 @@
 
 Moonrun is the WebAssembly runtime for MoonBit, utilizing V8 at its core to offer an efficient and flexible environment for executing WASM.
 
+## Platform Support
+
+Moonrun currently supports 64-bit host targets only. 32-bit host targets are
+not supported.
+
 # Building and Running
 
 ## Building

@@ -69,7 +69,7 @@ ported_fns! {
     #[cfg(windows)]
     pub(crate) fn set_console_control_handler(
         add: bool,
-        completion_target: Option<(CompletionPort, usize)>,
+        completion_target: Option<CompletionPort>,
     ) -> AsyncHostResult<i32> {
         use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
 
@@ -179,7 +179,7 @@ static INTERESTED_CONSOLE_CTRL_EVENT: std::sync::atomic::AtomicI32 =
     std::sync::atomic::AtomicI32::new(0);
 
 #[cfg(windows)]
-static CONSOLE_COMPLETION_TARGET: std::sync::Mutex<Option<(CompletionPort, usize)>> =
+static CONSOLE_COMPLETION_TARGET: std::sync::Mutex<Option<CompletionPort>> =
     std::sync::Mutex::new(None);
 
 #[cfg(windows)]
@@ -187,12 +187,9 @@ unsafe extern "system" fn console_control_handler(ctrl_type: u32) -> i32 {
     let interested = INTERESTED_CONSOLE_CTRL_EVENT.load(std::sync::atomic::Ordering::Relaxed);
     if ctrl_type < i32::BITS && (interested & (1_i32 << ctrl_type)) != 0 {
         let target = CONSOLE_COMPLETION_TARGET.lock().unwrap().clone();
-        if let Some((completion_port, generation)) = target {
-            let _ = poll::post_thread_pool_completion(
-                &completion_port,
-                (ctrl_type | (1 << 31)) as i32,
-                generation,
-            );
+        if let Some(completion_port) = target {
+            let _ =
+                poll::post_thread_pool_completion(&completion_port, (ctrl_type | (1 << 31)) as i32);
             return 1;
         }
     }

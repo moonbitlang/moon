@@ -432,13 +432,6 @@ impl HandleTable {
         Ok(Arc::clone(resource))
     }
 
-    fn contains_resource(&self, handle: HostHandle) -> bool {
-        self.key(handle, HandleKind::Resource)
-            .ok()
-            .and_then(|key| self.resources.get(key))
-            .is_some_and(|resource| !resource.is_invalid())
-    }
-
     fn remove_resource(&mut self, handle: HostHandle) -> AsyncHostResult<ResourceRef> {
         let key = self.key(handle, HandleKind::Resource)?;
         if key == self.invalid_resource || self.stdio_resources.contains(&key) {
@@ -704,19 +697,6 @@ struct ThreadPoolCompletions {
     old_signal_mask: Option<libc::sigset_t>,
     #[cfg(windows)]
     target: Option<ThreadPoolCompletionTarget>,
-    #[cfg(windows)]
-    generation_counter: usize,
-}
-
-impl ThreadPoolCompletions {
-    #[cfg(windows)]
-    fn advance_generation(&mut self) -> usize {
-        self.generation_counter = self.generation_counter.wrapping_add(1);
-        if self.generation_counter == 0 {
-            self.generation_counter = 1;
-        }
-        self.generation_counter
-    }
 }
 
 #[cfg(unix)]
@@ -774,7 +754,6 @@ impl IoResultTable {
 struct ThreadPoolCompletionTarget {
     poll: HandleKey,
     port: poll::CompletionPort,
-    generation: usize,
 }
 
 #[cfg(windows)]
@@ -791,10 +770,10 @@ impl OverlappedAddr {
 #[derive(Debug)]
 struct HostPoll {
     instance: PollInstance,
-    registered_fds: HashMap<isize, HostHandle>,
+    #[cfg(unix)]
+    registered_fds: HashSet<RawFd>,
     #[cfg(unix)]
     completion_notifier: Option<Arc<ThreadPoolCompletionNotifier>>,
-    event_fd_handles: Vec<Option<HostHandle>>,
 }
 
 #[cfg(windows)]
@@ -1488,10 +1467,10 @@ impl AsyncHost {
             key,
             HostPoll {
                 instance,
-                registered_fds: HashMap::new(),
+                #[cfg(unix)]
+                registered_fds: HashSet::new(),
                 #[cfg(unix)]
                 completion_notifier: None,
-                event_fd_handles: Vec::new(),
             },
         );
         Ok(handle_from_key(key))
@@ -1562,25 +1541,31 @@ impl AsyncHost {
     ) -> AsyncHostResult<()> {
         let handles = self.handles.borrow();
         let resource = handles.resource(fd_handle)?;
-        let resource_identity = resource.raw_identity();
         #[cfg(unix)]
         let raw_fd = resource.as_file()?.as_raw_fd();
         let poll_key = handles.poll(poll_handle)?;
         let mut polls = self.polls.borrow_mut();
         let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
         #[cfg(unix)]
-        poll::poll_register(&poll.instance, raw_fd, read_only)?;
+        poll::poll_register(&poll.instance, raw_fd, read_only, fd_handle)?;
         #[cfg(windows)]
         if resource.resource_class().is_socket() {
-            poll::poll_register_socket(&poll.instance, resource.as_socket()?, read_only)?;
+            poll::poll_register_socket(
+                &poll.instance,
+                resource.as_socket()?,
+                read_only,
+                fd_handle,
+            )?;
         } else {
             poll::poll_register_file(
                 &poll.instance,
                 resource.as_file()?.as_raw_handle(),
                 read_only,
+                fd_handle,
             )?;
         }
-        poll.registered_fds.insert(resource_identity, fd_handle);
+        #[cfg(unix)]
+        poll.registered_fds.insert(raw_fd);
         Ok(())
     }
 
@@ -1596,63 +1581,10 @@ impl AsyncHost {
 
     pub(crate) fn poll_wait(&self, poll_handle: u64, timeout_ms: i32) -> AsyncHostResult<i32> {
         let poll_key = self.handles.borrow().poll(poll_handle)?;
-        #[cfg(windows)]
-        let (thread_pool_generation, invalid_fd) = {
-            let thread_pool_generation = self
-                .thread_pool_completions
-                .borrow()
-                .target
-                .as_ref()
-                .filter(|target| target.poll == poll_key)
-                .map(|target| target.generation);
-            (thread_pool_generation, self.invalid_fd())
-        };
         let mut polls = self.polls.borrow_mut();
         let result = {
             let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
-            #[cfg(not(windows))]
-            let result = poll::poll_wait(&mut poll.instance, timeout_ms)?;
-            #[cfg(windows)]
-            let result = {
-                let deadline = (timeout_ms >= 0).then(|| {
-                    std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms as u64)
-                });
-                let mut next_timeout = timeout_ms;
-                loop {
-                    poll::poll_wait(&mut poll.instance, next_timeout)?;
-                    let result = poll::retain_current_thread_pool_completions(
-                        &mut poll.instance,
-                        thread_pool_generation,
-                    )?;
-                    if result != 0 || timeout_ms == 0 {
-                        break result;
-                    }
-                    let Some(deadline) = deadline else {
-                        continue;
-                    };
-                    let now = std::time::Instant::now();
-                    if now >= deadline {
-                        break 0;
-                    }
-                    next_timeout = i32::try_from(deadline.duration_since(now).as_millis())
-                        .unwrap_or(i32::MAX)
-                        .max(1);
-                }
-            };
-            poll.event_fd_handles.clear();
-            for index in 0..result {
-                let event = poll::event_list_get(&poll.instance, index)?;
-                let raw_fd = poll::event_get_fd(event);
-                let fd_handle = poll
-                    .registered_fds
-                    .get(&raw_fd_key(raw_fd))
-                    .copied()
-                    .or_else(|| completion_event_fd(raw_fd));
-                #[cfg(windows)]
-                let fd_handle = fd_handle.or(Some(invalid_fd));
-                poll.event_fd_handles.push(fd_handle);
-            }
-            result
+            poll::poll_wait(&mut poll.instance, timeout_ms)?
         };
         polls.current_event_poll = Some(poll_key);
         drop(polls);
@@ -1674,58 +1606,33 @@ impl AsyncHost {
     fn with_event<T>(
         &self,
         event_handle: u64,
-        f: impl FnOnce(&HostPoll, &poll::PollEvent) -> AsyncHostResult<T>,
+        f: impl FnOnce(&poll::PollEvent) -> AsyncHostResult<T>,
     ) -> AsyncHostResult<T> {
         let index = event_index(event_handle)?;
         let polls = self.polls.borrow();
         let poll_key = polls.current_event_poll.ok_or(AsyncHostError::Badf)?;
         let poll = polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?;
         let poll_event = poll::event_list_get(&poll.instance, index)?;
-        f(poll, poll_event)
+        f(poll_event)
     }
 
     pub(crate) fn poll_event_fd(&self, event_handle: u64) -> AsyncHostResult<HostHandle> {
-        let index = event_index(event_handle)?;
-        let fd = {
-            let polls = self.polls.borrow();
-            let poll_key = polls.current_event_poll.ok_or(AsyncHostError::Badf)?;
-            let poll = polls.polls.get(poll_key).ok_or(AsyncHostError::Badf)?;
-            let index = usize::try_from(index).map_err(|_| AsyncHostError::Fault)?;
-            poll.event_fd_handles
-                .get(index)
-                .copied()
-                .flatten()
-                .ok_or(AsyncHostError::Badf)?
-        };
-        #[cfg(windows)]
-        let is_thread_pool_completion =
-            fd == raw_fd_to_guest(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE)?;
-        #[cfg(not(windows))]
-        let is_thread_pool_completion = false;
-        let handles = self.handles.borrow();
-        if fd == handles.invalid_fd() || is_thread_pool_completion {
-            Ok(fd)
-        } else {
-            handles
-                .contains_resource(fd)
-                .then_some(fd)
-                .ok_or(AsyncHostError::Badf)
-        }
+        self.with_event(event_handle, |event| Ok(poll::event_get_fd(event)))
     }
 
     #[cfg(target_os = "macos")]
     pub(crate) fn poll_event_pid(&self, event_handle: u64) -> AsyncHostResult<i32> {
-        self.with_event(event_handle, |_, event| Ok(poll::event_get_fd(event)))
+        self.with_event(event_handle, |event| Ok(poll::event_get_pid(event)))
     }
 
     #[cfg(unix)]
     pub(crate) fn poll_event_events(&self, event_handle: u64) -> AsyncHostResult<i32> {
-        self.with_event(event_handle, |_, event| Ok(poll::event_get_events(event)))
+        self.with_event(event_handle, |event| Ok(poll::event_get_events(event)))
     }
 
     #[cfg(windows)]
     pub(crate) fn poll_event_io_result(&self, event_handle: u64) -> AsyncHostResult<u64> {
-        let overlapped = self.with_event(event_handle, |_, event| {
+        let overlapped = self.with_event(event_handle, |event| {
             Ok(OverlappedAddr::from_ptr(poll::event_get_io_result(event)))
         })?;
         let handle = {
@@ -1748,7 +1655,7 @@ impl AsyncHost {
 
     #[cfg(windows)]
     pub(crate) fn poll_event_bytes_transferred(&self, event_handle: u64) -> AsyncHostResult<i32> {
-        self.with_event(event_handle, |_, event| {
+        self.with_event(event_handle, |event| {
             Ok(poll::event_get_bytes_transferred(event))
         })
     }
@@ -1769,23 +1676,27 @@ impl AsyncHost {
             let signal_mask_guard = ThreadPoolSignalMaskGuard::new(old_signal_mask);
             let mut polls = self.polls.borrow_mut();
             let poll = polls.polls.get_mut(poll_key).ok_or(AsyncHostError::Badf)?;
-            let (completion_notifier, event_fd) =
-                ThreadPoolCompletionNotifier::new(&poll.instance)?;
+            let (completion_notifier, event_fd) = ThreadPoolCompletionNotifier::new()?;
             let completion_notifier = Arc::new(completion_notifier);
+            let source = self
+                .handles
+                .borrow_mut()
+                .insert_resource(Resource::new(event_fd));
+            if let Err(error) = poll::poll_register(&poll.instance, event_fd, true, source) {
+                let _ = self.handles.borrow_mut().remove_resource(source);
+                return Err(error);
+            }
             let source = {
                 let mut completions = self.thread_pool_completions.borrow_mut();
                 if completions.source.is_some() {
                     drop(completions);
                     let _ = poll::poll_unregister(&poll.instance, event_fd);
-                    drop(Resource::new(event_fd));
+                    let _ = self.handles.borrow_mut().remove_resource(source);
                     return Err(AsyncHostError::Inval);
                 }
-                let mut handles = self.handles.borrow_mut();
-                let source = handles.insert_resource(Resource::new(event_fd));
-                drop(handles);
                 // Publish the poll-side mapping before exposing the notifier:
                 // workers can notify as soon as completions.notifier is visible.
-                poll.registered_fds.insert(raw_fd_key(event_fd), source);
+                poll.registered_fds.insert(event_fd);
                 poll.completion_notifier = Some(Arc::clone(&completion_notifier));
                 completions.notifier = Some(completion_notifier);
                 completions.source = Some(source);
@@ -1803,11 +1714,9 @@ impl AsyncHost {
             if completions.target.is_some() {
                 return Err(AsyncHostError::Inval);
             }
-            let generation = completions.advance_generation();
             completions.target = Some(ThreadPoolCompletionTarget {
                 poll: poll_key,
                 port: completion_port,
-                generation,
             });
             raw_fd_to_guest(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE)
         }
@@ -1851,10 +1760,10 @@ impl AsyncHost {
             {
                 let raw_fd = file.as_raw_fd();
                 for poll in polls.polls.values_mut() {
-                    if poll.registered_fds.contains_key(&raw_fd_key(raw_fd)) {
+                    if poll.registered_fds.contains(&raw_fd) {
                         let _ = poll::poll_unregister(&poll.instance, raw_fd);
                     }
-                    poll.registered_fds.remove(&raw_fd_key(raw_fd));
+                    poll.registered_fds.remove(&raw_fd);
                 }
             }
             for poll in polls.polls.values_mut() {
@@ -2349,19 +2258,17 @@ impl AsyncHost {
             handles.remove_resource(handle)?
         };
         self.untrack_process_handle(handle);
-        let resource_identity = file.raw_identity();
-        #[cfg(unix)]
-        let raw_fd = file.as_fd()?.as_raw_fd();
-        let mut polls = self.polls.borrow_mut();
-        for poll in polls.polls.values_mut() {
-            if poll.registered_fds.contains_key(&resource_identity) {
-                #[cfg(unix)]
-                let _ = poll::poll_unregister(&poll.instance, raw_fd);
-            }
-            poll.registered_fds.remove(&resource_identity);
-        }
+        #[cfg(windows)]
+        drop(file);
         #[cfg(unix)]
         {
+            let raw_fd = file.as_fd()?.as_raw_fd();
+            let mut polls = self.polls.borrow_mut();
+            for poll in polls.polls.values_mut() {
+                if poll.registered_fds.remove(&raw_fd) {
+                    let _ = poll::poll_unregister(&poll.instance, raw_fd);
+                }
+            }
             let (completion_source_closed, old_signal_mask) = {
                 let mut completions = self.thread_pool_completions.borrow_mut();
                 if completions.source == Some(handle) {
@@ -3564,7 +3471,6 @@ impl AsyncHost {
                 let _ = poll::post_thread_pool_completion(
                     &completion_target.port,
                     completion_id.as_i32(),
-                    completion_target.generation,
                 );
             })
         };
@@ -3657,14 +3563,12 @@ impl AsyncHost {
     }
 
     #[cfg(windows)]
-    pub(crate) fn thread_pool_completion_target(
-        &self,
-    ) -> AsyncHostResult<(poll::CompletionPort, usize)> {
+    pub(crate) fn thread_pool_completion_target(&self) -> AsyncHostResult<poll::CompletionPort> {
         self.thread_pool_completions
             .borrow()
             .target
             .as_ref()
-            .map(|target| (target.port.clone(), target.generation))
+            .map(|target| target.port.clone())
             .ok_or(AsyncHostError::Badf)
     }
 
@@ -4218,32 +4122,8 @@ fn raw_fd_to_guest(fd: RawFd) -> AsyncHostResult<HostHandle> {
     Ok(fd as usize as u64)
 }
 
-#[cfg(unix)]
-fn completion_event_fd(_fd: RawFd) -> Option<HostHandle> {
-    None
-}
-
-#[cfg(windows)]
-fn completion_event_fd(fd: RawFd) -> Option<HostHandle> {
-    if fd == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
-        raw_fd_to_guest(fd).ok()
-    } else {
-        None
-    }
-}
-
 fn event_index(event: u64) -> AsyncHostResult<i32> {
     i32::try_from(event).map_err(|_| AsyncHostError::Fault)
-}
-
-#[cfg(unix)]
-fn raw_fd_key(fd: RawFd) -> isize {
-    fd as isize
-}
-
-#[cfg(windows)]
-fn raw_fd_key(fd: RawFd) -> isize {
-    fd as isize
 }
 
 #[cfg(test)]
@@ -4840,12 +4720,7 @@ mod tests {
         {
             let polls = host.polls.borrow();
             let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
-            assert_eq!(
-                poll.registered_fds
-                    .get(&raw_fd_key(raw_completion_fd))
-                    .copied(),
-                Some(completion_source)
-            );
+            assert!(poll.registered_fds.contains(&raw_completion_fd));
         }
 
         {
@@ -5846,7 +5721,7 @@ mod tests {
         let completion_notifier = host.init_thread_pool(poll).unwrap();
         let completion = host.thread_pool_completion_target().unwrap();
 
-        poll::post_thread_pool_completion(&completion.0, 42, completion.1).unwrap();
+        poll::post_thread_pool_completion(&completion, 42).unwrap();
 
         assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
@@ -5872,53 +5747,7 @@ mod tests {
 
         host.poll_destroy(poll).unwrap();
 
-        poll::post_thread_pool_completion(&completion.0, 42, completion.1).unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn stale_thread_pool_completions_are_ignored_after_reinit() {
-        let host = AsyncHost::default();
-        let poll = host.poll_create().unwrap();
-
-        host.init_thread_pool(poll).unwrap();
-        let stale_completion = host
-            .thread_pool_completions
-            .borrow()
-            .target
-            .clone()
-            .unwrap();
-        // Fill the current IOCP batch so a valid completion can sit behind
-        // stale completions from the destroyed pool generation.
-        for completion_id in 0..1024 {
-            poll::post_thread_pool_completion(
-                &stale_completion.port,
-                completion_id,
-                stale_completion.generation,
-            )
-            .unwrap();
-        }
-        host.destroy_thread_pool();
-
-        let completion_notifier = host.init_thread_pool(poll).unwrap();
-        let current_completion = host
-            .thread_pool_completions
-            .borrow()
-            .target
-            .clone()
-            .unwrap();
-        assert_ne!(stale_completion.generation, current_completion.generation);
-
-        poll::post_thread_pool_completion(
-            &current_completion.port,
-            43,
-            current_completion.generation,
-        )
-        .unwrap();
-        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
-        let event = host.poll_get_event(poll, 0).unwrap();
-        assert_eq!(host.poll_event_fd(event).unwrap(), completion_notifier);
-        assert_eq!(host.poll_event_bytes_transferred(event).unwrap(), 43);
+        poll::post_thread_pool_completion(&completion, 42).unwrap();
     }
 
     #[test]
@@ -6380,7 +6209,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn unregistered_iocp_completion_reports_invalid_fd() {
+    fn unregistered_iocp_completion_key_is_returned() {
         use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
 
         let host = AsyncHost::default();
@@ -6390,16 +6219,71 @@ mod tests {
             let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
             poll.instance.raw_fd()
         };
-        let raw_fd = 0x1234usize as RawFd;
+        let completion_key = 0x1234usize;
         let posted = unsafe {
-            PostQueuedCompletionStatus(completion_port, 0, raw_fd as usize, std::ptr::null_mut())
+            PostQueuedCompletionStatus(completion_port, 0, completion_key, std::ptr::null_mut())
         };
         assert_ne!(posted, 0);
 
         assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
         let event = host.poll_get_event(poll, 0).unwrap();
 
-        assert_eq!(host.poll_event_fd(event).unwrap(), host.invalid_fd());
+        assert_eq!(host.poll_event_fd(event).unwrap(), completion_key as u64);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn zero_iocp_completion_key_is_returned() {
+        use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
+
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let completion_port = {
+            let polls = host.polls.borrow();
+            let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
+            poll.instance.raw_fd()
+        };
+        let posted =
+            unsafe { PostQueuedCompletionStatus(completion_port, 0, 0, std::ptr::null_mut()) };
+        assert_ne!(posted, 0);
+
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+
+        assert_eq!(host.poll_event_fd(event).unwrap(), 0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn close_fd_preserves_polled_iocp_resource_handle() {
+        use windows_sys::Win32::System::IO::PostQueuedCompletionStatus;
+
+        let host = AsyncHost::default();
+        let poll = host.poll_create().unwrap();
+        let [read, write] = host.pipe(true, true).unwrap();
+        host.poll_register(poll, read, true).unwrap();
+        let completion_port = {
+            let polls = host.polls.borrow();
+            let poll = polls.polls.get(poll_key(&host, poll)).unwrap();
+            poll.instance.raw_fd()
+        };
+        let posted = unsafe {
+            PostQueuedCompletionStatus(
+                completion_port,
+                0,
+                usize::try_from(read).unwrap(),
+                std::ptr::null_mut(),
+            )
+        };
+        assert_ne!(posted, 0);
+        assert_eq!(host.poll_wait(poll, 1000).unwrap(), 1);
+        let event = host.poll_get_event(poll, 0).unwrap();
+
+        host.close_fd(read).unwrap();
+
+        assert_eq!(host.poll_event_fd(event).unwrap(), read);
+        assert_eq!(host.close_fd(read), Err(AsyncHostError::Badf));
+        host.close_fd(write).unwrap();
     }
 
     #[cfg(unix)]
@@ -6435,7 +6319,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn close_fd_invalidates_cached_poll_event_fd() {
+    fn close_fd_preserves_polled_resource_handle() {
         let host = AsyncHost::default();
         let poll = host.poll_create().unwrap();
         let [read, write] = host.pipe(true, true).unwrap();
@@ -6455,7 +6339,8 @@ mod tests {
 
         host.close_fd(read).unwrap();
 
-        assert_eq!(host.poll_event_fd(event), Err(AsyncHostError::Badf));
+        assert_eq!(host.poll_event_fd(event).unwrap(), read);
+        assert_eq!(host.close_fd(read), Err(AsyncHostError::Badf));
         host.close_fd(write).unwrap();
     }
 

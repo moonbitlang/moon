@@ -19,8 +19,6 @@
 #[cfg(unix)]
 use crate::async_host::{AsyncHostError, AsyncHostResult};
 #[cfg(unix)]
-use crate::async_sys::internal::event_loop::poll;
-#[cfg(unix)]
 use crate::async_sys::internal::fd_util::stub as fd_util;
 #[cfg(unix)]
 use crate::async_sys::internal::fd_util::stub::RawFd;
@@ -34,13 +32,8 @@ pub(crate) struct ThreadPoolCompletionNotifier {
 
 #[cfg(unix)]
 impl ThreadPoolCompletionNotifier {
-    pub(crate) fn new(poll: &poll::PollInstance) -> AsyncHostResult<(Self, RawFd)> {
+    pub(crate) fn new() -> AsyncHostResult<(Self, RawFd)> {
         let fds = fd_util::pipe(true, false)?;
-
-        if let Err(error) = poll::poll_register(poll, fds[0], true) {
-            close_fds(fds);
-            return Err(error);
-        }
 
         // The read end is transferred to AsyncHost's file table so poll
         // events report the same handle space as ordinary pipe/file fds.
@@ -116,14 +109,6 @@ impl Drop for ThreadPoolCompletionNotifier {
 }
 
 #[cfg(unix)]
-fn close_fds(fds: [RawFd; 2]) {
-    unsafe {
-        libc::close(fds[0]);
-        libc::close(fds[1]);
-    }
-}
-
-#[cfg(unix)]
 fn last_errno() -> i32 {
     std::io::Error::last_os_error()
         .raw_os_error()
@@ -141,8 +126,7 @@ mod tests {
 
     #[test]
     fn completion_pipe_is_close_on_exec() {
-        let poll = poll::poll_create().unwrap();
-        let (notifier, notify_recv) = ThreadPoolCompletionNotifier::new(&poll).unwrap();
+        let (notifier, notify_recv) = ThreadPoolCompletionNotifier::new().unwrap();
 
         for fd in [notify_recv, notifier.notify_send] {
             let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
