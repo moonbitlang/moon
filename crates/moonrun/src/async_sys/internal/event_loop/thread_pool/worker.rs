@@ -73,6 +73,10 @@ pub(crate) struct HostWorkerJobResult {
 
 #[cfg(windows)]
 #[derive(Debug)]
+// The worker removes its Job from `state` while running it, but cancellation
+// still needs to distinguish an idle worker from an active operation. Most
+// jobs are cancelled through the worker thread; process waits instead retain
+// the job's dedicated cancellation event until that operation returns.
 enum RunningCancellation {
     Idle,
     Active(Option<super::ResourceRef>),

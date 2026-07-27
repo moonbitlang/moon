@@ -25,7 +25,7 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use crate::async_host::{AsyncHostError, AsyncHostResult, SharedCBuffer};
+use crate::async_host::{AsyncHostError, AsyncHostResult};
 use crate::async_sys::internal::fd_util;
 use crate::async_sys::ported_fns;
 
@@ -261,13 +261,12 @@ ported_fns! {
     )]
     pub(super) fn run_readdir_job(
         dir: &Resource,
-        buffer: &SharedCBuffer,
+        buffer: &mut [u8],
         len: i32,
         restart: bool,
     ) -> AsyncHostResult<i64> {
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
         let _directory_cursor = dir.lock_directory_cursor();
-        let mut buffer = buffer.lock().unwrap();
         let buffer = buffer.get_mut(..len).ok_or(AsyncHostError::Fault)?;
         read_native_dir(dir, buffer, restart)
     }

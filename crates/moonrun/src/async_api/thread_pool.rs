@@ -396,7 +396,7 @@ pub(super) fn make_readdir_job(
     let dir = context
         .host
         .acquire_resource_of_class(dir, ResourceClass::File)?;
-    let buffer = context.host.share_c_buffer(buf)?;
+    let buffer = context.host.lease_c_buffer(buf)?;
     context.host
         .insert_job(thread_pool::make_readdir_job(
             dir,
