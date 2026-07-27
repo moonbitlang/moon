@@ -129,9 +129,11 @@ pub(crate) fn run_host_job(job: &mut Job) {
             buffer,
             len,
             restart,
-        } => match dir.take() {
-            Some(dir) => run_readdir_job(&dir, buffer, *len, *restart),
-            None => Err(AsyncHostError::Badf),
+        } => match (dir.take(), buffer.as_mut()) {
+            (Some(dir), Some(buffer)) => {
+                run_readdir_job(&dir, buffer.as_mut_slice(), *len, *restart)
+            }
+            _ => Err(AsyncHostError::Badf),
         },
         JobPayload::Bind { socket, addr } => match socket.take() {
             Some(socket) => run_bind_job(&socket, addr),

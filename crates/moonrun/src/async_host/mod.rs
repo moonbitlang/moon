@@ -72,13 +72,32 @@ pub(crate) enum AsyncHostError {
 pub(crate) type AsyncHostResult<T> = Result<T, AsyncHostError>;
 pub(crate) const INVALID_HOST_HANDLE: u64 = 0;
 pub(crate) const CHECK_FD_LEAK_ENV: &str = "MOONBIT_ASYNC_CHECK_FD_LEAK";
-pub(crate) type SharedCBuffer = Arc<Mutex<Box<[u8]>>>;
 
 enum HostCBuffer {
-    // Most buffers never cross the V8/worker boundary and need no synchronization.
-    Local(Box<[u8]>),
-    // readdir writes into a guest-visible buffer from a worker thread.
-    Shared(SharedCBuffer),
+    Available(Box<[u8]>),
+    // A readdir Job temporarily owns the buffer. Keeping the slot reserved
+    // prevents guest calls from racing the worker without sharing the bytes.
+    Leased,
+}
+
+#[derive(Debug)]
+pub(crate) struct CBufferLease {
+    key: HandleKey,
+    buffer: Box<[u8]>,
+}
+
+impl CBufferLease {
+    fn new(key: HandleKey, buffer: Box<[u8]>) -> Self {
+        Self { key, buffer }
+    }
+
+    pub(crate) fn as_mut_slice(&mut self) -> &mut [u8] {
+        &mut self.buffer
+    }
+
+    fn into_parts(self) -> (HandleKey, Box<[u8]>) {
+        (self.key, self.buffer)
+    }
 }
 #[cfg(unix)]
 type HostProcessArgv = Vec<Option<OsString>>;
@@ -1264,7 +1283,8 @@ impl AsyncHost {
         errno
     }
 
-    fn restore_job(&self, key: HandleKey, job: Job) -> AsyncHostResult<()> {
+    fn restore_job(&self, key: HandleKey, mut job: Job) -> AsyncHostResult<()> {
+        self.restore_c_buffer_lease(&mut job);
         let result = self.jobs.borrow_mut().restore_job(key, job);
         if let Some(job) = result {
             Self::revoke_unclaimed_spawn(self.process_policy_state.as_deref(), &job);
@@ -1284,21 +1304,33 @@ impl AsyncHost {
     }
 
     fn restore_unrun_worker_job(&self, worker_job: HostWorkerJob) {
-        let _ = self
+        let discarded = self
             .jobs
             .borrow_mut()
             .restore_unrun_job(worker_job.job_key, worker_job.job);
+        if let Some(mut job) = discarded {
+            self.restore_c_buffer_lease(&mut job);
+        }
     }
 
     fn restore_completed_worker_jobs(&self) {
         while let Ok(worker_job) = self.completed_job_receiver.try_recv() {
-            let discarded = self
-                .jobs
-                .borrow_mut()
-                .restore_job(worker_job.job_key, worker_job.job);
-            if let Some(job) = discarded {
-                Self::revoke_unclaimed_spawn(self.process_policy_state.as_deref(), &job);
-            }
+            let _ = self.restore_job(worker_job.job_key, worker_job.job);
+        }
+    }
+
+    fn restore_c_buffer_lease(&self, job: &mut Job) {
+        let JobPayload::Readdir { buffer, .. } = job.payload_mut() else {
+            return;
+        };
+        let Some(buffer) = buffer.take() else {
+            return;
+        };
+        let (key, buffer) = buffer.into_parts();
+        if let Some(entry) = self.c_buffers.borrow_mut().get_mut(key)
+            && matches!(entry, HostCBuffer::Leased)
+        {
+            *entry = HostCBuffer::Available(buffer);
         }
     }
 
@@ -1784,7 +1816,7 @@ impl AsyncHost {
         let key = self.handles.borrow_mut().insert(HandleKind::CBuffer);
         self.c_buffers
             .borrow_mut()
-            .insert(key, HostCBuffer::Local(buffer));
+            .insert(key, HostCBuffer::Available(buffer));
         handle_from_key(key)
     }
 
@@ -1811,13 +1843,8 @@ impl AsyncHost {
         let key = self.handles.borrow().c_buffer(handle)?;
         let buffers = self.c_buffers.borrow();
         match buffers.get(key).ok_or(AsyncHostError::Badf)? {
-            HostCBuffer::Local(buffer) => f(buffer),
-            HostCBuffer::Shared(buffer) => {
-                let buffer = Arc::clone(buffer);
-                drop(buffers);
-                let buffer = buffer.lock().unwrap();
-                f(&buffer)
-            }
+            HostCBuffer::Available(buffer) => f(buffer),
+            HostCBuffer::Leased => Err(AsyncHostError::Badf),
         }
     }
 
@@ -1829,30 +1856,24 @@ impl AsyncHost {
         let key = self.handles.borrow().c_buffer(handle)?;
         let mut buffers = self.c_buffers.borrow_mut();
         match buffers.get_mut(key).ok_or(AsyncHostError::Badf)? {
-            HostCBuffer::Local(buffer) => f(buffer),
-            HostCBuffer::Shared(buffer) => {
-                let buffer = Arc::clone(buffer);
-                drop(buffers);
-                let mut buffer = buffer.lock().unwrap();
-                f(&mut buffer)
-            }
+            HostCBuffer::Available(buffer) => f(buffer),
+            HostCBuffer::Leased => Err(AsyncHostError::Badf),
         }
     }
 
-    pub(crate) fn share_c_buffer(&self, handle: u64) -> AsyncHostResult<SharedCBuffer> {
+    pub(crate) fn lease_c_buffer(&self, handle: u64) -> AsyncHostResult<CBufferLease> {
         if handle == INVALID_HOST_HANDLE {
             return Err(AsyncHostError::Badf);
         }
         let key = self.handles.borrow().c_buffer(handle)?;
         let mut buffers = self.c_buffers.borrow_mut();
         let entry = buffers.get_mut(key).ok_or(AsyncHostError::Badf)?;
-        match entry {
-            HostCBuffer::Local(buffer) => {
-                let buffer = Arc::new(Mutex::new(std::mem::take(buffer)));
-                *entry = HostCBuffer::Shared(Arc::clone(&buffer));
-                Ok(buffer)
+        match std::mem::replace(entry, HostCBuffer::Leased) {
+            HostCBuffer::Available(buffer) => Ok(CBufferLease::new(key, buffer)),
+            HostCBuffer::Leased => {
+                *entry = HostCBuffer::Leased;
+                Err(AsyncHostError::Badf)
             }
-            HostCBuffer::Shared(buffer) => Ok(Arc::clone(buffer)),
         }
     }
 
@@ -2093,9 +2114,10 @@ impl AsyncHost {
         let job = self.jobs.borrow_mut().take_for_free(key)?;
         handles.remove_job_key(key);
         drop(handles);
-        let Some(job) = job else {
+        let Some(mut job) = job else {
             return Ok(());
         };
+        self.restore_c_buffer_lease(&mut job);
         Self::revoke_unclaimed_spawn(self.process_policy_state.as_deref(), &job);
 
         // Native realpath frees its resolved path from the job finalizer.
@@ -3608,7 +3630,7 @@ impl AsyncHost {
             let buffer_key = self.handles.borrow_mut().insert(HandleKind::CBuffer);
             self.c_buffers
                 .borrow_mut()
-                .insert(buffer_key, HostCBuffer::Local(buffer));
+                .insert(buffer_key, HostCBuffer::Available(buffer));
             handle_from_key(buffer_key)
         })
     }
@@ -4803,29 +4825,107 @@ mod tests {
     }
 
     #[test]
-    fn c_buffer_becomes_shared_only_when_requested_by_a_worker_job() {
+    fn readdir_job_exclusively_leases_and_restores_c_buffer() {
         let host = AsyncHost::default();
         let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
         let key = host.handles.borrow().c_buffer(handle).unwrap();
         assert!(matches!(
             host.c_buffers.borrow().get(key),
-            Some(HostCBuffer::Local(_))
+            Some(HostCBuffer::Available(_))
         ));
 
-        let first = host.share_c_buffer(handle).unwrap();
-        let second = host.share_c_buffer(handle).unwrap();
-        assert!(Arc::ptr_eq(&first, &second));
+        let lease = host.lease_c_buffer(handle).unwrap();
         assert!(matches!(
             host.c_buffers.borrow().get(key),
-            Some(HostCBuffer::Shared(_))
+            Some(HostCBuffer::Leased)
         ));
+        assert_eq!(
+            host.with_c_buffer(handle, |_| Ok(())).unwrap_err(),
+            AsyncHostError::Badf
+        );
+        assert_eq!(
+            host.lease_c_buffer(handle).unwrap_err(),
+            AsyncHostError::Badf
+        );
 
-        host.with_c_buffer_mut(handle, |buffer| {
-            buffer[0] = b'z';
+        let job = thread_pool::make_readdir_job(Arc::new(Resource::invalid()), lease, 4, false);
+        let job = host.insert_job(job).unwrap();
+        host.run_job(job).unwrap();
+
+        assert!(matches!(
+            host.c_buffers.borrow().get(key),
+            Some(HostCBuffer::Available(_))
+        ));
+        host.with_c_buffer(handle, |buffer| {
+            assert_eq!(buffer, b"abcd");
             Ok(())
         })
         .unwrap();
-        assert_eq!(&**first.lock().unwrap(), b"zbcd");
+    }
+
+    #[test]
+    fn freeing_unrun_readdir_job_restores_c_buffer() {
+        let host = AsyncHost::default();
+        let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
+        let lease = host.lease_c_buffer(handle).unwrap();
+        let job = thread_pool::make_readdir_job(Arc::new(Resource::invalid()), lease, 4, false);
+        let job = host.insert_job(job).unwrap();
+
+        host.free_job(job).unwrap();
+
+        host.with_c_buffer(handle, |buffer| {
+            assert_eq!(buffer, b"abcd");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn discarded_queued_readdir_job_restores_c_buffer() {
+        let host = AsyncHost::default();
+        let handle = host.insert_c_buffer(b"abcd".to_vec().into_boxed_slice());
+        let lease = host.lease_c_buffer(handle).unwrap();
+        let job = thread_pool::make_readdir_job(Arc::new(Resource::invalid()), lease, 4, false);
+        let job = host.insert_job(job).unwrap();
+        let worker_job = host
+            .take_worker_job(WorkerCompletionId::from_abi(1), job_key(&host, job))
+            .unwrap();
+
+        host.free_job(job).unwrap();
+        assert_eq!(
+            host.with_c_buffer(handle, |_| Ok(())).unwrap_err(),
+            AsyncHostError::Badf
+        );
+        host.restore_unrun_worker_job(worker_job);
+
+        host.with_c_buffer(handle, |buffer| {
+            assert_eq!(buffer, b"abcd");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn freed_c_buffer_is_not_restored_by_its_readdir_job() {
+        let host = AsyncHost::default();
+        let handle = host.insert_c_buffer(b"old".to_vec().into_boxed_slice());
+        let lease = host.lease_c_buffer(handle).unwrap();
+        let job = thread_pool::make_readdir_job(Arc::new(Resource::invalid()), lease, 3, false);
+        let job = host.insert_job(job).unwrap();
+
+        host.free_c_buffer(handle).unwrap();
+        let replacement = host.insert_c_buffer(b"new".to_vec().into_boxed_slice());
+        host.free_job(job).unwrap();
+
+        assert_eq!(
+            host.with_c_buffer(handle, |_| Ok(())).unwrap_err(),
+            AsyncHostError::Badf
+        );
+        host.with_c_buffer(replacement, |buffer| {
+            assert_eq!(buffer, b"new");
+            Ok(())
+        })
+        .unwrap();
     }
 
     #[cfg(unix)]

@@ -326,13 +326,13 @@ ported_fns! {
     )]
     pub(crate) fn make_readdir_job(
         dir: ResourceRef,
-        buffer: crate::async_host::SharedCBuffer,
+        buffer: crate::async_host::CBufferLease,
         len: i32,
         restart: bool,
     ) -> Job {
         Job::new(JobPayload::Readdir {
             dir: Some(dir),
-            buffer,
+            buffer: Some(buffer),
             len,
             restart,
         })
