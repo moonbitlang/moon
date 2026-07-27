@@ -7,9 +7,10 @@ status: accepted
 Standalone script builds will plan dependency-package work separately from
 script-package work. Script planning will treat the dependency products it
 needs as external inputs, dependency planning will use the existing build rules
-to produce those products, and the script plan will be lowered and executed
-only after dependency preparation succeeds. The resulting script n2 graph must
-not contain dependency producer nodes.
+to produce those products, and the resulting script n2 graph must not contain
+dependency producer nodes. Because dependency output paths are deterministic,
+the script n2 graph may be lowered during the same planning invocation, but it
+is executed only after dependency preparation succeeds.
 
 The first implementation will reuse the existing build-plan construction,
 `BuildProduct` vocabulary, artifact layout, and n2 lowering. Dependency outputs
@@ -22,7 +23,9 @@ products are materialized before script execution.
 ## Consequences
 
 - The initial change is limited to standalone `.mbt` and `.mbtx` builds.
-- Normal workspace build planning and registry resolution remain unchanged.
+- Ordinary project and workspace commands keep their existing single-plan,
+  single-n2-graph planning and execution path.
+- Registry resolution remains unchanged.
 - The two planning paths share package build rules instead of duplicating them.
 - SHA identities, action-to-outcome caching, global storage, and a generalized
   dependency executor interface are deferred until the split exposes concrete
