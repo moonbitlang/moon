@@ -13,6 +13,64 @@ The first thing is to install Rust toolchain and MoonBit toolchain, if you have 
 - [Install Rust](https://www.rust-lang.org/tools/install)
 - [MoonBit CLI Tools](https://www.moonbitlang.com/download/#moonbit-cli-tools)
 
+## Before changing Moon
+
+For changes to MoonBuild concepts, command communication, package execution, or
+native builds, start with the project [glossary](../../CONTEXT.md). Then use the
+table below to load only the documents relevant to the work.
+
+Read the affected source and tests as the authority for behavior already
+implemented. Reference documents describe implemented behavior and must stay in
+sync with it. Design and migration documents may also describe intended future
+behavior.
+
+| When changing | Read before design or review |
+| --- | --- |
+| Project discovery, modules, packages, dependency resolution, or internal packages | [Architecture and overview](reference/arch.md), [modules and packages](reference/modules-packages.md), then the relevant source and tests |
+| Workspaces, package selection, `MOON_WORK`, or `MOON_NO_WORKSPACE` | [Workspace design](reference/workspace.md) and [architecture and overview](reference/arch.md) |
+| Build planning, lowering, artifacts, n2 commands, or Rupes Recta behavior | [Architecture and overview](reference/arch.md), [package build process](reference/build.md), [build plan artifact dependencies](reference/build-plan-artifact-dependencies.md), and [Rupes Recta special cases](reference/rr-special-cases.md) |
+| Compiler commands, target backends, conditional compilation, supported targets, or virtual packages | [Compiler commands](reference/compiler-cmd-ref.md), [supported targets](reference/supported-targets.md), [conditional compilation](reference/cond-comp.md), and [virtual packages](reference/virtual-pkg.md) as applicable |
+| Native compilation, C stubs, toolchain selection, Windows ABI/CRT policy, or `tcc -run` | [Native ABI policy ADR](../adr/0002-native-abi-policy-belongs-to-toolchains.md), [native C toolchain resolution](reference/native-c-toolchain-resolution.md), [toolchain layout](reference/toolchain-layout.md), and [`tcc -run`](reference/tcc-run.md) as applicable |
+| `moon test`, test-driver events, test filtering, snapshots, or choosing a test level | [Test suite strategy](reference/testing-strategy.md) and [`moon test` execution flow](reference/tests.md); use the repository-local [`snapbox-testing` skill](../../.agents/skills/snapbox-testing/SKILL.md) for snapbox assertions |
+| Command stdout/stderr, logs, progress, child output, or dry-run output | The glossary's [Command Communication](../../CONTEXT.md#command-communication), [command-results ADR](../adr/0004-separate-command-results-from-user-logs.md), [command output migration](command-output-migration.md), and [dry-run behavior](reference/dry-run.md) |
+| `moon run` process launch, stdin, signals, temporary cleanup, or Windows Job Objects | [`moon run` process lifecycle](design/moon-run-process-lifecycle.md). This is the `moon` CLI process layer, not the wasm runtime implementation. |
+| Global build cache, artifact identity, cleaning, or cross-compilation cache constraints | [Global build state and cache design](design/global-build-cache.md) and [build plan artifact dependencies](reference/build-plan-artifact-dependencies.md) |
+| `moonx`, `moon runwasm`, executable package coordinates, binary installation, or binary discovery | [moonx dispatch ADR](../adr/0003-dispatch-moonx-by-executable-name.md), [`moonx`](reference/moonx.md), [`moon runwasm`](reference/runwasm.md), [`moon install`](reference/moon-install-binary.md), and [binary discovery](reference/binaries.md) as applicable |
+| Prebuild tasks, bundle, indirect dependencies, or toolchain packaging | [Prebuild tasks](reference/prebuild.md), [`moon bundle`](reference/bundle.md), [indirect dependencies](reference/indirect-dep.md), or [toolchain layout](reference/toolchain-layout.md) as applicable |
+| Wasm runtime imports, Handles, async host behavior, V8, or Wasmtime | Repository [async wasm host boundary ADR](../adr/0001-async-wasm-host-boundary.md), then the [`moonrun` developer documentation](../../crates/moonrun/docs/dev/README.md) |
+
+If a proposed change contradicts an ADR or an implemented-behavior reference,
+call that out explicitly instead of silently replacing it. The default build
+engine is Rupes Recta; inspect legacy `moonbuild` behavior only when the changed
+path still uses it or compatibility is part of the requirement.
+
+## Document roles
+
+- [`CONTEXT.md`](../../CONTEXT.md) owns project vocabulary. It is not an
+  implementation specification.
+- [`docs/adr`](../adr/) owns accepted, hard-to-reverse decisions and their
+  trade-offs.
+- [`docs/dev/design`](design/) owns cross-cutting designs, invariants, and
+  reconsideration criteria.
+- [`docs/dev/reference`](reference/readme.md) owns descriptions of implemented
+  MoonBuild behavior and must change with that behavior.
+- [Command output migration](command-output-migration.md) owns the sequencing
+  of that in-progress migration.
+- [`docs/manual`](../manual/) and [`docs/manual-zh`](../manual-zh/) own
+  user-facing command documentation.
+- Source and tests remain the final evidence for what the current revision
+  actually implements.
+
+The repository-local [`moon-development` skill](../../.agents/skills/moon-development/SKILL.md)
+teaches coding agents how to use this index without copying its routing table.
+
+## Decision index
+
+- [0001: Async Wasm Host Boundary](../adr/0001-async-wasm-host-boundary.md)
+- [0002: Native ABI Policy Belongs to Toolchains](../adr/0002-native-abi-policy-belongs-to-toolchains.md)
+- [0003: Dispatch Moonx By Executable Name](../adr/0003-dispatch-moonx-by-executable-name.md)
+- [0004: Separate Command Results from User Logs](../adr/0004-separate-command-results-from-user-logs.md)
+
 ## How to Build and Test
 
 ### On Unix
