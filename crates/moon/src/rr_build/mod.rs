@@ -70,7 +70,9 @@ use tracing::{Level, info, instrument};
 use crate::build_flags::{BuildFlags, OutputStyle};
 
 mod dry_run;
-pub use dry_run::{format_dry_run_command, write_dry_run, write_dry_run_all};
+pub use dry_run::{
+    format_dry_run_command, write_dry_run, write_dry_run_all, write_standalone_dry_run,
+};
 
 /// The output of a calculate user intent operation.
 pub struct CalcUserIntentOutput {
@@ -626,7 +628,6 @@ pub(crate) fn plan_resolved_build_from_intent(
         graph: compile_output.build_graph,
         command_args_by_output: compile_output.command_args_by_output,
         db_path,
-        standalone_dependencies: None,
     };
 
     info!("Build planning completed successfully");
@@ -650,7 +651,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     script_package: PackageId,
     mooncake_bin_dir: &Path,
     resolve_output: ResolveOutput,
-) -> anyhow::Result<(BuildMeta, BuildInput)> {
+) -> anyhow::Result<(BuildMeta, StandaloneBuildInput)> {
     let target_dir = preconfig.target_dir.clone();
     info!("Standalone user intent calculated: {:?}", intent.intents);
 
@@ -730,19 +731,18 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         .iter()
         .next()
         .is_some()
-        .then(|| {
-            Box::new(BuildInput {
-                graph: compile_output.dependencies.build_graph,
-                command_args_by_output: compile_output.dependencies.command_args_by_output,
-                db_path: layout.standalone_dependency_n2_db_path(backend),
-                standalone_dependencies: None,
-            })
+        .then(|| BuildInput {
+            graph: compile_output.dependencies.build_graph,
+            command_args_by_output: compile_output.dependencies.command_args_by_output,
+            db_path: layout.standalone_dependency_n2_db_path(backend),
         });
-    let input = BuildInput {
-        graph: compile_output.script.build_graph,
-        command_args_by_output: compile_output.script.command_args_by_output,
-        db_path: layout.n2_db_path(backend),
-        standalone_dependencies: dependency_input,
+    let input = StandaloneBuildInput {
+        dependencies: dependency_input,
+        script: BuildInput {
+            graph: compile_output.script.build_graph,
+            command_args_by_output: compile_output.script.command_args_by_output,
+            db_path: layout.n2_db_path(backend),
+        },
     };
 
     info!("Standalone build planning completed successfully");
@@ -775,7 +775,6 @@ pub fn plan_fmt(
         graph,
         command_args_by_output: Default::default(),
         db_path,
-        standalone_dependencies: None,
     })
 }
 
@@ -1016,9 +1015,16 @@ pub struct BuildInput {
     ///
     /// This path is passed here because it changes between different execution configurations.
     db_path: PathBuf,
+}
 
-    /// Dependency-package work planned separately for a standalone script.
-    standalone_dependencies: Option<Box<BuildInput>>,
+/// Dependency-package and script-package inputs for standalone execution.
+///
+/// Keeping this orchestration outside [`BuildInput`] lets ordinary workspace
+/// execution remain a single-graph operation.
+#[derive(Debug, Clone)]
+pub struct StandaloneBuildInput {
+    dependencies: Option<BuildInput>,
+    script: BuildInput,
 }
 
 #[cfg(test)]
@@ -1042,24 +1048,14 @@ impl BuildInput {
 #[instrument(skip_all)]
 pub fn execute_build(
     cfg: &BuildConfig,
-    mut input: BuildInput,
+    input: BuildInput,
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
-    let dependency_stats = if let Some(dependencies) = input.standalone_dependencies.take() {
-        let stats = execute_build(cfg, *dependencies, target_dir, user_log)?;
-        if !stats.successful() {
-            return Ok(stats);
-        }
-        Some(stats)
-    } else {
-        None
-    };
-
     // Get start nodes (leaf outputs) before moving the graph
     let start_nodes = input.graph.get_start_nodes();
 
-    let mut stats = execute_build_partial(
+    execute_build_partial(
         cfg,
         input,
         target_dir,
@@ -1072,7 +1068,28 @@ pub fn execute_build(
             }
             Ok(())
         }),
-    )?;
+    )
+}
+
+/// Execute standalone dependency-package work before script-package work.
+#[instrument(skip_all)]
+pub fn execute_standalone_build(
+    cfg: &BuildConfig,
+    input: StandaloneBuildInput,
+    target_dir: &Path,
+    user_log: &UserLog,
+) -> anyhow::Result<N2RunStats> {
+    let dependency_stats = if let Some(dependencies) = input.dependencies {
+        let stats = execute_build(cfg, dependencies, target_dir, user_log)?;
+        if !stats.successful() {
+            return Ok(stats);
+        }
+        Some(stats)
+    } else {
+        None
+    };
+
+    let mut stats = execute_build(cfg, input.script, target_dir, user_log)?;
     if let Some(dependency_stats) = dependency_stats {
         stats.n_tasks_executed = stats
             .n_tasks_executed

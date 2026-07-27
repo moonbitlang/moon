@@ -728,28 +728,43 @@ impl ArtifactPathResolver {
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
         Self::assert_product_matches_action(product, action_context);
+        self.paths_for_product_impl(product, Some(action_context), packages, modules, options)
+    }
 
+    fn paths_for_product_impl(
+        &self,
+        product: &BuildProduct,
+        action_context: Option<BuildAction<'_>>,
+        packages: &DiscoverResult,
+        modules: &ResolvedEnv,
+        options: ArtifactPathOptions,
+    ) -> Vec<PathBuf> {
         match product {
-            BuildProduct::PackageInterface { target } => {
-                self.package_interface_paths(action_context, *target, packages, options)
-            }
+            BuildProduct::PackageInterface { target } => match action_context {
+                Some(action_context) => {
+                    self.package_interface_paths(action_context, *target, packages, options)
+                }
+                None => {
+                    vec![self.mi_of_build_target(packages, target, options.target_backend.into())]
+                }
+            },
             BuildProduct::PackageCoreIr { target } => {
                 vec![self.core_of_build_target(packages, target, options.target_backend.into())]
             }
             BuildProduct::ProofInterface { target } => match action_context {
-                BuildAction::EmitProof { .. } => {
+                Some(BuildAction::EmitProof { .. }) => {
                     vec![self.target_layout.emit_proof_mi_path(packages, target)]
                 }
-                BuildAction::Prove { .. } => {
+                Some(BuildAction::Prove { .. }) => {
                     vec![self.target_layout.prove_mi_path(packages, target)]
                 }
                 _ => panic!("proof interface action context should be a proof action"),
             },
             BuildProduct::ProofWhyml { target } => match action_context {
-                BuildAction::EmitProof { .. } => {
+                Some(BuildAction::EmitProof { .. }) => {
                     vec![self.target_layout.emit_proof_whyml_path(packages, target)]
                 }
-                BuildAction::Prove { .. } => {
+                Some(BuildAction::Prove { .. }) => {
                     vec![self.target_layout.prove_whyml_path(packages, target)]
                 }
                 _ => panic!("proof whyml action context should be a proof action"),
@@ -859,39 +874,20 @@ impl ArtifactPathResolver {
         &self,
         product: &BuildProduct,
         packages: &DiscoverResult,
-        _modules: &ResolvedEnv,
+        modules: &ResolvedEnv,
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
-        match product {
-            BuildProduct::PackageInterface { target } => {
-                vec![self.mi_of_build_target(packages, target, options.target_backend.into())]
-            }
-            BuildProduct::PackageCoreIr { target } => {
-                vec![self.core_of_build_target(packages, target, options.target_backend.into())]
-            }
-            BuildProduct::CStubLibrary { package } => {
-                if options.use_tcc_run {
-                    vec![self.target_layout.c_stub_link_dylib_path(
-                        packages,
-                        *package,
-                        options.target_backend.into(),
-                        options.os,
-                    )]
-                } else {
-                    vec![self.target_layout.c_stub_archive_path(
-                        packages,
-                        *package,
-                        options.target_backend.into(),
-                        options.os,
-                    )]
-                }
-            }
-            BuildProduct::VirtualPackageInterface { package } => {
-                let target = package.build_target(TargetKind::Source);
-                vec![self.mi_of_build_target(packages, &target, options.target_backend.into())]
-            }
-            _ => panic!("unsupported external standalone dependency product: {product:?}"),
-        }
+        assert!(
+            matches!(
+                product,
+                BuildProduct::PackageInterface { .. }
+                    | BuildProduct::PackageCoreIr { .. }
+                    | BuildProduct::CStubLibrary { .. }
+                    | BuildProduct::VirtualPackageInterface { .. }
+            ),
+            "unsupported external standalone dependency product: {product:?}"
+        );
+        self.paths_for_product_impl(product, None, packages, modules, options)
     }
 
     fn assert_product_matches_action(product: &BuildProduct, action_context: BuildAction<'_>) {

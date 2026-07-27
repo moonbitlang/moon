@@ -64,6 +64,28 @@ fn test_single_file_mbtx_run() {
 }
 
 #[test]
+fn test_single_file_mbtx_dry_run_prints_dependencies_before_script() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let stdout = get_stdout(
+        &dir,
+        ["run", "import_ok.mbtx", "--target", "wasm", "--dry-run"],
+    );
+    let dependency_command = stdout
+        .lines()
+        .position(|line| line.contains(".mooncakes/moonbitlang/x/stack/stack.mbt"))
+        .expect("dry run should print the dependency package command");
+    let script_command = stdout
+        .lines()
+        .position(|line| line.contains("_build/import_ok.mbt"))
+        .expect("dry run should print the script package command");
+
+    assert!(
+        dependency_command < script_command,
+        "dependency commands should be printed before script commands:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
     let dir = TestDir::new("moon_test_single_file.in");
     let args = ["run", "import_ok.mbtx", "--target", "wasm"];
