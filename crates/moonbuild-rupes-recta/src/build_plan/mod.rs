@@ -45,7 +45,7 @@
 //! [cu]: https://github.com/rust-lang/cargo/blob/master/src/cargo/core/compiler/unit.rs
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     path::{Path, PathBuf},
 };
 
@@ -113,14 +113,6 @@ pub struct BuildPlan {
 
     /// The nodes that were used as input to the build plan.
     input_nodes: Vec<BuildPlanNode>,
-
-    /// Products required from actions intentionally planned outside this plan.
-    ///
-    /// Standalone script planning stops at package dependencies. The consumer
-    /// still records the exact edge semantics here so dependency planning can
-    /// use the requested producer nodes as roots and script lowering can attach
-    /// their products as ordinary file inputs.
-    external_dependencies: BTreeMap<(BuildPlanNode, BuildPlanNode), FileDependencyKind>,
 }
 
 /// Logical artifacts that can be requested from build-plan nodes.
@@ -266,23 +258,6 @@ impl BuildPlan {
     pub fn input_nodes(&self) -> &[BuildPlanNode] {
         &self.input_nodes
     }
-
-    pub fn external_dependency_nodes(&self) -> impl Iterator<Item = BuildPlanNode> + '_ {
-        self.external_dependencies
-            .keys()
-            .map(|(_, dependency)| *dependency)
-    }
-
-    pub(crate) fn external_dependency_edges(
-        &self,
-        node: BuildPlanNode,
-    ) -> impl Iterator<Item = (BuildPlanNode, FileDependencyKind)> + '_ {
-        self.external_dependencies
-            .iter()
-            .filter_map(move |(&(consumer, dependency), &kind)| {
-                (consumer == node).then_some((dependency, kind))
-            })
-    }
 }
 
 #[cfg(test)]
@@ -298,15 +273,6 @@ impl BuildPlan {
         kind: FileDependencyKind,
     ) {
         self.graph.add_edge(start, end, kind);
-    }
-
-    pub(crate) fn test_add_external_dependency(
-        &mut self,
-        start: BuildPlanNode,
-        end: BuildPlanNode,
-        kind: FileDependencyKind,
-    ) {
-        self.external_dependencies.insert((start, end), kind);
     }
 
     pub(crate) fn test_insert_build_target_info(
@@ -584,42 +550,6 @@ pub fn build_plan(
 
     info!(
         "Build plan construction completed with {} total nodes",
-        result.node_count()
-    );
-    Ok(result)
-}
-
-/// Plan work for a synthesized standalone script package.
-///
-/// Actions belonging to other packages are retained as external product
-/// requirements instead of being expanded into this plan.
-#[allow(clippy::too_many_arguments)]
-#[instrument(skip_all)]
-pub fn build_standalone_script_plan(
-    resolved: &ResolveOutput,
-    mooncake_bin_dir: &Path,
-    build_env: &BuildEnvironment,
-    input: impl Iterator<Item = BuildPlanNode>,
-    script_package: PackageId,
-    input_directive: &InputDirective,
-    prebuild_config: Option<&PrebuildOutput>,
-    user_log: &UserLog,
-) -> Result<BuildPlan, BuildPlanConstructError> {
-    info!("Constructing standalone script build plan");
-    let mut constructor = BuildPlanConstructor::new_for_standalone_script(
-        resolved,
-        mooncake_bin_dir,
-        build_env,
-        input_directive,
-        prebuild_config,
-        user_log,
-        script_package,
-    );
-    constructor.build(input)?;
-    let result = constructor.finish();
-
-    info!(
-        "Standalone script build plan construction completed with {} local nodes",
         result.node_count()
     );
     Ok(result)

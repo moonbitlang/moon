@@ -81,12 +81,6 @@ impl ActionProducts {
             .dependency_products(action)
             .into_iter()
             .map(|(dependency_action, product)| Self::realize(ctx, dependency_action, product))
-            .chain(
-                ctx.plan
-                    .external_dependency_products(action)
-                    .into_iter()
-                    .map(|product| Self::realize_external(ctx, product)),
-            )
             .collect();
         Self {
             outputs,
@@ -102,16 +96,6 @@ impl ActionProducts {
         let paths = ctx.artifact_paths.paths_for_product(
             &product,
             ctx.plan.action(product_action),
-            ctx.packages,
-            ctx.modules,
-            ctx.opt.artifact_path_options(),
-        );
-        RealizedProduct { product, paths }
-    }
-
-    fn realize_external(ctx: &LoweringContext<'_>, product: BuildProduct) -> RealizedProduct {
-        let paths = ctx.artifact_paths.paths_for_external_product(
-            &product,
             ctx.packages,
             ctx.modules,
             ctx.opt.artifact_path_options(),

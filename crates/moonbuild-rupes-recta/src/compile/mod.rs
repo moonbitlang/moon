@@ -19,10 +19,7 @@
 use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{build_options::RunMode, cond_expr::OptLevel, user_log::UserLog};
-use std::{
-    collections::BTreeSet,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 use tracing::{Level, instrument};
 
 use crate::{
@@ -95,7 +92,7 @@ pub struct CompileOutput {
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
 
-/// The two independently planned graphs for a standalone script build.
+/// Two execution graphs projected from one logical standalone build plan.
 pub struct StandaloneCompileOutput {
     /// Dependency-package work, executed before the script graph.
     pub dependencies: CompileOutput,
@@ -161,46 +158,69 @@ pub fn compile_standalone(
     prebuild_config: Option<&PrebuildOutput>,
     user_log: &UserLog,
 ) -> Result<StandaloneCompileOutput, CompileGraphError> {
-    info!("Building separate standalone dependency and script plans");
+    info!("Building one logical plan for standalone dependency and script work");
     let input_nodes = input_nodes
         .iter()
         .copied()
         .filter(|node| filter_special_case_input_nodes(*node, resolve_output))
         .collect::<Vec<_>>();
     let build_env = build_environment(cx);
-    let script_plan = build_plan::build_standalone_script_plan(
+    let plan = build_plan::build_plan(
         resolve_output,
         mooncake_bin_dir,
         &build_env,
         input_nodes.into_iter(),
-        script_package,
-        input_directive,
-        prebuild_config,
-        user_log,
-    )?;
-    let dependency_inputs = script_plan
-        .external_dependency_nodes()
-        .collect::<BTreeSet<_>>();
-    let dependency_plan = build_plan::build_plan(
-        resolve_output,
-        mooncake_bin_dir,
-        &build_env,
-        dependency_inputs.into_iter(),
         input_directive,
         prebuild_config,
         user_log,
     )?;
 
-    debug!(
-        "Standalone plans contain {} dependency nodes and {} script nodes",
-        dependency_plan.node_count(),
-        script_plan.node_count()
-    );
-    let dependencies = lower_plan(cx, resolve_output, dependency_plan)?;
-    let script = lower_plan(cx, resolve_output, script_plan)?;
+    info!("Standalone build plan created successfully");
+    debug!("Standalone build plan contains {} nodes", plan.node_count());
+
+    let lower_env = lowering_options(cx);
+    let (dependencies, script) = {
+        let action_plan = plan.build_action_plan();
+        let (dependencies, script) = build_lower::lower_standalone_build_plan(
+            resolve_output,
+            &action_plan,
+            &lower_env,
+            script_package,
+        )?;
+        let script_artifacts = script
+            .artifacts
+            .into_iter()
+            .map(|(action, artifacts)| {
+                let node = action_plan.build_plan_node(action);
+                (node, Artifacts { node, artifacts })
+            })
+            .collect();
+        (
+            CompileOutput {
+                build_graph: dependencies.build_graph,
+                command_args_by_output: dependencies.command_args_by_output,
+                artifacts: IndexMap::new(),
+                build_plan: None,
+            },
+            CompileOutput {
+                build_graph: script.build_graph,
+                command_args_by_output: script.command_args_by_output,
+                artifacts: script_artifacts,
+                build_plan: None,
+            },
+        )
+    };
+
     Ok(StandaloneCompileOutput {
         dependencies,
-        script,
+        script: CompileOutput {
+            build_plan: if cx.debug_export_build_plan {
+                Some(Box::new(plan))
+            } else {
+                None
+            },
+            ..script
+        },
     })
 }
 
@@ -220,28 +240,7 @@ fn lower_plan(
     resolve_output: &ResolveOutput,
     plan: build_plan::BuildPlan,
 ) -> Result<CompileOutput, CompileGraphError> {
-    let lower_env = build_lower::BuildOptions {
-        artifact_paths: cx.artifact_paths.clone(),
-        target_backend: cx.target_backend,
-        native_mode: cx.native_mode.clone(),
-        selected_backend: build_lower::SelectedBackend::new(
-            cx.target_backend,
-            &cx.native_mode,
-            cx.output_wat,
-        ),
-        opt_level: cx.opt_level,
-        action: cx.action,
-        enable_coverage: cx.enable_coverage,
-        debug_symbols: cx.debug_symbols,
-        output_wat: cx.output_wat,
-        moonc_output_json: cx.moonc_output_json,
-        docs_serve: cx.docs_serve,
-        warning_condition: cx.warning_condition,
-        info_no_alias: cx.info_no_alias,
-        wasi_link: cx.wasi_link,
-        stdlib_path: cx.stdlib_path.clone(),
-        lowering_environment: cx.lowering_environment.clone(),
-    };
+    let lower_env = lowering_options(cx);
     let (build_graph, command_args_by_output, artifacts) = {
         let action_plan = plan.build_action_plan();
         let res = build_lower::lower_build_plan(resolve_output, &action_plan, &lower_env)?;
@@ -269,6 +268,31 @@ fn lower_plan(
             None
         },
     })
+}
+
+fn lowering_options(cx: &CompileConfig) -> build_lower::BuildOptions {
+    build_lower::BuildOptions {
+        artifact_paths: cx.artifact_paths.clone(),
+        target_backend: cx.target_backend,
+        native_mode: cx.native_mode.clone(),
+        selected_backend: build_lower::SelectedBackend::new(
+            cx.target_backend,
+            &cx.native_mode,
+            cx.output_wat,
+        ),
+        opt_level: cx.opt_level,
+        action: cx.action,
+        enable_coverage: cx.enable_coverage,
+        debug_symbols: cx.debug_symbols,
+        output_wat: cx.output_wat,
+        moonc_output_json: cx.moonc_output_json,
+        docs_serve: cx.docs_serve,
+        warning_condition: cx.warning_condition,
+        info_no_alias: cx.info_no_alias,
+        wasi_link: cx.wasi_link,
+        stdlib_path: cx.stdlib_path.clone(),
+        lowering_environment: cx.lowering_environment.clone(),
+    }
 }
 
 /// A filter to remove build plan nodes that are invalid. Returns `true` if the
@@ -312,7 +336,7 @@ mod tests {
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
     };
 
-    use super::{CompileConfig, compile_standalone};
+    use super::{CompileConfig, compile, compile_standalone};
 
     fn moon_mod() -> MoonMod {
         MoonMod {
@@ -471,7 +495,7 @@ mod tests {
             stdlib_path: None,
             artifact_paths,
             lowering_environment: LoweringEnvironment::default(),
-            debug_export_build_plan: false,
+            debug_export_build_plan: true,
             wasi_link: false,
             enable_coverage: false,
             output_wat: false,
@@ -482,20 +506,46 @@ mod tests {
             info_no_alias: false,
         };
 
+        let input_nodes = [BuildPlanNode::MakeExecutable(script_target)];
+        let input_directive = InputDirective::default();
+        let user_log = UserLog::new(log::LevelFilter::Error);
+        let ordinary = compile(
+            &config,
+            Path::new("."),
+            &resolved,
+            &input_nodes,
+            &input_directive,
+            None,
+            &user_log,
+        )
+        .expect("ordinary compile should lower one graph");
+        assert_eq!(ordinary.build_graph.builds.iter().count(), 3);
+
         let output = compile_standalone(
             &config,
             Path::new("."),
             &resolved,
-            &[BuildPlanNode::MakeExecutable(script_target)],
+            &input_nodes,
             script,
-            &InputDirective::default(),
+            &input_directive,
             None,
-            &UserLog::new(log::LevelFilter::Error),
+            &user_log,
         )
-        .expect("standalone plans should lower");
+        .expect("standalone plan should lower");
 
         assert_eq!(output.dependencies.build_graph.builds.iter().count(), 1);
         assert_eq!(output.script.build_graph.builds.iter().count(), 2);
+        assert!(output.dependencies.build_plan.is_none());
+        let plan = output
+            .script
+            .build_plan
+            .as_deref()
+            .expect("standalone should retain one logical plan for debug export");
+        assert_eq!(plan.node_count(), 4);
+        assert!(
+            plan.dependency_nodes(BuildPlanNode::BuildCore(script_target))
+                .any(|node| node == BuildPlanNode::BuildCore(dependency_target))
+        );
 
         let dependency_outputs = output
             .dependencies

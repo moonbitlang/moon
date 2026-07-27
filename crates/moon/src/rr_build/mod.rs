@@ -692,25 +692,15 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         user_log,
     )?;
 
-    if unstable_features.rr_export_build_plan {
-        if let Some(plan) = compile_output.dependencies.build_plan.as_deref() {
-            moonbuild_rupes_recta::util::print_build_plan_dot(
-                plan,
-                &resolve_output.module_rel,
-                &resolve_output.pkg_dirs,
-                &mut std::fs::File::create(
-                    target_dir.join("build_plan.standalone-dependencies.dot"),
-                )?,
-            )?;
-        }
-        if let Some(plan) = compile_output.script.build_plan.as_deref() {
-            moonbuild_rupes_recta::util::print_build_plan_dot(
-                plan,
-                &resolve_output.module_rel,
-                &resolve_output.pkg_dirs,
-                &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
-            )?;
-        }
+    if unstable_features.rr_export_build_plan
+        && let Some(plan) = compile_output.script.build_plan.as_deref()
+    {
+        moonbuild_rupes_recta::util::print_build_plan_dot(
+            plan,
+            &resolve_output.module_rel,
+            &resolve_output.pkg_dirs,
+            &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
+        )?;
     }
 
     let build_meta = BuildMeta {

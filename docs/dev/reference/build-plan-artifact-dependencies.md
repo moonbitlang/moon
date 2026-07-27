@@ -184,19 +184,33 @@ This keeps responsibilities separate:
 
 ## Standalone script boundary
 
-Standalone `.mbt` and `.mbtx` execution plans dependency packages separately
-from the synthesized script package. Script planning stops when it reaches an
-action owned by another package and records the logical products required by
-that edge. Those actions become roots of a normal dependency-package plan.
+Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`.
+Package dependencies use the same edges as ordinary project compilation. After
+the plan is normalized once, a temporary action-level adapter projects it into
+two disjoint n2 graphs.
 
-Both plans use the existing `BuildPlan` and lowering rules. The dependency plan
-owns the producer actions for artifacts under `.mooncakes`; the script plan
-contains those artifact paths only as external n2 inputs. Because those paths
-are deterministic, both n2 graphs are currently lowered during the same
-planning invocation. Execution still runs the dependency graph first using
+All actions owned by packages other than the synthesized script package seed
+the dependency projection. Following their producer edges to a fixed point
+also includes package-less shared prerequisites such as `BuildRuntimeLib`.
+Package-less actions needed only by the script stay in the script projection.
+The projection is invalid if dependency preparation reaches a script-owned
+producer.
+
+The script projection keeps the original product edges. If a producer belongs
+to the dependency projection, normal product realization still resolves its
+concrete `.mooncakes` paths using that producer's action context. Those paths
+become ordinary n2 inputs with no producer in the script graph; no external
+product or path vocabulary is needed.
+
+Execution runs the dependency graph first using
 `standalone-dependencies.moon_db`, then runs the script graph using the existing
-mode database. There is no file-existence scan between the phases: n2 decides
-whether dependency actions are current.
+mode database. There is no file-existence scan between the phases: n2 currently
+decides whether dependency actions are current.
+
+The dependency n2 graph is an adapter for the current preparation mechanism.
+A future action-to-output implementation can replace that first stage, then
+feed the materialized outputs into a narrower script plan without changing the
+dependency product contract.
 
 For `.mbt` and `.mbtx` files built from persistent paths, the dependency n2
 database remains available to later invocations. `moon run -e` and

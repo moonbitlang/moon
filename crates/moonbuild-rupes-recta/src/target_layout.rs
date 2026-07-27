@@ -728,43 +728,27 @@ impl ArtifactPathResolver {
         options: ArtifactPathOptions,
     ) -> Vec<PathBuf> {
         Self::assert_product_matches_action(product, action_context);
-        self.paths_for_product_impl(product, Some(action_context), packages, modules, options)
-    }
-
-    fn paths_for_product_impl(
-        &self,
-        product: &BuildProduct,
-        action_context: Option<BuildAction<'_>>,
-        packages: &DiscoverResult,
-        modules: &ResolvedEnv,
-        options: ArtifactPathOptions,
-    ) -> Vec<PathBuf> {
         match product {
-            BuildProduct::PackageInterface { target } => match action_context {
-                Some(action_context) => {
-                    self.package_interface_paths(action_context, *target, packages, options)
-                }
-                None => {
-                    vec![self.mi_of_build_target(packages, target, options.target_backend.into())]
-                }
-            },
+            BuildProduct::PackageInterface { target } => {
+                self.package_interface_paths(action_context, *target, packages, options)
+            }
             BuildProduct::PackageCoreIr { target } => {
                 vec![self.core_of_build_target(packages, target, options.target_backend.into())]
             }
             BuildProduct::ProofInterface { target } => match action_context {
-                Some(BuildAction::EmitProof { .. }) => {
+                BuildAction::EmitProof { .. } => {
                     vec![self.target_layout.emit_proof_mi_path(packages, target)]
                 }
-                Some(BuildAction::Prove { .. }) => {
+                BuildAction::Prove { .. } => {
                     vec![self.target_layout.prove_mi_path(packages, target)]
                 }
                 _ => panic!("proof interface action context should be a proof action"),
             },
             BuildProduct::ProofWhyml { target } => match action_context {
-                Some(BuildAction::EmitProof { .. }) => {
+                BuildAction::EmitProof { .. } => {
                     vec![self.target_layout.emit_proof_whyml_path(packages, target)]
                 }
-                Some(BuildAction::Prove { .. }) => {
+                BuildAction::Prove { .. } => {
                     vec![self.target_layout.prove_whyml_path(packages, target)]
                 }
                 _ => panic!("proof whyml action context should be a proof action"),
@@ -868,26 +852,6 @@ impl ArtifactPathResolver {
             }
             BuildProduct::PrebuildOutputPath { path } => vec![path.clone()],
         }
-    }
-
-    pub(crate) fn paths_for_external_product(
-        &self,
-        product: &BuildProduct,
-        packages: &DiscoverResult,
-        modules: &ResolvedEnv,
-        options: ArtifactPathOptions,
-    ) -> Vec<PathBuf> {
-        assert!(
-            matches!(
-                product,
-                BuildProduct::PackageInterface { .. }
-                    | BuildProduct::PackageCoreIr { .. }
-                    | BuildProduct::CStubLibrary { .. }
-                    | BuildProduct::VirtualPackageInterface { .. }
-            ),
-            "unsupported external standalone dependency product: {product:?}"
-        );
-        self.paths_for_product_impl(product, None, packages, modules, options)
     }
 
     fn assert_product_matches_action(product: &BuildProduct, action_context: BuildAction<'_>) {
@@ -1641,24 +1605,6 @@ mod tests {
                     package,
                     info: &info,
                 },
-                &packages,
-                &modules,
-                artifact_options(RunBackend::Native, true),
-            ),
-            vec![PathBuf::from("_build/native/debug/build/ffi/libffi.so")],
-        );
-        assert_eq!(
-            resolver.paths_for_external_product(
-                &BuildProduct::CStubLibrary { package },
-                &packages,
-                &modules,
-                artifact_options(RunBackend::Native, false),
-            ),
-            vec![PathBuf::from("_build/native/debug/build/ffi/libffi.a")],
-        );
-        assert_eq!(
-            resolver.paths_for_external_product(
-                &BuildProduct::CStubLibrary { package },
                 &packages,
                 &modules,
                 artifact_options(RunBackend::Native, true),

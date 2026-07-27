@@ -185,56 +185,6 @@ fn build_core_dependency_can_track_interface_and_core_ir() {
 }
 
 #[test]
-fn external_build_core_dependency_exposes_products_without_an_action() {
-    let dependency = package_id(1).build_target(TargetKind::Source);
-    let consumer = package_id(2).build_target(TargetKind::Source);
-    let consumer_node = BuildPlanNode::BuildCore(consumer);
-    let mut plan = BuildPlan::default();
-    plan.test_add_node(consumer_node);
-    plan.test_add_external_dependency(
-        consumer_node,
-        BuildPlanNode::BuildCore(dependency),
-        FileDependencyKind::Artifacts(PlanArtifactNeed::InterfaceAndCoreIr),
-    );
-
-    let action_plan = plan.build_action_plan();
-    let consumer_id = action_plan.id_for_node(consumer_node);
-
-    assert!(action_plan.dependency_products(consumer_id).is_empty());
-    assert_eq!(
-        action_plan.external_dependency_products(consumer_id),
-        vec![
-            BuildProduct::PackageInterface { target: dependency },
-            BuildProduct::PackageCoreIr { target: dependency },
-        ]
-    );
-}
-
-#[test]
-fn external_c_stub_dependency_exposes_library_without_an_action() {
-    let dependency = package_id(1);
-    let consumer = package_id(2).build_target(TargetKind::Source);
-    let consumer_node = BuildPlanNode::BuildCore(consumer);
-    let mut plan = BuildPlan::default();
-    plan.test_add_node(consumer_node);
-    plan.test_add_external_dependency(
-        consumer_node,
-        BuildPlanNode::ArchiveOrLinkCStubs(dependency),
-        FileDependencyKind::AllFiles,
-    );
-
-    let action_plan = plan.build_action_plan();
-    let consumer_id = action_plan.id_for_node(consumer_node);
-
-    assert_eq!(
-        action_plan.external_dependency_products(consumer_id),
-        vec![BuildProduct::CStubLibrary {
-            package: dependency,
-        }]
-    );
-}
-
-#[test]
 fn generate_test_info_dependency_can_select_driver_only() {
     let test_target = package_id(1).build_target(TargetKind::WhiteboxTest);
     let consumer = package_id(2).build_target(TargetKind::Source);
