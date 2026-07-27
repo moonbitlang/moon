@@ -145,7 +145,9 @@ pub(super) fn make_read_job(
     len: i32,
     position: i64,
 ) -> AsyncHostResult<u64> {
-    let file = context.host.resource_of_class(fd, ResourceClass::File)?;
+    let file = context
+        .host
+        .acquire_resource_of_class(fd, ResourceClass::File)?;
     context.host
         .insert_job(thread_pool::make_read_job(file, len, position))
 }
@@ -159,7 +161,9 @@ pub(super) fn make_write_job(
     len: i32,
     position: i64,
 ) -> AsyncHostResult<u64> {
-    let file = context.host.resource_of_class(fd, ResourceClass::File)?;
+    let file = context
+        .host
+        .acquire_resource_of_class(fd, ResourceClass::File)?;
     let offset_ptr = ptr.checked_add(offset).ok_or(AsyncHostError::Fault)?;
     let data =
         context.with_memory_mut(|memory| Ok(memory.read_exact(offset_ptr, len)?.to_vec()))?;
@@ -194,7 +198,7 @@ pub(super) fn make_file_kind_by_path_job(
         Some(
             context
                 .host
-                .resource_of_class(parent, ResourceClass::File)?,
+                .acquire_resource_of_class(parent, ResourceClass::File)?,
         )
     };
     let path = read_guest_os_string(context, path_ptr, path_len)?;
@@ -209,7 +213,9 @@ pub(super) fn make_file_kind_by_path_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_file_size_job(context: &mut ImportContext<'_, '_>, fd: u64) -> AsyncHostResult<u64> {
-    let file = context.host.resource_of_class(fd, ResourceClass::File)?;
+    let file = context
+        .host
+        .acquire_resource_of_class(fd, ResourceClass::File)?;
     context.host.insert_job(thread_pool::make_file_size_job(file))
 }
 
@@ -223,7 +229,9 @@ pub(super) fn make_file_time_job(
     context: &mut ImportContext<'_, '_>,
     fd: u64,
 ) -> AsyncHostResult<u64> {
-    let file = context.host.resource_of_class(fd, ResourceClass::File)?;
+    let file = context
+        .host
+        .acquire_resource_of_class(fd, ResourceClass::File)?;
     context.host
         .insert_job(thread_pool::make_file_time_job(file))
 }
@@ -286,7 +294,9 @@ pub(super) fn make_fsync_job(
     fd: u64,
     only_data: i32,
 ) -> AsyncHostResult<u64> {
-    let file = context.host.resource_of_class(fd, ResourceClass::File)?;
+    let file = context
+        .host
+        .acquire_resource_of_class(fd, ResourceClass::File)?;
     context.host
         .insert_job(thread_pool::make_fsync_job(file, only_data != 0))
 }
@@ -297,7 +307,9 @@ pub(super) fn make_flock_job(
     fd: u64,
     exclusive: i32,
 ) -> AsyncHostResult<u64> {
-    let file = context.host.resource_of_class(fd, ResourceClass::File)?;
+    let file = context
+        .host
+        .acquire_resource_of_class(fd, ResourceClass::File)?;
     context.host
         .insert_job(thread_pool::make_flock_job(file, exclusive != 0))
 }
@@ -381,8 +393,10 @@ pub(super) fn make_readdir_job(
     len: i32,
     restart: i32,
 ) -> AsyncHostResult<u64> {
-    let dir = context.host.resource_of_class(dir, ResourceClass::File)?;
-    let buffer = context.host.c_buffer(buf)?;
+    let dir = context
+        .host
+        .acquire_resource_of_class(dir, ResourceClass::File)?;
+    let buffer = context.host.share_c_buffer(buf)?;
     context.host
         .insert_job(thread_pool::make_readdir_job(
             dir,
@@ -399,7 +413,7 @@ pub(super) fn make_bind_job(
     addr: i32,
     addr_len: i32,
 ) -> AsyncHostResult<u64> {
-    let socket = context.host.socket_resource(socket)?;
+    let socket = context.host.acquire_socket_resource(socket)?;
     let addr = context.with_memory_mut(|memory| Ok(memory.read_exact(addr, addr_len)?.to_vec()))?;
     match context.host.policy().bind_socket(&addr) {
         Ok(()) => context.host.insert_job(thread_pool::make_bind_job(socket, addr)),
@@ -556,7 +570,7 @@ fn optional_resource(
     if handle == crate::async_host::INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
         Ok(None)
     } else {
-        context.host.resource(handle).map(Some)
+        context.host.acquire_resource(handle).map(Some)
     }
 }
 

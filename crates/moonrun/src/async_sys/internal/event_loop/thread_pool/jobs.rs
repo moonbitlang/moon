@@ -326,7 +326,7 @@ ported_fns! {
     )]
     pub(crate) fn make_readdir_job(
         dir: ResourceRef,
-        buffer: crate::async_host::HostCBuffer,
+        buffer: crate::async_host::SharedCBuffer,
         len: i32,
         restart: bool,
     ) -> Job {

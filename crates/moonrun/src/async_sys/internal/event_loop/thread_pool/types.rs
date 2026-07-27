@@ -20,7 +20,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::async_host::{AsyncHostResult, HostCBuffer};
+use crate::async_host::{AsyncHostResult, SharedCBuffer};
 #[cfg(unix)]
 use crate::async_sys::internal::event_loop::ThreadPoolCompletionNotifier;
 use crate::async_sys::internal::fd_util;
@@ -488,7 +488,7 @@ pub(crate) enum JobPayload {
     },
     Readdir {
         dir: Option<ResourceRef>,
-        buffer: HostCBuffer,
+        buffer: SharedCBuffer,
         len: i32,
         restart: bool,
     },

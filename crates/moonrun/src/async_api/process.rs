@@ -277,18 +277,21 @@ pub(super) fn get_process_result(
         } else {
             Some(handle)
         };
-        let resource = handle_id
-            .map(|handle| context.host.resource(handle))
-            .transpose()?;
         #[cfg(unix)]
-        let raw_handle = resource
-            .as_ref()
-            .map(|resource| resource.as_fd().map(|fd| fd.as_raw_fd()))
+        let raw_handle = handle_id
+            .map(|handle| {
+                context
+                    .host
+                    .with_resource(handle, |resource| Ok(resource.as_fd()?.as_raw_fd()))
+            })
             .transpose()?;
         #[cfg(windows)]
-        let raw_handle = resource
-            .as_ref()
-            .map(|resource| resource.as_handle().map(|handle| handle.as_raw_handle()))
+        let raw_handle = handle_id
+            .map(|handle| {
+                context.host.with_resource(handle, |resource| {
+                    Ok(resource.as_handle()?.as_raw_handle())
+                })
+            })
             .transpose()?;
         #[cfg(unix)]
         let code = context.host.finish_owned_child(pid, handle_id, || {

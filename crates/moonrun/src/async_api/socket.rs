@@ -23,7 +23,7 @@ use std::os::windows::io::AsRawSocket;
 
 use crate::async_host::{AsyncHostError, AsyncHostResult, GuestMemory, read_u16};
 use crate::async_policy::AsyncPolicy;
-use crate::async_sys::internal::event_loop::thread_pool::{ResourceClass, ResourceRef};
+use crate::async_sys::internal::event_loop::thread_pool::{Resource, ResourceClass};
 use crate::async_sys::socket as sys;
 
 use super::context::ImportContext;
@@ -383,12 +383,10 @@ pub(super) fn set_ipv6_only(context: &mut ImportContext<'_, '_>, fd: u64, ipv6_o
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn listen(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
     let host = context.host;
-    let result = host
-        .resource_of_class(fd, ResourceClass::TcpSocket)
-        .and_then(|file| {
-            check_listen_bind_policy(host.policy(), &file)?;
-            sys::listen(raw_socket(&file)?)
-        });
+    let result = host.with_resource_of_class(fd, ResourceClass::TcpSocket, |file| {
+        check_listen_bind_policy(host.policy(), file)?;
+        sys::listen(raw_socket(file)?)
+    });
     zero_or_minus_one(context, result)
 }
 
@@ -585,10 +583,11 @@ pub(super) fn accept(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, ad
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact_mut(addr, addr_len)?;
-        let file = host.resource_of_class(fd, ResourceClass::TcpSocket)?;
-        let family = file.socket_family().ok_or(AsyncHostError::Inval)?;
-        let fd = sys::accept(raw_socket(&file)?, addr)?;
-        Ok((fd, family))
+        host.with_resource_of_class(fd, ResourceClass::TcpSocket, |file| {
+            let family = file.socket_family().ok_or(AsyncHostError::Inval)?;
+            let fd = sys::accept(raw_socket(file)?, addr)?;
+            Ok((fd, family))
+        })
     });
     match result {
         Ok((fd, family)) => context
@@ -671,7 +670,7 @@ fn zero_or_minus_one(context: &mut ImportContext<'_, '_>, result: AsyncHostResul
     }
 }
 
-fn check_listen_bind_policy(policy: &AsyncPolicy, file: &ResourceRef) -> AsyncHostResult<()> {
+fn check_listen_bind_policy(policy: &AsyncPolicy, file: &Resource) -> AsyncHostResult<()> {
     let mut local_addr = vec![0; socket_addr_buffer_len()];
     let implicit_addr = match sys::getsockname(raw_socket(file)?, &mut local_addr) {
         Ok(()) if socket_addr_port(&local_addr)? == 0 => Some(local_addr),
@@ -685,18 +684,18 @@ fn check_listen_bind_policy(policy: &AsyncPolicy, file: &ResourceRef) -> AsyncHo
 }
 
 #[cfg(unix)]
-fn raw_socket(file: &ResourceRef) -> AsyncHostResult<sys::RawSocket> {
+fn raw_socket(file: &Resource) -> AsyncHostResult<sys::RawSocket> {
     Ok(file.as_fd()?.as_raw_fd())
 }
 
 #[cfg(windows)]
-fn raw_socket(file: &ResourceRef) -> AsyncHostResult<sys::RawSocket> {
+fn raw_socket(file: &Resource) -> AsyncHostResult<sys::RawSocket> {
     Ok(file.as_socket()?.as_raw_socket())
 }
 
 #[cfg(unix)]
 fn listen_bind_addr_after_getsockname_error(
-    _file: &ResourceRef,
+    _file: &Resource,
     error: AsyncHostError,
 ) -> AsyncHostResult<Vec<u8>> {
     Err(error)
@@ -704,7 +703,7 @@ fn listen_bind_addr_after_getsockname_error(
 
 #[cfg(windows)]
 fn listen_bind_addr_after_getsockname_error(
-    file: &ResourceRef,
+    file: &Resource,
     _error: AsyncHostError,
 ) -> AsyncHostResult<Vec<u8>> {
     let family = file.socket_family().ok_or(AsyncHostError::Inval)?;
@@ -827,7 +826,9 @@ mod tests {
         );
 
         {
-            let file = host.resource_of_class(fd, ResourceClass::TcpSocket).unwrap();
+            let file = host
+                .acquire_resource_of_class(fd, ResourceClass::TcpSocket)
+                .unwrap();
             assert_eq!(
                 check_listen_bind_policy(host.policy(), &file),
                 Err(AsyncHostError::PermissionDenied)

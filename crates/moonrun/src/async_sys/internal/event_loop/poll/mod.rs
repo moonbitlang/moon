@@ -61,7 +61,6 @@ struct KeventBuffer(Box<[libc::kevent]>);
 // values returned in that field. The buffer owns every event value.
 unsafe impl Send for KeventBuffer {}
 
-#[derive(Debug)]
 pub(crate) struct PollInstance {
     #[cfg(unix)]
     fd: OwnedFd,
@@ -73,7 +72,19 @@ pub(crate) struct PollInstance {
     raw_events: Box<[libc::epoll_event]>,
     #[cfg(target_os = "macos")]
     raw_events: KeventBuffer,
+    #[cfg(windows)]
+    raw_events: Box<[windows_sys::Win32::System::IO::OVERLAPPED_ENTRY]>,
     events: Vec<PollEvent>,
+}
+
+impl std::fmt::Debug for PollInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PollInstance")
+            .field("fd", &self.fd)
+            .field("raw_event_capacity", &EVENT_BUFFER_SIZE)
+            .field("events", &self.events)
+            .finish()
+    }
 }
 
 impl PollInstance {
