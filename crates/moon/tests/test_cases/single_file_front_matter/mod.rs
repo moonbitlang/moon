@@ -1,4 +1,5 @@
 use super::*;
+use std::{fs, thread, time::Duration};
 
 #[test]
 fn test_single_file_front_matter_import_ok() {
@@ -60,6 +61,43 @@ fn test_single_file_mbtx_run() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stdout = get_stdout(&dir, ["run", "import_ok.mbtx"]);
     assert!(stdout.contains("hello"));
+}
+
+#[test]
+fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let args = ["run", "import_ok.mbtx", "--target", "wasm"];
+    let stdout = get_stdout(&dir, args);
+    assert!(stdout.contains("hello"));
+
+    let build_dir = dir.join("_build/wasm/debug/build");
+    let dependency_core = build_dir.join(".mooncakes/moonbitlang/x/stack/stack.core");
+    let dependency_db = build_dir.join("standalone-dependencies.moon_db");
+    let script_db = build_dir.join("build.moon_db");
+    assert!(dependency_core.is_file());
+    assert!(dependency_db.is_file());
+    assert!(script_db.is_file());
+
+    let dependency_modified = fs::metadata(&dependency_core)
+        .expect("dependency artifact should have metadata")
+        .modified()
+        .expect("dependency artifact should have a modification time");
+    thread::sleep(Duration::from_millis(20));
+    let script = dir.join("import_ok.mbtx");
+    let mut source = fs::read_to_string(&script).expect("script fixture should be readable");
+    source.push('\n');
+    fs::write(&script, source).expect("script fixture should be writable");
+
+    let stdout = get_stdout(&dir, args);
+    assert!(stdout.contains("hello"));
+    assert_eq!(
+        fs::metadata(dependency_core)
+            .expect("dependency artifact should still have metadata")
+            .modified()
+            .expect("dependency artifact should still have a modification time"),
+        dependency_modified,
+        "changing only the script should not rebuild dependency packages",
+    );
 }
 
 #[test]
