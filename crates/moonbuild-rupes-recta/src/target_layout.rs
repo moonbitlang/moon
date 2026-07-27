@@ -604,6 +604,12 @@ impl TargetLayout {
         path.push(format!("{}.moon_db", self.run_mode.to_dir_name()));
         path
     }
+
+    pub fn standalone_dependency_n2_db_path(&self, target_backend: TargetBackend) -> PathBuf {
+        let mut path = self.run_mode_dir(target_backend);
+        path.push("standalone-dependencies.moon_db");
+        path
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -846,6 +852,45 @@ impl ArtifactPathResolver {
                 vec![mbtyacc_file.with_extension("mbt")]
             }
             BuildProduct::PrebuildOutputPath { path } => vec![path.clone()],
+        }
+    }
+
+    pub(crate) fn paths_for_external_product(
+        &self,
+        product: &BuildProduct,
+        packages: &DiscoverResult,
+        _modules: &ResolvedEnv,
+        options: ArtifactPathOptions,
+    ) -> Vec<PathBuf> {
+        match product {
+            BuildProduct::PackageInterface { target } => {
+                vec![self.mi_of_build_target(packages, target, options.target_backend.into())]
+            }
+            BuildProduct::PackageCoreIr { target } => {
+                vec![self.core_of_build_target(packages, target, options.target_backend.into())]
+            }
+            BuildProduct::CStubLibrary { package } => {
+                if options.use_tcc_run {
+                    vec![self.target_layout.c_stub_link_dylib_path(
+                        packages,
+                        *package,
+                        options.target_backend.into(),
+                        options.os,
+                    )]
+                } else {
+                    vec![self.target_layout.c_stub_archive_path(
+                        packages,
+                        *package,
+                        options.target_backend.into(),
+                        options.os,
+                    )]
+                }
+            }
+            BuildProduct::VirtualPackageInterface { package } => {
+                let target = package.build_target(TargetKind::Source);
+                vec![self.mi_of_build_target(packages, &target, options.target_backend.into())]
+            }
+            _ => panic!("unsupported external standalone dependency product: {product:?}"),
         }
     }
 
@@ -1606,6 +1651,24 @@ mod tests {
             ),
             vec![PathBuf::from("_build/native/debug/build/ffi/libffi.so")],
         );
+        assert_eq!(
+            resolver.paths_for_external_product(
+                &BuildProduct::CStubLibrary { package },
+                &packages,
+                &modules,
+                artifact_options(RunBackend::Native, false),
+            ),
+            vec![PathBuf::from("_build/native/debug/build/ffi/libffi.a")],
+        );
+        assert_eq!(
+            resolver.paths_for_external_product(
+                &BuildProduct::CStubLibrary { package },
+                &packages,
+                &modules,
+                artifact_options(RunBackend::Native, true),
+            ),
+            vec![PathBuf::from("_build/native/debug/build/ffi/libffi.so")],
+        );
     }
 
     #[test]
@@ -1681,6 +1744,25 @@ mod tests {
         assert_eq!(
             layout.n2_db_path(TargetBackend::WasmGC),
             PathBuf::from("_build/wasm-gc/debug/format/format.moon_db"),
+        );
+    }
+
+    #[test]
+    fn standalone_dependency_db_is_separate_from_script_db() {
+        let layout = TargetLayout::new(
+            PathBuf::from("_build"),
+            TargetLayoutMode::Workspace,
+            OptLevel::Debug,
+            RunMode::Run,
+        );
+
+        assert_eq!(
+            layout.standalone_dependency_n2_db_path(TargetBackend::Wasm),
+            PathBuf::from("_build/wasm/debug/build/standalone-dependencies.moon_db"),
+        );
+        assert_ne!(
+            layout.standalone_dependency_n2_db_path(TargetBackend::Wasm),
+            layout.n2_db_path(TargetBackend::Wasm),
         );
     }
 

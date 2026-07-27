@@ -34,6 +34,9 @@ pub fn write_dry_run<'a>(
     source_dir: &Path,
     target_dir: &Path,
 ) -> std::io::Result<()> {
+    if let Some(dependencies) = input.standalone_dependencies.as_deref() {
+        write_dry_run_all(output, dependencies, source_dir, target_dir)?;
+    }
     let graph = &input.graph;
     let default_files = artifacts
         .into_iter()
@@ -63,6 +66,9 @@ pub fn write_dry_run_all(
     source_dir: &Path,
     target_dir: &Path,
 ) -> std::io::Result<()> {
+    if let Some(dependencies) = input.standalone_dependencies.as_deref() {
+        write_dry_run_all(output, dependencies, source_dir, target_dir)?;
+    }
     let default_files = input.graph.get_start_nodes();
     moonbuild::dry_run::write_build_commands(
         output,

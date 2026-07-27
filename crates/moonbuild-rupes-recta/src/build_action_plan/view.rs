@@ -183,6 +183,13 @@ impl<'a> BuildActionPlan<'a> {
             .collect()
     }
 
+    pub fn external_dependency_products(&self, id: BuildActionId) -> Vec<BuildProduct> {
+        self.plan
+            .external_dependency_edges(self.node(id))
+            .flat_map(|(node, kind)| self.products_for_external_edge(node, kind))
+            .collect()
+    }
+
     pub fn output_products(&self, id: BuildActionId) -> Vec<BuildProduct> {
         self.output_products_for_node(self.node(id))
     }
@@ -281,6 +288,43 @@ impl<'a> BuildActionPlan<'a> {
                     self.push_generated_test_metadata(node, &mut products);
                 }
                 products
+            }
+        }
+    }
+
+    fn products_for_external_edge(
+        &self,
+        node: BuildPlanNode,
+        kind: FileDependencyKind,
+    ) -> Vec<BuildProduct> {
+        match kind {
+            FileDependencyKind::AllFiles => match node {
+                BuildPlanNode::BuildVirtual(package) => {
+                    vec![BuildProduct::VirtualPackageInterface { package }]
+                }
+                BuildPlanNode::ArchiveOrLinkCStubs(package) => {
+                    vec![BuildProduct::CStubLibrary { package }]
+                }
+                _ => panic!(
+                    "standalone script planning recorded unsupported external dependency node: {node:?}"
+                ),
+            },
+            FileDependencyKind::Artifacts(need) => {
+                let (BuildPlanNode::Check(target) | BuildPlanNode::BuildCore(target)) = node else {
+                    panic!("logical artifact edge should target Check or BuildCore")
+                };
+                let mut products = Vec::new();
+                if need.contains(PlanArtifactKind::Interface) {
+                    products.push(BuildProduct::PackageInterface { target });
+                }
+                if need.contains(PlanArtifactKind::CoreIr) {
+                    products.push(BuildProduct::PackageCoreIr { target });
+                }
+                products
+            }
+            FileDependencyKind::ProofArtifacts { .. }
+            | FileDependencyKind::GenerateTestInfo { .. } => {
+                panic!("standalone script dependencies must be package build products")
             }
         }
     }

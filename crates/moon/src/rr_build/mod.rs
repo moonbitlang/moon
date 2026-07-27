@@ -626,10 +626,126 @@ pub(crate) fn plan_resolved_build_from_intent(
         graph: compile_output.build_graph,
         command_args_by_output: compile_output.command_args_by_output,
         db_path,
+        standalone_dependencies: None,
     };
 
     info!("Build planning completed successfully");
 
+    Ok((build_meta, input))
+}
+
+/// Plan dependency-package and synthesized script-package work independently.
+///
+/// This entry point is intentionally used only by standalone `.mbt`/`.mbtx`
+/// execution. Normal workspace commands continue through
+/// [`plan_resolved_build_from_intent`].
+#[allow(clippy::too_many_arguments)]
+#[instrument(level = Level::DEBUG, skip_all)]
+pub(crate) fn plan_resolved_standalone_build_from_intent(
+    preconfig: CompilePreConfig,
+    unstable_features: &FeatureGate,
+    user_log: &UserLog,
+    planning_context: ResolvedBuildPlanningContext,
+    intent: CalcUserIntentOutput,
+    script_package: PackageId,
+    mooncake_bin_dir: &Path,
+    resolve_output: ResolveOutput,
+) -> anyhow::Result<(BuildMeta, BuildInput)> {
+    let target_dir = preconfig.target_dir.clone();
+    info!("Standalone user intent calculated: {:?}", intent.intents);
+
+    let prebuild_config = if preconfig.action == RunMode::Check {
+        info!("Skipping prebuild configuration for check run mode");
+        None
+    } else {
+        info!("Running prebuild configuration");
+        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
+        Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
+    };
+
+    let mut input_nodes = Vec::new();
+    for user_intent in &intent.intents {
+        user_intent.append_nodes(
+            &resolve_output,
+            &mut input_nodes,
+            user_log,
+            &intent.directive,
+            planning_context.target_backend,
+        );
+    }
+    let cx = preconfig.into_compile_config(
+        planning_context.target_backend,
+        planning_context.is_core,
+        &resolve_output,
+        &input_nodes,
+        user_log,
+    )?;
+    let compile_output = moonbuild_rupes_recta::compile_standalone(
+        &cx,
+        mooncake_bin_dir,
+        &resolve_output,
+        &input_nodes,
+        script_package,
+        &intent.directive,
+        prebuild_config.as_ref(),
+        user_log,
+    )?;
+
+    if unstable_features.rr_export_build_plan {
+        if let Some(plan) = compile_output.dependencies.build_plan.as_deref() {
+            moonbuild_rupes_recta::util::print_build_plan_dot(
+                plan,
+                &resolve_output.module_rel,
+                &resolve_output.pkg_dirs,
+                &mut std::fs::File::create(
+                    target_dir.join("build_plan.standalone-dependencies.dot"),
+                )?,
+            )?;
+        }
+        if let Some(plan) = compile_output.script.build_plan.as_deref() {
+            moonbuild_rupes_recta::util::print_build_plan_dot(
+                plan,
+                &resolve_output.module_rel,
+                &resolve_output.pkg_dirs,
+                &mut std::fs::File::create(target_dir.join("build_plan.dot"))?,
+            )?;
+        }
+    }
+
+    let build_meta = BuildMeta {
+        resolve_output,
+        artifacts: compile_output.script.artifacts,
+        target_backend: cx.target_backend,
+        native_target: cx.native_mode.direct_target(),
+        tcc_run: cx.native_mode.tcc_run().cloned(),
+        opt_level: cx.opt_level,
+        artifact_paths: cx.artifact_paths.clone(),
+    };
+    let backend = cx.target_backend.into();
+    let layout = cx.artifact_paths.target_layout();
+    let dependency_input = compile_output
+        .dependencies
+        .build_graph
+        .builds
+        .iter()
+        .next()
+        .is_some()
+        .then(|| {
+            Box::new(BuildInput {
+                graph: compile_output.dependencies.build_graph,
+                command_args_by_output: compile_output.dependencies.command_args_by_output,
+                db_path: layout.standalone_dependency_n2_db_path(backend),
+                standalone_dependencies: None,
+            })
+        });
+    let input = BuildInput {
+        graph: compile_output.script.build_graph,
+        command_args_by_output: compile_output.script.command_args_by_output,
+        db_path: layout.n2_db_path(backend),
+        standalone_dependencies: dependency_input,
+    };
+
+    info!("Standalone build planning completed successfully");
     Ok((build_meta, input))
 }
 
@@ -659,6 +775,7 @@ pub fn plan_fmt(
         graph,
         command_args_by_output: Default::default(),
         db_path,
+        standalone_dependencies: None,
     })
 }
 
@@ -899,6 +1016,9 @@ pub struct BuildInput {
     ///
     /// This path is passed here because it changes between different execution configurations.
     db_path: PathBuf,
+
+    /// Dependency-package work planned separately for a standalone script.
+    standalone_dependencies: Option<Box<BuildInput>>,
 }
 
 #[cfg(test)]
@@ -922,14 +1042,24 @@ impl BuildInput {
 #[instrument(skip_all)]
 pub fn execute_build(
     cfg: &BuildConfig,
-    input: BuildInput,
+    mut input: BuildInput,
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
+    let dependency_stats = if let Some(dependencies) = input.standalone_dependencies.take() {
+        let stats = execute_build(cfg, *dependencies, target_dir, user_log)?;
+        if !stats.successful() {
+            return Ok(stats);
+        }
+        Some(stats)
+    } else {
+        None
+    };
+
     // Get start nodes (leaf outputs) before moving the graph
     let start_nodes = input.graph.get_start_nodes();
 
-    execute_build_partial(
+    let mut stats = execute_build_partial(
         cfg,
         input,
         target_dir,
@@ -942,7 +1072,16 @@ pub fn execute_build(
             }
             Ok(())
         }),
-    )
+    )?;
+    if let Some(dependency_stats) = dependency_stats {
+        stats.n_tasks_executed = stats
+            .n_tasks_executed
+            .zip(dependency_stats.n_tasks_executed)
+            .map(|(script, dependencies)| script + dependencies);
+        stats.n_errors += dependency_stats.n_errors;
+        stats.n_warnings += dependency_stats.n_warnings;
+    }
+    Ok(stats)
 }
 
 /// Execute a test build.

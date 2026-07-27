@@ -70,6 +70,7 @@ teaches coding agents how to use this index without copying its routing table.
 - [0002: Native ABI Policy Belongs to Toolchains](../adr/0002-native-abi-policy-belongs-to-toolchains.md)
 - [0003: Dispatch Moonx By Executable Name](../adr/0003-dispatch-moonx-by-executable-name.md)
 - [0004: Separate Command Results from User Logs](../adr/0004-separate-command-results-from-user-logs.md)
+- [0005: Plan Standalone Dependencies Separately](../adr/0005-plan-standalone-dependencies-separately.md)
 
 ## How to Build and Test
 

@@ -55,6 +55,7 @@ pub(super) struct BuildPlanConstructor<'a> {
     pub(super) warned_incompatible_windows_msvc_env_override: bool,
     pub(super) warned_missing_supported_targets: HashSet<PackageId>,
     pub(super) package_file_sets: HashMap<PackageId, PackageFileSet>,
+    pub(super) standalone_script_package: Option<PackageId>,
 
     /// Debug-only: record call-sites that requested each node via `need_node`.
     /// Used to improve diagnostics when dependency construction panics.
@@ -153,9 +154,31 @@ impl<'a> BuildPlanConstructor<'a> {
             warned_incompatible_windows_msvc_env_override: false,
             warned_missing_supported_targets: HashSet::new(),
             package_file_sets: HashMap::new(),
+            standalone_script_package: None,
             #[cfg(debug_assertions)]
             need_node_sources: HashMap::new(),
         }
+    }
+
+    pub(super) fn new_for_standalone_script(
+        resolved: &'a ResolveOutput,
+        mooncake_bin_dir: &'a Path,
+        build_env: &'a BuildEnvironment,
+        input_directive: &'a InputDirective,
+        prebuild_config: Option<&'a PrebuildOutput>,
+        user_log: &'a UserLog,
+        script_package: PackageId,
+    ) -> Self {
+        let mut constructor = Self::new(
+            resolved,
+            mooncake_bin_dir,
+            build_env,
+            input_directive,
+            prebuild_config,
+            user_log,
+        );
+        constructor.standalone_script_package = Some(script_package);
+        constructor
     }
 
     pub(super) fn finish(self) -> BuildPlan {
@@ -307,11 +330,41 @@ impl<'a> BuildPlanConstructor<'a> {
             );
         }
 
+        if self.is_external_dependency_node(node) {
+            return node;
+        }
+
         if !self.resolved.contains(&node) {
             self.pending.push(node);
             self.res.graph.add_node(node);
         }
         node
+    }
+
+    fn is_external_dependency_node(&self, node: BuildPlanNode) -> bool {
+        let Some(script_package) = self.standalone_script_package else {
+            return false;
+        };
+        let package = match node {
+            BuildPlanNode::Check(target)
+            | BuildPlanNode::EmitProof(target)
+            | BuildPlanNode::Prove(target)
+            | BuildPlanNode::BuildCore(target)
+            | BuildPlanNode::LinkCore(target)
+            | BuildPlanNode::MakeExecutable(target)
+            | BuildPlanNode::GenerateTestInfo(target)
+            | BuildPlanNode::GenerateMbti(target) => Some(target.package),
+            BuildPlanNode::BuildCStub(package, _)
+            | BuildPlanNode::ArchiveOrLinkCStubs(package)
+            | BuildPlanNode::BuildVirtual(package)
+            | BuildPlanNode::RunPrebuild(package, _)
+            | BuildPlanNode::RunMoonLexPrebuild(package, _)
+            | BuildPlanNode::RunMoonYaccPrebuild(package, _) => Some(package),
+            BuildPlanNode::Bundle(_)
+            | BuildPlanNode::BuildRuntimeLib
+            | BuildPlanNode::BuildDocs(_) => None,
+        };
+        package.is_some_and(|package| package != script_package)
     }
 
     /// Tell the build graph that the given node has been resolved into a
@@ -423,6 +476,10 @@ impl<'a> BuildPlanConstructor<'a> {
 
     /// Add an edge from `start` to `end`, depending on all files produced by `end`.
     pub(super) fn add_edge(&mut self, start: BuildPlanNode, end: BuildPlanNode) {
+        if self.is_external_dependency_node(end) {
+            self.add_external_dependency(start, end, FileDependencyKind::AllFiles);
+            return;
+        }
         self.res
             .graph
             .add_edge(start, end, FileDependencyKind::AllFiles);
@@ -457,7 +514,25 @@ impl<'a> BuildPlanConstructor<'a> {
             _ => (),
         }
 
+        if self.is_external_dependency_node(end) {
+            self.add_external_dependency(start, end, edge);
+            return;
+        }
         self.res.graph.add_edge(start, end, edge);
+    }
+
+    fn add_external_dependency(
+        &mut self,
+        start: BuildPlanNode,
+        end: BuildPlanNode,
+        edge: FileDependencyKind,
+    ) {
+        let key = (start, end);
+        if let Some(existing) = self.res.external_dependencies.get_mut(&key) {
+            merge_edge_kind(existing, edge);
+        } else {
+            self.res.external_dependencies.insert(key, edge);
+        }
     }
 
     /// Debug-only helper that runs build_action_dependencies with panic capture and reporting.

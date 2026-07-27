@@ -182,6 +182,22 @@ This keeps responsibilities separate:
 - `ArtifactPathResolver` owns logical product to path resolution.
 - `build_lower` owns command construction and n2 graph output.
 
+## Standalone script boundary
+
+Standalone `.mbt` and `.mbtx` execution plans dependency packages separately
+from the synthesized script package. Script planning stops when it reaches an
+action owned by another package and records the logical products required by
+that edge. Those actions become roots of a normal dependency-package plan.
+
+Both plans use the existing `BuildPlan` and lowering rules. The dependency plan
+owns the producer actions for artifacts under `.mooncakes`; the script plan
+contains those artifact paths only as external n2 inputs. Execution runs the
+dependency graph first using `standalone-dependencies.moon_db`, then runs the
+script graph using the existing mode database. There is no file-existence scan
+between the phases: n2 decides whether dependency actions are current.
+
+Ordinary workspace commands continue to produce and execute one plan.
+
 ## Compatibility
 
 `LoweringResult` returns root action artifacts as `(BuildActionId, paths)` pairs

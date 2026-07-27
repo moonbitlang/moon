@@ -704,12 +704,13 @@ fn build_single_file_executable(
         Default::default()
     };
     let intent = (vec![UserIntent::Run(package)], directive).into();
-    let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
+    let (build_meta, build_graph) = rr_build::plan_resolved_standalone_build_from_intent(
         preconfig,
         &cli.unstable_feature,
         user_log,
         planning_context,
         intent,
+        package,
         mooncake_bin_dir,
         resolved,
     )?;

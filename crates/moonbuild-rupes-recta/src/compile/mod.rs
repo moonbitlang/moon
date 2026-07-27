@@ -19,7 +19,10 @@
 use indexmap::IndexMap;
 use log::{debug, info};
 use moonutil::{build_options::RunMode, cond_expr::OptLevel, user_log::UserLog};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 use tracing::{Level, instrument};
 
 use crate::{
@@ -92,6 +95,14 @@ pub struct CompileOutput {
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
 
+/// The two independently planned graphs for a standalone script build.
+pub struct StandaloneCompileOutput {
+    /// Dependency-package work, executed before the script graph.
+    pub dependencies: CompileOutput,
+    /// Work belonging to the synthesized script package.
+    pub script: CompileOutput,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CompileGraphError {
     #[error("Failed to build a build plan for the modules")]
@@ -118,21 +129,15 @@ pub fn compile(
     let input_nodes = input_nodes
         .iter()
         .cloned()
-        .filter(|x| filter_special_case_input_nodes(*x, resolve_output));
+        .filter(|x| filter_special_case_input_nodes(*x, resolve_output))
+        .collect::<Vec<_>>();
 
-    let build_env = BuildEnvironment {
-        target_backend: cx.target_backend,
-        native_mode: cx.native_mode.clone(),
-        opt_level: cx.opt_level,
-        action: cx.action,
-        std: cx.stdlib_path.is_some(),
-        warn_list: cx.warn_list.clone(),
-    };
+    let build_env = build_environment(cx);
     let plan = build_plan::build_plan(
         resolve_output,
         mooncake_bin_dir,
         &build_env,
-        input_nodes,
+        input_nodes.into_iter(),
         input_directive,
         prebuild_config,
         user_log,
@@ -141,16 +146,91 @@ pub fn compile(
     info!("Build plan created successfully");
     debug!("Build plan contains {} nodes", plan.node_count());
 
-    let selected_backend =
-        build_lower::SelectedBackend::new(cx.target_backend, &cx.native_mode, cx.output_wat);
+    lower_plan(cx, resolve_output, plan)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip_all)]
+pub fn compile_standalone(
+    cx: &CompileConfig,
+    mooncake_bin_dir: &Path,
+    resolve_output: &ResolveOutput,
+    input_nodes: &[BuildPlanNode],
+    script_package: crate::model::PackageId,
+    input_directive: &InputDirective,
+    prebuild_config: Option<&PrebuildOutput>,
+    user_log: &UserLog,
+) -> Result<StandaloneCompileOutput, CompileGraphError> {
+    info!("Building separate standalone dependency and script plans");
+    let input_nodes = input_nodes
+        .iter()
+        .copied()
+        .filter(|node| filter_special_case_input_nodes(*node, resolve_output))
+        .collect::<Vec<_>>();
+    let build_env = build_environment(cx);
+    let script_plan = build_plan::build_standalone_script_plan(
+        resolve_output,
+        mooncake_bin_dir,
+        &build_env,
+        input_nodes.into_iter(),
+        script_package,
+        input_directive,
+        prebuild_config,
+        user_log,
+    )?;
+    let dependency_inputs = script_plan
+        .external_dependency_nodes()
+        .collect::<BTreeSet<_>>();
+    let dependency_plan = build_plan::build_plan(
+        resolve_output,
+        mooncake_bin_dir,
+        &build_env,
+        dependency_inputs.into_iter(),
+        input_directive,
+        prebuild_config,
+        user_log,
+    )?;
+
+    debug!(
+        "Standalone plans contain {} dependency nodes and {} script nodes",
+        dependency_plan.node_count(),
+        script_plan.node_count()
+    );
+    let dependencies = lower_plan(cx, resolve_output, dependency_plan)?;
+    let script = lower_plan(cx, resolve_output, script_plan)?;
+    Ok(StandaloneCompileOutput {
+        dependencies,
+        script,
+    })
+}
+
+fn build_environment(cx: &CompileConfig) -> BuildEnvironment {
+    BuildEnvironment {
+        target_backend: cx.target_backend,
+        native_mode: cx.native_mode.clone(),
+        opt_level: cx.opt_level,
+        action: cx.action,
+        std: cx.stdlib_path.is_some(),
+        warn_list: cx.warn_list.clone(),
+    }
+}
+
+fn lower_plan(
+    cx: &CompileConfig,
+    resolve_output: &ResolveOutput,
+    plan: build_plan::BuildPlan,
+) -> Result<CompileOutput, CompileGraphError> {
     let lower_env = build_lower::BuildOptions {
         artifact_paths: cx.artifact_paths.clone(),
         target_backend: cx.target_backend,
         native_mode: cx.native_mode.clone(),
-        selected_backend,
+        selected_backend: build_lower::SelectedBackend::new(
+            cx.target_backend,
+            &cx.native_mode,
+            cx.output_wat,
+        ),
         opt_level: cx.opt_level,
         action: cx.action,
-
         enable_coverage: cx.enable_coverage,
         debug_symbols: cx.debug_symbols,
         output_wat: cx.output_wat,
@@ -159,7 +239,6 @@ pub fn compile(
         warning_condition: cx.warning_condition,
         info_no_alias: cx.info_no_alias,
         wasi_link: cx.wasi_link,
-
         stdlib_path: cx.stdlib_path.clone(),
         lowering_environment: cx.lowering_environment.clone(),
     };
@@ -204,5 +283,283 @@ fn filter_special_case_input_nodes(node: BuildPlanNode, resolve_output: &Resolve
             !should_skip_tests(pkg_name)
         }
         _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::{Path, PathBuf};
+
+    use indexmap::IndexSet;
+    use moonutil::{
+        build_options::RunMode,
+        cond_expr::OptLevel,
+        manifest::MoonMod,
+        package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
+        resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
+        target::TargetBackend,
+        user_log::UserLog,
+    };
+
+    use crate::{
+        ResolveOutput,
+        build_lower::{LoweringEnvironment, WarningCondition},
+        build_plan::InputDirective,
+        discover::{DiscoverResult, DiscoveredPackage},
+        model::{BuildPlanNode, NativeBackendMode, RunBackend, TargetKind},
+        pkg_name::{PackageFQN, PackagePath},
+        pkg_solve::{DepEdge, DepRelationship},
+        target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
+    };
+
+    use super::{CompileConfig, compile_standalone};
+
+    fn moon_mod() -> MoonMod {
+        MoonMod {
+            name: "test/single".to_string(),
+            version: None,
+            deps: Default::default(),
+            bin_deps: None,
+            readme: None,
+            repository: None,
+            license: None,
+            keywords: None,
+            description: None,
+            compile_flags: None,
+            link_flags: None,
+            checksum: None,
+            source: None,
+            rule: None,
+            ext: Default::default(),
+            warn_list: None,
+            include: None,
+            exclude: None,
+            preferred_target: None,
+            supported_targets: None,
+            scripts: None,
+            __moonbit_unstable_prebuild: None,
+        }
+    }
+
+    fn moon_pkg(is_main: bool) -> MoonPkg {
+        MoonPkg {
+            name: None,
+            is_main,
+            force_link: false,
+            sub_package: None,
+            imports: Vec::new(),
+            wbtest_imports: Vec::new(),
+            test_imports: Vec::new(),
+            formatter: MoonPkgFormatter {
+                ignore: Default::default(),
+            },
+            link: None,
+            warn_list: None,
+            proof_enabled: false,
+            targets: None,
+            pre_build: None,
+            bin_name: None,
+            bin_target: None,
+            supported_targets: TargetBackend::all().iter().copied().collect(),
+            native_stub: None,
+            virtual_pkg: None,
+            implement: None,
+            overrides: None,
+            max_concurrent_tests: None,
+            regex_backend: None,
+            local_rules: None,
+        }
+    }
+
+    fn package(
+        module: moonutil::resolution::ModuleId,
+        module_source: &ModuleSource,
+        path: &str,
+        is_single_file: bool,
+        is_main: bool,
+    ) -> DiscoveredPackage {
+        let package_path = PackagePath::new(path).expect("test package path should parse");
+        DiscoveredPackage {
+            root_path: PathBuf::from(path),
+            module,
+            fqn: PackageFQN::new(module_source.clone(), package_path),
+            is_single_file,
+            manifest_path: (!is_single_file).then(|| PathBuf::from(path).join("moon.pkg.json")),
+            raw: Box::new(moon_pkg(is_main)),
+            supported_targets_decl: SupportedTargetsDeclKind::Omitted,
+            effective_supported_targets: TargetBackend::all().iter().copied().collect(),
+            source_files: vec![PathBuf::from(path).join(format!("{path}.mbt"))],
+            mbt_lex_files: Vec::new(),
+            mbt_yacc_files: Vec::new(),
+            mbt_md_files: Vec::new(),
+            mbtp_files: Vec::new(),
+            c_stub_files: Vec::new(),
+            virtual_mbti: None,
+            is_stdlib: false,
+        }
+    }
+
+    #[test]
+    fn standalone_compile_lowers_dependency_and_script_products_to_separate_graphs() {
+        let module_source = ModuleSource::local_path(
+            "test/single"
+                .parse::<ModuleName>()
+                .expect("test module should parse"),
+            PathBuf::from("."),
+            DEFAULT_VERSION.clone(),
+        );
+        let (modules, module) = ResolvedEnv::only_one_module(module_source.clone(), moon_mod());
+        let mut packages = DiscoverResult::default();
+        packages.test_register_module(module, moon_mod());
+        let script = packages.test_add_package(
+            module,
+            PackagePath::new("script").expect("script path should parse"),
+            package(module, &module_source, "script", true, true),
+        );
+        let dependency = packages.test_add_package(
+            module,
+            PackagePath::new("dependency").expect("dependency path should parse"),
+            package(module, &module_source, "dependency", false, false),
+        );
+        let script_target = script.build_target(TargetKind::Source);
+        let dependency_target = dependency.build_target(TargetKind::Source);
+        let mut relationship = DepRelationship::default();
+        relationship.dep_graph.add_edge(
+            script_target,
+            dependency_target,
+            DepEdge {
+                short_alias: "dependency".into(),
+                kind: TargetKind::Source,
+            },
+        );
+        let supported = TargetBackend::all()
+            .iter()
+            .copied()
+            .collect::<IndexSet<_>>();
+        relationship
+            .realizable_supported_targets
+            .insert(script_target, supported.clone());
+        relationship
+            .realizable_supported_targets
+            .insert(dependency_target, supported);
+        let mut module_dirs = DirSyncResult::default();
+        module_dirs.insert(module, PathBuf::from("."));
+        let resolved = ResolveOutput {
+            module_rel: modules,
+            module_dirs,
+            pkg_dirs: packages,
+            pkg_rel: relationship,
+        };
+        let artifact_paths = ArtifactPathResolver::new(
+            TargetLayout::new(
+                PathBuf::from("_build"),
+                TargetLayoutMode::Mono {
+                    main_module: module_source,
+                },
+                OptLevel::Debug,
+                RunMode::Run,
+            ),
+            None,
+        );
+        let config = CompileConfig {
+            target_dir: PathBuf::from("_build"),
+            target_backend: RunBackend::WasmGC,
+            native_mode: NativeBackendMode::GeneratedC,
+            opt_level: OptLevel::Debug,
+            action: RunMode::Run,
+            debug_symbols: false,
+            stdlib_path: None,
+            artifact_paths,
+            lowering_environment: LoweringEnvironment::default(),
+            debug_export_build_plan: false,
+            wasi_link: false,
+            enable_coverage: false,
+            output_wat: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            warn_list: None,
+            info_no_alias: false,
+        };
+
+        let output = compile_standalone(
+            &config,
+            Path::new("."),
+            &resolved,
+            &[BuildPlanNode::MakeExecutable(script_target)],
+            script,
+            &InputDirective::default(),
+            None,
+            &UserLog::new(log::LevelFilter::Error),
+        )
+        .expect("standalone plans should lower");
+
+        assert_eq!(output.dependencies.build_graph.builds.iter().count(), 1);
+        assert_eq!(output.script.build_graph.builds.iter().count(), 2);
+
+        let dependency_outputs = output
+            .dependencies
+            .build_graph
+            .builds
+            .iter()
+            .flat_map(|build| build.outs.ids.iter())
+            .map(|id| {
+                output.dependencies.build_graph.files.by_id[*id]
+                    .name
+                    .clone()
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            dependency_outputs
+                .iter()
+                .any(|path| path.ends_with("dependency.mi"))
+        );
+        assert!(
+            dependency_outputs
+                .iter()
+                .any(|path| path.ends_with("dependency.core"))
+        );
+        assert!(
+            !dependency_outputs
+                .iter()
+                .any(|path| path.ends_with("script.core"))
+        );
+
+        let script_inputs = output
+            .script
+            .build_graph
+            .builds
+            .iter()
+            .flat_map(|build| build.ins.ids.iter())
+            .map(|id| output.script.build_graph.files.by_id[*id].name.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            script_inputs
+                .iter()
+                .any(|path| path.ends_with("dependency.mi"))
+        );
+        assert!(
+            script_inputs
+                .iter()
+                .any(|path| path.ends_with("dependency.core"))
+        );
+        let script_outputs = output
+            .script
+            .build_graph
+            .builds
+            .iter()
+            .flat_map(|build| build.outs.ids.iter())
+            .map(|id| output.script.build_graph.files.by_id[*id].name.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            !script_outputs
+                .iter()
+                .any(|path| path.ends_with("dependency.mi"))
+        );
+        assert!(
+            !script_outputs
+                .iter()
+                .any(|path| path.ends_with("dependency.core"))
+        );
     }
 }
