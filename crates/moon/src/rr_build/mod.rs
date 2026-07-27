@@ -1030,6 +1030,17 @@ impl BuildInput {
     }
 }
 
+struct CapturedBuildExecution {
+    n_tasks_executed: Option<usize>,
+    diagnostics: ResultCatcher,
+}
+
+impl CapturedBuildExecution {
+    fn successful(&self) -> bool {
+        self.n_tasks_executed.is_some()
+    }
+}
+
 /// Execute a build plan.
 ///
 /// Takes ownership of the build graph and executes the actual build tasks.
@@ -1042,23 +1053,8 @@ pub fn execute_build(
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
-    // Get start nodes (leaf outputs) before moving the graph
-    let start_nodes = input.graph.get_start_nodes();
-
-    execute_build_partial(
-        cfg,
-        input,
-        target_dir,
-        None,
-        user_log,
-        Box::new(|work| {
-            // Want only the leaf output files, not all files including stdlib
-            for file_id in start_nodes {
-                work.want_file(file_id)?;
-            }
-            Ok(())
-        }),
-    )
+    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    Ok(finish_captured_build(cfg, &execution, None, user_log))
 }
 
 /// Execute standalone dependency-package work before script-package work.
@@ -1069,26 +1065,46 @@ pub fn execute_standalone_build(
     target_dir: &Path,
     user_log: &UserLog,
 ) -> anyhow::Result<N2RunStats> {
-    let dependency_stats = if let Some(dependencies) = input.dependencies {
-        let stats = execute_build(cfg, dependencies, target_dir, user_log)?;
-        if !stats.successful() {
-            return Ok(stats);
-        }
-        Some(stats)
-    } else {
-        None
+    let Some(dependencies) = input.dependencies else {
+        return execute_build(cfg, input.script, target_dir, user_log);
     };
 
-    let mut stats = execute_build(cfg, input.script, target_dir, user_log)?;
-    if let Some(dependency_stats) = dependency_stats {
-        stats.n_tasks_executed = stats
-            .n_tasks_executed
-            .zip(dependency_stats.n_tasks_executed)
-            .map(|(script, dependencies)| script + dependencies);
-        stats.n_errors += dependency_stats.n_errors;
-        stats.n_warnings += dependency_stats.n_warnings;
+    let dependency_execution = execute_build_capturing(cfg, dependencies, target_dir)?;
+    if !dependency_execution.successful() {
+        return Ok(finish_captured_build(
+            cfg,
+            &dependency_execution,
+            None,
+            user_log,
+        ));
     }
-    Ok(stats)
+
+    let script_execution = match execute_build_capturing(cfg, input.script, target_dir) {
+        Ok(execution) => execution,
+        Err(error) => {
+            // Preserve dependency output if the second executor fails before it
+            // can return captured output for command-level processing.
+            finish_captured_build(cfg, &dependency_execution, None, user_log);
+            return Err(error);
+        }
+    };
+    let processed = process_captured_diagnostics(
+        &[
+            CapturedDiagnosticSource::new(&dependency_execution, None),
+            CapturedDiagnosticSource::new(&script_execution, None),
+        ],
+        cfg,
+    );
+    processed.warn_if_limited(user_log);
+
+    Ok(N2RunStats {
+        n_tasks_executed: script_execution
+            .n_tasks_executed
+            .zip(dependency_execution.n_tasks_executed)
+            .map(|(script, dependencies)| script + dependencies),
+        n_errors: processed.n_errors,
+        n_warnings: processed.n_warnings,
+    })
 }
 
 /// Execute a test build.
@@ -1138,6 +1154,37 @@ pub fn execute_build_partial(
     user_log: &UserLog,
     want_files: Box<WantFileFn>,
 ) -> anyhow::Result<N2RunStats> {
+    let execution = execute_build_partial_capturing(cfg, input, target_dir, want_files)?;
+    Ok(finish_captured_build(cfg, &execution, build_meta, user_log))
+}
+
+fn execute_build_capturing(
+    cfg: &BuildConfig,
+    input: BuildInput,
+    target_dir: &Path,
+) -> anyhow::Result<CapturedBuildExecution> {
+    // Get start nodes (leaf outputs) before moving the graph.
+    let start_nodes = input.graph.get_start_nodes();
+    execute_build_partial_capturing(
+        cfg,
+        input,
+        target_dir,
+        Box::new(|work| {
+            // Want only the leaf output files, not all files including stdlib.
+            for file_id in start_nodes {
+                work.want_file(file_id)?;
+            }
+            Ok(())
+        }),
+    )
+}
+
+fn execute_build_partial_capturing(
+    cfg: &BuildConfig,
+    input: BuildInput,
+    target_dir: &Path,
+    want_files: Box<WantFileFn>,
+) -> anyhow::Result<CapturedBuildExecution> {
     // Ensure target directory exists
     std::fs::create_dir_all(target_dir).context(format!(
         "Failed to create target directory: '{}'",
@@ -1197,23 +1244,31 @@ pub fn execute_build_partial(
     drop(work);
     drop(prog_console); // Ensure the progress bar won't mess with diagnostic output
     let res = res?;
-    let build_succeeded = res.is_some();
-
-    let mut result_catcher = result_catcher.lock().unwrap();
-    process_captured_diagnostics(
-        &mut result_catcher,
-        cfg,
-        build_succeeded,
-        build_meta,
-        user_log,
-    );
-    let stats = N2RunStats {
-        n_tasks_executed: res,
-        n_errors: result_catcher.n_errors,
-        n_warnings: result_catcher.n_warnings,
+    let diagnostics = {
+        let mut result_catcher = result_catcher.lock().unwrap();
+        std::mem::take(&mut *result_catcher)
     };
 
-    Ok(stats)
+    Ok(CapturedBuildExecution {
+        n_tasks_executed: res,
+        diagnostics,
+    })
+}
+
+fn finish_captured_build(
+    cfg: &BuildConfig,
+    execution: &CapturedBuildExecution,
+    build_meta: Option<&BuildMeta>,
+    user_log: &UserLog,
+) -> N2RunStats {
+    let processed =
+        process_captured_diagnostics(&[CapturedDiagnosticSource::new(execution, build_meta)], cfg);
+    processed.warn_if_limited(user_log);
+    N2RunStats {
+        n_tasks_executed: execution.n_tasks_executed,
+        n_errors: processed.n_errors,
+        n_warnings: processed.n_warnings,
+    }
 }
 
 /// Capture compiler output from n2 so it can be processed after the build.
@@ -1233,73 +1288,125 @@ fn should_render_non_diagnostic_build_output(cfg: &BuildConfig, build_succeeded:
     !(cfg.suppress_progress && build_succeeded)
 }
 
-fn process_captured_diagnostics(
-    catcher: &mut ResultCatcher,
-    cfg: &BuildConfig,
+struct CapturedDiagnosticSource<'a> {
+    diagnostics: &'a ResultCatcher,
     build_succeeded: bool,
-    build_meta: Option<&BuildMeta>,
-    user_log: &UserLog,
-) {
-    let captured = catcher.content_writer.iter().map(|content| {
-        let Some(meta) = build_meta else {
-            return content.to_owned();
-        };
-        let layout = meta.artifact_paths.target_layout();
-        let packages = &meta.resolve_output.pkg_dirs;
-        let backend = meta.target_backend.into();
+    build_meta: Option<&'a BuildMeta>,
+}
 
-        if cfg.output_style.needs_moonc_json() {
-            let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) else {
-                return content.to_owned();
-            };
-            let mut changed = false;
-            let mut diagnostics = vec![&mut value];
-            while let Some(diagnostic) = diagnostics.pop() {
-                let Some(object) = diagnostic.as_object_mut() else {
-                    continue;
-                };
-                if let Some(serde_json::Value::String(path)) = object.get_mut("path")
-                    && let Some(physical) = layout.generated_test_driver_diagnostic_path(
-                        packages,
-                        Path::new(path),
-                        backend,
-                    )
-                {
-                    *path = physical.to_string_lossy().into_owned();
-                    changed = true;
-                }
-                if let Some(serde_json::Value::Array(children)) = object.get_mut("children") {
-                    diagnostics.extend(children.iter_mut());
-                }
-            }
-            return if changed {
-                serde_json::to_string(&value).expect("diagnostic JSON should serialize")
-            } else {
-                content.to_owned()
-            };
+impl<'a> CapturedDiagnosticSource<'a> {
+    fn new(execution: &'a CapturedBuildExecution, build_meta: Option<&'a BuildMeta>) -> Self {
+        Self {
+            diagnostics: &execution.diagnostics,
+            build_succeeded: execution.successful(),
+            build_meta,
         }
+    }
+}
 
-        let Some(prefix_start) = content.find(GENERATED_TEST_DRIVER_PREFIX) else {
+struct ProcessedDiagnostics {
+    n_errors: usize,
+    n_warnings: usize,
+    hidden_errors: usize,
+    hidden_warnings: usize,
+}
+
+impl ProcessedDiagnostics {
+    fn warn_if_limited(&self, user_log: &UserLog) {
+        if self.hidden_errors != 0 || self.hidden_warnings != 0 {
+            user_log.warn(format!(
+                "diagnostic output limited by --diagnostic-limit: {} errors and {} warnings were not displayed.",
+                self.hidden_errors, self.hidden_warnings
+            ));
+        }
+    }
+}
+
+fn rewrite_captured_diagnostic(
+    content: &str,
+    cfg: &BuildConfig,
+    build_meta: Option<&BuildMeta>,
+) -> String {
+    let Some(meta) = build_meta else {
+        return content.to_owned();
+    };
+    let layout = meta.artifact_paths.target_layout();
+    let packages = &meta.resolve_output.pkg_dirs;
+    let backend = meta.target_backend.into();
+
+    if cfg.output_style.needs_moonc_json() {
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) else {
             return content.to_owned();
         };
-        let Some(extension_end) = content[prefix_start..].find(".mbt") else {
-            return content.to_owned();
+        let mut changed = false;
+        let mut diagnostics = vec![&mut value];
+        while let Some(diagnostic) = diagnostics.pop() {
+            let Some(object) = diagnostic.as_object_mut() else {
+                continue;
+            };
+            if let Some(serde_json::Value::String(path)) = object.get_mut("path")
+                && let Some(physical) =
+                    layout.generated_test_driver_diagnostic_path(packages, Path::new(path), backend)
+            {
+                *path = physical.to_string_lossy().into_owned();
+                changed = true;
+            }
+            if let Some(serde_json::Value::Array(children)) = object.get_mut("children") {
+                diagnostics.extend(children.iter_mut());
+            }
+        }
+        return if changed {
+            serde_json::to_string(&value).expect("diagnostic JSON should serialize")
+        } else {
+            content.to_owned()
         };
-        let path_end = prefix_start + extension_end + ".mbt".len();
-        let Some(physical) = layout.generated_test_driver_diagnostic_path(
-            packages,
-            Path::new(&content[..path_end]),
-            backend,
-        ) else {
-            return content.to_owned();
-        };
-        format!("{}{}", physical.display(), &content[path_end..])
+    }
+
+    let Some(prefix_start) = content.find(GENERATED_TEST_DRIVER_PREFIX) else {
+        return content.to_owned();
+    };
+    let Some(extension_end) = content[prefix_start..].find(".mbt") else {
+        return content.to_owned();
+    };
+    let path_end = prefix_start + extension_end + ".mbt".len();
+    let Some(physical) = layout.generated_test_driver_diagnostic_path(
+        packages,
+        Path::new(&content[..path_end]),
+        backend,
+    ) else {
+        return content.to_owned();
+    };
+    format!("{}{}", physical.display(), &content[path_end..])
+}
+
+fn process_captured_diagnostics(
+    sources: &[CapturedDiagnosticSource<'_>],
+    cfg: &BuildConfig,
+) -> ProcessedDiagnostics {
+    let mut catcher = ResultCatcher::default();
+    for source in sources {
+        catcher.n_errors += source.diagnostics.n_errors;
+        catcher.n_warnings += source.diagnostics.n_warnings;
+    }
+    let mut hidden_errors_total = 0;
+    let mut hidden_warnings_total = 0;
+    let captured = sources.iter().flat_map(|source| {
+        source
+            .diagnostics
+            .content_writer
+            .iter()
+            .map(move |content| {
+                (
+                    rewrite_captured_diagnostic(content, cfg, source.build_meta),
+                    source.build_succeeded,
+                )
+            })
     });
 
     match cfg.output_style {
         OutputStyle::Json => {
             let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
-            for content in captured {
+            for (content, build_succeeded) in captured {
                 match serde_json::from_str::<moonutil::render::MooncDiagnostic>(&content) {
                     Ok(d) => {
                         if diagnostic_is_generated_test_driver_warning(&d) {
@@ -1372,7 +1479,8 @@ fn process_captured_diagnostics(
                     }
 
                     let hidden_warnings = total_warnings - displayed_warnings;
-                    warn_limited_diagnostics(hidden_errors, hidden_warnings, user_log);
+                    hidden_errors_total += hidden_errors;
+                    hidden_warnings_total += hidden_warnings;
                     catcher.n_errors += hidden_errors;
                     catcher.n_warnings += hidden_warnings;
                 }
@@ -1380,7 +1488,7 @@ fn process_captured_diagnostics(
         }
         OutputStyle::Fancy => {
             let mut by_file = BTreeMap::<String, BTreeSet<MooncDiagnostic>>::new();
-            for content in captured {
+            for (content, build_succeeded) in captured {
                 match serde_json::from_str::<moonutil::render::MooncDiagnostic>(&content) {
                     Ok(d) => {
                         if diagnostic_is_generated_test_driver_warning(&d) {
@@ -1472,17 +1580,24 @@ fn process_captured_diagnostics(
                     }
 
                     let hidden_warnings = total_warnings - displayed_warnings;
-                    warn_limited_diagnostics(hidden_errors, hidden_warnings, user_log);
+                    hidden_errors_total += hidden_errors;
+                    hidden_warnings_total += hidden_warnings;
                     catcher.n_errors += hidden_errors;
                     catcher.n_warnings += hidden_warnings;
                 }
             }
         }
         OutputStyle::Raw => {
-            for content in captured {
+            for (content, _) in captured {
                 println!("{content}");
             }
         }
+    }
+    ProcessedDiagnostics {
+        n_errors: catcher.n_errors,
+        n_warnings: catcher.n_warnings,
+        hidden_errors: hidden_errors_total,
+        hidden_warnings: hidden_warnings_total,
     }
 }
 
@@ -1504,15 +1619,6 @@ fn diagnostic_is_renderable(diag: &MooncDiagnostic, cfg: &BuildConfig) -> bool {
     }
 
     DiagnosticLevel::from_str(&diag.level, true).is_ok_and(|level| level >= cfg.render_no_loc)
-}
-
-fn warn_limited_diagnostics(hidden_errors: usize, hidden_warnings: usize, user_log: &UserLog) {
-    if hidden_errors != 0 || hidden_warnings != 0 {
-        user_log.warn(format!(
-            "diagnostic output limited by --diagnostic-limit: {} errors and {} warnings were not displayed.",
-            hidden_errors, hidden_warnings
-        ));
-    }
 }
 
 #[cfg(test)]
@@ -1564,15 +1670,55 @@ mod tests {
             output_style: OutputStyle::Json,
             ..Default::default()
         };
-        process_captured_diagnostics(
-            &mut catcher,
+        let processed = process_captured_diagnostics(
+            &[CapturedDiagnosticSource {
+                diagnostics: &catcher,
+                build_succeeded: false,
+                build_meta: None,
+            }],
             &cfg,
-            false,
-            None,
-            &UserLog::new(log::LevelFilter::Warn),
         );
 
-        assert_eq!(catcher.n_warnings, 0);
-        assert_eq!(catcher.n_errors, 1);
+        assert_eq!(processed.n_warnings, 0);
+        assert_eq!(processed.n_errors, 1);
+    }
+
+    #[test]
+    fn diagnostic_limit_is_shared_across_captured_build_errors() {
+        let mut dependency_error = diagnostic("./dependency.mbt", "error");
+        dependency_error
+            .children
+            .push(diagnostic("./dependency-detail.mbt", "error"));
+        let script_error = diagnostic("./script.mbt", "error");
+        let mut dependency = ResultCatcher::default();
+        dependency.append_content(serde_json::to_string(&dependency_error).unwrap(), None);
+        let mut script = ResultCatcher::default();
+        script.append_content(serde_json::to_string(&script_error).unwrap(), None);
+
+        let cfg = BuildConfig {
+            output_style: OutputStyle::Json,
+            diagnostic_limit: Some(1),
+            ..Default::default()
+        };
+        let processed = process_captured_diagnostics(
+            &[
+                CapturedDiagnosticSource {
+                    diagnostics: &dependency,
+                    build_succeeded: true,
+                    build_meta: None,
+                },
+                CapturedDiagnosticSource {
+                    diagnostics: &script,
+                    build_succeeded: false,
+                    build_meta: None,
+                },
+            ],
+            &cfg,
+        );
+
+        assert_eq!(processed.n_errors, 2);
+        assert_eq!(processed.n_warnings, 0);
+        assert_eq!(processed.hidden_errors, 1);
+        assert_eq!(processed.hidden_warnings, 0);
     }
 }
