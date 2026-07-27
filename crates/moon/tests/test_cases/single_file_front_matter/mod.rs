@@ -76,7 +76,7 @@ fn test_single_file_mbtx_dry_run_prints_dependencies_before_script() {
         .expect("dry run should print the dependency package command");
     let script_command = stdout
         .lines()
-        .position(|line| line.contains("_build/import_ok.mbt"))
+        .position(|line| line.contains("-pkg moon/test/single "))
         .expect("dry run should print the script package command");
 
     assert!(
@@ -133,6 +133,22 @@ fn test_single_file_mbtx_run_block_import() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stdout = get_stdout(&dir, ["run", "import_block_ok.mbtx"]);
     assert!(stdout.contains("hello"));
+}
+
+#[test]
+fn test_single_file_mbtx_builds_original_source() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let stdout = get_stdout(&dir, ["run", "import_ok.mbtx", "--dry-run"]);
+    let command = stdout
+        .lines()
+        .find(|line| line.contains("-pkg moon/test/single "))
+        .expect("dry-run should contain the synthetic package build");
+
+    assert!(command.contains("import_ok.mbtx"), "command: {command}");
+    assert!(
+        command.contains("-ignore-import-declaration"),
+        "command: {command}"
+    );
 }
 
 #[test]

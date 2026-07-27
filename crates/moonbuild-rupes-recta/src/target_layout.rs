@@ -1327,7 +1327,7 @@ mod tests {
             root_path: PathBuf::from(package_path.as_str()),
             module: module_id,
             fqn: PackageFQN::new(module_source, package_path.clone()),
-            is_single_file: false,
+            single_file_source_kind: None,
             manifest_path: Some(PathBuf::from(package_path.as_str()).join("moon.pkg.json")),
             raw: Box::new(moon_pkg(supported_targets.clone())),
             supported_targets_decl: SupportedTargetsDeclKind::Omitted,

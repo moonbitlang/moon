@@ -48,12 +48,12 @@ use moonutil::{
 };
 use tracing::instrument;
 
-use crate::mbtx::{parse_mbtx_imports, prepare_single_file_for_compile};
+use crate::mbtx::parse_mbtx_imports;
 
 use crate::discover::special_case::inject_core_coverage_into_builtin;
 use crate::special_cases::CORE_MODULE_TUPLE;
 use crate::{
-    discover::{DiscoverError, DiscoverResult, discover_packages},
+    discover::{DiscoverError, DiscoverResult, SingleFileSourceKind, discover_packages},
     pkg_solve::{self, DepRelationship},
 };
 
@@ -404,8 +404,14 @@ pub fn resolve_single_file_project(
     run_mode: bool,
     user_log: &UserLog,
 ) -> Result<(ResolveOutput, Option<TargetBackend>), ResolveError> {
-    let is_mbtx = source_file.extension().is_some_and(|ext| ext == "mbtx");
-    let (header, front_matter_config, compile_input_file) = if is_mbtx {
+    let source_kind = if source_file.extension().is_some_and(|ext| ext == "mbtx") {
+        SingleFileSourceKind::Mbtx
+    } else if source_file.extension().is_some_and(|ext| ext == "md") {
+        SingleFileSourceKind::MbtMd
+    } else {
+        SingleFileSourceKind::Mbt
+    };
+    let (header, front_matter_config) = if source_kind == SingleFileSourceKind::Mbtx {
         let imports =
             parse_mbtx_imports(source_file).map_err(ResolveError::SingleFileParseError)?;
         let mut config = FrontMatterConfig {
@@ -417,17 +423,13 @@ pub fn resolve_single_file_project(
             config.deps_to_sync = Some(imports.deps);
             config.package_imports = Some(imports.imports);
         }
-        // Generate a temporary .mbt file under target_dir,
-        // because moonc doesn't support import declarations in source files yet.
-        let compile_input_file = prepare_single_file_for_compile(source_file, &dirs.target_dir)
-            .map_err(ResolveError::SingleFileParseError)?;
-        (None, config, compile_input_file)
+        (None, config)
     } else {
         let header =
             parse_front_matter_config(source_file).map_err(ResolveError::SingleFileParseError)?;
         let config = extract_front_matter_config(header.as_ref())
             .map_err(ResolveError::SingleFileParseError)?;
-        (header, config, source_file.to_path_buf())
+        (header, config)
     };
 
     let backend = header
@@ -461,7 +463,8 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
 
     // Synthesize the single-file package that imports everything from discovered modules
     crate::discover::synth::build_synth_single_file_package(
-        &compile_input_file,
+        source_file,
+        source_kind,
         &resolved_env,
         &mut discover_result,
         run_mode,

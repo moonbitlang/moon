@@ -35,7 +35,7 @@ use moonutil::package::{Import, MoonPkg, MoonPkgFormatter, SupportedTargetsDeclK
 use moonutil::resolution::ResolvedEnv;
 use moonutil::target::TargetBackend;
 
-use crate::discover::{DiscoverError, DiscoverResult, DiscoveredPackage};
+use crate::discover::{DiscoverError, DiscoverResult, DiscoveredPackage, SingleFileSourceKind};
 use crate::model::PackageId;
 use crate::pkg_name::{PackageFQN, PackagePath};
 
@@ -49,6 +49,7 @@ use crate::pkg_name::{PackageFQN, PackagePath};
 /// If `run_mode` is true, the package will be marked as a main package.
 pub fn build_synth_single_file_package(
     file: &Path,
+    source_kind: SingleFileSourceKind,
     env: &ResolvedEnv,
     discovered: &mut DiscoverResult,
     run_mode: bool,
@@ -141,10 +142,9 @@ pub fn build_synth_single_file_package(
     // Assign file to appropriate list
     let file_path = dunce::canonicalize(file).expect("Failed to canonicalize single-file input");
     let files = vec![file_path.clone()];
-    let (source_files, mbt_md_files) = if file_path.extension().is_some_and(|x| x == "md") {
-        (Vec::new(), files)
-    } else {
-        (files, Vec::new())
+    let (source_files, mbt_md_files) = match source_kind {
+        SingleFileSourceKind::Mbt | SingleFileSourceKind::Mbtx => (files, Vec::new()),
+        SingleFileSourceKind::MbtMd => (Vec::new(), files),
     };
 
     // Build DiscoveredPackage for synthetic package
@@ -155,7 +155,7 @@ pub fn build_synth_single_file_package(
             .to_path_buf(),
         module: mid,
         fqn: PackageFQN::new(module_src, pkg_path.clone()),
-        is_single_file: true,
+        single_file_source_kind: Some(source_kind),
         manifest_path: None,
         raw: Box::new(moon_pkg),
         supported_targets_decl: SupportedTargetsDeclKind::Omitted,

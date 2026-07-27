@@ -52,6 +52,10 @@ pub(crate) struct MooncBuildPackage<'a> {
 
     pub flags: CompilationFlags,
 
+    /// Whether `moonc build-package` should accept the inline import
+    /// declaration of an already-resolved `.mbtx` single-file input.
+    pub ignore_import_declaration: bool,
+
     /// Extra build options to append at the end.
     pub extra_build_opts: &'a [String],
 }
@@ -67,6 +71,10 @@ impl<'a> CmdlineAbstraction for MooncBuildPackage<'a> {
         self.required.add_mbt_sources(args);
         // Additional inputs in stable ordering
         self.required.add_doctest_only_sources(args);
+
+        if self.ignore_import_declaration {
+            args.push("-ignore-import-declaration".to_string());
+        }
 
         // Warning selection and deny handling
         self.defaults.add_warning_options(args);
