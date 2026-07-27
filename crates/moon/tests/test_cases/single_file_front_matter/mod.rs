@@ -76,7 +76,7 @@ fn test_single_file_mbtx_dry_run_prints_dependencies_before_script() {
         .expect("dry run should print the dependency package command");
     let script_command = stdout
         .lines()
-        .position(|line| line.contains("_build/import_ok.mbt"))
+        .position(|line| line.contains("-pkg moon/test/single "))
         .expect("dry run should print the script package command");
 
     assert!(

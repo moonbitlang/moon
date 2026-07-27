@@ -80,13 +80,12 @@ pub struct DiscoveredPackage {
     /// module's supported targets.
     pub effective_supported_targets: indexmap::IndexSet<TargetBackend>,
 
-    /// `.mbt` files contained by this package, or the original `.mbtx` input of
-    /// a synthetic single-file package. This list contains absolute paths of
-    /// the files. The same applies to all other file lists below.
+    /// Source inputs awaiting Build Target Projection.
     ///
-    /// This is an **unfiltered** list of source files contained by this
-    /// package, which requires further classifying into e.g. source files, test
-    /// files, and platform-specific files.
+    /// For an ordinary package, this is its unfiltered set of discovered
+    /// `.mbt` files. Single-file mode instead carries its selected `.mbt` or
+    /// `.mbtx` input here; `.mbtx` is never discovered as part of an ordinary
+    /// package. Paths in this and the other file lists below are absolute.
     pub source_files: Vec<PathBuf>,
 
     /// MoonBit Lex files (`.mbl`) contained by this package.
