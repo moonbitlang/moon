@@ -41,6 +41,7 @@ use moonbuild_rupes_recta::{
     CompileConfig, ResolveConfig, ResolveOutput,
     build_lower::{LoweringEnvironment, WarningCondition},
     build_plan::InputDirective,
+    discover::DiscoveredPackage,
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
@@ -326,19 +327,8 @@ impl CompilePreConfig {
             TargetBackend::Js => (RunBackend::Js, NativeBackendMode::GeneratedC),
             TargetBackend::Native => {
                 let native_mode = if let Some(native_target) = native_target {
-                    let has_cc_flags = input_nodes.iter().any(|node| {
-                        let BuildPlanNode::MakeExecutable(build_target) = node else {
-                            return false;
-                        };
-                        resolve_output
-                            .pkg_dirs
-                            .get_package(build_target.package)
-                            .raw
-                            .link
-                            .as_ref()
-                            .and_then(|link| link.native.as_ref())
-                            .is_some_and(|native| native.cc_flags.is_some())
-                    });
+                    let has_cc_flags = native_toolchain_settings(resolve_output, input_nodes)
+                        .any(|setting| matches!(setting, NativeToolchainSetting::CompilerFlags(_)));
                     if has_cc_flags {
                         info!(
                             "Disabling direct object native output: C/C++ compiler flags are set"
@@ -788,11 +778,56 @@ pub fn plan_fmt(
     })
 }
 
+enum NativeToolchainSetting<'a> {
+    Compiler(&'a DiscoveredPackage),
+    CompilerFlags(&'a DiscoveredPackage),
+    LinkerFlags(&'a DiscoveredPackage),
+}
+
+/// Enumerate package-level native toolchain settings for selected executables.
+fn native_toolchain_settings<'a>(
+    resolve_output: &'a ResolveOutput,
+    input_nodes: &'a [BuildPlanNode],
+) -> impl Iterator<Item = NativeToolchainSetting<'a>> {
+    input_nodes
+        .iter()
+        .filter_map(|node| {
+            let BuildPlanNode::MakeExecutable(build_target) = node else {
+                return None;
+            };
+            let package = resolve_output.pkg_dirs.get_package(build_target.package);
+            let native = package
+                .raw
+                .link
+                .as_ref()
+                .and_then(|link| link.native.as_ref())?;
+            Some((package, native))
+        })
+        .flat_map(|(package, native)| {
+            [
+                native
+                    .cc
+                    .is_some()
+                    .then_some(NativeToolchainSetting::Compiler(package)),
+                native
+                    .cc_flags
+                    .is_some()
+                    .then_some(NativeToolchainSetting::CompilerFlags(package)),
+                native
+                    .cc_link_flags
+                    .is_some()
+                    .then_some(NativeToolchainSetting::LinkerFlags(package)),
+            ]
+            .into_iter()
+            .flatten()
+        })
+}
+
 /// Check if we can actually run `tcc -run`.
 ///
 /// This is for usage in `moon run` and `moon test`. Based on the legacy impl,
-/// only if neither the user nor any package overrides the C/C++ toolchain, we
-/// can use `tcc -run`.
+/// only if neither the user nor any package configures the C/C++ compilation
+/// pipeline, we can use `tcc -run`.
 fn check_tcc_run_availability(
     resolve_output: &ResolveOutput,
     input_nodes: &[BuildPlanNode],
@@ -803,36 +838,17 @@ fn check_tcc_run_availability(
         return None;
     }
 
-    // Check if any package overrides the C/C++ toolchain before probing TCC.
-    for node in input_nodes {
-        if let BuildPlanNode::MakeExecutable(build_target) = node {
-            let package = resolve_output.pkg_dirs.get_package(build_target.package);
-            // Check native config
-            let Some(native) = package.raw.link.as_ref().and_then(|x| x.native.as_ref()) else {
-                continue;
-            };
-            if native.cc.is_some() {
-                user_log.warn(format!(
-                    "Package '{}' overrides C/C++ toolchain, `tcc -run` will be disabled",
-                    package.fqn
-                ));
-                return None;
-            }
-            if native.cc_flags.is_some() {
-                user_log.warn(format!(
-                    "Package '{}' overrides C/C++ compiler flags, `tcc -run` will be disabled",
-                    package.fqn
-                ));
-                return None;
-            }
-            if native.cc_link_flags.is_some() {
-                user_log.warn(format!(
-                    "Package '{}' overrides C/C++ linker flags, `tcc -run` will be disabled",
-                    package.fqn
-                ));
-                return None;
-            }
-        }
+    if let Some(setting) = native_toolchain_settings(resolve_output, input_nodes).next() {
+        let (package, description) = match setting {
+            NativeToolchainSetting::Compiler(package) => (package, "toolchain"),
+            NativeToolchainSetting::CompilerFlags(package) => (package, "compiler flags"),
+            NativeToolchainSetting::LinkerFlags(package) => (package, "linker flags"),
+        };
+        user_log.warn(format!(
+            "Package '{}' overrides C/C++ {description}, `tcc -run` will be disabled",
+            package.fqn
+        ));
+        return None;
     }
 
     match CC::internal_tcc() {
