@@ -28,7 +28,7 @@ use crate::{
 };
 
 /// One logical product after its concrete artifact paths have been selected.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LoweredProduct {
     pub(crate) producer: BuildActionId,
     pub(crate) product: BuildProduct,
@@ -162,7 +162,7 @@ impl LoweredCommand {
 /// Dependency products retain their producer action and logical product so a
 /// preparation policy can identify the dependency without reconstructing it
 /// from n2 file edges.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LoweredAction {
     pub(crate) id: BuildActionId,
     pub(crate) dependencies: Vec<LoweredProduct>,

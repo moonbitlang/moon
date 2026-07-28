@@ -115,11 +115,12 @@ mod tests {
 
     use crate::{
         build_action_plan::{BuildActionId, BuildProduct},
-        build_lower::{LoweredAction, LoweredCommand, LoweredProduct, LoweredResponseFile},
+        build_lower::{
+            LoweredAction, LoweredCommand, LoweredProduct, LoweredResponseFile,
+            lowered_actions_to_n2_graph,
+        },
         pkg_name::PackageFQN,
     };
-
-    use super::N2GraphBuilder;
 
     #[test]
     fn preserves_lowered_action_data_in_n2() {
@@ -149,10 +150,10 @@ mod tests {
             error_package: None::<PackageFQN>.into(),
         };
 
-        let mut n2 = N2GraphBuilder::new();
-        n2.add_action(lowered).expect("action should enter n2");
+        let (graph, command_args_by_output) =
+            lowered_actions_to_n2_graph(vec![lowered]).expect("action should enter n2");
 
-        let build = &n2.graph.builds[BuildId::from(0)];
+        let build = &graph.builds[BuildId::from(0)];
         assert_eq!(
             build.cmdline.as_deref(),
             Some("moonc -rsp-file build/main.core.rsp")
@@ -162,7 +163,7 @@ mod tests {
         assert_eq!(rspfile.content, "build-package\n");
         assert!(build.can_dirty_on_output);
         assert_eq!(
-            n2.command_args_by_output.get(Path::new("build/main.core")),
+            command_args_by_output.get(Path::new("build/main.core")),
             Some(&command_args)
         );
     }

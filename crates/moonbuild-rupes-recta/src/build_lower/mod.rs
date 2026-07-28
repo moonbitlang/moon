@@ -252,9 +252,10 @@ pub fn lower_build_plan(
     Ok(result)
 }
 
-/// Project one standalone action plan into dependency and script n2 graphs.
+/// Project one standalone action plan into retained dependency actions and a
+/// script n2 graph.
 ///
-/// The dependency graph contains every prerequisite outside the synthesized
+/// The dependency actions contain every prerequisite outside the synthesized
 /// script package, including package-less shared actions reached by those
 /// prerequisites. The script graph keeps the same action/product edges; when a
 /// dependency producer is omitted, its output path remains a concrete n2 input.
@@ -264,8 +265,8 @@ pub(crate) fn lower_standalone_build_plan(
     plan: &BuildActionPlan<'_>,
     opt: &BuildOptions,
     script_package: PackageId,
-) -> Result<(LoweringResult, LoweringResult), LoweringError> {
-    info!("Projecting standalone actions to dependency and script n2 graphs");
+) -> Result<(Vec<LoweredAction>, LoweringResult), LoweringError> {
+    info!("Projecting standalone dependency actions and script n2 graph");
     let (dependency_actions, script_actions) = plan.partition_standalone_actions(script_package);
     debug!(
         "Standalone execution projection contains {} dependency actions and {} script actions",
@@ -273,7 +274,7 @@ pub(crate) fn lower_standalone_build_plan(
         script_actions.len()
     );
 
-    let dependencies = lower_actions(resolve_output, plan, opt, dependency_actions, &[])?;
+    let dependencies = lower_actions_to_values(resolve_output, plan, opt, dependency_actions)?;
     let script = lower_actions(
         resolve_output,
         plan,
@@ -282,6 +283,36 @@ pub(crate) fn lower_standalone_build_plan(
         plan.input_action_ids(),
     )?;
     Ok((dependencies, script))
+}
+
+fn lower_actions_to_values(
+    resolve_output: &ResolveOutput,
+    plan: &BuildActionPlan<'_>,
+    opt: &BuildOptions,
+    actions: impl IntoIterator<Item = BuildActionId>,
+) -> Result<Vec<LoweredAction>, LoweringError> {
+    let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
+    actions
+        .into_iter()
+        .filter_map(|id| {
+            debug!("Lowering retained action: {:?}", id);
+            ctx.lower_action(id).transpose()
+        })
+        .collect()
+}
+
+/// Convert exactly the selected lowered actions into an n2 graph.
+///
+/// Callers must select a producer-closed action set or materialize every
+/// omitted producer output before executing the returned graph.
+pub fn lowered_actions_to_n2_graph(
+    actions: Vec<LoweredAction>,
+) -> Result<(N2Graph, CommandArgMap), LoweringError> {
+    let mut n2 = N2GraphBuilder::new();
+    for action in actions {
+        n2.add_action(action)?;
+    }
+    Ok((n2.graph, n2.command_args_by_output))
 }
 
 fn lower_actions(

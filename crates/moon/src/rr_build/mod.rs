@@ -760,16 +760,9 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     };
     let backend = cx.backend.target_backend();
     let layout = cx.artifact_paths.target_layout();
-    let dependency_input = compile_output
-        .dependencies
-        .build_graph
-        .builds
-        .iter()
-        .next()
-        .is_some()
-        .then(|| BuildInput {
-            graph: compile_output.dependencies.build_graph,
-            command_args_by_output: compile_output.dependencies.command_args_by_output,
+    let dependency_input =
+        (!compile_output.dependencies.is_empty()).then(|| StandaloneDependencyInput {
+            actions: compile_output.dependencies,
             db_path: layout.standalone_dependency_n2_db_path(backend),
         });
     let input = StandaloneBuildInput {
@@ -1003,8 +996,14 @@ pub struct BuildInput {
 /// execution remain a single-graph operation.
 #[derive(Debug, Clone)]
 pub struct StandaloneBuildInput {
-    dependencies: Option<BuildInput>,
+    dependencies: Option<StandaloneDependencyInput>,
     script: BuildInput,
+}
+
+#[derive(Debug, Clone)]
+struct StandaloneDependencyInput {
+    actions: Vec<moonbuild_rupes_recta::build_lower::LoweredAction>,
+    db_path: PathBuf,
 }
 
 #[cfg(test)]
@@ -1059,7 +1058,17 @@ pub fn execute_standalone_build(
         return execute_build(cfg, input.script, target_dir, user_log);
     };
 
-    let dependency_execution = execute_build_capturing(cfg, dependencies, target_dir)?;
+    let (graph, command_args_by_output) =
+        moonbuild_rupes_recta::build_lower::lowered_actions_to_n2_graph(dependencies.actions)?;
+    let dependency_execution = execute_build_capturing(
+        cfg,
+        BuildInput {
+            graph,
+            command_args_by_output,
+            db_path: dependencies.db_path,
+        },
+        target_dir,
+    )?;
     if !dependency_execution.successful() {
         return Ok(finish_captured_build(
             cfg,

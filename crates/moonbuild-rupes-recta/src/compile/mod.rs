@@ -86,10 +86,11 @@ pub struct CompileOutput {
     pub build_plan: Option<Box<build_plan::BuildPlan>>,
 }
 
-/// Two execution graphs projected from one logical standalone build plan.
+/// Dependency actions and script execution projected from one logical
+/// standalone build plan.
 pub struct StandaloneCompileOutput {
-    /// Dependency-package work, executed before the script graph.
-    pub dependencies: CompileOutput,
+    /// Lowered dependency-package actions retained for preparation.
+    pub dependencies: Vec<build_lower::LoweredAction>,
     /// Work belonging to the synthesized script package.
     pub script: CompileOutput,
 }
@@ -190,12 +191,7 @@ pub fn compile_standalone(
             })
             .collect();
         (
-            CompileOutput {
-                build_graph: dependencies.build_graph,
-                command_args_by_output: dependencies.command_args_by_output,
-                artifacts: IndexMap::new(),
-                build_plan: None,
-            },
+            dependencies,
             CompileOutput {
                 build_graph: script.build_graph,
                 command_args_by_output: script.command_args_by_output,
@@ -515,9 +511,8 @@ mod tests {
         )
         .expect("standalone plan should lower");
 
-        assert_eq!(output.dependencies.build_graph.builds.iter().count(), 1);
+        assert_eq!(output.dependencies.len(), 1);
         assert_eq!(output.script.build_graph.builds.iter().count(), 2);
-        assert!(output.dependencies.build_plan.is_none());
         let plan = output
             .script
             .build_plan
@@ -531,15 +526,10 @@ mod tests {
 
         let dependency_outputs = output
             .dependencies
-            .build_graph
-            .builds
             .iter()
-            .flat_map(|build| build.outs.ids.iter())
-            .map(|id| {
-                output.dependencies.build_graph.files.by_id[*id]
-                    .name
-                    .clone()
-            })
+            .flat_map(|action| action.outputs())
+            .flat_map(|product| product.paths())
+            .map(|path| path.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert!(
             dependency_outputs
