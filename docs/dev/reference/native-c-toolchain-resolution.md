@@ -212,6 +212,13 @@ Moon keeps MSVC discovery environment values such as `PATH`, `INCLUDE`, `LIB`, a
 command environment. These values are not equivalent to simply appending more `/I` or `/LIBPATH`
 flags: the driver and SDK tools use the full environment contract.
 
+For cached single-file dependency actions, Moon snapshots the full inherited
+process environment and then applies this command environment as an override.
+The resulting effective environment is used for both action identity and miss
+execution. This is intentionally broader than the eventual controlled minimal
+build environment, but it prevents compiler wrappers from observing values that
+the current identity omits.
+
 Moon currently uses focused predicates for the compatibility checks it needs, rather than a general
 "native build contract" that validates every C compiler involved in a build. This keeps fake
 toolchains, dry runs, and package-level escape hatches working unless a concrete build step requires

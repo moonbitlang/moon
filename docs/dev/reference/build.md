@@ -26,6 +26,10 @@ There are 4 kinds of source files within each package:
 - **C stub**. These are C files manually specified in `moon.pkg.json`,
   and recognized by the build system to be built.
 
+Package-local `.h`, `.hh`, `.hpp`, and `.hxx` files are not source targets of
+their own. When a package declares C stubs, they form a conservative header
+input set for those C compilations.
+
 Standalone inputs are represented as synthetic single-file packages. Their
 source format is recorded while resolving the input. In particular, an
 original `.mbtx` input is kept as a regular, unconditional source file, and
@@ -190,12 +194,20 @@ MoonBit code might reference the functions defined in them in e.g. `extern "C" f
 Compiling C stubs of a package involves 3 steps:
 
 1. `BuildCStub` -- The C files are compiled independently using a C compiler.
-   They do not have any dependency on their own.
+   Each action observes its declared C source, the package-local header input
+   set, the selected compiler, its arguments, and its effective environment.
 2. `ArchiveOrLinkCStubs` -- All C stubs in a package is archived using AR.
    If [TCC-run mode](./tcc-run.md) is enabled, this instead links the C stubs.
    This is out of scope of a regular compilation.
 3. For every package that transitively depends on this package with C stubs,
    the archived compilation output is added to the input list of `MakeExecutable`.
+
+The automatic header boundary follows the package file set: Moon tracks
+recognized headers below the package root, excluding ignored build directories
+and nested modules. Headers and libraries reached through package-external
+include or library paths are toolchain state outside that boundary. Changing
+such external state requires an explicit rebuild. Moon does not currently parse
+C include directives or consume compiler depfiles for cache identity.
 
 ### Reading and writing MBTI interfaces
 
@@ -305,7 +317,7 @@ The following is a table
 | `BuildPackage(BuildTarget)`     | `moonc build-package`       | `.mi`, `.core`        | same as above                              | Build the target                               |
 | `LinkCore(BuildTarget)`         | `moonc link-core`           | backend-specific      | `.core` of all transitive deps             | Links all transitive deps into output          |
 | `MakeExecutable(BuildTarget)`   | C compiler                  | executable            | `LinkCore` outputs, C stubs                | Compiles/links the final executable (optional) |
-| `BuildCStub(PackageId, int)`    | C compiler                  | object file           | N/A                                        | Builds a single C stub file                    |
+| `BuildCStub(PackageId, int)`    | C compiler                  | object file           | C source, package-local headers, compiler   | Builds a single C stub file                    |
 | `ArchiveOrLinkCStub(PackageId)` | C compiler                  | archive file          | `BuildCStub` outputs                       | Collect C stub output                          |
 | `GenerateMbti(BuildTarget)`     | `mooninfo`                  | `.mbti`               | `.mi`                                      | Get text repr of `.mi`                         |
 | `GenerateTestInfo(BuildTarget)` | `moon generate-test-driver` | test driver, metadata | source files                               | Generate the test driver and metadata          |

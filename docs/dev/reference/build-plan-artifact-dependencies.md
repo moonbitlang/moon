@@ -228,7 +228,7 @@ A `LoweredAction` is the complete concrete description consumed by dependency
 preparation:
 
 - structured command arguments or an explicitly verbatim command;
-- working directory, normalized environment, and response-file data;
+- working directory, complete effective environment, and response-file data;
 - external inputs with their content semantics;
 - dependency products with producer action, logical product, and concrete
   paths; and
@@ -244,6 +244,17 @@ the retained producer and recursively substitutes the producer action digest.
 The persisted identity contains no numeric action id. Dependencies are ordered
 by their complete product fingerprint, and external inputs and output paths are
 sorted, so identity does not depend on map, set, or traversal order.
+
+For retained dependency actions, lowering snapshots the inherited process
+environment and applies action-specific overrides before identity or
+execution. This deliberately conservative contract keeps arbitrary compiler
+wrappers sound. A future controlled minimal environment can narrow both
+execution and identity together without changing the `LoweredAction` boundary.
+
+C-stub actions conservatively include every recognized header in the package
+file set. This matches the package-owned source boundary; headers or libraries
+reached through external include and library paths remain external toolchain
+state rather than dynamically discovered action inputs.
 
 The script graph keeps the original realized dependency paths. A hit
 materializes those paths directly. A miss graph treats a dependency supplied by

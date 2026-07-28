@@ -113,7 +113,8 @@ The local single-file store identifies an action from its `LoweredAction`. Its
 deterministic encoding includes:
 
 - structured arguments rather than an n2-rendered command string;
-- working directory and normalized environment;
+- working directory and the complete effective environment captured for the
+  retained dependency action, with action-specific overrides applied;
 - response-file path and content;
 - external input kind, path, and BLAKE3 content digest;
 - recursively identified dependencies, represented by producer action digest,
@@ -123,8 +124,18 @@ deterministic encoding includes:
 Compiler and archiver executables are resolved to concrete files before
 lowering and are external inputs. Standard-library `-std-path` input is modeled
 as the recursively loaded `.mi` tree rather than hashing unrelated bundle
-artifacts. Producer `BuildActionId` values are lookup handles for one lowering
-only and never enter the persistent key.
+artifacts. MoonLex and MoonYacc actions include both the `moonrun` host and the
+actual generator program. C-stub actions include the declared C source and the
+recognized header set below the package root. Producer `BuildActionId` values
+are lookup handles for one lowering only and never enter the persistent key.
+
+The package header set is an explicit boundary, following the model used by Go
+for cgo packages. Headers and libraries reached only through external search
+paths are treated as external toolchain state; the current store does not
+discover the transitive compiler include graph. The full inherited environment
+is captured because arbitrary compiler wrappers may observe it. Once Moon
+defines a controlled minimal build environment, execution and identity should
+move to that smaller environment together.
 
 The identity remains semantic rather than a serialization of every executor
 field. Diagnostic descriptions, file locations, n2 dirtiness policy, and other
