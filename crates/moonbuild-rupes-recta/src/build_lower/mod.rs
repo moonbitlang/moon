@@ -16,27 +16,19 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Lowers the normalized action plan into `n2`'s build graph.
+//! Lowers the normalized action plan into concrete actions, then adapts them
+//! to `n2`'s build graph.
 
-use std::{
-    collections::{BTreeMap, HashSet},
-    path::PathBuf,
-    str::FromStr,
-    sync::OnceLock,
-};
+use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
 
 use log::{debug, info};
-use moonutil::{
-    build_options::RunMode,
-    compiler_flags::{CompilerPaths, Toolchain},
-    cond_expr::OptLevel,
-};
-use n2::graph::{Graph as N2Graph, RspFile};
+use moonutil::{build_options::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel};
+use n2::graph::Graph as N2Graph;
 use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    build_action_plan::{BuildAction, BuildActionId, BuildActionPlan},
+    build_action_plan::{BuildActionId, BuildActionPlan},
     model::{NativeBackendMode, OperatingSystem, PackageId, RunBackend},
     pkg_name::OptionalPackageFQNWithSource,
     target_layout::{
@@ -49,14 +41,21 @@ mod compiler;
 mod context;
 mod lower_aux;
 mod lower_build;
+mod lowered_action;
 mod moonc_command;
+mod n2_adapter;
 mod utils;
 
+pub use lowered_action::{
+    LoweredAction, LoweredCommand, LoweredCommandExecution, LoweredProduct, LoweredResponseFile,
+};
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
 pub(crate) use backend::{CExecutableRealization, CStubLibraryRealization, SelectedBackend};
 
 use context::LoweringContext;
+use lowered_action::{BuildCommand, LoweredCommandKind};
+use n2_adapter::N2GraphBuilder;
 
 /// Lazily resolved host/toolchain facts used during lowering.
 ///
@@ -230,153 +229,6 @@ pub struct LoweringResult {
     pub artifacts: Vec<(BuildActionId, Vec<PathBuf>)>,
 }
 
-/// The command to execute for n2.
-///
-/// # How n2 handles commandlines
-///
-/// N2 (and ninja) use different conventions for handling commandlines on
-/// different platforms.
-///
-/// - On Unix-like platforms, the command string will be fed into `sh -c`. Thus,
-///   shell features like variable expansion are supported.
-/// - On Windows, the command string will be directly passed to
-///   `CreateProcessA`. No shell features are supported.
-///
-/// For most build commands, this is not an issue. All executables and argument
-/// paths are absolute paths, and there's no shell features involved.
-///
-/// However, for prebuild commands, the commandline is expected to be copied
-/// verbatim (with minimal resolving) to the generated build script. Thus,
-/// splitting, resolving and quoting again may lead to e.g. shell features being
-/// lost.
-///
-/// Thus, we're currently providing a `Verbatim` variant to handle such cases.
-///
-/// # Future improvements
-///
-/// Future design might want to omit shell features entirely for better
-/// cross-platform consistency. Env var expansion are already used by some
-/// libraries, so maintainers must be careful not to break those while doing so.
-///
-/// An idea is to use unix-style shell splitting and expansion everywhere,
-/// performing the env var expansion ourselves during build graph execution
-/// time. Other shell features should be disallowed. The result will then be
-/// handled like `Args` native to the platform.
-#[derive(Debug, Clone)]
-enum CommandlineKind {
-    /// This commandline will be joined using the platform's default convention.
-    Args(Vec<String>),
-
-    /// This verbatim string will be plugged into the build graph as-is.
-    /// Use with caution.
-    ///
-    /// This variant is used for commands that intentionally rely on shell
-    /// composition, such as prebuild commands and follow-up tool invocations.
-    Verbatim,
-}
-
-/// How n2 should execute a logical command.
-#[derive(Debug, Clone)]
-enum CommandExecution {
-    Inline(String),
-    ResponseFile { command: String, file: RspFile },
-}
-
-#[derive(Debug, Clone)]
-struct Commandline {
-    /// Structured logical argv, when available for metadata and presentation.
-    kind: CommandlineKind,
-    execution: CommandExecution,
-    cwd: Option<PathBuf>,
-    env: Vec<(String, String)>,
-}
-
-impl From<Vec<String>> for Commandline {
-    fn from(v: Vec<String>) -> Self {
-        let command = moonutil::shlex::join_native(v.iter().map(String::as_str));
-        Commandline {
-            kind: CommandlineKind::Args(v),
-            execution: CommandExecution::Inline(command),
-            cwd: None,
-            env: Vec::new(),
-        }
-    }
-}
-
-impl Commandline {
-    fn verbatim(s: String) -> Self {
-        Self {
-            kind: CommandlineKind::Verbatim,
-            execution: CommandExecution::Inline(s),
-            cwd: None,
-            env: Vec::new(),
-        }
-    }
-
-    fn into_n2(self) -> (String, Option<RspFile>) {
-        match self.execution {
-            CommandExecution::Inline(command) => (command, None),
-            CommandExecution::ResponseFile { command, file } => (command, Some(file)),
-        }
-    }
-
-    fn inline_command(&self) -> &str {
-        let CommandExecution::Inline(command) = &self.execution else {
-            unreachable!("a response-file command is already lowered")
-        };
-        command
-    }
-
-    fn with_response_file(mut self, command: String, file: RspFile) -> Self {
-        self.execution = CommandExecution::ResponseFile { command, file };
-        self
-    }
-
-    fn args(&self) -> Option<&Vec<String>> {
-        match &self.kind {
-            CommandlineKind::Args(args) => Some(args),
-            CommandlineKind::Verbatim => None,
-        }
-    }
-
-    fn with_cwd(mut self, cwd: PathBuf) -> Self {
-        self.cwd = Some(cwd);
-        self
-    }
-
-    fn with_env(mut self, env: Vec<(String, String)>) -> Self {
-        self.env.extend(env);
-        self
-    }
-}
-
-/// Represents the essential information needed to construct an [`Build`] value
-/// that cannot be derived fromthe build plan graph.
-struct BuildCommand {
-    /// The **extra** input files needed for this command, **in addition to**
-    /// the artifacts of the build steps this command depends on.
-    extra_inputs: Vec<PathBuf>,
-
-    /// The command to execute.
-    commandline: Commandline,
-}
-
-impl BuildCommand {
-    fn with_cwd(mut self, cwd: PathBuf) -> Self {
-        self.commandline = self.commandline.with_cwd(cwd);
-        self
-    }
-
-    fn with_env(mut self, env: Vec<(String, String)>) -> Self {
-        self.commandline = self.commandline.with_env(env);
-        self
-    }
-
-    fn with_msvc_env(self, toolchain: &Toolchain) -> Self {
-        self.with_env(compiler::msvc::command_env(toolchain))
-    }
-}
-
 /// Lowers a normalized action plan into an n2 [Build Graph](n2::graph::Graph).
 #[instrument(skip_all)]
 pub fn lower_build_plan(
@@ -402,7 +254,7 @@ pub fn lower_build_plan(
     Ok(result)
 }
 
-/// Temporarily adapt one standalone action plan to two n2 execution graphs.
+/// Project one standalone action plan into dependency and script n2 graphs.
 ///
 /// The dependency graph contains every prerequisite outside the synthesized
 /// script package, including package-less shared actions reached by those
@@ -416,7 +268,7 @@ pub(crate) fn lower_standalone_build_plan(
     script_package: PackageId,
 ) -> Result<(LoweringResult, LoweringResult), LoweringError> {
     info!("Projecting standalone actions to dependency and script n2 graphs");
-    let (dependency_actions, script_actions) = standalone_action_projections(plan, script_package);
+    let (dependency_actions, script_actions) = plan.partition_standalone_actions(script_package);
     debug!(
         "Standalone execution projection contains {} dependency actions and {} script actions",
         dependency_actions.len(),
@@ -434,75 +286,6 @@ pub(crate) fn lower_standalone_build_plan(
     Ok((dependencies, script))
 }
 
-fn standalone_action_projections(
-    plan: &BuildActionPlan<'_>,
-    script_package: PackageId,
-) -> (Vec<BuildActionId>, Vec<BuildActionId>) {
-    let action_package = |action| match action {
-        BuildAction::Check { target, .. }
-        | BuildAction::EmitProof { target, .. }
-        | BuildAction::Prove { target, .. }
-        | BuildAction::BuildCore { target, .. }
-        | BuildAction::LinkCore { target, .. }
-        | BuildAction::MakeExecutable { target, .. }
-        | BuildAction::GenerateTestInfo { target, .. }
-        | BuildAction::GenerateMbti { target } => Some(target.package),
-        BuildAction::BuildCStub { package, .. }
-        | BuildAction::ArchiveOrLinkCStubs { package, .. }
-        | BuildAction::BuildVirtual { package }
-        | BuildAction::RunPrebuild { package, .. }
-        | BuildAction::RunMoonLexPrebuild { package, .. }
-        | BuildAction::RunMoonYaccPrebuild { package, .. } => Some(package),
-        BuildAction::Bundle { .. }
-        | BuildAction::BuildRuntimeLib { .. }
-        | BuildAction::BuildDocs { .. } => None,
-    };
-    let script_owned_actions = plan
-        .action_ids()
-        .filter(|&action| action_package(plan.action(action)) == Some(script_package))
-        .collect::<HashSet<_>>();
-    assert!(
-        !script_owned_actions.is_empty(),
-        "standalone action plan should contain work for the synthesized script package"
-    );
-
-    let mut dependency_actions = plan
-        .action_ids()
-        .filter(|&action| {
-            action_package(plan.action(action)).is_some_and(|package| package != script_package)
-        })
-        .collect::<HashSet<_>>();
-    let mut pending = dependency_actions.iter().copied().collect::<Vec<_>>();
-    while let Some(action) = pending.pop() {
-        for dependency in plan.dependency_action_ids(action) {
-            assert!(
-                !script_owned_actions.contains(&dependency),
-                "standalone dependency preparation action {action:?} depends on \
-                 script action {dependency:?}"
-            );
-            if dependency_actions.insert(dependency) {
-                pending.push(dependency);
-            }
-        }
-    }
-    assert!(
-        plan.input_action_ids()
-            .iter()
-            .all(|action| !dependency_actions.contains(action)),
-        "standalone root action should remain in the script execution phase"
-    );
-
-    let dependencies = plan
-        .action_ids()
-        .filter(|action| dependency_actions.contains(action))
-        .collect();
-    let script = plan
-        .action_ids()
-        .filter(|action| !dependency_actions.contains(action))
-        .collect();
-    (dependencies, script)
-}
-
 fn lower_actions(
     resolve_output: &ResolveOutput,
     plan: &BuildActionPlan<'_>,
@@ -511,10 +294,13 @@ fn lower_actions(
     artifact_actions: &[BuildActionId],
 ) -> Result<LoweringResult, LoweringError> {
     let mut ctx = LoweringContext::new(opt.artifact_paths.clone(), resolve_output, plan, opt);
+    let mut n2 = N2GraphBuilder::new();
 
     for id in actions {
         debug!("Lowering action: {:?}", id);
-        ctx.lower_action(id)?;
+        if let Some(action) = ctx.lower_action(id)? {
+            n2.add_action(action)?;
+        }
     }
 
     let mut out_artifacts = Vec::with_capacity(artifact_actions.len());
@@ -524,8 +310,8 @@ fn lower_actions(
     }
 
     Ok(LoweringResult {
-        build_graph: ctx.graph,
-        command_args_by_output: ctx.command_args_by_output,
+        build_graph: n2.graph,
+        command_args_by_output: n2.command_args_by_output,
         artifacts: out_artifacts,
     })
 }
@@ -783,7 +569,7 @@ mod tests {
 
         let action_plan = plan.build_action_plan();
         let (dependency_actions, script_actions) =
-            standalone_action_projections(&action_plan, script_package);
+            action_plan.partition_standalone_actions(script_package);
         let dependency_nodes = dependency_actions
             .into_iter()
             .map(|action| action_plan.build_plan_node(action))
@@ -817,7 +603,7 @@ mod tests {
 
         let action_plan = plan.build_action_plan();
         let (dependency_actions, script_actions) =
-            standalone_action_projections(&action_plan, script_package);
+            action_plan.partition_standalone_actions(script_package);
         let script_nodes = script_actions
             .into_iter()
             .map(|action| action_plan.build_plan_node(action))
@@ -850,7 +636,7 @@ mod tests {
         );
 
         let action_plan = plan.build_action_plan();
-        standalone_action_projections(&action_plan, script_package);
+        action_plan.partition_standalone_actions(script_package);
     }
 
     #[test]

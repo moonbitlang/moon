@@ -446,14 +446,17 @@ During lowering:
   build-plan node has a stable action id and hydrated action metadata.
 - Each action’s command line is chosen based on its own metadata
   (package, backend, build target kind, action) and its dependencies.
-- Logical products are resolved to input/output files and attached to the
-  concrete build node.
+- Logical products are resolved to input/output files and attached to a
+  `LoweredAction` together with the command and execution metadata.
 - Additional inputs (such as source files) may be attached to represent files
   that are not produced by other build-graph nodes.
+- The n2 adapter consumes each `LoweredAction` by value and constructs the
+  concrete build node. Ordinary builds perform this incrementally and do not
+  retain a second complete graph.
 
-Each action is currently mapped to **zero or one** concrete build-graph node.
-Lowering a single action to multiple concrete nodes is not supported (hence the
-`index` field in the node declaration).
+Each action is currently mapped to **zero or one** `LoweredAction` and concrete
+build-graph node. Lowering a single action to multiple concrete nodes is not
+supported (hence the `index` field in the node declaration).
 
 The concrete rules of lowering is performed in [its module](/crates/moonbuild-rupes-recta/src/build_lower/mod.rs).
 

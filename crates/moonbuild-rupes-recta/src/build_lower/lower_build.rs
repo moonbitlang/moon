@@ -57,16 +57,16 @@ use crate::{
 };
 
 use super::{
-    BuildCommand, Commandline, LoweringError, compiler,
+    BuildCommand, LoweredCommand, LoweringError, compiler,
     context::{ActionProducts, LoweringContext},
     moonc_command,
 };
 
-fn commandline_with_dsymutil(cmd: &[String], dest: &str) -> Commandline {
+fn commandline_with_dsymutil(cmd: &[String], dest: &str) -> LoweredCommand {
     let cmd_str = moonutil::shlex::join_unix(cmd.iter().map(|x| x.as_str()));
     let dsymutil_args = ["dsymutil", dest];
     let dsymutil_cmd_str = moonutil::shlex::join_unix(dsymutil_args.iter().copied());
-    Commandline::verbatim(format!("{cmd_str} && {dsymutil_cmd_str}"))
+    LoweredCommand::verbatim(format!("{cmd_str} && {dsymutil_cmd_str}"))
 }
 
 fn should_run_new_native_dsymutil(
