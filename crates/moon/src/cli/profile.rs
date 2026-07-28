@@ -27,7 +27,6 @@ use std::{
 
 use anyhow::{Context, bail};
 use chrono::Local;
-use moonbuild_rupes_recta::model::RunBackend;
 use moonutil::{
     build_options::RunMode,
     command_output::CommandOutput,
@@ -260,7 +259,7 @@ pub(crate) struct ProfileRequest {
     /// Moon command mode that requested the profile.
     pub(crate) run_mode: RunMode,
     /// Backend used to build the profiled executable.
-    pub(crate) target_backend: RunBackend,
+    pub(crate) target_backend: TargetBackend,
     /// Optimization profile used to build the profiled executable.
     pub(crate) opt_level: OptLevel,
 }
@@ -296,13 +295,14 @@ fn run_profile_materialized(
     )?;
     built.ensure_build_success()?;
 
-    if built.target_backend != RunBackend::Native {
+    let target_backend = built.backend.target_backend();
+    if target_backend != TargetBackend::Native {
         bail!("{MOON_RUN_PROFILE_COMMAND} currently supports only the native backend");
     }
 
     let output_dir = default_output_dir(
         &built.target_dir,
-        built.target_backend,
+        target_backend,
         built.opt_level,
         RunMode::Run,
         &built.executable,
@@ -312,7 +312,7 @@ fn run_profile_materialized(
     }
     let request = ProfileRequest {
         run_mode: RunMode::Run,
-        target_backend: built.target_backend,
+        target_backend,
         opt_level: built.opt_level,
         executable: built.executable,
         display_executable: None,
@@ -531,7 +531,7 @@ pub(crate) fn profile_test_invocations(
 ) -> Result<i32, anyhow::Error> {
     ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
 
-    if build_meta.target_backend() != RunBackend::Native {
+    if build_meta.target_backend() != TargetBackend::Native {
         bail!("{MOON_TEST_PROFILE_COMMAND} currently supports only the native backend");
     }
 
@@ -618,7 +618,7 @@ pub(crate) fn profile_test_invocations(
 
 fn default_test_profile_session_dir(
     target_dir: &Path,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
 ) -> PathBuf {
     output_kind_dir(target_dir, target_backend, opt_level, "profile")
@@ -657,7 +657,7 @@ fn sanitize_path_component(input: &str) -> String {
 /// Place profile output beside the canonical artifact layout for the run mode.
 pub(crate) fn default_output_dir(
     target_dir: &Path,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     artifact_run_mode: RunMode,
     executable: &Path,
@@ -674,7 +674,7 @@ pub(crate) fn default_output_dir(
 
 fn default_output_parent_dir(
     target_dir: &Path,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     artifact_run_mode: RunMode,
     executable: &Path,
@@ -707,7 +707,7 @@ fn profile_timestamp() -> String {
 
 fn output_kind_dir(
     target_dir: &Path,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     kind: &str,
 ) -> PathBuf {
@@ -716,7 +716,7 @@ fn output_kind_dir(
         OptLevel::Release => "release",
     };
     target_dir
-        .join(target_backend.to_target().to_dir_name())
+        .join(target_backend.to_dir_name())
         .join(profile)
         .join(kind)
 }
@@ -1427,7 +1427,7 @@ fn build_report(
 
 fn build_test_report(
     profiler_backend: ProfileBackend,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     artifacts: ProfileArtifacts,
     captured_profiles: Vec<CapturedProfile>,
@@ -1564,7 +1564,7 @@ fn merge_profile(merged: &mut ParsedProfile, parsed: &ParsedProfile) {
 
 fn profile_target(
     run_mode: RunMode,
-    target_backend: RunBackend,
+    target_backend: TargetBackend,
     opt_level: OptLevel,
     executable: Option<PathBuf>,
     args: Vec<String>,
@@ -1572,7 +1572,7 @@ fn profile_target(
     ProfileTarget {
         command: format!("moon {} --profile", run_mode_label(run_mode)),
         run_mode: run_mode_label(run_mode).to_string(),
-        backend: target_backend.to_target().to_dir_name().to_string(),
+        backend: target_backend.to_dir_name().to_string(),
         optimization_profile: opt_level_label(opt_level).to_string(),
         executable,
         args,
@@ -1877,8 +1877,7 @@ fn render_attribution_entries(out: &mut String, entries: &[ProfileAttributionEnt
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use moonbuild_rupes_recta::model::RunBackend;
-    use moonutil::{build_options::RunMode, cond_expr::OptLevel};
+    use moonutil::{build_options::RunMode, cond_expr::OptLevel, target::TargetBackend};
 
     use super::{
         CapturedProfile, PROFILE_TEST_PERFORMANCE_ONLY_MESSAGE, ProfileArtifacts, ProfileBackend,
@@ -1983,7 +1982,7 @@ mod tests {
             parsed,
             profile_target(
                 RunMode::Run,
-                RunBackend::Native,
+                TargetBackend::Native,
                 OptLevel::Release,
                 Some(PathBuf::from("./_build/native/release/build/main/main.exe")),
                 vec!["--flag".to_string()],
@@ -2056,7 +2055,7 @@ mod tests {
             parsed,
             profile_target(
                 RunMode::Run,
-                RunBackend::Native,
+                TargetBackend::Native,
                 OptLevel::Release,
                 Some(PathBuf::from("./_build/native/release/build/main/main.exe")),
                 Vec::new(),
@@ -2120,7 +2119,7 @@ mod tests {
         );
         let report = build_test_report(
             ProfileBackend::Xctrace,
-            RunBackend::Native,
+            TargetBackend::Native,
             OptLevel::Release,
             with_json_report(
                 ProfileArtifacts::default(),
@@ -2170,7 +2169,7 @@ mod tests {
             output_dir: output_dir.clone(),
             target: profile_target(
                 RunMode::Test,
-                RunBackend::Native,
+                TargetBackend::Native,
                 OptLevel::Release,
                 Some(PathBuf::from(format!(
                     "./_build/native/release/test/main/{name}.exe"
@@ -2201,7 +2200,7 @@ mod tests {
     fn profile_output_reuses_run_artifact_package_dir() {
         let dir = default_output_dir(
             Path::new("./_build"),
-            RunBackend::Native,
+            TargetBackend::Native,
             OptLevel::Release,
             RunMode::Run,
             Path::new("./_build/native/release/build/cmd/main/main.exe"),

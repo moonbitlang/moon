@@ -760,8 +760,7 @@ fn run_one_test_executable(
     };
 
     let mut cmd = crate::run::command_for(
-        ctx.build_meta.target_backend(),
-        ctx.build_meta.tcc_run(),
+        crate::run::ExecutionMode::from(&ctx.build_meta.backend),
         &executable,
         Some(&test.args),
     );

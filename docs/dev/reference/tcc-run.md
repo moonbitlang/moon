@@ -68,7 +68,8 @@ unchanged and lets the later TCC invocation report any missing library normally.
 ## Execution at runtime
 
 When `moon` later executes the target,
-it detects the TCC run backend and launches the internal `TCC` with the response file recorded earlier,
+it derives the `TccRun` execution mode from the Native backend configuration
+and launches the internal `TCC` with the response file recorded earlier,
 `tcc @<response-file> [args...]`.
 
 This behavior is transparent to the user and the rest of the build system.

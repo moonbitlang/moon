@@ -121,7 +121,7 @@ mod tests {
             wasi_link: false,
         };
 
-        assert!(backend.use_wat());
+        assert!(matches!(backend, BackendConfig::Wasm { use_wat: true, .. }));
     }
 
     #[test]

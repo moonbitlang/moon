@@ -59,10 +59,7 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{
-        BackendConfig, BuildPlanNode, BuildTarget, NativeTarget, PackageId, RunBackend,
-        TccRunConfig,
-    },
+    model::{BackendConfig, BuildPlanNode, BuildTarget, NativeTarget, PackageId, TccRunConfig},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
 };
@@ -455,8 +452,8 @@ pub struct BuildEnvironment {
 }
 
 impl BuildEnvironment {
-    pub(crate) fn target_backend(&self) -> RunBackend {
-        self.backend.run_backend()
+    pub(crate) fn target_backend(&self) -> TargetBackend {
+        self.backend.target_backend()
     }
 
     pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {

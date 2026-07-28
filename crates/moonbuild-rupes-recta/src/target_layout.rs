@@ -40,7 +40,7 @@ use crate::{
     ResolveOutput,
     build_action_plan::{BuildAction, BuildProduct},
     discover::{DiscoverResult, DiscoveredLocalProject},
-    model::{BuildTarget, OperatingSystem, PackageId, RunBackend, TargetKind},
+    model::{BuildTarget, OperatingSystem, PackageId, TargetKind},
     pkg_name::PackageFQN,
 };
 
@@ -113,6 +113,10 @@ impl ExecutableArtifact {
             Self::NativeExecutable | Self::LlvmExecutable => ".exe",
             Self::TccRunResponseFile => ".rspfile",
         }
+    }
+
+    fn uses_tcc_run(self) -> bool {
+        matches!(self, Self::TccRunResponseFile)
     }
 }
 
@@ -406,30 +410,32 @@ impl TargetLayout {
         result
     }
 
-    pub fn runtime_output_dir(&self, backend: RunBackend) -> PathBuf {
+    pub fn runtime_output_dir(&self, backend: TargetBackend) -> PathBuf {
         match backend {
-            RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
+            TargetBackend::WasmGC | TargetBackend::Wasm | TargetBackend::Js => {
                 panic!("Runtime output path is not applicable for non-native backends")
             }
-            RunBackend::Native | RunBackend::Llvm => self.run_mode_dir(backend.into()),
+            TargetBackend::Native | TargetBackend::LLVM => self.run_mode_dir(backend),
         }
     }
 
     pub fn runtime_output_path(
         &self,
-        backend: RunBackend,
-        use_tcc_run: bool,
+        executable: ExecutableArtifact,
         os: OperatingSystem,
     ) -> PathBuf {
+        let backend = executable.target_backend();
         let mut result = self.runtime_output_dir(backend);
-        match backend {
-            RunBackend::WasmGC | RunBackend::Wasm | RunBackend::Js => {
+        match executable {
+            ExecutableArtifact::Wasm { .. }
+            | ExecutableArtifact::WasmGC { .. }
+            | ExecutableArtifact::Js => {
                 panic!("Runtime output path is not applicable for non-native backends")
             }
-            RunBackend::Native if use_tcc_run => {
+            ExecutableArtifact::TccRunResponseFile => {
                 result.push(format!("libruntime{}", dynamic_library_ext(os)))
             }
-            RunBackend::Native | RunBackend::Llvm => {
+            ExecutableArtifact::NativeExecutable | ExecutableArtifact::LlvmExecutable => {
                 result.push(format!("runtime{}", object_file_ext(os)))
             }
         }
@@ -733,7 +739,7 @@ impl ArtifactPathResolver {
                 self.package_interface_paths(action_context, *target, packages, options)
             }
             BuildProduct::PackageCoreIr { target } => {
-                vec![self.core_of_build_target(packages, target, options.target_backend.into())]
+                vec![self.core_of_build_target(packages, target, options.target_backend())]
             }
             BuildProduct::ProofInterface { target } => match action_context {
                 BuildAction::EmitProof { .. } => {
@@ -766,24 +772,24 @@ impl ArtifactPathResolver {
                         file_name
                             .file_stem()
                             .expect("c stub file should have a file name"),
-                        options.target_backend.into(),
+                        options.target_backend(),
                         options.os,
                     ),
                 ]
             }
             BuildProduct::CStubLibrary { package } => {
-                if options.use_tcc_run {
+                if options.executable.uses_tcc_run() {
                     vec![self.target_layout.c_stub_link_dylib_path(
                         packages,
                         *package,
-                        options.target_backend.into(),
+                        options.target_backend(),
                         options.os,
                     )]
                 } else {
                     vec![self.target_layout.c_stub_archive_path(
                         packages,
                         *package,
-                        options.target_backend.into(),
+                        options.target_backend(),
                         options.os,
                     )]
                 }
@@ -806,39 +812,38 @@ impl ArtifactPathResolver {
                 vec![self.target_layout.generated_test_driver(
                     packages,
                     target,
-                    options.target_backend.into(),
+                    options.target_backend(),
                 )]
             }
             BuildProduct::GeneratedTestMetadata { target } => {
                 vec![self.target_layout.generated_test_driver_metadata(
                     packages,
                     target,
-                    options.target_backend.into(),
+                    options.target_backend(),
                 )]
             }
             BuildProduct::BundleResult { module } => {
                 let module_name = modules.module_source(*module);
                 vec![
                     self.target_layout
-                        .bundle_result_path(options.target_backend.into(), module_name.name()),
+                        .bundle_result_path(options.target_backend(), module_name.name()),
                 ]
             }
-            BuildProduct::RuntimeLib => vec![self.target_layout.runtime_output_path(
-                options.target_backend,
-                options.use_tcc_run,
-                options.os,
-            )],
+            BuildProduct::RuntimeLib => vec![
+                self.target_layout
+                    .runtime_output_path(options.executable, options.os),
+            ],
             BuildProduct::GeneratedMbti { target } => {
                 vec![self.target_layout.generated_mbti_path(
                     packages,
                     target,
-                    options.target_backend.into(),
+                    options.target_backend(),
                 )]
             }
             BuildProduct::DocsDir => vec![self.target_layout.doc_dir()],
             BuildProduct::VirtualPackageInterface { package } => {
                 let target = package.build_target(TargetKind::Source);
-                vec![self.mi_of_build_target(packages, &target, options.target_backend.into())]
+                vec![self.mi_of_build_target(packages, &target, options.target_backend())]
             }
             BuildProduct::MoonLexGeneratedSource { package, index } => {
                 let pkg_info = packages.get_package(*package);
@@ -988,7 +993,7 @@ impl ArtifactPathResolver {
                 match self.mi_of_build_target_impl_virtual(
                     packages,
                     &target,
-                    options.target_backend.into(),
+                    options.target_backend(),
                 ) {
                     MiPathResult::StdAbort(_) => Vec::new(),
                     MiPathResult::Std(p) => {
@@ -1004,7 +1009,7 @@ impl ArtifactPathResolver {
                 }
             }
             BuildAction::Check { .. } | BuildAction::BuildCore { .. } => {
-                vec![self.mi_of_build_target(packages, &target, options.target_backend.into())]
+                vec![self.mi_of_build_target(packages, &target, options.target_backend())]
             }
             _ => panic!("package interface action context should be Check or BuildCore"),
         }
@@ -1013,11 +1018,15 @@ impl ArtifactPathResolver {
 
 #[derive(Clone, Copy, Debug)]
 pub struct ArtifactPathOptions {
-    pub target_backend: RunBackend,
-    pub use_tcc_run: bool,
     pub os: OperatingSystem,
     pub executable: ExecutableArtifact,
     pub linked_core: LinkedCoreArtifact,
+}
+
+impl ArtifactPathOptions {
+    fn target_backend(self) -> TargetBackend {
+        self.executable.target_backend()
+    }
 }
 
 pub enum MiPathResult {
@@ -1196,13 +1205,22 @@ mod tests {
         )
     }
 
-    fn artifact_options(target_backend: RunBackend, use_tcc_run: bool) -> ArtifactPathOptions {
+    fn artifact_options(executable: ExecutableArtifact) -> ArtifactPathOptions {
+        let linked_core = match executable {
+            ExecutableArtifact::Wasm { use_wat } => LinkedCoreArtifact::Wasm { use_wat },
+            ExecutableArtifact::WasmGC { use_wat } => LinkedCoreArtifact::WasmGC { use_wat },
+            ExecutableArtifact::Js => LinkedCoreArtifact::Js,
+            ExecutableArtifact::NativeExecutable | ExecutableArtifact::TccRunResponseFile => {
+                LinkedCoreArtifact::NativeC
+            }
+            ExecutableArtifact::LlvmExecutable => LinkedCoreArtifact::LlvmObject {
+                os: OperatingSystem::Linux,
+            },
+        };
         ArtifactPathOptions {
-            target_backend,
-            use_tcc_run,
             os: OperatingSystem::Linux,
-            executable: ExecutableArtifact::NativeExecutable,
-            linked_core: LinkedCoreArtifact::NativeC,
+            executable,
+            linked_core,
         }
     }
 
@@ -1455,7 +1473,7 @@ mod tests {
                 action_plan.action(action_id),
                 &packages,
                 &modules,
-                artifact_options(RunBackend::WasmGC, false),
+                artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.mi")],
         );
@@ -1482,7 +1500,7 @@ mod tests {
                 },
                 &packages,
                 &modules,
-                artifact_options(RunBackend::WasmGC, false),
+                artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.mi")],
         );
@@ -1510,7 +1528,7 @@ mod tests {
                 },
                 &packages,
                 &modules,
-                artifact_options(RunBackend::WasmGC, false),
+                artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![PathBuf::from("_build/wasm-gc/debug/build/ffi/ffi.impl.mi")],
         );
@@ -1532,7 +1550,7 @@ mod tests {
                 },
                 &packages,
                 &modules,
-                artifact_options(RunBackend::WasmGC, false),
+                artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![
                 resolver
@@ -1549,7 +1567,7 @@ mod tests {
                 },
                 &packages,
                 &modules,
-                artifact_options(RunBackend::WasmGC, false),
+                artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![resolver.target_layout.prove_report_path(&packages, &target)],
         );
@@ -1571,7 +1589,7 @@ mod tests {
             },
             &packages,
             &modules,
-            artifact_options(RunBackend::WasmGC, false),
+            artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
         );
     }
 
@@ -1594,7 +1612,7 @@ mod tests {
                 },
                 &packages,
                 &modules,
-                artifact_options(RunBackend::Native, false),
+                artifact_options(ExecutableArtifact::NativeExecutable),
             ),
             vec![PathBuf::from("_build/native/debug/build/ffi/libffi.a")],
         );
@@ -1607,7 +1625,7 @@ mod tests {
                 },
                 &packages,
                 &modules,
-                artifact_options(RunBackend::Native, true),
+                artifact_options(ExecutableArtifact::TccRunResponseFile),
             ),
             vec![PathBuf::from("_build/native/debug/build/ffi/libffi.so")],
         );
@@ -1621,8 +1639,6 @@ mod tests {
         let prebuild_output = PathBuf::from("source/generated.mbt");
         let prebuild = prebuild_info(prebuild_output.clone());
         let options = ArtifactPathOptions {
-            target_backend: RunBackend::Native,
-            use_tcc_run: true,
             os: OperatingSystem::Linux,
             executable: ExecutableArtifact::TccRunResponseFile,
             linked_core: LinkedCoreArtifact::NativeC,

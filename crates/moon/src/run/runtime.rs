@@ -22,7 +22,30 @@ use std::path::Path;
 use std::process::Command;
 
 use moonbuild::entry::TestArgs;
-use moonbuild_rupes_recta::model::{RunBackend, TccRunConfig};
+use moonbuild_rupes_recta::model::{BackendConfig, NativeBackendMode, TccRunConfig};
+
+/// The concrete process used to execute one built artifact.
+#[derive(Clone, Copy)]
+pub(crate) enum ExecutionMode<'a> {
+    MoonRun,
+    Node,
+    Native,
+    TccRun(&'a TccRunConfig),
+}
+
+impl<'a> From<&'a BackendConfig> for ExecutionMode<'a> {
+    fn from(backend: &'a BackendConfig) -> Self {
+        match backend {
+            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } => Self::MoonRun,
+            BackendConfig::Js => Self::Node,
+            BackendConfig::Native(NativeBackendMode::TccRun(config)) => Self::TccRun(config),
+            BackendConfig::Native(
+                NativeBackendMode::GeneratedC | NativeBackendMode::DirectObject(_),
+            )
+            | BackendConfig::Llvm => Self::Native,
+        }
+    }
+}
 
 /// Returns a command to run the given MoonBit executable of a specific
 /// `backend`. The returning command is suitable for adding more commandline
@@ -39,25 +62,21 @@ use moonbuild_rupes_recta::model::{RunBackend, TccRunConfig};
 /// ### Note
 ///
 pub(crate) fn command_for(
-    backend: RunBackend,
-    tcc_run: Option<&TccRunConfig>,
+    mode: ExecutionMode<'_>,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
 ) -> Command {
-    command_for_with_moonrun_policy(backend, tcc_run, mbt_executable, test, None)
+    command_for_with_moonrun_policy(mode, mbt_executable, test, None)
 }
 
 pub(crate) fn command_for_with_moonrun_policy(
-    backend: RunBackend,
-    tcc_run: Option<&TccRunConfig>,
+    mode: ExecutionMode<'_>,
     mbt_executable: &Path,
     test: Option<&TestArgs>,
     moonrun_policy: Option<&Path>,
 ) -> Command {
-    debug_assert!(tcc_run.is_none() || backend == RunBackend::Native);
-
-    match (backend, tcc_run) {
-        (RunBackend::Wasm | RunBackend::WasmGC, _) => {
+    match mode {
+        ExecutionMode::MoonRun => {
             let mut cmd = Command::new(&*moonutil::toolchain::BINARIES.moonrun);
             if let Some(t) = test {
                 cmd.arg("--test-args");
@@ -71,7 +90,7 @@ pub(crate) fn command_for_with_moonrun_policy(
             cmd.arg("--");
             cmd
         }
-        (RunBackend::Js, _) => {
+        ExecutionMode::Node => {
             if test.is_some() {
                 // Also write package.json to the directory of the .js file being required
                 // to prevent node from finding the user's package.json with "type": "module"
@@ -88,7 +107,7 @@ pub(crate) fn command_for_with_moonrun_policy(
             }
             cmd
         }
-        (RunBackend::Native, Some(tcc_run)) => {
+        ExecutionMode::TccRun(tcc_run) => {
             let tcc = tcc_run.internal_tcc();
             let mut cmd = Command::new(tcc.cc_path());
             cmd.arg(format!("@{}", mbt_executable.display()));
@@ -97,7 +116,7 @@ pub(crate) fn command_for_with_moonrun_policy(
             }
             cmd
         }
-        (RunBackend::Native | RunBackend::Llvm, _) => {
+        ExecutionMode::Native => {
             let mut cmd = Command::new(mbt_executable);
             if let Some(t) = test {
                 cmd.arg(t.to_cli_args_for_native());

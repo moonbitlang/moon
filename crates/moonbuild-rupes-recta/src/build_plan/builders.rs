@@ -34,7 +34,6 @@ use moonutil::{
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
     resolution::ModuleId,
     scripts::{IgnoredMoonScript, is_moon_script_ignored},
-    target::TargetBackend,
     toolchain::BINARIES,
 };
 use regex::Regex;
@@ -187,7 +186,7 @@ impl<'a> BuildPlanConstructor<'a> {
         importer_target: BuildTarget,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        let selected_backend: TargetBackend = self.build_env.target_backend().into();
+        let selected_backend = self.build_env.target_backend();
         let importer_pkg = self.input.pkg_dirs.get_package(importer_target.package);
         let dependency_pkg = self.input.pkg_dirs.get_package(dep.package);
 
@@ -568,7 +567,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 .chain(mbtlex_iter)
                 .chain(mbtyacc_iter),
             self.build_env.opt_level,
-            self.build_env.target_backend().into(),
+            self.build_env.target_backend(),
         ) {
             match file_kind {
                 NoTest => no_test_files.insert(file.into_owned()),
@@ -1205,8 +1204,7 @@ impl<'a> BuildPlanConstructor<'a> {
         // Bundling a module gathers the build result of all its non-virtual packages, in topo order
         let topo_sorted_pkgs = self.topo_sort_module_packages(module_id);
         let mut bundle_targets = Vec::new();
-        let target_backend: moonutil::target::TargetBackend =
-            self.build_env.target_backend().into();
+        let target_backend = self.build_env.target_backend();
         for target in topo_sorted_pkgs.into_iter() {
             let pkg = self.input.pkg_dirs.get_package(target.package);
             if !pkg.effective_supported_targets.contains(&target_backend) {

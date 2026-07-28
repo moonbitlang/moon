@@ -92,7 +92,7 @@ impl<'a> super::LoweringContext<'a> {
             enable_coverage,
             coverage_package_override: if self_coverage { Some("@self") } else { None },
             driver_kind,
-            target_backend: self.opt.target_backend().into(),
+            target_backend: self.opt.target_backend(),
             patch_file,
             pkg_name: &pkg_full_name,
             max_concurrent_tests: package.raw.max_concurrent_tests,

@@ -32,7 +32,9 @@ pub enum BackendConfig {
 This value is the compile-wide source of truth passed through `CompileConfig`,
 `BuildEnvironment`, and `BuildOptions`. Backend-specific options stay inside
 their matching variant; lowering does not reconstruct a second backend enum
-from a Target Backend plus optional native and Wasm flags.
+from a Target Backend plus optional native and Wasm flags. Code that only needs
+the user-visible identity projects a `TargetBackend` directly from this value;
+there is no separate build/run backend mirror.
 
 The Native backend mode is currently compile-wide because the runtime product
 is shared by the plan and C-stub products are shared per package. Selecting a

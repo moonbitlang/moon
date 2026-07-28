@@ -22,7 +22,10 @@ use std::{io::Read, path::Path, path::PathBuf};
 
 use anyhow::{Context, bail};
 use moonbuild_rupes_recta::{
-    ResolveOutput, build_plan::InputDirective, intent::UserIntent, model::PackageId,
+    ResolveOutput,
+    build_plan::InputDirective,
+    intent::UserIntent,
+    model::{BackendConfig, PackageId},
 };
 use mooncake::pkg::sync::SyncOutputOptions;
 use moonutil::cli_support::AutoSyncFlags;
@@ -189,10 +192,8 @@ impl BuildRunExecutableOptions {
 pub(crate) struct RunExecutable {
     /// Path to the executable-like artifact that should be launched or reported.
     pub(crate) executable: PathBuf,
-    /// Backend-specific runner to use for this artifact.
-    pub(crate) target_backend: moonbuild_rupes_recta::model::RunBackend,
-    /// Present only when native debug execution selected `tcc -run`.
-    pub(crate) tcc_run: Option<moonbuild_rupes_recta::model::TccRunConfig>,
+    /// Backend configuration used to build and execute this artifact.
+    pub(crate) backend: BackendConfig,
     pub(crate) opt_level: moonutil::cond_expr::OptLevel,
     pub(crate) target_dir: PathBuf,
     source_dir: PathBuf,
@@ -344,8 +345,7 @@ fn build_wasm_file_executable_from_arg(
     let print_dir = std::env::current_dir().context("failed to get current directory")?;
     if cli.dry_run {
         let mut run_cmd = crate::run::command_for_with_moonrun_policy(
-            moonbuild_rupes_recta::model::RunBackend::WasmGC,
-            None,
+            crate::run::ExecutionMode::MoonRun,
             &wasm_path,
             None,
             cmd.moonrun_policy.as_deref(),
@@ -357,8 +357,7 @@ fn build_wasm_file_executable_from_arg(
 
     Ok(RunExecutable {
         executable: wasm_path,
-        target_backend: moonbuild_rupes_recta::model::RunBackend::WasmGC,
-        tcc_run: None,
+        backend: BackendConfig::WasmGc { use_wat: false },
         opt_level: moonutil::cond_expr::OptLevel::Debug,
         target_dir: print_dir.clone(),
         source_dir: print_dir,
@@ -585,8 +584,7 @@ fn get_run_cmd(
 ) -> std::process::Command {
     let executable = get_run_executable(build_meta);
     let mut cmd = crate::run::command_for_with_moonrun_policy(
-        build_meta.target_backend(),
-        build_meta.tcc_run(),
+        crate::run::ExecutionMode::from(&build_meta.backend),
         executable,
         None,
         moonrun_policy,
@@ -781,8 +779,7 @@ fn build_executable_from_plan(
         })?;
         return Ok(RunExecutable {
             executable: get_run_executable(build_meta).to_path_buf(),
-            target_backend: build_meta.target_backend(),
-            tcc_run: build_meta.tcc_run().cloned(),
+            backend: build_meta.backend.clone(),
             opt_level: build_meta.opt_level,
             target_dir: target_dir.to_path_buf(),
             source_dir: source_dir.to_path_buf(),
@@ -809,8 +806,7 @@ fn build_executable_from_plan(
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
-        target_backend: build_meta.target_backend(),
-        tcc_run: build_meta.tcc_run().cloned(),
+        backend: build_meta.backend.clone(),
         opt_level: build_meta.opt_level,
         target_dir: target_dir.to_path_buf(),
         source_dir: source_dir.to_path_buf(),
@@ -842,8 +838,7 @@ fn run_executable(
     }
 
     let mut run_cmd = crate::run::command_for_with_moonrun_policy(
-        executable.target_backend,
-        executable.tcc_run.as_ref(),
+        crate::run::ExecutionMode::from(&executable.backend),
         executable.executable.as_path(),
         None,
         cmd.moonrun_policy.as_deref(),

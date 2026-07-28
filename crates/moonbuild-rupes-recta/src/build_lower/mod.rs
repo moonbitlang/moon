@@ -22,14 +22,17 @@
 use std::{collections::BTreeMap, path::PathBuf, str::FromStr, sync::OnceLock};
 
 use log::{debug, info};
-use moonutil::{build_options::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel};
+use moonutil::{
+    build_options::RunMode, compiler_flags::CompilerPaths, cond_expr::OptLevel,
+    target::TargetBackend,
+};
 use n2::graph::Graph as N2Graph;
 use tracing::instrument;
 
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildActionId, BuildActionPlan},
-    model::{BackendConfig, OperatingSystem, PackageId, RunBackend},
+    model::{BackendConfig, OperatingSystem, PackageId},
     pkg_name::OptionalPackageFQNWithSource,
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
@@ -121,8 +124,8 @@ pub struct BuildOptions {
 }
 
 impl BuildOptions {
-    pub fn target_backend(&self) -> RunBackend {
-        self.backend.run_backend()
+    pub fn target_backend(&self) -> TargetBackend {
+        self.backend.target_backend()
     }
 
     pub fn os(&self) -> OperatingSystem {
@@ -138,42 +141,41 @@ impl BuildOptions {
     }
 
     pub fn artifact_path_options(&self) -> ArtifactPathOptions {
-        let use_tcc_run = self.backend.tcc_run().is_some();
-        let target_backend = self.target_backend();
-        let os = match target_backend {
-            RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => OperatingSystem::None,
-            RunBackend::Native | RunBackend::Llvm => self.os(),
-        };
-        let executable = match target_backend {
-            RunBackend::Wasm => ExecutableArtifact::Wasm {
-                use_wat: self.backend.use_wat(),
-            },
-            RunBackend::WasmGC => ExecutableArtifact::WasmGC {
-                use_wat: self.backend.use_wat(),
-            },
-            RunBackend::Js => ExecutableArtifact::Js,
-            RunBackend::Native if use_tcc_run => ExecutableArtifact::TccRunResponseFile,
-            RunBackend::Native => ExecutableArtifact::NativeExecutable,
-            RunBackend::Llvm => ExecutableArtifact::LlvmExecutable,
-        };
-        let linked_core = match target_backend {
-            RunBackend::Wasm => LinkedCoreArtifact::Wasm {
-                use_wat: self.backend.use_wat(),
-            },
-            RunBackend::WasmGC => LinkedCoreArtifact::WasmGC {
-                use_wat: self.backend.use_wat(),
-            },
-            RunBackend::Js => LinkedCoreArtifact::Js,
-            RunBackend::Native if self.backend.direct_native_target().is_some() => {
-                LinkedCoreArtifact::NativeObject { os }
+        let os = match &self.backend {
+            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
+                OperatingSystem::None
             }
-            RunBackend::Native => LinkedCoreArtifact::NativeC,
-            RunBackend::Llvm => LinkedCoreArtifact::LlvmObject { os },
+            BackendConfig::Native(_) | BackendConfig::Llvm => self.os(),
+        };
+        let (executable, linked_core) = match &self.backend {
+            BackendConfig::Wasm { use_wat, .. } => (
+                ExecutableArtifact::Wasm { use_wat: *use_wat },
+                LinkedCoreArtifact::Wasm { use_wat: *use_wat },
+            ),
+            BackendConfig::WasmGc { use_wat } => (
+                ExecutableArtifact::WasmGC { use_wat: *use_wat },
+                LinkedCoreArtifact::WasmGC { use_wat: *use_wat },
+            ),
+            BackendConfig::Js => (ExecutableArtifact::Js, LinkedCoreArtifact::Js),
+            BackendConfig::Native(mode) => (
+                if mode.tcc_run().is_some() {
+                    ExecutableArtifact::TccRunResponseFile
+                } else {
+                    ExecutableArtifact::NativeExecutable
+                },
+                if mode.direct_target().is_some() {
+                    LinkedCoreArtifact::NativeObject { os }
+                } else {
+                    LinkedCoreArtifact::NativeC
+                },
+            ),
+            BackendConfig::Llvm => (
+                ExecutableArtifact::LlvmExecutable,
+                LinkedCoreArtifact::LlvmObject { os },
+            ),
         };
 
         ArtifactPathOptions {
-            target_backend,
-            use_tcc_run,
             os,
             executable,
             linked_core,
@@ -346,7 +348,14 @@ mod tests {
 
     #[test]
     fn non_native_artifact_options_do_not_resolve_operating_system() {
-        for target_backend in [RunBackend::Wasm, RunBackend::WasmGC, RunBackend::Js] {
+        for backend in [
+            BackendConfig::Wasm {
+                use_wat: false,
+                wasi_link: false,
+            },
+            BackendConfig::WasmGc { use_wat: false },
+            BackendConfig::Js,
+        ] {
             let artifact_paths = ArtifactPathResolver::new(
                 TargetLayout::new(
                     PathBuf::from("_build"),
@@ -358,15 +367,7 @@ mod tests {
             );
             let options = BuildOptions {
                 artifact_paths,
-                backend: match target_backend {
-                    RunBackend::Wasm => BackendConfig::Wasm {
-                        use_wat: false,
-                        wasi_link: false,
-                    },
-                    RunBackend::WasmGC => BackendConfig::WasmGc { use_wat: false },
-                    RunBackend::Js => BackendConfig::Js,
-                    RunBackend::Native | RunBackend::Llvm => unreachable!(),
-                },
+                backend,
                 opt_level: OptLevel::Debug,
                 action: RunMode::Build,
                 debug_symbols: false,

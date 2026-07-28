@@ -45,7 +45,7 @@ use moonbuild_rupes_recta::{
     intent::UserIntent,
     model::{
         Artifacts, BackendConfig, BuildPlanNode, DirectNativeMode, NativeBackendMode, NativeTarget,
-        PackageId, RunBackend, TargetKind, TccRunConfig,
+        PackageId, TargetKind, TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
@@ -213,12 +213,8 @@ pub struct BuildMeta {
 }
 
 impl BuildMeta {
-    pub fn target_backend(&self) -> RunBackend {
-        self.backend.run_backend()
-    }
-
-    pub fn tcc_run(&self) -> Option<&TccRunConfig> {
-        self.backend.tcc_run()
+    pub fn target_backend(&self) -> TargetBackend {
+        self.backend.target_backend()
     }
 }
 
@@ -845,7 +841,7 @@ pub fn generate_metadata(
         source_dir,
         &build_meta.artifact_paths,
         build_meta.opt_level,
-        build_meta.target_backend().into(),
+        build_meta.target_backend(),
         &check_commands,
     );
     let orig_meta = std::fs::read_to_string(&metadata_file);
@@ -888,11 +884,11 @@ pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
     let all_pkgs_path = build_meta
         .artifact_paths
         .target_layout()
-        .all_pkgs_of_build_target(build_meta.target_backend().into());
+        .all_pkgs_of_build_target(build_meta.target_backend());
     let all_pkgs_json = moonbuild_rupes_recta::all_pkgs::gen_all_pkgs_json(
         &build_meta.resolve_output,
         &build_meta.artifact_paths,
-        build_meta.target_backend().into(),
+        build_meta.target_backend(),
     );
     let orig_all_pkgs = std::fs::read_to_string(&all_pkgs_path);
     let all_pkgs_str =
@@ -1326,7 +1322,7 @@ fn rewrite_captured_diagnostic(
     };
     let layout = meta.artifact_paths.target_layout();
     let packages = &meta.resolve_output.pkg_dirs;
-    let backend = meta.target_backend().into();
+    let backend = meta.target_backend();
 
     if cfg.output_style.needs_moonc_json() {
         let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) else {
