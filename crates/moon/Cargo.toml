@@ -37,6 +37,7 @@ n2.workspace = true
 semver.workspace = true
 clap.workspace = true
 anyhow.workspace = true
+blake3.workspace = true
 colored.workspace = true
 serde.workspace = true
 serde_json_lenient.workspace = true

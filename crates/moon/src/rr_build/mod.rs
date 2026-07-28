@@ -70,6 +70,7 @@ use tracing::{Level, info, instrument};
 use crate::build_flags::{BuildFlags, OutputStyle};
 
 mod dry_run;
+mod standalone_action_cache;
 pub use dry_run::{
     format_dry_run_command, write_dry_run, write_dry_run_all, write_standalone_dry_run,
 };
@@ -763,7 +764,6 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     let dependency_input =
         (!compile_output.dependencies.is_empty()).then(|| StandaloneDependencyInput {
             actions: compile_output.dependencies,
-            db_path: layout.standalone_dependency_n2_db_path(backend),
         });
     let input = StandaloneBuildInput {
         dependencies: dependency_input,
@@ -1003,7 +1003,6 @@ pub struct StandaloneBuildInput {
 #[derive(Debug, Clone)]
 struct StandaloneDependencyInput {
     actions: Vec<moonbuild_rupes_recta::build_lower::LoweredAction>,
-    db_path: PathBuf,
 }
 
 #[cfg(test)]
@@ -1058,17 +1057,8 @@ pub fn execute_standalone_build(
         return execute_build(cfg, input.script, target_dir, user_log);
     };
 
-    let (graph, command_args_by_output) =
-        moonbuild_rupes_recta::build_lower::lowered_actions_to_n2_graph(dependencies.actions)?;
-    let dependency_execution = execute_build_capturing(
-        cfg,
-        BuildInput {
-            graph,
-            command_args_by_output,
-            db_path: dependencies.db_path,
-        },
-        target_dir,
-    )?;
+    let dependency_execution =
+        standalone_action_cache::execute(cfg, dependencies, target_dir, user_log)?;
     if !dependency_execution.successful() {
         return Ok(finish_captured_build(
             cfg,

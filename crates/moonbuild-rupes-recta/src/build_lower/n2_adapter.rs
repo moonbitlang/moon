@@ -53,7 +53,11 @@ impl N2GraphBuilder {
         let mut input_paths = dependencies
             .into_iter()
             .flat_map(|product| product.paths)
-            .chain(external_inputs)
+            .chain(
+                external_inputs
+                    .iter()
+                    .filter_map(|input| input.n2_path().map(ToOwned::to_owned)),
+            )
             .collect::<Vec<_>>();
         input_paths.sort();
 
@@ -116,8 +120,8 @@ mod tests {
     use crate::{
         build_action_plan::{BuildActionId, BuildProduct},
         build_lower::{
-            LoweredAction, LoweredCommand, LoweredProduct, LoweredResponseFile,
-            lowered_actions_to_n2_graph,
+            LoweredAction, LoweredCommand, LoweredExternalInput, LoweredProduct,
+            LoweredResponseFile, lowered_actions_to_n2_graph,
         },
         pkg_name::PackageFQN,
     };
@@ -129,7 +133,7 @@ mod tests {
         let lowered = LoweredAction {
             id: action,
             dependencies: Vec::new(),
-            external_inputs: vec![PathBuf::from("src/main.mbt")],
+            external_inputs: vec![LoweredExternalInput::File(PathBuf::from("src/main.mbt"))],
             outputs: vec![LoweredProduct {
                 producer: action,
                 product: BuildProduct::PrebuildOutputPath {

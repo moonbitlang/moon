@@ -9,14 +9,19 @@ use crate::{TestDir, get_stdout_with_envs};
 use expect_test::expect_file;
 
 #[cfg(unix)]
-use super::unix_graph::{assert_native_backend_graph, assert_native_backend_graph_no_env};
+use super::unix_graph::{
+    assert_native_backend_graph, assert_native_backend_graph_no_env, install_fake_executable,
+    path_with_tool_dir,
+};
 
 #[cfg(windows)]
 fn link_commands_with_compiler(output: &str, compiler_name: &str) -> Vec<String> {
     output
         .lines()
         .filter(|line| {
-            line.contains(compiler_name) && line.contains(" -o ") && !line.contains(" -c ")
+            line.to_ascii_lowercase().contains(compiler_name)
+                && line.contains(" -o ")
+                && !line.contains(" -c ")
         })
         .map(str::to_string)
         .collect()
@@ -103,6 +108,10 @@ fn test_native_backend_cc_flags() {
 #[cfg(unix)]
 fn test_native_backend_cc_flags_with_env_override() {
     let dir = TestDir::new("native_backend/cc_flags");
+    let tool_dir = dir.join("fake-tools");
+    install_fake_executable(&tool_dir.join("x86_64-unknown-fake_os-fake_libc-gcc"));
+    install_fake_executable(&tool_dir.join("x86_64-unknown-fake_os-fake_libc-ar"));
+    let path = path_with_tool_dir(&tool_dir);
     assert_native_backend_graph(
         &dir,
         "build_native_env_graph.jsonl",
@@ -110,6 +119,7 @@ fn test_native_backend_cc_flags_with_env_override() {
         &[
             ("MOONBIT_NEW_NATIVE", "0"),
             ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+            ("PATH", path.as_str()),
         ],
         expect_file!["cc_flags/build_native_env_graph.jsonl.snap"],
     );
@@ -120,6 +130,7 @@ fn test_native_backend_cc_flags_with_env_override() {
         &[
             ("MOONBIT_NEW_NATIVE", "0"),
             ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+            ("PATH", path.as_str()),
         ],
         expect_file!["cc_flags/test_native_env_graph.jsonl.snap"],
     );
@@ -137,23 +148,24 @@ fn test_native_backend_cc_flags_with_env_override() {
         &[
             ("MOONBIT_NEW_NATIVE", "0"),
             ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+            ("PATH", path.as_str()),
         ],
         expect_file!["cc_flags/run_native_env_graph.jsonl.snap"],
     );
+    let compiler = dir.join("some/path/A/x86_64-unknown-fake_os-fake_libc-gcc");
+    let archiver = dir.join("other/path/B/x86_64-unknown-fake_os-fake_libc-ar");
+    install_fake_executable(&compiler);
+    install_fake_executable(&archiver);
+    let compiler = compiler.to_string_lossy();
+    let archiver = archiver.to_string_lossy();
     assert_native_backend_graph(
         &dir,
         "build_native_env_paths_graph.jsonl",
         &["build", "--target", "native", "--dry-run", "--sort-input"],
         &[
             ("MOONBIT_NEW_NATIVE", "0"),
-            (
-                "MOON_CC",
-                "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc",
-            ),
-            (
-                "MOON_AR",
-                "/other/path/B/x86_64-unknown-fake_os-fake_libc-ar",
-            ),
+            ("MOON_CC", compiler.as_ref()),
+            ("MOON_AR", archiver.as_ref()),
         ],
         expect_file!["cc_flags/build_native_env_paths_graph.jsonl.snap"],
     );
@@ -163,14 +175,8 @@ fn test_native_backend_cc_flags_with_env_override() {
         &["test", "--target", "native", "--dry-run", "--sort-input"],
         &[
             ("MOONBIT_NEW_NATIVE", "0"),
-            (
-                "MOON_CC",
-                "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc",
-            ),
-            (
-                "MOON_AR",
-                "/other/path/B/x86_64-unknown-fake_os-fake_libc-ar",
-            ),
+            ("MOON_CC", compiler.as_ref()),
+            ("MOON_AR", archiver.as_ref()),
         ],
         expect_file!["cc_flags/test_native_env_paths_graph.jsonl.snap"],
     );
@@ -187,14 +193,8 @@ fn test_native_backend_cc_flags_with_env_override() {
         ],
         &[
             ("MOONBIT_NEW_NATIVE", "0"),
-            (
-                "MOON_CC",
-                "/some/path/A/x86_64-unknown-fake_os-fake_libc-gcc",
-            ),
-            (
-                "MOON_AR",
-                "/other/path/B/x86_64-unknown-fake_os-fake_libc-ar",
-            ),
+            ("MOON_CC", compiler.as_ref()),
+            ("MOON_AR", archiver.as_ref()),
         ],
         expect_file!["cc_flags/run_native_env_paths_graph.jsonl.snap"],
     );
@@ -204,9 +204,14 @@ fn test_native_backend_cc_flags_with_env_override() {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn test_native_backend_new_native_with_env_override() {
     let dir = TestDir::new("native_backend/cc_flags");
+    let tool_dir = dir.join("fake-tools");
+    install_fake_executable(&tool_dir.join("x86_64-unknown-fake_os-fake_libc-gcc"));
+    install_fake_executable(&tool_dir.join("x86_64-unknown-fake_os-fake_libc-ar"));
+    let path = path_with_tool_dir(&tool_dir);
     let envs = &[
         ("MOONBIT_NEW_NATIVE", "1"),
         ("MOON_CC", "x86_64-unknown-fake_os-fake_libc-gcc"),
+        ("PATH", path.as_str()),
     ];
     assert_native_backend_graph(
         &dir,
@@ -263,7 +268,7 @@ fn test_native_backend_clang_uses_target_specific_libm_behavior() {
         [("MOON_CC", "clang")],
     );
 
-    let link_lines = link_commands_with_compiler(&output, "clang ");
+    let link_lines = link_commands_with_compiler(&output, "clang");
     assert!(
         !link_lines.is_empty(),
         "expected at least one link command using clang"

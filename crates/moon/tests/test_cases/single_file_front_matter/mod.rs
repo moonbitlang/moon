@@ -86,7 +86,7 @@ fn test_single_file_mbtx_dry_run_prints_dependencies_before_script() {
 }
 
 #[test]
-fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
+fn test_single_file_mbtx_reuses_cached_dependencies_after_script_change() {
     let dir = TestDir::new("moon_test_single_file.in");
     let args = ["run", "import_ok.mbtx", "--target", "wasm"];
     let stdout = get_stdout(&dir, args);
@@ -94,10 +94,14 @@ fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
 
     let build_dir = dir.join("_build/wasm/debug/build");
     let dependency_core = build_dir.join(".mooncakes/moonbitlang/x/stack/stack.core");
-    let dependency_db = build_dir.join("standalone-dependencies.moon_db");
     let script_db = build_dir.join("build.moon_db");
     assert!(dependency_core.is_file());
-    assert!(dependency_db.is_file());
+    assert!(
+        dir.join("_build/.mooncakes/.build-cache/actions")
+            .read_dir()
+            .is_ok_and(|mut entries| entries.next().is_some()),
+        "dependency preparation should publish action entries",
+    );
     assert!(script_db.is_file());
 
     let dependency_modified = fs::metadata(&dependency_core)

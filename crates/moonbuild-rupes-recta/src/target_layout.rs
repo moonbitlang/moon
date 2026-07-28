@@ -610,12 +610,6 @@ impl TargetLayout {
         path.push(format!("{}.moon_db", self.run_mode.to_dir_name()));
         path
     }
-
-    pub fn standalone_dependency_n2_db_path(&self, target_backend: TargetBackend) -> PathBuf {
-        let mut path = self.run_mode_dir(target_backend);
-        path.push("standalone-dependencies.moon_db");
-        path
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -1702,25 +1696,6 @@ mod tests {
         assert_eq!(
             layout.n2_db_path(TargetBackend::WasmGC),
             PathBuf::from("_build/wasm-gc/debug/format/format.moon_db"),
-        );
-    }
-
-    #[test]
-    fn standalone_dependency_db_is_separate_from_script_db() {
-        let layout = TargetLayout::new(
-            PathBuf::from("_build"),
-            TargetLayoutMode::Workspace,
-            OptLevel::Debug,
-            RunMode::Run,
-        );
-
-        assert_eq!(
-            layout.standalone_dependency_n2_db_path(TargetBackend::Wasm),
-            PathBuf::from("_build/wasm/debug/build/standalone-dependencies.moon_db"),
-        );
-        assert_ne!(
-            layout.standalone_dependency_n2_db_path(TargetBackend::Wasm),
-            layout.n2_db_path(TargetBackend::Wasm),
         );
     }
 

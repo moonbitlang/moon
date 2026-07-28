@@ -14,10 +14,33 @@ mod test_filter;
 
 #[cfg(unix)]
 mod unix_graph {
+    use std::path::Path;
+
     use expect_test::ExpectFile;
     use moonbuild_debug::graph::ENV_VAR;
 
     use crate::{TestDir, build_graph::compare_graphs_with_replacements, get_stdout_with_envs};
+
+    pub(super) fn install_fake_executable(path: &Path) {
+        std::fs::create_dir_all(path.parent().expect("fake tool should have a parent"))
+            .expect("failed to create fake tool directory");
+        std::os::unix::fs::symlink(
+            std::env::current_exe().expect("test executable should have a path"),
+            path,
+        )
+        .expect("failed to create fake tool executable");
+    }
+
+    pub(super) fn path_with_tool_dir(tool_dir: &Path) -> String {
+        std::env::join_paths(
+            std::iter::once(tool_dir.to_path_buf()).chain(std::env::split_paths(
+                &std::env::var_os("PATH").unwrap_or_default(),
+            )),
+        )
+        .expect("fake tool PATH should be valid")
+        .into_string()
+        .expect("fake tool PATH should be Unicode")
+    }
 
     #[track_caller]
     pub(super) fn assert_native_backend_graph(
@@ -34,7 +57,16 @@ mod unix_graph {
             .collect();
         env_pairs.push((ENV_VAR.to_string(), graph.to_string_lossy().into_owned()));
         get_stdout_with_envs(dir, args.iter().copied(), env_pairs);
+        let fake_tools = dir.join("fake-tools").to_string_lossy().into_owned();
+        let compiler_path = dir.join("some/path/A").to_string_lossy().into_owned();
+        let archiver_path = dir.join("other/path/B").to_string_lossy().into_owned();
         compare_graphs_with_replacements(&graph, expected, |s| {
+            *s = s.replace(&fake_tools, "$FAKE_TOOLS");
+            *s = s.replace("./fake-tools", "$FAKE_TOOLS");
+            *s = s.replace(&compiler_path, "/some/path/A");
+            *s = s.replace("./some/path/A", "/some/path/A");
+            *s = s.replace(&archiver_path, "/other/path/B");
+            *s = s.replace("./other/path/B", "/other/path/B");
             // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
             *s = s.replace(" -Wno-unused-value", "");
             *s = s.replace(".dylib", ".so");

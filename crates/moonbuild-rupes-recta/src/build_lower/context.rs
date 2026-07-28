@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use moonutil::resolution::{DirSyncResult, ResolvedEnv};
 use tracing::{Level, instrument};
 
+use super::{BuildOptions, LoweredAction, LoweredExternalInput, LoweredProduct, LoweringError};
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, BuildProduct},
@@ -31,9 +32,6 @@ use crate::{
     pkg_solve::DepRelationship,
     target_layout::ArtifactPathResolver,
 };
-use moonutil::toolchain::BINARIES;
-
-use super::{BuildOptions, LoweredAction, LoweredProduct, LoweringError};
 
 pub(crate) struct LoweringContext<'a> {
     // Physical paths for logical build products.
@@ -221,6 +219,12 @@ impl<'a> LoweringContext<'a> {
         if self.is_action_noop(action) {
             return Ok(None);
         }
+        let uses_stdlib_interfaces = matches!(
+            action,
+            BuildAction::Check { .. }
+                | BuildAction::BuildCore { .. }
+                | BuildAction::BuildVirtual { .. }
+        );
         let action_products = ActionProducts::new(self, id);
 
         // Lower the action to its command and tool-specific execution transport.
@@ -280,10 +284,23 @@ impl<'a> LoweringContext<'a> {
             }
         };
 
-        let mut external_inputs = cmd.extra_inputs;
-        if self.plan.needs_moonc_tool_dep(id) {
-            external_inputs.push(BINARIES.moonc.clone());
+        let mut external_inputs = cmd
+            .extra_inputs
+            .into_iter()
+            .map(LoweredExternalInput::File)
+            .collect::<Vec<_>>();
+        if let Some(args) = cmd.commandline.args()
+            && let Some(program) = args.first()
+        {
+            external_inputs.push(LoweredExternalInput::File(program.into()));
         }
+        if uses_stdlib_interfaces && let Some(stdlib_root) = &self.opt.stdlib_path {
+            external_inputs.push(LoweredExternalInput::StandardLibraryInterfaces(
+                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.target_backend()),
+            ));
+        }
+        external_inputs.sort();
+        external_inputs.dedup();
 
         let error_package = self
             .plan

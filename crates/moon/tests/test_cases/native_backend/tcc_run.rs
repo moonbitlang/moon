@@ -2,12 +2,16 @@ use crate::{TestDir, moon_process_cmd};
 use expect_test::expect_file;
 use walkdir::WalkDir;
 
-use super::unix_graph::assert_native_backend_graph;
+use super::unix_graph::{assert_native_backend_graph, install_fake_executable, path_with_tool_dir};
 
 #[test]
 fn test_native_backend_tcc_run() {
     let dir = TestDir::new("native_backend/tcc_run");
-    let envs = &[("MOONBIT_NEW_NATIVE", "0")];
+    let tool_dir = dir.join("fake-tools");
+    install_fake_executable(&tool_dir.join("stubcc"));
+    install_fake_executable(&tool_dir.join("stubar"));
+    let path = path_with_tool_dir(&tool_dir);
+    let envs = &[("MOONBIT_NEW_NATIVE", "0"), ("PATH", path.as_str())];
     assert_native_backend_graph(
         &dir,
         "build_native_graph.jsonl",

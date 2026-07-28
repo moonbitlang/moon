@@ -27,6 +27,30 @@ use crate::{
     pkg_name::OptionalPackageFQNWithSource,
 };
 
+/// A concrete input that is not produced by another lowered action.
+#[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum LoweredExternalInput {
+    /// One regular file observed by the action.
+    File(PathBuf),
+    /// The `.mi` tree loaded recursively by `moonc -std-path`.
+    StandardLibraryInterfaces(PathBuf),
+}
+
+impl LoweredExternalInput {
+    pub fn path(&self) -> &std::path::Path {
+        match self {
+            Self::File(path) | Self::StandardLibraryInterfaces(path) => path,
+        }
+    }
+
+    pub(crate) fn n2_path(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::File(path) => Some(path),
+            Self::StandardLibraryInterfaces(_) => None,
+        }
+    }
+}
+
 /// One logical product after its concrete artifact paths have been selected.
 #[derive(Debug, Clone)]
 pub struct LoweredProduct {
@@ -166,7 +190,7 @@ impl LoweredCommand {
 pub struct LoweredAction {
     pub(crate) id: BuildActionId,
     pub(crate) dependencies: Vec<LoweredProduct>,
-    pub(crate) external_inputs: Vec<PathBuf>,
+    pub(crate) external_inputs: Vec<LoweredExternalInput>,
     pub(crate) outputs: Vec<LoweredProduct>,
     pub(crate) command: LoweredCommand,
     pub(crate) fileloc: String,
@@ -184,7 +208,7 @@ impl LoweredAction {
         &self.dependencies
     }
 
-    pub fn external_inputs(&self) -> &[PathBuf] {
+    pub fn external_inputs(&self) -> &[LoweredExternalInput] {
         &self.external_inputs
     }
 
