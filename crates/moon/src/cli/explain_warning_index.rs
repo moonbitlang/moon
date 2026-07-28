@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-07-26.
+// Snapshot generated from `moonc check -warn-help` on 2026-07-28.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -435,6 +435,21 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         mnemonic: "unqualified_record",
         description: "Struct literal in a `let` binding without a type prefix.",
         id: 84,
+    },
+    WarningEntry {
+        mnemonic: "guard_inexhaustive",
+        description: "`guard` condition is not exhaustive and may panic.",
+        id: 87,
+    },
+    WarningEntry {
+        mnemonic: "guard_redundant_bang",
+        description: "Redundant `!` on an exhaustive `guard`.",
+        id: 88,
+    },
+    WarningEntry {
+        mnemonic: "guard_redundant_else",
+        description: "Redundant `else` on an exhaustive `guard`.",
+        id: 89,
     },
 ];
 
