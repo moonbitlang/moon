@@ -18,9 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-use n2::graph::RspFile;
-
-use super::{Commandline, LoweringError};
+use super::{LoweredCommand, LoweredResponseFile, LoweringError};
 
 // Keep a portable margin below Windows' 32,767 UTF-16-code-unit process limit.
 // UTF-8 byte length is a conservative approximation for this purpose.
@@ -29,8 +27,8 @@ const RESPONSE_FILE_THRESHOLD: usize = 16 * 1024;
 pub(super) fn lower(
     args: Vec<String>,
     primary_output: &Path,
-) -> Result<Commandline, LoweringError> {
-    let commandline = Commandline::from(args);
+) -> Result<LoweredCommand, LoweringError> {
+    let commandline = LoweredCommand::from(args);
     let (executable, response_args) = commandline
         .args()
         .expect("moonc commands are represented as argv")
@@ -51,7 +49,7 @@ pub(super) fn lower(
 
     Ok(commandline.with_response_file(
         command,
-        RspFile {
+        LoweredResponseFile {
             path: rsp_path,
             content,
         },
@@ -86,15 +84,17 @@ fn encode(args: &[String]) -> Result<String, LoweringError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build_lower::LoweredCommandExecution;
 
     #[test]
     fn preserves_logical_args_while_selecting_execution_transport() {
         let output = Path::new("build/pkg.core");
         let short = vec!["moonc".to_owned(), "build-package".to_owned()];
         let lowered = lower(short.clone(), output).expect("short command should lower");
-        let (command, rspfile) = lowered.into_n2();
-        assert_eq!(moonutil::shlex::split_native(&command), short);
-        assert!(rspfile.is_none());
+        let LoweredCommandExecution::Inline(command) = lowered.execution() else {
+            panic!("short command should remain inline")
+        };
+        assert_eq!(moonutil::shlex::split_native(command), short);
 
         let long = vec![
             "moonc".to_owned(),
@@ -102,12 +102,17 @@ mod tests {
             "x".repeat(RESPONSE_FILE_THRESHOLD),
         ];
         let lowered = lower(long.clone(), output).expect("oversized command should lower");
-        assert_eq!(lowered.args(), Some(&long));
-        let (command, rspfile) = lowered.into_n2();
-        let rspfile = rspfile.expect("oversized command should use a response file");
+        assert_eq!(lowered.args(), Some(long.as_slice()));
+        let LoweredCommandExecution::ResponseFile {
+            command,
+            file: rspfile,
+        } = lowered.execution()
+        else {
+            panic!("oversized command should use a response file")
+        };
 
         assert_eq!(
-            moonutil::shlex::split_native(&command),
+            moonutil::shlex::split_native(command),
             [
                 "moonc".to_owned(),
                 "-rsp-file".to_owned(),

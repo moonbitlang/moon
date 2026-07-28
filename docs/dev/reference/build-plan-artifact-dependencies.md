@@ -6,7 +6,8 @@ plan consumed by lowering, and backend graph construction:
 ```text
 BuildPlan       = planning IR: graph nodes, edge semantics, coalescing
 BuildActionPlan = action-level build plan: action ids, hydrated action data, logical products
-build_lower/n2  = backend IR: concrete paths, command lines, n2 graph
+LoweredAction   = concrete action: realized products, paths, and process command
+n2::Build       = executor representation produced by the n2 adapter
 ```
 
 The important invariant is that `build_lower` consumes `BuildActionPlan` only. It
@@ -143,7 +144,7 @@ For example, an archive/link C-stub action no longer scans raw build-plan
 edges in `build_lower`. Its object inputs are exposed by `BuildActionPlan` as
 `(object_action, BuildProduct::CStubObject { ... })` dependencies.
 
-## Backend Lowering
+## Action Lowering and n2 Adaptation
 
 `build_lower` matches on `BuildAction` and resolves `BuildProduct` paths
 through `ArtifactPathResolver`:
@@ -175,19 +176,26 @@ let dependencies = plan
     .map(|(dependency_action, product)| realize(dependency_action, product));
 ```
 
+The command, realized dependency products, external file inputs, outputs, and
+execution metadata are assembled into one `LoweredAction`. Ordinary builds move
+each action directly into the n2 adapter as soon as it is lowered; they do not
+retain a second complete graph in memory. The adapter alone registers n2 files,
+constructs `n2::Build`, and reports n2 graph errors.
+
 This keeps responsibilities separate:
 
 - `BuildPlan` owns graph edges, coalescing, and planning-only terminology.
 - `BuildActionPlan` owns the normalized action/product interface between phases.
 - `ArtifactPathResolver` owns logical product to path resolution.
-- `build_lower` owns command construction and n2 graph output.
+- action lowering owns concrete products, external inputs, and commands.
+- the n2 adapter owns n2 graph construction.
 
 ## Standalone script boundary
 
 Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`.
 Package dependencies use the same edges as ordinary project compilation. After
-the plan is normalized once, a temporary action-level adapter projects it into
-two disjoint n2 graphs.
+the plan is normalized once, an action-level projection separates it into two
+disjoint n2 graphs.
 
 All actions owned by packages other than the synthesized script package seed
 the dependency projection. Following their producer edges to a fixed point

@@ -16,14 +16,14 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use moonutil::resolution::ResolvedEnv;
 
 use crate::{
     build_plan::{BuildPlan, FileDependencyKind, PlanArtifactKind},
     discover::DiscoverResult,
-    model::{BuildPlanNode, BuildTarget},
+    model::{BuildPlanNode, BuildTarget, PackageId},
 };
 
 use super::{BuildAction, BuildActionId, BuildProduct};
@@ -70,6 +70,77 @@ impl<'a> BuildActionPlan<'a> {
 
     pub fn input_action_ids(&self) -> &[BuildActionId] {
         &self.input_actions
+    }
+
+    /// Separate reusable package preparation from work owned by the
+    /// synthesized script package while preserving the original action edges.
+    pub(crate) fn partition_standalone_actions(
+        &self,
+        script_package: PackageId,
+    ) -> (Vec<BuildActionId>, Vec<BuildActionId>) {
+        let action_package = |action| match action {
+            BuildAction::Check { target, .. }
+            | BuildAction::EmitProof { target, .. }
+            | BuildAction::Prove { target, .. }
+            | BuildAction::BuildCore { target, .. }
+            | BuildAction::LinkCore { target, .. }
+            | BuildAction::MakeExecutable { target, .. }
+            | BuildAction::GenerateTestInfo { target, .. }
+            | BuildAction::GenerateMbti { target } => Some(target.package),
+            BuildAction::BuildCStub { package, .. }
+            | BuildAction::ArchiveOrLinkCStubs { package, .. }
+            | BuildAction::BuildVirtual { package }
+            | BuildAction::RunPrebuild { package, .. }
+            | BuildAction::RunMoonLexPrebuild { package, .. }
+            | BuildAction::RunMoonYaccPrebuild { package, .. } => Some(package),
+            BuildAction::Bundle { .. }
+            | BuildAction::BuildRuntimeLib { .. }
+            | BuildAction::BuildDocs { .. } => None,
+        };
+        let script_owned_actions = self
+            .action_ids()
+            .filter(|&action| action_package(self.action(action)) == Some(script_package))
+            .collect::<HashSet<_>>();
+        assert!(
+            !script_owned_actions.is_empty(),
+            "standalone action plan should contain work for the synthesized script package"
+        );
+
+        let mut dependency_actions = self
+            .action_ids()
+            .filter(|&action| {
+                action_package(self.action(action)).is_some_and(|package| package != script_package)
+            })
+            .collect::<HashSet<_>>();
+        let mut pending = dependency_actions.iter().copied().collect::<Vec<_>>();
+        while let Some(action) = pending.pop() {
+            for dependency in self.dependency_action_ids(action) {
+                assert!(
+                    !script_owned_actions.contains(&dependency),
+                    "standalone dependency preparation action {action:?} depends on \
+                     script action {dependency:?}"
+                );
+                if dependency_actions.insert(dependency) {
+                    pending.push(dependency);
+                }
+            }
+        }
+        assert!(
+            self.input_action_ids()
+                .iter()
+                .all(|action| !dependency_actions.contains(action)),
+            "standalone root action should remain in the script execution phase"
+        );
+
+        let dependencies = self
+            .action_ids()
+            .filter(|action| dependency_actions.contains(action))
+            .collect();
+        let script = self
+            .action_ids()
+            .filter(|action| !dependency_actions.contains(action))
+            .collect();
+        (dependencies, script)
     }
 
     pub fn action(&self, id: BuildActionId) -> BuildAction<'a> {

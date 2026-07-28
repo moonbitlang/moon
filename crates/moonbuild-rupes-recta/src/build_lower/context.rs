@@ -20,9 +20,7 @@
 
 use std::path::PathBuf;
 
-use log::debug;
 use moonutil::resolution::{DirSyncResult, ResolvedEnv};
-use n2::graph::{Build, Graph as N2Graph};
 use tracing::{Level, instrument};
 
 use crate::{
@@ -35,17 +33,9 @@ use crate::{
 };
 use moonutil::toolchain::BINARIES;
 
-use super::{
-    BuildOptions, CommandArgMap, LoweringError,
-    utils::{build_ins, build_n2_fileloc, build_outs},
-};
+use super::{BuildOptions, LoweredAction, LoweredProduct, LoweringError};
 
 pub(crate) struct LoweringContext<'a> {
-    // What we're building
-    pub(crate) graph: N2Graph,
-
-    pub(crate) command_args_by_output: CommandArgMap,
-
     // Physical paths for logical build products.
     pub(crate) artifact_paths: ArtifactPathResolver,
 
@@ -59,13 +49,8 @@ pub(crate) struct LoweringContext<'a> {
 }
 
 pub(super) struct ActionProducts {
-    outputs: Vec<RealizedProduct>,
-    dependencies: Vec<RealizedProduct>,
-}
-
-struct RealizedProduct {
-    product: BuildProduct,
-    paths: Vec<PathBuf>,
+    outputs: Vec<LoweredProduct>,
+    dependencies: Vec<LoweredProduct>,
 }
 
 impl ActionProducts {
@@ -92,7 +77,7 @@ impl ActionProducts {
         ctx: &LoweringContext<'_>,
         product_action: BuildActionId,
         product: BuildProduct,
-    ) -> RealizedProduct {
+    ) -> LoweredProduct {
         let paths = ctx.artifact_paths.paths_for_product(
             &product,
             ctx.plan.action(product_action),
@@ -100,15 +85,11 @@ impl ActionProducts {
             ctx.modules,
             ctx.opt.artifact_path_options(),
         );
-        RealizedProduct { product, paths }
-    }
-
-    pub(super) fn dependency_paths(&self) -> Vec<PathBuf> {
-        Self::paths(&self.dependencies)
-    }
-
-    pub(super) fn output_paths(&self) -> Vec<PathBuf> {
-        Self::paths(&self.outputs)
+        LoweredProduct {
+            producer: product_action,
+            product,
+            paths,
+        }
     }
 
     pub(super) fn single_output_path(&self) -> PathBuf {
@@ -160,15 +141,8 @@ impl ActionProducts {
             .collect()
     }
 
-    fn paths(realized: &[RealizedProduct]) -> Vec<PathBuf> {
-        realized
-            .iter()
-            .flat_map(|product| product.paths.iter().cloned())
-            .collect()
-    }
-
     fn single_matching_path(
-        realized: &[RealizedProduct],
+        realized: &[LoweredProduct],
         matches: impl Fn(&BuildProduct) -> bool,
     ) -> Option<PathBuf> {
         let matched = realized
@@ -182,7 +156,7 @@ impl ActionProducts {
         }
     }
 
-    fn optional_single_realized_path(product: &RealizedProduct) -> Option<PathBuf> {
+    fn optional_single_realized_path(product: &LoweredProduct) -> Option<PathBuf> {
         match product.paths.as_slice() {
             [path] => Some(path.clone()),
             [] => None,
@@ -202,8 +176,6 @@ impl<'a> LoweringContext<'a> {
         opt: &'a BuildOptions,
     ) -> Self {
         Self {
-            graph: N2Graph::default(),
-            command_args_by_output: CommandArgMap::new(),
             artifact_paths,
             rel: &resolve_output.pkg_rel,
             modules: &resolve_output.module_rel,
@@ -241,10 +213,13 @@ impl<'a> LoweringContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
-    pub(super) fn lower_action(&mut self, id: BuildActionId) -> Result<(), LoweringError> {
+    pub(super) fn lower_action(
+        &mut self,
+        id: BuildActionId,
+    ) -> Result<Option<LoweredAction>, LoweringError> {
         let action = self.plan.action(id);
         if self.is_action_noop(action) {
-            return Ok(());
+            return Ok(None);
         }
         let action_products = ActionProducts::new(self, id);
 
@@ -305,107 +280,26 @@ impl<'a> LoweringContext<'a> {
             }
         };
 
-        // Collect n2 inputs and outputs.
-        //
-        // MAINTAINERS: some of the inputs and outputs might be calculated
-        // twice, once for the commandline and another here. This is currently
-        // not a performance concern, but if you have found a way to optimize
-        // this, or if you are duplicating a lot of code for it, please refactor.
-        let mut ins = action_products.dependency_paths();
-        ins.extend(cmd.extra_inputs);
-        // Track tool binary dependencies so that n2 detects when compilers
-        // or other toolchain binaries change (e.g. after a toolchain update)
-        // and triggers a rebuild.
+        let mut external_inputs = cmd.extra_inputs;
         if self.plan.needs_moonc_tool_dep(id) {
-            ins.push(BINARIES.moonc.clone());
+            external_inputs.push(BINARIES.moonc.clone());
         }
-        ins.sort(); // make sure the order is deterministic
-        let ins = build_ins(&mut self.graph, ins);
 
-        let output_paths = action_products.output_paths();
-        if let Some(args) = cmd.commandline.args() {
-            for output_path in &output_paths {
-                self.command_args_by_output
-                    .insert(output_path.clone(), args.clone());
-            }
-        }
-        let mut commandline = cmd.commandline;
-        let cwd = commandline.cwd.take();
-        let env = std::mem::take(&mut commandline.env);
-        let (n2_command, rspfile) = commandline.into_n2();
-        let outs = build_outs(&mut self.graph, output_paths);
-
-        // Construct n2 build node
-        let mut build = Build::new(
-            build_n2_fileloc(self.plan.fileloc(id, self.modules, self.packages)),
-            ins,
-            outs,
-        );
-        build.cmdline = Some(n2_command);
-        build.rspfile = rspfile;
-        build.cwd = cwd.map(|cwd| cwd.display().to_string());
-        build.env = env;
-        build.desc = Some(self.plan.human_desc(id, self.modules, self.packages));
-        // n2 can't capture and replay command outputs. this is a workaround to
-        // avoid losing warnings from `moonc`. According to legacy code, this
-        // only triggers for `Check` nodes.
-        //
-        // FIXME: Revisit for other `moonc` invocations, e.g. `BuildCore`.
-        build.can_dirty_on_output = self.plan.can_dirty_on_output(id);
-
-        self.debug_print_command_and_files(id, &build);
-        let fqn = self
+        let error_package = self
             .plan
             .package_for_error(id)
-            .map(|x| self.get_package(x).fqn.clone());
-        self.graph
-            .add_build(build)
-            .map(|_| ())
-            .map_err(|e| LoweringError::N2 {
-                package: fqn.into(),
-                action: id,
-                source: e,
-            })
-    }
-
-    /// **For debug use only.** Prints debug information about a lowered action,
-    /// the n2 build it's mapped into, and its input and output files.
-    #[doc(hidden)]
-    fn debug_print_command_and_files(&mut self, action: BuildActionId, build: &Build) {
-        if log::log_enabled!(log::Level::Debug) {
-            let in_files = build
-                .ins
-                .ids
-                .iter()
-                .map(|id| {
-                    &self
-                        .graph
-                        .files
-                        .by_id
-                        .lookup(*id)
-                        .expect("Input file should exist")
-                        .name
-                })
-                .collect::<Vec<_>>();
-            let out_files = build
-                .outs
-                .ids
-                .iter()
-                .map(|id| {
-                    &self
-                        .graph
-                        .files
-                        .by_id
-                        .lookup(*id)
-                        .expect("Output file should exist")
-                        .name
-                })
-                .collect::<Vec<_>>();
-
-            debug!(
-                "lowered: {:?}\n into {:?};\n ins: {:?};\n outs: {:?}",
-                action, build.cmdline, in_files, out_files
-            );
-        }
+            .map(|target| self.get_package(target).fqn.clone())
+            .into();
+        Ok(Some(LoweredAction {
+            id,
+            dependencies: action_products.dependencies,
+            external_inputs,
+            outputs: action_products.outputs,
+            command: cmd.commandline,
+            fileloc: self.plan.fileloc(id, self.modules, self.packages),
+            description: self.plan.human_desc(id, self.modules, self.packages),
+            can_dirty_on_output: self.plan.can_dirty_on_output(id),
+            error_package,
+        }))
     }
 }
