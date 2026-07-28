@@ -69,6 +69,14 @@ There are three sources of C toolchain selection:
 2. package-level override
 3. default auto-detection
 
+After selection and package override, Moon resolves both the compiler and
+archiver to concrete executable files. A missing bare name is an error at
+toolchain resolution; it is not retained as a command string for the executor
+to discover later. TCC uses its resolved compiler file for both roles because
+archive mode is `tcc -ar`. The selected executable is an external input of the
+lowered command, so changing its contents changes a single-file dependency
+action identity.
+
 When a native build step chooses its compiler, the current precedence is:
 
 1. `MOON_CC` / `MOON_AR`

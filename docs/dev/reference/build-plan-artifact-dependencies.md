@@ -217,45 +217,44 @@ This keeps responsibilities separate:
 - action lowering owns concrete products, external inputs, and commands.
 - the n2 adapter owns n2 graph construction.
 
-## Standalone script boundary
+## Single-file dependency boundary
 
-Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`.
+Single-file `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`.
 Package dependencies use the same edges as ordinary project compilation. After
-the plan is normalized once, an action-level projection separates it into two
-disjoint n2 graphs.
+normalization, dependency actions are retained as `LoweredAction` values while
+script actions continue into the ordinary n2 adapter.
 
-All actions owned by packages other than the synthesized script package seed
-the dependency projection. Following their producer edges to a fixed point
-also includes package-less shared prerequisites such as `BuildRuntimeLib`.
-Package-less actions needed only by the script stay in the script projection.
-The projection is invalid if dependency preparation reaches a script-owned
-producer.
+A `LoweredAction` is the complete concrete description consumed by dependency
+preparation:
 
-The script projection keeps the original product edges. If a producer belongs
-to the dependency projection, normal product realization still resolves its
-concrete `.mooncakes` paths using that producer's action context. Those paths
-become ordinary n2 inputs with no producer in the script graph; no external
-product or path vocabulary is needed.
+- structured command arguments or an explicitly verbatim command;
+- working directory, normalized environment, and response-file data;
+- external inputs with their content semantics;
+- dependency products with producer action, logical product, and concrete
+  paths; and
+- output products and concrete output paths.
 
-Execution runs the dependency graph first using
-`standalone-dependencies.moon_db`, then runs the script graph using the existing
-mode database. There is no file-existence scan between the phases: n2 currently
-decides whether dependency actions are current.
+Rupes Recta owns this description. Moon owns identity, restore, miss selection,
+execution, and publication. The only reverse direction is a controlled adapter
+that converts the selected misses into an n2 graph. Moon does not receive
+`N2GraphBuilder`, inspect n2 file edges, or copy part of an existing n2 graph.
 
-The dependency n2 graph is an adapter for the current preparation mechanism.
-A future action-to-output implementation can replace that first stage, then
-feed the materialized outputs into a narrower script plan without changing the
-dependency product contract.
+`BuildActionId` is valid only within the current lowering. Moon uses it to find
+the retained producer and recursively substitutes the producer action digest.
+The persisted identity contains no numeric action id. Dependencies are ordered
+by their complete product fingerprint, and external inputs and output paths are
+sorted, so identity does not depend on map, set, or traversal order.
 
-For `.mbt` and `.mbtx` files built from persistent paths, the dependency n2
-database remains available to later invocations. `moon run -e` and
-`moon run -` also use the split graphs, but their synthesized temporary projects
-are removed after each invocation, so they do not currently reuse the
-dependency database across invocations. Stable or global cache storage for
-those entry points remains future work.
+The script graph keeps the original realized dependency paths. A hit
+materializes those paths directly. A miss graph treats a dependency supplied by
+a hit as an ordinary file input; it does not need the hit producer action.
+Selected misses use per-invocation n2 database state under the local store, so
+n2 is an execution adapter rather than the dependency freshness authority.
 
-Ordinary project and workspace commands continue to produce and execute one
-plan and one n2 graph.
+Ordinary project and workspace commands continue to lower each action directly
+into one n2 graph without retaining all lowered actions. `moon run -e` and
+`moon run -` use the same single-file dependency path; whether their local store
+survives is determined by the lifetime of their synthesized target directory.
 
 ## Compatibility
 

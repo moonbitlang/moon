@@ -469,7 +469,13 @@ Once lowered, the build graph is handed to [n2][],
 which executes it in the usual Ninja-style way:
 incrementally (skipping up-to-date nodes)
 and with maximal parallelism subject to dependencies and its job limits.
-`moon` does not add extra scheduling logic on top of `n2`.
+Ordinary builds do not add extra scheduling logic on top of `n2`.
+
+Single-file dependency preparation is the exception to direct execution. It
+retains dependency `LoweredAction` values, restores valid action-cache hits,
+and sends only misses through the n2 adapter. The later script graph consumes
+the materialized dependency paths as ordinary file inputs. This cache boundary
+does not inspect or project an n2 graph.
 
 ## Artifacts handling
 

@@ -133,6 +133,34 @@ fn test_single_file_mbtx_reuses_cached_dependencies_after_script_change() {
 }
 
 #[test]
+fn test_single_file_mbtx_dependency_source_change_gets_a_new_action_entry() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let args = ["run", "import_ok.mbtx", "--target", "wasm"];
+    assert!(get_stdout(&dir, args).contains("hello"));
+
+    let actions = dir.join("_build/.mooncakes/.build-cache/actions");
+    let initial_entries = actions
+        .read_dir()
+        .expect("action entries should exist")
+        .count();
+    let dependency_source = dir.join(".mooncakes/moonbitlang/x/stack/stack.mbt");
+    let mut source =
+        fs::read_to_string(&dependency_source).expect("dependency source should be readable");
+    source.push('\n');
+    fs::write(&dependency_source, source).expect("dependency source should be writable");
+
+    assert!(get_stdout(&dir, args).contains("hello"));
+    assert!(
+        actions
+            .read_dir()
+            .expect("action entries should remain readable")
+            .count()
+            > initial_entries,
+        "changed dependency input should produce a distinct action identity",
+    );
+}
+
+#[test]
 fn test_single_file_mbtx_run_block_import() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stdout = get_stdout(&dir, ["run", "import_block_ok.mbtx"]);

@@ -3,13 +3,14 @@
 ## Status
 
 This document records the intended direction for global dependency and build
-caches. Only the cache-root configuration and cleaning contract described
-below is implemented today. Builds do not yet read from or write to either
-global cache.
+caches. The cache-root configuration and cleaning contract described below are
+implemented. Builds do not yet read from or write to either configured global
+cache.
 
-The first implementation step is intentionally small. It gives later work a
-stable public configuration and lifecycle seam without committing Moon to an
-internal cache layout too early.
+Single-file dependency preparation additionally uses a local action-to-output
+store under `_build/.mooncakes/.build-cache`. That store exercises the action
+identity and publication model, but it is path-sensitive, project-local, and
+unaffected by `MOON_BUILD_CACHE`.
 
 ## Problem
 
@@ -99,7 +100,7 @@ Moon does not guarantee that `.mi` or `.core` is invariant under such an
 upstream change. The cache must conservatively identify a complete compilation
 action, not merely a package version.
 
-## Future artifact identity
+## Artifact identity
 
 Artifact identity has three concepts:
 
@@ -108,25 +109,41 @@ Artifact identity has three concepts:
 - **Action record:** a small mapping from an action ID to its output ID and
   output metadata.
 
-An action ID should include, in a deterministic encoding:
+The local single-file store identifies an action from its `LoweredAction`. Its
+deterministic encoding includes:
 
-- package source contents and relevant generated inputs;
-- compiler and tool identities;
-- target and all compiler options that affect emitted artifacts;
-- the exact resolved dependency graph visible to the action;
-- identities of imported dependency interfaces; and
-- environment values only when the compiler action actually observes them.
+- structured arguments rather than an n2-rendered command string;
+- working directory and normalized environment;
+- response-file path and content;
+- external input kind, path, and BLAKE3 content digest;
+- recursively identified dependencies, represented by producer action digest,
+  logical product, and concrete paths; and
+- concrete output paths.
 
-This list is semantic, not a fixed serialization format. The first artifact
-cache implementation should begin from the compiler action already produced by
-Rupes Recta and audit every input at that boundary. It should prefer a
-conservative dependency set over an unsound hit. Later measurements can narrow
-the key to the interfaces actually read.
+Compiler and archiver executables are resolved to concrete files before
+lowering and are external inputs. Standard-library `-std-path` input is modeled
+as the recursively loaded `.mi` tree rather than hashing unrelated bundle
+artifacts. Producer `BuildActionId` values are lookup handles for one lowering
+only and never enter the persistent key.
 
-All outputs of one action must be treated as a unit. Moon should publish
-objects first and the action record last, using staging and atomic rename where
-the platform permits. A reader must see either a complete validated result or
-a miss. Concurrent writers of the same action should be harmless.
+The identity remains semantic rather than a serialization of every executor
+field. Diagnostic descriptions, file locations, n2 dirtiness policy, and other
+properties that do not affect emitted bytes are excluded. Verbatim shell
+commands are currently uncacheable; structured commands are the auditable
+cache boundary.
+
+All outputs of one action are treated as a unit. Moon publishes a complete
+content-identified object first and its action record last. Restore validates
+the manifest and every file before materialization. A malformed record,
+damaged manifest, missing file, partial object, or unknown format version is a
+miss.
+
+Publication uses staging and atomic rename where the platform permits. If
+another writer wins the object race, the loser validates the winner and
+succeeds. This property is local to immutable object and action-record
+publication. A complete build sharing one `_build` still depends on Moon's
+target-directory lock; the local store does not make arbitrary concurrent
+writes elsewhere in the build tree safe.
 
 The command that requested compilation is not automatically part of the key.
 For dependency packages, `build`, `run`, and `test` may share artifacts when
@@ -158,16 +175,16 @@ this design. A future build-tag or `cfg` design should:
 This leaves syntax and policy open while fixing the invariant that different
 effective programs cannot share an action ID.
 
-## Standalone execution
+## Single-file execution
 
-The desired standalone flow is:
+The implemented local flow is:
 
 1. Resolve the package graph.
-2. Reuse or prepare immutable dependency sources.
-3. Create a private work directory for the invocation.
-4. Reuse matching dependency artifacts by action ID.
-5. Compile misses privately and publish complete reusable results.
-6. Link or run from private state, then remove it when appropriate.
+2. Lower dependency packages to retained `LoweredAction` values.
+3. Restore complete matching dependency outputs from the local store.
+4. Convert only misses through the controlled n2 adapter.
+5. Revalidate external inputs and publish complete reusable results.
+6. Build and run the script graph against the materialized paths.
 
 The script's own rapidly changing compilation may often miss, but its stable
 dependencies can still be hits. This is the main opportunity for faster script
@@ -196,20 +213,21 @@ Each stage should be useful and reviewable without requiring the next:
    disabled semantics, safe explicit cleaning, and no internal data layout.
 2. **Prepared dependency sources:** immutable publication in the dependency
    cache, no shared `post-add`, and private fallback when caching is off.
-3. **Private standalone work:** stop sharing mutable `_build` trees between
-   standalone invocations; place `__moonbin__` there.
-4. **Action model:** define and test canonical action inputs at the Rupes Recta
-   compiler boundary, including resolved interfaces and target facts.
-5. **Artifact cache:** publish and restore complete `.mi`/`.core` result sets
-   with concurrency and corruption tests.
+3. **Private single-file work:** stop sharing mutable `_build` trees between
+   single-file invocations; place `__moonbin__` there.
+4. **Local action model (implemented for single-file dependencies):** canonical
+   lowered action inputs, recursive producer identities, and selected-miss
+   execution.
+5. **Local artifact store (implemented for single-file dependencies):** publish
+   and restore complete result sets with concurrency and corruption handling.
 6. **Build constraints and cross compilation:** extend the target descriptor
    and action identity without changing storage-path semantics.
 7. **Operations:** add recency tracking, pruning, diagnostics, and format
    migration only after real cache data exists.
 
-The next implementation should choose one stage, write a failing end-to-end
-test first, and avoid introducing speculative directory structure for later
-stages.
+Global reuse still requires prepared immutable sources, private build work, a
+global storage policy, and operations. The local format is evidence for those
+steps, not a compatibility promise for the global layout.
 
 ## References
 
