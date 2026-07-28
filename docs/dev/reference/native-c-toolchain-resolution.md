@@ -218,6 +218,8 @@ incompatible objects or archives fail naturally when the final linker consumes t
 Package-level `link.native.cc-flags` apply when compiling the C file emitted by `moonc link-core`.
 If any selected executable package sets these flags, Moon uses the generated-C native backend
 instead of direct object output so the configured flags are not skipped.
+This native payload form is currently selected once per invocation, so one such package makes every
+selected executable in that invocation use generated C.
 
 The direct object native target `x86_64-pc-windows-msvc` is stricter: it requires selecting a
 `cl`-compatible compiler driver and preserving the discovered Visual Studio command environment.

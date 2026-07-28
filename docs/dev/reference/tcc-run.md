@@ -18,8 +18,8 @@ TCC run mode is considered only in debug builds that target the native backend.
 The planner verifies three conditions before switching to the TCC run flow:
 
 - The invocation runs on Linux or macOS, where the bundled `tcc` is available.
-- No package in the build graph requests custom native compilers or flags.
-  If any package opts into its own toolchain, the run falls back to the regular native pipeline.
+- No selected executable package requests custom native compilers or flags.
+  If any selected package opts into its own toolchain, the run falls back to the regular native pipeline.
 - The requested action actually needs a runnable binary (for example, `run` or `test`).
   Pure build or check requests keep using the standard native backend.
 

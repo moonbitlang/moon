@@ -59,7 +59,10 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{BuildPlanNode, BuildTarget, NativeBackendMode, PackageId, RunBackend},
+    model::{
+        BuildPlanNode, BuildTarget, NativeBackendMode, NativeTarget, PackageId, RunBackend,
+        TccRunConfig,
+    },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
 };
@@ -441,7 +444,8 @@ pub struct BuildBundleInfo {
 pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
     pub target_backend: RunBackend,
-    pub native_mode: NativeBackendMode,
+    /// Native implementation selected only under `RunBackend::Native`.
+    pub native_mode: Option<NativeBackendMode>,
     pub opt_level: OptLevel,
     pub action: RunMode,
     /// Whether compiling requires the standard library.
@@ -450,6 +454,20 @@ pub struct BuildEnvironment {
     pub std: bool,
     /// Commandline_level warnings to enable/disable
     pub warn_list: Option<String>,
+}
+
+impl BuildEnvironment {
+    pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {
+        self.native_mode
+            .as_ref()
+            .and_then(NativeBackendMode::direct_target)
+    }
+
+    pub(crate) fn tcc_run(&self) -> Option<&TccRunConfig> {
+        self.native_mode
+            .as_ref()
+            .and_then(NativeBackendMode::tcc_run)
+    }
 }
 
 /// Directives provided along the input actions.

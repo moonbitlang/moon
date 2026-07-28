@@ -29,7 +29,7 @@ use tracing::instrument;
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildActionId, BuildActionPlan},
-    model::{NativeBackendMode, OperatingSystem, PackageId, RunBackend},
+    model::{OperatingSystem, PackageId, RunBackend},
     pkg_name::OptionalPackageFQNWithSource,
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
@@ -103,7 +103,6 @@ pub struct BuildOptions {
     pub artifact_paths: ArtifactPathResolver,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
     pub target_backend: RunBackend,
-    pub native_mode: NativeBackendMode,
     pub(crate) selected_backend: SelectedBackend,
     pub opt_level: OptLevel,
     pub action: RunMode,
@@ -138,10 +137,7 @@ impl BuildOptions {
     }
 
     pub fn use_tcc_run(&self) -> bool {
-        let use_tcc_run = self.native_mode.is_tcc_run();
-        debug_assert!(!use_tcc_run || self.target_backend == RunBackend::Native);
-        debug_assert!(!use_tcc_run || self.native_mode.direct_target().is_none());
-        use_tcc_run
+        self.selected_backend.is_tcc_run()
     }
 
     pub fn artifact_path_options(&self) -> ArtifactPathOptions {
@@ -170,7 +166,7 @@ impl BuildOptions {
                 use_wat: self.selected_backend.use_wat(),
             },
             RunBackend::Js => LinkedCoreArtifact::Js,
-            RunBackend::Native if self.native_mode.direct_target().is_some() => {
+            RunBackend::Native if self.selected_backend.direct_target().is_some() => {
                 LinkedCoreArtifact::NativeObject { os }
             }
             RunBackend::Native => LinkedCoreArtifact::NativeC,
@@ -363,12 +359,7 @@ mod tests {
             let options = BuildOptions {
                 artifact_paths,
                 target_backend,
-                native_mode: NativeBackendMode::GeneratedC,
-                selected_backend: SelectedBackend::new(
-                    target_backend,
-                    &NativeBackendMode::GeneratedC,
-                    false,
-                ),
+                selected_backend: SelectedBackend::new(target_backend, None, false),
                 opt_level: OptLevel::Debug,
                 action: RunMode::Build,
                 debug_symbols: false,
@@ -715,8 +706,7 @@ mod tests {
         let options = BuildOptions {
             artifact_paths: artifact_paths.clone(),
             target_backend: RunBackend::Native,
-            native_mode: native_mode.clone(),
-            selected_backend: SelectedBackend::new(RunBackend::Native, &native_mode, false),
+            selected_backend: SelectedBackend::new(RunBackend::Native, Some(&native_mode), false),
             opt_level: OptLevel::Debug,
             action: RunMode::Build,
             debug_symbols: false,

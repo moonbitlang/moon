@@ -38,8 +38,8 @@ pub struct CompileConfig {
     pub target_dir: PathBuf,
     /// The backend selected for this build.
     pub target_backend: RunBackend,
-    /// Native implementation selected under `RunBackend::Native`.
-    pub native_mode: NativeBackendMode,
+    /// Native implementation selected only under `RunBackend::Native`.
+    pub native_mode: Option<NativeBackendMode>,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
     /// The action done in this operation, currently only used in legacy directory layout
@@ -274,10 +274,9 @@ fn lowering_options(cx: &CompileConfig) -> build_lower::BuildOptions {
     build_lower::BuildOptions {
         artifact_paths: cx.artifact_paths.clone(),
         target_backend: cx.target_backend,
-        native_mode: cx.native_mode.clone(),
         selected_backend: build_lower::SelectedBackend::new(
             cx.target_backend,
-            &cx.native_mode,
+            cx.native_mode.as_ref(),
             cx.output_wat,
         ),
         opt_level: cx.opt_level,
@@ -330,7 +329,7 @@ mod tests {
         build_lower::{LoweringEnvironment, WarningCondition},
         build_plan::InputDirective,
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
-        model::{BuildPlanNode, NativeBackendMode, RunBackend, TargetKind},
+        model::{BuildPlanNode, RunBackend, TargetKind},
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::{DepEdge, DepRelationship},
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
@@ -488,7 +487,7 @@ mod tests {
         let config = CompileConfig {
             target_dir: PathBuf::from("_build"),
             target_backend: RunBackend::WasmGC,
-            native_mode: NativeBackendMode::GeneratedC,
+            native_mode: None,
             opt_level: OptLevel::Debug,
             action: RunMode::Run,
             debug_symbols: false,
