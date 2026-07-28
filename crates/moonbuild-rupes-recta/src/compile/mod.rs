@@ -151,6 +151,7 @@ pub fn compile_standalone(
     script_package: crate::model::PackageId,
     input_directive: &InputDirective,
     prebuild_config: Option<&PrebuildOutput>,
+    inherited_environment: &[(String, String)],
     user_log: &UserLog,
 ) -> Result<StandaloneCompileOutput, CompileGraphError> {
     info!("Building one logical plan for standalone dependency and script work");
@@ -176,12 +177,15 @@ pub fn compile_standalone(
     let lower_env = lowering_options(cx);
     let (dependencies, script) = {
         let action_plan = plan.build_action_plan();
-        let (dependencies, script) = build_lower::lower_standalone_build_plan(
+        let (mut dependencies, script) = build_lower::lower_standalone_build_plan(
             resolve_output,
             &action_plan,
             &lower_env,
             script_package,
         )?;
+        for action in &mut dependencies {
+            action.capture_effective_environment(inherited_environment);
+        }
         let script_artifacts = script
             .artifacts
             .into_iter()
@@ -399,6 +403,7 @@ mod tests {
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: Vec::new(),
+            c_stub_header_files: Vec::new(),
             virtual_mbti: None,
             is_stdlib: false,
         }
@@ -507,11 +512,16 @@ mod tests {
             script,
             &input_directive,
             None,
+            &[("CACHE_TEST_ENV".to_string(), "captured".to_string())],
             &user_log,
         )
         .expect("standalone plan should lower");
 
         assert_eq!(output.dependencies.len(), 1);
+        assert_eq!(
+            output.dependencies[0].command().env(),
+            &[("CACHE_TEST_ENV".to_string(), "captured".to_string())]
+        );
         assert_eq!(output.script.build_graph.builds.iter().count(), 2);
         let plan = output
             .script

@@ -18,7 +18,7 @@
 
 //! Concrete action data produced before n2 file registration.
 
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use moonutil::compiler_flags::Toolchain;
 
@@ -178,6 +178,19 @@ impl LoweredCommand {
         self.env.extend(env);
         self
     }
+
+    fn capture_effective_environment(&mut self, inherited: &[(String, String)]) {
+        let mut effective = BTreeMap::new();
+        for (name, value) in inherited.iter().chain(&self.env) {
+            let key = if cfg!(windows) {
+                name.to_uppercase()
+            } else {
+                name.clone()
+            };
+            effective.insert(key, (name.clone(), value.clone()));
+        }
+        self.env = effective.into_values().collect();
+    }
 }
 
 /// One concrete action after product paths and command construction have been
@@ -223,6 +236,10 @@ impl LoweredAction {
     pub fn can_dirty_on_output(&self) -> bool {
         self.can_dirty_on_output
     }
+
+    pub(crate) fn capture_effective_environment(&mut self, inherited: &[(String, String)]) {
+        self.command.capture_effective_environment(inherited);
+    }
 }
 
 /// Command data produced by action-specific lowering before the common action
@@ -246,5 +263,32 @@ impl BuildCommand {
 
     pub(super) fn with_msvc_env(self, toolchain: &Toolchain) -> Self {
         self.with_env(super::compiler::msvc::command_env(toolchain))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LoweredCommand;
+
+    #[test]
+    fn captured_environment_contains_inherited_values_and_explicit_overrides() {
+        let mut command = LoweredCommand::from(vec!["tool".to_string()]).with_env(vec![
+            ("A".to_string(), "explicit".to_string()),
+            ("C".to_string(), "command".to_string()),
+        ]);
+
+        command.capture_effective_environment(&[
+            ("B".to_string(), "inherited".to_string()),
+            ("A".to_string(), "parent".to_string()),
+        ]);
+
+        assert_eq!(
+            command.env(),
+            &[
+                ("A".to_string(), "explicit".to_string()),
+                ("B".to_string(), "inherited".to_string()),
+                ("C".to_string(), "command".to_string()),
+            ]
+        );
     }
 }

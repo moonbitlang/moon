@@ -703,13 +703,15 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
 ) -> anyhow::Result<(BuildMeta, StandaloneBuildInput)> {
     let target_dir = preconfig.target_dir.clone();
     info!("Standalone user intent calculated: {:?}", intent.intents);
+    let inherited_environment = std::env::vars().collect::<Vec<_>>();
 
     let prebuild_config = if preconfig.action == RunMode::Check {
         info!("Skipping prebuild configuration for check run mode");
         None
     } else {
         info!("Running prebuild configuration");
-        let prebuild_environment = PrebuildEnvironment::new(std::env::vars().collect());
+        let prebuild_environment =
+            PrebuildEnvironment::new(inherited_environment.iter().cloned().collect());
         Some(run_prebuild_config(&resolve_output, &prebuild_environment)?)
     };
 
@@ -738,6 +740,7 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         script_package,
         &intent.directive,
         prebuild_config.as_ref(),
+        &inherited_environment,
         user_log,
     )?;
 
