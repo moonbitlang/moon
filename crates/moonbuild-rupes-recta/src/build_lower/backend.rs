@@ -22,16 +22,7 @@
 //! backend branch for command shape and runtime/linking behavior. Concrete
 //! product paths are resolved by `target_layout`.
 
-use crate::model::{NativeBackendMode, NativeTarget, RunBackend};
-
-#[derive(Clone, Debug)]
-pub(crate) enum SelectedBackend {
-    Wasm { use_wat: bool },
-    WasmGc { use_wat: bool },
-    Js,
-    C(NativeBackendMode),
-    Llvm,
-}
+use crate::model::{BackendConfig, NativeBackendMode};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum CExecutableRealization {
@@ -52,43 +43,10 @@ pub(crate) enum CStubLibraryRealization {
     SharedLibraryForTccRun,
 }
 
-impl SelectedBackend {
-    pub(crate) fn new(
-        target_backend: RunBackend,
-        native_mode: Option<&NativeBackendMode>,
-        output_wat: bool,
-    ) -> Self {
-        match (target_backend, native_mode) {
-            (RunBackend::Wasm, None) => Self::Wasm {
-                use_wat: output_wat,
-            },
-            (RunBackend::WasmGC, None) => Self::WasmGc {
-                use_wat: output_wat,
-            },
-            (RunBackend::Js, None) => Self::Js,
-            (RunBackend::Native, Some(native_mode)) => Self::C(native_mode.clone()),
-            (RunBackend::Llvm, None) => Self::Llvm,
-            (RunBackend::Native, None) => {
-                panic!("native backend requires a native implementation mode")
-            }
-            (_, Some(_)) => panic!("native implementation mode requires the native backend"),
-        }
-    }
-
-    pub(crate) fn direct_target(&self) -> Option<NativeTarget> {
-        match self {
-            Self::C(native_mode) => native_mode.direct_target(),
-            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm => None,
-        }
-    }
-
-    pub(crate) fn is_tcc_run(&self) -> bool {
-        matches!(self, Self::C(native_mode) if native_mode.is_tcc_run())
-    }
-
+impl BackendConfig {
     pub(crate) fn c_stub_library_realization(&self) -> CStubLibraryRealization {
         match self {
-            Self::C(backend) => backend.c_stub_library_realization(),
+            Self::Native(backend) => backend.c_stub_library_realization(),
             Self::Llvm => CStubLibraryRealization::StaticArchive,
             Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js => {
                 unreachable!("C stubs are only realized for C or LLVM backends")
@@ -96,16 +54,9 @@ impl SelectedBackend {
         }
     }
 
-    pub(crate) fn use_wat(&self) -> bool {
-        match self {
-            Self::Wasm { use_wat } | Self::WasmGc { use_wat } => *use_wat,
-            Self::Js | Self::C(_) | Self::Llvm => false,
-        }
-    }
-
     pub(crate) fn uses_shared_runtime(&self) -> bool {
         match self {
-            Self::C(backend) => {
+            Self::Native(backend) => {
                 backend.runtime_realization() == CRuntimeRealization::SharedLibraryForTccRun
             }
             Self::Llvm => false,
@@ -165,17 +116,18 @@ mod tests {
 
     #[test]
     fn wasm_backend_carries_wat_setting() {
-        let backend = SelectedBackend::new(RunBackend::Wasm, None, true);
+        let backend = BackendConfig::Wasm {
+            use_wat: true,
+            wasi_link: false,
+        };
 
-        assert!(matches!(backend, SelectedBackend::Wasm { use_wat: true }));
+        assert!(matches!(backend, BackendConfig::Wasm { use_wat: true, .. }));
     }
 
     #[test]
     fn c_tcc_run_realizes_shared_runtime_and_response_file() {
-        let native_mode = NativeBackendMode::TccRun(fake_tcc_run());
-        let backend = SelectedBackend::new(RunBackend::Native, Some(&native_mode), false);
-
-        let SelectedBackend::C(ref native_mode) = backend else {
+        let backend = BackendConfig::Native(NativeBackendMode::TccRun(fake_tcc_run()));
+        let BackendConfig::Native(ref native_mode) = backend else {
             panic!("native backend should select C lowering")
         };
         assert_eq!(
@@ -191,12 +143,11 @@ mod tests {
 
     #[test]
     fn c_direct_object_realizes_linker_executable() {
-        let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
-            crate::model::NativeTarget::Aarch64AppleDarwin,
+        let backend = BackendConfig::Native(NativeBackendMode::DirectObject(
+            DirectNativeMode::Target(crate::model::NativeTarget::Aarch64AppleDarwin),
         ));
-        let backend = SelectedBackend::new(RunBackend::Native, Some(&native_mode), false);
 
-        let SelectedBackend::C(ref native_mode) = backend else {
+        let BackendConfig::Native(ref native_mode) = backend else {
             panic!("native backend should select C lowering")
         };
         assert_eq!(
@@ -212,9 +163,9 @@ mod tests {
 
     #[test]
     fn llvm_backend_is_not_c_realization() {
-        let backend = SelectedBackend::new(RunBackend::Llvm, None, false);
+        let backend = BackendConfig::Llvm;
 
-        assert!(matches!(backend, SelectedBackend::Llvm));
+        assert!(matches!(backend, BackendConfig::Llvm));
         assert_eq!(
             backend.c_stub_library_realization(),
             CStubLibraryRealization::StaticArchive

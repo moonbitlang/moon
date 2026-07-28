@@ -44,8 +44,8 @@ use moonbuild_rupes_recta::{
     fmt::{FmtConfig, FmtResolveOutput},
     intent::UserIntent,
     model::{
-        Artifacts, BuildPlanNode, DirectNativeMode, NativeBackendMode, NativeTarget, PackageId,
-        RunBackend, TargetKind, TccRunConfig,
+        Artifacts, BackendConfig, BuildPlanNode, DirectNativeMode, NativeBackendMode, NativeTarget,
+        PackageId, TargetKind, TccRunConfig,
     },
     prebuild::{PrebuildEnvironment, run_prebuild_config},
     target_layout::{ArtifactPathResolver, GENERATED_TEST_DRIVER_PREFIX, TargetLayout},
@@ -202,18 +202,20 @@ pub struct BuildMeta {
     /// The list of artifacts that will be produced
     pub artifacts: IndexMap<BuildPlanNode, Artifacts>,
 
-    /// The target backend used in this compile process
-    pub target_backend: RunBackend,
-    /// Experimental direct object-code backend selected under native, if any.
-    pub native_target: Option<NativeTarget>,
-    /// Configuration for `tcc -run`, if this compile process selected it.
-    pub tcc_run: Option<TccRunConfig>,
+    /// The backend and backend-specific configuration used by this build.
+    pub backend: BackendConfig,
 
     /// The main optimization level used in this compile process
     pub opt_level: BuildProfile,
 
     /// Physical artifact path resolver selected for this build.
     pub artifact_paths: ArtifactPathResolver,
+}
+
+impl BuildMeta {
+    pub fn target_backend(&self) -> TargetBackend {
+        self.backend.target_backend()
+    }
 }
 
 /// Represents the result of the build process
@@ -315,21 +317,21 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
-        let native_mode = match target_backend {
-            TargetBackend::Native => Some(self.detect_mode(resolve_output, input_nodes, user_log)),
-            _ => None,
+        let backend = match target_backend {
+            TargetBackend::Wasm => BackendConfig::Wasm {
+                use_wat: self.output_wat,
+                wasi_link: self.wasi_link,
+            },
+            TargetBackend::WasmGC => BackendConfig::WasmGc {
+                use_wat: self.output_wat,
+            },
+            TargetBackend::Js => BackendConfig::Js,
+            TargetBackend::Native => {
+                BackendConfig::Native(self.detect_mode(resolve_output, input_nodes, user_log))
+            }
+            TargetBackend::LLVM => BackendConfig::Llvm,
         };
-        let run_backend = match target_backend {
-            TargetBackend::Wasm => RunBackend::Wasm,
-            TargetBackend::WasmGC => RunBackend::WasmGC,
-            TargetBackend::Js => RunBackend::Js,
-            TargetBackend::Native => RunBackend::Native,
-            TargetBackend::LLVM => RunBackend::Llvm,
-        };
-        info!(
-            "Final run backend: {:?}, native mode: {:?}",
-            run_backend, native_mode
-        );
+        info!("Final backend configuration: {:?}", backend);
         let stdlib_path = if std {
             Some(moonutil::toolchain::core())
         } else {
@@ -345,8 +347,7 @@ impl CompilePreConfig {
 
         Ok(CompileConfig {
             target_dir: self.target_dir,
-            target_backend: run_backend,
-            native_mode,
+            backend,
             opt_level: self.opt_level,
             action: self.action,
             debug_symbols: self.debug_symbols,
@@ -354,9 +355,7 @@ impl CompilePreConfig {
             artifact_paths,
             lowering_environment: LoweringEnvironment::default(),
             enable_coverage: self.enable_coverage,
-            output_wat: self.output_wat,
             debug_export_build_plan: self.debug_export_build_plan,
-            wasi_link: self.wasi_link,
             moonc_output_json: self.moonc_output_json,
             docs_serve: self.docs_serve,
             warning_condition: self.warning_condition,
@@ -372,9 +371,11 @@ impl CompilePreConfig {
         input_nodes: &[BuildPlanNode],
         user_log: &UserLog,
     ) -> NativeBackendMode {
-        // TODO: Native payload form is selected once per invocation. Move this
-        // decision into per-executable planning so one package's compiler flags
-        // do not force unrelated executables onto generated C.
+        // TODO: Native payload form is selected once per invocation. Before
+        // selecting it per executable, key the shared runtime and package C-stub
+        // products by their native toolchain and realization. Otherwise mixed
+        // payload forms can require incompatible shared artifacts, especially
+        // for the strict MSVC direct object target.
         let native_configs = input_nodes
             .iter()
             .filter_map(|node| {
@@ -662,16 +663,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     let build_meta = BuildMeta {
         resolve_output,
         artifacts: compile_output.artifacts,
-        target_backend: cx.target_backend,
-        native_target: cx
-            .native_mode
-            .as_ref()
-            .and_then(NativeBackendMode::direct_target),
-        tcc_run: cx
-            .native_mode
-            .as_ref()
-            .and_then(NativeBackendMode::tcc_run)
-            .cloned(),
+        backend: cx.backend.clone(),
         opt_level: cx.opt_level,
         artifact_paths: cx.artifact_paths.clone(),
     };
@@ -679,7 +671,7 @@ pub(crate) fn plan_resolved_build_from_intent(
     let db_path = cx
         .artifact_paths
         .target_layout()
-        .n2_db_path(cx.target_backend.into());
+        .n2_db_path(cx.backend.target_backend());
     let input = BuildInput {
         graph: compile_output.build_graph,
         command_args_by_output: compile_output.command_args_by_output,
@@ -762,20 +754,11 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     let build_meta = BuildMeta {
         resolve_output,
         artifacts: compile_output.script.artifacts,
-        target_backend: cx.target_backend,
-        native_target: cx
-            .native_mode
-            .as_ref()
-            .and_then(NativeBackendMode::direct_target),
-        tcc_run: cx
-            .native_mode
-            .as_ref()
-            .and_then(NativeBackendMode::tcc_run)
-            .cloned(),
+        backend: cx.backend.clone(),
         opt_level: cx.opt_level,
         artifact_paths: cx.artifact_paths.clone(),
     };
-    let backend = cx.target_backend.into();
+    let backend = cx.backend.target_backend();
     let layout = cx.artifact_paths.target_layout();
     let dependency_input = compile_output
         .dependencies
@@ -858,7 +841,7 @@ pub fn generate_metadata(
         source_dir,
         &build_meta.artifact_paths,
         build_meta.opt_level,
-        build_meta.target_backend.into(),
+        build_meta.target_backend(),
         &check_commands,
     );
     let orig_meta = std::fs::read_to_string(&metadata_file);
@@ -901,11 +884,11 @@ pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
     let all_pkgs_path = build_meta
         .artifact_paths
         .target_layout()
-        .all_pkgs_of_build_target(build_meta.target_backend.into());
+        .all_pkgs_of_build_target(build_meta.target_backend());
     let all_pkgs_json = moonbuild_rupes_recta::all_pkgs::gen_all_pkgs_json(
         &build_meta.resolve_output,
         &build_meta.artifact_paths,
-        build_meta.target_backend.into(),
+        build_meta.target_backend(),
     );
     let orig_all_pkgs = std::fs::read_to_string(&all_pkgs_path);
     let all_pkgs_str =
@@ -1339,7 +1322,7 @@ fn rewrite_captured_diagnostic(
     };
     let layout = meta.artifact_paths.target_layout();
     let packages = &meta.resolve_output.pkg_dirs;
-    let backend = meta.target_backend.into();
+    let backend = meta.target_backend();
 
     if cfg.output_style.needs_moonc_json() {
         let Ok(mut value) = serde_json::from_str::<serde_json::Value>(content) else {

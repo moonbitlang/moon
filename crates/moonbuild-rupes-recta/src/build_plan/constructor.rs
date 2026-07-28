@@ -373,7 +373,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 // Non-native MakeExecutable nodes are final-artifact aliases over
                 // LinkCore output. Only native backends need extra lowering info
                 // for the C toolchain/runtime/stub linking step.
-                if self.build_env.target_backend.is_native() {
+                if self.build_env.target_backend().is_native() {
                     assert!(
                         self.res.make_executable_info.contains_key(&build_target),
                         "Make executable info for {:?} should be present when resolving node {:?}",

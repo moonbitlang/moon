@@ -388,7 +388,7 @@ impl PlanningFixture {
 pub(super) fn planned_root_package_runs(runs: Vec<PlannedGraph>) -> Vec<PlannedPackageRun> {
     runs.into_iter()
         .map(|plan| PlannedPackageRun {
-            target_backend: plan.build_meta.target_backend.into(),
+            target_backend: plan.build_meta.target_backend(),
             packages: root_package_names(&plan.build_meta),
         })
         .collect()
@@ -397,7 +397,7 @@ pub(super) fn planned_root_package_runs(runs: Vec<PlannedGraph>) -> Vec<PlannedP
 pub(super) fn planned_check_package_runs(runs: Vec<PlannedGraph>) -> Vec<PlannedPackageRun> {
     runs.into_iter()
         .map(|plan| PlannedPackageRun {
-            target_backend: plan.build_meta.target_backend.into(),
+            target_backend: plan.build_meta.target_backend(),
             packages: check_package_names(&plan.build_meta),
         })
         .collect()
@@ -405,13 +405,13 @@ pub(super) fn planned_check_package_runs(runs: Vec<PlannedGraph>) -> Vec<Planned
 
 pub(super) fn planned_target_backends(runs: Vec<PlannedGraph>) -> Vec<TargetBackend> {
     runs.into_iter()
-        .map(|plan| plan.build_meta.target_backend.into())
+        .map(|plan| plan.build_meta.target_backend())
         .collect()
 }
 
 pub(super) fn planned_root_package_intent(plan: PlannedGraph) -> PlannedPackageIntent {
     PlannedPackageIntent {
-        target_backend: plan.build_meta.target_backend.into(),
+        target_backend: plan.build_meta.target_backend(),
         profile: plan.build_meta.opt_level,
         packages: root_package_names(&plan.build_meta),
     }

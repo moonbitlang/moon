@@ -59,10 +59,7 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{
-        BuildPlanNode, BuildTarget, NativeBackendMode, NativeTarget, PackageId, RunBackend,
-        TccRunConfig,
-    },
+    model::{BackendConfig, BuildPlanNode, BuildTarget, NativeTarget, PackageId, TccRunConfig},
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
 };
@@ -443,9 +440,7 @@ pub struct BuildBundleInfo {
 /// Represents the environment in which the build is being performed.
 pub struct BuildEnvironment {
     // FIXME: Target backend should go into the solver, not here
-    pub target_backend: RunBackend,
-    /// Native implementation selected only under `RunBackend::Native`.
-    pub native_mode: Option<NativeBackendMode>,
+    pub backend: BackendConfig,
     pub opt_level: OptLevel,
     pub action: RunMode,
     /// Whether compiling requires the standard library.
@@ -457,16 +452,16 @@ pub struct BuildEnvironment {
 }
 
 impl BuildEnvironment {
+    pub(crate) fn target_backend(&self) -> TargetBackend {
+        self.backend.target_backend()
+    }
+
     pub(crate) fn direct_native_target(&self) -> Option<NativeTarget> {
-        self.native_mode
-            .as_ref()
-            .and_then(NativeBackendMode::direct_target)
+        self.backend.direct_native_target()
     }
 
     pub(crate) fn tcc_run(&self) -> Option<&TccRunConfig> {
-        self.native_mode
-            .as_ref()
-            .and_then(NativeBackendMode::tcc_run)
+        self.backend.tcc_run()
     }
 }
 
@@ -552,7 +547,8 @@ pub fn build_plan(
     info!("Constructing build plan");
     debug!(
         "Build environment: backend={:?}, opt_level={:?}",
-        build_env.target_backend, build_env.opt_level
+        build_env.target_backend(),
+        build_env.opt_level
     );
 
     let mut constructor = BuildPlanConstructor::new(

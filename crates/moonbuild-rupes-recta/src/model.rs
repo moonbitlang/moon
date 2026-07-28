@@ -31,16 +31,18 @@ slotmap::new_key_type! {
     pub struct PackageId;
 }
 
-/// User-visible backend selected for the build and run artifact shape.
+/// The selected backend and its backend-specific compile configuration.
 ///
-/// This mirrors [`TargetBackend`] and intentionally does not encode native C
-/// compiler or execution-tool choices.
-#[derive(Clone, Debug, Copy, PartialEq)]
-pub enum RunBackend {
-    WasmGC,
-    Wasm,
+/// This is the single source of truth after the user-visible target backend is
+/// resolved. Keeping backend-specific options inside the matching variant
+/// prevents invalid combinations such as a native implementation mode on a
+/// Wasm build.
+#[derive(Clone, Debug)]
+pub enum BackendConfig {
+    Wasm { use_wat: bool, wasi_link: bool },
+    WasmGc { use_wat: bool },
     Js,
-    Native,
+    Native(NativeBackendMode),
     Llvm,
 }
 
@@ -48,7 +50,7 @@ pub const ENV_MOONBIT_NEW_NATIVE: &str = "MOONBIT_NEW_NATIVE";
 
 /// Concrete native object-code backend selected under the `native` surface target.
 ///
-/// `RunBackend::Native` remains the user-visible native backend. This type
+/// `TargetBackend::Native` remains the user-visible native backend. This type
 /// only describes the experimental direct object-code lowering used behind it.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum NativeTarget {
@@ -133,9 +135,41 @@ impl NativeBackendMode {
             Self::GeneratedC | Self::DirectObject(_) => None,
         }
     }
+}
 
-    pub fn is_tcc_run(&self) -> bool {
-        self.tcc_run().is_some()
+impl BackendConfig {
+    pub fn target_backend(&self) -> TargetBackend {
+        match self {
+            Self::Wasm { .. } => TargetBackend::Wasm,
+            Self::WasmGc { .. } => TargetBackend::WasmGC,
+            Self::Js => TargetBackend::Js,
+            Self::Native(_) => TargetBackend::Native,
+            Self::Llvm => TargetBackend::LLVM,
+        }
+    }
+
+    pub fn direct_native_target(&self) -> Option<NativeTarget> {
+        match self {
+            Self::Native(mode) => mode.direct_target(),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm => None,
+        }
+    }
+
+    pub fn tcc_run(&self) -> Option<&TccRunConfig> {
+        match self {
+            Self::Native(mode) => mode.tcc_run(),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm => None,
+        }
+    }
+
+    pub fn wasi_link(&self) -> bool {
+        matches!(
+            self,
+            Self::Wasm {
+                wasi_link: true,
+                ..
+            }
+        )
     }
 }
 
@@ -163,28 +197,6 @@ impl TccRunConfig {
 
     pub fn internal_tcc(&self) -> &CC {
         &self.internal_tcc
-    }
-}
-
-impl RunBackend {
-    pub fn is_native(self) -> bool {
-        matches!(self, RunBackend::Native | RunBackend::Llvm)
-    }
-
-    pub fn to_target(self) -> TargetBackend {
-        self.into()
-    }
-}
-
-impl From<RunBackend> for TargetBackend {
-    fn from(val: RunBackend) -> Self {
-        match val {
-            RunBackend::WasmGC => TargetBackend::WasmGC,
-            RunBackend::Wasm => TargetBackend::Wasm,
-            RunBackend::Js => TargetBackend::Js,
-            RunBackend::Native => TargetBackend::Native,
-            RunBackend::Llvm => TargetBackend::LLVM,
-        }
     }
 }
 

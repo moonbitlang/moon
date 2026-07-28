@@ -19,7 +19,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use moonbuild_rupes_recta::model::RunBackend;
 use mooncake::registry::{OnlineRegistry, Registry, path as registry_path};
 use moonutil::{
     locks::FileLock, registry::RegistryConfig, resolution::ModuleName, user_log::UserLog,
@@ -262,7 +261,7 @@ pub(crate) fn run(
         } => {
             let wasm_path = super::runwasm::cached_wasm_path(&package, user_log)?;
             run_artifact(
-                RunBackend::Wasm,
+                crate::run::ExecutionMode::MoonRun,
                 &wasm_path,
                 experimental_policy.as_deref(),
                 &args,
@@ -271,7 +270,13 @@ pub(crate) fn run(
         }
         RegistryRunTarget::Native => {
             let executable = cached_native_executable(&package, user_log, quiet, verbose)?;
-            run_artifact(RunBackend::Native, &executable, None, &args, user_log)
+            run_artifact(
+                crate::run::ExecutionMode::Native,
+                &executable,
+                None,
+                &args,
+                user_log,
+            )
         }
     }
 }
@@ -298,19 +303,14 @@ fn cached_native_executable(
 }
 
 fn run_artifact(
-    backend: RunBackend,
+    mode: crate::run::ExecutionMode<'_>,
     artifact: &Path,
     experimental_policy: Option<&Path>,
     args: &[String],
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
-    let mut run_cmd = crate::run::command_for_with_moonrun_policy(
-        backend,
-        None,
-        artifact,
-        None,
-        experimental_policy,
-    );
+    let mut run_cmd =
+        crate::run::command_for_with_moonrun_policy(mode, artifact, None, experimental_policy);
     run_cmd.args(args);
 
     user_log.info(rr_build::format_dry_run_command(&run_cmd, Path::new(".")));

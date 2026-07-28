@@ -219,7 +219,11 @@ Package-level `link.native.cc-flags` apply when compiling the C file emitted by 
 If any selected executable package sets these flags, Moon uses the generated-C native backend
 instead of direct object output so the configured flags are not skipped.
 This native payload form is currently selected once per invocation, so one such package makes every
-selected executable in that invocation use generated C.
+selected executable in that invocation use generated C. This scope also keeps the invocation-wide
+runtime product and package-wide C-stub products on one compatible native toolchain and realization.
+Selecting the payload form per executable requires those shared products to be keyed by their
+effective native toolchain and realization; changing only `LinkCore` and `MakeExecutable` would
+allow incompatible shared artifacts in mixed-mode builds.
 
 The direct object native target `x86_64-pc-windows-msvc` is stricter: it requires selecting a
 `cl`-compatible compiler driver and preserving the discovered Visual Studio command environment.

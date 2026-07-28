@@ -25,7 +25,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::{self, LoweringEnvironment, WarningCondition},
     build_plan::{self, BuildEnvironment, InputDirective},
-    model::{Artifacts, BuildPlanNode, NativeBackendMode, RunBackend},
+    model::{Artifacts, BackendConfig, BuildPlanNode},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -36,10 +36,8 @@ use crate::{
 pub struct CompileConfig {
     /// Target directory, i.e. `_build/`
     pub target_dir: PathBuf,
-    /// The backend selected for this build.
-    pub target_backend: RunBackend,
-    /// Native implementation selected only under `RunBackend::Native`.
-    pub native_mode: Option<NativeBackendMode>,
+    /// The backend and backend-specific configuration selected for this build.
+    pub backend: BackendConfig,
     /// The optimization level to use for the compilation.
     pub opt_level: OptLevel,
     /// The action done in this operation, currently only used in legacy directory layout
@@ -59,12 +57,8 @@ pub struct CompileConfig {
     /// Whether to export the build plan graph in the compile output.
     /// This should only be used in debugging scenarios.
     pub debug_export_build_plan: bool,
-    /// Whether to pass `-wasi` for wasi-oriented wasm builds.
-    pub wasi_link: bool,
     /// Enable code coverage instrumentation.
     pub enable_coverage: bool,
-    /// Output WAT instead of WASM binary format.
-    pub output_wat: bool,
     /// Whether to output JSON or human-readable error code
     pub moonc_output_json: bool,
     /// Whether to output HTML for docs (in serve mode)
@@ -226,8 +220,7 @@ pub fn compile_standalone(
 
 fn build_environment(cx: &CompileConfig) -> BuildEnvironment {
     BuildEnvironment {
-        target_backend: cx.target_backend,
-        native_mode: cx.native_mode.clone(),
+        backend: cx.backend.clone(),
         opt_level: cx.opt_level,
         action: cx.action,
         std: cx.stdlib_path.is_some(),
@@ -273,22 +266,15 @@ fn lower_plan(
 fn lowering_options(cx: &CompileConfig) -> build_lower::BuildOptions {
     build_lower::BuildOptions {
         artifact_paths: cx.artifact_paths.clone(),
-        target_backend: cx.target_backend,
-        selected_backend: build_lower::SelectedBackend::new(
-            cx.target_backend,
-            cx.native_mode.as_ref(),
-            cx.output_wat,
-        ),
+        backend: cx.backend.clone(),
         opt_level: cx.opt_level,
         action: cx.action,
         enable_coverage: cx.enable_coverage,
         debug_symbols: cx.debug_symbols,
-        output_wat: cx.output_wat,
         moonc_output_json: cx.moonc_output_json,
         docs_serve: cx.docs_serve,
         warning_condition: cx.warning_condition,
         info_no_alias: cx.info_no_alias,
-        wasi_link: cx.wasi_link,
         stdlib_path: cx.stdlib_path.clone(),
         lowering_environment: cx.lowering_environment.clone(),
     }
@@ -329,7 +315,7 @@ mod tests {
         build_lower::{LoweringEnvironment, WarningCondition},
         build_plan::InputDirective,
         discover::{DiscoverResult, DiscoveredPackage, SingleFileSourceKind},
-        model::{BuildPlanNode, RunBackend, TargetKind},
+        model::{BackendConfig, BuildPlanNode, TargetKind},
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::{DepEdge, DepRelationship},
         target_layout::{ArtifactPathResolver, TargetLayout, TargetLayoutMode},
@@ -486,8 +472,7 @@ mod tests {
         );
         let config = CompileConfig {
             target_dir: PathBuf::from("_build"),
-            target_backend: RunBackend::WasmGC,
-            native_mode: None,
+            backend: BackendConfig::WasmGc { use_wat: false },
             opt_level: OptLevel::Debug,
             action: RunMode::Run,
             debug_symbols: false,
@@ -495,9 +480,7 @@ mod tests {
             artifact_paths,
             lowering_environment: LoweringEnvironment::default(),
             debug_export_build_plan: true,
-            wasi_link: false,
             enable_coverage: false,
-            output_wat: false,
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
