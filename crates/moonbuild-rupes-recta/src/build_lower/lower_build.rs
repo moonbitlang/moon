@@ -775,7 +775,7 @@ impl<'a> LoweringContext<'a> {
             package_sources: &package_sources,
             stdlib_core_source: None,
             target_backend: self.opt.target_backend.into(),
-            native_target: self.opt.native_mode.direct_target(),
+            native_target: self.opt.selected_backend.direct_target(),
             flags: self.set_flags(),
             test_mode: target.kind.is_test(),
             wasm_config: self.get_wasm_config(target, package),
@@ -1303,7 +1303,7 @@ impl<'a> LoweringContext<'a> {
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
         let run_dsymutil = should_run_new_native_dsymutil(
-            self.opt.native_mode.direct_target(),
+            self.opt.selected_backend.direct_target(),
             self.opt.debug_symbols,
             &cc,
         );

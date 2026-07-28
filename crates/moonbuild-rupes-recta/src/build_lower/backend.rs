@@ -22,7 +22,7 @@
 //! backend branch for command shape and runtime/linking behavior. Concrete
 //! product paths are resolved by `target_layout`.
 
-use crate::model::{NativeBackendMode, RunBackend};
+use crate::model::{NativeBackendMode, NativeTarget, RunBackend};
 
 #[derive(Clone, Debug)]
 pub(crate) enum SelectedBackend {
@@ -55,29 +55,35 @@ pub(crate) enum CStubLibraryRealization {
 impl SelectedBackend {
     pub(crate) fn new(
         target_backend: RunBackend,
-        native_mode: &NativeBackendMode,
+        native_mode: Option<&NativeBackendMode>,
         output_wat: bool,
     ) -> Self {
-        debug_assert!(
-            !native_mode.is_tcc_run() || target_backend == RunBackend::Native,
-            "tcc-run is only valid for the C backend"
-        );
-        debug_assert!(
-            native_mode.direct_target().is_none() || target_backend == RunBackend::Native,
-            "direct native object lowering is only valid for the C backend"
-        );
-
-        match target_backend {
-            RunBackend::Wasm => Self::Wasm {
+        match (target_backend, native_mode) {
+            (RunBackend::Wasm, None) => Self::Wasm {
                 use_wat: output_wat,
             },
-            RunBackend::WasmGC => Self::WasmGc {
+            (RunBackend::WasmGC, None) => Self::WasmGc {
                 use_wat: output_wat,
             },
-            RunBackend::Js => Self::Js,
-            RunBackend::Native => Self::C(native_mode.clone()),
-            RunBackend::Llvm => Self::Llvm,
+            (RunBackend::Js, None) => Self::Js,
+            (RunBackend::Native, Some(native_mode)) => Self::C(native_mode.clone()),
+            (RunBackend::Llvm, None) => Self::Llvm,
+            (RunBackend::Native, None) => {
+                panic!("native backend requires a native implementation mode")
+            }
+            (_, Some(_)) => panic!("native implementation mode requires the native backend"),
         }
+    }
+
+    pub(crate) fn direct_target(&self) -> Option<NativeTarget> {
+        match self {
+            Self::C(native_mode) => native_mode.direct_target(),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm => None,
+        }
+    }
+
+    pub(crate) fn is_tcc_run(&self) -> bool {
+        matches!(self, Self::C(native_mode) if native_mode.is_tcc_run())
     }
 
     pub(crate) fn c_stub_library_realization(&self) -> CStubLibraryRealization {
@@ -159,7 +165,7 @@ mod tests {
 
     #[test]
     fn wasm_backend_carries_wat_setting() {
-        let backend = SelectedBackend::new(RunBackend::Wasm, &NativeBackendMode::GeneratedC, true);
+        let backend = SelectedBackend::new(RunBackend::Wasm, None, true);
 
         assert!(matches!(backend, SelectedBackend::Wasm { use_wat: true }));
     }
@@ -167,7 +173,7 @@ mod tests {
     #[test]
     fn c_tcc_run_realizes_shared_runtime_and_response_file() {
         let native_mode = NativeBackendMode::TccRun(fake_tcc_run());
-        let backend = SelectedBackend::new(RunBackend::Native, &native_mode, false);
+        let backend = SelectedBackend::new(RunBackend::Native, Some(&native_mode), false);
 
         let SelectedBackend::C(ref native_mode) = backend else {
             panic!("native backend should select C lowering")
@@ -188,7 +194,7 @@ mod tests {
         let native_mode = NativeBackendMode::DirectObject(DirectNativeMode::Target(
             crate::model::NativeTarget::Aarch64AppleDarwin,
         ));
-        let backend = SelectedBackend::new(RunBackend::Native, &native_mode, false);
+        let backend = SelectedBackend::new(RunBackend::Native, Some(&native_mode), false);
 
         let SelectedBackend::C(ref native_mode) = backend else {
             panic!("native backend should select C lowering")
@@ -206,7 +212,7 @@ mod tests {
 
     #[test]
     fn llvm_backend_is_not_c_realization() {
-        let backend = SelectedBackend::new(RunBackend::Llvm, &NativeBackendMode::GeneratedC, false);
+        let backend = SelectedBackend::new(RunBackend::Llvm, None, false);
 
         assert!(matches!(backend, SelectedBackend::Llvm));
         assert_eq!(

@@ -315,29 +315,16 @@ impl CompilePreConfig {
             "The final selected target backend must either be default or match the explicit one"
         );
 
-        let native_target = match (target_backend, self.opt_level) {
-            (TargetBackend::Native, BuildProfile::Debug) => NativeTarget::from_env_for_host(),
+        let native_mode = match target_backend {
+            TargetBackend::Native => Some(self.detect_mode(resolve_output, input_nodes, user_log)),
             _ => None,
         };
-        info!("New native target: {:?}", native_target);
-        let (run_backend, native_mode) = match target_backend {
-            TargetBackend::Wasm => (RunBackend::Wasm, NativeBackendMode::GeneratedC),
-            TargetBackend::WasmGC => (RunBackend::WasmGC, NativeBackendMode::GeneratedC),
-            TargetBackend::Js => (RunBackend::Js, NativeBackendMode::GeneratedC),
-            TargetBackend::Native => {
-                let native_mode = if let Some(native_target) = native_target {
-                    info!("Disabling `tcc -run`: new native backend selected");
-                    NativeBackendMode::DirectObject(self.direct_native_mode(native_target))
-                } else if let Some(tcc_run) =
-                    self.select_tcc_run_config(resolve_output, input_nodes, user_log)
-                {
-                    NativeBackendMode::TccRun(tcc_run)
-                } else {
-                    NativeBackendMode::GeneratedC
-                };
-                (RunBackend::Native, native_mode)
-            }
-            TargetBackend::LLVM => (RunBackend::Llvm, NativeBackendMode::GeneratedC),
+        let run_backend = match target_backend {
+            TargetBackend::Wasm => RunBackend::Wasm,
+            TargetBackend::WasmGC => RunBackend::WasmGC,
+            TargetBackend::Js => RunBackend::Js,
+            TargetBackend::Native => RunBackend::Native,
+            TargetBackend::LLVM => RunBackend::Llvm,
         };
         info!(
             "Final run backend: {:?}, native mode: {:?}",
@@ -378,37 +365,99 @@ impl CompilePreConfig {
         })
     }
 
-    fn select_tcc_run_config(
+    /// Detect the native payload and executable realization for this invocation.
+    fn detect_mode(
         &self,
         resolve_output: &ResolveOutput,
         input_nodes: &[BuildPlanNode],
         user_log: &UserLog,
-    ) -> Option<TccRunConfig> {
+    ) -> NativeBackendMode {
+        // TODO: Native payload form is selected once per invocation. Move this
+        // decision into per-executable planning so one package's compiler flags
+        // do not force unrelated executables onto generated C.
+        let native_configs = input_nodes
+            .iter()
+            .filter_map(|node| {
+                let BuildPlanNode::MakeExecutable(build_target) = node else {
+                    return None;
+                };
+                let package = resolve_output.pkg_dirs.get_package(build_target.package);
+                let native = package
+                    .raw
+                    .link
+                    .as_ref()
+                    .and_then(|link| link.native.as_ref())?;
+                Some((package, native))
+            })
+            .collect::<Vec<_>>();
+
+        let native_target = if self.opt_level == BuildProfile::Debug {
+            NativeTarget::from_env_for_host()
+        } else {
+            None
+        };
+        info!("New native target: {:?}", native_target);
+        if let Some(native_target) = native_target {
+            if native_configs
+                .iter()
+                .any(|(_, native)| native.cc_flags.is_some())
+            {
+                info!("Disabling direct object native output: C/C++ compiler flags are set");
+                return NativeBackendMode::GeneratedC;
+            }
+
+            info!("Disabling `tcc -run`: new native backend selected");
+            return NativeBackendMode::DirectObject(DirectNativeMode::Target(native_target));
+        }
+
         if !self.try_tcc_run {
             info!("Disabling `tcc -run`: not requested");
-            return None;
+            return NativeBackendMode::GeneratedC;
         }
         if self.opt_level != BuildProfile::Debug {
             info!("Disabling `tcc -run`: only available for debug builds");
-            return None;
+            return NativeBackendMode::GeneratedC;
         }
         if !(cfg!(target_os = "linux") || cfg!(target_os = "macos")) {
             info!("Disabling `tcc -run`: only supported on Linux and macOS");
-            return None;
+            return NativeBackendMode::GeneratedC;
+        }
+        if compiler_flags::has_cc_env_override() {
+            info!("Disabling `tcc -run`: MOON_CC is set");
+            info!("`tcc -run` availability: false");
+            return NativeBackendMode::GeneratedC;
+        }
+        for (package, native) in native_configs {
+            let description = if native.cc.is_some() {
+                Some("toolchain")
+            } else if native.cc_flags.is_some() {
+                Some("compiler flags")
+            } else if native.cc_link_flags.is_some() {
+                Some("linker flags")
+            } else {
+                None
+            };
+            if let Some(description) = description {
+                user_log.warn(format!(
+                    "Package '{}' overrides C/C++ {description}, `tcc -run` will be disabled",
+                    package.fqn
+                ));
+                info!("`tcc -run` availability: false");
+                return NativeBackendMode::GeneratedC;
+            }
         }
 
-        let Some(internal_tcc) = check_tcc_run_availability(resolve_output, input_nodes, user_log)
-        else {
-            info!("`tcc -run` availability: false");
-            return None;
-        };
-
-        info!("`tcc -run` availability: true");
-        Some(TccRunConfig::new(internal_tcc))
-    }
-
-    fn direct_native_mode(&self, native_target: NativeTarget) -> DirectNativeMode {
-        DirectNativeMode::Target(native_target)
+        match CC::internal_tcc() {
+            Ok(internal_tcc) => {
+                info!("`tcc -run` availability: true");
+                NativeBackendMode::TccRun(TccRunConfig::new(internal_tcc))
+            }
+            Err(_) => {
+                user_log.warn("Cannot find TCC compiler in the system; disabling `tcc -run`");
+                info!("`tcc -run` availability: false");
+                NativeBackendMode::GeneratedC
+            }
+        }
     }
 }
 
@@ -614,8 +663,15 @@ pub(crate) fn plan_resolved_build_from_intent(
         resolve_output,
         artifacts: compile_output.artifacts,
         target_backend: cx.target_backend,
-        native_target: cx.native_mode.direct_target(),
-        tcc_run: cx.native_mode.tcc_run().cloned(),
+        native_target: cx
+            .native_mode
+            .as_ref()
+            .and_then(NativeBackendMode::direct_target),
+        tcc_run: cx
+            .native_mode
+            .as_ref()
+            .and_then(NativeBackendMode::tcc_run)
+            .cloned(),
         opt_level: cx.opt_level,
         artifact_paths: cx.artifact_paths.clone(),
     };
@@ -707,8 +763,15 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
         resolve_output,
         artifacts: compile_output.script.artifacts,
         target_backend: cx.target_backend,
-        native_target: cx.native_mode.direct_target(),
-        tcc_run: cx.native_mode.tcc_run().cloned(),
+        native_target: cx
+            .native_mode
+            .as_ref()
+            .and_then(NativeBackendMode::direct_target),
+        tcc_run: cx
+            .native_mode
+            .as_ref()
+            .and_then(NativeBackendMode::tcc_run)
+            .cloned(),
         opt_level: cx.opt_level,
         artifact_paths: cx.artifact_paths.clone(),
     };
@@ -766,62 +829,6 @@ pub fn plan_fmt(
         command_args_by_output: Default::default(),
         db_path,
     })
-}
-
-/// Check if we can actually run `tcc -run`.
-///
-/// This is for usage in `moon run` and `moon test`. Based on the legacy impl,
-/// only if neither the user nor any package overrides the C/C++ toolchain, we
-/// can use `tcc -run`.
-fn check_tcc_run_availability(
-    resolve_output: &ResolveOutput,
-    input_nodes: &[BuildPlanNode],
-    user_log: &UserLog,
-) -> Option<CC> {
-    if compiler_flags::has_cc_env_override() {
-        info!("Disabling `tcc -run`: MOON_CC is set");
-        return None;
-    }
-
-    // Check if any package overrides the C/C++ toolchain before probing TCC.
-    for node in input_nodes {
-        if let BuildPlanNode::MakeExecutable(build_target) = node {
-            let package = resolve_output.pkg_dirs.get_package(build_target.package);
-            // Check native config
-            let Some(native) = package.raw.link.as_ref().and_then(|x| x.native.as_ref()) else {
-                continue;
-            };
-            if native.cc.is_some() {
-                user_log.warn(format!(
-                    "Package '{}' overrides C/C++ toolchain, `tcc -run` will be disabled",
-                    package.fqn
-                ));
-                return None;
-            }
-            if native.cc_flags.is_some() {
-                user_log.warn(format!(
-                    "Package '{}' overrides C/C++ compiler flags, `tcc -run` will be disabled",
-                    package.fqn
-                ));
-                return None;
-            }
-            if native.cc_link_flags.is_some() {
-                user_log.warn(format!(
-                    "Package '{}' overrides C/C++ linker flags, `tcc -run` will be disabled",
-                    package.fqn
-                ));
-                return None;
-            }
-        }
-    }
-
-    match CC::internal_tcc() {
-        Ok(tcc) => Some(tcc),
-        Err(_) => {
-            user_log.warn("Cannot find TCC compiler in the system; disabling `tcc -run`");
-            None
-        }
-    }
 }
 
 /// Generate metadata file `packages.json` in the target directory.

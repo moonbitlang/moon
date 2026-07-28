@@ -77,11 +77,11 @@ impl DependencyInterfaceMode {
 
 impl<'a> BuildPlanConstructor<'a> {
     fn new_native_linker_context(&self, err: anyhow::Error) -> anyhow::Error {
-        if self.build_env.native_mode.direct_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+        if self.build_env.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             err.context(
                 "Windows MSVC direct object native target requires an MSVC compiler/linker driver such as cl.exe or clang-cl.exe",
             )
-        } else if self.build_env.native_mode.direct_target().is_some() {
+        } else if self.build_env.direct_native_target().is_some() {
             err.context(
                 "new native backend requires a C compiler/linker driver; install clang/cc or set MOON_CC",
             )
@@ -105,17 +105,14 @@ impl<'a> BuildPlanConstructor<'a> {
 
     fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
         debug_assert!(self.build_env.target_backend.is_native());
-        if self.build_env.native_mode.direct_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
+        if self.build_env.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             self.warn_incompatible_windows_msvc_env_override();
             return compiler_flags::windows_msvc_native_toolchain(package_cc);
         }
 
         compiler_flags::effective_native_toolchain(
             package_cc,
-            self.build_env
-                .native_mode
-                .tcc_run()
-                .map(|config| config.internal_tcc()),
+            self.build_env.tcc_run().map(|config| config.internal_tcc()),
         )
     }
 
@@ -786,7 +783,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
 
         // If we're tcc run, also depend on the runtime library
-        if self.build_env.native_mode.is_tcc_run() {
+        if self.build_env.tcc_run().is_some() {
             let make_exec_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
             self.add_edge(node, make_exec_node);
         }
