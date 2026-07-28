@@ -44,6 +44,21 @@ pub enum RunBackend {
     Llvm,
 }
 
+/// The selected backend and its backend-specific compile configuration.
+///
+/// This is the single source of truth after the user-visible target backend is
+/// resolved. Keeping backend-specific options inside the matching variant
+/// prevents invalid combinations such as a native implementation mode on a
+/// Wasm build.
+#[derive(Clone, Debug)]
+pub enum BackendConfig {
+    Wasm { use_wat: bool, wasi_link: bool },
+    WasmGc { use_wat: bool },
+    Js,
+    Native(NativeBackendMode),
+    Llvm,
+}
+
 pub const ENV_MOONBIT_NEW_NATIVE: &str = "MOONBIT_NEW_NATIVE";
 
 /// Concrete native object-code backend selected under the `native` surface target.
@@ -136,6 +151,53 @@ impl NativeBackendMode {
 
     pub fn is_tcc_run(&self) -> bool {
         self.tcc_run().is_some()
+    }
+}
+
+impl BackendConfig {
+    pub fn run_backend(&self) -> RunBackend {
+        match self {
+            Self::Wasm { .. } => RunBackend::Wasm,
+            Self::WasmGc { .. } => RunBackend::WasmGC,
+            Self::Js => RunBackend::Js,
+            Self::Native(_) => RunBackend::Native,
+            Self::Llvm => RunBackend::Llvm,
+        }
+    }
+
+    pub fn target_backend(&self) -> TargetBackend {
+        self.run_backend().into()
+    }
+
+    pub fn direct_native_target(&self) -> Option<NativeTarget> {
+        match self {
+            Self::Native(mode) => mode.direct_target(),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm => None,
+        }
+    }
+
+    pub fn tcc_run(&self) -> Option<&TccRunConfig> {
+        match self {
+            Self::Native(mode) => mode.tcc_run(),
+            Self::Wasm { .. } | Self::WasmGc { .. } | Self::Js | Self::Llvm => None,
+        }
+    }
+
+    pub fn use_wat(&self) -> bool {
+        match self {
+            Self::Wasm { use_wat, .. } | Self::WasmGc { use_wat } => *use_wat,
+            Self::Js | Self::Native(_) | Self::Llvm => false,
+        }
+    }
+
+    pub fn wasi_link(&self) -> bool {
+        matches!(
+            self,
+            Self::Wasm {
+                wasi_link: true,
+                ..
+            }
+        )
     }
 }
 

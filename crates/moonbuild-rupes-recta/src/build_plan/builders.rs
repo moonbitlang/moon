@@ -104,7 +104,7 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     fn effective_native_toolchain(&mut self, package_cc: Option<&CC>) -> anyhow::Result<Toolchain> {
-        debug_assert!(self.build_env.target_backend.is_native());
+        debug_assert!(self.build_env.target_backend().is_native());
         if self.build_env.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             self.warn_incompatible_windows_msvc_env_override();
             return compiler_flags::windows_msvc_native_toolchain(package_cc);
@@ -187,7 +187,7 @@ impl<'a> BuildPlanConstructor<'a> {
         importer_target: BuildTarget,
         dep: BuildTarget,
     ) -> Result<(), BuildPlanConstructError> {
-        let selected_backend: TargetBackend = self.build_env.target_backend.into();
+        let selected_backend: TargetBackend = self.build_env.target_backend().into();
         let importer_pkg = self.input.pkg_dirs.get_package(importer_target.package);
         let dependency_pkg = self.input.pkg_dirs.get_package(dep.package);
 
@@ -568,7 +568,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 .chain(mbtlex_iter)
                 .chain(mbtyacc_iter),
             self.build_env.opt_level,
-            self.build_env.target_backend.into(),
+            self.build_env.target_backend().into(),
         ) {
             match file_kind {
                 NoTest => no_test_files.insert(file.into_owned()),
@@ -922,7 +922,7 @@ impl<'a> BuildPlanConstructor<'a> {
         }
         let c_stub_deps = c_stub_deps.into_iter().collect::<Vec<_>>();
 
-        if !self.build_env.target_backend.is_native() {
+        if !self.build_env.target_backend().is_native() {
             self.resolved_node(make_exec_node);
             return Ok(());
         }
@@ -1119,7 +1119,8 @@ impl<'a> BuildPlanConstructor<'a> {
                         // Record emitted and collect c-stub if necessary
                         emitted.insert(cur);
                         let pkg = self.input.pkg_dirs.get_package(cur.package);
-                        if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty()
+                        if self.build_env.target_backend().is_native()
+                            && !pkg.c_stub_files.is_empty()
                         {
                             c_stub_deps.insert(cur.package);
                         }
@@ -1144,7 +1145,7 @@ impl<'a> BuildPlanConstructor<'a> {
                 emitted.insert(cur);
                 trace!(?cur, "Post-order: emitted");
 
-                if self.build_env.target_backend.is_native() && !pkg.c_stub_files.is_empty() {
+                if self.build_env.target_backend().is_native() && !pkg.c_stub_files.is_empty() {
                     c_stub_deps.insert(cur.package);
                 }
             }
@@ -1204,7 +1205,8 @@ impl<'a> BuildPlanConstructor<'a> {
         // Bundling a module gathers the build result of all its non-virtual packages, in topo order
         let topo_sorted_pkgs = self.topo_sort_module_packages(module_id);
         let mut bundle_targets = Vec::new();
-        let target_backend: moonutil::target::TargetBackend = self.build_env.target_backend.into();
+        let target_backend: moonutil::target::TargetBackend =
+            self.build_env.target_backend().into();
         for target in topo_sorted_pkgs.into_iter() {
             let pkg = self.input.pkg_dirs.get_package(target.package);
             if !pkg.effective_supported_targets.contains(&target_backend) {

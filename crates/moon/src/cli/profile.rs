@@ -531,7 +531,7 @@ pub(crate) fn profile_test_invocations(
 ) -> Result<i32, anyhow::Error> {
     ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
 
-    if build_meta.target_backend != RunBackend::Native {
+    if build_meta.target_backend() != RunBackend::Native {
         bail!("{MOON_TEST_PROFILE_COMMAND} currently supports only the native backend");
     }
 
@@ -544,7 +544,7 @@ pub(crate) fn profile_test_invocations(
 
     let session_dir = default_test_profile_session_dir(
         target_dir,
-        build_meta.target_backend,
+        build_meta.target_backend(),
         build_meta.opt_level,
     );
     // Each selected test executable is a separate process and therefore a
@@ -573,7 +573,7 @@ pub(crate) fn profile_test_invocations(
                 current_dir: Some(module_root),
                 output_dir,
                 run_mode: RunMode::Test,
-                target_backend: build_meta.target_backend,
+                target_backend: build_meta.target_backend(),
                 opt_level: build_meta.opt_level,
             }
         })
@@ -599,7 +599,7 @@ pub(crate) fn profile_test_invocations(
     let profiler_backend = ensure_profile_available(MOON_TEST_PROFILE_COMMAND)?;
     let report = build_test_report(
         profiler_backend,
-        build_meta.target_backend,
+        build_meta.target_backend(),
         build_meta.opt_level,
         with_json_report(ProfileArtifacts::default(), json_path.clone()),
         captured_profiles,

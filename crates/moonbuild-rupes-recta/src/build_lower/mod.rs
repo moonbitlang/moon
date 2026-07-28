@@ -29,7 +29,7 @@ use tracing::instrument;
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildActionId, BuildActionPlan},
-    model::{OperatingSystem, PackageId, RunBackend},
+    model::{BackendConfig, OperatingSystem, PackageId, RunBackend},
     pkg_name::OptionalPackageFQNWithSource,
     target_layout::{
         ArtifactPathOptions, ArtifactPathResolver, ExecutableArtifact, LinkedCoreArtifact,
@@ -51,7 +51,7 @@ pub use lowered_action::{
 };
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 
-pub(crate) use backend::{CExecutableRealization, CStubLibraryRealization, SelectedBackend};
+pub(crate) use backend::{CExecutableRealization, CStubLibraryRealization};
 
 use context::LoweringContext;
 use lowered_action::{BuildCommand, LoweredCommandKind};
@@ -102,20 +102,17 @@ impl LoweringEnvironment {
 pub struct BuildOptions {
     pub artifact_paths: ArtifactPathResolver,
     // FIXME: This overlaps with `crate::build_plan::BuildEnvironment`
-    pub target_backend: RunBackend,
-    pub(crate) selected_backend: SelectedBackend,
+    pub backend: BackendConfig,
     pub opt_level: OptLevel,
     pub action: RunMode,
 
     // Detailed configuration -- some of them might live better in configs
     pub debug_symbols: bool,
     pub enable_coverage: bool,
-    pub output_wat: bool,
     pub moonc_output_json: bool,
     pub docs_serve: bool,
     pub warning_condition: WarningCondition,
     pub info_no_alias: bool,
-    pub wasi_link: bool,
 
     // Environments
     /// Only `Some` if we import standard library.
@@ -124,6 +121,10 @@ pub struct BuildOptions {
 }
 
 impl BuildOptions {
+    pub fn target_backend(&self) -> RunBackend {
+        self.backend.run_backend()
+    }
+
     pub fn os(&self) -> OperatingSystem {
         self.lowering_environment.os()
     }
@@ -136,37 +137,34 @@ impl BuildOptions {
         self.lowering_environment.runtime_dot_c_path()
     }
 
-    pub fn use_tcc_run(&self) -> bool {
-        self.selected_backend.is_tcc_run()
-    }
-
     pub fn artifact_path_options(&self) -> ArtifactPathOptions {
-        let use_tcc_run = self.use_tcc_run();
-        let os = match self.target_backend {
+        let use_tcc_run = self.backend.tcc_run().is_some();
+        let target_backend = self.target_backend();
+        let os = match target_backend {
             RunBackend::Wasm | RunBackend::WasmGC | RunBackend::Js => OperatingSystem::None,
             RunBackend::Native | RunBackend::Llvm => self.os(),
         };
-        let executable = match self.target_backend {
+        let executable = match target_backend {
             RunBackend::Wasm => ExecutableArtifact::Wasm {
-                use_wat: self.selected_backend.use_wat(),
+                use_wat: self.backend.use_wat(),
             },
             RunBackend::WasmGC => ExecutableArtifact::WasmGC {
-                use_wat: self.selected_backend.use_wat(),
+                use_wat: self.backend.use_wat(),
             },
             RunBackend::Js => ExecutableArtifact::Js,
             RunBackend::Native if use_tcc_run => ExecutableArtifact::TccRunResponseFile,
             RunBackend::Native => ExecutableArtifact::NativeExecutable,
             RunBackend::Llvm => ExecutableArtifact::LlvmExecutable,
         };
-        let linked_core = match self.target_backend {
+        let linked_core = match target_backend {
             RunBackend::Wasm => LinkedCoreArtifact::Wasm {
-                use_wat: self.selected_backend.use_wat(),
+                use_wat: self.backend.use_wat(),
             },
             RunBackend::WasmGC => LinkedCoreArtifact::WasmGC {
-                use_wat: self.selected_backend.use_wat(),
+                use_wat: self.backend.use_wat(),
             },
             RunBackend::Js => LinkedCoreArtifact::Js,
-            RunBackend::Native if self.selected_backend.direct_target().is_some() => {
+            RunBackend::Native if self.backend.direct_native_target().is_some() => {
                 LinkedCoreArtifact::NativeObject { os }
             }
             RunBackend::Native => LinkedCoreArtifact::NativeC,
@@ -174,7 +172,7 @@ impl BuildOptions {
         };
 
         ArtifactPathOptions {
-            target_backend: self.target_backend,
+            target_backend,
             use_tcc_run,
             os,
             executable,
@@ -235,7 +233,9 @@ pub fn lower_build_plan(
     info!("Starting action plan lowering to n2 graph");
     debug!(
         "Build options: backend={:?}, opt_level={:?}, debug_symbols={}",
-        opt.target_backend, opt.opt_level, opt.debug_symbols
+        opt.target_backend(),
+        opt.opt_level,
+        opt.debug_symbols
     );
 
     let result = lower_actions(
@@ -333,8 +333,8 @@ mod tests {
         },
         discover::{DiscoverResult, DiscoveredPackage},
         model::{
-            BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode, NativeTarget,
-            TargetKind,
+            BackendConfig, BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode,
+            NativeTarget, TargetKind,
         },
         pkg_name::{PackageFQN, PackagePath},
         pkg_solve::DepRelationship,
@@ -358,18 +358,23 @@ mod tests {
             );
             let options = BuildOptions {
                 artifact_paths,
-                target_backend,
-                selected_backend: SelectedBackend::new(target_backend, None, false),
+                backend: match target_backend {
+                    RunBackend::Wasm => BackendConfig::Wasm {
+                        use_wat: false,
+                        wasi_link: false,
+                    },
+                    RunBackend::WasmGC => BackendConfig::WasmGc { use_wat: false },
+                    RunBackend::Js => BackendConfig::Js,
+                    RunBackend::Native | RunBackend::Llvm => unreachable!(),
+                },
                 opt_level: OptLevel::Debug,
                 action: RunMode::Build,
                 debug_symbols: false,
                 enable_coverage: false,
-                output_wat: false,
                 moonc_output_json: false,
                 docs_serve: false,
                 warning_condition: WarningCondition::Default,
                 info_no_alias: false,
-                wasi_link: false,
                 stdlib_path: None,
                 lowering_environment: LoweringEnvironment::default(),
             };
@@ -705,18 +710,15 @@ mod tests {
         ));
         let options = BuildOptions {
             artifact_paths: artifact_paths.clone(),
-            target_backend: RunBackend::Native,
-            selected_backend: SelectedBackend::new(RunBackend::Native, Some(&native_mode), false),
+            backend: BackendConfig::Native(native_mode),
             opt_level: OptLevel::Debug,
             action: RunMode::Build,
             debug_symbols: false,
             enable_coverage: false,
-            output_wat: false,
             moonc_output_json: false,
             docs_serve: false,
             warning_condition: WarningCondition::Default,
             info_no_alias: false,
-            wasi_link: false,
             stdlib_path: None,
             lowering_environment,
         };

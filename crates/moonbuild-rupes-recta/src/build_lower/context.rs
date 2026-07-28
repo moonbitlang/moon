@@ -188,7 +188,7 @@ impl<'a> LoweringContext<'a> {
 
     /// Some actions are no-op in n2 build graph. Early bailing.
     fn is_action_noop(&self, action: BuildAction<'_>) -> bool {
-        (!self.opt.target_backend.is_native())
+        (!self.opt.target_backend().is_native())
             && matches!(action, BuildAction::MakeExecutable { .. })
     }
 

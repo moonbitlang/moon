@@ -990,7 +990,7 @@ fn run_test_rr(
     for (build_meta, build_graph, filter) in planned_runs {
         debug!(
             artifact_count = build_meta.artifacts.len(),
-            backend = ?build_meta.target_backend,
+            backend = ?build_meta.target_backend(),
             "planned rupes-recta build graph"
         );
 
@@ -1582,7 +1582,7 @@ fn rr_test_from_plan(
     let _initial_summary = test_result.summary();
 
     let backend_hint = display_backend_hint
-        .map(|_| TargetBackend::from(build_meta.target_backend).to_backend_ext());
+        .map(|_| TargetBackend::from(build_meta.target_backend()).to_backend_ext());
 
     if cmd.update {
         let mut loop_count = 1; // matching legacy; we already have 1 test run before
@@ -1788,7 +1788,7 @@ fn collect_test_artifacts_for_build_only(
         crate::run::collect_test_invocations(build_meta, filter, include_skipped, bench)?
     {
         // For JS backend, create .cjs wrapper file (matching legacy behavior)
-        if matches!(build_meta.target_backend, RunBackend::Js) {
+        if matches!(build_meta.target_backend(), RunBackend::Js) {
             // Write package.json to prevent node from using outer "type": "module"
             let _ = std::fs::write(target_dir.join("package.json"), "{}");
             if let Some(parent) = invocation.executable.parent() {

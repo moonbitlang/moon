@@ -272,8 +272,8 @@ fn install_build_rr(
 
     // Build command using existing runtime mapping, then shlex-join
     let guard = crate::run::command_for(
-        meta.target_backend,
-        meta.tcc_run.as_ref(),
+        meta.target_backend(),
+        meta.tcc_run(),
         &installed_artifact,
         None,
     );

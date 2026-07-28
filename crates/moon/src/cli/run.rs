@@ -585,8 +585,8 @@ fn get_run_cmd(
 ) -> std::process::Command {
     let executable = get_run_executable(build_meta);
     let mut cmd = crate::run::command_for_with_moonrun_policy(
-        build_meta.target_backend,
-        build_meta.tcc_run.as_ref(),
+        build_meta.target_backend(),
+        build_meta.tcc_run(),
         executable,
         None,
         moonrun_policy,
@@ -781,8 +781,8 @@ fn build_executable_from_plan(
         })?;
         return Ok(RunExecutable {
             executable: get_run_executable(build_meta).to_path_buf(),
-            target_backend: build_meta.target_backend,
-            tcc_run: build_meta.tcc_run.clone(),
+            target_backend: build_meta.target_backend(),
+            tcc_run: build_meta.tcc_run().cloned(),
             opt_level: build_meta.opt_level,
             target_dir: target_dir.to_path_buf(),
             source_dir: source_dir.to_path_buf(),
@@ -809,8 +809,8 @@ fn build_executable_from_plan(
 
     Ok(RunExecutable {
         executable: get_run_executable(build_meta).to_path_buf(),
-        target_backend: build_meta.target_backend,
-        tcc_run: build_meta.tcc_run.clone(),
+        target_backend: build_meta.target_backend(),
+        tcc_run: build_meta.tcc_run().cloned(),
         opt_level: build_meta.opt_level,
         target_dir: target_dir.to_path_buf(),
         source_dir: source_dir.to_path_buf(),

@@ -105,9 +105,9 @@ When actually building a package, the pipeline has 2 or 3 steps depending on the
    This step reads in all CoreIR files produced by the package and all its transitive dependencies,
    and links into an executable output.
    For JS/WASM backends, this already outputs the final executable.
-3. **Make native executable**, via C compiler / `MakeExecutable` node.
+3. **Make native executable**, via the native toolchain / `MakeExecutable` node.
    For native (Native/LLVM) backends,
-   the output of `LinkCore` (C or object file) is compile/link by a C compiler,
+   the output of `LinkCore` (C or object file) is compiled or linked,
    together with C stubs and other build outputs,
    to produce the final executable.
    Non-native backends do not need this step.
@@ -142,7 +142,8 @@ containing all compiled MoonBit code for the package to build:
 
 - For JS, WASM and WASM-GC backend,
   this is the final executable to use: A JavaScript or WASM file.
-- The Native backend outputs a C file to be compiled with a C compiler.
+- The Native backend outputs either generated C or a direct object file,
+  according to the selected Native Payload Form.
 - The LLVM backend outputs an object file to be linked with the system library.
 
 ### Example

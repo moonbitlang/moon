@@ -23,7 +23,7 @@ The planner verifies three conditions before switching to the TCC run flow:
 - The requested action actually needs a runnable binary (for example, `run` or `test`).
   Pure build or check requests keep using the standard native backend.
 
-If every gate passes, the planner substitutes the backend with the dedicated TCC run backend.
+If every gate passes, the planner selects the TCC run mode inside the Native backend configuration.
 Otherwise, nothing changes and the regular linker path is used.
 
 ## How the pipeline diverges
@@ -38,8 +38,8 @@ TCC run mode keeps the logical build steps described in the [architecture][] and
    to produce a single C artifact for the selected target kind.
 3. Native-specific nodes prepare artifacts for execution.
 
-The first two stages behave identically across all native backends.
-Divergence happens in the native-specific step:
+TCC run keeps the generated-C Native Payload Form, so `LinkCore` emits C.
+It diverges from the regular generated-C realization in the native-specific step:
 
 - The runtime code is compiled into a shared library instead of an object file.
 - Each package's C stubs remain as object files, but are collected into shared libraries (`.so`/`.dylib`).

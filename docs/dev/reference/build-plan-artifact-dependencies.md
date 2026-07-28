@@ -14,6 +14,31 @@ The important invariant is that `build_lower` consumes `BuildActionPlan` only. I
 does not import or match on planning internals such as `BuildPlanNode`,
 `FileDependencyKind`, or `PlanArtifactNeed`.
 
+## Backend configuration
+
+After command adapters resolve the Target Backend and expand user intent to
+concrete input nodes, Moon selects one `BackendConfig` value:
+
+```rust
+pub enum BackendConfig {
+    Wasm { use_wat: bool, wasi_link: bool },
+    WasmGc { use_wat: bool },
+    Js,
+    Native(NativeBackendMode),
+    Llvm,
+}
+```
+
+This value is the compile-wide source of truth passed through `CompileConfig`,
+`BuildEnvironment`, and `BuildOptions`. Backend-specific options stay inside
+their matching variant; lowering does not reconstruct a second backend enum
+from a Target Backend plus optional native and Wasm flags.
+
+The Native backend mode is currently compile-wide because the runtime product
+is shared by the plan and C-stub products are shared per package. Selecting a
+Native Payload Form per executable requires those shared products to be keyed
+by the Native Toolchain and realization they were built for first.
+
 ## Planning IR
 
 `BuildPlan` still owns graph traversal, action coalescing, and edge semantics.
