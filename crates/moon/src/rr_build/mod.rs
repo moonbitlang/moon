@@ -326,8 +326,28 @@ impl CompilePreConfig {
             TargetBackend::Js => (RunBackend::Js, NativeBackendMode::GeneratedC),
             TargetBackend::Native => {
                 let native_mode = if let Some(native_target) = native_target {
-                    info!("Disabling `tcc -run`: new native backend selected");
-                    NativeBackendMode::DirectObject(self.direct_native_mode(native_target))
+                    let has_cc_flags = input_nodes.iter().any(|node| {
+                        let BuildPlanNode::MakeExecutable(build_target) = node else {
+                            return false;
+                        };
+                        resolve_output
+                            .pkg_dirs
+                            .get_package(build_target.package)
+                            .raw
+                            .link
+                            .as_ref()
+                            .and_then(|link| link.native.as_ref())
+                            .is_some_and(|native| native.cc_flags.is_some())
+                    });
+                    if has_cc_flags {
+                        info!(
+                            "Disabling direct object native output: C/C++ compiler flags are set"
+                        );
+                        NativeBackendMode::GeneratedC
+                    } else {
+                        info!("Disabling `tcc -run`: new native backend selected");
+                        NativeBackendMode::DirectObject(self.direct_native_mode(native_target))
+                    }
                 } else if let Some(tcc_run) =
                     self.select_tcc_run_config(resolve_output, input_nodes, user_log)
                 {

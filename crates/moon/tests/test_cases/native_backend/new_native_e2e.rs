@@ -51,6 +51,33 @@ fn assert_debug_uses_generated_c_when_disabled(dir: &TestDir, args: &[&str]) {
     );
 }
 
+fn assert_debug_with_cc_flags_uses_generated_c(dir: &TestDir, args: &[&str]) {
+    let output = get_stdout_with_envs(
+        dir,
+        args.iter().copied(),
+        [("MOONBIT_NEW_NATIVE", "1"), ("MOON_CC", "cc")],
+    );
+
+    assert!(
+        output
+            .lines()
+            .any(|line| line.contains("moonc link-core") && command_mentions_c_source(line)),
+        "cc-flags dry-run did not generate C source:\n{output}"
+    );
+    assert!(
+        output.lines().any(|line| {
+            line.contains("ccflags fasd")
+                && command_mentions_c_source(line)
+                && !line.contains("stubccflags")
+        }),
+        "cc-flags dry-run did not compile generated C with package flags:\n{output}"
+    );
+    assert!(
+        !output.contains("__moonbit_link_core__"),
+        "cc-flags dry-run unexpectedly used the direct object backend:\n{output}"
+    );
+}
+
 fn assert_release_uses_generated_c(dir: &TestDir, args: &[&str]) {
     let output = get_stdout_with_envs(
         dir,
@@ -144,6 +171,21 @@ fn test_new_native_zero_uses_generated_c_for_debug_build_run_and_test() {
         &["run", "main", "--target", "native", "--dry-run"],
     );
     assert_debug_uses_generated_c_when_disabled(&dir, &["test", "--target", "native", "--dry-run"]);
+}
+
+#[test]
+fn test_new_native_cc_flags_use_generated_c_for_debug_build_run_and_test() {
+    let dir = TestDir::new("native_backend/cc_flags");
+
+    assert_debug_with_cc_flags_uses_generated_c(
+        &dir,
+        &["build", "--target", "native", "--dry-run"],
+    );
+    assert_debug_with_cc_flags_uses_generated_c(
+        &dir,
+        &["run", "main", "--target", "native", "--dry-run"],
+    );
+    assert_debug_with_cc_flags_uses_generated_c(&dir, &["test", "--target", "native", "--dry-run"]);
 }
 
 #[test]
