@@ -105,6 +105,11 @@ pub struct DiscoveredPackage {
     /// is generated from the package json, instead of directly collected from
     /// the folder.
     pub c_stub_files: Vec<PathBuf>,
+    /// Header files that may be observed while compiling this package's C
+    /// stubs. Unlike `c_stub_files`, these are collected from the Package File
+    /// Set so adding, removing, or changing a package-local header invalidates
+    /// every C-stub compilation action in the package.
+    pub c_stub_header_files: Vec<PathBuf>,
 
     /// The text-format module interface file for virtual packages.
     ///

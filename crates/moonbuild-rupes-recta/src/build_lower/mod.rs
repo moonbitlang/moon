@@ -357,6 +357,7 @@ mod tests {
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
         resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
         target::TargetBackend,
+        toolchain::BINARIES,
     };
     use slotmap::KeyData;
 
@@ -536,11 +537,12 @@ mod tests {
             supported_targets_decl: SupportedTargetsDeclKind::Omitted,
             effective_supported_targets: supported_targets,
             source_files: Vec::new(),
-            mbt_lex_files: Vec::new(),
-            mbt_yacc_files: Vec::new(),
+            mbt_lex_files: vec![PathBuf::from("main/lexer.mbl")],
+            mbt_yacc_files: vec![PathBuf::from("main/parser.mby")],
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: vec![PathBuf::from("main/native/stub.c")],
+            c_stub_header_files: vec![PathBuf::from("main/native/stub.h")],
             virtual_mbti: None,
             is_stdlib: false,
         };
@@ -674,6 +676,8 @@ mod tests {
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
         let c_stub_node = BuildPlanNode::BuildCStub(target.package, 0);
         let c_stubs_node = BuildPlanNode::ArchiveOrLinkCStubs(target.package);
+        let moonlex_node = BuildPlanNode::RunMoonLexPrebuild(target.package, 0);
+        let moonyacc_node = BuildPlanNode::RunMoonYaccPrebuild(target.package, 0);
         let build_core_node = BuildPlanNode::BuildCore(target);
         let link_core_node = BuildPlanNode::LinkCore(target);
         let exe_node = BuildPlanNode::MakeExecutable(target);
@@ -683,6 +687,8 @@ mod tests {
         plan.test_add_node(runtime_node);
         plan.test_add_node(c_stub_node);
         plan.test_add_node(c_stubs_node);
+        plan.test_add_node(moonlex_node);
+        plan.test_add_node(moonyacc_node);
         plan.test_add_node(build_core_node);
         plan.test_add_node(link_core_node);
         plan.test_add_node(exe_node);
@@ -790,6 +796,29 @@ mod tests {
                 .iter()
                 .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
         );
+        assert!(
+            lowered
+                .build_graph
+                .builds
+                .iter()
+                .flat_map(|build| build.ins.ids.iter())
+                .map(|input| &lowered.build_graph.files.by_id[*input].name)
+                .any(|input| input.replace('\\', "/").ends_with("main/native/stub.h")),
+            "package-local C headers should be concrete C-stub inputs",
+        );
+        for generator in [&BINARIES.moonlex, &BINARIES.moonyacc] {
+            assert!(
+                lowered
+                    .build_graph
+                    .builds
+                    .iter()
+                    .flat_map(|build| build.ins.ids.iter())
+                    .map(|input| &lowered.build_graph.files.by_id[*input].name)
+                    .any(|input| input == generator.to_string_lossy().as_ref()),
+                "{} should be an external input of its generator action",
+                generator.display(),
+            );
+        }
 
         let msvc_env_build = lowered
             .build_graph

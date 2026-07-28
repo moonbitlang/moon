@@ -610,22 +610,38 @@ fn digest_external_input(input: &LoweredExternalInput) -> anyhow::Result<Hash> {
 
 fn digest_stdlib_interfaces(root: &Path) -> anyhow::Result<Hash> {
     let mut fingerprint = FingerprintHasher::new(b"moon-single-file-stdlib-interfaces-v1");
-    let mut pending = vec![PathBuf::new()];
+    let mut pending = vec![(PathBuf::new(), Vec::<PathBuf>::new())];
     let mut interfaces = Vec::new();
-    while let Some(relative_dir) = pending.pop() {
+    while let Some((relative_dir, mut ancestors)) = pending.pop() {
+        let directory = root.join(&relative_dir);
+        let canonical = std::fs::canonicalize(&directory)?;
+        if ancestors.contains(&canonical) {
+            continue;
+        }
+        ancestors.push(canonical);
+
         for entry in std::fs::read_dir(root.join(&relative_dir))? {
             let entry = entry?;
             let relative_path = relative_dir.join(entry.file_name());
             let file_type = entry.file_type()?;
-            if file_type.is_dir() {
-                pending.push(relative_path);
-            } else if file_type.is_file()
+            let target_type = if file_type.is_symlink() {
+                match std::fs::metadata(entry.path()) {
+                    Ok(metadata) => Some(metadata.file_type()),
+                    Err(error) if error.kind() == ErrorKind::NotFound => None,
+                    Err(error) => return Err(error.into()),
+                }
+            } else {
+                Some(file_type)
+            };
+            if target_type.as_ref().is_some_and(|kind| kind.is_dir()) {
+                pending.push((relative_path, ancestors.clone()));
+            } else if target_type.as_ref().is_some_and(|kind| kind.is_file())
                 && relative_path
                     .extension()
                     .is_some_and(|extension| extension == "mi")
             {
                 interfaces.push(relative_path);
-            } else if !file_type.is_file() {
+            } else if !file_type.is_symlink() && !file_type.is_file() {
                 bail!(
                     "single-file standard-library directory contains an unsupported entry: {}",
                     entry.path().display()
@@ -1102,6 +1118,21 @@ mod tests {
         std::fs::write(root.path().join("ignored.core"), "two").unwrap();
         assert_eq!(digest_stdlib_interfaces(root.path()).unwrap(), first);
         std::fs::write(root.path().join("nested/b.mi"), "changed").unwrap();
+        assert_ne!(digest_stdlib_interfaces(root.path()).unwrap(), first);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stdlib_identity_follows_symlinked_interface_files() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("interface.data");
+        std::fs::write(&target, "first").unwrap();
+        symlink(&target, root.path().join("alias.mi")).unwrap();
+        let first = digest_stdlib_interfaces(root.path()).unwrap();
+
+        std::fs::write(target, "second").unwrap();
         assert_ne!(digest_stdlib_interfaces(root.path()).unwrap(), first);
     }
 

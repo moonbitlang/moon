@@ -348,7 +348,7 @@ impl<'a> super::LoweringContext<'a> {
 
         BuildCommand {
             commandline: commandline.into(),
-            extra_inputs: vec![mbtlex_path],
+            extra_inputs: vec![mbtlex_path, BINARIES.moonlex.clone()],
         }
     }
 
@@ -372,7 +372,7 @@ impl<'a> super::LoweringContext<'a> {
 
         BuildCommand {
             commandline: commandline.into(),
-            extra_inputs: vec![mby_path],
+            extra_inputs: vec![mby_path, BINARIES.moonyacc.clone()],
         }
     }
 }
