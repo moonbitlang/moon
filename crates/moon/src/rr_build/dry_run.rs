@@ -84,7 +84,7 @@ pub fn write_standalone_dry_run<'a>(
 ) -> std::io::Result<()> {
     if let Some(dependencies) = input.dependencies.as_ref() {
         let (graph, command_args_by_output) =
-            moonbuild_rupes_recta::build_lower::lowered_actions_to_n2_graph(
+            moonbuild_rupes_recta::build_lower::lowered_actions_to_n2_graph_for_dry_run(
                 dependencies.actions.clone(),
             )
             .map_err(std::io::Error::other)?;

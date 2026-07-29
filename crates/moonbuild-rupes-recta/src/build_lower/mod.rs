@@ -316,6 +316,21 @@ pub fn lowered_actions_to_n2_graph(
     Ok((n2.graph, n2.command_args_by_output))
 }
 
+/// Convert selected lowered actions into an n2 graph for dry-run rendering.
+///
+/// The graph contains only action-declared environment overrides. Inherited
+/// process variables remain available to execution and identity, but must not
+/// be copied into user-visible dry-run output.
+pub fn lowered_actions_to_n2_graph_for_dry_run(
+    actions: Vec<LoweredAction>,
+) -> Result<(N2Graph, CommandArgMap), LoweringError> {
+    let mut n2 = N2GraphBuilder::new();
+    for action in actions {
+        n2.add_action_for_dry_run(action)?;
+    }
+    Ok((n2.graph, n2.command_args_by_output))
+}
+
 fn lower_actions(
     resolve_output: &ResolveOutput,
     plan: &BuildActionPlan<'_>,

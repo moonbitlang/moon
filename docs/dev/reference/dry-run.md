@@ -9,5 +9,6 @@
 - **Home directory masking**. Any occurrence of the Moon home directory (`~/.moon` or a custom `$MOON_HOME`) is rewritten to the literal `$MOON_HOME`.
 - **Project-relative paths**. Paths that live under the project root are emitted as a relative path from the project root, instead of absolute paths.
 - **Toolchain binary aliases**. Known Moon toolchain executables (e.g. `~/.moon/bin/moonc`) are shortened to their bare names (`moonc`). Other executables keep their original paths.
+- **Declared environment only**. Environment overrides declared by a build action may be printed with its command. Variables inherited from the `moon` process are not rendered.
 - **`moon run --dry-run` extras**. After the build commands, the dry-run output also prints the command that would execute the produced binary (typically `moonrun`, `node`, or the final executable).
 - **`moon test --verbose` extras**. With `--verbose` set, `moon test` print the command that is executed for each test case.

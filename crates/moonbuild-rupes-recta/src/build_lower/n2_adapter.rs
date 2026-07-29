@@ -20,9 +20,16 @@ use log::debug;
 use n2::graph::{Build, Graph as N2Graph, RspFile};
 
 use super::{
-    CommandArgMap, LoweredAction, LoweredCommandExecution, LoweredCommandKind, LoweringError,
+    CommandArgMap, LoweredAction, LoweredCommand, LoweredCommandExecution, LoweredCommandKind,
+    LoweringError,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
+
+#[derive(Clone, Copy)]
+enum EnvironmentProjection {
+    Execution,
+    DryRun,
+}
 
 pub(super) struct N2GraphBuilder {
     pub(super) graph: N2Graph,
@@ -38,6 +45,21 @@ impl N2GraphBuilder {
     }
 
     pub(super) fn add_action(&mut self, action: LoweredAction) -> Result<(), LoweringError> {
+        self.add_action_with_environment(action, EnvironmentProjection::Execution)
+    }
+
+    pub(super) fn add_action_for_dry_run(
+        &mut self,
+        action: LoweredAction,
+    ) -> Result<(), LoweringError> {
+        self.add_action_with_environment(action, EnvironmentProjection::DryRun)
+    }
+
+    fn add_action_with_environment(
+        &mut self,
+        action: LoweredAction,
+        environment: EnvironmentProjection,
+    ) -> Result<(), LoweringError> {
         let LoweredAction {
             id,
             dependencies,
@@ -49,6 +71,13 @@ impl N2GraphBuilder {
             can_dirty_on_output,
             error_package,
         } = action;
+        let LoweredCommand {
+            kind,
+            execution,
+            cwd,
+            env,
+            dry_run_env,
+        } = command;
 
         let mut input_paths = dependencies
             .into_iter()
@@ -65,7 +94,7 @@ impl N2GraphBuilder {
             .into_iter()
             .flat_map(|product| product.paths)
             .collect::<Vec<_>>();
-        if let LoweredCommandKind::Args(args) = &command.kind {
+        if let LoweredCommandKind::Args(args) = &kind {
             for output_path in &output_paths {
                 self.command_args_by_output
                     .insert(output_path.clone(), args.clone());
@@ -74,7 +103,7 @@ impl N2GraphBuilder {
 
         let ins = build_ins(&mut self.graph, &input_paths);
         let outs = build_outs(&mut self.graph, &output_paths);
-        let (commandline, rspfile) = match command.execution {
+        let (commandline, rspfile) = match execution {
             LoweredCommandExecution::Inline(command) => (command, None),
             LoweredCommandExecution::ResponseFile { command, file } => (
                 command,
@@ -88,8 +117,11 @@ impl N2GraphBuilder {
         let mut build = Build::new(build_n2_fileloc(fileloc), ins, outs);
         build.cmdline = Some(commandline);
         build.rspfile = rspfile;
-        build.cwd = command.cwd.map(|cwd| cwd.display().to_string());
-        build.env = command.env;
+        build.cwd = cwd.map(|cwd| cwd.display().to_string());
+        build.env = match environment {
+            EnvironmentProjection::Execution => env,
+            EnvironmentProjection::DryRun => dry_run_env,
+        };
         build.desc = Some(description);
         build.can_dirty_on_output = can_dirty_on_output;
 

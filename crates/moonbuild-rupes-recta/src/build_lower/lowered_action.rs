@@ -113,7 +113,10 @@ pub struct LoweredCommand {
     pub(crate) kind: LoweredCommandKind,
     pub(crate) execution: LoweredCommandExecution,
     pub(crate) cwd: Option<PathBuf>,
+    /// The environment supplied to execution and action identity.
     pub(crate) env: Vec<(String, String)>,
+    /// Command-declared overrides that are safe and useful to show in dry runs.
+    pub(crate) dry_run_env: Vec<(String, String)>,
 }
 
 impl From<Vec<String>> for LoweredCommand {
@@ -124,6 +127,7 @@ impl From<Vec<String>> for LoweredCommand {
             execution: LoweredCommandExecution::Inline(command),
             cwd: None,
             env: Vec::new(),
+            dry_run_env: Vec::new(),
         }
     }
 }
@@ -135,6 +139,7 @@ impl LoweredCommand {
             execution: LoweredCommandExecution::Inline(command),
             cwd: None,
             env: Vec::new(),
+            dry_run_env: Vec::new(),
         }
     }
 
@@ -175,7 +180,8 @@ impl LoweredCommand {
     }
 
     fn with_env(mut self, env: Vec<(String, String)>) -> Self {
-        self.env.extend(env);
+        self.env.extend(env.iter().cloned());
+        self.dry_run_env.extend(env);
         self
     }
 
@@ -287,6 +293,13 @@ mod tests {
             &[
                 ("A".to_string(), "explicit".to_string()),
                 ("B".to_string(), "inherited".to_string()),
+                ("C".to_string(), "command".to_string()),
+            ]
+        );
+        assert_eq!(
+            command.dry_run_env,
+            &[
+                ("A".to_string(), "explicit".to_string()),
                 ("C".to_string(), "command".to_string()),
             ]
         );

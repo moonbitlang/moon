@@ -66,9 +66,13 @@ fn test_single_file_mbtx_run() {
 #[test]
 fn test_single_file_mbtx_dry_run_prints_dependencies_before_script() {
     let dir = TestDir::new("moon_test_single_file.in");
-    let stdout = get_stdout(
+    let stdout = get_stdout_with_envs(
         &dir,
         ["run", "import_ok.mbtx", "--target", "wasm", "--dry-run"],
+        [(
+            "MOON_DRY_RUN_SECRET_SENTINEL",
+            "inherited-environment-must-stay-private",
+        )],
     );
     let dependency_command = stdout
         .lines()
@@ -83,6 +87,8 @@ fn test_single_file_mbtx_dry_run_prints_dependencies_before_script() {
         dependency_command < script_command,
         "dependency commands should be printed before script commands:\n{stdout}"
     );
+    assert!(!stdout.contains("MOON_DRY_RUN_SECRET_SENTINEL"));
+    assert!(!stdout.contains("inherited-environment-must-stay-private"));
 }
 
 #[test]

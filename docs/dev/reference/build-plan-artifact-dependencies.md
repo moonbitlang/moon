@@ -250,6 +250,8 @@ environment and applies action-specific overrides before identity or
 execution. This deliberately conservative contract keeps arbitrary compiler
 wrappers sound. A future controlled minimal environment can narrow both
 execution and identity together without changing the `LoweredAction` boundary.
+Dry-run adaptation is a separate projection: it renders only action-specific
+overrides and never exposes the inherited process environment.
 
 C-stub actions conservatively include every recognized header in the package
 file set. This matches the package-owned source boundary; headers or libraries
