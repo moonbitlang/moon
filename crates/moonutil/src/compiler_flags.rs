@@ -290,9 +290,13 @@ fn resolve_windows_msvc_discovery() -> anyhow::Result<DiscoveredMsvcToolchain> {
     }
 }
 
-pub fn resolve_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
+fn discovered_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
     let discovered = resolve_windows_msvc_discovery()?;
     Ok(Toolchain::from_path_probe(discovered.cc).with_msvc_environment(discovered.environment))
+}
+
+pub fn resolve_windows_msvc_toolchain() -> anyhow::Result<Toolchain> {
+    resolve_native_toolchain_executables(discovered_windows_msvc_toolchain()?)
 }
 
 fn ensure_windows_msvc_compatible(cc: &CC) -> anyhow::Result<()> {
@@ -312,10 +316,8 @@ pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<
         let resolved = if is_path_like_tool(&env_cc.cc_path) {
             override_toolchain
         } else {
-            match resolve_windows_msvc_toolchain() {
-                Ok(discovered) => resolve_msvc_toolchain_override(override_toolchain, &discovered),
-                Err(_) => override_toolchain,
-            }
+            let discovered = discovered_windows_msvc_toolchain()?;
+            resolve_msvc_toolchain_override(override_toolchain, &discovered)
         };
         return windows_msvc_toolchain_with_package_override(resolved, package_cc);
     }
@@ -324,7 +326,7 @@ pub fn windows_msvc_native_toolchain(package_cc: Option<&CC>) -> anyhow::Result<
         ensure_windows_msvc_compatible(package_cc)?;
     }
 
-    let resolved = resolve_windows_msvc_toolchain()?;
+    let resolved = discovered_windows_msvc_toolchain()?;
     windows_msvc_toolchain_with_package_override(resolved, package_cc)
 }
 
@@ -343,7 +345,7 @@ fn windows_msvc_toolchain_with_package_override(
         toolchain = resolve_msvc_toolchain_override(toolchain, &resolved);
     }
 
-    Ok(toolchain)
+    resolve_native_toolchain_executables(toolchain)
 }
 
 // A bare override selects the discovered toolchain as a whole. Path-like overrides
@@ -368,6 +370,43 @@ fn is_path_like_tool(tool: &str) -> bool {
         .parent()
         .is_some_and(|parent| !parent.as_os_str().is_empty());
     path.is_absolute() || has_parent
+}
+
+fn resolve_native_toolchain_executables_with(
+    mut toolchain: Toolchain,
+    resolve_executable: impl Fn(&str) -> anyhow::Result<PathBuf>,
+) -> anyhow::Result<Toolchain> {
+    let compiler = toolchain.cc.cc_path.clone();
+    toolchain.cc.cc_path = resolve_executable(&compiler)
+        .with_context(|| format!("failed to resolve native compiler executable `{compiler}`"))?
+        .display()
+        .to_string();
+
+    if toolchain.cc.is_tcc() {
+        toolchain.cc.ar_path.clone_from(&toolchain.cc.cc_path);
+        return Ok(toolchain);
+    }
+
+    let archiver = toolchain.cc.ar_path.clone();
+    toolchain.cc.ar_path = resolve_executable(&archiver)
+        .with_context(|| format!("failed to resolve native archiver executable `{archiver}`"))?
+        .display()
+        .to_string();
+    Ok(toolchain)
+}
+
+/// Finalizes the effective native toolchain after source selection and overrides.
+/// Toolchains returned across this boundary always contain concrete executable paths.
+fn resolve_native_toolchain_executables(toolchain: Toolchain) -> anyhow::Result<Toolchain> {
+    #[cfg(windows)]
+    if toolchain.cc.is_msvc() && !is_path_like_tool(&toolchain.cc.cc_path) {
+        let discovered = resolve_windows_msvc_toolchain()?;
+        return Ok(resolve_msvc_toolchain_override(toolchain, &discovered));
+    }
+
+    resolve_native_toolchain_executables_with(toolchain, |tool| {
+        which::which(tool).map_err(anyhow::Error::from)
+    })
 }
 
 impl CC {
@@ -770,7 +809,7 @@ pub fn has_cc_env_override() -> bool {
 fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
     #[cfg(windows)]
     {
-        if let Ok(toolchain) = resolve_windows_msvc_toolchain() {
+        if let Ok(toolchain) = discovered_windows_msvc_toolchain() {
             return Ok(toolchain);
         }
     }
@@ -778,7 +817,9 @@ fn detected_default_native_toolchain() -> anyhow::Result<Toolchain> {
     try_system_cc().map(Toolchain::from_path_probe)
 }
 
-pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::Result<Toolchain> {
+fn selected_default_native_toolchain(
+    internal_tcc_fallback: Option<&CC>,
+) -> anyhow::Result<Toolchain> {
     if let Some(env_cc) = ENV_CC.as_ref() {
         return Ok(Toolchain::from_env_override(env_cc.clone()));
     }
@@ -791,17 +832,22 @@ pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::R
     }
 }
 
+pub fn default_native_toolchain(internal_tcc_fallback: Option<&CC>) -> anyhow::Result<Toolchain> {
+    resolve_native_toolchain_executables(selected_default_native_toolchain(internal_tcc_fallback)?)
+}
+
 pub fn effective_native_toolchain(
     package_cc: Option<&CC>,
     internal_tcc_fallback: Option<&CC>,
 ) -> anyhow::Result<Toolchain> {
-    if let Some(env_cc) = ENV_CC.as_ref() {
-        return Ok(Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc));
-    }
-    if let Some(package_cc) = package_cc {
-        return Ok(Toolchain::from_package_override(package_cc.clone()));
-    }
-    default_native_toolchain(internal_tcc_fallback)
+    let selected = if let Some(env_cc) = ENV_CC.as_ref() {
+        Toolchain::from_env_override(env_cc.clone()).with_package_override(package_cc)
+    } else if let Some(package_cc) = package_cc {
+        Toolchain::from_package_override(package_cc.clone())
+    } else {
+        selected_default_native_toolchain(internal_tcc_fallback)?
+    };
+    resolve_native_toolchain_executables(selected)
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1667,6 +1713,18 @@ where
 mod tests {
     use super::*;
 
+    fn native_toolchain_fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/native-toolchain")
+    }
+
+    fn test_executable_name(name: &str) -> String {
+        if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.to_string()
+        }
+    }
+
     fn fake_cc(kind: CCKind, target_triple: Option<&str>) -> CC {
         CC {
             cc_kind: kind,
@@ -1775,11 +1833,100 @@ mod tests {
     }
 
     #[test]
+    fn bare_package_override_resolves_compiler_and_archiver_from_search_path() {
+        let fixture = native_toolchain_fixture();
+        let bin = fixture.join("bin");
+        let compiler_name = test_executable_name("fake-gcc");
+        let archiver_name = test_executable_name("fake-ar");
+        let compiler = bin.join(&compiler_name);
+        let archiver = bin.join(&archiver_name);
+
+        let mut cc = fake_cc(CCKind::Gcc, None);
+        cc.cc_path = compiler_name;
+        cc.ar_path = archiver_name;
+        let toolchain = resolve_native_toolchain_executables_with(
+            Toolchain::from_package_override(cc),
+            |tool| {
+                which::which_in(tool, Some(bin.as_os_str()), std::env::current_dir()?)
+                    .map_err(anyhow::Error::from)
+            },
+        )
+        .expect("resolve bare package override from test search path");
+
+        assert_eq!(Path::new(&toolchain.cc().cc_path), compiler);
+        assert_eq!(Path::new(&toolchain.cc().ar_path), archiver);
+        assert!(Path::new(&toolchain.cc().cc_path).is_absolute());
+        assert!(Path::new(&toolchain.cc().ar_path).is_absolute());
+    }
+
+    #[test]
+    fn missing_native_compiler_reports_its_role_during_resolution() {
+        let bin = native_toolchain_fixture().join("bin");
+        let archiver = bin.join(test_executable_name("fake-ar"));
+
+        let mut cc = fake_cc(CCKind::Gcc, None);
+        cc.cc_path = bin
+            .join(test_executable_name("missing-gcc"))
+            .display()
+            .to_string();
+        cc.ar_path = archiver.display().to_string();
+        let err = resolve_native_toolchain_executables(Toolchain::from_package_override(cc))
+            .expect_err("missing compiler should fail toolchain resolution");
+
+        assert!(
+            format!("{err:#}").contains("native compiler executable"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn missing_native_archiver_reports_its_role_during_resolution() {
+        let bin = native_toolchain_fixture().join("bin");
+        let compiler = bin.join(test_executable_name("fake-gcc"));
+
+        let mut cc = fake_cc(CCKind::Gcc, None);
+        cc.cc_path = compiler.display().to_string();
+        cc.ar_path = bin
+            .join(test_executable_name("missing-ar"))
+            .display()
+            .to_string();
+        let err = resolve_native_toolchain_executables(Toolchain::from_package_override(cc))
+            .expect_err("missing archiver should fail toolchain resolution");
+
+        assert!(
+            format!("{err:#}").contains("native archiver executable"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn tcc_uses_one_resolved_executable_for_compiler_and_archiver() {
+        let tcc = native_toolchain_fixture()
+            .join("bin")
+            .join(test_executable_name("fake-tcc"));
+
+        let mut cc = fake_cc(CCKind::Tcc, None);
+        cc.cc_path = tcc.display().to_string();
+        cc.ar_kind = ARKind::TccAr;
+        cc.ar_path = "unresolved-tcc-archiver".to_string();
+        let toolchain = resolve_native_toolchain_executables(Toolchain::from_package_override(cc))
+            .expect("resolve TCC toolchain");
+
+        assert_eq!(toolchain.cc().cc_path, toolchain.cc().ar_path);
+        assert_eq!(Path::new(&toolchain.cc().cc_path), tcc);
+        assert!(Path::new(&toolchain.cc().cc_path).is_absolute());
+    }
+
+    #[test]
     fn windows_msvc_package_override_preserves_env_override_precedence() {
+        let fixture = native_toolchain_fixture();
+        let compiler = fixture.join("env/env-cl.exe");
+        let archiver = fixture.join("env/env-lib.exe");
+
         let mut env_cc = fake_cc(CCKind::Msvc, None);
-        env_cc.cc_path = "env-cl.exe".to_string();
+        env_cc.cc_path = compiler.display().to_string();
         env_cc.ar_kind = ARKind::MsvcLib;
-        env_cc.ar_path = "env-lib.exe".to_string();
+        env_cc.ar_path = archiver.display().to_string();
         env_cc.is_env_override = true;
         let resolved =
             Toolchain::from_env_override(env_cc).with_msvc_environment(MsvcEnvironment {
@@ -1792,7 +1939,8 @@ mod tests {
             .expect("MOON_CC-style source should ignore package cc");
 
         assert_eq!(toolchain.source(), ToolchainSource::EnvOverride);
-        assert_eq!(toolchain.cc().cc_path, "env-cl.exe");
+        assert_eq!(Path::new(&toolchain.cc().cc_path), compiler);
+        assert_eq!(Path::new(&toolchain.cc().ar_path), archiver);
         assert_eq!(
             toolchain
                 .msvc_environment()
@@ -1804,8 +1952,12 @@ mod tests {
 
     #[test]
     fn bare_windows_msvc_package_override_uses_discovered_tool_paths() {
-        let discovered_cc =
-            CC::try_from_path("msvc/bin/cl.exe").expect("parse discovered MSVC compiler path");
+        let fixture = native_toolchain_fixture();
+        let compiler = fixture.join("msvc/bin/cl.exe");
+        let archiver = fixture.join("msvc/bin/lib.exe");
+
+        let discovered_cc = CC::try_from_path(&compiler.display().to_string())
+            .expect("parse discovered MSVC compiler path");
         let resolved =
             Toolchain::from_path_probe(discovered_cc).with_msvc_environment(MsvcEnvironment {
                 command_env: vec![("PATH".to_string(), "msvc/bin".to_string())],
@@ -1816,34 +1968,48 @@ mod tests {
             .expect("bare cl.exe package override should remain MSVC-compatible");
 
         assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
-        assert_eq!(toolchain.cc().cc_path, "msvc/bin/cl.exe");
-        assert_eq!(toolchain.cc_command_path(), "msvc/bin/cl.exe");
-        assert_eq!(
-            normalize_path_separators(&toolchain.cc().ar_path),
-            "msvc/bin/lib.exe"
-        );
+        assert_eq!(Path::new(&toolchain.cc().cc_path), compiler);
+        assert_eq!(Path::new(&toolchain.cc_command_path()), compiler);
+        assert_eq!(Path::new(&toolchain.cc().ar_path), archiver);
+        assert!(toolchain.msvc_environment().is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn bare_windows_msvc_resolution_uses_discovery() {
+        let cc = CC::try_from_path("cl.exe").expect("parse bare MSVC override");
+        let toolchain = resolve_native_toolchain_executables(Toolchain::from_package_override(cc))
+            .expect("resolve bare MSVC override through discovery");
+
+        assert!(Path::new(&toolchain.cc().cc_path).is_absolute());
+        assert!(Path::new(&toolchain.cc().cc_path).is_file());
+        assert!(Path::new(&toolchain.cc().ar_path).is_absolute());
+        assert!(Path::new(&toolchain.cc().ar_path).is_file());
+        assert!(toolchain.msvc_environment().is_some());
     }
 
     #[test]
     fn path_like_windows_msvc_package_override_keeps_its_own_toolchain() {
-        let discovered_cc =
-            CC::try_from_path("msvc/bin/cl.exe").expect("parse discovered MSVC compiler path");
+        let fixture = native_toolchain_fixture();
+        let discovered_compiler = fixture.join("msvc/bin/cl.exe");
+        let custom_compiler = fixture.join("custom/bin/cl.exe");
+        let custom_archiver = fixture.join("custom/bin/lib.exe");
+
+        let discovered_cc = CC::try_from_path(&discovered_compiler.display().to_string())
+            .expect("parse discovered MSVC compiler path");
         let resolved =
             Toolchain::from_path_probe(discovered_cc).with_msvc_environment(MsvcEnvironment {
                 command_env: vec![("PATH".to_string(), "msvc/bin".to_string())],
             });
-        let package_cc =
-            CC::try_from_path("custom/bin/cl.exe").expect("parse path-like package override");
+        let package_cc = CC::try_from_path(&custom_compiler.display().to_string())
+            .expect("parse path-like package override");
 
         let toolchain = windows_msvc_toolchain_with_package_override(resolved, Some(&package_cc))
             .expect("path-like package override should remain MSVC-compatible");
 
         assert_eq!(toolchain.source(), ToolchainSource::PackageOverride);
-        assert_eq!(toolchain.cc().cc_path, "custom/bin/cl.exe");
-        assert_eq!(
-            normalize_path_separators(&toolchain.cc().ar_path),
-            "custom/bin/lib.exe"
-        );
+        assert_eq!(Path::new(&toolchain.cc().cc_path), custom_compiler);
+        assert_eq!(Path::new(&toolchain.cc().ar_path), custom_archiver);
         assert_eq!(toolchain.msvc_environment(), None);
     }
 

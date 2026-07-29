@@ -8,6 +8,15 @@ The resolved toolchain has three roles:
 - linker driver (also `cc_path`)
 - archiver (`ar_path`)
 
+After source selection, package overrides, and platform-specific selection are complete,
+Moon resolves the effective toolchain's compiler and archiver to concrete executable paths.
+Every effective native toolchain exposed to build lowering satisfies this invariant, so command
+construction consumes the resolved paths without performing PATH lookup.
+
+If either executable cannot be resolved, toolchain resolution fails immediately with an error that
+identifies the missing compiler or archiver role. TCC uses the same resolved executable path for
+both roles because archiving is performed with `tcc -ar`.
+
 Moon does not resolve a standalone linker executable such as `ld` or `lld-link` in this path.
 Linking is performed through the selected compiler driver.
 
