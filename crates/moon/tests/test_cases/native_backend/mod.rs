@@ -16,6 +16,7 @@ mod test_filter;
 mod unix_graph {
     use expect_test::ExpectFile;
     use moonbuild_debug::graph::ENV_VAR;
+    use std::path::Path;
 
     use crate::{TestDir, build_graph::compare_graphs_with_replacements, get_stdout_with_envs};
 
@@ -39,6 +40,7 @@ mod unix_graph {
             *s = s.replace(" -Wno-unused-value", "");
             *s = s.replace(".dylib", ".so");
             normalize_macos_sdk_path(s);
+            normalize_fake_toolchain_path(s, dir);
         });
     }
 
@@ -50,6 +52,20 @@ mod unix_graph {
         expected: ExpectFile,
     ) {
         assert_native_backend_graph(dir, tmp_name, args, &[], expected);
+    }
+
+    pub(super) fn prepend_to_path(path: &Path) -> String {
+        std::env::join_paths(
+            std::iter::once(path.to_path_buf()).chain(
+                std::env::var_os("PATH")
+                    .as_deref()
+                    .into_iter()
+                    .flat_map(std::env::split_paths),
+            ),
+        )
+        .expect("prepend native toolchain fixture to PATH")
+        .to_string_lossy()
+        .into_owned()
     }
 
     #[cfg(target_os = "macos")]
@@ -77,4 +93,19 @@ mod unix_graph {
 
     #[cfg(not(target_os = "macos"))]
     fn normalize_macos_sdk_path(_s: &mut String) {}
+
+    fn normalize_fake_toolchain_path(s: &mut String, dir: &TestDir) {
+        let root = dir.join("fake-toolchain");
+        let raw = root.to_string_lossy();
+        *s = s.replace(raw.as_ref(), "$FAKE_TOOLCHAIN");
+        *s = s.replace(raw.replace('\\', "/").as_str(), "$FAKE_TOOLCHAIN");
+        *s = s.replace("./fake-toolchain", "$FAKE_TOOLCHAIN");
+        *s = s.replace(".\\fake-toolchain", "$FAKE_TOOLCHAIN");
+
+        if let Ok(root) = dunce::canonicalize(root) {
+            let canonical = root.to_string_lossy();
+            *s = s.replace(canonical.as_ref(), "$FAKE_TOOLCHAIN");
+            *s = s.replace(canonical.replace('\\', "/").as_str(), "$FAKE_TOOLCHAIN");
+        }
+    }
 }
