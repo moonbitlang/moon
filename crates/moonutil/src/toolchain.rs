@@ -82,9 +82,33 @@ fn runtime_source_paths_in(lib_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
     )
 }
 
+/// Resolves an executable using the platform's command lookup rules.
+///
+/// `which` may return a relative path when `PATH` contains relative entries.
+/// Build actions can run from a different working directory, so executable
+/// paths crossing the toolchain boundary must be made absolute here.
+pub(crate) fn resolve_executable(tool: impl AsRef<OsStr>) -> anyhow::Result<PathBuf> {
+    let tool = tool.as_ref();
+    resolve_executable_with(tool, |tool| which::which(tool))
+}
+
+fn resolve_executable_with(
+    tool: &OsStr,
+    find: impl FnOnce(&OsStr) -> Result<PathBuf, which::Error>,
+) -> anyhow::Result<PathBuf> {
+    let resolved = find(tool)
+        .with_context(|| format!("failed to find executable `{}`", Path::new(tool).display()))?;
+    std::path::absolute(&resolved).with_context(|| {
+        format!(
+            "failed to make executable path `{}` absolute",
+            resolved.display()
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::runtime_source_paths_in;
+    use super::{resolve_executable_with, runtime_source_paths_in};
 
     #[test]
     fn runtime_sources_use_sorted_split_runtime_files() {
@@ -112,5 +136,68 @@ mod tests {
             runtime_source_paths_in(dir.path()).unwrap(),
             vec![legacy_runtime]
         );
+    }
+
+    fn test_executable_name(stem: &str) -> String {
+        if cfg!(windows) {
+            format!("{stem}.exe")
+        } else {
+            stem.to_string()
+        }
+    }
+
+    #[test]
+    fn executable_from_relative_search_path_is_made_absolute() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/native-toolchain/bin");
+        let current_dir = std::env::current_dir().expect("get test current directory");
+        let relative_fixture = fixture
+            .strip_prefix(&current_dir)
+            .expect("fixture should be below the test current directory");
+        let executable_name = test_executable_name("fake-gcc");
+
+        let resolved = resolve_executable_with(executable_name.as_ref(), |tool| {
+            which::which_in(tool, Some(relative_fixture), &current_dir)
+        })
+        .expect("resolve fixture executable");
+
+        assert_eq!(resolved, fixture.join(executable_name));
+        assert!(resolved.is_absolute());
+    }
+
+    #[test]
+    fn executable_from_explicit_relative_path_is_made_absolute() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/native-toolchain/bin");
+        let current_dir = std::env::current_dir().expect("get test current directory");
+        let executable = fixture.join(test_executable_name("fake-gcc"));
+        let relative_executable = executable
+            .strip_prefix(&current_dir)
+            .expect("fixture should be below the test current directory");
+
+        let resolved = super::resolve_executable(relative_executable)
+            .expect("resolve explicit relative executable path");
+
+        assert_eq!(resolved, executable);
+        assert!(resolved.is_absolute());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_command_script_is_resolved_through_pathext() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/native-toolchain/bin");
+        let current_dir = std::env::current_dir().expect("get test current directory");
+        let relative_fixture = fixture
+            .strip_prefix(&current_dir)
+            .expect("fixture should be below the test current directory");
+
+        let resolved = resolve_executable_with("fake-script".as_ref(), |tool| {
+            which::which_in(tool, Some(relative_fixture), &current_dir)
+        })
+        .expect("resolve command script through PATHEXT");
+
+        assert_eq!(resolved, fixture.join("fake-script.cmd"));
+        assert!(resolved.is_absolute());
     }
 }
