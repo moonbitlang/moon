@@ -267,12 +267,14 @@ Experimental moonrun policy forwarding:
 Accepted Mooncakes coordinate forms:
   moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
   moon runwasm moonbitlang/parser@0.3.3/cmd/moonfmt
+  moon runwasm moonbitlang/parser/cmd/moonfmt@latest
   moon runwasm moonbitlang/parser/cmd/moonfmt
 
-Pinned coordinates use the given version directly. Unpinned coordinates resolve
-the latest version from the registry index, updating it only when the module is
-absent from the local index. Fetched wasm files are cached under
-$MOON_HOME/registry/cache/assets and reused on later runs.
+Pinned coordinates use the given version directly. `@latest` refreshes the
+registry index before resolving the latest version. Unpinned coordinates use
+the latest version already in the local index, updating it only when the module
+is absent. Fetched wasm files are cached under $MOON_HOME/registry/cache/assets
+and reused on later runs.
 
 **Usage:** `moon runwasm [OPTIONS] <LOCAL_PACKAGE|PACKAGE[@VERSION]> [ARGS]...`
 

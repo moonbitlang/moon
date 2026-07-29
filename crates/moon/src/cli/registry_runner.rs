@@ -48,6 +48,19 @@ enum LatestVersionLookup {
     NotFound,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ExecutablePackageVersionSelector {
+    Exact(Version),
+    LocallyKnownLatest,
+    RefreshLatest,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LatestVersionResolutionPolicy {
+    PreferLocal,
+    Refresh,
+}
+
 impl ResolvedExecutablePackage {
     pub(super) fn artifact_name(&self, suffix: &str) -> String {
         let stem = if self.package_path.is_empty() {
@@ -88,8 +101,17 @@ fn resolve_registry_package(
     let (module_name, package_path, requested_version) =
         parse_executable_package_coordinate(package)?;
     let version = match requested_version {
-        Some(version) => version,
-        None => resolve_latest_version(&module_name, user_log)?,
+        ExecutablePackageVersionSelector::Exact(version) => version,
+        ExecutablePackageVersionSelector::LocallyKnownLatest => resolve_latest_version(
+            &module_name,
+            LatestVersionResolutionPolicy::PreferLocal,
+            user_log,
+        )?,
+        ExecutablePackageVersionSelector::RefreshLatest => resolve_latest_version(
+            &module_name,
+            LatestVersionResolutionPolicy::Refresh,
+            user_log,
+        )?,
     };
     Ok(ResolvedExecutablePackage {
         module_name,
@@ -98,7 +120,11 @@ fn resolve_registry_package(
     })
 }
 
-fn resolve_latest_version(module_name: &ModuleName, user_log: &UserLog) -> anyhow::Result<Version> {
+fn resolve_latest_version(
+    module_name: &ModuleName,
+    policy: LatestVersionResolutionPolicy,
+    user_log: &UserLog,
+) -> anyhow::Result<Version> {
     let index_dir = moonutil::registry::index();
     let registry_config = RegistryConfig::load();
     let had_index = index_dir.exists();
@@ -107,6 +133,7 @@ fn resolve_latest_version(module_name: &ModuleName, user_log: &UserLog) -> anyho
         module_name,
         user_log,
         had_index,
+        policy,
         || latest_version_from_local_registry(module_name),
         || {
             mooncake::update::update_with_output(
@@ -135,10 +162,13 @@ fn resolve_latest_version_with(
     module_name: &ModuleName,
     user_log: &UserLog,
     had_index: bool,
+    policy: LatestVersionResolutionPolicy,
     mut lookup_latest_version: impl FnMut() -> LatestVersionLookup,
     mut update_registry: impl FnMut() -> anyhow::Result<()>,
 ) -> anyhow::Result<Version> {
-    if let LatestVersionLookup::Found(version) = lookup_latest_version() {
+    if policy == LatestVersionResolutionPolicy::PreferLocal
+        && let LatestVersionLookup::Found(version) = lookup_latest_version()
+    {
         user_log.info(format!(
             "Resolved {module_name} latest version to {version}"
         ));
@@ -147,6 +177,9 @@ fn resolve_latest_version_with(
 
     match update_registry() {
         Ok(_) => user_log.info("Updated registry index"),
+        Err(e) if policy == LatestVersionResolutionPolicy::Refresh => {
+            return Err(e).context("Failed to update registry index");
+        }
         Err(e) => {
             if had_index {
                 user_log.warn(format!(
@@ -179,7 +212,7 @@ fn resolve_latest_version_with(
 
 fn parse_executable_package_coordinate(
     input: &str,
-) -> anyhow::Result<(ModuleName, String, Option<Version>)> {
+) -> anyhow::Result<(ModuleName, String, ExecutablePackageVersionSelector)> {
     if input.ends_with("...") {
         bail!("Invalid package coordinate `{input}`: wildcard package paths are not supported");
     }
@@ -192,15 +225,23 @@ fn parse_executable_package_coordinate(
         } else {
             bail!("Invalid package coordinate `{input}`");
         };
-        let version = Version::parse(&parsed.version).with_context(|| {
-            format!("Invalid version `{}` in package coordinate", parsed.version)
-        })?;
-        return Ok((parsed.module, parsed.package, Some(version)));
+        let version = if parsed.version == "latest" {
+            ExecutablePackageVersionSelector::RefreshLatest
+        } else {
+            ExecutablePackageVersionSelector::Exact(Version::parse(&parsed.version).with_context(
+                || format!("Invalid version `{}` in package coordinate", parsed.version),
+            )?)
+        };
+        return Ok((parsed.module, parsed.package, version));
     }
 
     let parsed = registry_path::parse_install_style_path(input)
         .with_context(|| format!("Invalid package coordinate `{input}`"))?;
-    Ok((parsed.module, parsed.package, None))
+    Ok((
+        parsed.module,
+        parsed.package,
+        ExecutablePackageVersionSelector::LocallyKnownLatest,
+    ))
 }
 
 pub(super) fn ensure_cached_file(
@@ -324,14 +365,17 @@ fn run_artifact(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc, Barrier,
-        atomic::{AtomicUsize, Ordering},
+    use std::{
+        cell::Cell,
+        sync::{
+            Arc, Barrier,
+            atomic::{AtomicUsize, Ordering},
+        },
     };
 
     use super::*;
 
-    fn parse(input: &str) -> (ModuleName, String, Option<Version>) {
+    fn parse(input: &str) -> (ModuleName, String, ExecutablePackageVersionSelector) {
         parse_executable_package_coordinate(input).unwrap()
     }
 
@@ -340,7 +384,10 @@ mod tests {
         let (module_name, package_path, version) = parse("moonbitlang/parser/cmd/moonfmt@0.3.3");
         assert_eq!(module_name.to_string(), "moonbitlang/parser");
         assert_eq!(package_path, "cmd/moonfmt");
-        assert_eq!(version.unwrap().to_string(), "0.3.3");
+        assert_eq!(
+            version,
+            ExecutablePackageVersionSelector::Exact("0.3.3".parse().unwrap())
+        );
     }
 
     #[test]
@@ -348,15 +395,34 @@ mod tests {
         let (module_name, package_path, version) = parse("moonbitlang/parser@0.3.3/cmd/moonfmt");
         assert_eq!(module_name.to_string(), "moonbitlang/parser");
         assert_eq!(package_path, "cmd/moonfmt");
-        assert_eq!(version.unwrap().to_string(), "0.3.3");
+        assert_eq!(
+            version,
+            ExecutablePackageVersionSelector::Exact("0.3.3".parse().unwrap())
+        );
     }
 
     #[test]
-    fn parse_latest_coordinate() {
+    fn parse_unpinned_coordinate() {
         let (module_name, package_path, version) = parse("moonbitlang/parser/cmd/moonfmt");
         assert_eq!(module_name.to_string(), "moonbitlang/parser");
         assert_eq!(package_path, "cmd/moonfmt");
-        assert_eq!(version, None);
+        assert_eq!(
+            version,
+            ExecutablePackageVersionSelector::LocallyKnownLatest
+        );
+    }
+
+    #[test]
+    fn parse_explicit_latest_coordinates() {
+        let (module_name, package_path, version) = parse("moonbitlang/parser/cmd/moonfmt@latest");
+        assert_eq!(module_name.to_string(), "moonbitlang/parser");
+        assert_eq!(package_path, "cmd/moonfmt");
+        assert_eq!(version, ExecutablePackageVersionSelector::RefreshLatest);
+
+        let (module_name, package_path, version) = parse("moonbitlang/parser@latest/cmd/moonfmt");
+        assert_eq!(module_name.to_string(), "moonbitlang/parser");
+        assert_eq!(package_path, "cmd/moonfmt");
+        assert_eq!(version, ExecutablePackageVersionSelector::RefreshLatest);
     }
 
     #[test]
@@ -368,6 +434,7 @@ mod tests {
             &module_name,
             &UserLog::new(log::LevelFilter::Warn),
             true,
+            LatestVersionResolutionPolicy::PreferLocal,
             || LatestVersionLookup::Found("0.3.3".parse().unwrap()),
             || {
                 update_called = true;
@@ -390,6 +457,7 @@ mod tests {
             &module_name,
             &UserLog::new(log::LevelFilter::Warn),
             true,
+            LatestVersionResolutionPolicy::PreferLocal,
             || {
                 lookup_count += 1;
                 if lookup_count > 1 {
@@ -411,6 +479,64 @@ mod tests {
     }
 
     #[test]
+    fn explicit_latest_refreshes_before_resolving() {
+        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
+        let registry_updated = Cell::new(false);
+        let lookup_count = Cell::new(0);
+
+        let version = resolve_latest_version_with(
+            &module_name,
+            &UserLog::new(log::LevelFilter::Warn),
+            true,
+            LatestVersionResolutionPolicy::Refresh,
+            || {
+                lookup_count.set(lookup_count.get() + 1);
+                LatestVersionLookup::Found(
+                    if registry_updated.get() {
+                        "0.4.0"
+                    } else {
+                        "0.3.3"
+                    }
+                    .parse()
+                    .unwrap(),
+                )
+            },
+            || {
+                registry_updated.set(true);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(version.to_string(), "0.4.0");
+        assert!(registry_updated.get());
+        assert_eq!(lookup_count.get(), 1);
+    }
+
+    #[test]
+    fn explicit_latest_fails_when_refresh_fails() {
+        let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
+        let lookup_called = Cell::new(false);
+
+        let err = resolve_latest_version_with(
+            &module_name,
+            &UserLog::new(log::LevelFilter::Warn),
+            true,
+            LatestVersionResolutionPolicy::Refresh,
+            || {
+                lookup_called.set(true);
+                LatestVersionLookup::Found("0.3.3".parse().unwrap())
+            },
+            || Err(anyhow::anyhow!("offline")),
+        )
+        .unwrap_err();
+
+        assert_eq!(err.to_string(), "Failed to update registry index");
+        assert_eq!(err.source().unwrap().to_string(), "offline");
+        assert!(!lookup_called.get());
+    }
+
+    #[test]
     fn latest_resolution_preserves_no_version_information_after_update() {
         let module_name = "moonbitlang/parser".parse::<ModuleName>().unwrap();
         let mut update_called = false;
@@ -419,6 +545,7 @@ mod tests {
             &module_name,
             &UserLog::new(log::LevelFilter::Warn),
             true,
+            LatestVersionResolutionPolicy::PreferLocal,
             || LatestVersionLookup::NoVersionInformation,
             || {
                 update_called = true;

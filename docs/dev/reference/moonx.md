@@ -50,9 +50,18 @@ user/module/package@1.2.3
 user/module@1.2.3/package
 ```
 
-Documentation should prefer the first form. Unpinned coordinates resolve the
-latest version already known to the local registry index. The index is updated
-only when the module cannot be resolved locally, matching `moon runwasm`.
+An explicit latest request accepts the corresponding forms:
+
+```text
+user/module/package@latest
+user/module@latest/package
+```
+
+Documentation should prefer the first form. `@latest` refreshes the registry
+index before resolving the newest version and fails if the refresh fails.
+Unpinned coordinates resolve the latest version already known to the local
+registry index. The index is updated only when the module cannot be resolved
+locally, matching `moon runwasm`.
 
 ## Wasm target
 

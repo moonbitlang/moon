@@ -115,16 +115,36 @@ fn test_moonx_uses_its_own_command_line_interface() {
         .assert()
         .success()
         .stdout_eq(snapbox::str![[r#"
-Run a package from the Mooncakes registry without installing it
+Run a package from the Mooncakes registry without installing it.
+
+Accepted package coordinate forms:
+  moonx user/module/package
+  moonx user/module/package@1.2.3
+  moonx user/module@1.2.3/package
+  moonx user/module/package@latest
+
+Pinned coordinates use the requested version directly. `@latest` refreshes the
+registry index before resolving the latest version. Unpinned coordinates use
+the latest version already known to the local registry index.
 
 Usage: moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...
 
 Options:
-      --target <TARGET>             [default: wasm] [possible values: wasm, native]
-      --experimental-policy <PATH>  Experimental moonrun policy file; only valid for wasm
-  -v, --verbose                     Show progress and execution details
-  -h, --help                        Print help
-  -V, --version                     Print version
+      --target <TARGET>
+          [default: wasm]
+          [possible values: wasm, native]
+
+      --experimental-policy <PATH>
+          Experimental moonrun policy file; only valid for wasm
+
+  -v, --verbose
+          Show progress and execution details
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 
 "#]]);
 }
