@@ -61,7 +61,7 @@ _Avoid_: User log, command result
 ## Package Execution
 
 **Executable Package Coordinate**:
-An exact registry selector containing a module, an optional package path, and an optional version that identifies one main package for direct execution.
+Registry selector containing a module, an optional package path, and an optional version selector that resolves to exactly one version of one main package for direct execution.
 _Avoid_: Install source, wildcard package selector, runwasm coordinate
 
 **Cached Executable Artifact**:

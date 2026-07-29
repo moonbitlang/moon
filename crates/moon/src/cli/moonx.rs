@@ -34,6 +34,16 @@ pub(crate) enum MoonxTarget {
 #[command(
     name = "moonx",
     about = "Run a package from the Mooncakes registry without installing it",
+    long_about = r#"Run a package from the Mooncakes registry without installing it.
+
+Accepted package coordinate forms:
+  moonx user/module/package
+  moonx user/module/package@1.2.3
+  moonx user/module/package@latest
+
+Pinned coordinates use the requested version directly. `@latest` refreshes the
+registry index before resolving the latest version. Unpinned coordinates use
+the latest version already known to the local registry index."#,
     override_usage = "moonx [OPTIONS] <PACKAGE> [PROGRAM_ARGS]...",
     version
 )]

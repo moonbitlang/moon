@@ -24,12 +24,21 @@ A **pinned coordinate** includes an explicit version:
 - `user/module/package@1.2.3`
 - `user/module@1.2.3/package`
 
+An **explicit latest coordinate** uses the `latest` version selector:
+
+- `user/module/package@latest`
+- `user/module@latest/package`
+
 An **unpinned coordinate** omits the version:
 
 - `user/module/package`
 
 Pinned coordinates use the supplied version directly. They do not need the
 registry index for version resolution.
+
+Explicit latest coordinates refresh the registry index before resolving the
+newest version. The command fails if the refresh fails, even when an older local
+index is available.
 
 Unpinned coordinates must resolve the latest module version from the local
 registry index before the asset URL and cache path can be computed.
@@ -47,6 +56,8 @@ The registry update policy optimizes the common rerun case:
 Rules:
 
 - For pinned coordinates, skip registry index update.
+- For explicit latest coordinates, update the registry index before version
+  lookup and fail if that update fails.
 - For unpinned coordinates, read the local registry index first.
 - If the local index contains usable version metadata for the module, use that
   version and skip registry index update.
@@ -63,9 +74,11 @@ After retrying any needed registry update, version lookup has three outcomes:
 - Module found but no version metadata: fail with a no-version-information error.
 - Module not found: fail with a module-not-found error.
 
-If a registry update fails while a local index already exists, the command warns
-and continues with the existing local index. If no local index exists, registry
-update failure is fatal because there is no cached metadata to use.
+For unpinned coordinates, if a registry update fails while a local index already
+exists, the command warns and continues with the existing local index. If no
+local index exists, registry update failure is fatal because there is no cached
+metadata to use. An explicit latest coordinate always treats update failure as
+fatal because falling back would not satisfy the requested refresh.
 
 Unreadable or corrupt local index data follows the existing registry behavior:
 it is treated as not resolving a latest version, so `runwasm` attempts the
