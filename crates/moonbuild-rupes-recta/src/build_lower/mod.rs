@@ -308,7 +308,10 @@ fn lower_actions(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, path::PathBuf};
+    use std::{
+        collections::HashSet,
+        path::{Path, PathBuf},
+    };
 
     use indexmap::IndexSet;
     use moonutil::{
@@ -317,6 +320,7 @@ mod tests {
         package::{MoonPkg, MoonPkgFormatter, SupportedTargetsDeclKind},
         resolution::{DEFAULT_VERSION, DirSyncResult, ModuleName, ModuleSource, ResolvedEnv},
         target::TargetBackend,
+        toolchain::BINARIES,
     };
     use slotmap::KeyData;
 
@@ -528,6 +532,34 @@ mod tests {
             .any(|arg| arg.replace('\\', "/").ends_with(suffix))
     }
 
+    fn n2_input_paths_for_command(
+        lowered: &LoweringResult,
+        matches: impl Fn(&[String]) -> bool,
+    ) -> Vec<PathBuf> {
+        let output = lowered
+            .command_args_by_output
+            .iter()
+            .find_map(|(output, args)| matches(args).then_some(output))
+            .expect("matching lowered command should have an output");
+        let build = lowered
+            .build_graph
+            .builds
+            .iter()
+            .find(|build| {
+                build.outs.ids.iter().any(|id| {
+                    Path::new(&lowered.build_graph.files.by_id[*id].name) == output.as_path()
+                })
+            })
+            .expect("matching output should belong to an n2 build");
+
+        build
+            .ins
+            .ids
+            .iter()
+            .map(|id| PathBuf::from(&lowered.build_graph.files.by_id[*id].name))
+            .collect()
+    }
+
     #[test]
     fn standalone_projection_uses_dependency_closure_for_shared_actions() {
         let script_package = PackageId::from(KeyData::from_ffi(1));
@@ -635,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn lowered_windows_msvc_native_exe_command_contains_complete_link_shape() {
+    fn lowered_windows_msvc_native_graph_contains_complete_commands_and_tool_inputs() {
         let (resolve_output, target) = single_package_resolve_output();
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
         let runtime_object_node = BuildPlanNode::BuildRuntimeObject(0);
@@ -814,6 +846,39 @@ mod tests {
             stub_compile_command
                 .iter()
                 .any(|arg| arg == moonutil::compiler_flags::WINDOWS_MSVC_STATIC_RUNTIME_FLAG)
+        );
+
+        let moonc_inputs = n2_input_paths_for_command(&lowered, |command| {
+            command.get(1).map(String::as_str) == Some("build-package")
+        });
+        assert_eq!(
+            moonc_inputs
+                .iter()
+                .filter(|input| input.as_path() == BINARIES.moonc.as_path())
+                .count(),
+            1
+        );
+
+        let compiler_inputs = n2_input_paths_for_command(&lowered, |command| {
+            command_arg_has_normalized_suffix(command, "main/native/stub.c")
+        });
+        assert_eq!(
+            compiler_inputs
+                .iter()
+                .filter(|input| input.as_path() == Path::new(toolchain.cc().cc_path()))
+                .count(),
+            1
+        );
+
+        let archiver_inputs = n2_input_paths_for_command(&lowered, |command| {
+            command.first().map(String::as_str) == Some(toolchain.cc().ar_path.as_str())
+        });
+        assert_eq!(
+            archiver_inputs
+                .iter()
+                .filter(|input| input.as_path() == Path::new(&toolchain.cc().ar_path))
+                .count(),
+            1
         );
 
         let msvc_env_build = lowered
