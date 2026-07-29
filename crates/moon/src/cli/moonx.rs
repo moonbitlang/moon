@@ -36,7 +36,7 @@ pub(crate) enum MoonxTarget {
     about = "Run a package from the Mooncakes registry without installing it",
     long_about = r#"Run a package from the Mooncakes registry without installing it.
 
-Recommended package coordinate forms:
+Accepted package coordinate forms:
   moonx user/module/package
   moonx user/module/package@1.2.3
   moonx user/module/package@latest

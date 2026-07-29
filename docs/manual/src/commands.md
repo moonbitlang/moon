@@ -264,7 +264,7 @@ Local package inputs are handled like `moon run --target wasm`:
 Experimental moonrun policy forwarding:
   moon runwasm --experimental-policy moonrun-policy.toml main
 
-Recommended Mooncakes coordinate forms:
+Accepted Mooncakes coordinate forms:
   moon runwasm moonbitlang/parser/cmd/moonfmt@0.3.3
   moon runwasm moonbitlang/parser/cmd/moonfmt@latest
   moon runwasm moonbitlang/parser/cmd/moonfmt
