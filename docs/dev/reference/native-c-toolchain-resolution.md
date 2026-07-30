@@ -42,7 +42,7 @@ Moon uses both modes:
 For native-oriented backends, the final artifact may involve multiple inputs:
 
 - the output of `moonc link-core`
-- the runtime implementation built from `runtime.c`
+- the runtime implementation built from the C translation units under `lib/runtime/`
 - package-level C stubs declared in `moon.pkg.json`
 
 The high-level build flow is documented in `build.md`:
@@ -65,6 +65,16 @@ Package C stubs are handled separately:
 
 `NativeTccRun` is the exception: instead of creating a static archive, Moon links the stub objects
 into a shared library so `tcc -run` can load them at runtime.
+
+The runtime uses the same explicit multi-step shape for ordinary native builds:
+
+1. each shipped `lib/runtime/*.c` translation unit is compiled independently
+2. the runtime objects are archived into one static library
+3. the final executable links against that runtime library
+
+During the toolchain transition, Moon falls back to the legacy `lib/runtime.c` when the split
+runtime directory is absent. `NativeTccRun` remains a fused exception: one TCC invocation compiles
+all runtime translation units directly into the shared runtime library.
 
 This is why Moon needs both a compiler driver and an archiver.
 

@@ -33,7 +33,8 @@ Mutable user state must stay outside the package-managed prefix.
 
 In code, facts about the selected MoonBit toolchain tree should be accessed via
 `moonutil::toolchain`. This includes known tool executables, the toolchain root,
-`bin`/`lib`/`include`, and shipped stdlib artifacts under `lib/core`.
+`bin`/`lib`/`include`, shipped stdlib artifacts under `lib/core`, and shipped
+runtime translation units under `lib/runtime`.
 
 Project-local layout remains outside this module. For example, `.mooncakes`,
 `_build`, resolved package roots, and workspace discovery are project facts,

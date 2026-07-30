@@ -419,6 +419,23 @@ impl TargetLayout {
         }
     }
 
+    pub fn runtime_object_path(
+        &self,
+        source: &Path,
+        backend: TargetBackend,
+        os: OperatingSystem,
+    ) -> PathBuf {
+        let mut result = self.runtime_output_dir(backend);
+        result.push("runtime");
+        let mut filename = source
+            .file_stem()
+            .expect("runtime source should have a file stem")
+            .to_os_string();
+        filename.push(object_file_ext(os));
+        result.push(filename);
+        result
+    }
+
     pub fn runtime_output_path(
         &self,
         executable: ExecutableArtifact,
@@ -436,7 +453,7 @@ impl TargetLayout {
                 result.push(format!("libruntime{}", dynamic_library_ext(os)))
             }
             ExecutableArtifact::NativeExecutable | ExecutableArtifact::LlvmExecutable => {
-                result.push(format!("runtime{}", object_file_ext(os)))
+                result.push(format!("libruntime{}", static_library_ext(os)))
             }
         }
         result
@@ -829,6 +846,16 @@ impl ArtifactPathResolver {
                         .bundle_result_path(options.target_backend(), module_name.name()),
                 ]
             }
+            BuildProduct::RuntimeObject { index } => {
+                let BuildAction::BuildRuntimeObject { info, .. } = action_context else {
+                    unreachable!("runtime object products require runtime object actions")
+                };
+                vec![self.target_layout.runtime_object_path(
+                    &info.source_files[*index as usize],
+                    options.target_backend(),
+                    options.os,
+                )]
+            }
             BuildProduct::RuntimeLib => vec![
                 self.target_layout
                     .runtime_output_path(options.executable, options.os),
@@ -941,6 +968,13 @@ impl ArtifactPathResolver {
                     ..
                 },
             ) => *module == action_module,
+            (
+                BuildProduct::RuntimeObject { index },
+                BuildAction::BuildRuntimeObject {
+                    index: action_index,
+                    ..
+                },
+            ) => *index == action_index,
             (BuildProduct::RuntimeLib, BuildAction::BuildRuntimeLib { .. }) => true,
             (
                 BuildProduct::GeneratedMbti { target },
@@ -1322,6 +1356,7 @@ mod tests {
     fn runtime_info() -> BuildRuntimeInfo {
         BuildRuntimeInfo {
             effective_native_toolchain: system_cc_toolchain(),
+            source_files: vec![PathBuf::from("runtime.c")],
         }
     }
 

@@ -391,6 +391,19 @@ impl<'a> BuildPlanConstructor<'a> {
                     node
                 );
             }
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                let info = self
+                    .res
+                    .runtime_info
+                    .as_ref()
+                    .expect("Runtime info should be present for runtime object nodes");
+                assert!(
+                    (index as usize) < info.source_files.len(),
+                    "Runtime source index {} should be present when resolving node {:?}",
+                    index,
+                    node
+                );
+            }
             BuildPlanNode::BuildRuntimeLib => {
                 assert!(
                     self.res.runtime_info.is_some(),
@@ -521,6 +534,7 @@ impl<'a> BuildPlanConstructor<'a> {
             BuildPlanNode::MakeExecutable(target) => self.build_make_exec_link_core(node, target),
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
+            BuildPlanNode::BuildRuntimeObject(index) => self.build_runtime_object(node, index),
             BuildPlanNode::BuildRuntimeLib => self.build_runtime_lib(node),
             BuildPlanNode::GenerateMbti(target) => self.build_generate_mbti(node, target),
             BuildPlanNode::BuildDocs(module_id) => self.build_build_docs(node, module_id),

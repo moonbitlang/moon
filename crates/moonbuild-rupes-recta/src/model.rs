@@ -336,7 +336,10 @@ pub enum BuildPlanNode {
     /// This is only used in the standard library `moonbitlang/core` currently.
     Bundle(ModuleId),
 
-    /// Build the shared runtime library for native targets.
+    /// Build the i-th runtime C translation unit.
+    BuildRuntimeObject(u32),
+
+    /// Archive the runtime objects, or link the shared runtime for TCC-run.
     BuildRuntimeLib,
 
     /// Build the virtual package's `.mbti` interface file to get an `.mi` file.
@@ -399,6 +402,7 @@ impl BuildPlanNode {
             | BuildPlanNode::GenerateTestInfo(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
             BuildPlanNode::BuildCStub(_, _)
+            | BuildPlanNode::BuildRuntimeObject(_)
             | BuildPlanNode::ArchiveOrLinkCStubs(_)
             | BuildPlanNode::Bundle(_)
             | BuildPlanNode::BuildRuntimeLib
@@ -484,6 +488,9 @@ impl BuildPlanNode {
                     module_src.name(),
                     module_src.version()
                 )
+            }
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                format!("build runtime object {index}")
             }
             BuildPlanNode::BuildRuntimeLib => "build runtime library".to_string(),
             BuildPlanNode::BuildVirtual(package_id) => {
@@ -576,6 +583,9 @@ impl BuildPlanNode {
             BuildPlanNode::Bundle(mid) => {
                 let src = env.module_source(*mid);
                 format!("{}@Bundle", src)
+            }
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                format!("BuildRuntimeObject_{index}")
             }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildVirtual(pkg) => {

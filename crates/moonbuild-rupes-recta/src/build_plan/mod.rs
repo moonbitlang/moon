@@ -420,6 +420,8 @@ pub struct MakeExecutableInfo {
 pub struct BuildRuntimeInfo {
     /// The effective native toolchain for compiling the runtime library.
     pub(crate) effective_native_toolchain: Toolchain,
+    /// Runtime C translation units shipped by the selected MoonBit toolchain.
+    pub(crate) source_files: Vec<PathBuf>,
 }
 
 /// Resolved information about a prebuild command.
@@ -493,6 +495,8 @@ pub enum BuildPlanConstructError {
     FailedToSetCC(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Failed to set C compiler when compiling runtime")]
     FailedToSetRuntimeCC(#[source] anyhow::Error),
+    #[error("Failed to locate runtime C sources")]
+    FailedToFindRuntimeSources(#[source] anyhow::Error),
     #[error("Failed to set stub C compiler when compiling {1}")]
     FailedToSetStubCC(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Malformed cc flags in package {0}")]

@@ -94,6 +94,7 @@ impl<'a> BuildActionPlan<'a> {
             | BuildAction::RunMoonLexPrebuild { package, .. }
             | BuildAction::RunMoonYaccPrebuild { package, .. } => Some(package),
             BuildAction::Bundle { .. }
+            | BuildAction::BuildRuntimeObject { .. }
             | BuildAction::BuildRuntimeLib { .. }
             | BuildAction::BuildDocs { .. } => None,
         };
@@ -217,6 +218,13 @@ impl<'a> BuildActionPlan<'a> {
                     .bundle_info(module)
                     .expect("Bundle info should be present when lowering bundle node")
                     .bundle_targets,
+            },
+            BuildPlanNode::BuildRuntimeObject(index) => BuildAction::BuildRuntimeObject {
+                index,
+                info: self
+                    .plan
+                    .get_runtime_info()
+                    .expect("Runtime info should be present for runtime object nodes"),
             },
             BuildPlanNode::BuildRuntimeLib => BuildAction::BuildRuntimeLib {
                 info: self
@@ -403,6 +411,9 @@ impl<'a> BuildActionPlan<'a> {
             ],
             BuildPlanNode::Bundle(module) => {
                 vec![BuildProduct::BundleResult { module }]
+            }
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                vec![BuildProduct::RuntimeObject { index }]
             }
             BuildPlanNode::BuildRuntimeLib => vec![BuildProduct::RuntimeLib],
             BuildPlanNode::GenerateMbti(target) => {

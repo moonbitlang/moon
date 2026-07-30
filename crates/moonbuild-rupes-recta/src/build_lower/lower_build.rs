@@ -1155,11 +1155,17 @@ impl<'a> LoweringContext<'a> {
     ) -> Vec<PathBuf> {
         let mut sources = Vec::new();
 
-        // Preserve the legacy linker order: linked core, runtime, then C stubs.
-        // Static library order can affect symbol resolution on Unix linkers.
+        // Runtime is a static archive, so place it after the linked core and C
+        // stub archives that may introduce references to runtime symbols.
         if include_linked_core {
             sources.extend(products.dependency_paths_matching(|product| {
                 matches!(product, BuildProduct::LinkedCore { .. })
+            }));
+        }
+
+        for package in &info.link_c_stubs {
+            sources.extend(products.dependency_paths_matching(|product| {
+                matches!(product, BuildProduct::CStubLibrary { package: actual, .. } if actual == package)
             }));
         }
 
@@ -1167,12 +1173,6 @@ impl<'a> LoweringContext<'a> {
             products
                 .dependency_paths_matching(|product| matches!(product, BuildProduct::RuntimeLib)),
         );
-
-        for package in &info.link_c_stubs {
-            sources.extend(products.dependency_paths_matching(|product| {
-                matches!(product, BuildProduct::CStubLibrary { package: actual, .. } if actual == package)
-            }));
-        }
 
         sources
     }

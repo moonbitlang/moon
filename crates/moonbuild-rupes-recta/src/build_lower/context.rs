@@ -267,8 +267,11 @@ impl<'a> LoweringContext<'a> {
             BuildAction::Bundle { module, targets } => {
                 self.lower_bundle(&action_products, module, targets)?
             }
+            BuildAction::BuildRuntimeObject { index, info } => {
+                self.lower_compile_runtime_object(&action_products, index, info)
+            }
             BuildAction::BuildRuntimeLib { info } => {
-                self.lower_compile_runtime(&action_products, info)
+                self.lower_build_runtime_lib(&action_products, info)
             }
             BuildAction::BuildDocs { module } => self.lower_build_docs(module),
             BuildAction::RunPrebuild { info, .. } => self.lower_run_prebuild(info),

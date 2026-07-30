@@ -396,7 +396,10 @@ Here are some examples:
 - `BuildVirtual(PackageId)` builds the virtual package interface of the given package
   (build targets don't make sense on virtual packages).
 - `RunPrebuild(PackageId, u32)` runs the prebuild command of a package with the given index.
-- `BuildRuntime` builds a single runtime artifact that is used globally (in this project) for all users who need it.
+- `BuildRuntimeObject(u32)` compiles one shipped runtime C translation unit.
+- `BuildRuntimeLib` collects the runtime objects into the single runtime
+  library used globally by all consumers in the project. TCC-run lowers this
+  node directly from all runtime sources instead.
 
 The full list of build plan nodes are available in [its module](/crates/moonbuild-rupes-recta/src/model.rs).
 

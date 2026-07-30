@@ -10,7 +10,7 @@ fn test_indirect_depend_virtual() {
         [("MOONBIT_NEW_NATIVE", "0")],
     )
     .lines()
-    .filter(|x| !(x.contains("cc") || x.contains("cl.exe")))
+    .filter(|x| !(x.contains("cc") || x.contains("cl.exe") || x.contains("libruntime")))
     .collect::<Vec<_>>()
     .join("\n");
 

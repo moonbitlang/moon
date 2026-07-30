@@ -34,7 +34,7 @@ use moonutil::{
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
     resolution::ModuleId,
     scripts::{IgnoredMoonScript, is_moon_script_ignored},
-    toolchain::BINARIES,
+    toolchain::{self, BINARIES},
 };
 use regex::Regex;
 use relative_path::PathExt;
@@ -1328,6 +1328,17 @@ impl<'a> BuildPlanConstructor<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
+    pub(super) fn build_runtime_object(
+        &mut self,
+        node: BuildPlanNode,
+        _index: u32,
+    ) -> Result<(), BuildPlanConstructError> {
+        self.need_node(node);
+        self.resolved_node(node);
+        Ok(())
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub(super) fn build_runtime_lib(
         &mut self,
         node: BuildPlanNode,
@@ -1335,9 +1346,27 @@ impl<'a> BuildPlanConstructor<'a> {
         let effective_native_toolchain = self.effective_native_toolchain(None).map_err(|e| {
             BuildPlanConstructError::FailedToSetRuntimeCC(self.new_native_linker_context(e))
         })?;
+        let source_files = toolchain::runtime_source_paths()
+            .map_err(BuildPlanConstructError::FailedToFindRuntimeSources)?;
         self.res.runtime_info = Some(BuildRuntimeInfo {
             effective_native_toolchain,
+            source_files,
         });
+
+        if self.build_env.tcc_run().is_none() {
+            let source_count = self
+                .res
+                .runtime_info
+                .as_ref()
+                .expect("runtime info was just populated")
+                .source_files
+                .len();
+            for index in 0..source_count {
+                let object_node = self.need_node(BuildPlanNode::BuildRuntimeObject(index as u32));
+                self.add_edge(node, object_node);
+            }
+        }
+
         self.resolved_node(node);
         Ok(())
     }
