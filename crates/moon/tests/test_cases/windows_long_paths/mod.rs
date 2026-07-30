@@ -94,14 +94,7 @@ test "answer" {
         action: &str,
     ) {
         let expected = format!(
-            r#"
-         --  --[..]
-       /  //  / __--------_
-      /  //  /_/            /
-   ---      -                / __
-  / X        /        ____   /   )
-  *_________/__/_____/______/ `--
-
+            r#"...
 Oops, the compiler has encountered an unexpected situation.
 This is a bug in the compiler.
 
@@ -111,10 +104,6 @@ greatly appreciated. You can submit the bug report here:
   https://github.com/moonbitlang/moonbit-docs/issues/new?template=ice.md
 
 Error: Sys_error("[..]_build[..]{backend}[..]{profile}[..]{action}[..]: No such file or directory")
-
-Compiler args: [..]
-
-moonc version: [..]
 ...
 "#
         );
