@@ -69,6 +69,9 @@ pub(crate) fn normalize_apple_archiver(s: &mut String) {
         *s = s.replace(libtool, "/usr/bin/libtool");
     }
     *s = s.replace("libtool -static -o", "ar -r -c -s");
+    // Keep the normalized command and its executable input portable together.
+    *s = s.replace("/usr/bin/libtool", "$HOST_AR");
+    *s = s.replace("/usr/bin/ar", "$HOST_AR");
 }
 
 pub(crate) fn toolchain_root_for_tests() -> PathBuf {
@@ -428,6 +431,20 @@ mod tests {
     use super::{assert_command_matches, collapse_core_import_args, replace_dir};
     use expect_test::expect;
     use moonutil::target::TargetBackend;
+
+    #[cfg(unix)]
+    #[test]
+    fn normalize_apple_archiver_uses_host_marker_for_commands_and_inputs() {
+        let mut apple_command = "/usr/bin/libtool -static -o output.a input.o".to_string();
+        super::normalize_apple_archiver(&mut apple_command);
+        assert_eq!(apple_command, "$HOST_AR -r -c -s output.a input.o");
+
+        for input in ["/usr/bin/libtool", "/usr/bin/ar"] {
+            let mut input = input.to_string();
+            super::normalize_apple_archiver(&mut input);
+            assert_eq!(input, "$HOST_AR");
+        }
+    }
 
     #[test]
     fn replace_dir_replaces_forward_slash_root_paths() {
