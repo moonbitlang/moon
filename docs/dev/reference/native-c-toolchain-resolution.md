@@ -9,7 +9,8 @@ The resolved toolchain has three roles:
 - archiver (`ar_path`)
 
 After source selection, package overrides, and platform-specific selection are complete,
-Moon resolves the effective toolchain's compiler and archiver to concrete executable paths.
+Moon resolves the effective toolchain's compiler and archiver through the shared
+`moonutil::toolchain` executable resolver. The result contains concrete absolute executable paths.
 Every effective native toolchain exposed to build lowering satisfies this invariant, so command
 construction consumes the resolved paths without performing PATH lookup.
 

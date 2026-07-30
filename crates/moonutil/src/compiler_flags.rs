@@ -406,7 +406,7 @@ fn resolve_native_toolchain_executables(toolchain: Toolchain) -> anyhow::Result<
     }
 
     resolve_native_toolchain_executables_with(toolchain, |tool| {
-        which::which(tool).map_err(anyhow::Error::from)
+        crate::toolchain::resolve_executable(tool)
     })
 }
 

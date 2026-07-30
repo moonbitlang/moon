@@ -774,6 +774,40 @@ fn test_cram_parent_flag_delegates_to_moon_cram() {
 }
 
 #[test]
+fn test_cram_bare_override_resolves_from_path() {
+    let dir = TestDir::new_empty();
+    let fake_bin_dir =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/executable-override/bin");
+    let fake_cram = fake_bin_dir.join(if cfg!(windows) {
+        "fake-moon-cram.cmd"
+    } else {
+        "fake-moon-cram"
+    });
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["cram", "--version"],
+        [
+            (
+                std::ffi::OsString::from("MOON_CRAM_OVERRIDE"),
+                std::ffi::OsString::from("fake-moon-cram"),
+            ),
+            (
+                std::ffi::OsString::from("PATH"),
+                path_with_fake_bin(&fake_bin_dir),
+            ),
+        ],
+    );
+
+    let normalized_stdout = stdout.replace('\\', "/");
+    let normalized_executable = fake_cram.to_string_lossy().replace('\\', "/");
+    assert!(
+        normalized_stdout.contains(&format!("fake-moon-cram-argv0={normalized_executable}")),
+        "bare moon-cram override should resolve to an explicit path:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_cram_parent_flag_after_moon_global_delegates_to_moon_cram() {
     let dir = TestDir::new_empty();
     let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");
