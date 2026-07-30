@@ -17,13 +17,14 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
+    collections::{BTreeMap, BTreeSet},
     io::Write,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
 
 use expect_test::Expect;
-use moonutil::{compiler_flags, text::StringExt};
+use moonutil::{compiler_flags, target::TargetBackend, text::StringExt};
 use sha2::{Digest, Sha256};
 
 static MOONRUN_BIN: OnceLock<PathBuf> = OnceLock::new();
@@ -176,26 +177,122 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 
+/// Return the installed core package interfaces, keyed by package path.
+///
+/// Core bundles contain one interface per package at
+/// `<package path>/<last package segment>.mi`.
+pub(crate) fn core_package_interfaces(backend: TargetBackend) -> BTreeMap<String, PathBuf> {
+    let bundle = moonutil::toolchain::core_bundle(backend);
+    let interfaces = walkdir::WalkDir::new(&bundle)
+        .into_iter()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| {
+            entry.file_type().is_file() && entry.path().extension().is_some_and(|ext| ext == "mi")
+        })
+        .map(|entry| {
+            let artifact = entry.into_path();
+            let relative = artifact.strip_prefix(&bundle).unwrap();
+            let package_dir = relative
+                .parent()
+                .expect("core interface without package path");
+            let package_name = package_dir
+                .file_name()
+                .expect("empty core package path")
+                .to_str()
+                .expect("non-UTF-8 core package path");
+            assert_eq!(
+                artifact.file_stem().and_then(|stem| stem.to_str()),
+                Some(package_name),
+                "core interface does not follow `<package>/<package>.mi`: {}",
+                artifact.display()
+            );
+
+            (package_dir.to_string_lossy().replace('\\', "/"), artifact)
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        !interfaces.is_empty(),
+        "no core package interfaces found in {}",
+        bundle.display()
+    );
+    let interface_count = interfaces.len();
+    let interfaces = interfaces.into_iter().collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        interfaces.len(),
+        interface_count,
+        "multiple core interfaces resolved to the same package"
+    );
+    interfaces
+}
+
+fn core_import_package(import: &str, backend: TargetBackend) -> Option<String> {
+    let import = import.trim_matches('\'');
+    let (artifact, alias) = import.rsplit_once(':')?;
+    let artifact = artifact.replace('\\', "/");
+    let bundle_marker = format!("/lib/core/_build/{}/release/bundle/", backend.to_dir_name());
+    let (_, relative) = artifact.split_once(&bundle_marker)?;
+    let relative = Path::new(relative);
+    let package_dir = relative.parent().expect("core import without package path");
+    let package_name = package_dir
+        .file_name()
+        .expect("empty core import package path")
+        .to_str()
+        .expect("non-UTF-8 core import package path");
+    assert_eq!(
+        relative.file_stem().and_then(|stem| stem.to_str()),
+        Some(package_name),
+        "core import does not follow `<package>/<package>.mi`: {artifact}"
+    );
+
+    let package = package_dir.to_string_lossy().replace('\\', "/");
+    let expected_alias = if package.starts_with("immut/") {
+        package.as_str()
+    } else {
+        package_name
+    };
+    assert_eq!(
+        alias, expected_alias,
+        "unexpected alias for core package `{package}`"
+    );
+    Some(package)
+}
+
 /// Collapse toolchain-owned `core` imports in dry-run commands to one marker.
 ///
-/// Single-file builds import the whole standard library. The exact package
-/// inventory is owned by the toolchain, while these tests only need to verify
-/// that the imports are present and that the rest of the command is correct.
-pub(crate) fn collapse_core_import_args(s: &str) -> String {
+/// Single-file builds import every public package in the installed core bundle.
+/// Validate that inventory before collapsing it so toolchain additions do not
+/// expand the snapshot without weakening the behavior under test.
+pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> String {
+    let expected_packages = core_package_interfaces(backend)
+        .into_keys()
+        .filter(|package| !package.split('/').any(|segment| segment == "internal"))
+        .collect::<BTreeSet<_>>();
+    let mut import_group_count = 0;
     let mut output = s
         .lines()
         .map(|line| {
             let mut args = line.split_whitespace();
             let mut collapsed = Vec::new();
-            let mut core_import_seen = false;
+            let mut core_packages = BTreeSet::new();
+            let mut core_import_marker = None;
 
             while let Some(arg) = args.next() {
                 if arg == "-i" {
                     let import = args.next().expect("missing import after `-i`");
-                    if import.starts_with("'$MOON_HOME/lib/core/") {
-                        if !core_import_seen {
-                            collapsed.extend(["-i", "'$MOON_HOME/lib/core/<imports>'"]);
-                            core_import_seen = true;
+                    if let Some(package) = core_import_package(import, backend) {
+                        assert!(
+                            core_packages.insert(package),
+                            "duplicate core package import in single-file command"
+                        );
+                        if core_import_marker.is_none() {
+                            let marker = if import.starts_with("'$MOON_HOME/") {
+                                "'$MOON_HOME/lib/core/<imports>'"
+                            } else {
+                                "'$MOON_TOOLCHAIN_ROOT/lib/core/<imports>'"
+                            };
+                            collapsed.extend(["-i", marker]);
+                            core_import_marker = Some(marker);
                         }
                         continue;
                     }
@@ -205,10 +302,21 @@ pub(crate) fn collapse_core_import_args(s: &str) -> String {
                 }
             }
 
+            if core_import_marker.is_some() {
+                import_group_count += 1;
+                assert_eq!(
+                    core_packages, expected_packages,
+                    "single-file command does not import every public core package"
+                );
+            }
             collapsed.join(" ")
         })
         .collect::<Vec<_>>()
         .join("\n");
+    assert!(
+        import_group_count > 0,
+        "single-file dry-run output contains no core imports"
+    );
     if s.ends_with('\n') {
         output.push('\n');
     }
@@ -339,6 +447,7 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
 mod tests {
     use super::{assert_command_matches, collapse_core_import_args, replace_dir};
     use expect_test::expect;
+    use moonutil::target::TargetBackend;
 
     #[test]
     fn replace_dir_replaces_forward_slash_root_paths() {
@@ -357,9 +466,28 @@ mod tests {
 
     #[test]
     fn collapse_core_import_args_preserves_other_command_arguments() {
+        let imports = super::core_package_interfaces(TargetBackend::WasmGC)
+            .into_keys()
+            .filter(|package| !package.split('/').any(|segment| segment == "internal"))
+            .map(|package| {
+                let alias = if package.starts_with("immut/") {
+                    package.as_str()
+                } else {
+                    package.rsplit('/').next().unwrap()
+                };
+                format!(
+                    "-i '$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/{package}/{}.mi:{alias}'",
+                    package.rsplit('/').next().unwrap()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
         assert_eq!(
             collapse_core_import_args(
-                "moonc build-package main.mbt -i '$MOON_HOME/lib/core/array/array.mi:array' -i '$MOON_HOME/lib/core/diff/diff.mi:diff' -i ./lib.mi:lib -target wasm-gc\n"
+                &format!(
+                    "moonc build-package main.mbt {imports} -i ./lib.mi:lib -target wasm-gc\n"
+                ),
+                TargetBackend::WasmGC,
             ),
             "moonc build-package main.mbt -i '$MOON_HOME/lib/core/<imports>' -i ./lib.mi:lib -target wasm-gc\n"
         );
