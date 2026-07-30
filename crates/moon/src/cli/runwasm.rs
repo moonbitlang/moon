@@ -24,7 +24,7 @@ use moonutil::{
     constants::is_moon_pkg_exist, registry::RegistryConfig, target::SurfaceTarget,
     user_log::UserLog,
 };
-use reqwest::{StatusCode, header::USER_AGENT};
+use reqwest::StatusCode;
 use sha2::{Digest, Sha256};
 use tracing::instrument;
 
@@ -75,6 +75,39 @@ struct ResolvedRunWasmAsset {
     url: String,
     checksum_url: String,
     cache_path: PathBuf,
+}
+
+struct RegistryAssetClient<'a> {
+    http: reqwest::blocking::Client,
+    user_log: &'a UserLog,
+}
+
+impl<'a> RegistryAssetClient<'a> {
+    fn new(user_log: &'a UserLog) -> anyhow::Result<Self> {
+        let http = reqwest::blocking::Client::builder()
+            .user_agent(format!("moon/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .context("failed to create registry asset HTTP client")?;
+        Ok(Self { http, user_log })
+    }
+
+    fn download(&self, url: &str) -> anyhow::Result<Vec<u8>> {
+        self.user_log.info(format!("Downloading {url}"));
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .with_context(|| format!("failed to download registry asset from {url}"))?;
+        if response.status() == StatusCode::NOT_FOUND {
+            bail!("Prebuilt wasm asset does not exist");
+        }
+        let data = response
+            .error_for_status()
+            .with_context(|| format!("registry asset download returned error status for {url}"))?
+            .bytes()
+            .with_context(|| format!("failed to read registry asset response from {url}"))?;
+        Ok(data.to_vec())
+    }
 }
 
 #[instrument(skip_all)]
@@ -163,7 +196,8 @@ fn runwasm_as_run_subcommand(cmd: RunWasmSubcommand) -> RunSubcommand {
 }
 
 fn ensure_cached_wasm(asset: &ResolvedRunWasmAsset, user_log: &UserLog) -> anyhow::Result<PathBuf> {
-    ensure_cached_wasm_with(asset, user_log, download_wasm)
+    let client = RegistryAssetClient::new(user_log)?;
+    ensure_cached_wasm_with(asset, user_log, |url| client.download(url))
 }
 
 fn ensure_cached_wasm_with(
@@ -175,7 +209,6 @@ fn ensure_cached_wasm_with(
         let checksum_bytes = download(&asset.checksum_url)?;
         let expected_checksum = parse_sha256_checksum(&checksum_bytes)
             .with_context(|| format!("invalid SHA-256 checksum from {}", asset.checksum_url))?;
-        user_log.info(format!("Downloading {}", asset.url));
         let bytes = download(&asset.url)?;
         let actual_checksum = sha256_hex(&bytes);
         if actual_checksum != expected_checksum {
@@ -206,24 +239,6 @@ fn parse_sha256_checksum(bytes: &[u8]) -> anyhow::Result<String> {
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
-}
-
-fn download_wasm(url: &str) -> anyhow::Result<Vec<u8>> {
-    let client = reqwest::blocking::Client::new();
-    let response = client
-        .get(url)
-        .header(USER_AGENT, format!("moon/{}", env!("CARGO_PKG_VERSION")))
-        .send()
-        .with_context(|| format!("failed to download prebuilt wasm from {url}"))?;
-    if response.status() == StatusCode::NOT_FOUND {
-        bail!("Prebuilt wasm asset does not exist");
-    }
-    let data = response
-        .error_for_status()
-        .with_context(|| format!("prebuilt wasm download returned error status for {url}"))?
-        .bytes()
-        .with_context(|| format!("failed to read prebuilt wasm response from {url}"))?;
-    Ok(data.to_vec())
 }
 
 #[cfg(test)]
