@@ -22,6 +22,7 @@ use anyhow::{Context as _, bail};
 use moonbuild_rupes_recta::intent::UserIntent;
 use moonutil::cli_support::AutoSyncFlags;
 use moonutil::command_output::CommandOutput;
+use moonutil::constants::MOON_MOD_JSON;
 use moonutil::project::PackageDirs;
 use moonutil::resolution::ModuleId;
 use moonutil::{build_options::RunMode, locks::FileLock, user_log::UserLog};
@@ -100,15 +101,19 @@ pub(crate) fn run_doc_rr(
     let user_log = output.user_log();
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let project = query.project()?;
-    let selected_module_dir = project
+    let selected_module = project
         .selected_module()
-        .map(|module| module.root.clone())
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "`moon doc` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> doc ...`.",
                 project.root().display(),
             )
         })?;
+    if selected_module.manifest_path.ends_with(MOON_MOD_JSON) {
+        bail!(
+            "`moon doc` does not support the deprecated `moon.mod.json` manifest; run `moon fmt` to migrate it to `moon.mod` first"
+        );
+    }
     let dirs = query.package_dirs()?;
     let PackageDirs {
         source_dir,
@@ -140,7 +145,7 @@ pub(crate) fn run_doc_rr(
         user_log,
         &resolve_output,
     )?;
-    let module_id = selected_doc_module_id(&resolve_output, &selected_module_dir)?;
+    let module_id = selected_doc_module_id(&resolve_output, &selected_module.root)?;
     let intent = vec![UserIntent::Doc(module_id)].into();
     let (build_meta, build_graph) = rr_build::plan_resolved_build_from_intent(
         preconfig,

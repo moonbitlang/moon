@@ -1333,6 +1333,18 @@ fn test_doc_targets_member_module_with_workspace_resolution() {
     let stderr = get_err_stderr(&dir, ["doc", "--dry-run"]);
     assert_requires_target_module(&stderr, "doc");
 
+    let stderr = get_err_stderr(&dir, ["-C", "app", "doc", "--dry-run"]);
+    assert!(
+        stderr.contains(
+            "`moon doc` does not support the deprecated `moon.mod.json` manifest; run `moon fmt` to migrate it to `moon.mod` first"
+        ),
+        "expected doc to reject a workspace member with a legacy manifest, got:\n{stderr}"
+    );
+
+    // `moondoc` only supports the new module manifest, so migrate the shared
+    // legacy workspace fixture before exercising documentation generation.
+    let _ = get_stderr(&dir, ["fmt"]);
+
     let stdout = get_stdout(&dir, ["-C", "app", "doc", "--dry-run"]);
     assert!(
         stdout.contains("moondoc ./app -o ./_build/doc"),

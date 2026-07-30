@@ -68,6 +68,24 @@ fn test_moon_doc() {
 }
 
 #[test]
+fn test_moon_doc_rejects_moon_mod_json() {
+    let dir = TestDir::new("moon_doc.in");
+    std::fs::remove_file(dir.join("moon.mod")).unwrap();
+    std::fs::write(
+        dir.join("moon.mod.json"),
+        r#"{ "name": "username/hello", "source": "src" }"#,
+    )
+    .unwrap();
+
+    check(
+        get_err_stderr(&dir, ["doc", "--dry-run"]),
+        expect![[r#"
+            Error: `moon doc` does not support the deprecated `moon.mod.json` manifest; run `moon fmt` to migrate it to `moon.mod` first
+        "#]],
+    );
+}
+
+#[test]
 fn test_moonfmt() {
     let dir = TestDir::new("general.in");
     let oneline = r#"pub fn hello() -> String { "Hello, world!" }"#;
