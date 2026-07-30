@@ -808,6 +808,57 @@ fn test_cram_bare_override_resolves_from_path() {
 }
 
 #[test]
+fn test_cram_relative_override_resolves_after_change_directory() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cram-override-cwd");
+
+    let early_stdout = get_stdout_with_envs(
+        &dir,
+        ["-C", "subdir", "cram", "--version"],
+        [("MOON_CRAM_OVERRIDE", "bin/fake-moon-cram")],
+    );
+    assert!(
+        early_stdout.contains("fake-moon-cram-location=subdir"),
+        "early moon-cram delegation should resolve the override from the -C directory:\n{early_stdout}"
+    );
+
+    let parsed_stdout = get_stdout_with_envs(
+        &dir,
+        ["-C", "subdir", "cram", "list"],
+        [("MOON_CRAM_OVERRIDE", "bin/fake-moon-cram")],
+    );
+    assert!(
+        parsed_stdout.contains("fake-moon-cram-location=subdir"),
+        "parsed moon-cram delegation should resolve the override from the -C directory:\n{parsed_stdout}"
+    );
+}
+
+#[test]
+fn test_cram_bare_override_on_relative_path_resolves_after_change_directory() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cram-override-cwd");
+    let path = std::env::join_paths(std::iter::once(PathBuf::from("bin")).chain(
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+    ))
+    .expect("failed to build relative PATH");
+
+    let stdout = get_stdout_with_envs(
+        &dir,
+        ["-C", "subdir", "cram", "--version"],
+        [
+            (
+                std::ffi::OsString::from("MOON_CRAM_OVERRIDE"),
+                std::ffi::OsString::from("fake-moon-cram"),
+            ),
+            (std::ffi::OsString::from("PATH"), path),
+        ],
+    );
+
+    assert!(
+        stdout.contains("fake-moon-cram-location=subdir"),
+        "bare moon-cram override on a relative PATH should resolve from the -C directory:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_cram_parent_flag_after_moon_global_delegates_to_moon_cram() {
     let dir = TestDir::new_empty();
     let fake_bin_dir = tempfile::TempDir::new().expect("failed to create fake bin dir");

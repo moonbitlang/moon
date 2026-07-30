@@ -207,7 +207,7 @@ fn delegate_moon_cram_with_current_dir(
     current_dir: Option<&Path>,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
 ) -> anyhow::Result<i32> {
-    let mut command = Command::new(resolve_moon_cram()?);
+    let mut command = Command::new(resolve_moon_cram_in(current_dir)?);
     if let Some(dir) = current_dir {
         command.current_dir(dir);
     }
@@ -280,11 +280,22 @@ fn is_external_cram_tail(tail: &[OsString]) -> bool {
 }
 
 fn resolve_moon_cram() -> anyhow::Result<PathBuf> {
-    let moon_cram = moonutil::toolchain::BINARIES.moon_cram.clone();
+    resolve_moon_cram_in(None)
+}
+
+fn resolve_moon_cram_in(current_dir: Option<&Path>) -> anyhow::Result<PathBuf> {
+    let moon_cram = current_dir.map_or_else(
+        || moonutil::toolchain::BINARIES.moon_cram.clone(),
+        moonutil::toolchain::moon_cram_in,
+    );
     if moon_cram.is_absolute() || moon_cram.components().count() > 1 {
         return Ok(moon_cram);
     }
-    which::which(&moon_cram).with_context(|| {
+    let resolved = match current_dir {
+        Some(dir) => moonutil::toolchain::resolve_executable_in(&moon_cram, dir),
+        None => which::which(&moon_cram).map_err(anyhow::Error::from),
+    };
+    resolved.with_context(|| {
         format!(
             "no such subcommand: `cram`, is `{}` a valid executable accessible via your `PATH`?",
             moon_cram.display()
