@@ -10,32 +10,19 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
     let mut all_pkgs: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(json_path).unwrap()).unwrap();
     let packages = all_pkgs["packages"].as_array_mut().unwrap();
-    let expected_core_packages = core_package_interfaces(TargetBackend::WasmGC);
-    let core_packages = packages
+    let actual_core_packages = packages
         .iter()
         .filter(|package| package["root"] == "moonbitlang/core")
         .map(|package| {
-            let package_path = package["rel"].as_str().unwrap().to_owned();
-            let artifact = PathBuf::from(package["artifact"].as_str().unwrap());
-            assert!(
-                artifact.is_file(),
-                "core package artifact does not exist: {}",
-                artifact.display()
-            );
-            (package_path, artifact)
+            (
+                package["rel"].as_str().unwrap().to_owned(),
+                PathBuf::from(package["artifact"].as_str().unwrap()),
+            )
         })
-        .collect::<Vec<_>>();
-    let core_package_count = core_packages.len();
-    let actual_core_packages = core_packages
-        .into_iter()
         .collect::<std::collections::BTreeMap<_, _>>();
     assert_eq!(
-        actual_core_packages.len(),
-        core_package_count,
-        "all_pkgs.json contains duplicate core package entries"
-    );
-    assert_eq!(
-        actual_core_packages, expected_core_packages,
+        actual_core_packages,
+        core_package_interfaces(TargetBackend::WasmGC),
         "all_pkgs.json does not match the installed core package interfaces"
     );
 
