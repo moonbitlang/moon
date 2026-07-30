@@ -15,8 +15,11 @@ resolution always produces an absolute path, including when `PATH` itself
 contains relative entries. An override that cannot be resolved is left intact
 so its command keeps the existing error-reporting behavior.
 
-Early `moon cram` delegation resolves `MOON_CRAM_OVERRIDE` and relative `PATH`
-entries from the effective `-C` directory before launching `moon-cram`.
+Whenever Moon delegates to a child before applying `-C` to its own process,
+executable lookup and the child's working directory use the same effective
+command directory. This applies to early `moon cram` and `moon help ide`
+delegation. Relative `moon-cram` overrides and relative `PATH` entries are
+resolved from that directory.
 
 `moonlex.wasm` and `moonyacc.wasm` are payload files passed to `moonrun`, not
 executables. Their overrides therefore use file-path semantics instead of

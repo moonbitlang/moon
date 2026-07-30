@@ -207,10 +207,7 @@ fn delegate_moon_cram_with_current_dir(
     current_dir: Option<&Path>,
     args: impl IntoIterator<Item = impl AsRef<OsStr>>,
 ) -> anyhow::Result<i32> {
-    let mut command = Command::new(resolve_moon_cram_in(current_dir)?);
-    if let Some(dir) = current_dir {
-        command.current_dir(dir);
-    }
+    let mut command = process::command_in_effective_dir(current_dir, resolve_moon_cram_in)?;
     command.args(args);
     Ok(process::delegate(&mut command)?.code().unwrap_or(0))
 }
@@ -233,46 +230,9 @@ pub(crate) fn exit_if_cram_external_request(err: &clap::Error, raw_args: &[OsStr
 }
 
 fn cram_external_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
-    let mut current_dir = None;
-    let mut index = 1;
-    while index < raw_args.len() {
-        let arg = &raw_args[index];
-
-        if arg == OsStr::new("-C") {
-            index += 1;
-            if let Some(dir) = raw_args.get(index) {
-                current_dir = Some(PathBuf::from(dir));
-            }
-        } else if matches!(
-            arg.to_str(),
-            Some("--target-dir" | "--unstable-feature" | "-Z")
-        ) {
-            index += 1;
-        } else if is_global_bool_arg(arg) {
-        } else {
-            let tail = &raw_args[index + 1..];
-            return (arg == OsStr::new("cram") && is_external_cram_tail(tail))
-                .then(|| (current_dir, tail.to_vec()));
-        }
-        index += 1;
-    }
-    None
-}
-
-fn is_global_bool_arg(arg: &OsStr) -> bool {
-    matches!(
-        arg.to_str(),
-        Some(
-            "-V" | "--version"
-                | "-q"
-                | "--quiet"
-                | "-v"
-                | "--verbose"
-                | "--trace"
-                | "--dry-run"
-                | "--build-graph"
-        )
-    )
+    let early = process::early_subcommand(raw_args)?;
+    (early.name == OsStr::new("cram") && is_external_cram_tail(early.args))
+        .then(|| (early.current_dir, early.args.to_vec()))
 }
 
 fn is_external_cram_tail(tail: &[OsString]) -> bool {
@@ -293,7 +253,7 @@ fn resolve_moon_cram_in(current_dir: Option<&Path>) -> anyhow::Result<PathBuf> {
     }
     let resolved = match current_dir {
         Some(dir) => moonutil::toolchain::resolve_executable_in(&moon_cram, dir),
-        None => which::which(&moon_cram).map_err(anyhow::Error::from),
+        None => moonutil::toolchain::resolve_executable(&moon_cram),
     };
     resolved.with_context(|| {
         format!(
@@ -535,7 +495,7 @@ mod tests {
     #[test]
     fn preserves_chdir_for_external_cram_args() {
         assert_eq!(
-            cram_external_args(&os(&["moon", "-C", "sub", "cram", "--version"])),
+            cram_external_args(&os(&["moon", "-Csub", "cram", "--version"])),
             Some((Some(PathBuf::from("sub")), os(&["--version"])))
         );
     }
