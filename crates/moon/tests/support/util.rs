@@ -176,6 +176,45 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 
+/// Collapse toolchain-owned `core` imports in dry-run commands to one marker.
+///
+/// Single-file builds import the whole standard library. The exact package
+/// inventory is owned by the toolchain, while these tests only need to verify
+/// that the imports are present and that the rest of the command is correct.
+pub(crate) fn collapse_core_import_args(s: &str) -> String {
+    let mut output = s
+        .lines()
+        .map(|line| {
+            let mut args = line.split_whitespace();
+            let mut collapsed = Vec::new();
+            let mut core_import_seen = false;
+
+            while let Some(arg) = args.next() {
+                if arg == "-i" {
+                    let import = args.next().expect("missing import after `-i`");
+                    if import.starts_with("'$MOON_HOME/lib/core/") {
+                        if !core_import_seen {
+                            collapsed.extend(["-i", "'$MOON_HOME/lib/core/<imports>'"]);
+                            core_import_seen = true;
+                        }
+                        continue;
+                    }
+                    collapsed.extend([arg, import]);
+                } else {
+                    collapsed.push(arg);
+                }
+            }
+
+            collapsed.join(" ")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if s.ends_with('\n') {
+        output.push('\n');
+    }
+    output
+}
+
 pub(crate) fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
     moon_test_util::test_dir::copy_tree(src, dest, true)
 }
@@ -298,7 +337,7 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{assert_command_matches, replace_dir};
+    use super::{assert_command_matches, collapse_core_import_args, replace_dir};
     use expect_test::expect;
 
     #[test]
@@ -313,6 +352,16 @@ mod tests {
         assert_eq!(
             replace_dir(&output, dir.path()),
             "moonc check $ROOT/b/hello.mbt -pkg-sources username/b:$ROOT/b -workspace-path $ROOT/b"
+        );
+    }
+
+    #[test]
+    fn collapse_core_import_args_preserves_other_command_arguments() {
+        assert_eq!(
+            collapse_core_import_args(
+                "moonc build-package main.mbt -i '$MOON_HOME/lib/core/array/array.mi:array' -i '$MOON_HOME/lib/core/diff/diff.mi:diff' -i ./lib.mi:lib -target wasm-gc\n"
+            ),
+            "moonc build-package main.mbt -i '$MOON_HOME/lib/core/<imports>' -i ./lib.mi:lib -target wasm-gc\n"
         );
     }
 

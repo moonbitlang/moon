@@ -7,7 +7,15 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
         .unwrap()
         .to_string();
 
-    let json_content = std::fs::read_to_string(json_path).unwrap();
+    let mut all_pkgs: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(json_path).unwrap()).unwrap();
+    all_pkgs["packages"]
+        .as_array_mut()
+        .unwrap()
+        // Standard library membership follows the installed toolchain and is
+        // unrelated to the indirect project dependencies covered here.
+        .retain(|package| package["root"] != "moonbitlang/core");
+    let json_content = serde_json::to_string_pretty(&all_pkgs).unwrap() + "\n";
 
     // Normalize Windows paths: replace backslashes with forward slashes
     // In JSON, Windows paths are escaped (e.g., "C:\\Users\\..."), so we replace "\\" with "/"
