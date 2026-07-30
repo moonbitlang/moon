@@ -188,6 +188,7 @@ impl BuildPlanNode {
             BuildPlanNode::ArchiveOrLinkCStubs(target) => format!("{:?}@ArchiveCStubs", target),
             BuildPlanNode::LinkCore(target) => format!("{:?}@LinkCore", target),
             BuildPlanNode::MakeExecutable(target) => format!("{:?}@MakeExecutable", target),
+            BuildPlanNode::GenerateDsym(target) => format!("{:?}@GenerateDsym", target),
             BuildPlanNode::GenerateTestInfo(target) => format!("{:?}@GenerateTestInfo", target),
             BuildPlanNode::Bundle(module_id) => format!("{:?}@Bundle", module_id),
             BuildPlanNode::GenerateMbti(target) => format!("{:?}@GenerateMbti", target),
@@ -243,6 +244,10 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nMakeExecutable", fqn)
             }
+            BuildPlanNode::GenerateDsym(target) => {
+                let fqn = packages.fqn(target.package);
+                format!("{}\\nGenerateDsym", fqn)
+            }
             BuildPlanNode::GenerateTestInfo(target) => {
                 let fqn = packages.fqn(target.package);
                 format!("{}\\nGenerateTestInfo", fqn)
@@ -292,6 +297,7 @@ impl BuildPlanNode {
             BuildPlanNode::ArchiveOrLinkCStubs(_) => "lightyellow",
             BuildPlanNode::LinkCore(_) => "lightcoral",
             BuildPlanNode::MakeExecutable(_) => "lightpink",
+            BuildPlanNode::GenerateDsym(_) => "pink",
             BuildPlanNode::GenerateTestInfo(_) => "lightgray",
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",

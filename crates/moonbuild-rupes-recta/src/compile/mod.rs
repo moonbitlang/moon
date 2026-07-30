@@ -25,7 +25,7 @@ use tracing::{Level, instrument};
 use crate::{
     build_lower::{self, LoweringEnvironment, WarningCondition},
     build_plan::{self, BuildEnvironment, InputDirective},
-    model::{Artifacts, BackendConfig, BuildPlanNode},
+    model::{Artifacts, BackendConfig, BuildPlanNode, OperatingSystem},
     prebuild::PrebuildOutput,
     resolve::ResolveOutput,
     special_cases::should_skip_tests,
@@ -219,12 +219,18 @@ pub fn compile_standalone(
 }
 
 fn build_environment(cx: &CompileConfig) -> BuildEnvironment {
-    let compiler_paths = matches!(&cx.backend, BackendConfig::Native(_) | BackendConfig::Llvm)
-        .then(|| cx.lowering_environment.compiler_paths().clone());
+    let native_or_llvm = matches!(&cx.backend, BackendConfig::Native(_) | BackendConfig::Llvm);
+    let compiler_paths = native_or_llvm.then(|| cx.lowering_environment.compiler_paths().clone());
     BuildEnvironment {
         backend: cx.backend.clone(),
         opt_level: cx.opt_level,
         action: cx.action,
+        debug_symbols: cx.debug_symbols,
+        os: if native_or_llvm {
+            cx.lowering_environment.os()
+        } else {
+            OperatingSystem::None
+        },
         compiler_paths,
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),

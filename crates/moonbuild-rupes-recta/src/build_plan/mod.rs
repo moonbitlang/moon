@@ -65,7 +65,10 @@ use tracing::instrument;
 
 use crate::{
     ResolveOutput,
-    model::{BackendConfig, BuildPlanNode, BuildTarget, NativeTarget, PackageId, TccRunConfig},
+    model::{
+        BackendConfig, BuildPlanNode, BuildTarget, NativeTarget, OperatingSystem, PackageId,
+        TccRunConfig,
+    },
     pkg_name::PackageFQNWithSource,
     prebuild::PrebuildOutput,
 };
@@ -107,6 +110,9 @@ pub struct BuildPlan {
 
     /// The map of build target to the information needed to make it executable
     make_executable_info: HashMap<BuildTarget, MakeExecutableInfo>,
+
+    /// The resolved dsymutil executable, when the plan generates dSYM bundles.
+    dsymutil: Option<PathBuf>,
 
     /// The information needed to build the native runtime library.
     runtime_info: Option<BuildRuntimeInfo>,
@@ -235,6 +241,11 @@ impl BuildPlan {
         self.make_executable_info.get(target)
     }
 
+    /// Get the resolved dsymutil executable.
+    pub fn get_dsymutil(&self) -> Option<&Path> {
+        self.dsymutil.as_deref()
+    }
+
     /// Get runtime library build information.
     pub fn get_runtime_info(&self) -> Option<&BuildRuntimeInfo> {
         self.runtime_info.as_ref()
@@ -270,6 +281,11 @@ impl BuildPlan {
 impl BuildPlan {
     pub(crate) fn test_add_node(&mut self, node: BuildPlanNode) {
         self.graph.add_node(node);
+    }
+
+    pub(crate) fn test_add_input_node(&mut self, node: BuildPlanNode) {
+        self.test_add_node(node);
+        self.input_nodes.push(node);
     }
 
     pub(crate) fn test_add_edge(
@@ -311,6 +327,10 @@ impl BuildPlan {
         info: MakeExecutableInfo,
     ) {
         self.make_executable_info.insert(target, info);
+    }
+
+    pub(crate) fn test_insert_dsymutil(&mut self, dsymutil: PathBuf) {
+        self.dsymutil = Some(dsymutil);
     }
 
     pub(crate) fn test_insert_runtime_info(&mut self, info: BuildRuntimeInfo) {
@@ -533,6 +553,8 @@ pub struct BuildEnvironment {
     pub backend: BackendConfig,
     pub opt_level: OptLevel,
     pub action: RunMode,
+    pub debug_symbols: bool,
+    pub os: OperatingSystem,
     /// Toolchain include/lib paths selected for native-oriented backends.
     pub compiler_paths: Option<CompilerPaths>,
     /// Whether compiling requires the standard library.
@@ -587,6 +609,8 @@ pub enum BuildPlanConstructError {
     FailedToSetRuntimeCC(#[source] anyhow::Error),
     #[error("Failed to locate runtime C sources")]
     FailedToFindRuntimeSources(#[source] anyhow::Error),
+    #[error("Failed to resolve dsymutil when linking {1}")]
+    FailedToResolveDsymutil(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Failed to set stub C compiler when compiling {1}")]
     FailedToSetStubCC(#[source] anyhow::Error, PackageFQNWithSource),
     #[error("Malformed cc flags in package {0}")]

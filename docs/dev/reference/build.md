@@ -98,7 +98,7 @@ This policy is centralized in `BuildFlags::effective_profile()` in
 `crates/moon/src/cli.rs`. Individual commands may still layer additional
 symbol or strip behavior on top of that default profile.
 
-When actually building a package, the pipeline has 2 or 3 steps depending on the backend to use:
+When actually building a package, the pipeline has 2 or 3 main steps depending on the backend:
 
 1. **Build** each individual package, via `moonc build-package` / `BuildPackage` node, into CoreIR.
 2. **Link** into executable, via `moonc link-core` / `LinkCore` node.
@@ -111,6 +111,13 @@ When actually building a package, the pipeline has 2 or 3 steps depending on the
    together with C stubs and other build outputs,
    to produce the final executable.
    Non-native backends do not need this step.
+
+macOS debug builds that emit native object code add one post-link step:
+
+4. **Generate debug symbols**, via `dsymutil` / `GenerateDsym`.
+   This action depends on the completed executable and produces its `.dSYM`
+   bundle. The linker and `dsymutil` remain separate structured commands, so
+   n2 can schedule and track each tool invocation independently.
 
 A package needs all its transitive dependencies' interface files to be built
 before running `BuildPackage` for any of its build targets.
@@ -326,6 +333,7 @@ The following is a table
 | `BuildPackage(BuildTarget)`     | `moonc build-package`       | `.mi`, `.core`        | same as above                              | Build the target                               |
 | `LinkCore(BuildTarget)`         | `moonc link-core`           | backend-specific      | `.core` of all transitive deps             | Links all transitive deps into output          |
 | `MakeExecutable(BuildTarget)`   | C compiler                  | executable            | `LinkCore` outputs, C stubs, runtime       | Compiles/links the final executable (optional) |
+| `GenerateDsym(BuildTarget)`     | `dsymutil`                  | `.dSYM` bundle        | executable                                 | Generates macOS debug symbols (optional)       |
 | `BuildCStub(PackageId, int)`    | C compiler                  | object file           | N/A                                        | Builds a single C stub file                    |
 | `ArchiveOrLinkCStub(PackageId)` | C compiler                  | archive file          | `BuildCStub` outputs                       | Collect C stub output                          |
 | `BuildRuntimeObject(int)`       | C compiler                  | object file           | N/A                                        | Builds one runtime translation unit            |

@@ -115,6 +115,7 @@ pub enum BuildAction<'a> {
     BuildCore { target: BuildTarget, info: &'a BuildTargetInfo },
     LinkCore { target: BuildTarget, info: &'a LinkCoreInfo, make_executable_info: Option<&'a MakeExecutableInfo> },
     MakeExecutable { target: BuildTarget, info: Option<&'a MakeExecutableInfo> },
+    GenerateDsym { target: BuildTarget, dsymutil: &'a Path },
     // other action variants carry the same hydrated planning metadata
 }
 ```
@@ -131,6 +132,8 @@ pub enum BuildProduct {
     PackageCoreIr { target: BuildTarget },
     GeneratedTestDriver { target: BuildTarget },
     CStubObject { package: PackageId, index: u32 },
+    Executable { target: BuildTarget },
+    DsymBundle { target: BuildTarget },
     RuntimeObject { index: u32 },
     RuntimeLib,
     PrebuildOutputPath { path: PathBuf },
@@ -218,12 +221,18 @@ each action directly into the n2 adapter as soon as it is lowered; they do not
 retain a second complete graph in memory. The adapter alone registers n2 files,
 constructs `n2::Build`, and reports n2 graph errors.
 
-At this common boundary, a structured command contributes its first argument,
-the concrete executable path, to the action's external file inputs. External
-inputs are sorted and deduplicated before the action reaches n2. This uses the
-original structured arguments even when command transport switches to a
-response file. Verbatim shell commands remain opaque and do not contribute an
-inferred executable.
+Every lowered command retains structured argv. Response files change only the
+transport recorded alongside that argv. At the common lowering boundary, the
+first argument's concrete executable path becomes an external file input.
+External inputs are sorted and deduplicated before the action reaches n2, and
+the original argv remains authoritative when transport switches to a response
+file.
+
+When one build result requires two processes, planning represents them as
+separate actions instead of joining rendered command strings with shell
+operators. For example, macOS debug builds use `MakeExecutable` for the linker
+invocation and a dependent `GenerateDsym` action for `dsymutil`. The latter
+consumes the executable product and produces the `.dSYM` bundle.
 
 This keeps responsibilities separate:
 
@@ -281,6 +290,11 @@ in input action order. The compile layer re-keys those artifacts back to
 `BuildPlanNode` for the existing public `CompileOutput` shape. That keeps
 compatibility above lowering while proving that backend lowering no longer sees
 planning internals.
+
+For a native macOS debug target, the existing `MakeExecutable` root reports the
+executable first and its follow-up `.dSYM` bundle second. Requesting both paths
+causes n2 to run the dependent `GenerateDsym` action without changing the
+caller-visible executable artifact position.
 
 ## Checks
 

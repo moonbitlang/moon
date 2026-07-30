@@ -195,7 +195,8 @@ impl<'a> LoweringContext<'a> {
     }
 
     pub(super) fn output_paths_for_action(&self, action: BuildActionId) -> Vec<PathBuf> {
-        self.plan
+        let mut paths = self
+            .plan
             .output_products(action)
             .into_iter()
             .flat_map(|product| {
@@ -207,7 +208,21 @@ impl<'a> LoweringContext<'a> {
                     self.opt.artifact_path_options(),
                 )
             })
-            .collect()
+            .collect::<Vec<_>>();
+        if let BuildAction::MakeExecutable { target, .. } = self.plan.action(action)
+            && self.plan.generates_dsym_for_target(&target)
+        {
+            paths.push(
+                self.artifact_paths
+                    .target_layout()
+                    .dsym_bundle_of_build_target(
+                        self.packages,
+                        &target,
+                        self.opt.artifact_path_options().executable,
+                    ),
+            );
+        }
+        paths
     }
 
     #[instrument(level = Level::DEBUG, skip(self))]
@@ -254,6 +269,9 @@ impl<'a> LoweringContext<'a> {
             } => self.lower_make_exe(&action_products, target, info),
             BuildAction::MakeExecutable { info: None, .. } => {
                 panic!("native MakeExecutable actions should have executable info")
+            }
+            BuildAction::GenerateDsym { target, dsymutil } => {
+                self.lower_generate_dsym(&action_products, target, dsymutil)
             }
             BuildAction::GenerateTestInfo { target, info } => {
                 self.lower_gen_test_driver(&action_products, target, info)

@@ -31,7 +31,6 @@ pub(super) fn lower(
     let commandline = LoweredCommand::from(args);
     let (executable, response_args) = commandline
         .args()
-        .expect("moonc commands are represented as argv")
         .split_first()
         .expect("moonc command builders always provide an executable");
     if commandline.inline_command().len() < RESPONSE_FILE_THRESHOLD {
@@ -102,7 +101,7 @@ mod tests {
             "x".repeat(RESPONSE_FILE_THRESHOLD),
         ];
         let lowered = lower(long.clone(), output).expect("oversized command should lower");
-        assert_eq!(lowered.args(), Some(long.as_slice()));
+        assert_eq!(lowered.args(), long.as_slice());
         let LoweredCommandExecution::ResponseFile {
             command,
             file: rspfile,
