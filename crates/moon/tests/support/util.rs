@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     io::Write,
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -210,15 +210,8 @@ pub(crate) fn core_package_interfaces(backend: TargetBackend) -> BTreeMap<String
     interfaces
 }
 
-/// Collapse toolchain-owned `core` imports in dry-run commands to one marker.
-///
-/// Single-file builds import every public package in the installed core bundle.
-/// Validate that inventory before collapsing it so toolchain additions do not
-/// expand the snapshot without weakening the behavior under test.
-pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> String {
-    // These snapshots use one logical toolchain root for every installation layout.
-    let s = s.replace("$MOON_TOOLCHAIN_ROOT", "$MOON_HOME");
-    let expected_imports = core_package_interfaces(backend)
+fn core_import_specs(backend: TargetBackend) -> Vec<String> {
+    core_package_interfaces(backend)
         .into_keys()
         .filter(|package| !package.split('/').any(|segment| segment == "internal"))
         .map(|package| {
@@ -230,34 +223,68 @@ pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> Stri
             };
             format!("{package}/{name}.mi:{alias}")
         })
-        .collect::<BTreeSet<_>>();
-    let bundle_marker = format!("/lib/core/_build/{}/release/bundle/", backend.to_dir_name());
-    let command = s.lines().next().expect("missing single-file command");
-    let actual_imports = command
-        .split(" -i '")
-        .skip(1)
-        .filter_map(|import| {
-            import
-                .split_once('\'')
-                .and_then(|(import, _)| import.split_once(&bundle_marker))
-                .map(|(_, import)| import.to_owned())
-        })
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        actual_imports, expected_imports,
-        "single-file command must import every public core package"
+        .collect()
+}
+
+/// Collapse toolchain-owned `core` imports in dry-run commands to one marker.
+///
+/// Single-file builds import every public package in the installed core bundle.
+/// Validate that inventory before collapsing it so toolchain additions do not
+/// expand the snapshot without weakening the behavior under test.
+pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> String {
+    // These snapshots use one logical toolchain root for every installation layout.
+    let s = s.replace("$MOON_TOOLCHAIN_ROOT", "$MOON_HOME");
+    let mut expected_imports = core_import_specs(backend);
+    expected_imports.sort();
+    let bundle_prefix = format!(
+        "$MOON_HOME/lib/core/_build/{}/release/bundle/",
+        backend.to_dir_name()
     );
 
-    let imports_start = s.find(" -i '").expect("missing core imports");
-    let imports_end = imports_start
-        + s[imports_start..]
-            .find(" -pkg-sources")
-            .expect("missing arguments after core imports");
-    format!(
-        "{} -i '$MOON_HOME/lib/core/<imports>'{}",
-        &s[..imports_start],
-        &s[imports_end..]
-    )
+    let mut lines = s.lines();
+    let command = lines.next().expect("missing single-file command");
+    let mut args = shlex::split(command).expect("invalid single-file command");
+    let imports_start = args
+        .iter()
+        .position(|arg| arg == "-i")
+        .expect("missing core imports");
+    let mut imports_end = imports_start;
+    while args.get(imports_end).is_some_and(|arg| arg == "-i") {
+        assert!(
+            args.get(imports_end + 1).is_some(),
+            "missing import after `-i`"
+        );
+        imports_end += 2;
+    }
+
+    let mut actual_imports = args[imports_start..imports_end]
+        .chunks_exact(2)
+        .map(|import| {
+            assert_eq!(import[0], "-i", "unexpected argument among core imports");
+            import[1]
+                .strip_prefix(&bundle_prefix)
+                .expect("unexpected non-core import")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    actual_imports.sort();
+    assert_eq!(
+        actual_imports, expected_imports,
+        "single-file command must import every public core package exactly once"
+    );
+
+    args.splice(
+        imports_start..imports_end,
+        ["-i".to_owned(), "$MOON_HOME/lib/core/<imports>".to_owned()],
+    );
+    let mut output = std::iter::once(moonutil::shlex::join_unix(args.iter().map(String::as_str)))
+        .chain(lines.map(str::to_owned))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if s.ends_with('\n') {
+        output.push('\n');
+    }
+    output
 }
 
 pub(crate) fn copy(src: &Path, dest: &Path) -> anyhow::Result<()> {
@@ -382,8 +409,9 @@ pub(crate) fn run_moon_cmdtest(case_dir: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{assert_command_matches, replace_dir};
+    use super::{assert_command_matches, collapse_core_import_args, replace_dir};
     use expect_test::expect;
+    use moonutil::target::TargetBackend;
 
     #[test]
     fn replace_dir_replaces_forward_slash_root_paths() {
@@ -398,6 +426,32 @@ mod tests {
             replace_dir(&output, dir.path()),
             "moonc check $ROOT/b/hello.mbt -pkg-sources username/b:$ROOT/b -workspace-path $ROOT/b"
         );
+    }
+
+    #[test]
+    fn collapse_core_import_args_rejects_duplicate_and_non_core_imports() {
+        let backend = TargetBackend::WasmGC;
+        let bundle = "$MOON_HOME/lib/core/_build/wasm-gc/release/bundle/";
+        let imports = super::core_import_specs(backend)
+            .into_iter()
+            .map(|import| format!("-i '{bundle}{import}'"))
+            .collect::<Vec<_>>();
+        let command = |extra_import: &str| {
+            format!(
+                "moonc build-package main.mbt {} {extra_import} -pkg-sources moon/test/single:.\n",
+                imports.join(" ")
+            )
+        };
+
+        for extra_import in [imports[0].as_str(), "-i ./local.mi:local"] {
+            assert!(
+                std::panic::catch_unwind(|| {
+                    collapse_core_import_args(&command(extra_import), backend)
+                })
+                .is_err(),
+                "accepted unexpected import: {extra_import}"
+            );
+        }
     }
 
     #[test]
