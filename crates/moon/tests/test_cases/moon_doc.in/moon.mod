@@ -1,0 +1,17 @@
+name = "username/hello"
+
+version = "0.1.0"
+
+readme = "README.md"
+
+repository = ""
+
+license = ""
+
+keywords = []
+
+description = ""
+
+source = "src"
+
+preferred_target = "wasm-gc"
