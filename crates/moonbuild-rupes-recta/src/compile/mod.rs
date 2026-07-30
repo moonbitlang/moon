@@ -406,6 +406,7 @@ mod tests {
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: Vec::new(),
+            c_stub_header_files: Vec::new(),
             virtual_mbti: None,
             is_stdlib: false,
         }

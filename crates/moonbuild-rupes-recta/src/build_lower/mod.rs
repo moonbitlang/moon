@@ -505,6 +505,7 @@ mod tests {
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: vec![PathBuf::from("main/native/stub.c")],
+            c_stub_header_files: vec![PathBuf::from("main/native/stub.h")],
             virtual_mbti: None,
             is_stdlib: false,
         };
@@ -920,6 +921,12 @@ mod tests {
                 .filter(|input| input.as_path() == Path::new(toolchain.cc().cc_path()))
                 .count(),
             1
+        );
+        assert!(
+            compiler_inputs
+                .iter()
+                .any(|input| input == Path::new("main/native/stub.h")),
+            "package-local C headers should be inputs of every C-stub action"
         );
 
         let archiver_inputs = n2_input_paths_for_command(&lowered, |command| {
