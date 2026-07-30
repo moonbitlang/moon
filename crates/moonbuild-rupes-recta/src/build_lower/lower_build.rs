@@ -1189,18 +1189,7 @@ impl<'a> LoweringContext<'a> {
         // - compile the program (if needed)
         // - link with runtime library & artifacts of other C stubs
 
-        let mut sources = self.native_executable_dependency_paths(products, info, true);
-        let cc = info.effective_native_toolchain.cc().clone();
-        let simdutf_objects = if cc.can_use_simdutf() {
-            self.opt
-                .compiler_paths()
-                .simdutf_object_paths()
-                .map(|objects| objects.into_iter().collect::<Vec<_>>())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        sources.extend(simdutf_objects.iter().cloned());
+        let sources = self.native_executable_dependency_paths(products, info, true);
 
         let opt_level = match self.opt.opt_level {
             OptLevel::Release => CCOptLevel::Speed,
@@ -1251,7 +1240,7 @@ impl<'a> LoweringContext<'a> {
         };
 
         BuildCommand {
-            extra_inputs: simdutf_objects,
+            extra_inputs: vec![],
             commandline,
         }
         .with_msvc_env(&info.effective_native_toolchain)
@@ -1263,19 +1252,8 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        let mut sources = self.native_executable_dependency_paths(products, info, true);
-
+        let sources = self.native_executable_dependency_paths(products, info, true);
         let cc = info.effective_native_toolchain.cc().clone();
-        let simdutf_objects = if cc.can_use_simdutf() {
-            self.opt
-                .compiler_paths()
-                .simdutf_object_paths()
-                .map(|objects| objects.into_iter().collect::<Vec<_>>())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        sources.extend(simdutf_objects.iter().cloned());
 
         let dest = products.single_output_path().display().to_string();
 
@@ -1330,7 +1308,7 @@ impl<'a> LoweringContext<'a> {
         };
 
         BuildCommand {
-            extra_inputs: simdutf_objects,
+            extra_inputs: vec![],
             commandline,
         }
         .with_msvc_env(&info.effective_native_toolchain)

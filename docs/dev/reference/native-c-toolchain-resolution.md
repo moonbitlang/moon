@@ -69,7 +69,8 @@ into a shared library so `tcc -run` can load them at runtime.
 The runtime uses the same explicit multi-step shape for ordinary native builds:
 
 1. each shipped `lib/runtime/*.c` translation unit is compiled independently
-2. the runtime objects are archived into one static library
+2. for release builds, supported prebuilt SIMDUTF objects are enabled and
+   archived with the runtime objects into one static library
 3. the final executable links against that runtime library
 
 During the toolchain transition, Moon falls back to the legacy `lib/runtime.c` when the split

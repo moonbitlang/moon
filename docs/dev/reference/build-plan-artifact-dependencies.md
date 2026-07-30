@@ -173,7 +173,9 @@ For example, an archive/link C-stub action no longer scans raw build-plan
 edges in `build_lower`. Its object inputs are exposed by `BuildActionPlan` as
 `(object_action, BuildProduct::CStubObject { ... })` dependencies.
 The runtime archive follows the same contract with `RuntimeObject`
-dependencies and a `RuntimeLib` output.
+dependencies and a `RuntimeLib` output. Optional prebuilt SIMDUTF objects in
+release builds are external file inputs of the archive action because the
+build plan does not produce them.
 
 ## Action Lowering and n2 Adaptation
 

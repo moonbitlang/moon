@@ -23,6 +23,7 @@ use moonutil::{
         ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
         make_archiver_command_resolved, make_cc_command_resolved,
     },
+    cond_expr::OptLevel,
     resolution::{ModuleId, ModuleSourceKind},
     test_metadata::DriverKind,
     toolchain::BINARIES,
@@ -181,7 +182,8 @@ impl<'a> super::LoweringContext<'a> {
                 compiler::msvc::command_env(runtime_toolchain),
             )
         } else {
-            let use_simdutf = resolved_cc.can_use_simdutf()
+            let use_simdutf = self.opt.opt_level == OptLevel::Release
+                && resolved_cc.can_use_simdutf()
                 && self.opt.compiler_paths().simdutf_object_paths().is_some();
 
             (
@@ -275,9 +277,21 @@ impl<'a> super::LoweringContext<'a> {
             .with_msvc_env(&info.effective_native_toolchain);
         }
 
-        let object_files = products.dependency_paths_matching(|product| {
+        let mut object_files = products.dependency_paths_matching(|product| {
             matches!(product, BuildProduct::RuntimeObject { .. })
         });
+        let simdutf_objects = if self.opt.opt_level == OptLevel::Release
+            && info.effective_native_toolchain.cc().can_use_simdutf()
+        {
+            self.opt
+                .compiler_paths()
+                .simdutf_object_paths()
+                .map(|objects| objects.into_iter().collect::<Vec<_>>())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        object_files.extend(simdutf_objects.iter().cloned());
         let config = ArchiverConfigBuilder::default()
             .archive_moonbitrun(false)
             .build()
@@ -294,7 +308,7 @@ impl<'a> super::LoweringContext<'a> {
         );
 
         BuildCommand {
-            extra_inputs: vec![],
+            extra_inputs: simdutf_objects,
             commandline: archiver_cmd.into(),
         }
         .with_msvc_env(&info.effective_native_toolchain)

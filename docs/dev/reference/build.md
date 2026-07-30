@@ -202,9 +202,9 @@ Compiling C stubs of a package involves 3 steps:
 For ordinary native builds, each C translation unit shipped under the
 toolchain's `lib/runtime/` directory is compiled by a `BuildRuntimeObject`
 node. `BuildRuntimeLib` archives those objects into one static library, which
-is shared by every `MakeExecutable` node in the build plan. Toolchains with
-only the legacy `lib/runtime.c` layout remain supported as a one-object
-archive.
+is shared by every `MakeExecutable` node in the build plan. Release builds also
+enable and archive supported prebuilt SIMDUTF objects. Toolchains with only the
+legacy `lib/runtime.c` layout remain supported as a one-object archive.
 
 TCC-run mode instead lowers `BuildRuntimeLib` to one compiler invocation that
 builds a shared runtime library directly from all runtime sources.
@@ -320,7 +320,7 @@ The following is a table
 | `BuildCStub(PackageId, int)`    | C compiler                  | object file           | N/A                                        | Builds a single C stub file                    |
 | `ArchiveOrLinkCStub(PackageId)` | C compiler                  | archive file          | `BuildCStub` outputs                       | Collect C stub output                          |
 | `BuildRuntimeObject(int)`       | C compiler                  | object file           | N/A                                        | Builds one runtime translation unit            |
-| `BuildRuntimeLib`               | archiver or C compiler      | runtime library       | `BuildRuntimeObject` outputs               | Collects the native runtime                    |
+| `BuildRuntimeLib`               | archiver or C compiler      | runtime library       | runtime objects, release SIMDUTF objects    | Collects the native runtime                    |
 | `GenerateMbti(BuildTarget)`     | `mooninfo`                  | `.mbti`               | `.mi`                                      | Get text repr of `.mi`                         |
 | `GenerateTestInfo(BuildTarget)` | `moon generate-test-driver` | test driver, metadata | source files                               | Generate the test driver and metadata          |
 | `BuildVirtual(PackageId)`       | `moonc build-interface`     | `.mi`                 | `.mbti`                                    | Get interface from `.mbti`                     |
