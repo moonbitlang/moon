@@ -30,7 +30,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub use crate::binaries::{BINARIES, CachedBinaries};
+pub use crate::binaries::{BINARIES, CachedBinaries, moon_cram_in};
 pub use crate::moon_dir::{
     MOON_DIRS, MoonDirs, RESERVED_BIN_NAMES, abort_core_in, abort_mi_in, bin, core, core_bundle,
     core_bundle_in, core_core, core_core_in, core_package_mi_in, home, include, is_toolchain_root,
@@ -88,8 +88,60 @@ fn runtime_source_paths_in(lib_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
 /// Build actions can run from a different working directory, so executable
 /// paths crossing the toolchain boundary must be made absolute here.
 pub(crate) fn resolve_executable(tool: impl AsRef<OsStr>) -> anyhow::Result<PathBuf> {
-    let tool = tool.as_ref();
-    resolve_executable_with(tool, |tool| which::which(tool))
+    let current_dir = std::env::current_dir().context("failed to get current directory")?;
+    resolve_executable_in(tool, &current_dir)
+}
+
+/// Resolve an executable as if `current_dir` were the process working
+/// directory.
+///
+/// `which_in` uses `current_dir` for explicit relative paths, but relative
+/// `PATH` entries still need to be anchored before lookup.
+pub fn resolve_executable_in(
+    tool: impl AsRef<OsStr>,
+    current_dir: &Path,
+) -> anyhow::Result<PathBuf> {
+    resolve_executable_in_paths(
+        tool.as_ref(),
+        std::env::var_os("PATH").as_deref(),
+        current_dir,
+    )
+}
+
+fn resolve_executable_in_paths(
+    tool: &OsStr,
+    paths: Option<&OsStr>,
+    current_dir: &Path,
+) -> anyhow::Result<PathBuf> {
+    let current_dir = std::path::absolute(current_dir).with_context(|| {
+        format!(
+            "failed to make command directory `{}` absolute",
+            current_dir.display()
+        )
+    })?;
+    let paths = paths
+        .map(|paths| {
+            std::env::join_paths(std::env::split_paths(paths).map(|path| {
+                // Preserve `which`'s home-directory expansion for PATH entries
+                // whose first component is exactly `~`.
+                if path.is_absolute()
+                    || matches!(
+                        path.components().next(),
+                        Some(std::path::Component::Normal(component)) if component == OsStr::new("~")
+                    )
+                {
+                    path
+                } else {
+                    current_dir.join(path)
+                }
+            }))
+        })
+        .transpose()
+        .context("failed to resolve relative PATH entries")?;
+
+    resolve_executable_with(tool, |tool| {
+        which::which_in(tool, paths.as_deref(), &current_dir)
+    })
 }
 
 fn resolve_executable_with(
@@ -108,7 +160,7 @@ fn resolve_executable_with(
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_executable_with, runtime_source_paths_in};
+    use super::{resolve_executable_in_paths, resolve_executable_with, runtime_source_paths_in};
 
     #[test]
     fn runtime_sources_use_sorted_split_runtime_files() {
@@ -162,6 +214,23 @@ mod tests {
         .expect("resolve fixture executable");
 
         assert_eq!(resolved, fixture.join(executable_name));
+        assert!(resolved.is_absolute());
+    }
+
+    #[test]
+    fn relative_search_path_uses_given_current_directory() {
+        let current_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/native-toolchain");
+        let executable_name = test_executable_name("fake-gcc");
+
+        let resolved = resolve_executable_in_paths(
+            executable_name.as_ref(),
+            Some("bin".as_ref()),
+            &current_dir,
+        )
+        .expect("resolve fixture executable from the given current directory");
+
+        assert_eq!(resolved, current_dir.join("bin").join(executable_name));
         assert!(resolved.is_absolute());
     }
 

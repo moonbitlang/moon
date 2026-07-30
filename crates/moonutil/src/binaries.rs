@@ -37,8 +37,18 @@ fn resolve_executable_override(path: &OsStr) -> PathBuf {
 }
 
 fn moon_executable(binary_name: &str, env_var: &str) -> PathBuf {
+    let current_dir =
+        std::env::current_dir().expect("failed to get current directory for executable resolution");
+    moon_executable_in(binary_name, env_var, &current_dir)
+}
+
+fn moon_executable_in(binary_name: &str, env_var: &str, current_dir: &std::path::Path) -> PathBuf {
     if let Some(path) = std::env::var_os(env_var) {
-        return resolve_executable_override(&path);
+        return crate::toolchain::resolve_executable_in(&path, current_dir).unwrap_or_else(|_| {
+            // Keep unresolved overrides intact so each command preserves its
+            // existing user-facing error path.
+            PathBuf::from(path)
+        });
     }
 
     if binary_name == "moon"
@@ -54,15 +64,17 @@ fn moon_executable(binary_name: &str, env_var: &str) -> PathBuf {
     // Try to find in the resolved toolchain root.
     let in_toolchain = ensure_exe_extension(crate::moon_dir::bin().join(binary_name));
     if in_toolchain.exists() {
-        return crate::toolchain::resolve_executable(&in_toolchain).unwrap_or_else(|error| {
-            panic!(
-                "failed to resolve MoonBit tool `{}`: {error:#}",
-                in_toolchain.display()
-            )
-        });
+        return crate::toolchain::resolve_executable_in(&in_toolchain, current_dir).unwrap_or_else(
+            |error| {
+                panic!(
+                    "failed to resolve MoonBit tool `{}`: {error:#}",
+                    in_toolchain.display()
+                )
+            },
+        );
     }
 
-    if let Ok(in_path) = crate::toolchain::resolve_executable(binary_name) {
+    if let Ok(in_path) = crate::toolchain::resolve_executable_in(binary_name, current_dir) {
         return in_path;
     }
 
@@ -71,6 +83,10 @@ fn moon_executable(binary_name: &str, env_var: &str) -> PathBuf {
          Install the MoonBit toolchain or set `{env_var}` to an explicit path.",
         in_toolchain.display()
     )
+}
+
+pub fn moon_cram_in(current_dir: &std::path::Path) -> PathBuf {
+    moon_executable_in("moon-cram", "MOON_CRAM_OVERRIDE", current_dir)
 }
 
 fn moon_payload(file_name: &str, env_var: &str) -> PathBuf {
