@@ -81,6 +81,10 @@ pub enum BuildAction<'a> {
         module: ModuleId,
         targets: &'a [BuildTarget],
     },
+    BuildRuntimeObject {
+        index: u32,
+        info: &'a BuildRuntimeInfo,
+    },
     BuildRuntimeLib {
         info: &'a BuildRuntimeInfo,
     },

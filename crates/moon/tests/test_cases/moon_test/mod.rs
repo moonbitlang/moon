@@ -99,10 +99,23 @@ fn run_upstream_async_wasm_package(package: &str) -> String {
         .prefix("moon-test-target-")
         .tempdir_in(&build_dir)
         .expect("failed to create async test target dir");
+    let moon = moon_bin();
+    let path = std::env::join_paths(
+        std::iter::once(
+            moon.parent()
+                .expect("test moon binary should have a parent directory")
+                .to_path_buf(),
+        )
+        .chain(std::env::split_paths(
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )),
+    )
+    .expect("failed to put the test moon binary on PATH");
     let output = moon_cmd(&async_dir)
-        .env("MOON_OVERRIDE", moon_bin())
+        .env("MOON_OVERRIDE", &moon)
         .env("MOONRUN_OVERRIDE", &moonrun)
         .env(MOONBIT_ASYNC_CHECK_FD_LEAK, "1")
+        .env("PATH", path)
         .arg("--target-dir")
         .arg(target_dir.path())
         .args([

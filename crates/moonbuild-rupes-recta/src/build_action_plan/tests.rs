@@ -291,3 +291,20 @@ fn c_stub_archive_dependency_exposes_object_inputs() {
         vec![(object_id, BuildProduct::CStubObject { package, index: 0 })]
     );
 }
+
+#[test]
+fn runtime_archive_dependency_exposes_object_inputs() {
+    let archive_node = BuildPlanNode::BuildRuntimeLib;
+    let object_node = BuildPlanNode::BuildRuntimeObject(0);
+    let mut plan = BuildPlan::default();
+    plan.test_add_edge(archive_node, object_node, FileDependencyKind::AllFiles);
+
+    let action_plan = plan.build_action_plan();
+    let archive_id = action_plan.id_for_node(archive_node);
+    let object_id = action_plan.id_for_node(object_node);
+
+    assert_eq!(
+        action_plan.dependency_products(archive_id),
+        vec![(object_id, BuildProduct::RuntimeObject { index: 0 })]
+    );
+}

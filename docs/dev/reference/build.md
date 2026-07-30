@@ -197,6 +197,24 @@ Compiling C stubs of a package involves 3 steps:
 3. For every package that transitively depends on this package with C stubs,
    the archived compilation output is added to the input list of `MakeExecutable`.
 
+### Native runtime
+
+For ordinary native builds, each C translation unit shipped under the
+toolchain's `lib/runtime/` directory is compiled by a `BuildRuntimeObject`
+node. `BuildRuntimeLib` archives those objects into one static library, which
+is shared by every `MakeExecutable` node in the build plan. Release builds also
+enable and archive supported prebuilt SIMDUTF objects. Toolchains with only the
+legacy `lib/runtime.c` layout remain supported as a one-object archive.
+The static runtime archive path includes a fingerprint of its ordered member
+names and layout version. The fingerprint does not include file contents,
+which remain ordinary n2 inputs. Adding, removing, or renaming a runtime
+translation unit, or changing the selected SIMDUTF members, therefore uses a
+new archive path instead of letting an update-style archiver retain a removed
+member.
+
+TCC-run mode instead lowers `BuildRuntimeLib` to one compiler invocation that
+builds a shared runtime library directly from all runtime sources.
+
 ### Reading and writing MBTI interfaces
 
 **A `.mbti` file** is the textural representation of `.mi`.
@@ -304,9 +322,11 @@ The following is a table
 | `Check(BuildTarget)`            | `moonc check`               | `.mi`                 | source files, `.mi` of dependency packages | Typecheck the target                           |
 | `BuildPackage(BuildTarget)`     | `moonc build-package`       | `.mi`, `.core`        | same as above                              | Build the target                               |
 | `LinkCore(BuildTarget)`         | `moonc link-core`           | backend-specific      | `.core` of all transitive deps             | Links all transitive deps into output          |
-| `MakeExecutable(BuildTarget)`   | C compiler                  | executable            | `LinkCore` outputs, C stubs                | Compiles/links the final executable (optional) |
+| `MakeExecutable(BuildTarget)`   | C compiler                  | executable            | `LinkCore` outputs, C stubs, runtime       | Compiles/links the final executable (optional) |
 | `BuildCStub(PackageId, int)`    | C compiler                  | object file           | N/A                                        | Builds a single C stub file                    |
 | `ArchiveOrLinkCStub(PackageId)` | C compiler                  | archive file          | `BuildCStub` outputs                       | Collect C stub output                          |
+| `BuildRuntimeObject(int)`       | C compiler                  | object file           | N/A                                        | Builds one runtime translation unit            |
+| `BuildRuntimeLib`               | archiver or C compiler      | runtime library       | runtime objects, release SIMDUTF objects    | Collects the native runtime                    |
 | `GenerateMbti(BuildTarget)`     | `mooninfo`                  | `.mbti`               | `.mi`                                      | Get text repr of `.mi`                         |
 | `GenerateTestInfo(BuildTarget)` | `moon generate-test-driver` | test driver, metadata | source files                               | Generate the test driver and metadata          |
 | `BuildVirtual(PackageId)`       | `moonc build-interface`     | `.mi`                 | `.mbti`                                    | Get interface from `.mbti`                     |

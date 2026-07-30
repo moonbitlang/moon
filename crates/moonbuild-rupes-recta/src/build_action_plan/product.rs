@@ -62,6 +62,9 @@ pub enum BuildProduct {
     BundleResult {
         module: ModuleId,
     },
+    RuntimeObject {
+        index: u32,
+    },
     RuntimeLib,
     GeneratedMbti {
         target: BuildTarget,

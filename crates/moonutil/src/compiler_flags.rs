@@ -41,12 +41,13 @@ pub enum CCKind {
     Tcc,      // tcc
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ARKind {
-    MsvcLib, // lib.exe
-    GnuAr,   // ar
-    LlvmAr,  // llvm-ar
-    TccAr,   // tcc -ar
+    MsvcLib, // lib.exe or llvm-lib
+    AppleLibtool,
+    GnuAr,  // ar
+    LlvmAr, // llvm-ar
+    TccAr,  // tcc -ar
 }
 
 #[derive(Clone, Debug)]
@@ -423,6 +424,7 @@ impl CC {
     pub fn ar_name(&self) -> &'static str {
         match self.ar_kind {
             ARKind::MsvcLib => "lib.exe",
+            ARKind::AppleLibtool => "libtool",
             ARKind::GnuAr => "ar",
             ARKind::LlvmAr => "llvm-ar",
             ARKind::TccAr => "tcc",
@@ -558,6 +560,50 @@ impl CC {
         CC::resolve_reported_prog_path(&prog)
     }
 
+    fn default_msvc_librarian(cc_path: &Path) -> String {
+        let lib = CC::resolve_tool_path(cc_path, "lib.exe");
+        if Path::new(&lib).is_file() {
+            return lib;
+        }
+
+        let compiler_name = cc_path
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if CC::strip_exe_suffix(&compiler_name).ends_with("clang-cl") {
+            let llvm_lib = CC::resolve_tool_path(cc_path, "llvm-lib.exe");
+            if Path::new(&llvm_lib).is_file() {
+                return llvm_lib;
+            }
+        }
+
+        lib
+    }
+
+    fn with_default_platform_archiver(mut self) -> Self {
+        #[cfg(target_os = "macos")]
+        if self.targets_apple_darwin()
+            && !self.is_tcc()
+            && let Some(libtool) = resolve_apple_libtool_path()
+        {
+            self.ar_kind = ARKind::AppleLibtool;
+            self.ar_path = libtool.display().to_string();
+            return self;
+        }
+
+        if matches!(self.cc_kind, CCKind::Clang)
+            && self.targets_msvc()
+            && let Some(llvm_lib) =
+                CC::probe_existing_prog_name(Path::new(&self.cc_path), "llvm-lib")
+        {
+            self.ar_kind = ARKind::MsvcLib;
+            self.ar_path = llvm_lib;
+        }
+
+        self
+    }
+
     fn is_llvm_ar_name(ar_name_or_path: &str) -> bool {
         let file_name = Path::new(ar_name_or_path)
             .file_name()
@@ -566,26 +612,55 @@ impl CC {
             .to_ascii_lowercase();
         CC::strip_exe_suffix(&file_name) == "llvm-ar"
     }
+
+    fn is_msvc_librarian_name(ar_name_or_path: &str) -> bool {
+        let file_name = Path::new(ar_name_or_path)
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or(ar_name_or_path)
+            .to_ascii_lowercase();
+        matches!(CC::strip_exe_suffix(&file_name), "lib" | "llvm-lib")
+    }
+
+    fn is_apple_libtool_name(ar_name_or_path: &str) -> bool {
+        let file_name = Path::new(ar_name_or_path)
+            .file_name()
+            .and_then(OsStr::to_str)
+            .unwrap_or(ar_name_or_path)
+            .to_ascii_lowercase();
+        CC::strip_exe_suffix(&file_name) == "libtool"
+    }
+
+    fn classify_gcc_like_archiver(ar_name_or_path: &str, target_triple: Option<&str>) -> ARKind {
+        if target_triple.is_some_and(|target| target.contains("msvc"))
+            && CC::is_msvc_librarian_name(ar_name_or_path)
+        {
+            ARKind::MsvcLib
+        } else if target_triple.is_some_and(|target| target.contains("apple-darwin"))
+            && CC::is_apple_libtool_name(ar_name_or_path)
+        {
+            ARKind::AppleLibtool
+        } else if CC::is_llvm_ar_name(ar_name_or_path) {
+            ARKind::LlvmAr
+        } else {
+            ARKind::GnuAr
+        }
+    }
+
     pub fn try_from_cc_path_and_kind(
         ar_name: &str,
         cc_path: &Path,
         cc_kind: CCKind,
     ) -> anyhow::Result<Self> {
+        let target_triple = CC::probe_target_triple(cc_path, cc_kind);
         let (ar_kind, ar_path) = match cc_kind {
-            CCKind::Msvc => (ARKind::MsvcLib, CC::resolve_tool_path(cc_path, "lib.exe")),
-            CCKind::SystemCC => (ARKind::GnuAr, CC::resolve_tool_path(cc_path, ar_name)),
-            CCKind::Gcc => (ARKind::GnuAr, CC::resolve_tool_path(cc_path, ar_name)),
-            CCKind::Clang => {
-                let ar_kind = if CC::is_llvm_ar_name(ar_name) {
-                    ARKind::LlvmAr
-                } else {
-                    ARKind::GnuAr
-                };
-                (ar_kind, CC::resolve_tool_path(cc_path, ar_name))
-            }
+            CCKind::Msvc => (ARKind::MsvcLib, CC::default_msvc_librarian(cc_path)),
+            CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => (
+                CC::classify_gcc_like_archiver(ar_name, target_triple.as_deref()),
+                CC::resolve_tool_path(cc_path, ar_name),
+            ),
             CCKind::Tcc => (ARKind::TccAr, cc_path.display().to_string()),
         };
-        let target_triple = CC::probe_target_triple(cc_path, cc_kind);
         Ok(CC::new(
             cc_kind,
             cc_path.display().to_string(),
@@ -623,7 +698,7 @@ impl CC {
         let stem = CC::strip_exe_suffix(&name_lower);
         let replaced_ar =
             |s: &str| CC::replace_compiler_suffix(&name, s, "ar").unwrap_or_else(|| "ar".into());
-        if stem.ends_with("cl") {
+        let cc = if stem.ends_with("cl") {
             CC::try_from_cc_path_and_kind("lib.exe", &path, CCKind::Msvc)
         } else if stem.ends_with("gcc") {
             CC::try_from_cc_path_and_kind(&replaced_ar("gcc"), &path, CCKind::Gcc)
@@ -642,7 +717,8 @@ impl CC {
         } else {
             // assume it's a system cc
             CC::try_from_cc_path_and_kind("ar", &path, CCKind::SystemCC)
-        }
+        }?;
+        Ok(cc.with_default_platform_archiver())
     }
 
     fn try_from_detected_path(cc_path: &Path, cc_kind: CCKind) -> anyhow::Result<Self> {
@@ -658,6 +734,7 @@ impl CC {
             CCKind::SystemCC | CCKind::Gcc | CCKind::Clang => "ar",
         };
         CC::try_from_cc_path_and_kind(ar_name, cc_path, cc_kind)
+            .map(CC::with_default_platform_archiver)
     }
 
     pub fn is_gcc_like(&self) -> bool {
@@ -696,7 +773,7 @@ impl CC {
     }
 
     pub fn can_use_simdutf(&self) -> bool {
-        CAN_USE_SIMDUTF && !self.is_tcc()
+        CAN_USE_SIMDUTF && !self.is_tcc() && !self.is_msvc() && !self.targets_msvc()
     }
 
     pub fn is_libmoonbitrun_o_available(&self) -> bool {
@@ -966,22 +1043,28 @@ impl CompilerPaths {
 
 // Helper functions for archiver command building
 fn add_archiver_flags(cc: &CC, buf: &mut Vec<String>, dest: &str) {
-    if cc.is_msvc() {
-        buf.push("/nologo".to_string());
-        buf.push(format!("/Out:{dest}"));
-    } else if cc.is_tcc() {
-        // tcc don't have separate ar command
-        // just use tcc -ar
-        buf.push("-ar".to_string());
-        buf.push("rcs".to_string());
-        buf.push(dest.to_string());
-    } else if cc.is_full_featured_gcc_like() {
-        buf.push("-r".to_string());
-        buf.push("-c".to_string());
-        buf.push("-s".to_string());
-        buf.push(dest.to_string());
-    } else {
-        panic!("Unsupported archiver");
+    match cc.ar_kind {
+        ARKind::MsvcLib => {
+            buf.push("/nologo".to_string());
+            buf.push(format!("/Out:{dest}"));
+        }
+        ARKind::AppleLibtool => {
+            buf.push("-static".to_string());
+            buf.push("-o".to_string());
+            buf.push(dest.to_string());
+        }
+        ARKind::GnuAr | ARKind::LlvmAr => {
+            buf.push("-r".to_string());
+            buf.push("-c".to_string());
+            buf.push("-s".to_string());
+            buf.push(dest.to_string());
+        }
+        ARKind::TccAr => {
+            // tcc doesn't have a separate archiver command.
+            buf.push("-ar".to_string());
+            buf.push("rcs".to_string());
+            buf.push(dest.to_string());
+        }
     }
 }
 
@@ -1257,6 +1340,21 @@ fn add_cc_output_flags(cc: &CC, buf: &mut Vec<String>, config: &CCConfig, dest: 
         buf.push("-o".to_string());
         buf.push(dest.to_string());
     }
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_apple_libtool_path() -> Option<PathBuf> {
+    let output = Command::new("xcrun")
+        .args(["--find", "libtool"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let libtool = String::from_utf8_lossy(&output.stdout);
+    let libtool = PathBuf::from(libtool.lines().next()?.trim());
+    libtool.is_file().then_some(libtool)
 }
 
 #[cfg(target_os = "macos")]
@@ -1768,6 +1866,32 @@ mod tests {
         assert!(!fake_cc(CCKind::Gcc, None).targets_msvc());
     }
 
+    #[test]
+    fn explicit_archiver_names_follow_the_target_abi() {
+        assert_eq!(
+            CC::classify_gcc_like_archiver(
+                "C:/LLVM/bin/llvm-lib.exe",
+                Some("x86_64-pc-windows-msvc")
+            ),
+            ARKind::MsvcLib
+        );
+        assert_eq!(
+            CC::classify_gcc_like_archiver(
+                "/Applications/Xcode.app/usr/bin/libtool",
+                Some("arm64-apple-darwin")
+            ),
+            ARKind::AppleLibtool
+        );
+        assert_eq!(
+            CC::classify_gcc_like_archiver("llvm-ar", Some("x86_64-unknown-linux-gnu")),
+            ARKind::LlvmAr
+        );
+        assert_eq!(
+            CC::classify_gcc_like_archiver("ar", Some("x86_64-unknown-linux-gnu")),
+            ARKind::GnuAr
+        );
+    }
+
     #[cfg(windows)]
     #[test]
     fn windows_msvc_host_target_triple_matches_supported_64_bit_arch() {
@@ -2023,6 +2147,59 @@ mod tests {
     }
 
     #[test]
+    fn clang_cl_uses_sibling_llvm_lib_when_lib_is_absent() {
+        let dir = tempfile::tempdir().expect("create temporary tool directory");
+        let clang_cl = dir.path().join("clang-cl.exe");
+        let llvm_lib = dir.path().join("llvm-lib.exe");
+        std::fs::write(&clang_cl, []).expect("create fake clang-cl");
+        std::fs::write(&llvm_lib, []).expect("create fake llvm-lib");
+
+        let cc = CC::try_from_path(&clang_cl.display().to_string()).expect("parse clang-cl");
+
+        assert_eq!(cc.ar_kind, ARKind::MsvcLib);
+        assert_eq!(Path::new(&cc.ar_path), llvm_lib);
+    }
+
+    #[test]
+    fn archiver_flags_follow_the_resolved_archiver_kind() {
+        let paths = CompilerPaths {
+            include_path: "include".to_string(),
+            lib_path: "lib".to_string(),
+        };
+        let mut apple_cc = fake_cc(CCKind::Clang, Some("arm64-apple-darwin"));
+        apple_cc.ar_kind = ARKind::AppleLibtool;
+        apple_cc.ar_path = "libtool".to_string();
+        assert_eq!(
+            make_archiver_command_resolved(
+                apple_cc,
+                ArchiverConfig {
+                    archive_moonbitrun: false,
+                },
+                &["runtime.o"],
+                "runtime.a",
+                &paths,
+            ),
+            ["libtool", "-static", "-o", "runtime.a", "runtime.o"].map(str::to_string)
+        );
+
+        let mut clang_msvc = fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc"));
+        clang_msvc.ar_kind = ARKind::MsvcLib;
+        clang_msvc.ar_path = "llvm-lib.exe".to_string();
+        assert_eq!(
+            make_archiver_command_resolved(
+                clang_msvc,
+                ArchiverConfig {
+                    archive_moonbitrun: false,
+                },
+                &["runtime.obj"],
+                "runtime.lib",
+                &paths,
+            ),
+            ["llvm-lib.exe", "/nologo", "/Out:runtime.lib", "runtime.obj"].map(str::to_string)
+        );
+    }
+
+    #[test]
     fn msvc_toolchain_adds_mt_to_cc_command() {
         let mut cc = fake_cc(CCKind::Msvc, None);
         cc.cc_path = "cl.exe".to_string();
@@ -2175,6 +2352,8 @@ mod tests {
             CAN_USE_SIMDUTF
         );
         assert!(!fake_cc(CCKind::Tcc, Some("x86_64-unknown-linux-gnu")).can_use_simdutf());
+        assert!(!fake_cc(CCKind::Msvc, None).can_use_simdutf());
+        assert!(!fake_cc(CCKind::Clang, Some("x86_64-pc-windows-msvc")).can_use_simdutf());
     }
 
     #[test]
@@ -2445,6 +2624,24 @@ mod tests {
         };
 
         let cc = CC::try_from_path(clang_path_str).expect("parse real clang path");
+        if cc.targets_msvc() {
+            assert_eq!(cc.ar_kind, ARKind::MsvcLib);
+            assert_eq!(
+                cc.ar_path,
+                CC::probe_existing_prog_name(&clang_path, "llvm-lib")
+                    .expect("resolve Clang-reported llvm-lib")
+            );
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        if cc.targets_apple_darwin() {
+            assert_eq!(cc.ar_kind, ARKind::AppleLibtool);
+            assert_eq!(
+                Path::new(&cc.ar_path),
+                resolve_apple_libtool_path().expect("resolve Apple libtool")
+            );
+            return;
+        }
         assert_eq!(cc.ar_path, CC::resolve_tool_path(&clang_path, &reported_ar));
     }
 

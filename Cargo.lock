@@ -1694,6 +1694,7 @@ dependencies = [
  "regex",
  "relative-path",
  "serde",
+ "sha2",
  "shlex",
  "slotmap",
  "thiserror 1.0.63",

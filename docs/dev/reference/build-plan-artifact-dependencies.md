@@ -131,6 +131,8 @@ pub enum BuildProduct {
     PackageCoreIr { target: BuildTarget },
     GeneratedTestDriver { target: BuildTarget },
     CStubObject { package: PackageId, index: u32 },
+    RuntimeObject { index: u32 },
+    RuntimeLib,
     PrebuildOutputPath { path: PathBuf },
     // other logical outputs
 }
@@ -170,6 +172,13 @@ pub fn dependency_products(&self, id: BuildActionId) -> Vec<(BuildActionId, Buil
 For example, an archive/link C-stub action no longer scans raw build-plan
 edges in `build_lower`. Its object inputs are exposed by `BuildActionPlan` as
 `(object_action, BuildProduct::CStubObject { ... })` dependencies.
+The runtime archive follows the same contract with `RuntimeObject`
+dependencies and a `RuntimeLib` output. Optional prebuilt SIMDUTF objects in
+release builds are selected during planning and become external file inputs of
+the archive action because the build plan does not produce them. Planning also
+computes the runtime archive's member-list fingerprint once; product
+realization uses it in the static archive path, so consumers do not recalculate
+the fingerprint.
 
 ## Action Lowering and n2 Adaptation
 
@@ -226,7 +235,8 @@ disjoint n2 graphs.
 
 All actions owned by packages other than the synthesized script package seed
 the dependency projection. Following their producer edges to a fixed point
-also includes package-less shared prerequisites such as `BuildRuntimeLib`.
+also includes package-less shared prerequisites such as `BuildRuntimeLib` and
+its `BuildRuntimeObject` dependencies.
 Package-less actions needed only by the script stay in the script projection.
 The projection is invalid if dependency preparation reaches a script-owned
 producer.

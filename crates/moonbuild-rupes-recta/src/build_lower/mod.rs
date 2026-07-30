@@ -95,10 +95,6 @@ impl LoweringEnvironment {
         self.compiler_paths
             .get_or_init(CompilerPaths::from_moon_dirs)
     }
-
-    pub fn runtime_dot_c_path(&self) -> PathBuf {
-        PathBuf::from(&self.compiler_paths().lib_path).join("runtime.c")
-    }
 }
 
 /// Knobs to tweak during build. Affects behaviors during lowering.
@@ -134,10 +130,6 @@ impl BuildOptions {
 
     pub fn compiler_paths(&self) -> &CompilerPaths {
         self.lowering_environment.compiler_paths()
-    }
-
-    pub fn runtime_dot_c_path(&self) -> PathBuf {
-        self.lowering_environment.runtime_dot_c_path()
     }
 
     pub fn artifact_path_options(&self) -> ArtifactPathOptions {
@@ -562,6 +554,9 @@ mod tests {
         );
         plan.test_insert_runtime_info(BuildRuntimeInfo {
             effective_native_toolchain: msvc_toolchain(),
+            source_files: vec![PathBuf::from("runtime.c")],
+            simdutf_objects: Vec::new(),
+            static_archive_fingerprint: Some("runtime-test".to_string()),
         });
 
         let action_plan = plan.build_action_plan();
@@ -596,6 +591,9 @@ mod tests {
         plan.test_add_edge(script_node, runtime_node, FileDependencyKind::AllFiles);
         plan.test_insert_runtime_info(BuildRuntimeInfo {
             effective_native_toolchain: msvc_toolchain(),
+            source_files: vec![PathBuf::from("runtime.c")],
+            simdutf_objects: Vec::new(),
+            static_archive_fingerprint: Some("runtime-test".to_string()),
         });
 
         let action_plan = plan.build_action_plan();
@@ -640,6 +638,7 @@ mod tests {
     fn lowered_windows_msvc_native_exe_command_contains_complete_link_shape() {
         let (resolve_output, target) = single_package_resolve_output();
         let runtime_node = BuildPlanNode::BuildRuntimeLib;
+        let runtime_object_node = BuildPlanNode::BuildRuntimeObject(0);
         let c_stub_node = BuildPlanNode::BuildCStub(target.package, 0);
         let c_stubs_node = BuildPlanNode::ArchiveOrLinkCStubs(target.package);
         let build_core_node = BuildPlanNode::BuildCore(target);
@@ -649,12 +648,18 @@ mod tests {
 
         let mut plan = BuildPlan::default();
         plan.test_add_node(runtime_node);
+        plan.test_add_node(runtime_object_node);
         plan.test_add_node(c_stub_node);
         plan.test_add_node(c_stubs_node);
         plan.test_add_node(build_core_node);
         plan.test_add_node(link_core_node);
         plan.test_add_node(exe_node);
         plan.test_add_edge(c_stubs_node, c_stub_node, FileDependencyKind::AllFiles);
+        plan.test_add_edge(
+            runtime_node,
+            runtime_object_node,
+            FileDependencyKind::AllFiles,
+        );
         plan.test_add_edge(
             link_core_node,
             build_core_node,
@@ -681,6 +686,9 @@ mod tests {
         );
         plan.test_insert_runtime_info(BuildRuntimeInfo {
             effective_native_toolchain: toolchain.clone(),
+            source_files: vec![PathBuf::from("runtime.c")],
+            simdutf_objects: Vec::new(),
+            static_archive_fingerprint: Some("runtime-test".to_string()),
         });
         plan.test_insert_make_executable_info(
             target,
@@ -746,6 +754,55 @@ mod tests {
         assert!(command_arg_has_normalized_suffix(
             command,
             "username/hello/main/libmain.lib"
+        ));
+        assert!(command_arg_has_normalized_suffix(
+            command,
+            "native/debug/build/libruntime-runtime-test.lib"
+        ));
+        let c_stub_position = command
+            .iter()
+            .position(|arg| {
+                arg.replace('\\', "/")
+                    .ends_with("username/hello/main/libmain.lib")
+            })
+            .expect("C stub archive should be linked");
+        let runtime_position = command
+            .iter()
+            .position(|arg| {
+                arg.replace('\\', "/")
+                    .ends_with("native/debug/build/libruntime-runtime-test.lib")
+            })
+            .expect("runtime archive should be linked");
+        assert!(c_stub_position < runtime_position);
+
+        let runtime_compile_command = lowered
+            .command_args_by_output
+            .values()
+            .find(|command| command_arg_has_normalized_suffix(command, "runtime.c"))
+            .expect("runtime compile command args should be captured");
+        assert!(command_arg_has_normalized_suffix(
+            runtime_compile_command,
+            "native/debug/build/runtime-runtime.obj"
+        ));
+
+        let runtime_archive_command = lowered
+            .command_args_by_output
+            .values()
+            .find(|command| {
+                command.iter().any(|arg| arg == "msvc/bin/lib.exe")
+                    && command_arg_has_normalized_suffix(
+                        command,
+                        "native/debug/build/libruntime-runtime-test.lib",
+                    )
+            })
+            .expect("runtime archive command args should be captured");
+        assert!(command_arg_has_normalized_suffix(
+            runtime_archive_command,
+            "native/debug/build/libruntime-runtime-test.lib"
+        ));
+        assert!(command_arg_has_normalized_suffix(
+            runtime_archive_command,
+            "native/debug/build/runtime-runtime.obj"
         ));
 
         let stub_compile_command = lowered

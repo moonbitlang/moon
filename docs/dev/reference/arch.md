@@ -155,8 +155,11 @@ forward. In particular, `rr_build` chooses `stdlib_path` from `use_std &&
 !is_core`; RR lowering, metadata generation, and `all_pkgs.json` generation
 consume an `ArtifactPathResolver` that composes the selected stdlib path with
 the target layout instead of rediscovering the installed stdlib. Such facts do
-not need to be eager: non-native builds should not resolve native-only
-OS/toolchain details unless a lowering path actually asks for them.
+not need to be eager: non-native builds do not resolve native-only OS/toolchain
+details. Native-oriented compilation resolves compiler paths before planning
+and passes them through the build environment, so planning can select optional
+runtime members such as SIMDUTF objects and lowering can consume the same paths
+without rediscovery.
 
 Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment
@@ -396,7 +399,10 @@ Here are some examples:
 - `BuildVirtual(PackageId)` builds the virtual package interface of the given package
   (build targets don't make sense on virtual packages).
 - `RunPrebuild(PackageId, u32)` runs the prebuild command of a package with the given index.
-- `BuildRuntime` builds a single runtime artifact that is used globally (in this project) for all users who need it.
+- `BuildRuntimeObject(u32)` compiles one shipped runtime C translation unit.
+- `BuildRuntimeLib` collects the runtime objects into the single runtime
+  library used globally by all consumers in the project. TCC-run lowers this
+  node directly from all runtime sources instead.
 
 The full list of build plan nodes are available in [its module](/crates/moonbuild-rupes-recta/src/model.rs).
 

@@ -1018,14 +1018,13 @@ impl<'a> LoweringContext<'a> {
             .archive_moonbitrun(false)
             .build()
             .expect("Failed to build archiver configuration");
-
         let cc = info.effective_native_toolchain.cc().clone();
-        let archiver_cmd = make_archiver_command_resolved(
+        let commandline = make_archiver_command_resolved(
             cc,
             config,
             &object_files
                 .iter()
-                .map(|s| s.to_string_lossy())
+                .map(|object| object.to_string_lossy())
                 .collect::<Vec<_>>(),
             &archive.display().to_string(),
             self.opt.compiler_paths(),
@@ -1033,7 +1032,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: archiver_cmd.into(),
+            commandline: commandline.into(),
         }
         .with_msvc_env(&info.effective_native_toolchain)
     }
@@ -1155,23 +1154,33 @@ impl<'a> LoweringContext<'a> {
     ) -> Vec<PathBuf> {
         let mut sources = Vec::new();
 
-        // Preserve the legacy linker order: linked core, runtime, then C stubs.
-        // Static library order can affect symbol resolution on Unix linkers.
+        // Runtime is a static archive for regular builds, so place it after the
+        // linked core and C stub archives that may introduce runtime symbols.
+        // TCC-run uses a shared runtime and keeps the legacy runtime-first order.
         if include_linked_core {
             sources.extend(products.dependency_paths_matching(|product| {
                 matches!(product, BuildProduct::LinkedCore { .. })
             }));
+        } else {
+            sources.extend(
+                products.dependency_paths_matching(|product| {
+                    matches!(product, BuildProduct::RuntimeLib)
+                }),
+            );
         }
-
-        sources.extend(
-            products
-                .dependency_paths_matching(|product| matches!(product, BuildProduct::RuntimeLib)),
-        );
 
         for package in &info.link_c_stubs {
             sources.extend(products.dependency_paths_matching(|product| {
                 matches!(product, BuildProduct::CStubLibrary { package: actual, .. } if actual == package)
             }));
+        }
+
+        if include_linked_core {
+            sources.extend(
+                products.dependency_paths_matching(|product| {
+                    matches!(product, BuildProduct::RuntimeLib)
+                }),
+            );
         }
 
         sources
@@ -1189,18 +1198,7 @@ impl<'a> LoweringContext<'a> {
         // - compile the program (if needed)
         // - link with runtime library & artifacts of other C stubs
 
-        let mut sources = self.native_executable_dependency_paths(products, info, true);
-        let cc = info.effective_native_toolchain.cc().clone();
-        let simdutf_objects = if cc.can_use_simdutf() {
-            self.opt
-                .compiler_paths()
-                .simdutf_object_paths()
-                .map(|objects| objects.into_iter().collect::<Vec<_>>())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        sources.extend(simdutf_objects.iter().cloned());
+        let sources = self.native_executable_dependency_paths(products, info, true);
 
         let opt_level = match self.opt.opt_level {
             OptLevel::Release => CCOptLevel::Speed,
@@ -1251,7 +1249,7 @@ impl<'a> LoweringContext<'a> {
         };
 
         BuildCommand {
-            extra_inputs: simdutf_objects,
+            extra_inputs: vec![],
             commandline,
         }
         .with_msvc_env(&info.effective_native_toolchain)
@@ -1263,19 +1261,8 @@ impl<'a> LoweringContext<'a> {
         target: BuildTarget,
         info: &MakeExecutableInfo,
     ) -> BuildCommand {
-        let mut sources = self.native_executable_dependency_paths(products, info, true);
-
+        let sources = self.native_executable_dependency_paths(products, info, true);
         let cc = info.effective_native_toolchain.cc().clone();
-        let simdutf_objects = if cc.can_use_simdutf() {
-            self.opt
-                .compiler_paths()
-                .simdutf_object_paths()
-                .map(|objects| objects.into_iter().collect::<Vec<_>>())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        sources.extend(simdutf_objects.iter().cloned());
 
         let dest = products.single_output_path().display().to_string();
 
@@ -1330,7 +1317,7 @@ impl<'a> LoweringContext<'a> {
         };
 
         BuildCommand {
-            extra_inputs: simdutf_objects,
+            extra_inputs: vec![],
             commandline,
         }
         .with_msvc_env(&info.effective_native_toolchain)

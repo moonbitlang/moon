@@ -20,8 +20,8 @@
 
 use moonutil::{
     compiler_flags::{
-        CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
-        make_cc_command_resolved,
+        ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
+        make_archiver_command_resolved, make_cc_command_resolved,
     },
     resolution::{ModuleId, ModuleSourceKind},
     test_metadata::DriverKind,
@@ -155,22 +155,16 @@ impl<'a> super::LoweringContext<'a> {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products))]
-    pub(super) fn lower_compile_runtime(
+    pub(super) fn lower_compile_runtime_object(
         &mut self,
         products: &ActionProducts,
+        index: u32,
         info: &BuildRuntimeInfo,
     ) -> BuildCommand {
-        let artifact_path = products
-            .single_output_path_matching(|product| matches!(product, BuildProduct::RuntimeLib));
-
-        let runtime_c_path = self.opt.runtime_dot_c_path();
-
-        let use_shared_runtime = self.opt.backend.uses_shared_runtime();
-        let (output_ty, link_moonbitrun) = if use_shared_runtime {
-            (CCOutputType::SharedLib, false)
-        } else {
-            (CCOutputType::Object, true)
-        };
+        let artifact_path = products.single_output_path_matching(|product| {
+            matches!(product, BuildProduct::RuntimeObject { .. })
+        });
+        let source = &info.source_files[index as usize];
 
         let runtime_toolchain = &info.effective_native_toolchain;
         let resolved_cc = runtime_toolchain.cc().clone();
@@ -178,7 +172,7 @@ impl<'a> super::LoweringContext<'a> {
             (
                 compiler::msvc::compile_runtime_command(
                     runtime_toolchain,
-                    &runtime_c_path,
+                    source,
                     &artifact_path,
                     &self.opt.compiler_paths().include_path,
                     crt,
@@ -187,31 +181,24 @@ impl<'a> super::LoweringContext<'a> {
                 compiler::msvc::command_env(runtime_toolchain),
             )
         } else {
-            let use_simdutf = !use_shared_runtime
-                && resolved_cc.can_use_simdutf()
-                && self.opt.compiler_paths().simdutf_object_paths().is_some();
-
             (
                 make_cc_command_resolved(
                     resolved_cc,
                     CCConfigBuilder::default()
                         .no_sys_header(true)
-                        .output_ty(output_ty)
+                        .output_ty(CCOutputType::Object)
                         .opt_level(CCOptLevel::Speed)
                         .debug_info(true)
                         .allow_stacktrace(
                             self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
                         )
-                        .define_tinyc_macro(use_shared_runtime)
-                        .preserve_frame_pointer(use_shared_runtime)
-                        .link_moonbitrun(link_moonbitrun)
-                        .link_libbacktrace(output_ty == CCOutputType::SharedLib)
+                        .link_moonbitrun(true)
                         .define_use_shared_runtime_macro(false)
-                        .use_simdutf(use_simdutf)
+                        .use_simdutf(!info.simdutf_objects.is_empty())
                         .build()
                         .expect("Failed to build CC configuration for runtime"),
                     &[] as &[&str],
-                    [runtime_c_path.display().to_string()],
+                    [source.display().to_string()],
                     &self
                         .artifact_paths
                         .target_layout()
@@ -227,10 +214,89 @@ impl<'a> super::LoweringContext<'a> {
         };
 
         BuildCommand {
-            extra_inputs: vec![runtime_c_path],
+            extra_inputs: vec![source.clone()],
             commandline: cc_cmd,
         }
         .with_env(command_env)
+    }
+
+    #[instrument(level = Level::DEBUG, skip(self, products, info))]
+    pub(super) fn lower_build_runtime_lib(
+        &mut self,
+        products: &ActionProducts,
+        info: &BuildRuntimeInfo,
+    ) -> BuildCommand {
+        let artifact_path = products
+            .single_output_path_matching(|product| matches!(product, BuildProduct::RuntimeLib));
+
+        if self.opt.backend.uses_shared_runtime() {
+            let resolved_cc = info.effective_native_toolchain.cc().clone();
+            let sources = info
+                .source_files
+                .iter()
+                .map(|source| source.display().to_string())
+                .collect::<Vec<_>>();
+            let cc_cmd = make_cc_command_resolved(
+                resolved_cc,
+                CCConfigBuilder::default()
+                    .no_sys_header(true)
+                    .output_ty(CCOutputType::SharedLib)
+                    .opt_level(CCOptLevel::Speed)
+                    .debug_info(true)
+                    .allow_stacktrace(
+                        self.opt.debug_symbols && self.opt.os() != OperatingSystem::Windows,
+                    )
+                    .define_tinyc_macro(true)
+                    .preserve_frame_pointer(true)
+                    .link_moonbitrun(false)
+                    .link_libbacktrace(true)
+                    .define_use_shared_runtime_macro(false)
+                    .build()
+                    .expect("Failed to build CC configuration for shared runtime"),
+                &[] as &[&str],
+                &sources,
+                &self
+                    .artifact_paths
+                    .target_layout()
+                    .runtime_output_dir(self.opt.target_backend())
+                    .display()
+                    .to_string(),
+                Some(&artifact_path.display().to_string()),
+                self.opt.compiler_paths(),
+            );
+
+            return BuildCommand {
+                extra_inputs: info.source_files.clone(),
+                commandline: cc_cmd.into(),
+            }
+            .with_msvc_env(&info.effective_native_toolchain);
+        }
+
+        let mut object_files = products.dependency_paths_matching(|product| {
+            matches!(product, BuildProduct::RuntimeObject { .. })
+        });
+        object_files.extend(info.simdutf_objects.iter().cloned());
+        let config = ArchiverConfigBuilder::default()
+            .archive_moonbitrun(false)
+            .build()
+            .expect("Failed to build archiver configuration");
+        let member_args = object_files
+            .iter()
+            .map(|member| member.to_string_lossy())
+            .collect::<Vec<_>>();
+        let commandline = make_archiver_command_resolved(
+            info.effective_native_toolchain.cc().clone(),
+            config,
+            &member_args,
+            &artifact_path.display().to_string(),
+            self.opt.compiler_paths(),
+        );
+
+        BuildCommand {
+            extra_inputs: info.simdutf_objects.clone(),
+            commandline: commandline.into(),
+        }
+        .with_msvc_env(&info.effective_native_toolchain)
     }
 
     #[instrument(level = Level::DEBUG, skip(self, products))]

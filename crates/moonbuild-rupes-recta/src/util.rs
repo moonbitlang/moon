@@ -194,6 +194,9 @@ impl BuildPlanNode {
             BuildPlanNode::RunPrebuild(target, index) => {
                 format!("{:?}@RunPrebuild_{}", target, index)
             }
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                format!("BuildRuntimeObject_{index}")
+            }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs(module_id) => format!("{:?}@BuildDocs", module_id),
             BuildPlanNode::BuildVirtual(target) => format!("{:?}@BuildVirtual", target),
@@ -256,6 +259,9 @@ impl BuildPlanNode {
                 let fqn = packages.fqn(*target);
                 format!("{}\\nRunPrebuild_{}", fqn, index)
             }
+            BuildPlanNode::BuildRuntimeObject(index) => {
+                format!("BuildRuntimeObject_{index}")
+            }
             BuildPlanNode::BuildRuntimeLib => "BuildRuntimeLib".to_string(),
             BuildPlanNode::BuildDocs(module_id) => {
                 let src = env.module_source(*module_id);
@@ -290,6 +296,7 @@ impl BuildPlanNode {
             BuildPlanNode::Bundle(_) => "wheat",
             BuildPlanNode::GenerateMbti(_) => "lightcyan",
             BuildPlanNode::RunPrebuild(_, _) => "khaki",
+            BuildPlanNode::BuildRuntimeObject(_) => "orange",
             BuildPlanNode::BuildRuntimeLib => "orange",
             BuildPlanNode::BuildDocs(_) => "lavender",
             BuildPlanNode::BuildVirtual(_) => "lightsteelblue",
