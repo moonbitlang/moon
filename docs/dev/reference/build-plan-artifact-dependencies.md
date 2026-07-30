@@ -218,6 +218,13 @@ each action directly into the n2 adapter as soon as it is lowered; they do not
 retain a second complete graph in memory. The adapter alone registers n2 files,
 constructs `n2::Build`, and reports n2 graph errors.
 
+At this common boundary, a structured command contributes its first argument,
+the concrete executable path, to the action's external file inputs. External
+inputs are sorted and deduplicated before the action reaches n2. This uses the
+original structured arguments even when command transport switches to a
+response file. Verbatim shell commands remain opaque and do not contribute an
+inferred executable.
+
 This keeps responsibilities separate:
 
 - `BuildPlan` owns graph edges, coalescing, and planning-only terminology.

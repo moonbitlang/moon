@@ -18,7 +18,7 @@
 
 //! Concrete action data produced before n2 file registration.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use moonutil::compiler_flags::Toolchain;
 
@@ -126,6 +126,13 @@ impl LoweredCommand {
         self
     }
 
+    fn executable(&self) -> Option<&Path> {
+        match &self.kind {
+            LoweredCommandKind::Args(args) => args.first().map(Path::new),
+            LoweredCommandKind::Verbatim => None,
+        }
+    }
+
     pub fn args(&self) -> Option<&[String]> {
         match &self.kind {
             LoweredCommandKind::Args(args) => Some(args),
@@ -210,6 +217,36 @@ pub(super) struct BuildCommand {
 }
 
 impl BuildCommand {
+    /// Finish the common action-lowering boundary.
+    ///
+    /// Structured commands carry a concrete executable as `argv[0]`. Keep that
+    /// tool file alongside the action's other external inputs so n2 can
+    /// invalidate the action when the executable changes in place. If a
+    /// dependency product already provides that path, omit the external copy.
+    pub(super) fn into_lowered_parts(
+        self,
+        dependencies: &[LoweredProduct],
+    ) -> (LoweredCommand, Vec<PathBuf>) {
+        let Self {
+            mut extra_inputs,
+            commandline,
+        } = self;
+        if let Some(executable) = commandline.executable() {
+            let is_dependency = dependencies
+                .iter()
+                .flat_map(|product| &product.paths)
+                .any(|path| path == executable);
+            if is_dependency {
+                extra_inputs.retain(|path| path != executable);
+            } else {
+                extra_inputs.push(executable.to_owned());
+            }
+        }
+        extra_inputs.sort();
+        extra_inputs.dedup();
+        (commandline, extra_inputs)
+    }
+
     pub(super) fn with_cwd(mut self, cwd: PathBuf) -> Self {
         self.commandline = self.commandline.with_cwd(cwd);
         self
@@ -222,5 +259,57 @@ impl BuildCommand {
 
     pub(super) fn with_msvc_env(self, toolchain: &Toolchain) -> Self {
         self.with_env(super::compiler::msvc::command_env(toolchain))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn structured_executable_is_derived_from_original_args_and_inputs_are_canonical() {
+        let executable = PathBuf::from("toolchain/bin/moonc");
+        let commandline = LoweredCommand::from(vec![
+            executable.display().to_string(),
+            "build-package".to_string(),
+        ])
+        .with_response_file(
+            "transported-command @command.rsp".to_string(),
+            LoweredResponseFile {
+                path: PathBuf::from("command.rsp"),
+                content: "build-package".to_string(),
+            },
+        );
+        let (commandline, external_inputs) = BuildCommand {
+            extra_inputs: vec![
+                PathBuf::from("z.mbt"),
+                executable.clone(),
+                PathBuf::from("a.mbt"),
+                executable.clone(),
+            ],
+            commandline,
+        }
+        .into_lowered_parts(&[]);
+
+        assert_eq!(commandline.executable(), Some(executable.as_path()));
+        assert_eq!(
+            external_inputs,
+            vec![PathBuf::from("a.mbt"), executable, PathBuf::from("z.mbt")]
+        );
+    }
+
+    #[test]
+    fn verbatim_command_does_not_derive_an_executable() {
+        let (commandline, external_inputs) = BuildCommand {
+            extra_inputs: vec![PathBuf::from("z"), PathBuf::from("a")],
+            commandline: LoweredCommand::verbatim("tool && other-tool".to_string()),
+        }
+        .into_lowered_parts(&[]);
+
+        assert_eq!(commandline.executable(), None);
+        assert_eq!(
+            external_inputs,
+            vec![PathBuf::from("a"), PathBuf::from("z")]
+        );
     }
 }

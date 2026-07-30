@@ -115,20 +115,46 @@ mod tests {
 
     use crate::{
         build_action_plan::{BuildActionId, BuildProduct},
-        build_lower::{LoweredAction, LoweredCommand, LoweredProduct, LoweredResponseFile},
+        build_lower::{
+            LoweredAction, LoweredCommand, LoweredProduct, LoweredResponseFile,
+            lowered_action::BuildCommand,
+        },
         pkg_name::PackageFQN,
     };
 
     use super::N2GraphBuilder;
 
     #[test]
-    fn preserves_lowered_action_data_in_n2() {
+    fn preserves_lowered_action_data_and_executable_edge_in_n2() {
         let action = BuildActionId(0);
-        let command_args = vec!["moonc".to_string(), "build-package".to_string()];
+        let executable = PathBuf::from("toolchain/bin/moonc");
+        let command_args = vec![
+            executable.display().to_string(),
+            "build-package".to_string(),
+        ];
+        let response_file_command = "toolchain/bin/moonc -rsp-file build/main.core.rsp".to_string();
+        let dependencies = vec![LoweredProduct {
+            producer: action,
+            product: BuildProduct::PrebuildOutputPath {
+                path: executable.clone(),
+            },
+            paths: vec![executable],
+        }];
+        let (command, external_inputs) = BuildCommand {
+            extra_inputs: vec![PathBuf::from("src/main.mbt")],
+            commandline: LoweredCommand::from(command_args.clone()).with_response_file(
+                response_file_command.clone(),
+                LoweredResponseFile {
+                    path: PathBuf::from("build/main.core.rsp"),
+                    content: "build-package\n".to_string(),
+                },
+            ),
+        }
+        .into_lowered_parts(&dependencies);
         let lowered = LoweredAction {
             id: action,
-            dependencies: Vec::new(),
-            external_inputs: vec![PathBuf::from("src/main.mbt")],
+            dependencies,
+            external_inputs,
             outputs: vec![LoweredProduct {
                 producer: action,
                 product: BuildProduct::PrebuildOutputPath {
@@ -136,13 +162,7 @@ mod tests {
                 },
                 paths: vec![PathBuf::from("build/main.core")],
             }],
-            command: LoweredCommand::from(command_args.clone()).with_response_file(
-                "moonc -rsp-file build/main.core.rsp".to_string(),
-                LoweredResponseFile {
-                    path: PathBuf::from("build/main.core.rsp"),
-                    content: "build-package\n".to_string(),
-                },
-            ),
+            command,
             fileloc: "build main".to_string(),
             description: "build main".to_string(),
             can_dirty_on_output: true,
@@ -155,12 +175,21 @@ mod tests {
         let build = &n2.graph.builds[BuildId::from(0)];
         assert_eq!(
             build.cmdline.as_deref(),
-            Some("moonc -rsp-file build/main.core.rsp")
+            Some(response_file_command.as_str())
         );
         let rspfile = build.rspfile.as_ref().expect("response file should remain");
         assert_eq!(rspfile.path, Path::new("build/main.core.rsp"));
         assert_eq!(rspfile.content, "build-package\n");
         assert!(build.can_dirty_on_output);
+        assert_eq!(
+            build
+                .ins
+                .ids
+                .iter()
+                .map(|id| n2.graph.files.by_id[*id].name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["src/main.mbt", "toolchain/bin/moonc"]
+        );
         assert_eq!(
             n2.command_args_by_output.get(Path::new("build/main.core")),
             Some(&command_args)

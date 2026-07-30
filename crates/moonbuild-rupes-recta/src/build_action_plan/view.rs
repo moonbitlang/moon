@@ -304,19 +304,6 @@ impl<'a> BuildActionPlan<'a> {
         )
     }
 
-    pub fn needs_moonc_tool_dep(&self, id: BuildActionId) -> bool {
-        matches!(
-            self.node(id),
-            BuildPlanNode::Check(_)
-                | BuildPlanNode::EmitProof(_)
-                | BuildPlanNode::Prove(_)
-                | BuildPlanNode::BuildCore(_)
-                | BuildPlanNode::LinkCore(_)
-                | BuildPlanNode::BuildVirtual(_)
-                | BuildPlanNode::Bundle(_)
-        )
-    }
-
     pub fn build_plan_node(&self, id: BuildActionId) -> BuildPlanNode {
         self.node(id)
     }

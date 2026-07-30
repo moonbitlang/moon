@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use moonutil::resolution::{DirSyncResult, ResolvedEnv};
 use tracing::{Level, instrument};
 
+use super::{BuildOptions, LoweredAction, LoweredProduct, LoweringError};
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, BuildProduct},
@@ -31,9 +32,6 @@ use crate::{
     pkg_solve::DepRelationship,
     target_layout::ArtifactPathResolver,
 };
-use moonutil::toolchain::BINARIES;
-
-use super::{BuildOptions, LoweredAction, LoweredProduct, LoweringError};
 
 pub(crate) struct LoweringContext<'a> {
     // Physical paths for logical build products.
@@ -283,10 +281,7 @@ impl<'a> LoweringContext<'a> {
             }
         };
 
-        let mut external_inputs = cmd.extra_inputs;
-        if self.plan.needs_moonc_tool_dep(id) {
-            external_inputs.push(BINARIES.moonc.clone());
-        }
+        let (command, external_inputs) = cmd.into_lowered_parts(&action_products.dependencies);
 
         let error_package = self
             .plan
@@ -298,7 +293,7 @@ impl<'a> LoweringContext<'a> {
             dependencies: action_products.dependencies,
             external_inputs,
             outputs: action_products.outputs,
-            command: cmd.commandline,
+            command,
             fileloc: self.plan.fileloc(id, self.modules, self.packages),
             description: self.plan.human_desc(id, self.modules, self.packages),
             can_dirty_on_output: self.plan.can_dirty_on_output(id),
