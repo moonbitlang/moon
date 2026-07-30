@@ -10,7 +10,7 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
     let mut all_pkgs: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(json_path).unwrap()).unwrap();
     let packages = all_pkgs["packages"].as_array_mut().unwrap();
-    let actual_core_packages = packages
+    let mut actual_core_packages = packages
         .iter()
         .filter(|package| package["root"] == "moonbitlang/core")
         .map(|package| {
@@ -19,7 +19,8 @@ fn normalize_all_pkgs_json(dir: &impl AsRef<std::path::Path>, json_path: &Path) 
                 PathBuf::from(package["artifact"].as_str().unwrap()),
             )
         })
-        .collect::<std::collections::BTreeMap<_, _>>();
+        .collect::<Vec<_>>();
+    actual_core_packages.sort();
     assert_eq!(
         actual_core_packages,
         core_package_interfaces(TargetBackend::WasmGC),

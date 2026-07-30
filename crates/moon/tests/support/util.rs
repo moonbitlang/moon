@@ -17,7 +17,6 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use std::{
-    collections::BTreeMap,
     io::Write,
     path::{Path, PathBuf},
     sync::OnceLock,
@@ -177,13 +176,22 @@ pub(crate) fn replace_dir(s: &str, dir: impl AsRef<std::path::Path>) -> String {
     s.replace("\r\n", "\n").replace('\\', "/")
 }
 
-/// Return the installed core package interfaces, keyed by package path.
+fn core_bundle_for_tests(backend: TargetBackend) -> PathBuf {
+    // Match the toolchain root forwarded by `moon_cmd`; the parent process may
+    // have resolved its own toolchain before the test discovers `moonc`.
+    let core_root = std::env::var_os("MOON_CORE_OVERRIDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| toolchain_root_for_tests().join("lib").join("core"));
+    moonutil::toolchain::core_bundle_in(&core_root, backend)
+}
+
+/// Return the installed core package interfaces, ordered by package path.
 ///
 /// Core bundles contain one interface per package at
 /// `<package path>/<last package segment>.mi`.
-pub(crate) fn core_package_interfaces(backend: TargetBackend) -> BTreeMap<String, PathBuf> {
-    let bundle = moonutil::toolchain::core_bundle(backend);
-    let interfaces = walkdir::WalkDir::new(&bundle)
+pub(crate) fn core_package_interfaces(backend: TargetBackend) -> Vec<(String, PathBuf)> {
+    let bundle = core_bundle_for_tests(backend);
+    let mut interfaces = walkdir::WalkDir::new(&bundle)
         .into_iter()
         .map(|entry| entry.unwrap())
         .filter(|entry| {
@@ -201,18 +209,20 @@ pub(crate) fn core_package_interfaces(backend: TargetBackend) -> BTreeMap<String
 
             (package.to_string_lossy().replace('\\', "/"), artifact)
         })
-        .collect::<BTreeMap<_, _>>();
+        .collect::<Vec<_>>();
 
     assert!(
         !interfaces.is_empty(),
         "installed core bundle contains no package interfaces"
     );
+    interfaces.sort();
     interfaces
 }
 
 fn core_import_specs(backend: TargetBackend) -> Vec<String> {
     core_package_interfaces(backend)
-        .into_keys()
+        .into_iter()
+        .map(|(package, _)| package)
         .filter(|package| !package.split('/').any(|segment| segment == "internal"))
         .map(|package| {
             let name = package.rsplit('/').next().unwrap();
@@ -234,12 +244,17 @@ fn core_import_specs(backend: TargetBackend) -> Vec<String> {
 pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> String {
     // These snapshots use one logical toolchain root for every installation layout.
     let s = s.replace("$MOON_TOOLCHAIN_ROOT", "$MOON_HOME");
-    let mut expected_imports = core_import_specs(backend);
-    expected_imports.sort();
-    let bundle_prefix = format!(
-        "$MOON_HOME/lib/core/_build/{}/release/bundle/",
-        backend.to_dir_name()
-    );
+    let expected_imports = core_import_specs(backend);
+    let bundle = core_bundle_for_tests(backend);
+    let mut bundle_prefixes = vec![format!("{}/", bundle.to_string_lossy().replace('\\', "/"))];
+    for root in [moonutil::toolchain::home(), toolchain_root_for_tests()] {
+        if let Ok(relative) = bundle.strip_prefix(root) {
+            bundle_prefixes.push(format!(
+                "$MOON_HOME/{}/",
+                relative.to_string_lossy().replace('\\', "/")
+            ));
+        }
+    }
 
     let mut lines = s.lines();
     let command = lines.next().expect("missing single-file command");
@@ -261,8 +276,9 @@ pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> Stri
         .chunks_exact(2)
         .map(|import| {
             assert_eq!(import[0], "-i", "unexpected argument among core imports");
-            import[1]
-                .strip_prefix(&bundle_prefix)
+            bundle_prefixes
+                .iter()
+                .find_map(|prefix| import[1].strip_prefix(prefix))
                 .expect("unexpected non-core import")
                 .to_owned()
         })
