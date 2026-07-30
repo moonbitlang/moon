@@ -159,15 +159,16 @@ Filename text is preserved when Moon later needs a case-preserving fallback path
 
 ## Archiver Resolution
 
-### MSVC (`cl`)
+### MSVC (`cl` and `clang-cl`)
 
-- Archiver is `lib.exe`.
+- Archiver is `lib.exe`. A path-like `clang-cl` installation falls back to its sibling
+  `llvm-lib.exe` when `lib.exe` is absent.
 - For a bare MSVC override such as `cl.exe`, Moon uses the discovered full paths for both
   `cl.exe` and `lib.exe`. The discovered command environment is attached separately and is not
   relied on to locate either executable.
-- A path-like MSVC override uses the sibling `lib.exe` and does not inherit the environment from
-  a separately discovered toolchain. The configured environment must already support that
-  toolchain.
+- A path-like MSVC override uses its sibling librarian (`lib.exe`, or `llvm-lib.exe` for
+  `clang-cl` when `lib.exe` is absent) and does not inherit the environment from a separately
+  discovered toolchain. The configured environment must already support that toolchain.
 
 ### TCC
 
@@ -196,6 +197,16 @@ Moon validates compiler-reported tools before using them:
 - on Windows, a reported path without `.exe` is also accepted if the corresponding `.exe` exists
 
 This avoids trusting nonexistent `ar` reports on installations where only `llvm-ar` is available.
+
+For a plain Clang driver that targets the MSVC ABI, Moon prefers the compiler-reported
+`llvm-lib` when it is available. This keeps Clang's GCC-style compiler-driver syntax separate from
+the MSVC-style librarian syntax.
+
+### Apple targets
+
+On macOS, a compiler that reports an Apple Darwin target uses the active Apple `libtool` reported
+by `xcrun --find libtool`. Both Xcode and the Command Line Tools provide this tool. An explicit
+`MOON_AR` remains an override for `cc`, `gcc`, and plain `clang`.
 
 ## Toolchain Families and Compatibility
 
@@ -297,9 +308,21 @@ triple does not contain `msvc`.
 
 `make_archiver_command*` uses resolved `ar_path`:
 
-- `lib.exe` for MSVC
-- `ar` or `llvm-ar` for gcc-like toolchains
+- `lib.exe` or `llvm-lib` for MSVC-style librarians
+- `libtool -static` for Apple Darwin targets on macOS
+- `ar` or `llvm-ar` for remaining gcc-like toolchains
 - `tcc -ar` for TCC
+
+`libtool`, `lib.exe`, and `llvm-lib` create an archive from the complete member list passed by
+Moon. GNU- and LLVM-style `ar rcs` normally update an existing archive and retain members that are
+no longer present in the input list. The runtime static archive avoids that update ambiguity by
+including a fingerprint of the ordered member names and layout version in its output path. The
+fingerprint is computed once during build planning. File contents are not hashed; they remain
+ordinary n2 inputs, so content changes update the same archive while membership changes select a
+fresh path. Build lowering then invokes the resolved librarian directly.
+
+This fingerprint is specific to the runtime archive introduced for the split runtime. Existing
+package C-stub archives retain their stable paths and direct librarian invocation.
 
 ## Maintenance Notes
 

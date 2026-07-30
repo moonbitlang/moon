@@ -1018,14 +1018,13 @@ impl<'a> LoweringContext<'a> {
             .archive_moonbitrun(false)
             .build()
             .expect("Failed to build archiver configuration");
-
         let cc = info.effective_native_toolchain.cc().clone();
-        let archiver_cmd = make_archiver_command_resolved(
+        let commandline = make_archiver_command_resolved(
             cc,
             config,
             &object_files
                 .iter()
-                .map(|s| s.to_string_lossy())
+                .map(|object| object.to_string_lossy())
                 .collect::<Vec<_>>(),
             &archive.display().to_string(),
             self.opt.compiler_paths(),
@@ -1033,7 +1032,7 @@ impl<'a> LoweringContext<'a> {
 
         BuildCommand {
             extra_inputs: vec![],
-            commandline: archiver_cmd.into(),
+            commandline: commandline.into(),
         }
         .with_msvc_env(&info.effective_native_toolchain)
     }
@@ -1155,12 +1154,19 @@ impl<'a> LoweringContext<'a> {
     ) -> Vec<PathBuf> {
         let mut sources = Vec::new();
 
-        // Runtime is a static archive, so place it after the linked core and C
-        // stub archives that may introduce references to runtime symbols.
+        // Runtime is a static archive for regular builds, so place it after the
+        // linked core and C stub archives that may introduce runtime symbols.
+        // TCC-run uses a shared runtime and keeps the legacy runtime-first order.
         if include_linked_core {
             sources.extend(products.dependency_paths_matching(|product| {
                 matches!(product, BuildProduct::LinkedCore { .. })
             }));
+        } else {
+            sources.extend(
+                products.dependency_paths_matching(|product| {
+                    matches!(product, BuildProduct::RuntimeLib)
+                }),
+            );
         }
 
         for package in &info.link_c_stubs {
@@ -1169,10 +1175,13 @@ impl<'a> LoweringContext<'a> {
             }));
         }
 
-        sources.extend(
-            products
-                .dependency_paths_matching(|product| matches!(product, BuildProduct::RuntimeLib)),
-        );
+        if include_linked_core {
+            sources.extend(
+                products.dependency_paths_matching(|product| {
+                    matches!(product, BuildProduct::RuntimeLib)
+                }),
+            );
+        }
 
         sources
     }

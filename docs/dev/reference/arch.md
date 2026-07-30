@@ -155,8 +155,11 @@ forward. In particular, `rr_build` chooses `stdlib_path` from `use_std &&
 !is_core`; RR lowering, metadata generation, and `all_pkgs.json` generation
 consume an `ArtifactPathResolver` that composes the selected stdlib path with
 the target layout instead of rediscovering the installed stdlib. Such facts do
-not need to be eager: non-native builds should not resolve native-only
-OS/toolchain details unless a lowering path actually asks for them.
+not need to be eager: non-native builds do not resolve native-only OS/toolchain
+details. Native-oriented compilation resolves compiler paths before planning
+and passes them through the build environment, so planning can select optional
+runtime members such as SIMDUTF objects and lowering can consume the same paths
+without rediscovery.
 
 Prebuild configuration is another environment-sensitive input. When prebuild
 configuration scripts run, `rr_build` captures the process environment

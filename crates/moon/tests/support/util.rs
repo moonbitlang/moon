@@ -54,6 +54,23 @@ pub(crate) fn moonrun_bin() -> PathBuf {
         .clone()
 }
 
+#[cfg(unix)]
+pub(crate) fn normalize_apple_archiver(s: &mut String) {
+    #[cfg(target_os = "macos")]
+    if let Ok(output) = std::process::Command::new("xcrun")
+        .args(["--find", "libtool"])
+        .output()
+        && output.status.success()
+        && let Some(libtool) = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .map(str::trim)
+    {
+        *s = s.replace(libtool, "/usr/bin/libtool");
+    }
+    *s = s.replace("libtool -static -o", "ar -r -c -s");
+}
+
 pub(crate) fn toolchain_root_for_tests() -> PathBuf {
     if let Some(path) = std::env::var_os("MOON_TOOLCHAIN_ROOT") {
         return PathBuf::from(path);

@@ -174,8 +174,11 @@ edges in `build_lower`. Its object inputs are exposed by `BuildActionPlan` as
 `(object_action, BuildProduct::CStubObject { ... })` dependencies.
 The runtime archive follows the same contract with `RuntimeObject`
 dependencies and a `RuntimeLib` output. Optional prebuilt SIMDUTF objects in
-release builds are external file inputs of the archive action because the
-build plan does not produce them.
+release builds are selected during planning and become external file inputs of
+the archive action because the build plan does not produce them. Planning also
+computes the runtime archive's member-list fingerprint once; product
+realization uses it in the static archive path, so consumers do not recalculate
+the fingerprint.
 
 ## Action Lowering and n2 Adaptation
 

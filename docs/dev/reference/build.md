@@ -205,6 +205,12 @@ node. `BuildRuntimeLib` archives those objects into one static library, which
 is shared by every `MakeExecutable` node in the build plan. Release builds also
 enable and archive supported prebuilt SIMDUTF objects. Toolchains with only the
 legacy `lib/runtime.c` layout remain supported as a one-object archive.
+The static runtime archive path includes a fingerprint of its ordered member
+names and layout version. The fingerprint does not include file contents,
+which remain ordinary n2 inputs. Adding, removing, or renaming a runtime
+translation unit, or changing the selected SIMDUTF members, therefore uses a
+new archive path instead of letting an update-style archiver retain a removed
+member.
 
 TCC-run mode instead lowers `BuildRuntimeLib` to one compiler invocation that
 builds a shared runtime library directly from all runtime sources.

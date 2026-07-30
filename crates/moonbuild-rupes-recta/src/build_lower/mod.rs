@@ -555,6 +555,8 @@ mod tests {
         plan.test_insert_runtime_info(BuildRuntimeInfo {
             effective_native_toolchain: msvc_toolchain(),
             source_files: vec![PathBuf::from("runtime.c")],
+            simdutf_objects: Vec::new(),
+            static_archive_fingerprint: Some("runtime-test".to_string()),
         });
 
         let action_plan = plan.build_action_plan();
@@ -590,6 +592,8 @@ mod tests {
         plan.test_insert_runtime_info(BuildRuntimeInfo {
             effective_native_toolchain: msvc_toolchain(),
             source_files: vec![PathBuf::from("runtime.c")],
+            simdutf_objects: Vec::new(),
+            static_archive_fingerprint: Some("runtime-test".to_string()),
         });
 
         let action_plan = plan.build_action_plan();
@@ -683,6 +687,8 @@ mod tests {
         plan.test_insert_runtime_info(BuildRuntimeInfo {
             effective_native_toolchain: toolchain.clone(),
             source_files: vec![PathBuf::from("runtime.c")],
+            simdutf_objects: Vec::new(),
+            static_archive_fingerprint: Some("runtime-test".to_string()),
         });
         plan.test_insert_make_executable_info(
             target,
@@ -751,7 +757,7 @@ mod tests {
         ));
         assert!(command_arg_has_normalized_suffix(
             command,
-            "native/debug/build/libruntime.lib"
+            "native/debug/build/libruntime-runtime-test.lib"
         ));
         let c_stub_position = command
             .iter()
@@ -764,7 +770,7 @@ mod tests {
             .iter()
             .position(|arg| {
                 arg.replace('\\', "/")
-                    .ends_with("native/debug/build/libruntime.lib")
+                    .ends_with("native/debug/build/libruntime-runtime-test.lib")
             })
             .expect("runtime archive should be linked");
         assert!(c_stub_position < runtime_position);
@@ -776,7 +782,7 @@ mod tests {
             .expect("runtime compile command args should be captured");
         assert!(command_arg_has_normalized_suffix(
             runtime_compile_command,
-            "native/debug/build/runtime/runtime.obj"
+            "native/debug/build/runtime-runtime.obj"
         ));
 
         let runtime_archive_command = lowered
@@ -786,17 +792,17 @@ mod tests {
                 command.iter().any(|arg| arg == "msvc/bin/lib.exe")
                     && command_arg_has_normalized_suffix(
                         command,
-                        "native/debug/build/libruntime.lib",
+                        "native/debug/build/libruntime-runtime-test.lib",
                     )
             })
             .expect("runtime archive command args should be captured");
         assert!(command_arg_has_normalized_suffix(
             runtime_archive_command,
-            "native/debug/build/libruntime.lib"
+            "native/debug/build/libruntime-runtime-test.lib"
         ));
         assert!(command_arg_has_normalized_suffix(
             runtime_archive_command,
-            "native/debug/build/runtime/runtime.obj"
+            "native/debug/build/runtime-runtime.obj"
         ));
 
         let stub_compile_command = lowered

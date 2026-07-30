@@ -23,7 +23,6 @@ use moonutil::{
         ArchiverConfigBuilder, CCConfigBuilder, OptLevel as CCOptLevel, OutputType as CCOutputType,
         make_archiver_command_resolved, make_cc_command_resolved,
     },
-    cond_expr::OptLevel,
     resolution::{ModuleId, ModuleSourceKind},
     test_metadata::DriverKind,
     toolchain::BINARIES,
@@ -182,10 +181,6 @@ impl<'a> super::LoweringContext<'a> {
                 compiler::msvc::command_env(runtime_toolchain),
             )
         } else {
-            let use_simdutf = self.opt.opt_level == OptLevel::Release
-                && resolved_cc.can_use_simdutf()
-                && self.opt.compiler_paths().simdutf_object_paths().is_some();
-
             (
                 make_cc_command_resolved(
                     resolved_cc,
@@ -199,7 +194,7 @@ impl<'a> super::LoweringContext<'a> {
                         )
                         .link_moonbitrun(true)
                         .define_use_shared_runtime_macro(false)
-                        .use_simdutf(use_simdutf)
+                        .use_simdutf(!info.simdutf_objects.is_empty())
                         .build()
                         .expect("Failed to build CC configuration for runtime"),
                     &[] as &[&str],
@@ -280,36 +275,26 @@ impl<'a> super::LoweringContext<'a> {
         let mut object_files = products.dependency_paths_matching(|product| {
             matches!(product, BuildProduct::RuntimeObject { .. })
         });
-        let simdutf_objects = if self.opt.opt_level == OptLevel::Release
-            && info.effective_native_toolchain.cc().can_use_simdutf()
-        {
-            self.opt
-                .compiler_paths()
-                .simdutf_object_paths()
-                .map(|objects| objects.into_iter().collect::<Vec<_>>())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
-        object_files.extend(simdutf_objects.iter().cloned());
+        object_files.extend(info.simdutf_objects.iter().cloned());
         let config = ArchiverConfigBuilder::default()
             .archive_moonbitrun(false)
             .build()
             .expect("Failed to build archiver configuration");
-        let archiver_cmd = make_archiver_command_resolved(
+        let member_args = object_files
+            .iter()
+            .map(|member| member.to_string_lossy())
+            .collect::<Vec<_>>();
+        let commandline = make_archiver_command_resolved(
             info.effective_native_toolchain.cc().clone(),
             config,
-            &object_files
-                .iter()
-                .map(|source| source.to_string_lossy())
-                .collect::<Vec<_>>(),
+            &member_args,
             &artifact_path.display().to_string(),
             self.opt.compiler_paths(),
         );
 
         BuildCommand {
-            extra_inputs: simdutf_objects,
-            commandline: archiver_cmd.into(),
+            extra_inputs: info.simdutf_objects.clone(),
+            commandline: commandline.into(),
         }
         .with_msvc_env(&info.effective_native_toolchain)
     }

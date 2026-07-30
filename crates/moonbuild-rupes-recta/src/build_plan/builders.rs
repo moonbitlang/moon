@@ -29,6 +29,7 @@ use std::{
 use indexmap::{IndexSet, set::MutableValues};
 use moonutil::{
     compiler_flags::{self, CC, Toolchain},
+    cond_expr::OptLevel,
     constants::{DOT_MBT_DOT_MD, MOD_DIR, MOONCAKE_BIN, PKG_DIR, is_moon_mod, is_moon_pkg},
     manifest::{MoonMod, MoonModRule},
     package::{MoonPkgGenerate, SupportedTargetsDeclKind},
@@ -52,6 +53,7 @@ use super::{
     BuildCStubsInfo, BuildPlanConstructError, BuildRuntimeInfo, BuildTargetInfo, LinkCoreInfo,
     MakeExecutableInfo,
     constructor::{BuildPlanConstructor, PackageFileSet},
+    runtime_archive_fingerprint,
 };
 
 static BUILD_VAR_REGEX: LazyLock<Regex> =
@@ -1348,12 +1350,31 @@ impl<'a> BuildPlanConstructor<'a> {
         })?;
         let source_files = toolchain::runtime_source_paths()
             .map_err(BuildPlanConstructError::FailedToFindRuntimeSources)?;
+        let builds_static_archive = self.build_env.tcc_run().is_none();
+        let simdutf_objects = if builds_static_archive
+            && self.build_env.opt_level == OptLevel::Release
+            && effective_native_toolchain.cc().can_use_simdutf()
+        {
+            self.build_env
+                .compiler_paths
+                .as_ref()
+                .expect("native build environment should include compiler paths")
+                .simdutf_object_paths()
+                .map(|objects| objects.into_iter().collect())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let static_archive_fingerprint = builds_static_archive
+            .then(|| runtime_archive_fingerprint(&source_files, &simdutf_objects));
         self.res.runtime_info = Some(BuildRuntimeInfo {
             effective_native_toolchain,
             source_files,
+            simdutf_objects,
+            static_archive_fingerprint,
         });
 
-        if self.build_env.tcc_run().is_none() {
+        if builds_static_archive {
             let source_count = self
                 .res
                 .runtime_info

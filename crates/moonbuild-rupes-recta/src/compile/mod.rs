@@ -219,10 +219,13 @@ pub fn compile_standalone(
 }
 
 fn build_environment(cx: &CompileConfig) -> BuildEnvironment {
+    let compiler_paths = matches!(&cx.backend, BackendConfig::Native(_) | BackendConfig::Llvm)
+        .then(|| cx.lowering_environment.compiler_paths().clone());
     BuildEnvironment {
         backend: cx.backend.clone(),
         opt_level: cx.opt_level,
         action: cx.action,
+        compiler_paths,
         std: cx.stdlib_path.is_some(),
         warn_list: cx.warn_list.clone(),
     }

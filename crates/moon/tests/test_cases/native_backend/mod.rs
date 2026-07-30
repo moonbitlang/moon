@@ -39,6 +39,7 @@ mod unix_graph {
             // Normalize clang-only warnings to keep snapshots portable across macOS/Linux.
             *s = s.replace(" -Wno-unused-value", "");
             *s = s.replace(".dylib", ".so");
+            crate::util::normalize_apple_archiver(s);
             normalize_macos_sdk_path(s);
             normalize_fake_toolchain_path(s, dir);
         });

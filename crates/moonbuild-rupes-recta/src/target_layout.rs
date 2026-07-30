@@ -24,7 +24,7 @@
 //! to resolve logical build products to physical paths.
 
 use std::{
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     fmt::Display,
     path::{Path, PathBuf},
 };
@@ -426,11 +426,12 @@ impl TargetLayout {
         os: OperatingSystem,
     ) -> PathBuf {
         let mut result = self.runtime_output_dir(backend);
-        result.push("runtime");
-        let mut filename = source
+        let stem = source
             .file_stem()
             .expect("runtime source should have a file stem")
             .to_os_string();
+        let mut filename = OsString::from("runtime-");
+        filename.push(stem);
         filename.push(object_file_ext(os));
         result.push(filename);
         result
@@ -440,6 +441,7 @@ impl TargetLayout {
         &self,
         executable: ExecutableArtifact,
         os: OperatingSystem,
+        static_archive_fingerprint: Option<&str>,
     ) -> PathBuf {
         let backend = executable.target_backend();
         let mut result = self.runtime_output_dir(backend);
@@ -453,7 +455,12 @@ impl TargetLayout {
                 result.push(format!("libruntime{}", dynamic_library_ext(os)))
             }
             ExecutableArtifact::NativeExecutable | ExecutableArtifact::LlvmExecutable => {
-                result.push(format!("libruntime{}", static_library_ext(os)))
+                let fingerprint = static_archive_fingerprint
+                    .expect("static runtime archive should have a membership fingerprint");
+                result.push(format!(
+                    "libruntime-{fingerprint}{}",
+                    static_library_ext(os)
+                ))
             }
         }
         result
@@ -856,10 +863,16 @@ impl ArtifactPathResolver {
                     options.os,
                 )]
             }
-            BuildProduct::RuntimeLib => vec![
-                self.target_layout
-                    .runtime_output_path(options.executable, options.os),
-            ],
+            BuildProduct::RuntimeLib => {
+                let BuildAction::BuildRuntimeLib { info } = action_context else {
+                    unreachable!("runtime library products require runtime library actions")
+                };
+                vec![self.target_layout.runtime_output_path(
+                    options.executable,
+                    options.os,
+                    info.static_archive_fingerprint.as_deref(),
+                )]
+            }
             BuildProduct::GeneratedMbti { target } => {
                 vec![self.target_layout.generated_mbti_path(
                     packages,
@@ -1357,6 +1370,8 @@ mod tests {
         BuildRuntimeInfo {
             effective_native_toolchain: system_cc_toolchain(),
             source_files: vec![PathBuf::from("runtime.c")],
+            simdutf_objects: Vec::new(),
+            static_archive_fingerprint: Some("runtime-test".to_string()),
         }
     }
 
@@ -1678,6 +1693,25 @@ mod tests {
             executable: ExecutableArtifact::TccRunResponseFile,
             linked_core: LinkedCoreArtifact::NativeC,
         };
+        let static_options = ArtifactPathOptions {
+            executable: ExecutableArtifact::NativeExecutable,
+            ..options
+        };
+
+        assert_eq!(
+            resolver.paths_for_product(
+                &BuildProduct::RuntimeLib,
+                BuildAction::BuildRuntimeLib {
+                    info: &runtime_info(),
+                },
+                &packages,
+                &modules,
+                static_options,
+            ),
+            vec![PathBuf::from(
+                "_build/native/debug/build/libruntime-runtime-test.a"
+            )],
+        );
 
         assert_eq!(
             resolver.paths_for_product(

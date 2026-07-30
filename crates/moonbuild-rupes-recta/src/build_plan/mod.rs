@@ -46,15 +46,21 @@
 
 use std::{
     collections::HashMap,
+    fmt::Write,
     path::{Path, PathBuf},
 };
 
 use log::{debug, info};
 use moonutil::{
-    build_options::RunMode, compiler_flags::Toolchain, cond_expr::OptLevel, resolution::ModuleId,
-    target::TargetBackend, user_log::UserLog,
+    build_options::RunMode,
+    compiler_flags::{CompilerPaths, Toolchain},
+    cond_expr::OptLevel,
+    resolution::ModuleId,
+    target::TargetBackend,
+    user_log::UserLog,
 };
 use petgraph::prelude::DiGraphMap;
+use sha2::{Digest, Sha256};
 use tracing::instrument;
 
 use crate::{
@@ -422,6 +428,88 @@ pub struct BuildRuntimeInfo {
     pub(crate) effective_native_toolchain: Toolchain,
     /// Runtime C translation units shipped by the selected MoonBit toolchain.
     pub(crate) source_files: Vec<PathBuf>,
+    /// Prebuilt objects selected as additional static archive members.
+    pub(crate) simdutf_objects: Vec<PathBuf>,
+    /// Identity of the ordered static archive member list.
+    ///
+    /// Shared-runtime builds do not create a static archive and leave this unset.
+    pub(crate) static_archive_fingerprint: Option<String>,
+}
+
+fn runtime_archive_fingerprint(source_files: &[PathBuf], external_objects: &[PathBuf]) -> String {
+    let mut hash = Sha256::new();
+    // This version also identifies how runtime source stems map to object
+    // member names. Bump it if that naming scheme changes.
+    hash.update(b"moon-runtime-archive-v1");
+
+    for source in source_files {
+        let stem = source
+            .file_stem()
+            .expect("runtime source should have a file stem")
+            .as_encoded_bytes();
+        hash.update([0]);
+        hash.update((stem.len() as u64).to_le_bytes());
+        hash.update(stem);
+    }
+    for object in external_objects {
+        let filename = object
+            .file_name()
+            .expect("runtime archive member should have a file name")
+            .as_encoded_bytes();
+        hash.update([1]);
+        hash.update((filename.len() as u64).to_le_bytes());
+        hash.update(filename);
+    }
+
+    let digest = hash.finalize();
+    let mut fingerprint = String::with_capacity(16);
+    for byte in &digest[..8] {
+        write!(&mut fingerprint, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    fingerprint
+}
+
+#[cfg(test)]
+mod runtime_archive_fingerprint_tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_tracks_ordered_members() {
+        let sources = [PathBuf::from("runtime/a.c"), PathBuf::from("runtime/b.c")];
+        let relocated = [
+            PathBuf::from("other/runtime/a.c"),
+            PathBuf::from("other/runtime/b.c"),
+        ];
+        let simd = [PathBuf::from("lib/simdutf.o")];
+        let fingerprint = runtime_archive_fingerprint(&sources, &simd);
+
+        assert_eq!(fingerprint, runtime_archive_fingerprint(&relocated, &simd));
+        assert_ne!(
+            fingerprint,
+            runtime_archive_fingerprint(&sources[..1], &simd)
+        );
+        assert_ne!(fingerprint, runtime_archive_fingerprint(&sources, &[]));
+        assert_ne!(
+            fingerprint,
+            runtime_archive_fingerprint(&[sources[1].clone(), sources[0].clone()], &simd)
+        );
+        assert_eq!(fingerprint.len(), 16);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fingerprint_preserves_non_utf8_member_identity() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+        let first = PathBuf::from("runtime").join(OsString::from_vec(vec![b'a', 0x80, b'.', b'c']));
+        let second =
+            PathBuf::from("runtime").join(OsString::from_vec(vec![b'a', 0x81, b'.', b'c']));
+
+        assert_ne!(
+            runtime_archive_fingerprint(&[first], &[]),
+            runtime_archive_fingerprint(&[second], &[])
+        );
+    }
 }
 
 /// Resolved information about a prebuild command.
@@ -445,6 +533,8 @@ pub struct BuildEnvironment {
     pub backend: BackendConfig,
     pub opt_level: OptLevel,
     pub action: RunMode,
+    /// Toolchain include/lib paths selected for native-oriented backends.
+    pub compiler_paths: Option<CompilerPaths>,
     /// Whether compiling requires the standard library.
     ///
     /// MAINTAINERS: Potentially useful to move this to per-package/module.
