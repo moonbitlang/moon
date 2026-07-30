@@ -216,6 +216,8 @@ pub(crate) fn core_package_interfaces(backend: TargetBackend) -> BTreeMap<String
 /// Validate that inventory before collapsing it so toolchain additions do not
 /// expand the snapshot without weakening the behavior under test.
 pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> String {
+    // These snapshots use one logical toolchain root for every installation layout.
+    let s = s.replace("$MOON_TOOLCHAIN_ROOT", "$MOON_HOME");
     let expected_imports = core_package_interfaces(backend)
         .into_keys()
         .filter(|package| !package.split('/').any(|segment| segment == "internal"))
@@ -251,13 +253,8 @@ pub(crate) fn collapse_core_import_args(s: &str, backend: TargetBackend) -> Stri
         + s[imports_start..]
             .find(" -pkg-sources")
             .expect("missing arguments after core imports");
-    let toolchain_root = if s[imports_start..].starts_with(" -i '$MOON_HOME/") {
-        "$MOON_HOME"
-    } else {
-        "$MOON_TOOLCHAIN_ROOT"
-    };
     format!(
-        "{} -i '{toolchain_root}/lib/core/<imports>'{}",
+        "{} -i '$MOON_HOME/lib/core/<imports>'{}",
         &s[..imports_start],
         &s[imports_end..]
     )
