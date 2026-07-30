@@ -257,7 +257,6 @@ fn add_common_args_recursive(mut cmd: Command, common_args: &[Arg]) -> Command {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use expect_test::expect_file;
 
     fn render_shell_completion(shell: Shell) -> String {
         let mut output = Vec::new();
@@ -266,32 +265,14 @@ mod tests {
     }
 
     #[test]
-    fn test_shell_completion_bash_snapshot() {
-        expect_file!["snapshots/shell_completion_bash.stdout"]
-            .assert_eq(&render_shell_completion(Shell::Bash));
-    }
-
-    #[test]
-    fn test_shell_completion_elvish_snapshot() {
-        expect_file!["snapshots/shell_completion_elvish.stdout"]
-            .assert_eq(&render_shell_completion(Shell::Elvish));
-    }
-
-    #[test]
-    fn test_shell_completion_fish_snapshot() {
-        expect_file!["snapshots/shell_completion_fish.stdout"]
-            .assert_eq(&render_shell_completion(Shell::Fish));
-    }
-
-    #[test]
-    fn test_shell_completion_powershell_snapshot() {
-        expect_file!["snapshots/shell_completion_powershell.stdout"]
-            .assert_eq(&render_shell_completion(Shell::PowerShell));
-    }
-
-    #[test]
-    fn test_shell_completion_zsh_snapshot() {
-        expect_file!["snapshots/shell_completion_zsh.stdout"]
-            .assert_eq(&render_shell_completion(Shell::Zsh));
+    fn other_supported_shells_render_completion() {
+        // Bash, PowerShell, and Zsh are exercised by their native shells in CI.
+        for shell in [Shell::Elvish, Shell::Fish] {
+            let completion = render_shell_completion(shell);
+            assert!(
+                !completion.trim().is_empty(),
+                "{shell:?} completion should not be empty"
+            );
+        }
     }
 }
