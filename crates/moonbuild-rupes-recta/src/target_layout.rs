@@ -1406,6 +1406,7 @@ mod tests {
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: vec![PathBuf::from("native/stub.c")],
+            c_stub_header_files: vec![PathBuf::from("native/stub.h")],
             virtual_mbti: None,
             is_stdlib: false,
         };

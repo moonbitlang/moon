@@ -105,6 +105,12 @@ pub struct DiscoveredPackage {
     /// is generated from the package json, instead of directly collected from
     /// the folder.
     pub c_stub_files: Vec<PathBuf>,
+    /// Package-local header files that may be observed while compiling C
+    /// stubs.
+    ///
+    /// Every C-stub action conservatively depends on this complete set because
+    /// MoonBuild does not interpret transitive `#include` directives.
+    pub c_stub_header_files: Vec<PathBuf>,
 
     /// The text-format module interface file for virtual packages.
     ///

@@ -962,9 +962,13 @@ impl<'a> LoweringContext<'a> {
             self.opt.compiler_paths(),
         );
 
+        let mut extra_inputs = Vec::with_capacity(1 + package.c_stub_header_files.len());
+        extra_inputs.push(input_file.clone());
+        extra_inputs.extend(package.c_stub_header_files.iter().cloned());
+
         BuildCommand {
             commandline: cc_cmd.into(),
-            extra_inputs: vec![input_file.clone()],
+            extra_inputs,
         }
         .with_msvc_env(&info.effective_native_toolchain)
     }

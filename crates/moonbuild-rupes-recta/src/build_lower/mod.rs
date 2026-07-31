@@ -500,11 +500,12 @@ mod tests {
             supported_targets_decl: SupportedTargetsDeclKind::Omitted,
             effective_supported_targets: supported_targets,
             source_files: Vec::new(),
-            mbt_lex_files: Vec::new(),
-            mbt_yacc_files: Vec::new(),
+            mbt_lex_files: vec![PathBuf::from("main/lexer.mbl")],
+            mbt_yacc_files: vec![PathBuf::from("main/parser.mby")],
             mbt_md_files: Vec::new(),
             mbtp_files: Vec::new(),
             c_stub_files: vec![PathBuf::from("main/native/stub.c")],
+            c_stub_header_files: vec![PathBuf::from("main/native/stub.h")],
             virtual_mbti: None,
             is_stdlib: false,
         };
@@ -558,6 +559,58 @@ mod tests {
             .iter()
             .map(|id| PathBuf::from(&lowered.build_graph.files.by_id[*id].name))
             .collect()
+    }
+
+    #[test]
+    fn lowered_generator_actions_track_host_and_payload_executables() {
+        let (resolve_output, target) = single_package_resolve_output();
+        let mut plan = BuildPlan::default();
+        plan.test_add_node(BuildPlanNode::RunMoonLexPrebuild(target.package, 0));
+        plan.test_add_node(BuildPlanNode::RunMoonYaccPrebuild(target.package, 0));
+
+        let artifact_paths = ArtifactPathResolver::new(
+            TargetLayout::new(
+                PathBuf::from("_build"),
+                TargetLayoutMode::Workspace,
+                OptLevel::Debug,
+                RunMode::Check,
+            ),
+            None,
+        );
+        let options = BuildOptions {
+            artifact_paths,
+            backend: BackendConfig::WasmGc { use_wat: false },
+            opt_level: OptLevel::Debug,
+            action: RunMode::Check,
+            debug_symbols: false,
+            enable_coverage: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            info_no_alias: false,
+            stdlib_path: None,
+            lowering_environment: LoweringEnvironment::default(),
+        };
+
+        let action_plan = plan.build_action_plan();
+        let lowered = lower_build_plan(&resolve_output, &action_plan, &options)
+            .expect("lowering should succeed");
+
+        for (payload, source) in [
+            (BINARIES.moonlex.as_path(), Path::new("main/lexer.mbl")),
+            (BINARIES.moonyacc.as_path(), Path::new("main/parser.mby")),
+        ] {
+            let inputs = n2_input_paths_for_command(&lowered, |command| {
+                command.get(1).map(Path::new) == Some(payload)
+            });
+            assert!(
+                inputs
+                    .iter()
+                    .any(|input| input == BINARIES.moonrun.as_path())
+            );
+            assert!(inputs.iter().any(|input| input == payload));
+            assert!(inputs.iter().any(|input| input == source));
+        }
     }
 
     #[test]
@@ -868,6 +921,12 @@ mod tests {
                 .filter(|input| input.as_path() == Path::new(toolchain.cc().cc_path()))
                 .count(),
             1
+        );
+        assert!(
+            compiler_inputs
+                .iter()
+                .any(|input| input == Path::new("main/native/stub.h")),
+            "package-local C headers should be inputs of every C-stub action"
         );
 
         let archiver_inputs = n2_input_paths_for_command(&lowered, |command| {

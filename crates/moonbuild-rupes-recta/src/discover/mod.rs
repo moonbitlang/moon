@@ -444,6 +444,16 @@ fn discover_one_package(
             c_stubs.push(rel_path.to_path(abs));
         }
     };
+    let c_stub_headers = if c_stubs.is_empty() {
+        Vec::new()
+    } else {
+        discover_c_stub_headers(abs).map_err(|inner| DiscoverError::CantListPackageDir {
+            module: m.clone(),
+            package: fqn.package().clone(),
+            path: abs.to_owned(),
+            inner,
+        })?
+    };
 
     // Sort the source files for repeatable results
     let _sort_guard = tracing::debug_span!("sorting_files").entered();
@@ -472,9 +482,47 @@ fn discover_one_package(
         mbt_md_files,
         mbtp_files,
         c_stub_files: c_stubs,
+        c_stub_header_files: c_stub_headers,
         virtual_mbti,
         is_stdlib: pkg_is_stdlib,
     })
+}
+
+fn discover_c_stub_headers(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut headers = Vec::new();
+    let mut entries = WalkDir::new(root).sort_by_file_name().into_iter();
+    while let Some(entry) = entries.next() {
+        let entry = entry?;
+        if entry.depth() != 0 && entry.file_type().is_dir() {
+            if entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| IGNORE_DIRS.contains(&name))
+            {
+                entries.skip_current_dir();
+                continue;
+            }
+
+            let path = entry.path();
+            if [MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON]
+                .iter()
+                .any(|manifest| path.join(manifest).exists())
+            {
+                entries.skip_current_dir();
+                continue;
+            }
+        }
+
+        if (entry.file_type().is_file() || entry.file_type().is_symlink())
+            && entry.path().extension().is_some_and(|extension| {
+                matches!(extension.to_str(), Some("h" | "hh" | "hpp" | "hxx"))
+            })
+        {
+            headers.push(entry.into_path());
+        }
+    }
+    headers.sort();
+    Ok(headers)
 }
 
 fn discover_virtual_mbti(
@@ -510,12 +558,14 @@ fn discover_virtual_mbti(
 
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use moonutil::{
         manifest::MoonMod,
         resolution::{DirSyncResult, ModuleSource, ResolvedEnv},
     };
 
-    use super::discover_packages;
+    use super::{discover_c_stub_headers, discover_packages};
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -581,5 +631,47 @@ mod tests {
         assert_eq!(rule[0].name, "gen");
         assert_eq!(rule[0].command, "tool $input -o $output");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn c_stub_headers_follow_package_file_set_boundaries() -> anyhow::Result<()> {
+        let dir = temp_dir("c-stub-headers");
+        std::fs::create_dir_all(dir.join("native/include"))?;
+        std::fs::write(dir.join("native/stub.h"), "stub")?;
+        std::fs::write(dir.join("native/include/detail.hpp"), "detail")?;
+        std::fs::write(dir.join("native/ignored.txt"), "ignored")?;
+
+        std::fs::create_dir_all(dir.join("_build/generated"))?;
+        std::fs::write(dir.join("_build/generated/stale.h"), "stale")?;
+
+        std::fs::create_dir_all(dir.join("nested-module"))?;
+        std::fs::write(
+            dir.join("nested-module/moon.mod.json"),
+            r#"{"name":"nested/module"}"#,
+        )?;
+        std::fs::write(dir.join("nested-module/foreign.h"), "foreign")?;
+
+        std::fs::create_dir_all(dir.join("nested-package"))?;
+        std::fs::write(dir.join("nested-package/moon.pkg.json"), "{}")?;
+        std::fs::write(dir.join("nested-package/foreign.hpp"), "foreign")?;
+
+        let headers = discover_c_stub_headers(&dir)?
+            .into_iter()
+            .map(|path| {
+                path.strip_prefix(&dir)
+                    .map(Path::to_path_buf)
+                    .map_err(anyhow::Error::from)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        assert_eq!(
+            headers,
+            [
+                PathBuf::from("native/include/detail.hpp"),
+                PathBuf::from("native/stub.h"),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(dir);
+        Ok(())
     }
 }
