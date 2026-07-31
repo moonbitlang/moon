@@ -3,13 +3,10 @@
 ## Status
 
 This document records the intended direction for global dependency and build
-caches. Only the cache-root configuration and cleaning contract described
-below is implemented today. Builds do not yet read from or write to either
-global cache.
-
-The first implementation step is intentionally small. It gives later work a
-stable public configuration and lifecycle seam without committing Moon to an
-internal cache layout too early.
+caches. Cache-root configuration and cleaning are implemented, as is the pure
+canonical identity calculation for lowered actions. Builds do not yet read
+from or write to either global cache, and identity calculation is not connected
+to execution.
 
 ## Problem
 
@@ -61,6 +58,10 @@ resolution.
 The environment variables currently configure and clean roots only. Their
 presence does not yet change build execution.
 
+Canonical action identity is also implemented as a pure consumer of Rupes
+Recta `LoweredAction` values. It is not connected to build execution or either
+cache root yet.
+
 ### Cleaning
 
 `moon clean` keeps its existing meaning and removes the project's local build
@@ -99,7 +100,7 @@ Moon does not guarantee that `.mi` or `.core` is invariant under such an
 upstream change. The cache must conservatively identify a complete compilation
 action, not merely a package version.
 
-## Future artifact identity
+## Artifact identity
 
 Artifact identity has three concepts:
 
@@ -122,6 +123,46 @@ cache implementation should begin from the compiler action already produced by
 Rupes Recta and audit every input at that boundary. It should prefer a
 conservative dependency set over an unsound hit. Later measurements can narrow
 the key to the interfaces actually read.
+
+The canonical lowering-boundary identity uses BLAKE3 and treats structured
+argv as the primary command semantics. It also includes the selected executor
+transport command, the effective explicit-or-inherited working directory,
+response-file path and contents, the effective inherited-plus-action
+environment, external input path and contents, output products, and recursive
+producer identities. A producer edge contributes the producer digest, logical
+product kind, and concrete paths. Opaque numeric action IDs are only lookup
+keys within one lowering and never enter a persistent identity.
+
+The identity does not rewrite paths or interpret command text. Structured argv,
+the selected transport command, response-file contents, environment values,
+and every path are hashed exactly as lowering produced them. Moving a source,
+toolchain, work directory, or output therefore causes a conservative miss even
+when file contents are unchanged. Dependency and external-input sets are sorted
+canonically; argv and response-file contents retain their semantic ordering.
+
+This initial identity does not claim that actions are relocatable. A cache can
+reuse only actions whose lowering produces the same physical paths. A future
+relocatable execution model must first make path-dependent tool behavior
+explicit or path-independent; rewriting only the cache key would risk an
+incorrect hit.
+
+The standard-library `-std-path` input is represented as a recursive `.mi`
+tree and digested once per identity calculation. `all_pkgs.json` is derived
+transport metadata and is not hashed by raw file contents: the reachable
+producer closure is the semantic source of dependency identities. Actions that
+still observe unmodeled directory state, such as proof execution and
+documentation generation, are ineligible, as are arbitrary prebuild shell
+payloads. Their ineligibility propagates to consumers.
+
+Native C actions include their source, package-local headers, resolved compiler
+binary, argv, effective working directory, and environment. Their physical
+source and toolchain paths remain part of the identity. Headers discovered
+implicitly through system include paths remain a documented best-effort
+boundary in the initial model; they are not recursively scanned by Moon.
+
+The identity deliberately excludes n2-only graph details, diagnostics metadata,
+descriptions, and dirty-output scheduling policy. Those attributes do not
+change the produced bytes.
 
 All outputs of one action must be treated as a unit. Moon should publish
 objects first and the action record last, using staging and atomic rename where
@@ -198,8 +239,9 @@ Each stage should be useful and reviewable without requiring the next:
    cache, no shared `post-add`, and private fallback when caching is off.
 3. **Private standalone work:** stop sharing mutable `_build` trees between
    standalone invocations; place `__moonbin__` there.
-4. **Action model:** define and test canonical action inputs at the Rupes Recta
-   compiler boundary, including resolved interfaces and target facts.
+4. **Action model (implemented, not execution-wired):** define and test
+   canonical action inputs at the Rupes Recta compiler boundary, including
+   resolved interfaces and target facts.
 5. **Artifact cache:** publish and restore complete `.mi`/`.core` result sets
    with concurrency and corruption tests.
 6. **Build constraints and cross compilation:** extend the target descriptor

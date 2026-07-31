@@ -69,6 +69,7 @@ use tracing::{Level, info, instrument};
 
 use crate::build_flags::{BuildFlags, OutputStyle};
 
+pub mod action_identity;
 mod dry_run;
 pub use dry_run::{
     format_dry_run_command, write_dry_run, write_dry_run_all, write_standalone_dry_run,

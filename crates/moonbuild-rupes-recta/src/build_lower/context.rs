@@ -303,6 +303,8 @@ impl<'a> LoweringContext<'a> {
         if matches!(
             action,
             BuildAction::Check { .. }
+                | BuildAction::EmitProof { .. }
+                | BuildAction::Prove { .. }
                 | BuildAction::BuildCore { .. }
                 | BuildAction::BuildVirtual { .. }
         ) && let Some(stdlib_root) = &self.opt.stdlib_path
@@ -319,13 +321,38 @@ impl<'a> LoweringContext<'a> {
             .package_for_error(id)
             .map(|target| self.get_package(target).fqn.clone())
             .into();
+        // Keep this exhaustive: adding an action must require an explicit
+        // decision that lowering describes every filesystem observation.
+        let cache_eligible = match action {
+            BuildAction::Check { .. }
+            | BuildAction::EmitProof { .. }
+            | BuildAction::BuildCore { .. }
+            | BuildAction::BuildCStub { .. }
+            | BuildAction::ArchiveOrLinkCStubs { .. }
+            | BuildAction::LinkCore { .. }
+            | BuildAction::MakeExecutable { .. }
+            | BuildAction::GenerateDsym { .. }
+            | BuildAction::GenerateTestInfo { .. }
+            | BuildAction::GenerateMbti { .. }
+            | BuildAction::BuildVirtual { .. }
+            | BuildAction::Bundle { .. }
+            | BuildAction::BuildRuntimeObject { .. }
+            | BuildAction::BuildRuntimeLib { .. }
+            | BuildAction::RunMoonLexPrebuild { .. }
+            | BuildAction::RunMoonYaccPrebuild { .. } => true,
+            // These actions still observe filesystem state that is broader
+            // than the concrete files represented by the lowered action.
+            BuildAction::Prove { .. }
+            | BuildAction::BuildDocs { .. }
+            | BuildAction::RunPrebuild { .. } => false,
+        };
         Ok(Some(LoweredAction {
             id,
             dependencies: action_products.dependencies,
             external_inputs,
             outputs: action_products.outputs,
             command,
-            cache_eligible: !matches!(action, BuildAction::RunPrebuild { .. }),
+            cache_eligible,
             fileloc: self.plan.fileloc(id, self.modules, self.packages),
             description: self.plan.human_desc(id, self.modules, self.packages),
             can_dirty_on_output: self.plan.can_dirty_on_output(id),

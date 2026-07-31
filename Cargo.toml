@@ -85,6 +85,7 @@ zip = { version = "0.6.6", features = ["deflate"], default-features = false }
 home = "0.5.0"
 semver = { version = "1.0.22", features = ["serde"] }
 sha2 = "0.10.8"
+blake3 = "1.8.5"
 chrono = { version = "0.4.31", features = [
     "clock",
     "std",
