@@ -21,6 +21,7 @@ use std::{collections::HashSet, path::PathBuf};
 use anyhow::bail;
 use colored::Colorize;
 use indexmap::{IndexMap, IndexSet};
+use relative_path::RelativePath;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json_lenient::Value;
@@ -281,6 +282,13 @@ pub struct MoonPkgJSON {
     #[serde(alias = "bin-target")]
     #[schemars(rename = "bin-target")]
     pub bin_target: Option<String>,
+
+    /// Package-relative directory containing data shipped with an executable.
+    ///
+    /// In `moon.pkg`, declare this as `options(data_dir: "assets")`. It is only
+    /// valid for executable packages.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_dir: Option<String>,
 
     /// Supported backend set for this package.
     ///
@@ -724,6 +732,8 @@ pub struct MoonPkg {
     pub bin_name: Option<String>,
     pub bin_target: Option<TargetBackend>,
 
+    pub data_dir: Option<String>,
+
     pub supported_targets: IndexSet<TargetBackend>,
 
     pub native_stub: Option<Vec<String>>,
@@ -1024,6 +1034,24 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         .as_ref()
         .map(|s| TargetBackend::str_to_backend(s))
         .transpose()?;
+    let data_dir = j
+        .data_dir
+        .as_deref()
+        .map(|data_dir| {
+            let normalized = RelativePath::new(data_dir).normalize();
+            if normalized.as_str().is_empty()
+                || data_dir.starts_with('/')
+                || data_dir.contains(['\\', ':', '\0'])
+                || normalized.starts_with("..")
+            {
+                bail!("`data_dir` in `moon.pkg` must be a package-relative directory");
+            }
+            Ok(normalized.into_string())
+        })
+        .transpose()?;
+    if data_dir.is_some() && !is_main {
+        bail!("`data_dir` in `moon.pkg` is only valid for an executable package");
+    }
 
     let (supported_backends, supported_targets_decl_kind) =
         resolve_supported_targets(j.supported_targets.as_ref())?;
@@ -1057,6 +1085,7 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         pre_build: j.pre_build,
         bin_name: j.bin_name,
         bin_target,
+        data_dir,
         supported_targets: supported_backends,
         native_stub: j.native_stub,
         virtual_pkg: j.virtual_pkg,

@@ -93,6 +93,7 @@ fn expect_import() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -135,6 +136,7 @@ fn expect_is_main() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -181,6 +183,7 @@ fn expect_formatter() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -232,6 +235,7 @@ fn expect_supported_targets() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 Wasm,
                 Js,
@@ -274,6 +278,7 @@ fn expect_supported_targets_expr() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 Js,
             },
@@ -314,6 +319,7 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 WasmGC,
             },
@@ -351,6 +357,7 @@ fn expect_supported_targets_expr_with_wasm_gc() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {},
             native_stub: None,
             virtual_pkg: None,
@@ -421,6 +428,7 @@ fn expect_build() {
             ),
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -468,6 +476,7 @@ fn expect_warnings() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -513,6 +522,7 @@ fn expect_supported_targets_prefers_new_config() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 Js,
             },
@@ -718,6 +728,7 @@ fn expect_options() {
             bin_target: Some(
                 Wasm,
             ),
+            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,
@@ -780,6 +791,7 @@ fn expect_max_concurrent_tests() {
             pre_build: None,
             bin_name: None,
             bin_target: None,
+            data_dir: None,
             supported_targets: {
                 Wasm,
                 WasmGC,

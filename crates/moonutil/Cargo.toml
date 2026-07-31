@@ -48,6 +48,7 @@ line-index.workspace = true
 nucleo-matcher.workspace = true
 which.workspace = true
 regex.workspace = true
+relative-path.workspace = true
 derive_builder.workspace = true
 serde_yaml.workspace = true
 slotmap.workspace = true

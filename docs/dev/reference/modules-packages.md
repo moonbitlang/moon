@@ -120,12 +120,17 @@ meaning the packages are relative to the root of the module.
 Newer modules created by `moon new` by default sets this to `src`.
 
 To discover all package within the module,
-one recursively search from the scanning root for files named `moon.pkg.json`,
-unless the folder contains `moon.mod.json`.
+one recursively searches from the scanning root for files named `moon.pkg` or
+`moon.pkg.json`, unless the folder contains `moon.mod` or `moon.mod.json`.
 Dot-prefixed directories and common non-code folders such as `node_modules`
 and `_build` are skipped during this process. The configured scanning root
 itself remains explicit and is still scanned when its name starts with `.`;
 the filtering applies to its descendants.
+
+An executable package's declared `data_dir` is also a recursive package-scan
+boundary. Files named `moon.pkg`, `moon.pkg.json`, or like MoonBit source below
+that directory are application data; they do not declare nested packages or
+enter a package file set.
 
 The followings are examples of folder structure and search result,
 for common folder layouts with root `.` and root `src`:

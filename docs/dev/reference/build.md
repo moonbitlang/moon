@@ -153,6 +153,42 @@ containing all compiled MoonBit code for the package to build:
   according to the selected Native Payload Form.
 - The LLVM backend outputs an object file to be linked with the system library.
 
+### Executable package resource mappings
+
+When an executable source package declares
+`options(data_dir: "<relative-path>")` in `moon.pkg`, a successful `moon build`
+or `moon run` reconciles a sibling mapping for each applicable executable
+artifact:
+
+```text
+<artifact-parent>/<data_dir> -> <package-root>/<data_dir>
+```
+
+Unix uses a symbolic link and Windows uses an NTFS junction. An existing
+mapping to the same source is reused; a stale link or junction is replaced.
+A real file or directory at the destination is never replaced and causes an
+error when a mapping is required. For a nested declaration, Moon creates the
+necessary artifact-side parent directories without following symbolic links
+or junctions. Windows reports an error rather than copying when the filesystem
+cannot create a junction.
+
+`data_dir` is only valid for executable packages. It is normalized as a
+portable package-relative path and must not escape the package. A declared
+path must exist and be a directory. Without the option, even a source
+directory named `resources` has no special meaning. Package discovery skips
+the complete declared subtree, so manifest-shaped and MoonBit-shaped resource
+files remain data rather than nested packages or compiler inputs.
+
+This is a command-level post-build action, not a compiler or Rupes Recta build
+action. `moon run` reconciles it while holding the target-directory lock and
+before launching the program. Moon does not record or garbage-collect old
+mappings after `data_dir` is changed or removed; `moon clean` removes stale
+target-directory contents. `moon test` and `moon bench` do not yet create these
+mappings.
+
+The broader runtime lookup and packaging design is documented in
+[Executable package resources](../design/executable-package-resources.md).
+
 ### Example
 
 Assume we have a dependency graph as following (edge point from one item to its dependency):

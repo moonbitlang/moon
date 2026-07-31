@@ -37,6 +37,7 @@ use moonutil::constants::{PackageSourceFileKind, package_source_file_kind};
 use moonutil::project::ProjectManifest;
 
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -254,6 +255,7 @@ pub(crate) fn discover_packages_for_mod(
         .sort_by_file_name()
         .into_iter()
         .filter_entry(|x| x.file_type().is_dir());
+    let mut application_data_roots = HashSet::new();
     while let Some(entry) = walkdir.next() {
         let entry = entry.map_err(|e| DiscoverError::CantReadModulePackages {
             module: module_source.clone(),
@@ -261,6 +263,15 @@ pub(crate) fn discover_packages_for_mod(
         })?;
 
         let abs_path = strip_trailing_slash(entry.path());
+        if application_data_roots.contains(abs_path) {
+            debug!(
+                "Skipping declared executable data directory {} recursively",
+                abs_path.display()
+            );
+            walkdir.skip_current_dir();
+            continue;
+        }
+
         // this will be fed to package path
         let rel_path = abs_path
             .relative_to(&scan_source_root)
@@ -328,6 +339,11 @@ pub(crate) fn discover_packages_for_mod(
             pkg.fqn,
             pkg.source_files.len()
         );
+        if let Some(data_dir) = &pkg.raw.data_dir {
+            let data_root = pkg.root_path.join(data_dir);
+            let data_root = dunce::canonicalize(&data_root).unwrap_or(data_root);
+            application_data_roots.insert(data_root);
+        }
         res.add_package(id, pkg.fqn.package().clone(), pkg)?;
     }
 
