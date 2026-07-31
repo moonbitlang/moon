@@ -10,4 +10,5 @@
 - **Project-relative paths**. Paths that live under the project root are emitted as a relative path from the project root, instead of absolute paths.
 - **Toolchain binary aliases**. Known Moon toolchain executables (e.g. `~/.moon/bin/moonc`) are shortened to their bare names (`moonc`). Other executables keep their original paths.
 - **`moon run --dry-run` extras**. After the build commands, the dry-run output also prints the command that would execute the produced binary (typically `moonrun`, `node`, or the final executable).
+- **Standalone dependency preparation**. Dry-run does not read or write the build cache. It prints every dependency action before the script actions, even when execution would restore some dependency outputs.
 - **`moon test --verbose` extras**. With `--verbose` set, `moon test` print the command that is executed for each test case.

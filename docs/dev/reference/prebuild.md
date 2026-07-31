@@ -4,6 +4,10 @@ Prebuild tasks let a package generate source files (typically `.mbt`) from other
 
 - Scope: Applies only to packages in the input module being built.
   Third-party dependencies are expected to already contain their generated outputs.
+- Planning may still use a third-party package's declared `.mbt` and `.mbt.md`
+  output paths when projecting its compiler sources. Because no prebuild action
+  is created for that package, files at those paths remain ordinary source
+  inputs rather than products of the current build.
 - A registry module being built as a direct bin-dep is the input module of its
   child build, so its package-level prebuild tasks run in the temporary source
   copy rather than in the registry cache.

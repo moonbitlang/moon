@@ -239,10 +239,11 @@ Moon-owned runtime objects and archives when command construction selected
 their exact paths.
 
 Lowering marks actions with broader, not-yet-modeled observations as
-cache-ineligible. This covers proof execution, documentation generation,
-arbitrary prebuild shell commands, and actions that execute unstructured custom
-compiler or linker flags. Lowering does not infer file inputs by parsing those
-flags.
+cache-ineligible. This covers proof execution, documentation generation, and
+arbitrary prebuild shell commands. Custom compiler and linker flags remain
+opaque arguments: their exact strings enter the identity, but lowering does not
+infer additional file inputs by parsing tool-specific syntax. Such implicit
+inputs are a best-effort cache boundary.
 
 Lowering always exposes concrete paths. The cache identity layer hashes those
 paths and all command text exactly; it does not replace path roots or interpret
@@ -268,8 +269,8 @@ This keeps responsibilities separate:
 
 Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`.
 Package dependencies use the same edges as ordinary project compilation. After
-the plan is normalized once, an action-level projection separates it into two
-disjoint n2 graphs.
+the plan is normalized once, an action-level projection retains dependency
+`LoweredAction` values and lowers the script actions into an n2 graph.
 
 All actions owned by packages other than the synthesized script package seed
 the dependency projection. Following their producer edges to a fixed point
@@ -285,22 +286,28 @@ concrete `.mooncakes` paths using that producer's action context. Those paths
 become ordinary n2 inputs with no producer in the script graph; no external
 product or path vocabulary is needed.
 
-Execution runs the dependency graph first using
-`standalone-dependencies.moon_db`, then runs the script graph using the existing
-mode database. There is no file-existence scan between the phases: n2 currently
-decides whether dependency actions are current.
+Execution first calls dependency preparation. Its contract is that successful
+completion has materialized every dependency product at the concrete paths
+already referenced by the script graph. The script phase does not inspect the
+cache or rescan those paths.
 
-The dependency n2 graph is an adapter for the current preparation mechanism.
-A future action-to-output implementation can replace that first stage, then
-feed the materialized outputs into a narrower script plan without changing the
-dependency product contract.
+When the global build cache is enabled, preparation computes identities from
+the retained actions, restores complete hits, converts only misses through a
+controlled `LoweredAction`-to-n2 adapter, and publishes successful outputs. The
+miss graph uses temporary n2 state because freshness has already been decided
+by action identity and store validation. When the cache is disabled,
+preparation sends all dependency actions through the adapter and uses the
+existing persistent `standalone-dependencies.moon_db`.
 
-For `.mbt` and `.mbtx` files built from persistent paths, the dependency n2
-database remains available to later invocations. `moon run -e` and
-`moon run -` also use the split graphs, but their synthesized temporary projects
-are removed after each invocation, so they do not currently reuse the
-dependency database across invocations. Stable or global cache storage for
-those entry points remains future work.
+The adapter is an execution mechanism behind preparation, not a second source
+of planning truth. The retained action boundary can survive replacing n2 for
+dependency misses.
+
+For `.mbt` and `.mbtx` files built from persistent paths, exact concrete paths
+can remain stable and allow global store hits. `moon run -e` and `moon run -`
+use the same preparation path, but their synthesized temporary paths can cause
+conservative misses because the identity deliberately performs no textual path
+rewriting.
 
 Ordinary project and workspace commands continue to produce and execute one
 plan and one n2 graph.

@@ -2,11 +2,11 @@
 
 ## Status
 
-This document records the intended direction for global dependency and build
-caches. Cache-root configuration and cleaning are implemented, as is the pure
-canonical identity calculation for lowered actions. Builds do not yet read
-from or write to either global cache, and identity calculation is not connected
-to execution.
+This document records the direction for global dependency and build caches.
+Cache-root configuration and cleaning are implemented. Canonical action
+identity and a global action-output store are connected to the standalone
+dependency-preparation phase. Ordinary project and workspace builds do not yet
+read or write that store. The dependency-source cache is not implemented.
 
 ## Problem
 
@@ -49,18 +49,14 @@ Two environment variables select the cache roots:
 | `MOON_DEP_CACHE` | `$MOON_HOME/cache/deps` | Disable dependency caching | Use that dependency-cache root |
 | `MOON_BUILD_CACHE` | `$MOON_HOME/cache/build` | Disable build caching | Use that build-cache root |
 
-A relative path is rejected. `off` means that a future build must use
-invocation-private temporary state instead of the corresponding global cache.
-For a disabled dependency cache, dependencies still have to be downloaded and
-prepared somewhere private; disabling the cache must not disable dependency
-resolution.
+A relative path is rejected. `off` disables the corresponding global cache. It
+does not disable dependency resolution or local incremental state. In
+particular, standalone dependency preparation falls back to its existing
+project-local n2 database when the build cache is off.
 
-The environment variables currently configure and clean roots only. Their
-presence does not yet change build execution.
-
-Canonical action identity is also implemented as a pure consumer of Rupes
-Recta `LoweredAction` values. It is not connected to build execution or either
-cache root yet.
+`MOON_BUILD_CACHE` currently affects only dependency preparation for standalone
+`.mbt` and `.mbtx` builds. Ordinary project and workspace builds are unchanged.
+`MOON_DEP_CACHE` currently configures and cleans its root only.
 
 ### Cleaning
 
@@ -163,10 +159,11 @@ discovered implicitly through system or SDK include paths remain a documented
 best-effort boundary in the initial model; they are not recursively scanned by
 Moon.
 
-User-provided compiler and linker flags remain unstructured strings and may
-name additional files with tool-specific syntax. An action that executes with
-such flags is cache-ineligible until those inputs have a structured lowering
-model. Moon does not guess paths by parsing arbitrary command arguments.
+User-provided compiler and linker flags remain unstructured strings. Their
+exact argument values are part of the action identity, but they may name
+additional files with tool-specific syntax. Moon does not guess paths by
+parsing arbitrary command arguments, so changes to such implicit inputs are a
+documented best-effort boundary.
 
 The identity deliberately excludes n2-only graph details, diagnostics metadata,
 descriptions, and dirty-output scheduling policy. Those attributes do not
@@ -176,6 +173,17 @@ All outputs of one action must be treated as a unit. Moon should publish
 objects first and the action record last, using staging and atomic rename where
 the platform permits. A reader must see either a complete validated result or
 a miss. Concurrent writers of the same action should be harmless.
+
+The implemented store follows that protocol for regular-file outputs. Each
+action entry names one content-addressed output manifest; every file is checked
+by size and BLAKE3 digest before a hit is accepted or materialized. Malformed,
+old, missing, partial, or damaged entries are misses. A writer that loses a
+publication race validates and accepts the winner instead of failing the
+build.
+
+This makes publication in the global store concurrency-tolerant. It does not
+make concurrent commands sharing the same mutable project `_build` tree or n2
+database safe.
 
 The command that requested compilation is not automatically part of the key.
 For dependency packages, `build`, `run`, and `test` may share artifacts when
@@ -209,7 +217,7 @@ effective programs cannot share an action ID.
 
 ## Standalone execution
 
-The desired standalone flow is:
+The long-term standalone flow is:
 
 1. Resolve the package graph.
 2. Reuse or prepare immutable dependency sources.
@@ -221,6 +229,14 @@ The desired standalone flow is:
 The script's own rapidly changing compilation may often miss, but its stable
 dependencies can still be hits. This is the main opportunity for faster script
 startup.
+
+The implemented first slice retains dependency `LoweredAction` values after
+planning. Dependency preparation restores reusable output sets and lowers only
+misses into a temporary n2 graph. Successful preparation guarantees that every
+concrete dependency path required by the script n2 graph has been materialized.
+The script phase therefore depends on that guarantee, not on cache internals.
+When the build cache is off, preparation lowers all dependency actions and
+uses the existing persistent dependency n2 database.
 
 `post-add` hooks will not run in globally shared prepared sources. They make
 source state mutable and can have effects that are not captured by an artifact
@@ -247,19 +263,19 @@ Each stage should be useful and reviewable without requiring the next:
    cache, no shared `post-add`, and private fallback when caching is off.
 3. **Private standalone work:** stop sharing mutable `_build` trees between
    standalone invocations; place `__moonbin__` there.
-4. **Action model (implemented, not execution-wired):** define and test
+4. **Action model (implemented):** define and test
    canonical action inputs at the Rupes Recta compiler boundary, including
    resolved interfaces and target facts.
-5. **Artifact cache:** publish and restore complete `.mi`/`.core` result sets
-   with concurrency and corruption tests.
+5. **Artifact cache (implemented for standalone dependency actions):** publish
+   and restore complete regular-file result sets with concurrency and
+   corruption tests. Extending this to ordinary builds is separate work.
 6. **Build constraints and cross compilation:** extend the target descriptor
    and action identity without changing storage-path semantics.
 7. **Operations:** add recency tracking, pruning, diagnostics, and format
    migration only after real cache data exists.
 
-The next implementation should choose one stage, write a failing end-to-end
-test first, and avoid introducing speculative directory structure for later
-stages.
+Later stages should remain independently reviewable and avoid introducing
+speculative directory structure before it has a consumer.
 
 ## References
 
