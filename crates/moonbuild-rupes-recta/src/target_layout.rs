@@ -294,10 +294,6 @@ impl TargetLayout {
         backend: TargetBackend,
         is_implementing_virtual: bool,
     ) -> PathBuf {
-        if self.run_mode == RunMode::Prove {
-            return self.emit_proof_mi_path(pkg_list, target);
-        }
-
         let pkg_fqn = &pkg_list.get_package(target.package).fqn;
         let mut base_dir = self.package_dir(pkg_fqn, backend);
         base_dir.push(format!(
@@ -725,6 +721,53 @@ impl ArtifactPathResolver {
         backend: TargetBackend,
         is_implementing_virtual: bool,
     ) -> MiPathResult {
+        if let Some(prebuilt) =
+            self.prebuilt_mi_of_build_target(pkg_list, target, backend, is_implementing_virtual)
+        {
+            return prebuilt;
+        }
+
+        MiPathResult::Regular(self.target_layout.mi_of_build_target_aux(
+            pkg_list,
+            target,
+            backend,
+            is_implementing_virtual,
+        ))
+    }
+
+    pub(crate) fn metadata_mi_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+        is_implementing_virtual: bool,
+    ) -> MiPathResult {
+        if let Some(prebuilt) =
+            self.prebuilt_mi_of_build_target(pkg_list, target, backend, is_implementing_virtual)
+        {
+            return prebuilt;
+        }
+
+        let path = if self.target_layout.run_mode == RunMode::Prove {
+            self.target_layout.emit_proof_mi_path(pkg_list, target)
+        } else {
+            self.target_layout.mi_of_build_target_aux(
+                pkg_list,
+                target,
+                backend,
+                is_implementing_virtual,
+            )
+        };
+        MiPathResult::Regular(path)
+    }
+
+    fn prebuilt_mi_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        backend: TargetBackend,
+        is_implementing_virtual: bool,
+    ) -> Option<MiPathResult> {
         // Special case: `abort` lives in core.
         // Only redirect abort to prebuilt stdlib artifacts when stdlib is injected.
         if let Some(stdlib_dir) = self.stdlib_dir()
@@ -732,11 +775,11 @@ impl ArtifactPathResolver {
             && abort == target.package
         {
             if target.kind == TargetKind::Source {
-                return MiPathResult::StdAbort(moonutil::toolchain::abort_mi_in(
+                return Some(MiPathResult::StdAbort(moonutil::toolchain::abort_mi_in(
                     stdlib_dir,
                     backend,
                     is_implementing_virtual,
-                ));
+                )));
             } else {
                 panic!("Cannot import `.mi` for moonbitlang/core/abort");
             }
@@ -746,19 +789,14 @@ impl ArtifactPathResolver {
         if let Some(stdlib_dir) = self.stdlib_dir()
             && pkg_list.get_package(target.package).is_stdlib
         {
-            return MiPathResult::Std(stdlib_mi_path(
+            return Some(MiPathResult::Std(stdlib_mi_path(
                 stdlib_dir,
                 backend,
                 &pkg_list.get_package(target.package).fqn,
-            ));
+            )));
         }
 
-        MiPathResult::Regular(self.target_layout.mi_of_build_target_aux(
-            pkg_list,
-            target,
-            backend,
-            is_implementing_virtual,
-        ))
+        None
     }
 
     pub(crate) fn paths_for_product(
@@ -1647,6 +1685,60 @@ mod tests {
                 artifact_options(ExecutableArtifact::WasmGC { use_wat: false }),
             ),
             vec![resolver.target_layout.prove_report_path(&packages, &target)],
+        );
+    }
+
+    #[test]
+    fn prove_virtual_contract_and_proof_interfaces_have_distinct_paths() {
+        let (packages, modules, package) = package_fixture("ffi");
+        let resolver = ArtifactPathResolver::new(
+            TargetLayout::new(
+                PathBuf::from("_build"),
+                TargetLayoutMode::Workspace,
+                OptLevel::Debug,
+                RunMode::Prove,
+            ),
+            None,
+        );
+        let target = package.build_target(TargetKind::Source);
+        let info = build_target_info();
+        let options = artifact_options(ExecutableArtifact::WasmGC { use_wat: false });
+
+        let virtual_contract = resolver.paths_for_product(
+            &BuildProduct::VirtualPackageInterface { package },
+            BuildAction::BuildVirtual { package },
+            &packages,
+            &modules,
+            options,
+        );
+        let proof_interface = resolver.paths_for_product(
+            &BuildProduct::ProofInterface { target },
+            BuildAction::EmitProof {
+                target,
+                info: &info,
+            },
+            &packages,
+            &modules,
+            options,
+        );
+
+        assert_eq!(
+            virtual_contract,
+            vec![PathBuf::from(
+                "_build/wasm-gc/debug/prove/username/hello/ffi/ffi.mi"
+            )]
+        );
+        assert_eq!(
+            proof_interface,
+            vec![PathBuf::from(
+                "_build/verif/ffi/pkg_8_username_5_hello_3_ffi.mi"
+            )]
+        );
+        assert_eq!(
+            resolver
+                .metadata_mi_of_build_target(&packages, &target, TargetBackend::WasmGC, false,)
+                .into_path(),
+            proof_interface[0],
         );
     }
 

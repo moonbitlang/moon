@@ -434,6 +434,36 @@ fn test_cross_package_prove_dry_run() {
 }
 
 #[test]
+fn test_virtual_default_prove_uses_distinct_contract_and_proof_interfaces() {
+    if skip_unless_verification_tests_enabled(
+        "test_virtual_default_prove_uses_distinct_contract_and_proof_interfaces",
+    ) {
+        return;
+    }
+    let dir = TestDir::new("moon_prove/virtual_default.in");
+    let stdout = get_stdout(&dir, ["prove", "root", "--dry-run"]);
+
+    assert!(
+        stdout.contains(
+            "build-interface ./virtual/pkg.mbti -o \
+             ./_build/wasm-gc/debug/prove/virtual/virtual.mi"
+        ),
+        "virtual contract should use the regular prove-mode interface path, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "-whyml-output-path \
+             ./_build/verif/virtual/pkg_8_username_14_prove_uvirtual_7_virtual.mlw"
+        ),
+        "virtual proof should use the verification interface path, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("-check-mi ./_build/wasm-gc/debug/prove/virtual/virtual.mi"),
+        "virtual proof should check against the virtual contract, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn test_cross_package_prove_workspace_failure() {
     if skip_unless_verification_tests_enabled("test_cross_package_prove_workspace_failure") {
         return;

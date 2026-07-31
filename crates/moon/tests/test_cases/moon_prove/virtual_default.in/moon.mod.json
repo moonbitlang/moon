@@ -1,0 +1,4 @@
+{
+  "name": "username/prove_virtual",
+  "preferred-target": "wasm-gc"
+}

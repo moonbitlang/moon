@@ -290,7 +290,6 @@ fn test_workspace_commands() {
         // Type aliases
 
         // Traits
-
     "#]]
     .assert_eq(&lib_mi_out);
 
@@ -309,7 +308,6 @@ fn test_workspace_commands() {
         // Type aliases
 
         // Traits
-
     "#]]
     .assert_eq(&main_mi_out);
 
