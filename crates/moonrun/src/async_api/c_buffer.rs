@@ -23,13 +23,13 @@ use super::context::ImportContext;
 use super::provenance::ported_imports;
 
 ported_imports! {
-pub(super) fn is_null(_context: &mut ImportContext<'_, '_>, ptr: u64) -> i32 {
+pub(super) fn is_null(_context: &mut ImportContext<'_, '_, '_>, ptr: u64) -> i32 {
     i32::from(ptr == crate::async_host::INVALID_HOST_HANDLE)
 }
 
 #[ported(source = "src/internal/c_buffer/stub.c")]
 pub(super) fn blit_to_c(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     dst: u64,
     dst_offset: i32,
     src: i32,
@@ -47,7 +47,7 @@ pub(super) fn blit_to_c(
 
 #[ported(source = "src/internal/c_buffer/stub.c")]
 pub(super) fn blit_from_c(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     src: u64,
     src_offset: i32,
     dst: i32,
@@ -65,7 +65,7 @@ pub(super) fn blit_from_c(
 
 #[ported(source = "src/internal/c_buffer/stub.c")]
 pub(super) fn c_buffer_get(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     buf: u64,
     index: i32,
 ) -> AsyncHostResult<i32> {
@@ -74,17 +74,17 @@ pub(super) fn c_buffer_get(
 }
 
 #[ported(source = "src/internal/c_buffer/stub.c")]
-pub(super) fn strlen(context: &mut ImportContext<'_, '_>, buf: u64) -> AsyncHostResult<i32> {
+pub(super) fn strlen(context: &mut ImportContext<'_, '_, '_>, buf: u64) -> AsyncHostResult<i32> {
     context.host.with_c_buffer(buf, stub::strlen)
 }
 
-pub(super) fn length(context: &mut ImportContext<'_, '_>, buf: u64) -> AsyncHostResult<i32> {
+pub(super) fn length(context: &mut ImportContext<'_, '_, '_>, buf: u64) -> AsyncHostResult<i32> {
     context
         .host
         .with_c_buffer(buf, |buf| i32::try_from(buf.len()).map_err(|_| AsyncHostError::Fault))
 }
 
-pub(super) fn free(context: &mut ImportContext<'_, '_>, ptr: u64) -> AsyncHostResult<()> {
+pub(super) fn free(context: &mut ImportContext<'_, '_, '_>, ptr: u64) -> AsyncHostResult<()> {
     context.host.free_c_buffer(ptr)
 }
 
@@ -92,7 +92,7 @@ pub(super) fn free(context: &mut ImportContext<'_, '_>, ptr: u64) -> AsyncHostRe
     source = "src/internal/c_buffer/stub.c",
     original = "moonbitlang_async_make_c_buffer"
 )]
-pub(super) fn new(context: &mut ImportContext<'_, '_>, size: i32) -> AsyncHostResult<u64> {
+pub(super) fn new(context: &mut ImportContext<'_, '_, '_>, size: i32) -> AsyncHostResult<u64> {
     Ok(context.host.insert_c_buffer(stub::make_c_buffer(size)?))
 }
 

@@ -28,13 +28,13 @@ use super::provenance::ported_imports;
 
 ported_imports! {
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/new")]
-pub(super) fn new(context: &mut ImportContext<'_, '_>) -> u64 {
+pub(super) fn new(context: &mut ImportContext<'_, '_, '_>) -> u64 {
     context.host.tls_new()
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/set_client")]
 pub(super) fn set_client(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
     host: i32,
     host_len: i32,
@@ -50,7 +50,7 @@ pub(super) fn set_client(
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/add_root_certificate")]
 pub(super) fn add_root_certificate(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
     root: i32,
     root_len: i32,
@@ -64,7 +64,7 @@ pub(super) fn add_root_certificate(
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/set_server_files")]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn set_server_files(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
     private_key_file: i32,
     private_key_file_len: i32,
@@ -88,7 +88,7 @@ pub(super) fn set_server_files(
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/set_server_pfx")]
 pub(super) fn set_server_pfx(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
     pfx_content: i32,
     pfx_content_len: i32,
@@ -102,24 +102,24 @@ pub(super) fn set_server_pfx(
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/free")]
-pub(super) fn free(context: &mut ImportContext<'_, '_>, tls: u64) -> AsyncHostResult<()> {
+pub(super) fn free(context: &mut ImportContext<'_, '_, '_>, tls: u64) -> AsyncHostResult<()> {
     context.host.tls_free(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/take_error")]
-pub(super) fn take_error(context: &mut ImportContext<'_, '_>, tls: u64) -> AsyncHostResult<u64> {
+pub(super) fn take_error(context: &mut ImportContext<'_, '_, '_>, tls: u64) -> AsyncHostResult<u64> {
     context.host.tls_take_error(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/error/take_global")]
-pub(super) fn take_global_error(context: &mut ImportContext<'_, '_>) -> u64 {
+pub(super) fn take_global_error(context: &mut ImportContext<'_, '_, '_>) -> u64 {
     context.host.tls_take_global_error()
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/read_plain")]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn read_plain(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
     in_buffer: i32,
     in_buffer_offset: i32,
@@ -148,7 +148,7 @@ pub(super) fn read_plain(
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/write_plain")]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn write_plain(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
     in_buffer: i32,
     in_buffer_offset: i32,
@@ -177,7 +177,7 @@ pub(super) fn write_plain(
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/connect")]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
     in_buffer: i32,
     in_buffer_offset: i32,
@@ -201,7 +201,7 @@ pub(super) fn connect(
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/accept")]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn accept(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
     in_buffer: i32,
     in_buffer_offset: i32,
@@ -223,31 +223,31 @@ pub(super) fn accept(
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/bytes_read")]
-pub(super) fn bytes_read(context: &mut ImportContext<'_, '_>, tls: u64) -> AsyncHostResult<i32> {
+pub(super) fn bytes_read(context: &mut ImportContext<'_, '_, '_>, tls: u64) -> AsyncHostResult<i32> {
     context.host.tls_bytes_read(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/bytes_to_write")]
 pub(super) fn bytes_to_write(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
 ) -> AsyncHostResult<i32> {
     context.host.tls_bytes_to_write(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/wants_read")]
-pub(super) fn wants_read(context: &mut ImportContext<'_, '_>, tls: u64) -> AsyncHostResult<i32> {
+pub(super) fn wants_read(context: &mut ImportContext<'_, '_, '_>, tls: u64) -> AsyncHostResult<i32> {
     context.host.tls_wants_read(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/wants_write")]
-pub(super) fn wants_write(context: &mut ImportContext<'_, '_>, tls: u64) -> AsyncHostResult<i32> {
+pub(super) fn wants_write(context: &mut ImportContext<'_, '_, '_>, tls: u64) -> AsyncHostResult<i32> {
     context.host.tls_wants_write(tls)
 }
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/shutdown")]
 pub(super) fn shutdown(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
 ) -> AsyncHostResult<i32> {
     context.host.tls_shutdown(tls)
@@ -255,7 +255,7 @@ pub(super) fn shutdown(
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/peer_certificate")]
 pub(super) fn peer_certificate(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
 ) -> AsyncHostResult<u64> {
     context.host.tls_peer_certificate(tls)
@@ -263,7 +263,7 @@ pub(super) fn peer_certificate(
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/unique_channel_binding")]
 pub(super) fn unique_channel_binding(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
 ) -> AsyncHostResult<u64> {
     context.host.tls_unique_channel_binding(tls)
@@ -271,7 +271,7 @@ pub(super) fn unique_channel_binding(
 
 #[ported(source = "src/tls/tls.wasm.mbt", original = "tls/connection/server_endpoint_channel_binding")]
 pub(super) fn server_endpoint_channel_binding(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     tls: u64,
 ) -> AsyncHostResult<u64> {
     context.host.tls_server_endpoint_channel_binding(tls)

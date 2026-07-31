@@ -31,7 +31,7 @@ pub(super) struct AsyncContext {
 
 impl AsyncContext {
     pub(super) fn new<'s>(
-        scope: &mut v8::HandleScope<'s>,
+        scope: &mut v8::PinScope<'s, '_>,
         imports: v8::Local<'s, v8::Object>,
         host: AsyncHost,
     ) -> Self {
@@ -57,15 +57,18 @@ pub(super) fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> 
     unsafe { &*(ptr as *const AsyncContext) }
 }
 
-pub(super) struct ImportContext<'a, 'scope> {
-    pub(super) scope: &'a mut v8::HandleScope<'scope>,
+pub(super) struct ImportContext<'a, 'scope, 'isolate> {
+    pub(super) scope: &'a mut v8::PinScope<'scope, 'isolate>,
     pub(super) host: &'a AsyncHost,
     imports: &'a v8::Global<v8::Object>,
     memory: &'a OnceLock<v8::Global<v8::WasmMemoryObject>>,
 }
 
-impl<'a, 'scope> ImportContext<'a, 'scope> {
-    pub(super) fn new(scope: &'a mut v8::HandleScope<'scope>, context: &'a AsyncContext) -> Self {
+impl<'a, 'scope, 'isolate> ImportContext<'a, 'scope, 'isolate> {
+    pub(super) fn new(
+        scope: &'a mut v8::PinScope<'scope, 'isolate>,
+        context: &'a AsyncContext,
+    ) -> Self {
         Self {
             scope,
             host: &context.host,
@@ -101,15 +104,15 @@ impl<'a, 'scope> ImportContext<'a, 'scope> {
     }
 }
 
-pub(super) struct ImportArgs<'a, 'scope, 'args> {
-    scope: &'a mut v8::HandleScope<'scope>,
+pub(super) struct ImportArgs<'a, 'scope, 'isolate, 'args> {
+    scope: &'a mut v8::PinScope<'scope, 'isolate>,
     args: &'a v8::FunctionCallbackArguments<'args>,
     next_index: i32,
 }
 
-impl<'a, 'scope, 'args> ImportArgs<'a, 'scope, 'args> {
+impl<'a, 'scope, 'isolate, 'args> ImportArgs<'a, 'scope, 'isolate, 'args> {
     pub(super) fn new(
-        scope: &'a mut v8::HandleScope<'scope>,
+        scope: &'a mut v8::PinScope<'scope, 'isolate>,
         args: &'a v8::FunctionCallbackArguments<'args>,
     ) -> Self {
         Self {
@@ -161,7 +164,7 @@ impl<'a, 'scope, 'args> ImportArgs<'a, 'scope, 'args> {
 }
 
 fn memory_object<'s>(
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     imports: &v8::Global<v8::Object>,
     cached: &OnceLock<v8::Global<v8::WasmMemoryObject>>,
 ) -> AsyncHostResult<v8::Local<'s, v8::WasmMemoryObject>> {
@@ -181,7 +184,7 @@ fn memory_object<'s>(
 }
 
 pub(super) fn throw_import_error(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     import_name: &str,
     error: AsyncHostError,
 ) {
@@ -192,13 +195,18 @@ pub(super) fn throw_import_error(
 }
 
 pub(super) trait FinishVoid {
-    fn finish_void(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str);
+    fn finish_void(
+        self,
+        scope: &mut v8::PinScope<'_, '_>,
+        ret: &mut v8::ReturnValue,
+        import_name: &str,
+    );
 }
 
 impl FinishVoid for () {
     fn finish_void(
         self,
-        _scope: &mut v8::HandleScope,
+        _scope: &mut v8::PinScope<'_, '_>,
         ret: &mut v8::ReturnValue,
         _import_name: &str,
     ) {
@@ -209,7 +217,7 @@ impl FinishVoid for () {
 impl FinishVoid for AsyncHostResult<()> {
     fn finish_void(
         self,
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::PinScope<'_, '_>,
         ret: &mut v8::ReturnValue,
         import_name: &str,
     ) {
@@ -221,13 +229,18 @@ impl FinishVoid for AsyncHostResult<()> {
 }
 
 pub(super) trait FinishI32 {
-    fn finish_i32(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str);
+    fn finish_i32(
+        self,
+        scope: &mut v8::PinScope<'_, '_>,
+        ret: &mut v8::ReturnValue,
+        import_name: &str,
+    );
 }
 
 impl FinishI32 for i32 {
     fn finish_i32(
         self,
-        _scope: &mut v8::HandleScope,
+        _scope: &mut v8::PinScope<'_, '_>,
         ret: &mut v8::ReturnValue,
         _import_name: &str,
     ) {
@@ -236,7 +249,12 @@ impl FinishI32 for i32 {
 }
 
 impl FinishI32 for AsyncHostResult<i32> {
-    fn finish_i32(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str) {
+    fn finish_i32(
+        self,
+        scope: &mut v8::PinScope<'_, '_>,
+        ret: &mut v8::ReturnValue,
+        import_name: &str,
+    ) {
         match self {
             Ok(value) => ret.set_int32(value),
             Err(error) => throw_import_error(scope, import_name, error),
@@ -245,13 +263,18 @@ impl FinishI32 for AsyncHostResult<i32> {
 }
 
 pub(super) trait FinishI64 {
-    fn finish_i64(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str);
+    fn finish_i64(
+        self,
+        scope: &mut v8::PinScope<'_, '_>,
+        ret: &mut v8::ReturnValue,
+        import_name: &str,
+    );
 }
 
 impl FinishI64 for i64 {
     fn finish_i64(
         self,
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::PinScope<'_, '_>,
         ret: &mut v8::ReturnValue,
         _import_name: &str,
     ) {
@@ -262,7 +285,7 @@ impl FinishI64 for i64 {
 impl FinishI64 for u64 {
     fn finish_i64(
         self,
-        scope: &mut v8::HandleScope,
+        scope: &mut v8::PinScope<'_, '_>,
         ret: &mut v8::ReturnValue,
         _import_name: &str,
     ) {
@@ -271,7 +294,12 @@ impl FinishI64 for u64 {
 }
 
 impl FinishI64 for AsyncHostResult<i64> {
-    fn finish_i64(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str) {
+    fn finish_i64(
+        self,
+        scope: &mut v8::PinScope<'_, '_>,
+        ret: &mut v8::ReturnValue,
+        import_name: &str,
+    ) {
         match self {
             Ok(value) => value.finish_i64(scope, ret, import_name),
             Err(error) => throw_import_error(scope, import_name, error),
@@ -280,7 +308,12 @@ impl FinishI64 for AsyncHostResult<i64> {
 }
 
 impl FinishI64 for AsyncHostResult<u64> {
-    fn finish_i64(self, scope: &mut v8::HandleScope, ret: &mut v8::ReturnValue, import_name: &str) {
+    fn finish_i64(
+        self,
+        scope: &mut v8::PinScope<'_, '_>,
+        ret: &mut v8::ReturnValue,
+        import_name: &str,
+    ) {
         match self {
             Ok(value) => value.finish_i64(scope, ret, import_name),
             Err(error) => throw_import_error(scope, import_name, error),

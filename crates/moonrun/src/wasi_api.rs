@@ -238,7 +238,7 @@ fn collect_environ() -> Vec<Vec<u8>> {
 }
 
 fn read_i32_arg(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: &v8::FunctionCallbackArguments,
     index: i32,
 ) -> WasiResult<i32> {
@@ -246,7 +246,7 @@ fn read_i32_arg(
 }
 
 fn read_u64_arg(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: &v8::FunctionCallbackArguments,
     index: i32,
 ) -> WasiResult<u64> {
@@ -702,7 +702,7 @@ fn callback_context<'s>(args: &v8::FunctionCallbackArguments<'s>) -> &'s WasiCon
 }
 
 fn cached_wasi_memory<'s>(
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     context: &WasiContext,
 ) -> WasiResult<v8::Local<'s, v8::WasmMemoryObject>> {
     context
@@ -713,7 +713,7 @@ fn cached_wasi_memory<'s>(
 }
 
 fn with_wasi_memory_mut<T>(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     context: &WasiContext,
     f: impl FnOnce(&mut [u8]) -> WasiResult<T>,
 ) -> WasiResult<T> {
@@ -745,7 +745,7 @@ fn finish_with_result(ret: &mut v8::ReturnValue, result: WasiResult<()>) {
 }
 
 fn set_memory(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -761,7 +761,7 @@ fn set_memory(
 }
 
 fn random_get(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -780,7 +780,7 @@ fn random_get(
 }
 
 fn fd_close(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -804,7 +804,7 @@ fn fd_close(
 }
 
 fn path_open(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -908,7 +908,7 @@ fn path_open(
 }
 
 fn path_readlink(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -961,7 +961,7 @@ fn path_readlink(
 }
 
 fn path_create_directory(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -990,7 +990,7 @@ fn path_create_directory(
 }
 
 fn path_rename(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1036,7 +1036,7 @@ fn path_rename(
 }
 
 fn path_remove_directory(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1065,7 +1065,7 @@ fn path_remove_directory(
 }
 
 fn path_unlink_file(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1394,7 +1394,7 @@ fn collect_poll_events(
 
 #[allow(dead_code)]
 fn poll_oneoff_impl(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1456,7 +1456,7 @@ fn poll_oneoff_impl(
 }
 
 fn fd_prestat_get(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1483,7 +1483,7 @@ fn fd_prestat_get(
 }
 
 fn fd_prestat_dir_name(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1513,7 +1513,7 @@ fn fd_prestat_dir_name(
 }
 
 fn fd_readdir(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1559,7 +1559,7 @@ fn fd_readdir(
 }
 
 fn args_sizes_get(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1582,7 +1582,7 @@ fn args_sizes_get(
 }
 
 fn args_get(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1600,7 +1600,7 @@ fn args_get(
 }
 
 fn environ_sizes_get(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1624,7 +1624,7 @@ fn environ_sizes_get(
 }
 
 fn environ_get(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1643,7 +1643,7 @@ fn environ_get(
 }
 
 fn proc_exit(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut _ret: v8::ReturnValue,
 ) {
@@ -1652,7 +1652,7 @@ fn proc_exit(
 }
 
 fn fd_write(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1720,7 +1720,7 @@ fn fd_write(
 }
 
 fn fd_read(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -1796,7 +1796,7 @@ fn clock_now_ns(_context: &WasiContext, _clock_id: ClockId) -> WasiResult<u64> {
 
 fn set_wasi_func_impl<'s>(
     obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     name: &str,
     callback: impl v8::MapFnTo<v8::FunctionCallback>,
     context_ptr: *mut std::ffi::c_void,
@@ -1818,7 +1818,7 @@ macro_rules! set_wasi_func {
 
 pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     wasm_file_name: &str,
     args: &[String],
     dtors: &mut Vec<Box<dyn Any>>,

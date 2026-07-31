@@ -22,7 +22,7 @@ use crate::async_host::{AsyncHostError, GuestMemory};
 
 use super::context::ImportContext;
 
-pub(super) fn fill(context: &mut ImportContext<'_, '_>, buffer: i32, length: i32) -> i32 {
+pub(super) fn fill(context: &mut ImportContext<'_, '_, '_>, buffer: i32, length: i32) -> i32 {
     let result = context.with_memory_mut(|memory| {
         let destination = memory.read_exact_mut(buffer, length)?;
         OsRng.try_fill_bytes(destination).map_err(|error| {

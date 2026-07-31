@@ -31,18 +31,18 @@ use super::provenance::ported_imports;
 
 ported_imports! {
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn ipv4_addr_size(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn ipv4_addr_size(_context: &mut ImportContext<'_, '_, '_>) -> i32 {
     sys::ipv4_addr_size()
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn ipv6_addr_size(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn ipv6_addr_size(_context: &mut ImportContext<'_, '_, '_>) -> i32 {
     sys::ipv6_addr_size()
 }
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn init_ip_addr(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addr: i32,
     ip: i32,
     port: i32,
@@ -56,7 +56,7 @@ pub(super) fn init_ip_addr(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn init_ipv6_addr(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addr: i32,
     ip: i32,
     port: i32,
@@ -72,13 +72,13 @@ pub(super) fn init_ipv6_addr(
 
 #[ported(source = "src/internal/event_loop/network.wasm.mbt", original = "gai_strerror")]
 #[cfg(unix)]
-pub(super) fn gai_strerror(context: &mut ImportContext<'_, '_>, code: i32) -> u64 {
+pub(super) fn gai_strerror(context: &mut ImportContext<'_, '_, '_>, code: i32) -> u64 {
     context.host.insert_c_buffer(sys::gai_strerror(code))
 }
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn ip_addr_get_ip(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addr: i32,
     addr_len: i32,
 ) -> AsyncHostResult<i32> {
@@ -90,7 +90,7 @@ pub(super) fn ip_addr_get_ip(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn ip_addr_get_port(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addr: i32,
     addr_len: i32,
 ) -> AsyncHostResult<i32> {
@@ -102,7 +102,7 @@ pub(super) fn ip_addr_get_port(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_is_ipv6(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addr: i32,
     addr_len: i32,
 ) -> AsyncHostResult<i32> {
@@ -116,7 +116,7 @@ pub(super) fn addr_is_ipv6(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_is_multicast(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addr: i32,
     addr_len: i32,
 ) -> AsyncHostResult<i32> {
@@ -129,12 +129,12 @@ pub(super) fn addr_is_multicast(
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn addr_get_ipv6_bytes_offset(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn addr_get_ipv6_bytes_offset(_context: &mut ImportContext<'_, '_, '_>) -> i32 {
     sys::addr_get_ipv6_bytes_offset()
 }
 
 pub(super) fn addr_copy_ipv6_bytes(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addr: i32,
     out: i32,
     addr_len: i32,
@@ -159,7 +159,7 @@ pub(super) fn addr_copy_ipv6_bytes(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_get_ipv6_scope_id(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addr: i32,
     addr_len: i32,
 ) -> AsyncHostResult<i32> {
@@ -171,7 +171,7 @@ pub(super) fn addr_get_ipv6_scope_id(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addr_is_ipv6_wildcard(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addr: i32,
     addr_len: i32,
 ) -> AsyncHostResult<i32> {
@@ -183,12 +183,12 @@ pub(super) fn addr_is_ipv6_wildcard(
         .map(i32::from)
 }
 
-pub(super) fn addrinfo_is_null(_context: &mut ImportContext<'_, '_>, addrinfo: u64) -> i32 {
+pub(super) fn addrinfo_is_null(_context: &mut ImportContext<'_, '_, '_>, addrinfo: u64) -> i32 {
     i32::from(addrinfo == crate::async_host::INVALID_HOST_HANDLE)
 }
 
 pub(super) fn addrinfo_get_next(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addrinfo: u64,
 ) -> AsyncHostResult<u64> {
     context.host.addrinfo_next(addrinfo)
@@ -196,7 +196,7 @@ pub(super) fn addrinfo_get_next(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addrinfo_addr_size(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addrinfo: u64,
 ) -> AsyncHostResult<i32> {
     if addrinfo == crate::async_host::INVALID_HOST_HANDLE {
@@ -208,7 +208,7 @@ pub(super) fn addrinfo_addr_size(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn addrinfo_fill_addr(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     addrinfo: u64,
     out: i32,
     port: i32,
@@ -224,12 +224,12 @@ pub(super) fn addrinfo_fill_addr(
     })
 }
 
-pub(super) fn addrinfo_free(context: &mut ImportContext<'_, '_>, addrinfo: u64) -> AsyncHostResult<()> {
+pub(super) fn addrinfo_free(context: &mut ImportContext<'_, '_, '_>, addrinfo: u64) -> AsyncHostResult<()> {
     context.host.free_addrinfo(addrinfo)
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn make_tcp_socket(context: &mut ImportContext<'_, '_>, family: i32) -> u64 {
+pub(super) fn make_tcp_socket(context: &mut ImportContext<'_, '_, '_>, family: i32) -> u64 {
     match sys::make_tcp_socket(family) {
         Ok(fd) => context
             .host
@@ -242,7 +242,7 @@ pub(super) fn make_tcp_socket(context: &mut ImportContext<'_, '_>, family: i32) 
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn make_udp_socket(context: &mut ImportContext<'_, '_>, family: i32, multicast: i32) -> u64 {
+pub(super) fn make_udp_socket(context: &mut ImportContext<'_, '_, '_>, family: i32, multicast: i32) -> u64 {
     match sys::make_udp_socket(family, multicast != 0) {
         Ok(fd) => context
             .host
@@ -256,7 +256,7 @@ pub(super) fn make_udp_socket(context: &mut ImportContext<'_, '_>, family: i32, 
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn join_multicast_group(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     multi_addr: i32,
     local_addr: i32,
@@ -276,7 +276,7 @@ pub(super) fn join_multicast_group(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn join_multicast_group_v6(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     multi_addr: i32,
     interface_index: i32,
@@ -294,7 +294,7 @@ pub(super) fn join_multicast_group_v6(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn set_multicast_interface(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     local_addr: i32,
     local_addr_len: i32,
@@ -311,7 +311,7 @@ pub(super) fn set_multicast_interface(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn set_multicast_interface_v6(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     interface_index: i32,
 ) -> i32 {
@@ -326,7 +326,7 @@ pub(super) fn set_multicast_interface_v6(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn set_multicast_ttl(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     ttl: i32,
     family: i32,
@@ -342,7 +342,7 @@ pub(super) fn set_multicast_ttl(
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn set_multicast_loopback(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     enable: i32,
     family: i32,
@@ -357,7 +357,7 @@ pub(super) fn set_multicast_loopback(
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn disable_nagle(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+pub(super) fn disable_nagle(context: &mut ImportContext<'_, '_, '_>, fd: u64) -> i32 {
     let host = context.host;
     zero_or_minus_one(
         context,
@@ -366,13 +366,13 @@ pub(super) fn disable_nagle(context: &mut ImportContext<'_, '_>, fd: u64) -> i32
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn allow_reuse_addr(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+pub(super) fn allow_reuse_addr(context: &mut ImportContext<'_, '_, '_>, fd: u64) -> i32 {
     let host = context.host;
     zero_or_minus_one(context, host.with_raw_socket(fd, sys::allow_reuse_addr))
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn set_ipv6_only(context: &mut ImportContext<'_, '_>, fd: u64, ipv6_only: i32) -> i32 {
+pub(super) fn set_ipv6_only(context: &mut ImportContext<'_, '_, '_>, fd: u64, ipv6_only: i32) -> i32 {
     let host = context.host;
     zero_or_minus_one(
         context,
@@ -381,7 +381,7 @@ pub(super) fn set_ipv6_only(context: &mut ImportContext<'_, '_>, fd: u64, ipv6_o
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn listen(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+pub(super) fn listen(context: &mut ImportContext<'_, '_, '_>, fd: u64) -> i32 {
     let host = context.host;
     let result = host.with_resource_of_class(fd, ResourceClass::TcpSocket, |file| {
         check_listen_bind_policy(host.policy(), file)?;
@@ -392,7 +392,7 @@ pub(super) fn listen(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn enable_keepalive(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     keep_idle: i32,
     keep_count: i32,
@@ -408,7 +408,7 @@ pub(super) fn enable_keepalive(
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn getsockname(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
+pub(super) fn getsockname(context: &mut ImportContext<'_, '_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact_mut(addr, addr_len)?;
@@ -418,7 +418,7 @@ pub(super) fn getsockname(context: &mut ImportContext<'_, '_>, fd: u64, addr: i3
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn if_nametoindex(context: &mut ImportContext<'_, '_>, name: i32, name_len: i32) -> i32 {
+pub(super) fn if_nametoindex(context: &mut ImportContext<'_, '_, '_>, name: i32, name_len: i32) -> i32 {
     let result = context.with_memory_mut(|memory| {
         let name = read_u16(memory, name, name_len)?;
         sys::if_nametoindex(&name)
@@ -433,7 +433,7 @@ pub(super) fn if_nametoindex(context: &mut ImportContext<'_, '_>, name: i32, nam
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn if_indextoname(context: &mut ImportContext<'_, '_>, index: i32) -> u64 {
+pub(super) fn if_indextoname(context: &mut ImportContext<'_, '_, '_>, index: i32) -> u64 {
     match sys::if_indextoname(index) {
         Ok(name) => context.host.insert_c_buffer(name.into_boxed_slice()),
         Err(error) => {
@@ -444,13 +444,13 @@ pub(super) fn if_indextoname(context: &mut ImportContext<'_, '_>, index: i32) ->
 }
 
 #[ported(source = "src/socket/socket.c")]
-pub(super) fn find_ipv6_test_interface(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn find_ipv6_test_interface(_context: &mut ImportContext<'_, '_, '_>) -> i32 {
     sys::find_ipv6_test_interface()
 }
 
 #[ported(source = "src/socket/socket.c")]
 pub(super) fn udp_client_connect(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     addr: i32,
     addr_len: i32,
@@ -466,7 +466,7 @@ pub(super) fn udp_client_connect(
     zero_or_minus_one(context, result)
 }
 
-pub(super) fn bind(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
+pub(super) fn bind(context: &mut ImportContext<'_, '_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
@@ -479,7 +479,7 @@ pub(super) fn bind(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
 pub(super) fn recvfrom(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     buf: i32,
     offset: i32,
@@ -518,7 +518,7 @@ pub(super) fn recvfrom(
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
 pub(super) fn sendto(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     buf: i32,
     offset: i32,
@@ -554,7 +554,7 @@ pub(super) fn sendto(
 
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
-pub(super) fn connect(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
+pub(super) fn connect(context: &mut ImportContext<'_, '_, '_>, fd: u64, addr: i32, addr_len: i32) -> i32 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact(addr, addr_len)?;
@@ -566,7 +566,7 @@ pub(super) fn connect(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, a
 
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
-pub(super) fn getsockerr(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+pub(super) fn getsockerr(context: &mut ImportContext<'_, '_, '_>, fd: u64) -> i32 {
     let host = context.host;
     match host.with_raw_socket(fd, sys::getsockerr) {
         Ok(err) => err,
@@ -579,7 +579,7 @@ pub(super) fn getsockerr(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
 
 #[ported(source = "src/internal/event_loop/io_unix.c")]
 #[cfg(unix)]
-pub(super) fn accept(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, addr_len: i32) -> u64 {
+pub(super) fn accept(context: &mut ImportContext<'_, '_, '_>, fd: u64, addr: i32, addr_len: i32) -> u64 {
     let host = context.host;
     let result = context.with_memory_mut(|memory| {
         let addr = memory.read_exact_mut(addr, addr_len)?;
@@ -605,7 +605,7 @@ pub(super) fn accept(context: &mut ImportContext<'_, '_>, fd: u64, addr: i32, ad
     original = "moonbitlang_async_connect"
 )]
 #[cfg(windows)]
-pub(super) fn connect_io_result(context: &mut ImportContext<'_, '_>, fd: u64, result: u64) -> i32 {
+pub(super) fn connect_io_result(context: &mut ImportContext<'_, '_, '_>, fd: u64, result: u64) -> i32 {
     match context.host.connect_io_result(fd, result) {
         Ok(ret) => ret,
         Err(error) => {
@@ -620,7 +620,7 @@ pub(super) fn connect_io_result(context: &mut ImportContext<'_, '_>, fd: u64, re
     original = "moonbitlang_async_setup_connected_socket"
 )]
 #[cfg(windows)]
-pub(super) fn setup_connected_socket(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+pub(super) fn setup_connected_socket(context: &mut ImportContext<'_, '_, '_>, fd: u64) -> i32 {
     zero_or_minus_one(context, context.host.setup_connected_socket(fd))
 }
 
@@ -630,7 +630,7 @@ pub(super) fn setup_connected_socket(context: &mut ImportContext<'_, '_>, fd: u6
 )]
 #[cfg(windows)]
 pub(super) fn accept_io_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     server_fd: u64,
     conn_fd: u64,
     result: u64,
@@ -650,7 +650,7 @@ pub(super) fn accept_io_result(
 )]
 #[cfg(windows)]
 pub(super) fn setup_accepted_socket(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     listen_fd: u64,
     accept_fd: u64,
 ) -> i32 {
@@ -660,7 +660,7 @@ pub(super) fn setup_accepted_socket(
     )
 }
 
-fn zero_or_minus_one(context: &mut ImportContext<'_, '_>, result: AsyncHostResult<()>) -> i32 {
+fn zero_or_minus_one(context: &mut ImportContext<'_, '_, '_>, result: AsyncHostResult<()>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {

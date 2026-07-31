@@ -25,12 +25,12 @@ use super::provenance::ported_imports;
 
 ported_imports! {
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn get_platform(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn get_platform(_context: &mut ImportContext<'_, '_, '_>) -> i32 {
     thread_pool::get_platform()
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn errno_is_cancelled(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
+pub(super) fn errno_is_cancelled(_context: &mut ImportContext<'_, '_, '_>, errno: i32) -> i32 {
     if thread_pool::errno_is_cancelled(errno) {
         1
     } else {
@@ -43,7 +43,7 @@ pub(super) fn errno_is_cancelled(_context: &mut ImportContext<'_, '_>, errno: i3
     original = "moonbitlang_async_init_WSA"
 )]
 #[cfg(windows)]
-pub(super) fn init_wsa(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn init_wsa(_context: &mut ImportContext<'_, '_, '_>) -> i32 {
     io::init_wsa()
 }
 
@@ -52,7 +52,7 @@ pub(super) fn init_wsa(_context: &mut ImportContext<'_, '_>) -> i32 {
     original = "moonbitlang_async_cleanup_WSA"
 )]
 #[cfg(windows)]
-pub(super) fn cleanup_wsa(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn cleanup_wsa(_context: &mut ImportContext<'_, '_, '_>) -> i32 {
     io::cleanup_wsa()
 }
 }
