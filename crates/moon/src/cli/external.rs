@@ -23,7 +23,6 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, ExitStatus},
 };
-use which::which_global;
 
 use super::process;
 
@@ -32,10 +31,10 @@ pub(crate) fn run_external(mut args: Vec<String>) -> anyhow::Result<i32> {
         bail!("no external subcommand provided");
     };
     let subcmd = args.remove(0);
-    let resolved = resolve_external_subcommand(&subcmd)?;
-    Ok(process::delegate(Command::new(resolved).args(args))?
-        .code()
-        .unwrap_or(0))
+    let mut command = process::command_in_effective_dir(None, |current_dir| {
+        resolve_external_subcommand_in(&subcmd, current_dir)
+    })?;
+    Ok(process::delegate(command.args(args))?.code().unwrap_or(0))
 }
 
 pub(crate) fn run_external_help(
@@ -43,17 +42,19 @@ pub(crate) fn run_external_help(
     current_dir: Option<&Path>,
     args: impl IntoIterator<Item = OsString>,
 ) -> anyhow::Result<i32> {
-    let mut cmd = Command::new(resolve_external_subcommand(subcmd)?);
-    if let Some(dir) = current_dir {
-        cmd.current_dir(dir);
-    }
+    let mut cmd = process::command_in_effective_dir(current_dir, |current_dir| {
+        resolve_external_subcommand_in(subcmd, current_dir)
+    })?;
     run_external_command(&mut cmd, args)
         .with_context(|| format!("Unable to get help from `{subcmd}` utility"))?
         .code()
         .ok_or_else(|| anyhow::anyhow!("Unable to get exit code"))
 }
 
-fn resolve_external_subcommand(subcmd: &str) -> anyhow::Result<PathBuf> {
+fn resolve_external_subcommand_in(
+    subcmd: &str,
+    current_dir: Option<&Path>,
+) -> anyhow::Result<PathBuf> {
     if subcmd == "-" {
         bail!(
             "`-` is only supported in `moon run -`, which reads `.mbtx` source from stdin.\n\
@@ -61,9 +62,15 @@ fn resolve_external_subcommand(subcmd: &str) -> anyhow::Result<PathBuf> {
         );
     }
     let bin = &format!("moon-{subcmd}");
-    which_global(bin).context(anyhow::format_err!(
-        "no such subcommand: `{subcmd}`, is `{bin}` a valid executable accessible via your `PATH`?"
-    ))
+    let resolved = match current_dir {
+        Some(dir) => moonutil::toolchain::resolve_executable_in(bin, dir),
+        None => moonutil::toolchain::resolve_executable(bin),
+    };
+    resolved.with_context(|| {
+        format!(
+            "no such subcommand: `{subcmd}`, is `{bin}` a valid executable accessible via your `PATH`?"
+        )
+    })
 }
 
 fn run_external_command(
@@ -91,23 +98,20 @@ pub(crate) fn exit_if_ide_help_request(err: &clap::Error, raw_args: &[OsString])
 }
 
 fn ide_help_args(raw_args: &[OsString]) -> Option<(Option<PathBuf>, Vec<OsString>)> {
-    match raw_args {
-        [_, help, ide, tail @ ..] if help == OsStr::new("help") && ide == OsStr::new("ide") => {
-            let mut delegated = tail.to_vec();
-            delegated.push(OsString::from("--help"));
-            Some((None, delegated))
-        }
-        [_, chdir, dir, help, ide, tail @ ..]
-            if chdir == OsStr::new("-C")
-                && help == OsStr::new("help")
-                && ide == OsStr::new("ide") =>
-        {
-            let mut delegated = tail.to_vec();
-            delegated.push(OsString::from("--help"));
-            Some((Some(PathBuf::from(dir)), delegated))
-        }
-        _ => None,
+    let early = process::early_subcommand(raw_args)?;
+    if early.name != OsStr::new("help") {
+        return None;
     }
+    let [ide, tail @ ..] = early.args else {
+        return None;
+    };
+    if ide != OsStr::new("ide") {
+        return None;
+    }
+
+    let mut delegated = tail.to_vec();
+    delegated.push(OsString::from("--help"));
+    Some((early.current_dir, delegated))
 }
 
 #[cfg(test)]
@@ -138,7 +142,15 @@ mod tests {
     #[test]
     fn delegates_help_for_ide_after_chdir() {
         assert_eq!(
-            ide_help_args(&os(&["moon", "-C", ".", "help", "ide", "doc"])),
+            ide_help_args(&os(&[
+                "moon",
+                "--target-dir=_build-alt",
+                "-qvC=.",
+                "--trace",
+                "help",
+                "ide",
+                "doc"
+            ])),
             Some((Some(PathBuf::from(".")), os(&["doc", "--help"])))
         );
     }

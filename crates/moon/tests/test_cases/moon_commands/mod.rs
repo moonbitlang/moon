@@ -665,6 +665,25 @@ fn test_external_subcommand_delegation_handles_interrupt() {
 }
 
 #[test]
+fn test_ide_delegation_resolves_from_change_directory() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/chdir-executable-resolution");
+
+    let early_stdout = get_stdout_with_envs(&dir, ["-qCsubdir", "help", "ide"], [("PATH", "bin")]);
+    assert!(
+        early_stdout.contains("fake-moon-ide-location=subdir"),
+        "early moon-ide delegation should resolve from the -C directory:\n{early_stdout}"
+    );
+
+    let parsed_stdout =
+        get_stdout_with_envs(&dir, ["-C", "subdir", "ide", "--help"], [("PATH", "bin")]);
+    assert!(
+        parsed_stdout.contains("fake-moon-ide-location=subdir"),
+        "parsed moon-ide delegation should resolve from the -C directory:\n{parsed_stdout}"
+    );
+}
+
+#[test]
 fn test_cram_dry_run_builds_native_release_and_prints_delegation() {
     let dir = TestDir::new("hello");
     let stdout = get_stdout(

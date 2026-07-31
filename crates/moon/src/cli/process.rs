@@ -16,7 +16,105 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::process::{Command, ExitStatus};
+use std::{
+    ffi::{OsStr, OsString},
+    path::{Path, PathBuf},
+    process::{Command, ExitStatus},
+};
+
+pub(crate) struct EarlySubcommand<'a> {
+    pub(crate) current_dir: Option<PathBuf>,
+    pub(crate) name: &'a OsStr,
+    pub(crate) args: &'a [OsString],
+}
+
+/// Locate a top-level subcommand before clap has successfully parsed the CLI.
+///
+/// Early delegation must interpret global options exactly far enough to derive
+/// the same effective `-C` directory that `main` would apply before a normally
+/// parsed subcommand runs.
+pub(crate) fn early_subcommand(raw_args: &[OsString]) -> Option<EarlySubcommand<'_>> {
+    let mut current_dir = None;
+    let mut index = 1;
+    while index < raw_args.len() {
+        let arg = &raw_args[index];
+        match arg.to_str() {
+            Some("-C") => {
+                index += 1;
+                current_dir = Some(PathBuf::from(raw_args.get(index)?));
+            }
+            Some(arg) if arg.starts_with("-C") && arg.len() > 2 => {
+                let dir = &arg[2..];
+                if dir.is_empty() || dir == "=" {
+                    return None;
+                }
+                current_dir = Some(PathBuf::from(dir.strip_prefix('=').unwrap_or(dir)));
+            }
+            Some("--target-dir" | "--unstable-feature" | "-Z") => {
+                index += 1;
+                raw_args.get(index)?;
+            }
+            Some(arg)
+                if arg.starts_with("--target-dir=")
+                    || arg.starts_with("--unstable-feature=")
+                    || (arg.starts_with("-Z") && arg.len() > 2) => {}
+            Some(
+                "-V" | "--version" | "-q" | "--quiet" | "-v" | "--verbose" | "--trace"
+                | "--dry-run" | "--build-graph",
+            ) => {}
+            Some(arg) if arg.starts_with('-') && !arg.starts_with("--") && arg.len() > 2 => {
+                let mut flags = &arg[1..];
+                while matches!(flags.as_bytes().first().copied(), Some(b'V' | b'q' | b'v')) {
+                    flags = &flags[1..];
+                }
+                if flags.is_empty() {
+                    index += 1;
+                    continue;
+                }
+                if let Some(dir) = flags.strip_prefix('C') {
+                    let dir = dir.strip_prefix('=').unwrap_or(dir);
+                    if dir.is_empty() {
+                        index += 1;
+                        current_dir = Some(PathBuf::from(raw_args.get(index)?));
+                    } else {
+                        current_dir = Some(PathBuf::from(dir));
+                    }
+                } else if flags == "Z" {
+                    index += 1;
+                    raw_args.get(index)?;
+                } else if !flags.starts_with('Z') {
+                    return Some(EarlySubcommand {
+                        current_dir,
+                        name: &raw_args[index],
+                        args: &raw_args[index + 1..],
+                    });
+                }
+            }
+            _ => {
+                return Some(EarlySubcommand {
+                    current_dir,
+                    name: arg,
+                    args: &raw_args[index + 1..],
+                });
+            }
+        }
+        index += 1;
+    }
+    None
+}
+
+/// Construct a delegated command whose executable lookup and child working
+/// directory use the same effective command directory.
+pub(crate) fn command_in_effective_dir(
+    current_dir: Option<&Path>,
+    resolve_program: impl FnOnce(Option<&Path>) -> anyhow::Result<PathBuf>,
+) -> anyhow::Result<Command> {
+    let mut command = Command::new(resolve_program(current_dir)?);
+    if let Some(dir) = current_dir {
+        command.current_dir(dir);
+    }
+    Ok(command)
+}
 
 /// Delegate to a command as directly as the platform allows.
 ///
