@@ -761,18 +761,19 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     };
     let backend = cx.backend.target_backend();
     let layout = cx.artifact_paths.target_layout();
-    let dependency_input = compile_output
-        .dependencies
-        .build_graph
-        .builds
-        .iter()
-        .next()
-        .is_some()
-        .then(|| BuildInput {
-            graph: compile_output.dependencies.build_graph,
-            command_args_by_output: compile_output.dependencies.command_args_by_output,
+    let dependency_input = if compile_output.dependencies.is_empty() {
+        None
+    } else {
+        let (graph, command_args_by_output) =
+            moonbuild_rupes_recta::build_lower::lowered_actions_to_n2_graph(
+                compile_output.dependencies,
+            )?;
+        Some(BuildInput {
+            graph,
+            command_args_by_output,
             db_path: layout.standalone_dependency_n2_db_path(backend),
-        });
+        })
+    };
     let input = StandaloneBuildInput {
         dependencies: dependency_input,
         script: BuildInput {
