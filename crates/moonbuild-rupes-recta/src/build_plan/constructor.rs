@@ -369,7 +369,8 @@ impl<'a> BuildPlanConstructor<'a> {
                     node
                 );
             }
-            BuildPlanNode::MakeExecutable(build_target) => {
+            BuildPlanNode::MakeExecutable(build_target)
+            | BuildPlanNode::GenerateDsym(build_target) => {
                 // Non-native MakeExecutable nodes are final-artifact aliases over
                 // LinkCore output. Only native backends need extra lowering info
                 // for the C toolchain/runtime/stub linking step.
@@ -377,6 +378,14 @@ impl<'a> BuildPlanConstructor<'a> {
                     assert!(
                         self.res.make_executable_info.contains_key(&build_target),
                         "Make executable info for {:?} should be present when resolving node {:?}",
+                        build_target,
+                        node
+                    );
+                }
+                if matches!(node, BuildPlanNode::GenerateDsym(_)) {
+                    assert!(
+                        self.res.dsymutil.is_some(),
+                        "dSYM info for {:?} should be present when resolving node {:?}",
                         build_target,
                         node
                     );
@@ -532,6 +541,9 @@ impl<'a> BuildPlanConstructor<'a> {
                 )
             }
             BuildPlanNode::MakeExecutable(target) => self.build_make_exec_link_core(node, target),
+            BuildPlanNode::GenerateDsym(_) => {
+                panic!("GenerateDsym nodes are resolved with their MakeExecutable node")
+            }
             BuildPlanNode::GenerateTestInfo(target) => self.build_gen_test_info(node, target),
             BuildPlanNode::Bundle(module_id) => self.build_bundle(node, module_id),
             BuildPlanNode::BuildRuntimeObject(index) => self.build_runtime_object(node, index),

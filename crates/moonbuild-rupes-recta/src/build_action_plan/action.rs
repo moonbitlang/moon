@@ -16,6 +16,8 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
+use std::path::Path;
+
 use moonutil::resolution::ModuleId;
 
 use crate::{
@@ -66,6 +68,10 @@ pub enum BuildAction<'a> {
     MakeExecutable {
         target: BuildTarget,
         info: Option<&'a MakeExecutableInfo>,
+    },
+    GenerateDsym {
+        target: BuildTarget,
+        dsymutil: &'a Path,
     },
     GenerateTestInfo {
         target: BuildTarget,

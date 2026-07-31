@@ -85,6 +85,7 @@ impl<'a> BuildActionPlan<'a> {
             | BuildAction::BuildCore { target, .. }
             | BuildAction::LinkCore { target, .. }
             | BuildAction::MakeExecutable { target, .. }
+            | BuildAction::GenerateDsym { target, .. }
             | BuildAction::GenerateTestInfo { target, .. }
             | BuildAction::GenerateMbti { target } => Some(target.package),
             BuildAction::BuildCStub { package, .. }
@@ -202,6 +203,13 @@ impl<'a> BuildActionPlan<'a> {
                 target,
                 info: self.plan.get_make_executable_info(&target),
             },
+            BuildPlanNode::GenerateDsym(target) => BuildAction::GenerateDsym {
+                target,
+                dsymutil: self
+                    .plan
+                    .get_dsymutil()
+                    .expect("dsymutil should be present for GenerateDsym nodes"),
+            },
             BuildPlanNode::GenerateTestInfo(target) => BuildAction::GenerateTestInfo {
                 target,
                 info: self
@@ -304,6 +312,11 @@ impl<'a> BuildActionPlan<'a> {
         )
     }
 
+    pub(crate) fn generates_dsym_for_target(&self, target: &BuildTarget) -> bool {
+        self.action_ids_by_node
+            .contains_key(&BuildPlanNode::GenerateDsym(*target))
+    }
+
     pub fn build_plan_node(&self, id: BuildActionId) -> BuildPlanNode {
         self.node(id)
     }
@@ -391,6 +404,9 @@ impl<'a> BuildActionPlan<'a> {
             }
             BuildPlanNode::MakeExecutable(target) => {
                 vec![BuildProduct::Executable { target }]
+            }
+            BuildPlanNode::GenerateDsym(target) => {
+                vec![BuildProduct::DsymBundle { target }]
             }
             BuildPlanNode::GenerateTestInfo(target) => vec![
                 BuildProduct::GeneratedTestDriver { target },

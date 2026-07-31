@@ -56,20 +56,6 @@ pub struct LoweredResponseFile {
     pub content: String,
 }
 
-/// The representation used to construct the process command.
-///
-/// Most commands retain structured arguments so tools can inspect them before
-/// the platform-specific command string is executed. Commands that deliberately
-/// use shell composition, such as prebuild commands, remain verbatim.
-#[derive(Debug, Clone)]
-pub(crate) enum LoweredCommandKind {
-    /// Structured argv rendered using the platform's command-line convention.
-    Args(Vec<String>),
-
-    /// A command string that intentionally relies on shell composition.
-    Verbatim,
-}
-
 /// How the process command should be transported to the executor.
 #[derive(Debug, Clone)]
 pub enum LoweredCommandExecution {
@@ -82,11 +68,11 @@ pub enum LoweredCommandExecution {
 
 /// A concrete process command and its selected process transport.
 ///
-/// `kind` retains the logical form for metadata consumers. `execution` records
+/// `args` retains the logical form for metadata consumers. `execution` records
 /// whether the same command is sent inline or through a response file.
 #[derive(Debug, Clone)]
 pub struct LoweredCommand {
-    pub(crate) kind: LoweredCommandKind,
+    pub(crate) args: Vec<String>,
     pub(crate) execution: LoweredCommandExecution,
     pub(crate) cwd: Option<PathBuf>,
     pub(crate) env: Vec<(String, String)>,
@@ -96,7 +82,7 @@ impl From<Vec<String>> for LoweredCommand {
     fn from(args: Vec<String>) -> Self {
         let command = moonutil::shlex::join_native(args.iter().map(String::as_str));
         Self {
-            kind: LoweredCommandKind::Args(args),
+            args,
             execution: LoweredCommandExecution::Inline(command),
             cwd: None,
             env: Vec::new(),
@@ -105,15 +91,6 @@ impl From<Vec<String>> for LoweredCommand {
 }
 
 impl LoweredCommand {
-    pub(crate) fn verbatim(command: String) -> Self {
-        Self {
-            kind: LoweredCommandKind::Verbatim,
-            execution: LoweredCommandExecution::Inline(command),
-            cwd: None,
-            env: Vec::new(),
-        }
-    }
-
     pub(crate) fn inline_command(&self) -> &str {
         let LoweredCommandExecution::Inline(command) = &self.execution else {
             unreachable!("a response-file command is already lowered")
@@ -127,17 +104,11 @@ impl LoweredCommand {
     }
 
     fn executable(&self) -> Option<&Path> {
-        match &self.kind {
-            LoweredCommandKind::Args(args) => args.first().map(Path::new),
-            LoweredCommandKind::Verbatim => None,
-        }
+        self.args.first().map(Path::new)
     }
 
-    pub fn args(&self) -> Option<&[String]> {
-        match &self.kind {
-            LoweredCommandKind::Args(args) => Some(args),
-            LoweredCommandKind::Verbatim => None,
-        }
+    pub fn args(&self) -> &[String] {
+        &self.args
     }
 
     pub fn execution(&self) -> &LoweredCommandExecution {
@@ -295,21 +266,6 @@ mod tests {
         assert_eq!(
             external_inputs,
             vec![PathBuf::from("a.mbt"), executable, PathBuf::from("z.mbt")]
-        );
-    }
-
-    #[test]
-    fn verbatim_command_does_not_derive_an_executable() {
-        let (commandline, external_inputs) = BuildCommand {
-            extra_inputs: vec![PathBuf::from("z"), PathBuf::from("a")],
-            commandline: LoweredCommand::verbatim("tool && other-tool".to_string()),
-        }
-        .into_lowered_parts(&[]);
-
-        assert_eq!(commandline.executable(), None);
-        assert_eq!(
-            external_inputs,
-            vec![PathBuf::from("a"), PathBuf::from("z")]
         );
     }
 }

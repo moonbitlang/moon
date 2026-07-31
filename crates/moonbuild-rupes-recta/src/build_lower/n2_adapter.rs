@@ -20,7 +20,7 @@ use log::debug;
 use n2::graph::{Build, Graph as N2Graph, RspFile};
 
 use super::{
-    CommandArgMap, LoweredAction, LoweredCommandExecution, LoweredCommandKind, LoweringError,
+    CommandArgMap, LoweredAction, LoweredCommandExecution, LoweringError,
     utils::{build_ins, build_n2_fileloc, build_outs},
 };
 
@@ -61,11 +61,9 @@ impl N2GraphBuilder {
             .into_iter()
             .flat_map(|product| product.paths)
             .collect::<Vec<_>>();
-        if let LoweredCommandKind::Args(args) = &command.kind {
-            for output_path in &output_paths {
-                self.command_args_by_output
-                    .insert(output_path.clone(), args.clone());
-            }
+        for output_path in &output_paths {
+            self.command_args_by_output
+                .insert(output_path.clone(), command.args.clone());
         }
 
         let ins = build_ins(&mut self.graph, &input_paths);

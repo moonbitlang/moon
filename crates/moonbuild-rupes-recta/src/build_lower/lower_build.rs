@@ -51,34 +51,17 @@ use crate::{
     },
     build_plan::{BuildCStubsInfo, BuildTargetInfo, LinkCoreInfo, MakeExecutableInfo},
     discover::DiscoveredPackage,
-    model::{BackendConfig, BuildTarget, NativeTarget, OperatingSystem, PackageId, TargetKind},
+    model::{BackendConfig, BuildTarget, PackageId, TargetKind},
     pkg_name::{PackageFQN, PackagePath},
     special_cases::{is_self_coverage_lib, should_skip_coverage},
     target_layout::proof_artifact_stem,
 };
 
 use super::{
-    BuildCommand, LoweredCommand, LoweringError, compiler,
+    BuildCommand, LoweringError, compiler,
     context::{ActionProducts, LoweringContext},
     moonc_command,
 };
-
-fn commandline_with_dsymutil(cmd: &[String], dest: &str) -> LoweredCommand {
-    let cmd_str = moonutil::shlex::join_unix(cmd.iter().map(|x| x.as_str()));
-    let dsymutil_args = ["dsymutil", dest];
-    let dsymutil_cmd_str = moonutil::shlex::join_unix(dsymutil_args.iter().copied());
-    LoweredCommand::verbatim(format!("{cmd_str} && {dsymutil_cmd_str}"))
-}
-
-fn should_run_new_native_dsymutil(
-    native_target: Option<NativeTarget>,
-    debug_symbols: bool,
-    cc: &CC,
-) -> bool {
-    native_target == Some(NativeTarget::Aarch64AppleDarwin)
-        && debug_symbols
-        && cc.targets_apple_darwin()
-}
 
 impl<'a> LoweringContext<'a> {
     fn compiler_source_files(&self, info: &BuildTargetInfo) -> Vec<PathBuf> {
@@ -1150,6 +1133,30 @@ impl<'a> LoweringContext<'a> {
         }
     }
 
+    pub(super) fn lower_generate_dsym(
+        &self,
+        products: &ActionProducts,
+        target: BuildTarget,
+        dsymutil: &Path,
+    ) -> BuildCommand {
+        let executable = products.single_dependency_path_matching(|product| {
+            matches!(
+                product,
+                BuildProduct::Executable {
+                    target: product_target,
+                } if *product_target == target
+            )
+        });
+        BuildCommand {
+            extra_inputs: vec![],
+            commandline: vec![
+                dsymutil.display().to_string(),
+                executable.display().to_string(),
+            ]
+            .into(),
+        }
+    }
+
     fn native_executable_dependency_paths(
         &self,
         products: &ActionProducts,
@@ -1241,20 +1248,9 @@ impl<'a> LoweringContext<'a> {
             self.opt.compiler_paths(),
         );
 
-        // On macOS with LLVM backend and debug symbols, run dsymutil after linking
-        // to generate the dSYM bundle for better debugging experience
-        let commandline = if self.opt.target_backend() == TargetBackend::LLVM
-            && self.opt.debug_symbols
-            && self.opt.os() == OperatingSystem::MacOS
-        {
-            commandline_with_dsymutil(&cc_cmd, &dest)
-        } else {
-            cc_cmd.into()
-        };
-
         BuildCommand {
             extra_inputs: vec![],
-            commandline,
+            commandline: cc_cmd.into(),
         }
         .with_msvc_env(&info.effective_native_toolchain)
     }
@@ -1288,12 +1284,6 @@ impl<'a> LoweringContext<'a> {
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<_>>();
-        let run_dsymutil = should_run_new_native_dsymutil(
-            self.opt.backend.direct_native_target(),
-            self.opt.debug_symbols,
-            &cc,
-        );
-
         let commandline = if info.effective_native_toolchain.uses_msvc_driver() {
             compiler::msvc::link_executable_command(
                 &info.effective_native_toolchain,
@@ -1313,11 +1303,7 @@ impl<'a> LoweringContext<'a> {
                 &dest,
                 &self.opt.compiler_paths().lib_path,
             );
-            if run_dsymutil {
-                commandline_with_dsymutil(&linker_cmd, &dest)
-            } else {
-                linker_cmd.into()
-            }
+            linker_cmd.into()
         };
 
         BuildCommand {

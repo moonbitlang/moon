@@ -21,6 +21,12 @@ both roles because archiving is performed with `tcc -ar`.
 Moon does not resolve a standalone linker executable such as `ld` or `lld-link` in this path.
 Linking is performed through the selected compiler driver.
 
+`dsymutil` is a post-link debug-symbol tool, not a fourth C-toolchain role.
+When planning an LLVM macOS debug build or an AArch64 Apple direct-object debug
+build, Moon resolves `dsymutil` through the same shared executable resolver and
+stores its concrete absolute path as planning metadata for the `GenerateDsym`
+action. Other builds do not resolve it.
+
 ## Standard C Pipeline
 
 The ordinary C pipeline is:
@@ -324,6 +330,19 @@ fresh path. Build lowering then invokes the resolved librarian directly.
 
 This fingerprint is specific to the runtime archive introduced for the split runtime. Existing
 package C-stub archives retain their stable paths and direct librarian invocation.
+
+### Generate macOS debug symbols
+
+For LLVM macOS debug builds and AArch64 Apple direct-object debug builds, Moon
+models debug-symbol generation as a separate `GenerateDsym` action:
+
+1. `MakeExecutable` invokes the resolved compiler driver and produces the executable.
+2. `GenerateDsym` depends on that executable, invokes the resolved `dsymutil`,
+   and produces `<executable>.dSYM`.
+
+The commands are not joined with `&&`. This keeps the linker invocation as
+structured argv, makes the executable-to-dSYM dependency explicit, and records
+the `dsymutil` executable as an n2 file input.
 
 ## Maintenance Notes
 

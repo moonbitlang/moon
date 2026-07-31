@@ -53,6 +53,9 @@ pub enum BuildProduct {
     Executable {
         target: BuildTarget,
     },
+    DsymBundle {
+        target: BuildTarget,
+    },
     GeneratedTestDriver {
         target: BuildTarget,
     },

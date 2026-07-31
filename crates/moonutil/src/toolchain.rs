@@ -87,7 +87,7 @@ fn runtime_source_paths_in(lib_path: &Path) -> anyhow::Result<Vec<PathBuf>> {
 /// `which` may return a relative path when `PATH` contains relative entries.
 /// Build actions can run from a different working directory, so executable
 /// paths crossing the toolchain boundary must be made absolute here.
-pub(crate) fn resolve_executable(tool: impl AsRef<OsStr>) -> anyhow::Result<PathBuf> {
+pub fn resolve_executable(tool: impl AsRef<OsStr>) -> anyhow::Result<PathBuf> {
     let current_dir = std::env::current_dir().context("failed to get current directory")?;
     resolve_executable_in(tool, &current_dir)
 }

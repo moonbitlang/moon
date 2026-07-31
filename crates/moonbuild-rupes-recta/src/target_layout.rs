@@ -355,6 +355,18 @@ impl TargetLayout {
         base_dir
     }
 
+    pub fn dsym_bundle_of_build_target(
+        &self,
+        pkg_list: &DiscoverResult,
+        target: &BuildTarget,
+        executable: ExecutableArtifact,
+    ) -> PathBuf {
+        let executable = self.executable_of_build_target(pkg_list, target, executable);
+        let mut bundle = executable.into_os_string();
+        bundle.push(".dSYM");
+        bundle.into()
+    }
+
     pub fn generated_test_driver(
         &self,
         pkg_list: &DiscoverResult,
@@ -832,6 +844,13 @@ impl ArtifactPathResolver {
                     options.executable,
                 )]
             }
+            BuildProduct::DsymBundle { target } => {
+                vec![self.target_layout.dsym_bundle_of_build_target(
+                    packages,
+                    target,
+                    options.executable,
+                )]
+            }
             BuildProduct::GeneratedTestDriver { target } => {
                 vec![self.target_layout.generated_test_driver(
                     packages,
@@ -962,6 +981,13 @@ impl ArtifactPathResolver {
             (
                 BuildProduct::Executable { target },
                 BuildAction::MakeExecutable {
+                    target: action_target,
+                    ..
+                },
+            ) => *target == action_target,
+            (
+                BuildProduct::DsymBundle { target },
+                BuildAction::GenerateDsym {
                     target: action_target,
                     ..
                 },

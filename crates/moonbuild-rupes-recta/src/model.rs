@@ -323,6 +323,9 @@ pub enum BuildPlanNode {
     /// execution logic.
     MakeExecutable(BuildTarget),
 
+    /// Generate the macOS dSYM bundle for a linked executable.
+    GenerateDsym(BuildTarget),
+
     /// Generate test driver and metadata for the given test target.
     GenerateTestInfo(BuildTarget),
 
@@ -399,6 +402,7 @@ impl BuildPlanNode {
             | BuildPlanNode::BuildCore(target)
             | BuildPlanNode::LinkCore(target)
             | BuildPlanNode::MakeExecutable(target)
+            | BuildPlanNode::GenerateDsym(target)
             | BuildPlanNode::GenerateTestInfo(target)
             | BuildPlanNode::GenerateMbti(target) => Some(target),
             BuildPlanNode::BuildCStub(_, _)
@@ -464,6 +468,10 @@ impl BuildPlanNode {
             BuildPlanNode::MakeExecutable(build_target) => {
                 let fqn = packages.fqn(build_target.package);
                 format!("make executable {}{}", fqn, kind_suffix(build_target.kind))
+            }
+            BuildPlanNode::GenerateDsym(build_target) => {
+                let fqn = packages.fqn(build_target.package);
+                format!("generate dSYM {}{}", fqn, kind_suffix(build_target.kind))
             }
             BuildPlanNode::GenerateTestInfo(build_target) => {
                 let fqn = packages.fqn(build_target.package);
@@ -571,6 +579,10 @@ impl BuildPlanNode {
             BuildPlanNode::MakeExecutable(t) => {
                 let fqn = packages.fqn(t.package);
                 format!("{}@{:?}@MakeExecutable", fqn, t.kind)
+            }
+            BuildPlanNode::GenerateDsym(t) => {
+                let fqn = packages.fqn(t.package);
+                format!("{}@{:?}@GenerateDsym", fqn, t.kind)
             }
             BuildPlanNode::GenerateTestInfo(t) => {
                 let fqn = packages.fqn(t.package);

@@ -57,7 +57,7 @@ pub use utils::{build_ins, build_n2_fileloc, build_outs};
 pub(crate) use backend::{CExecutableRealization, CStubLibraryRealization};
 
 use context::LoweringContext;
-use lowered_action::{BuildCommand, LoweredCommandKind};
+use lowered_action::BuildCommand;
 use n2_adapter::N2GraphBuilder;
 
 /// Lazily resolved host/toolchain facts used during lowering.
@@ -952,5 +952,124 @@ mod tests {
                 .iter()
                 .any(|(key, value)| key == "LIB" && value == "crt/lib;sdk/lib")
         );
+    }
+
+    #[test]
+    fn macos_debug_link_and_dsymutil_are_separate_structured_actions() {
+        let (resolve_output, target) = single_package_resolve_output();
+        let executable_node = BuildPlanNode::MakeExecutable(target);
+        let dsym_node = BuildPlanNode::GenerateDsym(target);
+        let dsymutil = PathBuf::from("/toolchain/bin/dsymutil");
+
+        let mut plan = BuildPlan::default();
+        plan.test_add_input_node(executable_node);
+        plan.test_add_node(dsym_node);
+        plan.test_add_edge(dsym_node, executable_node, FileDependencyKind::AllFiles);
+        plan.test_insert_make_executable_info(
+            target,
+            MakeExecutableInfo {
+                effective_native_toolchain: Toolchain::from_path_probe(CC {
+                    cc_kind: CCKind::Clang,
+                    cc_path: "/toolchain/bin/clang".to_string(),
+                    ar_kind: ARKind::AppleLibtool,
+                    ar_path: "/toolchain/bin/libtool".to_string(),
+                    target_triple: Some("arm64-apple-darwin".to_string()),
+                    is_env_override: false,
+                }),
+                c_flags: Vec::new(),
+                link_flags: Vec::new(),
+                link_c_stubs: Vec::new(),
+            },
+        );
+        plan.test_insert_dsymutil(dsymutil.clone());
+
+        for backend in [
+            BackendConfig::Llvm,
+            BackendConfig::Native(NativeBackendMode::DirectObject(DirectNativeMode::Target(
+                NativeTarget::Aarch64AppleDarwin,
+            ))),
+        ] {
+            let lowering_environment = LoweringEnvironment::default();
+            lowering_environment
+                .os
+                .set(OperatingSystem::MacOS)
+                .expect("test OS should be set once");
+            let artifact_paths = ArtifactPathResolver::new(
+                TargetLayout::new(
+                    PathBuf::from("_build"),
+                    TargetLayoutMode::Workspace,
+                    OptLevel::Debug,
+                    RunMode::Build,
+                ),
+                None,
+            );
+            let options = BuildOptions {
+                artifact_paths: artifact_paths.clone(),
+                backend,
+                opt_level: OptLevel::Debug,
+                action: RunMode::Build,
+                debug_symbols: true,
+                enable_coverage: false,
+                moonc_output_json: false,
+                docs_serve: false,
+                warning_condition: WarningCondition::Default,
+                info_no_alias: false,
+                stdlib_path: None,
+                lowering_environment,
+            };
+
+            let action_plan = plan.build_action_plan();
+            let lowered = lower_build_plan(&resolve_output, &action_plan, &options)
+                .expect("lowering should succeed");
+            let executable = artifact_paths.target_layout().executable_of_build_target(
+                &resolve_output.pkg_dirs,
+                &target,
+                options.artifact_path_options().executable,
+            );
+            let dsym_bundle = artifact_paths.target_layout().dsym_bundle_of_build_target(
+                &resolve_output.pkg_dirs,
+                &target,
+                options.artifact_path_options().executable,
+            );
+
+            let link_args = lowered
+                .command_args_by_output
+                .get(&executable)
+                .expect("link command should retain structured argv");
+            assert_eq!(
+                link_args.first().map(String::as_str),
+                Some("/toolchain/bin/clang")
+            );
+            assert!(!link_args.iter().any(|arg| arg == "&&"));
+            assert_eq!(
+                lowered.command_args_by_output.get(&dsym_bundle),
+                Some(&vec![
+                    dsymutil.display().to_string(),
+                    executable.display().to_string(),
+                ])
+            );
+
+            let dsym_file_id = lowered
+                .build_graph
+                .files
+                .lookup(&dsym_bundle.to_string_lossy())
+                .expect("dSYM bundle should be registered");
+            let dsym_build_id = lowered.build_graph.files.by_id[dsym_file_id]
+                .input
+                .expect("dSYM bundle should have a producer");
+            let dsym_inputs = lowered.build_graph.builds[dsym_build_id]
+                .ins
+                .ids
+                .iter()
+                .map(|id| Path::new(&lowered.build_graph.files.by_id[*id].name))
+                .collect::<HashSet<_>>();
+            assert_eq!(
+                dsym_inputs,
+                HashSet::from([dsymutil.as_path(), executable.as_path()])
+            );
+
+            assert_eq!(lowered.artifacts.len(), 1);
+            assert_eq!(lowered.artifacts[0].1, vec![executable, dsym_bundle]);
+        }
     }
 }

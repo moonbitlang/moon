@@ -45,7 +45,10 @@ use crate::{
     build_plan::{BuildBundleInfo, FileDependencyKind, PlanArtifactNeed, PrebuildInfo},
     cond_comp,
     discover::DiscoveredPackage,
-    model::{BuildPlanNode, BuildTarget, NativeTarget, PackageId, TargetKind},
+    model::{
+        BackendConfig, BuildPlanNode, BuildTarget, DirectNativeMode, NativeBackendMode,
+        NativeTarget, OperatingSystem, PackageId, TargetKind,
+    },
     pkg_name::PackageFQNWithSource,
 };
 
@@ -74,6 +77,20 @@ impl DependencyInterfaceMode {
     fn core_as_input(self) -> bool {
         matches!(self, Self::BuildWithCoreInput)
     }
+}
+
+fn should_generate_llvm_dsym(debug_symbols: bool, os: OperatingSystem) -> bool {
+    debug_symbols && os == OperatingSystem::MacOS
+}
+
+fn should_generate_direct_native_dsym(
+    mode: &DirectNativeMode,
+    debug_symbols: bool,
+    toolchain: &Toolchain,
+) -> bool {
+    debug_symbols
+        && mode.target() == NativeTarget::Aarch64AppleDarwin
+        && toolchain.cc().targets_apple_darwin()
 }
 
 impl<'a> BuildPlanConstructor<'a> {
@@ -980,6 +997,32 @@ impl<'a> BuildPlanConstructor<'a> {
             &mut link_flags,
         );
 
+        let generate_dsym = match &self.build_env.backend {
+            BackendConfig::Llvm => {
+                should_generate_llvm_dsym(self.build_env.debug_symbols, self.build_env.os)
+            }
+            BackendConfig::Native(NativeBackendMode::DirectObject(mode)) => {
+                should_generate_direct_native_dsym(
+                    mode,
+                    self.build_env.debug_symbols,
+                    &effective_native_toolchain,
+                )
+            }
+            BackendConfig::Native(NativeBackendMode::GeneratedC | NativeBackendMode::TccRun(_)) => {
+                false
+            }
+            BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
+                unreachable!("non-native MakeExecutable actions return before toolchain planning")
+            }
+        };
+        if generate_dsym && self.res.dsymutil.is_none() {
+            self.res.dsymutil = Some(moonutil::toolchain::resolve_executable("dsymutil").map_err(
+                |error| {
+                    BuildPlanConstructError::FailedToResolveDsymutil(error, pkg.fqn.clone().into())
+                },
+            )?);
+        }
+
         let v = MakeExecutableInfo {
             link_c_stubs: c_stub_deps.clone(),
             effective_native_toolchain,
@@ -990,6 +1033,12 @@ impl<'a> BuildPlanConstructor<'a> {
 
         let rt_node = self.need_node(BuildPlanNode::BuildRuntimeLib);
         self.add_edge(make_exec_node, rt_node);
+
+        if generate_dsym {
+            let dsym_node = self.need_node(BuildPlanNode::GenerateDsym(target));
+            self.add_edge(dsym_node, make_exec_node);
+            self.resolved_node(dsym_node);
+        }
 
         self.resolved_node(make_exec_node);
 
@@ -1804,6 +1853,8 @@ fn prebuild_command_paths(cwd: &Path, paths: &[PathBuf]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use moonutil::compiler_flags::{ARKind, CCKind};
+
     use super::*;
 
     fn test_module(rules: Vec<moonutil::manifest::MoonModRule>) -> MoonMod {
@@ -1822,6 +1873,44 @@ mod tests {
             ),
             crate::pkg_name::PackagePath::new("").expect("empty package path should parse"),
         )
+    }
+
+    fn toolchain(target_triple: &str) -> Toolchain {
+        Toolchain::from_path_probe(CC {
+            cc_kind: CCKind::Clang,
+            cc_path: "/toolchain/bin/clang".to_string(),
+            ar_kind: ARKind::AppleLibtool,
+            ar_path: "/toolchain/bin/libtool".to_string(),
+            target_triple: Some(target_triple.to_string()),
+            is_env_override: false,
+        })
+    }
+
+    #[test]
+    fn dsym_generation_policy_is_backend_specific() {
+        let apple_toolchain = toolchain("arm64-apple-darwin");
+        let linux_toolchain = toolchain("x86_64-unknown-linux-gnu");
+        let direct_apple = DirectNativeMode::Target(NativeTarget::Aarch64AppleDarwin);
+
+        assert!(should_generate_llvm_dsym(true, OperatingSystem::MacOS));
+        assert!(!should_generate_llvm_dsym(true, OperatingSystem::Linux));
+        assert!(!should_generate_llvm_dsym(false, OperatingSystem::MacOS));
+
+        assert!(should_generate_direct_native_dsym(
+            &direct_apple,
+            true,
+            &apple_toolchain
+        ));
+        assert!(!should_generate_direct_native_dsym(
+            &direct_apple,
+            false,
+            &apple_toolchain
+        ));
+        assert!(!should_generate_direct_native_dsym(
+            &direct_apple,
+            true,
+            &linux_toolchain
+        ));
     }
 
     #[test]
