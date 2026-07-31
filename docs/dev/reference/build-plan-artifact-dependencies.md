@@ -228,6 +228,28 @@ External inputs are sorted and deduplicated before the action reaches n2, and
 the original argv remains authoritative when transport switches to a response
 file.
 
+External inputs may also describe semantic filesystem observations that n2
+cannot represent as ordinary file edges. Compiler actions using `-std-path`
+carry the selected standard-library interface bundle as a recursive `.mi`
+input. The n2 adapter intentionally omits that semantic directory from its file
+list, while action identity digests it once per calculation. Native compilation
+enumerates the selected Moon toolchain include tree once per lowering context,
+then attaches those headers as ordinary file inputs. Lowering also attaches
+Moon-owned runtime objects and archives when command construction selected
+their exact paths.
+
+Lowering marks actions with broader, not-yet-modeled observations as
+cache-ineligible. This covers proof execution, documentation generation,
+arbitrary prebuild shell commands, and actions that execute unstructured custom
+compiler or linker flags. Lowering does not infer file inputs by parsing those
+flags.
+
+Lowering always exposes concrete paths. The cache identity layer hashes those
+paths and all command text exactly; it does not replace path roots or interpret
+tool-specific argument syntax. This keeps cache policy out of lowering and
+ensures that moving a source, toolchain, work directory, or output produces a
+conservative miss.
+
 When one build result requires two processes, planning represents them as
 separate actions instead of joining rendered command strings with shell
 operators. For example, macOS debug builds use `MakeExecutable` for the linker

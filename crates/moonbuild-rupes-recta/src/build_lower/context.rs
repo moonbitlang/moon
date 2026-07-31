@@ -18,17 +18,24 @@
 
 //! Lowering context and core implementation.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use moonutil::resolution::{DirSyncResult, ResolvedEnv};
+use moonutil::{
+    resolution::{DirSyncResult, ResolvedEnv},
+    target::TargetBackend,
+};
 use tracing::{Level, instrument};
+use walkdir::WalkDir;
 
-use super::{BuildOptions, LoweredAction, LoweredProduct, LoweringError};
+use super::{
+    BuildOptions, CExecutableRealization, CStubLibraryRealization, LoweredAction,
+    LoweredExternalInput, LoweredProduct, LoweringError,
+};
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, BuildProduct},
     discover::{DiscoverResult, DiscoveredPackage},
-    model::BuildTarget,
+    model::{BackendConfig, BuildTarget},
     pkg_solve::DepRelationship,
     target_layout::ArtifactPathResolver,
 };
@@ -44,6 +51,10 @@ pub(crate) struct LoweringContext<'a> {
     pub(crate) rel: &'a DepRelationship,
     pub(crate) plan: &'a BuildActionPlan<'a>,
     pub(crate) opt: &'a BuildOptions,
+
+    // Native compilation observes the selected Moon toolchain include tree.
+    // Discover it at most once for all actions lowered by this context.
+    toolchain_include_files: Option<Vec<PathBuf>>,
 }
 
 pub(super) struct ActionProducts {
@@ -181,7 +192,30 @@ impl<'a> LoweringContext<'a> {
             module_dirs: &resolve_output.module_dirs,
             plan,
             opt,
+            toolchain_include_files: None,
         }
+    }
+
+    fn toolchain_include_files(&mut self) -> Result<&[PathBuf], LoweringError> {
+        if self.toolchain_include_files.is_none() {
+            let root = PathBuf::from(&self.opt.compiler_paths().include_path);
+            let mut files = Vec::new();
+            for entry in WalkDir::new(&root).follow_links(true).sort_by_file_name() {
+                let entry = entry.map_err(|source| LoweringError::ToolchainInclude {
+                    path: root.clone(),
+                    source,
+                })?;
+                if entry.file_type().is_file() {
+                    files.push(entry.into_path());
+                }
+            }
+            files.sort();
+            self.toolchain_include_files = Some(files);
+        }
+        Ok(self
+            .toolchain_include_files
+            .as_deref()
+            .expect("toolchain include files should be initialized"))
     }
 
     /// Some actions are no-op in n2 build graph. Early bailing.
@@ -299,19 +333,148 @@ impl<'a> LoweringContext<'a> {
             }
         };
 
-        let (command, external_inputs) = cmd.into_lowered_parts(&action_products.dependencies);
+        let (command, mut external_inputs) = cmd.into_lowered_parts(&action_products.dependencies);
+        if matches!(
+            action,
+            BuildAction::Check { .. }
+                | BuildAction::EmitProof { .. }
+                | BuildAction::Prove { .. }
+                | BuildAction::BuildCore { .. }
+                | BuildAction::BuildVirtual { .. }
+        ) && let Some(stdlib_root) = &self.opt.stdlib_path
+        {
+            external_inputs.push(LoweredExternalInput::StandardLibraryInterfaces(
+                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.target_backend()),
+            ));
+        }
+
+        let observes_toolchain_headers = matches!(
+            action,
+            BuildAction::BuildCStub { .. } | BuildAction::BuildRuntimeObject { .. }
+        ) || matches!(
+            action,
+            BuildAction::BuildRuntimeLib { .. } if self.opt.backend.uses_shared_runtime()
+        ) || matches!(
+            action,
+            BuildAction::MakeExecutable { .. }
+                if matches!(
+                    &self.opt.backend,
+                    BackendConfig::Native(backend)
+                        if backend.executable_realization()
+                            == CExecutableRealization::CompileAndLinkGeneratedC
+                )
+        );
+        if observes_toolchain_headers {
+            external_inputs.extend(
+                self.toolchain_include_files()?
+                    .iter()
+                    .cloned()
+                    .map(LoweredExternalInput::File),
+            );
+        }
+
+        // These are the only Moon-owned libraries that command construction
+        // may append as standalone argv. Compare their exact rendered paths;
+        // arbitrary command arguments remain opaque to lowering.
+        for name in ["libmoonbitrun.o", "libbacktrace.a"] {
+            let path = Path::new(&self.opt.compiler_paths().lib_path).join(name);
+            let rendered = path.display().to_string();
+            if command.args().iter().any(|argument| argument == &rendered) {
+                external_inputs.push(LoweredExternalInput::File(path));
+            }
+        }
+        external_inputs.sort();
+        external_inputs.dedup();
 
         let error_package = self
             .plan
             .package_for_error(id)
             .map(|target| self.get_package(target).fqn.clone())
             .into();
+        // Keep this exhaustive: adding an action must require an explicit
+        // decision that lowering describes every filesystem observation.
+        let cache_eligible = match action {
+            BuildAction::Check { target, .. }
+            | BuildAction::EmitProof { target, .. }
+            | BuildAction::BuildCore { target, .. } => {
+                let package = self.get_package(target);
+                self.packages
+                    .module_info(package.module)
+                    .compile_flags
+                    .as_deref()
+                    .is_none_or(<[_]>::is_empty)
+            }
+            BuildAction::BuildCStub { info, .. } => info.cc_flags.is_empty(),
+            BuildAction::ArchiveOrLinkCStubs { info, .. } => {
+                self.opt.backend.c_stub_library_realization()
+                    == CStubLibraryRealization::StaticArchive
+                    || info.link_flags.is_empty()
+            }
+            BuildAction::LinkCore { target, .. } => {
+                let package = self.get_package(target);
+                let package_link_flags =
+                    package
+                        .raw
+                        .link
+                        .as_ref()
+                        .and_then(|link| match self.opt.target_backend() {
+                            TargetBackend::Wasm => link
+                                .wasm
+                                .as_ref()
+                                .and_then(|config| config.flags.as_deref()),
+                            TargetBackend::WasmGC => link
+                                .wasm_gc
+                                .as_ref()
+                                .and_then(|config| config.flags.as_deref()),
+                            TargetBackend::Js | TargetBackend::Native | TargetBackend::LLVM => None,
+                        });
+                self.packages
+                    .module_info(package.module)
+                    .link_flags
+                    .as_deref()
+                    .is_none_or(<[_]>::is_empty)
+                    && package_link_flags.is_none_or(<[_]>::is_empty)
+            }
+            BuildAction::MakeExecutable {
+                info: Some(info), ..
+            } => match &self.opt.backend {
+                BackendConfig::Native(backend) => match backend.executable_realization() {
+                    CExecutableRealization::CompileAndLinkGeneratedC => {
+                        info.c_flags.is_empty() && info.link_flags.is_empty()
+                    }
+                    CExecutableRealization::LinkDirectObject => info.link_flags.is_empty(),
+                    CExecutableRealization::WriteTccRunResponseFile => true,
+                },
+                BackendConfig::Llvm => info.c_flags.is_empty() && info.link_flags.is_empty(),
+                BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
+                    unreachable!("non-native make-executable actions are no-ops")
+                }
+            },
+            BuildAction::MakeExecutable { info: None, .. } => {
+                unreachable!("native MakeExecutable actions should have executable info")
+            }
+            BuildAction::GenerateDsym { .. }
+            | BuildAction::GenerateTestInfo { .. }
+            | BuildAction::GenerateMbti { .. }
+            | BuildAction::BuildVirtual { .. }
+            | BuildAction::Bundle { .. }
+            | BuildAction::BuildRuntimeObject { .. }
+            | BuildAction::BuildRuntimeLib { .. }
+            | BuildAction::RunMoonLexPrebuild { .. }
+            | BuildAction::RunMoonYaccPrebuild { .. } => true,
+            // These actions still observe filesystem state that is broader
+            // than the concrete files represented by the lowered action.
+            BuildAction::Prove { .. }
+            | BuildAction::BuildDocs { .. }
+            | BuildAction::RunPrebuild { .. } => false,
+        };
         Ok(Some(LoweredAction {
             id,
             dependencies: action_products.dependencies,
             external_inputs,
             outputs: action_products.outputs,
             command,
+            cache_eligible,
             fileloc: self.plan.fileloc(id, self.modules, self.packages),
             description: self.plan.human_desc(id, self.modules, self.packages),
             can_dirty_on_output: self.plan.can_dirty_on_output(id),
