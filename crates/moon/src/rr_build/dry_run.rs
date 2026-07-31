@@ -83,7 +83,21 @@ pub fn write_standalone_dry_run<'a>(
     target_dir: &Path,
 ) -> std::io::Result<()> {
     if let Some(dependencies) = input.dependencies.as_ref() {
-        write_dry_run_all(output, dependencies, source_dir, target_dir)?;
+        let (graph, command_args_by_output) =
+            moonbuild_rupes_recta::build_lower::lowered_actions_to_n2_graph(
+                dependencies.actions.clone(),
+            )
+            .map_err(std::io::Error::other)?;
+        write_dry_run_all(
+            output,
+            &BuildInput {
+                graph,
+                command_args_by_output,
+                db_path: dependencies.fallback_db_path.clone(),
+            },
+            source_dir,
+            target_dir,
+        )?;
     }
     write_dry_run(output, &input.script, artifacts, source_dir, target_dir)
 }

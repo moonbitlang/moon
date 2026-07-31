@@ -66,9 +66,12 @@ fn test_single_file_mbtx_run() {
 #[test]
 fn test_single_file_mbtx_dry_run_prints_dependencies_before_script() {
     let dir = TestDir::new("moon_test_single_file.in");
-    let stdout = get_stdout(
+    let cache_parent = tempfile::TempDir::new().unwrap();
+    let build_cache = cache_parent.path().join("build-cache");
+    let stdout = get_stdout_with_envs(
         &dir,
         ["run", "import_ok.mbtx", "--target", "wasm", "--dry-run"],
+        [("MOON_BUILD_CACHE", build_cache.as_os_str())],
     );
     let dependency_command = stdout
         .lines()
@@ -82,6 +85,10 @@ fn test_single_file_mbtx_dry_run_prints_dependencies_before_script() {
     assert!(
         dependency_command < script_command,
         "dependency commands should be printed before script commands:\n{stdout}"
+    );
+    assert!(
+        !build_cache.exists(),
+        "dry run should not initialize or write the build cache"
     );
 }
 
@@ -126,6 +133,61 @@ fn test_single_file_mbtx_reuses_dependency_graph_after_script_change() {
         dependency_modified,
         "changing only the script should not rebuild dependency packages",
     );
+}
+
+#[test]
+fn test_single_file_mbtx_restores_dependency_outputs_before_running_script_graph() {
+    let dir = TestDir::new("moon_test_single_file.in");
+    let build_cache = tempfile::TempDir::new().unwrap();
+    let args = ["run", "import_ok.mbtx", "--target", "wasm"];
+
+    moon_cmd(&dir)
+        .env("MOON_BUILD_CACHE", build_cache.path())
+        .args(args)
+        .assert()
+        .success()
+        .stdout_eq("hello\n");
+    assert_eq!(
+        fs::read_to_string(build_cache.path().join(".moon-cache")).unwrap(),
+        "build-artifacts\n"
+    );
+
+    let build_dir = dir.join("_build/wasm/debug/build");
+    assert!(
+        !build_dir.join("standalone-dependencies.moon_db").exists(),
+        "cache-enabled misses should use private n2 state"
+    );
+    let dependency_outputs = [
+        ".mooncakes/moonbitlang/x/stack/stack.mi",
+        ".mooncakes/moonbitlang/x/stack/stack.core",
+    ]
+    .map(|output| build_dir.join(output));
+    let expected_outputs = dependency_outputs
+        .each_ref()
+        .map(|output| fs::read(output).unwrap());
+    for output in &dependency_outputs {
+        fs::remove_file(output).unwrap();
+    }
+    fs::remove_file(build_dir.join("build.moon_db")).unwrap();
+
+    let assert = moon_cmd(&dir)
+        .env("MOON_BUILD_CACHE", build_cache.path())
+        .args(["run", "import_ok.mbtx", "--target", "wasm", "--verbose"])
+        .assert()
+        .success()
+        .stdout_eq("hello\n");
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(
+        !stderr.contains(".mooncakes/moonbitlang/x/stack/stack.mbt"),
+        "dependency command should not execute on a cache hit:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("moonrun "),
+        "the script artifact should still run after dependency preparation:\n{stderr}"
+    );
+    for (output, expected) in dependency_outputs.iter().zip(expected_outputs) {
+        assert_eq!(fs::read(output).unwrap(), expected);
+    }
 }
 
 #[test]

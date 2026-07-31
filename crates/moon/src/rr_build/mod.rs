@@ -69,7 +69,9 @@ use tracing::{Level, info, instrument};
 
 use crate::build_flags::{BuildFlags, OutputStyle};
 
+mod action_cache;
 pub mod action_identity;
+mod dependency_preparation;
 mod dry_run;
 pub use dry_run::{
     format_dry_run_command, write_dry_run, write_dry_run_all, write_standalone_dry_run,
@@ -761,19 +763,11 @@ pub(crate) fn plan_resolved_standalone_build_from_intent(
     };
     let backend = cx.backend.target_backend();
     let layout = cx.artifact_paths.target_layout();
-    let dependency_input = if compile_output.dependencies.is_empty() {
-        None
-    } else {
-        let (graph, command_args_by_output) =
-            moonbuild_rupes_recta::build_lower::lowered_actions_to_n2_graph(
-                compile_output.dependencies,
-            )?;
-        Some(BuildInput {
-            graph,
-            command_args_by_output,
-            db_path: layout.standalone_dependency_n2_db_path(backend),
-        })
-    };
+    let dependency_input =
+        (!compile_output.dependencies.is_empty()).then(|| StandaloneDependencyPreparation {
+            actions: compile_output.dependencies,
+            fallback_db_path: layout.standalone_dependency_n2_db_path(backend),
+        });
     let input = StandaloneBuildInput {
         dependencies: dependency_input,
         script: BuildInput {
@@ -1005,8 +999,19 @@ pub struct BuildInput {
 /// execution remain a single-graph operation.
 #[derive(Debug, Clone)]
 pub struct StandaloneBuildInput {
-    dependencies: Option<BuildInput>,
+    dependencies: Option<StandaloneDependencyPreparation>,
     script: BuildInput,
+}
+
+/// Work that must materialize dependency products before the script graph runs.
+///
+/// The implementation may restore products or execute actions, but successful
+/// completion always guarantees that the script graph's prerequisite files
+/// exist at their lowered paths.
+#[derive(Debug, Clone)]
+struct StandaloneDependencyPreparation {
+    actions: Vec<moonbuild_rupes_recta::build_lower::LoweredAction>,
+    fallback_db_path: PathBuf,
 }
 
 #[cfg(test)]
@@ -1061,7 +1066,8 @@ pub fn execute_standalone_build(
         return execute_build(cfg, input.script, target_dir, user_log);
     };
 
-    let dependency_execution = execute_build_capturing(cfg, dependencies, target_dir)?;
+    let dependency_execution =
+        dependency_preparation::execute(cfg, dependencies, target_dir, user_log)?;
     if !dependency_execution.successful() {
         return Ok(finish_captured_build(
             cfg,

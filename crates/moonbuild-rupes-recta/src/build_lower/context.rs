@@ -20,16 +20,13 @@
 
 use std::path::{Path, PathBuf};
 
-use moonutil::{
-    resolution::{DirSyncResult, ResolvedEnv},
-    target::TargetBackend,
-};
+use moonutil::resolution::{DirSyncResult, ResolvedEnv};
 use tracing::{Level, instrument};
 use walkdir::WalkDir;
 
 use super::{
-    BuildOptions, CExecutableRealization, CStubLibraryRealization, LoweredAction,
-    LoweredExternalInput, LoweredProduct, LoweringError,
+    BuildOptions, CExecutableRealization, LoweredAction, LoweredExternalInput, LoweredProduct,
+    LoweringError,
 };
 use crate::{
     ResolveOutput,
@@ -392,73 +389,24 @@ impl<'a> LoweringContext<'a> {
             .map(|target| self.get_package(target).fqn.clone())
             .into();
         // Keep this exhaustive: adding an action must require an explicit
-        // decision that lowering describes every filesystem observation.
+        // cache-eligibility decision at the lowering boundary.
         let cache_eligible = match action {
-            BuildAction::Check { target, .. }
-            | BuildAction::EmitProof { target, .. }
-            | BuildAction::BuildCore { target, .. } => {
-                let package = self.get_package(target);
-                self.packages
-                    .module_info(package.module)
-                    .compile_flags
-                    .as_deref()
-                    .is_none_or(<[_]>::is_empty)
-            }
-            BuildAction::BuildCStub { info, .. } => info.cc_flags.is_empty(),
-            BuildAction::ArchiveOrLinkCStubs { info, .. } => {
-                self.opt.backend.c_stub_library_realization()
-                    == CStubLibraryRealization::StaticArchive
-                    || info.link_flags.is_empty()
-            }
-            BuildAction::LinkCore { target, .. } => {
-                let package = self.get_package(target);
-                let package_link_flags =
-                    package
-                        .raw
-                        .link
-                        .as_ref()
-                        .and_then(|link| match self.opt.target_backend() {
-                            TargetBackend::Wasm => link
-                                .wasm
-                                .as_ref()
-                                .and_then(|config| config.flags.as_deref()),
-                            TargetBackend::WasmGC => link
-                                .wasm_gc
-                                .as_ref()
-                                .and_then(|config| config.flags.as_deref()),
-                            TargetBackend::Js | TargetBackend::Native | TargetBackend::LLVM => None,
-                        });
-                self.packages
-                    .module_info(package.module)
-                    .link_flags
-                    .as_deref()
-                    .is_none_or(<[_]>::is_empty)
-                    && package_link_flags.is_none_or(<[_]>::is_empty)
-            }
-            BuildAction::MakeExecutable {
-                info: Some(info), ..
-            } => match &self.opt.backend {
-                BackendConfig::Native(backend) => match backend.executable_realization() {
-                    CExecutableRealization::CompileAndLinkGeneratedC => {
-                        info.c_flags.is_empty() && info.link_flags.is_empty()
-                    }
-                    CExecutableRealization::LinkDirectObject => info.link_flags.is_empty(),
-                    CExecutableRealization::WriteTccRunResponseFile => true,
-                },
-                BackendConfig::Llvm => info.c_flags.is_empty() && info.link_flags.is_empty(),
-                BackendConfig::Wasm { .. } | BackendConfig::WasmGc { .. } | BackendConfig::Js => {
-                    unreachable!("non-native make-executable actions are no-ops")
-                }
-            },
-            BuildAction::MakeExecutable { info: None, .. } => {
-                unreachable!("native MakeExecutable actions should have executable info")
-            }
-            BuildAction::GenerateDsym { .. }
+            BuildAction::Check { .. }
+            | BuildAction::EmitProof { .. }
+            | BuildAction::BuildCore { .. }
+            | BuildAction::BuildCStub { .. }
+            | BuildAction::ArchiveOrLinkCStubs { .. }
+            | BuildAction::LinkCore { .. }
+            | BuildAction::MakeExecutable { info: Some(_), .. }
+            | BuildAction::GenerateDsym { .. }
             | BuildAction::GenerateTestInfo { .. }
             | BuildAction::GenerateMbti { .. }
             | BuildAction::BuildVirtual { .. }
-            | BuildAction::Bundle { .. }
-            | BuildAction::BuildRuntimeObject { .. }
+            | BuildAction::Bundle { .. } => true,
+            BuildAction::MakeExecutable { info: None, .. } => {
+                unreachable!("native MakeExecutable actions should have executable info")
+            }
+            BuildAction::BuildRuntimeObject { .. }
             | BuildAction::BuildRuntimeLib { .. }
             | BuildAction::RunMoonLexPrebuild { .. }
             | BuildAction::RunMoonYaccPrebuild { .. } => true,
