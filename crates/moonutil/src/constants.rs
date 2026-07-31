@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::Path;
+use std::{ffi::OsStr, path::Path};
 
 use crate::mooncakes::ModuleName;
 
@@ -53,6 +53,11 @@ pub const DEP_PATH: &str = ".mooncakes";
 pub const BUILD_DIR: &str = "_build";
 
 pub const IGNORE_DIRS: &[&str] = &[BUILD_DIR, ".git", "node_modules", DEP_PATH];
+
+pub fn is_ignored_directory_name(name: &OsStr) -> bool {
+    name.as_encoded_bytes().starts_with(b".")
+        || IGNORE_DIRS.iter().any(|ignored_name| name == *ignored_name)
+}
 
 pub const WATCH_MODE_DIR: &str = "watch";
 
@@ -166,6 +171,15 @@ fn package_source_file_kind_detects_supported_package_inputs() {
         Some(PackageSourceFileKind::Mby)
     );
     assert_eq!(package_source_file_kind("moon.pkg"), None);
+}
+
+#[test]
+fn ignored_directory_names_cover_dot_and_generated_directories() {
+    assert!(is_ignored_directory_name(OsStr::new(".cache")));
+    assert!(is_ignored_directory_name(OsStr::new(".git")));
+    assert!(is_ignored_directory_name(OsStr::new("_build")));
+    assert!(is_ignored_directory_name(OsStr::new("node_modules")));
+    assert!(!is_ignored_directory_name(OsStr::new("src")));
 }
 
 #[test]

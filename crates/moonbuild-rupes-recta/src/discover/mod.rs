@@ -51,8 +51,8 @@ use moonutil::resolution::{
 use moonutil::target::TargetBackend;
 use moonutil::{
     constants::{
-        IGNORE_DIRS, MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON,
-        MOONBITLANG_ABORT,
+        MBTI_USER_WRITTEN, MOON_MOD, MOON_MOD_JSON, MOON_PKG, MOON_PKG_JSON, MOONBITLANG_ABORT,
+        is_ignored_directory_name,
     },
     manifest::{
         read_module_desc_file_in_dir, read_package_desc_file_from_path_with_supported_targets_decl,
@@ -266,12 +266,10 @@ pub(crate) fn discover_packages_for_mod(
             .relative_to(&scan_source_root)
             .expect("Walked directory should be a descendant of the scan source");
 
-        // Skip certain ignored directories
-        if let Some(filename) = rel_path.file_name()
-            && IGNORE_DIRS.contains(&filename)
-        {
+        // The configured source root is explicit, so only filter its descendants.
+        if entry.depth() != 0 && is_ignored_directory_name(entry.file_name()) {
             debug!(
-                "Skipping {} recursively because it is in the internal ignored list",
+                "Skipping {} recursively because its directory name is ignored",
                 abs_path.display()
             );
             walkdir.skip_current_dir();
@@ -494,11 +492,7 @@ fn discover_c_stub_headers(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     while let Some(entry) = entries.next() {
         let entry = entry?;
         if entry.depth() != 0 && entry.file_type().is_dir() {
-            if entry
-                .file_name()
-                .to_str()
-                .is_some_and(|name| IGNORE_DIRS.contains(&name))
-            {
+            if is_ignored_directory_name(entry.file_name()) {
                 entries.skip_current_dir();
                 continue;
             }
@@ -634,6 +628,50 @@ mod tests {
     }
 
     #[test]
+    fn package_discovery_keeps_explicit_dot_source_root_but_skips_dot_descendants() {
+        let dir = temp_dir("dot-directories");
+        std::fs::write(
+            dir.join("moon.mod.json"),
+            r#"{
+  "name": "example/pkg",
+  "version": "0.2.1",
+  "source": ".src"
+}
+"#,
+        )
+        .expect("failed to write test moon.mod.json");
+        std::fs::create_dir_all(dir.join(".src/.hidden"))
+            .expect("failed to create test package directories");
+        std::fs::write(dir.join(".src/moon.pkg.json"), "{}")
+            .expect("failed to write root package manifest");
+        std::fs::write(dir.join(".src/.hidden/moon.pkg.json"), "{}")
+            .expect("failed to write hidden package manifest");
+
+        let source: ModuleSource = "example/pkg@0.2.1"
+            .parse()
+            .expect("failed to parse test module source");
+        let stub = MoonMod {
+            name: "example/pkg".to_string(),
+            version: Some(source.version().clone()),
+            ..Default::default()
+        };
+        let (resolved_env, id) = ResolvedEnv::only_one_module(source, stub);
+        let mut dirs = DirSyncResult::default();
+        dirs.insert(id, dir.clone());
+
+        let discovered =
+            discover_packages(&resolved_env, &dirs).expect("failed to discover test packages");
+
+        assert!(discovered.get_package_id_by_name("example/pkg").is_some());
+        assert!(
+            discovered
+                .get_package_id_by_name("example/pkg/.hidden")
+                .is_none()
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn c_stub_headers_follow_package_file_set_boundaries() -> anyhow::Result<()> {
         let dir = temp_dir("c-stub-headers");
         std::fs::create_dir_all(dir.join("native/include"))?;
@@ -643,6 +681,9 @@ mod tests {
 
         std::fs::create_dir_all(dir.join("_build/generated"))?;
         std::fs::write(dir.join("_build/generated/stale.h"), "stale")?;
+
+        std::fs::create_dir_all(dir.join(".generated"))?;
+        std::fs::write(dir.join(".generated/stale.hpp"), "stale")?;
 
         std::fs::create_dir_all(dir.join("nested-module"))?;
         std::fs::write(

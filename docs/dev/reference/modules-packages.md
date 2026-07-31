@@ -122,8 +122,10 @@ Newer modules created by `moon new` by default sets this to `src`.
 To discover all package within the module,
 one recursively search from the scanning root for files named `moon.pkg.json`,
 unless the folder contains `moon.mod.json`.
-Common non-code folders will be skipped during this process,
-such as `.git`, `node_modules` and `target`.
+Dot-prefixed directories and common non-code folders such as `node_modules`
+and `_build` are skipped during this process. The configured scanning root
+itself remains explicit and is still scanned when its name starts with `.`;
+the filtering applies to its descendants.
 
 The followings are examples of folder structure and search result,
 for common folder layouts with root `.` and root `src`:
