@@ -25,7 +25,7 @@ use super::provenance::ported_imports;
 
 ported_imports! {
 pub(super) fn get_signal_by_index(
-    _context: &mut ImportContext<'_, '_>,
+    _context: &mut ImportContext<'_, '_, '_>,
     index: i32,
 ) -> i32 {
     signal::get_signal_by_index(index)
@@ -34,7 +34,7 @@ pub(super) fn get_signal_by_index(
 #[ported(source = "src/internal/event_loop/signal.c")]
 #[cfg(any(unix, windows))]
 pub(super) fn set_global_cancellation_signals(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     all_signals: i32,
     all_signals_len: i32,
     signals: i32,
@@ -48,7 +48,7 @@ pub(super) fn set_global_cancellation_signals(
 #[ported(source = "src/internal/event_loop/signal.c")]
 #[cfg(windows)]
 pub(super) fn set_console_control_handler(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     add: i32,
 ) -> crate::async_host::AsyncHostResult<i32> {
     let completion_target = if add != 0 {

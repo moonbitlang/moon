@@ -156,7 +156,7 @@ impl std::fmt::Display for MemorySanitizerError {
 
 pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     memory_sanitizer: &MemorySanitizer,
 ) {
     let context_ptr = &*memory_sanitizer.context as *const MemorySanitizerContext;
@@ -179,7 +179,7 @@ pub(crate) fn init_env<'s>(
 
 fn register_func<'s>(
     obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     name: &str,
     callback: impl v8::MapFnTo<v8::FunctionCallback>,
     context_ptr: *const MemorySanitizerContext,
@@ -193,7 +193,7 @@ fn register_func<'s>(
 }
 
 fn register_object_alloc(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -213,7 +213,7 @@ fn register_object_alloc(
 }
 
 fn register_object_free(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -227,7 +227,7 @@ fn register_object_free(
 }
 
 fn object_is_valid(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -254,7 +254,7 @@ struct SanitizerStack {
 }
 
 impl SanitizerStack {
-    fn capture(scope: &mut v8::HandleScope) -> Self {
+    fn capture(scope: &mut v8::PinScope<'_, '_>) -> Self {
         let Some(stack) = v8::StackTrace::current_stack_trace(scope, 32) else {
             return Self::default();
         };
@@ -294,7 +294,7 @@ struct SanitizerStackFrame {
 }
 
 impl SanitizerStackFrame {
-    fn from_v8(scope: &mut v8::HandleScope, frame: v8::Local<v8::StackFrame>) -> Self {
+    fn from_v8(scope: &mut v8::PinScope<'_, '_>, frame: v8::Local<v8::StackFrame>) -> Self {
         let raw_function = frame
             .get_function_name(scope)
             .map(|name| name.to_rust_string_lossy(scope))
@@ -308,7 +308,7 @@ impl SanitizerStackFrame {
 }
 
 fn read_u32_arg(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: &v8::FunctionCallbackArguments,
     index: i32,
 ) -> Result<u32, MemorySanitizerError> {
@@ -317,7 +317,11 @@ fn read_u32_arg(
         .ok_or(MemorySanitizerError::BadArgument)
 }
 
-fn throw_import_error(scope: &mut v8::HandleScope, import_name: &str, error: MemorySanitizerError) {
+fn throw_import_error(
+    scope: &mut v8::PinScope<'_, '_>,
+    import_name: &str,
+    error: MemorySanitizerError,
+) {
     let message = format!("{MEMORY_SANITIZER_MODULE}.{import_name} failed: {error}");
     let message = v8::String::new(scope, &message).unwrap_or_else(|| v8::String::empty(scope));
     let exception = v8::Exception::error(scope, message);

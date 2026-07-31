@@ -57,7 +57,7 @@ pub(crate) use registry::MOONBIT_ASYNC_MODULE;
 
 pub(crate) fn init_env<'s>(
     obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     dtors: &mut Vec<Box<dyn Any>>,
     policy: Arc<AsyncPolicy>,
 ) {

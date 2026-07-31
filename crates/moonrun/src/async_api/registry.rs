@@ -162,7 +162,7 @@ macro_rules! declare_async_imports {
 
         pub(super) fn register_imports<'s>(
             obj: v8::Local<'s, v8::Object>,
-            scope: &mut v8::HandleScope<'s>,
+            scope: &mut v8::PinScope<'s, '_>,
             context_ptr: *const AsyncContext,
         ) {
             $(
@@ -194,7 +194,7 @@ macro_rules! register_async_import {
         ($($arg:ident : $arg_ty:ident),* $(,)?)
     ) => {{
         fn callback(
-            _scope: &mut v8::HandleScope,
+            _scope: &mut v8::PinScope<'_, '_>,
             _args: v8::FunctionCallbackArguments,
             _ret: v8::ReturnValue,
         ) {
@@ -213,7 +213,7 @@ macro_rules! register_async_import {
         ($($arg:ident : $arg_ty:ident),* $(,)?)
     ) => {{
         fn callback(
-            scope: &mut v8::HandleScope,
+            scope: &mut v8::PinScope<'_, '_>,
             args: v8::FunctionCallbackArguments,
             mut ret: v8::ReturnValue,
         ) {
@@ -244,7 +244,7 @@ macro_rules! register_async_import {
 
 fn register_func_impl<'s>(
     obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     name: &str,
     callback: impl v8::MapFnTo<v8::FunctionCallback>,
     context_ptr: *const AsyncContext,

@@ -25,35 +25,35 @@ use super::context::ImportContext;
 use super::provenance::ported_imports;
 
 ported_imports! {
-pub(super) fn free_job(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<()> {
+pub(super) fn free_job(context: &mut ImportContext<'_, '_, '_>, job: u64) -> AsyncHostResult<()> {
     context.host.free_job(job)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn job_get_ret(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i32> {
+pub(super) fn job_get_ret(context: &mut ImportContext<'_, '_, '_>, job: u64) -> AsyncHostResult<i32> {
     context.host.job_get_ret(job).map(|value| value as i32)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn job_get_err(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i32> {
+pub(super) fn job_get_err(context: &mut ImportContext<'_, '_, '_>, job: u64) -> AsyncHostResult<i32> {
     context.host.job_get_err(job)
 }
 
-pub(super) fn run_job(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<()> {
+pub(super) fn run_job(context: &mut ImportContext<'_, '_, '_>, job: u64) -> AsyncHostResult<()> {
     context.host.run_job(job)
 }
 
-pub(super) fn init_thread_pool(context: &mut ImportContext<'_, '_>, poll: u64) -> AsyncHostResult<u64> {
+pub(super) fn init_thread_pool(context: &mut ImportContext<'_, '_, '_>, poll: u64) -> AsyncHostResult<u64> {
     context.host.init_thread_pool(poll)
 }
 
-pub(super) fn destroy_thread_pool(context: &mut ImportContext<'_, '_>) {
+pub(super) fn destroy_thread_pool(context: &mut ImportContext<'_, '_, '_>) {
     context.host.destroy_thread_pool();
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn spawn_worker(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     completion_id: i32,
     job: u64,
 ) -> AsyncHostResult<u64> {
@@ -61,13 +61,13 @@ pub(super) fn spawn_worker(
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn free_worker(context: &mut ImportContext<'_, '_>, worker: u64) -> AsyncHostResult<()> {
+pub(super) fn free_worker(context: &mut ImportContext<'_, '_, '_>, worker: u64) -> AsyncHostResult<()> {
     context.host.free_worker(worker)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn wake_worker(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     worker: u64,
     completion_id: i32,
     job: u64,
@@ -76,19 +76,19 @@ pub(super) fn wake_worker(
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn worker_enter_idle(context: &mut ImportContext<'_, '_>, worker: u64) -> AsyncHostResult<()> {
+pub(super) fn worker_enter_idle(context: &mut ImportContext<'_, '_, '_>, worker: u64) -> AsyncHostResult<()> {
     context.host.worker_enter_idle(worker)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn cancel_worker(context: &mut ImportContext<'_, '_>, worker: u64) -> AsyncHostResult<i32> {
+pub(super) fn cancel_worker(context: &mut ImportContext<'_, '_, '_>, worker: u64) -> AsyncHostResult<i32> {
     context.host.cancel_worker(worker)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 #[cfg(unix)]
 pub(super) fn fetch_completion(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     source_fd: u64,
     dst: i32,
     max_jobs: i32,
@@ -107,7 +107,7 @@ pub(super) fn fetch_completion(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_sleep_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     duration_ms: i32,
 ) -> AsyncHostResult<u64> {
     context.host
@@ -117,7 +117,7 @@ pub(super) fn make_sleep_job(
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_open_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     path_ptr: i32,
     path_len: i32,
     access: i32,
@@ -140,7 +140,7 @@ pub(super) fn make_open_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_read_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     len: i32,
     position: i64,
@@ -154,7 +154,7 @@ pub(super) fn make_read_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_write_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     ptr: i32,
     offset: i32,
@@ -173,7 +173,7 @@ pub(super) fn make_write_job(
 }
 
 pub(super) fn get_read_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     job: u64,
     dst: i32,
     offset: i32,
@@ -186,7 +186,7 @@ pub(super) fn get_read_result(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_file_kind_by_path_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     parent: u64,
     path_ptr: i32,
     path_len: i32,
@@ -212,7 +212,7 @@ pub(super) fn make_file_kind_by_path_job(
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn make_file_size_job(context: &mut ImportContext<'_, '_>, fd: u64) -> AsyncHostResult<u64> {
+pub(super) fn make_file_size_job(context: &mut ImportContext<'_, '_, '_>, fd: u64) -> AsyncHostResult<u64> {
     let file = context
         .host
         .acquire_resource_of_class(fd, ResourceClass::File)?;
@@ -220,13 +220,13 @@ pub(super) fn make_file_size_job(context: &mut ImportContext<'_, '_>, fd: u64) -
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn get_file_size_result(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i64> {
+pub(super) fn get_file_size_result(context: &mut ImportContext<'_, '_, '_>, job: u64) -> AsyncHostResult<i64> {
     context.host.get_file_size_result(job)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_file_time_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
 ) -> AsyncHostResult<u64> {
     let file = context
@@ -238,7 +238,7 @@ pub(super) fn make_file_time_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_file_time_by_path_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     path_ptr: i32,
     path_len: i32,
     follow_symlink: i32,
@@ -253,7 +253,7 @@ pub(super) fn make_file_time_by_path_job(
 }
 
 pub(super) fn get_file_time_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     job: u64,
     out: i32,
 ) -> AsyncHostResult<()> {
@@ -264,7 +264,7 @@ pub(super) fn get_file_time_result(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_access_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     path_ptr: i32,
     path_len: i32,
     access: i32,
@@ -277,7 +277,7 @@ pub(super) fn make_access_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_chmod_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     path_ptr: i32,
     path_len: i32,
     mode: i32,
@@ -290,7 +290,7 @@ pub(super) fn make_chmod_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_fsync_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     only_data: i32,
 ) -> AsyncHostResult<u64> {
@@ -303,7 +303,7 @@ pub(super) fn make_fsync_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_flock_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     fd: u64,
     exclusive: i32,
 ) -> AsyncHostResult<u64> {
@@ -316,7 +316,7 @@ pub(super) fn make_flock_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_remove_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     path_ptr: i32,
     path_len: i32,
 ) -> AsyncHostResult<u64> {
@@ -326,7 +326,7 @@ pub(super) fn make_remove_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_rename_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     old_path_ptr: i32,
     old_path_len: i32,
     new_path_ptr: i32,
@@ -345,7 +345,7 @@ pub(super) fn make_rename_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_symlink_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     target_ptr: i32,
     target_len: i32,
     path_ptr: i32,
@@ -364,7 +364,7 @@ pub(super) fn make_symlink_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_mkdir_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     path_ptr: i32,
     path_len: i32,
     mode: i32,
@@ -377,7 +377,7 @@ pub(super) fn make_mkdir_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_rmdir_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     path_ptr: i32,
     path_len: i32,
 ) -> AsyncHostResult<u64> {
@@ -387,7 +387,7 @@ pub(super) fn make_rmdir_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_readdir_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     dir: u64,
     buf: u64,
     len: i32,
@@ -408,7 +408,7 @@ pub(super) fn make_readdir_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_bind_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     socket: u64,
     addr: i32,
     addr_len: i32,
@@ -423,7 +423,7 @@ pub(super) fn make_bind_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_getaddrinfo_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     host: i32,
     host_len: i32,
 ) -> AsyncHostResult<u64> {
@@ -438,7 +438,7 @@ pub(super) fn make_getaddrinfo_job(
 #[cfg(unix)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_spawn_job_unix(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     path: i32,
     path_len: i32,
     args: u64,
@@ -481,7 +481,7 @@ pub(super) fn make_spawn_job_unix(
 #[cfg(windows)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_spawn_job_windows(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     command_line: i32,
     command_line_len: i32,
     env: u64,
@@ -521,7 +521,7 @@ pub(super) fn make_spawn_job_windows(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn get_spawn_job_result_handle(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     job: u64,
 ) -> AsyncHostResult<u64> {
     context.host.get_spawn_job_result_handle(job)
@@ -529,7 +529,7 @@ pub(super) fn get_spawn_job_result_handle(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_wait_for_process_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     handle: u64,
     pid: i32,
 ) -> AsyncHostResult<u64> {
@@ -551,7 +551,7 @@ pub(super) fn make_wait_for_process_job(
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 #[cfg(unix)]
 pub(super) fn make_sigwait_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     signals: i32,
     signals_len: i32,
 ) -> AsyncHostResult<u64> {
@@ -564,7 +564,7 @@ pub(super) fn make_sigwait_job(
 }
 
 fn optional_resource(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     handle: u64,
 ) -> AsyncHostResult<Option<ResourceRef>> {
     if handle == crate::async_host::INVALID_HOST_HANDLE || handle == context.host.invalid_fd() {
@@ -575,7 +575,7 @@ fn optional_resource(
 }
 
 pub(super) fn get_getaddrinfo_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     job: u64,
 ) -> AsyncHostResult<u64> {
     context.host.get_getaddrinfo_result(job)
@@ -603,7 +603,7 @@ fn read_i32_array(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn make_realpath_job(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     path_ptr: i32,
     path_len: i32,
 ) -> AsyncHostResult<u64> {
@@ -615,33 +615,33 @@ pub(super) fn make_realpath_job(
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
 pub(super) fn get_realpath_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     job: u64,
 ) -> AsyncHostResult<u64> {
     context.host.get_realpath_result(job)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn open_job_get_fd(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<u64> {
+pub(super) fn open_job_get_fd(context: &mut ImportContext<'_, '_, '_>, job: u64) -> AsyncHostResult<u64> {
     context.host.open_job_get_fd(job)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn open_job_get_kind(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<i32> {
+pub(super) fn open_job_get_kind(context: &mut ImportContext<'_, '_, '_>, job: u64) -> AsyncHostResult<i32> {
     context.host.open_job_get_kind(job)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn open_job_get_dev_id(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<u64> {
+pub(super) fn open_job_get_dev_id(context: &mut ImportContext<'_, '_, '_>, job: u64) -> AsyncHostResult<u64> {
     context.host.open_job_get_dev_id(job)
 }
 
 #[ported(source = "src/internal/event_loop/thread_pool.c")]
-pub(super) fn open_job_get_file_id(context: &mut ImportContext<'_, '_>, job: u64) -> AsyncHostResult<u64> {
+pub(super) fn open_job_get_file_id(context: &mut ImportContext<'_, '_, '_>, job: u64) -> AsyncHostResult<u64> {
     context.host.open_job_get_file_id(job)
 }
 
-fn read_guest_os_string(context: &mut ImportContext<'_, '_>, ptr: i32, len: i32) -> AsyncHostResult<OsString> {
+fn read_guest_os_string(context: &mut ImportContext<'_, '_, '_>, ptr: i32, len: i32) -> AsyncHostResult<OsString> {
     // Async OsString imports pass MoonBit String data, so `len` is UTF-16 code
     // units. Do not treat this as UTF-8 bytes or a native C string.
     context.with_memory_mut(|memory| {

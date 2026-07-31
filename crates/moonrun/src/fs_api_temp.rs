@@ -29,7 +29,7 @@ use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 
 /// `fn read_file_to_string(path: JSString) -> JSString`
 fn read_file_to_string(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -44,7 +44,7 @@ fn read_file_to_string(
 
 /// `fn write_string_to_file(path: JSString, contents: JSString) -> Unit`
 fn write_string_to_file(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -58,7 +58,7 @@ fn write_string_to_file(
 }
 
 fn write_bytes_to_file(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -77,7 +77,7 @@ fn write_bytes_to_file(
 }
 
 fn create_dir(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -91,7 +91,7 @@ fn create_dir(
 
 #[allow(clippy::manual_flatten)]
 fn read_dir(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -120,7 +120,7 @@ fn read_dir(
 }
 
 fn is_file(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -135,7 +135,7 @@ fn is_file(
 }
 
 fn is_dir(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -150,7 +150,7 @@ fn is_dir(
 }
 
 fn remove_file(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -163,7 +163,7 @@ fn remove_file(
 }
 
 fn remove_dir(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -176,7 +176,7 @@ fn remove_dir(
 }
 
 fn path_exists(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -191,7 +191,7 @@ fn path_exists(
 }
 
 fn current_dir(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -221,7 +221,7 @@ struct GlobalState {
 }
 
 fn write_bytes_to_file_new(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -258,7 +258,7 @@ fn write_bytes_to_file_new(
 }
 
 fn read_file_to_bytes_new(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -280,7 +280,7 @@ fn read_file_to_bytes_new(
 }
 
 fn get_file_content(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -295,7 +295,7 @@ fn get_file_content(
 }
 
 fn get_dir_files(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -311,7 +311,7 @@ fn get_dir_files(
 }
 
 fn create_dir_new(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -334,7 +334,7 @@ fn create_dir_new(
 
 #[allow(clippy::manual_flatten)]
 fn read_dir_new(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -370,7 +370,7 @@ fn read_dir_new(
 }
 
 fn is_file_new(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -396,7 +396,7 @@ fn is_file_new(
 }
 
 fn is_dir_new(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -422,7 +422,7 @@ fn is_dir_new(
 }
 
 fn remove_file_new(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -444,7 +444,7 @@ fn remove_file_new(
 }
 
 fn remove_dir_new(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -466,7 +466,7 @@ fn remove_dir_new(
 }
 
 fn get_error_message(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     _args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -477,7 +477,7 @@ fn get_error_message(
 
 pub(crate) fn init_fs<'s>(
     obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     policy: Arc<AsyncPolicy>,
     dtors: &mut Vec<Box<dyn Any>>,
 ) {
@@ -605,7 +605,7 @@ fn ensure_remove_new(
 
 fn set_policy_func<'s>(
     obj: v8::Local<'s, v8::Object>,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, '_>,
     name: &str,
     callback: impl v8::MapFnTo<v8::FunctionCallback>,
     policy_ptr: *const AsyncPolicy,

@@ -78,6 +78,17 @@ fn test_moonrun_version() {
 }
 
 #[test]
+fn test_moonrun_v8_external_finalizers() {
+    let wasm = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/test_cases/v8_external_finalizers.wasm");
+
+    snapbox::cmd::Command::new(snapbox::cmd::cargo_bin!("moonrun"))
+        .arg(wasm)
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_moonrun_wasm_stack_trace() {
     let dir = TestDir::new("test_stack_trace.in");
 

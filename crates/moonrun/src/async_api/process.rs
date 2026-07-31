@@ -34,7 +34,7 @@ use super::provenance::ported_imports;
 ported_imports! {
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(unix)]
-pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> u64 {
+pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_, '_>) -> u64 {
     let env = if context.host.policy().has_env_policy() {
         context
             .host
@@ -51,7 +51,7 @@ pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> u64 {
 
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_get_curr_env")]
 #[cfg(windows)]
-pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
+pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_, '_>) -> AsyncHostResult<u64> {
     let env = if context.host.policy().has_env_policy() {
         let mut block = Vec::new();
         for (key, value) in context.host.policy().env_vars() {
@@ -72,7 +72,7 @@ pub(super) fn get_curr_env(context: &mut ImportContext<'_, '_>) -> AsyncHostResu
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_env_block_length")]
 #[cfg(unix)]
 pub(super) fn env_block_length(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     env: u64,
 ) -> AsyncHostResult<i32> {
     context.host.process_env_length(env)
@@ -81,7 +81,7 @@ pub(super) fn env_block_length(
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_env_block_length")]
 #[cfg(windows)]
 pub(super) fn env_block_length(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     env: u64,
 ) -> AsyncHostResult<i32> {
     context.host.process_env_length(env)
@@ -90,7 +90,7 @@ pub(super) fn env_block_length(
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_allocate_env_block")]
 #[cfg(unix)]
 pub(super) fn allocate_env_block(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     size: i32,
 ) -> AsyncHostResult<u64> {
     let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
@@ -100,7 +100,7 @@ pub(super) fn allocate_env_block(
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_allocate_env_block")]
 #[cfg(windows)]
 pub(super) fn allocate_env_block(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     size: i32,
 ) -> AsyncHostResult<u64> {
     let size = usize::try_from(size).map_err(|_| AsyncHostError::Fault)?;
@@ -109,20 +109,20 @@ pub(super) fn allocate_env_block(
 }
 
 // Deprecated. We'll remove it later.
-pub(super) fn free_env(_context: &mut ImportContext<'_, '_>, _env: u64) -> AsyncHostResult<()> {
+pub(super) fn free_env(_context: &mut ImportContext<'_, '_, '_>, _env: u64) -> AsyncHostResult<()> {
     Ok(())
 }
 
 #[cfg(unix)]
 // Deprecated. We'll remove it later.
-pub(super) fn free_argv(_context: &mut ImportContext<'_, '_>, _argv: u64) -> AsyncHostResult<()> {
+pub(super) fn free_argv(_context: &mut ImportContext<'_, '_, '_>, _argv: u64) -> AsyncHostResult<()> {
     Ok(())
 }
 
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_write_env_block")]
 #[cfg(unix)]
 pub(super) fn write_env_block(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
@@ -132,7 +132,7 @@ pub(super) fn write_env_block(
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_write_env_block")]
 #[cfg(windows)]
 pub(super) fn write_env_block(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     dst: u64,
     src: u64,
 ) -> AsyncHostResult<()> {
@@ -142,7 +142,7 @@ pub(super) fn write_env_block(
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_env_block_add_entry")]
 #[cfg(unix)]
 pub(super) fn env_block_add_entry(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     env: u64,
     index: i32,
     key: i32,
@@ -157,7 +157,7 @@ pub(super) fn env_block_add_entry(
 #[ported(source = "src/process/windows.c", original = "moonbitlang_async_env_block_add_entry")]
 #[cfg(windows)]
 pub(super) fn env_block_add_entry(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     env: u64,
     offset: i32,
     key: i32,
@@ -175,7 +175,7 @@ pub(super) fn env_block_add_entry(
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_make_argv_array")]
 #[cfg(unix)]
 pub(super) fn make_argv_array_unix(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     len: i32,
 ) -> AsyncHostResult<u64> {
     context.host.insert_process_argv(len)
@@ -187,7 +187,7 @@ pub(super) fn make_argv_array_unix(
 )]
 #[cfg(unix)]
 pub(super) fn argv_array_add_encoded_entry_unix(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     argv: u64,
     index: i32,
     arg: i32,
@@ -200,7 +200,7 @@ pub(super) fn argv_array_add_encoded_entry_unix(
 #[ported(source = "src/process/unix.c", original = "moonbitlang_async_argv_array_add_entry")]
 #[cfg(unix)]
 pub(super) fn argv_array_add_entry_unix(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     argv: u64,
     index: i32,
     arg: i32,
@@ -212,7 +212,7 @@ pub(super) fn argv_array_add_entry_unix(
 
 #[cfg(all(unix, not(target_os = "linux")))]
 pub(super) fn open_pid_handle(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
     let handle = context
@@ -230,7 +230,7 @@ pub(super) fn open_pid_handle(
 )]
 #[cfg(target_os = "linux")]
 pub(super) fn open_pid_handle(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
     let handle = context.host.with_owned_child_pid(pid, || {
@@ -252,7 +252,7 @@ pub(super) fn open_pid_handle(
 )]
 #[cfg(windows)]
 pub(super) fn open_pid_handle(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     pid: i32,
 ) -> AsyncHostResult<u64> {
     let handle = context
@@ -266,7 +266,7 @@ pub(super) fn open_pid_handle(
     original = "moonbitlang_async_get_process_result"
 )]
 pub(super) fn get_process_result(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     handle: u64,
     pid: i32,
     out: i32,
@@ -327,7 +327,7 @@ pub(super) fn get_process_result(
 )]
 #[cfg(unix)]
 pub(super) fn terminate(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
@@ -343,7 +343,7 @@ pub(super) fn terminate(
 )]
 #[cfg(windows)]
 pub(super) fn terminate(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     pid: i32,
     signal: i32,
 ) -> AsyncHostResult<()> {
@@ -358,7 +358,7 @@ pub(super) fn terminate(
     original = "moonbitlang_async_kill_process"
 )]
 #[cfg(unix)]
-pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
+pub(super) fn kill(context: &mut ImportContext<'_, '_, '_>, pid: i32) -> AsyncHostResult<()> {
     context.host.with_owned_child_pid(pid, || {
         let _ = process::kill_process(pid);
         Ok(())
@@ -370,7 +370,7 @@ pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostRe
     original = "moonbitlang_async_kill_process"
 )]
 #[cfg(windows)]
-pub(super) fn kill(context: &mut ImportContext<'_, '_>, pid: i32) -> AsyncHostResult<()> {
+pub(super) fn kill(context: &mut ImportContext<'_, '_, '_>, pid: i32) -> AsyncHostResult<()> {
     context.host.with_owned_child_pid(pid, || {
         let _ = process::kill_process(pid);
         Ok(())
@@ -444,7 +444,7 @@ fn current_windows_env() -> AsyncHostResult<Vec<u16>> {
 
 #[cfg(unix)]
 fn unix_env_entry(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     key: i32,
     key_len: i32,
     value: i32,
@@ -462,7 +462,7 @@ fn unix_env_entry(
 
 #[cfg(unix)]
 fn read_guest_os_string(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     ptr: i32,
     len: i32,
 ) -> AsyncHostResult<OsString> {
@@ -480,7 +480,7 @@ fn read_guest_os_string(
 
 #[cfg(windows)]
 fn read_guest_u16(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     ptr: i32,
     len: i32,
 ) -> AsyncHostResult<Vec<u16>> {

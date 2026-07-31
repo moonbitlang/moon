@@ -18,7 +18,7 @@
 
 use super::context::ImportContext;
 
-pub(super) fn get_stdio_handle(context: &mut ImportContext<'_, '_>, id: i32) -> u64 {
+pub(super) fn get_stdio_handle(context: &mut ImportContext<'_, '_, '_>, id: i32) -> u64 {
     match context.host.std_handle(id) {
         Ok(handle) => handle,
         Err(error) => {

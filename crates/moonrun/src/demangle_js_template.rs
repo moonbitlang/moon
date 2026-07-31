@@ -31,8 +31,6 @@ mod tests {
     fn init_v8_once() {
         static INIT: Once = Once::new();
         INIT.call_once(|| {
-            v8::V8::set_flags_from_string("--experimental-wasm-exnref");
-            v8::V8::set_flags_from_string("--experimental-wasm-imported-strings");
             let platform = v8::new_default_platform(0, false).make_shared();
             v8::V8::initialize_platform(platform);
             v8::V8::initialize();
@@ -42,7 +40,8 @@ mod tests {
     fn run_demangle_in_v8(input: &str) -> String {
         init_v8_once();
         let isolate = &mut v8::Isolate::new(Default::default());
-        let scope = &mut v8::HandleScope::new(isolate);
+        let scope = std::pin::pin!(v8::HandleScope::new(isolate));
+        let scope = &mut scope.init();
         let context = v8::Context::new(scope, Default::default());
         let scope = &mut v8::ContextScope::new(scope, context);
 

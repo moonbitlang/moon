@@ -35,7 +35,7 @@ fn resolve_source_map_path_impl(wasm_path: &str, source_map_path: &str) -> Strin
 }
 
 fn resolve_source_map_path(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments,
     mut ret: v8::ReturnValue,
 ) {
@@ -47,7 +47,7 @@ fn resolve_source_map_path(
 
 const BACKTRACE_RUNTIME_NAMESPACE: &str = "__moonbit_backtrace_runtime";
 
-pub(crate) fn init(scope: &mut v8::HandleScope) {
+pub(crate) fn init(scope: &mut v8::PinScope<'_, '_>) {
     let global_proxy = scope.get_current_context().global(scope);
     let backtrace_obj = global_proxy.child(scope, BACKTRACE_RUNTIME_NAMESPACE);
 

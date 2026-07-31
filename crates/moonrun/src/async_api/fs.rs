@@ -27,7 +27,7 @@ use super::context::ImportContext;
 use super::provenance::ported_imports;
 
 ported_imports! {
-pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_, '_>) -> i32 {
     match tmp_path_utf16_units(context.host.policy())
         .and_then(|units| i32::try_from(units.len()).map_err(|_| AsyncHostError::Fault))
     {
@@ -40,7 +40,7 @@ pub(super) fn get_tmp_path_len(context: &mut ImportContext<'_, '_>) -> i32 {
 }
 
 #[ported(source = "src/fs/stub.c")]
-pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: i32, len: i32) -> i32 {
+pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_, '_>, ptr: i32, len: i32) -> i32 {
     let result = (|| {
         let units = tmp_path_utf16_units(context.host.policy())?;
         let len = usize::try_from(len).map_err(|_| AsyncHostError::Fault)?;
@@ -52,7 +52,7 @@ pub(super) fn get_tmp_path(context: &mut ImportContext<'_, '_>, ptr: i32, len: i
     zero_or_minus_one(context, result)
 }
 
-pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_, '_>) -> AsyncHostResult<u64> {
+pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_, '_, '_>) -> AsyncHostResult<u64> {
     let path = tmp_path(context.host.policy())?;
     Ok(context
         .host
@@ -60,18 +60,18 @@ pub(super) fn get_tmp_path_buffer(context: &mut ImportContext<'_, '_>) -> AsyncH
 }
 
 #[ported(source = "src/internal/fd_util/stub.c")]
-pub(super) fn close_fd(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+pub(super) fn close_fd(context: &mut ImportContext<'_, '_, '_>, fd: u64) -> i32 {
     zero_or_minus_one(context, context.host.close_fd(fd))
 }
 
 #[ported(source = "src/fs/dir.c")]
-pub(super) fn dir_buffer_min_size(_context: &mut ImportContext<'_, '_>) -> i32 {
+pub(super) fn dir_buffer_min_size(_context: &mut ImportContext<'_, '_, '_>) -> i32 {
     dir::buffer_min_size()
 }
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_length(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     buf: u64,
     offset: i32,
 ) -> AsyncHostResult<i32> {
@@ -81,7 +81,7 @@ pub(super) fn dir_entry_length(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_name_len(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     buf: u64,
     offset: i32,
 ) -> AsyncHostResult<i32> {
@@ -91,7 +91,7 @@ pub(super) fn dir_entry_name_len(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_name_offset(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     buf: u64,
     offset: i32,
 ) -> AsyncHostResult<i32> {
@@ -101,7 +101,7 @@ pub(super) fn dir_entry_name_offset(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_is_dir(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     buf: u64,
     offset: i32,
 ) -> AsyncHostResult<i32> {
@@ -111,7 +111,7 @@ pub(super) fn dir_entry_is_dir(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_is_hidden(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     buf: u64,
     offset: i32,
 ) -> AsyncHostResult<i32> {
@@ -122,7 +122,7 @@ pub(super) fn dir_entry_is_hidden(
 
 #[ported(source = "src/fs/dir.c")]
 pub(super) fn dir_entry_file_id(
-    context: &mut ImportContext<'_, '_>,
+    context: &mut ImportContext<'_, '_, '_>,
     buf: u64,
     offset: i32,
 ) -> AsyncHostResult<u64> {
@@ -167,7 +167,7 @@ fn os_string_to_utf16_units(path: std::ffi::OsString) -> AsyncHostResult<Vec<u16
 }
 
 #[ported(source = "src/fs/stub.c")]
-pub(super) fn errno_is_lock_violation(_context: &mut ImportContext<'_, '_>, errno: i32) -> i32 {
+pub(super) fn errno_is_lock_violation(_context: &mut ImportContext<'_, '_, '_>, errno: i32) -> i32 {
     if stub::errno_is_lock_violation(errno) {
         1
     } else {
@@ -176,16 +176,16 @@ pub(super) fn errno_is_lock_violation(_context: &mut ImportContext<'_, '_>, errn
 }
 
 #[ported(source = "src/fs/stub.c")]
-pub(super) fn try_lock_file(context: &mut ImportContext<'_, '_>, fd: u64, exclusive: i32) -> i32 {
+pub(super) fn try_lock_file(context: &mut ImportContext<'_, '_, '_>, fd: u64, exclusive: i32) -> i32 {
     zero_or_minus_one(context, context.host.try_lock_file(fd, exclusive != 0))
 }
 
 #[ported(source = "src/fs/stub.c")]
-pub(super) fn unlock_file(context: &mut ImportContext<'_, '_>, fd: u64) -> i32 {
+pub(super) fn unlock_file(context: &mut ImportContext<'_, '_, '_>, fd: u64) -> i32 {
     zero_or_minus_one(context, context.host.unlock_file(fd))
 }
 
-fn zero_or_minus_one(context: &ImportContext<'_, '_>, result: AsyncHostResult<()>) -> i32 {
+fn zero_or_minus_one(context: &ImportContext<'_, '_, '_>, result: AsyncHostResult<()>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => {
