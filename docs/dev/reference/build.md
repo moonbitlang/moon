@@ -199,8 +199,9 @@ Compiling C stubs of a package involves 3 steps:
 1. `BuildCStub` -- The C files are compiled independently using a C compiler.
    Each action conservatively tracks every package-local `.h`, `.hh`, `.hpp`,
    and `.hxx` file because MoonBuild does not interpret transitive `#include`
-   directives. Headers outside the Package File Set are not discovered
-   automatically.
+   directives. Dot-prefixed directories, ignored generated directories, and
+   nested module or package roots are outside the Package File Set, so headers
+   under those boundaries are not discovered automatically.
 2. `ArchiveOrLinkCStubs` -- All C stubs in a package is archived using AR.
    If [TCC-run mode](./tcc-run.md) is enabled, this instead links the C stubs.
    This is out of scope of a regular compilation.
