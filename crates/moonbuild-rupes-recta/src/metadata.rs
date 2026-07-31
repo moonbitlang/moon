@@ -255,13 +255,11 @@ fn metadata_mi_path(
     target: BuildTarget,
     backend: TargetBackend,
 ) -> PathBuf {
-    if target.kind == TargetKind::Source && ctx.pkg_rel.virt_impl.contains_key(target.package) {
-        artifact_paths
-            .mi_of_build_target_impl_virtual(&ctx.pkg_dirs, &target, backend)
-            .into_path()
-    } else {
-        artifact_paths.mi_of_build_target(&ctx.pkg_dirs, &target, backend)
-    }
+    let is_implementing_virtual =
+        target.kind == TargetKind::Source && ctx.pkg_rel.virt_impl.contains_key(target.package);
+    artifact_paths
+        .metadata_mi_of_build_target(&ctx.pkg_dirs, &target, backend, is_implementing_virtual)
+        .into_path()
 }
 
 fn metadata_check_command(

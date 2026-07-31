@@ -29,6 +29,13 @@ The build stage adds three behaviours on top of what regular packages already do
 
 As long as interface compilation happens first and every body passes those checks, the dependency graph can treat virtual packages like ordinary ones: their `.mi` products feed downstream builds, and consumers will never see an out-of-date interface.
 
+Proof builds preserve the same ordering while keeping the two interfaces
+distinct. `BuildVirtual` writes the contract `.mi` under the backend-specific
+prove directory. `EmitProof` checks the default body against that contract and
+writes its proof-aware `.mi` alongside the package's `.mlw` under
+`_build/verif`. These are separate logical products and must not resolve to the
+same output path.
+
 ## Overrides at link time
 
 When linking, any consumer that listed overrides swaps the virtual `.core` out for its chosen implementation. The `.core` list is rewritten just before `moonc link-core` runs so the implementation’s artifact replaces the virtual one while keeping the rest of the dependency set intact.

@@ -1,0 +1,6 @@
+{
+  "import": [
+    "username/prove_virtual/virtual"
+  ],
+  "proof-enabled": true
+}
