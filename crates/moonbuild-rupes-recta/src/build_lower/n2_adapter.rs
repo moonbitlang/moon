@@ -44,6 +44,7 @@ impl N2GraphBuilder {
             external_inputs,
             outputs,
             command,
+            cache_eligible: _,
             fileloc,
             description,
             can_dirty_on_output,
@@ -53,7 +54,11 @@ impl N2GraphBuilder {
         let mut input_paths = dependencies
             .into_iter()
             .flat_map(|product| product.paths)
-            .chain(external_inputs)
+            .chain(
+                external_inputs
+                    .iter()
+                    .filter_map(|input| input.n2_path().map(ToOwned::to_owned)),
+            )
             .collect::<Vec<_>>();
         input_paths.sort();
 
@@ -114,8 +119,8 @@ mod tests {
     use crate::{
         build_action_plan::{BuildActionId, BuildProduct},
         build_lower::{
-            LoweredAction, LoweredCommand, LoweredProduct, LoweredResponseFile,
-            lowered_action::BuildCommand,
+            LoweredAction, LoweredCommand, LoweredExternalInput, LoweredProduct,
+            LoweredResponseFile, lowered_action::BuildCommand,
         },
         pkg_name::PackageFQN,
     };
@@ -138,7 +143,7 @@ mod tests {
             },
             paths: vec![executable],
         }];
-        let (command, external_inputs) = BuildCommand {
+        let (command, mut external_inputs) = BuildCommand {
             extra_inputs: vec![PathBuf::from("src/main.mbt")],
             commandline: LoweredCommand::from(command_args.clone()).with_response_file(
                 response_file_command.clone(),
@@ -149,6 +154,9 @@ mod tests {
             ),
         }
         .into_lowered_parts(&dependencies);
+        external_inputs.push(LoweredExternalInput::StandardLibraryInterfaces(
+            PathBuf::from("toolchain/lib/core/bundle"),
+        ));
         let lowered = LoweredAction {
             id: action,
             dependencies,
@@ -161,6 +169,7 @@ mod tests {
                 paths: vec![PathBuf::from("build/main.core")],
             }],
             command,
+            cache_eligible: true,
             fileloc: "build main".to_string(),
             description: "build main".to_string(),
             can_dirty_on_output: true,

@@ -27,6 +27,30 @@ use crate::{
     pkg_name::OptionalPackageFQNWithSource,
 };
 
+/// A concrete input that is not produced by another lowered action.
+#[derive(Debug, Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum LoweredExternalInput {
+    /// One regular file observed by the action.
+    File(PathBuf),
+    /// The recursive `.mi` tree observed through `moonc -std-path`.
+    StandardLibraryInterfaces(PathBuf),
+}
+
+impl LoweredExternalInput {
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::File(path) | Self::StandardLibraryInterfaces(path) => path,
+        }
+    }
+
+    pub(crate) fn n2_path(&self) -> Option<&Path> {
+        match self {
+            Self::File(path) => Some(path),
+            Self::StandardLibraryInterfaces(_) => None,
+        }
+    }
+}
+
 /// One logical product after its concrete artifact paths have been selected.
 #[derive(Debug)]
 pub struct LoweredProduct {
@@ -144,9 +168,10 @@ impl LoweredCommand {
 pub struct LoweredAction {
     pub(crate) id: BuildActionId,
     pub(crate) dependencies: Vec<LoweredProduct>,
-    pub(crate) external_inputs: Vec<PathBuf>,
+    pub(crate) external_inputs: Vec<LoweredExternalInput>,
     pub(crate) outputs: Vec<LoweredProduct>,
     pub(crate) command: LoweredCommand,
+    pub(crate) cache_eligible: bool,
     pub(crate) fileloc: String,
     pub(crate) description: String,
     pub(crate) can_dirty_on_output: bool,
@@ -162,7 +187,7 @@ impl LoweredAction {
         &self.dependencies
     }
 
-    pub fn external_inputs(&self) -> &[PathBuf] {
+    pub fn external_inputs(&self) -> &[LoweredExternalInput] {
         &self.external_inputs
     }
 
@@ -172,6 +197,14 @@ impl LoweredAction {
 
     pub fn command(&self) -> &LoweredCommand {
         &self.command
+    }
+
+    /// Whether lowering has a complete enough execution model to permit reuse.
+    ///
+    /// This excludes arbitrary shell payloads whose observed inputs cannot be
+    /// represented by the lowered action.
+    pub fn is_cache_eligible(&self) -> bool {
+        self.cache_eligible
     }
 
     pub fn can_dirty_on_output(&self) -> bool {
@@ -197,7 +230,7 @@ impl BuildCommand {
     pub(super) fn into_lowered_parts(
         self,
         dependencies: &[LoweredProduct],
-    ) -> (LoweredCommand, Vec<PathBuf>) {
+    ) -> (LoweredCommand, Vec<LoweredExternalInput>) {
         let Self {
             mut extra_inputs,
             commandline,
@@ -215,7 +248,13 @@ impl BuildCommand {
         }
         extra_inputs.sort();
         extra_inputs.dedup();
-        (commandline, extra_inputs)
+        (
+            commandline,
+            extra_inputs
+                .into_iter()
+                .map(LoweredExternalInput::File)
+                .collect(),
+        )
     }
 
     pub(super) fn with_cwd(mut self, cwd: PathBuf) -> Self {
@@ -265,7 +304,11 @@ mod tests {
         assert_eq!(commandline.executable(), Some(executable.as_path()));
         assert_eq!(
             external_inputs,
-            vec![PathBuf::from("a.mbt"), executable, PathBuf::from("z.mbt")]
+            vec![
+                LoweredExternalInput::File(PathBuf::from("a.mbt")),
+                LoweredExternalInput::File(executable),
+                LoweredExternalInput::File(PathBuf::from("z.mbt")),
+            ]
         );
     }
 }

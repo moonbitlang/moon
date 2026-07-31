@@ -50,7 +50,8 @@ mod n2_adapter;
 mod utils;
 
 pub use lowered_action::{
-    LoweredAction, LoweredCommand, LoweredCommandExecution, LoweredProduct, LoweredResponseFile,
+    LoweredAction, LoweredCommand, LoweredCommandExecution, LoweredExternalInput, LoweredProduct,
+    LoweredResponseFile,
 };
 pub use utils::{build_ins, build_n2_fileloc, build_outs};
 

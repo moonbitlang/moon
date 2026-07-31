@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use moonutil::resolution::{DirSyncResult, ResolvedEnv};
 use tracing::{Level, instrument};
 
-use super::{BuildOptions, LoweredAction, LoweredProduct, LoweringError};
+use super::{BuildOptions, LoweredAction, LoweredExternalInput, LoweredProduct, LoweringError};
 use crate::{
     ResolveOutput,
     build_action_plan::{BuildAction, BuildActionId, BuildActionPlan, BuildProduct},
@@ -299,7 +299,20 @@ impl<'a> LoweringContext<'a> {
             }
         };
 
-        let (command, external_inputs) = cmd.into_lowered_parts(&action_products.dependencies);
+        let (command, mut external_inputs) = cmd.into_lowered_parts(&action_products.dependencies);
+        if matches!(
+            action,
+            BuildAction::Check { .. }
+                | BuildAction::BuildCore { .. }
+                | BuildAction::BuildVirtual { .. }
+        ) && let Some(stdlib_root) = &self.opt.stdlib_path
+        {
+            external_inputs.push(LoweredExternalInput::StandardLibraryInterfaces(
+                moonutil::toolchain::core_bundle_in(stdlib_root, self.opt.target_backend()),
+            ));
+            external_inputs.sort();
+            external_inputs.dedup();
+        }
 
         let error_package = self
             .plan
@@ -312,6 +325,7 @@ impl<'a> LoweringContext<'a> {
             external_inputs,
             outputs: action_products.outputs,
             command,
+            cache_eligible: !matches!(action, BuildAction::RunPrebuild { .. }),
             fileloc: self.plan.fileloc(id, self.modules, self.packages),
             description: self.plan.human_desc(id, self.modules, self.packages),
             can_dirty_on_output: self.plan.can_dirty_on_output(id),
