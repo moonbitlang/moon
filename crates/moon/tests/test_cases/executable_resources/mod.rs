@@ -54,6 +54,16 @@ fn assert_resource_mapping(mapping: &Path, source: &Path) {
     }
 }
 
+#[cfg(unix)]
+fn create_directory_link(target: &Path, link: &Path) {
+    std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+#[cfg(windows)]
+fn create_directory_link(target: &Path, link: &Path) {
+    junction::create(target, link).unwrap();
+}
+
 #[test]
 fn moon_build_maps_the_declared_data_directory_beside_the_artifact() {
     let dir = TestDir::new("executable_resources/executable_resources.in");
@@ -225,6 +235,36 @@ fn declared_data_directory_must_exist() {
 }
 
 #[test]
+fn data_directory_must_not_contain_filesystem_links() {
+    let dir = TestDir::new("executable_resources/executable_resources.in");
+    let data_dir = dir.join("app/assets");
+    let actual_data_dir = dir.join("app/actual-assets");
+    std::fs::remove_dir_all(&data_dir).unwrap();
+    std::fs::create_dir_all(actual_data_dir.join("nested")).unwrap();
+    create_directory_link(&actual_data_dir, &data_dir);
+    std::fs::write(
+        dir.join("app/moon.pkg"),
+        r#"pkgtype(kind: "executable")
+
+options(
+  data_dir: "assets/nested",
+)
+"#,
+    )
+    .unwrap();
+
+    let assert = moon_cmd(&dir)
+        .args(["build", "--target", "wasm"])
+        .assert()
+        .failure();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(
+        stderr.contains("must not contain symbolic links or junctions"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn data_directory_cannot_escape_the_executable_package() {
     let dir = TestDir::new("executable_resources/executable_resources.in");
     std::fs::write(
@@ -245,7 +285,7 @@ options(
         .failure();
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
     assert!(
-        stderr.contains("`data_dir` in `moon.pkg` must be a package-relative directory"),
+        stderr.contains("`data_dir` in `moon.pkg` must be a direct package-relative directory"),
         "stderr: {stderr}"
     );
 }

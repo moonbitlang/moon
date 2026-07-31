@@ -127,10 +127,11 @@ and `_build` are skipped during this process. The configured scanning root
 itself remains explicit and is still scanned when its name starts with `.`;
 the filtering applies to its descendants.
 
-An executable package's declared `data_dir` is also a recursive package-scan
-boundary. Files named `moon.pkg`, `moon.pkg.json`, or like MoonBit source below
-that directory are application data; they do not declare nested packages or
-enter a package file set.
+An executable package's valid, direct `data_dir` is also a recursive
+package-scan boundary. Every declared component must be a real directory, not
+a symbolic link or Windows reparse point. Files named `moon.pkg`,
+`moon.pkg.json`, or like MoonBit source below that directory are application
+data; they do not declare nested packages or enter a package file set.
 
 The followings are examples of folder structure and search result,
 for common folder layouts with root `.` and root `src`:

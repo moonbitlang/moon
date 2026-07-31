@@ -44,7 +44,7 @@ use std::{
 
 use indexmap::IndexSet;
 use log::{debug, info, trace};
-use moonutil::package::MoonPkg;
+use moonutil::package::{MoonPkg, validate_data_directory};
 use moonutil::resolution::{
     DirSyncResult, ModuleId, ModuleSource, ModuleSourceKind, ResolvedEnv, ResolvedModule,
     ResolvedRootModules,
@@ -340,8 +340,22 @@ pub(crate) fn discover_packages_for_mod(
             pkg.source_files.len()
         );
         if let Some(data_dir) = &pkg.raw.data_dir {
-            let data_root = pkg.root_path.join(data_dir);
-            let data_root = dunce::canonicalize(&data_root).unwrap_or(data_root);
+            let data_root = validate_data_directory(&pkg.root_path, data_dir).map_err(|inner| {
+                DiscoverError::CantReadPackageFile {
+                    module: module_source.clone(),
+                    package: pkg.fqn.package().clone(),
+                    path: pkg.root_path.clone(),
+                    inner,
+                }
+            })?;
+            let data_root = dunce::canonicalize(data_root).map_err(|inner| {
+                DiscoverError::CantReadPackageFile {
+                    module: module_source.clone(),
+                    package: pkg.fqn.package().clone(),
+                    path: pkg.root_path.clone(),
+                    inner: inner.into(),
+                }
+            })?;
             application_data_roots.insert(data_root);
         }
         res.add_package(id, pkg.fqn.package().clone(), pkg)?;

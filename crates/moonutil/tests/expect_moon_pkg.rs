@@ -811,3 +811,35 @@ fn expect_max_concurrent_tests() {
         }"#]]
     .assert_eq(&actual);
 }
+
+#[test]
+fn data_dir_requires_a_direct_package_relative_path() {
+    for data_dir in [
+        "",
+        ".",
+        "./assets",
+        "assets/.",
+        "assets/..",
+        "assets/../resources",
+        "assets//images",
+        "assets/",
+        "/assets",
+        r"assets\images",
+        "C:/assets",
+        "assets:stream",
+    ] {
+        let encoded_data_dir = data_dir.replace('\\', "\\\\");
+        let actual = run(&format!(
+            r#"pkgtype(kind: "executable")
+
+options(
+  data_dir: "{encoded_data_dir}",
+)
+"#
+        ));
+        assert!(
+            actual.contains("`data_dir` in `moon.pkg` must be a direct package-relative directory"),
+            "{data_dir:?} was accepted: {actual}"
+        );
+    }
+}

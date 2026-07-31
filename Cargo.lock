@@ -1826,7 +1826,6 @@ dependencies = [
  "nucleo-matcher",
  "petgraph",
  "regex",
- "relative-path",
  "schemars",
  "semver",
  "serde",

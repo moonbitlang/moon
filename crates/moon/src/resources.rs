@@ -26,6 +26,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::model::{BuildPlanNode, TargetKind};
+use moonutil::{package::validate_data_directory, path::is_symlink_or_reparse_point};
 
 pub(crate) fn reconcile_resource_mappings(
     build_meta: &crate::rr_build::BuildMeta,
@@ -57,9 +58,8 @@ pub(crate) fn reconcile_resource_mappings(
             continue;
         };
 
-        let source = package.root_path.join(data_dir);
+        let source = validate_data_directory(&package.root_path, data_dir)?;
         let destination = artifact_parent.join(data_dir);
-        validate_data_directory(&source)?;
         create_mapping_parent_directories(artifact_parent, data_dir)?;
         reconcile_resource_mapping_for_platform(&source, &destination)?;
     }
@@ -72,7 +72,7 @@ fn create_mapping_parent_directories(artifact_parent: &Path, data_dir: &str) -> 
     for component in data_dir.split('/').take(component_count.saturating_sub(1)) {
         directory.push(component);
         match std::fs::symlink_metadata(&directory) {
-            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+            Ok(metadata) if metadata.is_dir() && !is_symlink_or_reparse_point(&metadata) => {}
             Ok(_) => anyhow::bail!(
                 "cannot create executable data directory mapping: parent '{}' is not a real directory",
                 directory.display()
@@ -98,32 +98,14 @@ fn create_mapping_parent_directories(artifact_parent: &Path, data_dir: &str) -> 
     Ok(())
 }
 
-fn validate_data_directory(source: &Path) -> anyhow::Result<()> {
-    match std::fs::metadata(source) {
-        Ok(metadata) if metadata.is_dir() => Ok(()),
-        Ok(_) => anyhow::bail!(
-            "executable package data directory must be a directory: '{}'",
-            source.display()
-        ),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            anyhow::bail!(
-                "declared executable package data directory does not exist: '{}'",
-                source.display()
-            )
-        }
-        Err(err) => Err(err).with_context(|| {
-            format!(
-                "failed to inspect executable package data directory '{}'",
-                source.display()
-            )
-        }),
-    }
-}
-
 #[cfg(test)]
-fn reconcile_resource_mapping(source: &Path, destination: &Path) -> anyhow::Result<()> {
-    validate_data_directory(source)?;
-    reconcile_resource_mapping_for_platform(source, destination)
+fn reconcile_resource_mapping(
+    package_root: &Path,
+    data_dir: &str,
+    destination: &Path,
+) -> anyhow::Result<()> {
+    let source = validate_data_directory(package_root, data_dir)?;
+    reconcile_resource_mapping_for_platform(&source, destination)
 }
 
 #[cfg(unix)]
@@ -280,8 +262,8 @@ mod tests {
         std::fs::write(old_source.join("keep.txt"), "keep").unwrap();
         std::fs::write(new_source.join("current.txt"), "current").unwrap();
 
-        reconcile_resource_mapping(&old_source, &destination).unwrap();
-        reconcile_resource_mapping(&new_source, &destination).unwrap();
+        reconcile_resource_mapping(temp.path(), "old", &destination).unwrap();
+        reconcile_resource_mapping(temp.path(), "new", &destination).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(destination.join("current.txt")).unwrap(),
@@ -301,12 +283,12 @@ mod tests {
         let destination = temp.path().join("resources");
         std::fs::create_dir(&old_source).unwrap();
 
-        reconcile_resource_mapping(&old_source, &destination).unwrap();
+        reconcile_resource_mapping(temp.path(), "old", &destination).unwrap();
         std::fs::remove_dir(&old_source).unwrap();
         std::fs::create_dir(&new_source).unwrap();
         std::fs::write(new_source.join("current.txt"), "current").unwrap();
 
-        reconcile_resource_mapping(&new_source, &destination).unwrap();
+        reconcile_resource_mapping(temp.path(), "new", &destination).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(destination.join("current.txt")).unwrap(),
@@ -321,7 +303,7 @@ mod tests {
         let destination = temp.path().join("artifact-resources");
         std::fs::write(&source, "not a directory").unwrap();
 
-        let error = reconcile_resource_mapping(&source, &destination).unwrap_err();
+        let error = reconcile_resource_mapping(temp.path(), "resources", &destination).unwrap_err();
 
         assert!(
             error
@@ -341,7 +323,7 @@ mod tests {
         std::fs::create_dir(&destination).unwrap();
         std::fs::write(destination.join("keep.txt"), "keep").unwrap();
 
-        let error = reconcile_resource_mapping(&source, &destination).unwrap_err();
+        let error = reconcile_resource_mapping(temp.path(), "resources", &destination).unwrap_err();
 
         assert!(
             error

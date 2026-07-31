@@ -44,8 +44,9 @@ The MVP has the following contract:
 - Only an executable package owns application resources.
 - It declares its source data directory with
   `options(data_dir: "<relative-path>")` in `moon.pkg`.
-- `data_dir` is a portable package-relative path. A declared directory must
-  exist and be a directory.
+- `data_dir` is a direct, slash-separated package-relative path. Every
+  declared path component must exist as a real directory, not a symbolic link
+  or Windows reparse point.
 - Without `data_dir`, a package has no application resources; a directory
   named `resources` has no implicit meaning.
 - A runtime wrapper accepts one relative resource name and either returns an
@@ -118,10 +119,12 @@ The `data_dir` path remains part of the runtime layout. In this example,
 an installed prefix, or an application bundle. Distribution changes the
 selected root, not the path below that root.
 
-The path is slash-separated, normalized, and must remain inside the package.
-Empty paths, absolute paths, Windows path prefixes or separators, and paths
-that normalize outside the package are rejected. The declared path must exist
-and be a directory.
+The path is stored verbatim. It must contain one or more ordinary,
+slash-separated components. Empty components, `.` or `..` components,
+absolute paths, Windows path prefixes or separators, colons, and NUL bytes are
+rejected instead of being normalized. Every component below the package root
+must already exist as a real directory; symbolic links and Windows reparse
+points, including junctions, are rejected.
 
 The absence of `data_dir` means that the package has no application resources.
 An undeclared `resources/` directory has no application-resource semantics.
@@ -370,7 +373,11 @@ Reconciliation must be idempotent:
 - a real file or directory at the destination is never recursively removed;
   it causes a clear error.
 
-A declared path that does not exist is a configuration error.
+A declared path that does not exist, contains a non-directory component, or
+passes through a symbolic link or Windows reparse point is a configuration
+error. Moon validates this during package discovery and again before creating
+the mapping, so a directory changed during the build is checked again before
+the post-build step uses it.
 
 The implementation must use link-aware metadata so it does not follow a stale
 or user-controlled destination while deciding what to replace.
@@ -400,12 +407,13 @@ the runtime API or root-selection rules.
 
 ### Package discovery
 
-Package discovery records the normalized `data_dir` declaration together with
-the executable package root. Once it reads that declaration, it skips the
-complete data-directory subtree during package scanning. A `moon.pkg`,
+Package discovery records the validated `data_dir` declaration verbatim
+together with the executable package root. Once it reads that declaration, it
+skips the complete data-directory subtree during package scanning. A `moon.pkg`,
 `moon.pkg.json`, or MoonBit-shaped file below `data_dir` remains application
 data: it neither declares a nested package nor enters a package file set.
-Command orchestration inspects `<package-root>/<data_dir>` on demand.
+Command orchestration revalidates `<package-root>/<data_dir>` on demand before
+creating an artifact-side mapping.
 
 ### MoonBuild and command orchestration
 
@@ -429,12 +437,13 @@ When a restrictive moonrun policy is present, subsequent filesystem operations
 must already be allowed by its `[fs].read` roots. The resolver does not
 implicitly add the selected resource root to that list.
 
-An implicit grant would be unsafe: a development application root contains a
+An implicit grant would be unsafe: although Moon rejects links in the declared
+source path, a development application root intentionally contains Moon's
 symbolic link or junction at `<data_dir>`, and a manually assembled root can
 also contain links. Treating either as an automatic capability could expand a
-narrow policy to an unrelated host directory. A future resource API that opens
-files itself may define a separate, capability-aware policy contract; the MVP
-path-returning API does not.
+narrow policy to an unrelated host directory. A future resource API that
+opens files itself may define a separate, capability-aware policy contract;
+the MVP path-returning API does not.
 
 ### Standard library
 
@@ -510,7 +519,7 @@ Filesystem tests should cover:
 - creation and idempotent reuse of a symbolic link on Unix;
 - creation and idempotent reuse of an NTFS junction on Windows;
 - stale mapping replacement;
-- rejection of missing, non-directory, or escaping `data_dir` values;
+- rejection of missing, non-directory, indirect, or linked `data_dir` values;
 - refusal to replace a real destination directory; and
 - multiple executable packages receiving independent mappings.
 

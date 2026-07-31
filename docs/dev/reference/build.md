@@ -172,12 +172,14 @@ necessary artifact-side parent directories without following symbolic links
 or junctions. Windows reports an error rather than copying when the filesystem
 cannot create a junction.
 
-`data_dir` is only valid for executable packages. It is normalized as a
-portable package-relative path and must not escape the package. A declared
-path must exist and be a directory. Without the option, even a source
-directory named `resources` has no special meaning. Package discovery skips
-the complete declared subtree, so manifest-shaped and MoonBit-shaped resource
-files remain data rather than nested packages or compiler inputs.
+`data_dir` is only valid for executable packages. It must be a direct,
+slash-separated package-relative path: empty, `.` and `..` components and
+platform-specific path syntax are rejected rather than normalized. Every
+component must exist as a real directory, not a symbolic link or Windows
+reparse point. Without the option, even a source directory named `resources`
+has no special meaning. Package discovery skips the complete declared subtree,
+so manifest-shaped and MoonBit-shaped resource files remain data rather than
+nested packages or compiler inputs.
 
 This is a command-level post-build action, not a compiler or Rupes Recta build
 action. `moon run` reconciles it while holding the target-directory lock and
