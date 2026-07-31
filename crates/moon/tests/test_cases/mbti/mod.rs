@@ -26,7 +26,6 @@ fn test_mbti() {
         // Type aliases
 
         // Traits
-
     "#]]
     .assert_eq(lib_mi_out);
 
@@ -44,7 +43,6 @@ fn test_mbti() {
         // Type aliases
 
         // Traits
-
     "#]]
     .assert_eq(main_mi_out);
 }
@@ -70,7 +68,6 @@ fn test_mbti_no_alias() {
         // Type aliases
 
         // Traits
-
     "#]]
     .assert_eq(lib_mi_out);
 
@@ -88,7 +85,6 @@ fn test_mbti_no_alias() {
         // Type aliases
 
         // Traits
-
     "#]]
     .assert_eq(main_mi_out);
 }
