@@ -192,6 +192,12 @@ pub enum LoweringError {
     #[error("moonc response files cannot represent argument {index}: {reason}")]
     MooncResponseFile { index: usize, reason: &'static str },
 
+    #[error("failed to inspect MoonBit toolchain include directory {path}")]
+    ToolchainInclude {
+        path: PathBuf,
+        source: walkdir::Error,
+    },
+
     #[error(
         "An error was reported by n2 (the build graph executor), \
         when lowering for package {package}, action {action:?}"
@@ -324,6 +330,7 @@ mod tests {
         toolchain::BINARIES,
     };
     use slotmap::KeyData;
+    use walkdir::WalkDir;
 
     use crate::{
         build_plan::{
@@ -486,9 +493,15 @@ mod tests {
     }
 
     fn single_package_resolve_output() -> (ResolveOutput, BuildTarget) {
+        single_package_resolve_output_with_module(moon_mod("username/hello"))
+    }
+
+    fn single_package_resolve_output_with_module(
+        module_info: MoonMod,
+    ) -> (ResolveOutput, BuildTarget) {
         let module_source = module("username/hello");
         let (modules, module_id) =
-            ResolvedEnv::only_one_module(module_source.clone(), moon_mod("username/hello"));
+            ResolvedEnv::only_one_module(module_source.clone(), module_info.clone());
         let package_path = PackagePath::new("main").expect("test package path should parse");
         let supported_targets = supported_targets();
         let package = DiscoveredPackage {
@@ -512,7 +525,7 @@ mod tests {
         };
 
         let mut packages = DiscoverResult::default();
-        packages.test_register_module(module_id, moon_mod("username/hello"));
+        packages.test_register_module(module_id, module_info);
         let package_id = packages.test_add_package(module_id, package_path, package);
         let mut module_dirs = DirSyncResult::default();
         module_dirs.insert(module_id, PathBuf::from("/tmp/username/hello"));
@@ -611,6 +624,66 @@ mod tests {
             );
             assert!(inputs.iter().any(|input| input == payload));
             assert!(inputs.iter().any(|input| input == source));
+        }
+    }
+
+    #[test]
+    fn opaque_module_flags_make_compiler_actions_ineligible() {
+        let mut module_info = moon_mod("username/hello");
+        module_info.compile_flags = Some(vec!["-include".to_string(), "config.mbt".to_string()]);
+        module_info.link_flags = Some(vec!["-custom-link-input=layout.txt".to_string()]);
+        let (resolve_output, target) = single_package_resolve_output_with_module(module_info);
+        let check_node = BuildPlanNode::Check(target);
+        let link_core_node = BuildPlanNode::LinkCore(target);
+        let mut plan = BuildPlan::default();
+        plan.test_add_node(check_node);
+        plan.test_add_node(link_core_node);
+        plan.test_insert_build_target_info(target, build_target_info());
+        plan.test_insert_link_core_info(
+            target,
+            LinkCoreInfo {
+                linked_order: Vec::new(),
+                abort_overridden: false,
+            },
+        );
+
+        let artifact_paths = ArtifactPathResolver::new(
+            TargetLayout::new(
+                PathBuf::from("_build"),
+                TargetLayoutMode::Workspace,
+                OptLevel::Debug,
+                RunMode::Build,
+            ),
+            None,
+        );
+        let options = BuildOptions {
+            artifact_paths: artifact_paths.clone(),
+            backend: BackendConfig::WasmGc { use_wat: false },
+            opt_level: OptLevel::Debug,
+            action: RunMode::Build,
+            debug_symbols: false,
+            enable_coverage: false,
+            moonc_output_json: false,
+            docs_serve: false,
+            warning_condition: WarningCondition::Default,
+            info_no_alias: false,
+            stdlib_path: None,
+            lowering_environment: LoweringEnvironment::default(),
+        };
+
+        let action_plan = plan.build_action_plan();
+        let mut context =
+            LoweringContext::new(artifact_paths, &resolve_output, &action_plan, &options);
+        for node in [check_node, link_core_node] {
+            let id = action_plan
+                .action_ids()
+                .find(|id| action_plan.build_plan_node(*id) == node)
+                .expect("action should be planned");
+            let action = context
+                .lower_action(id)
+                .expect("lowering should succeed")
+                .expect("compiler action should not be a no-op");
+            assert!(!action.is_cache_eligible(), "{node:?} should be ineligible");
         }
     }
 
@@ -766,7 +839,7 @@ mod tests {
             target.package,
             BuildCStubsInfo {
                 effective_native_toolchain: toolchain.clone(),
-                cc_flags: Vec::new(),
+                cc_flags: vec!["/FIgenerated-config.h".to_string()],
                 link_flags: Vec::new(),
             },
         );
@@ -819,6 +892,27 @@ mod tests {
         };
 
         let action_plan = plan.build_action_plan();
+        let mut context = LoweringContext::new(
+            artifact_paths.clone(),
+            &resolve_output,
+            &action_plan,
+            &options,
+        );
+        for node in [c_stub_node, exe_node] {
+            let id = action_plan
+                .action_ids()
+                .find(|id| action_plan.build_plan_node(*id) == node)
+                .expect("action should be planned");
+            let action = context
+                .lower_action(id)
+                .expect("lowering should succeed")
+                .expect("native action should not be a no-op");
+            assert!(
+                !action.is_cache_eligible(),
+                "{node:?} with opaque flags should be ineligible"
+            );
+        }
+
         let lowered = lower_build_plan(&resolve_output, &action_plan, &options)
             .expect("lowering should succeed");
         let exe_path = artifact_paths.target_layout().executable_of_build_target(
@@ -929,6 +1023,24 @@ mod tests {
                 .any(|input| input == Path::new("main/native/stub.h")),
             "package-local C headers should be inputs of every C-stub action"
         );
+        let toolchain_headers = WalkDir::new(&options.compiler_paths().include_path)
+            .follow_links(true)
+            .into_iter()
+            .map(|entry| entry.expect("inspect test toolchain include directory"))
+            .filter(|entry| entry.file_type().is_file())
+            .map(|entry| entry.into_path())
+            .collect::<Vec<_>>();
+        assert!(
+            !toolchain_headers.is_empty(),
+            "test toolchain should contain headers"
+        );
+        for header in toolchain_headers {
+            assert!(
+                compiler_inputs.contains(&header),
+                "Moon toolchain header should be a native compiler input: {}",
+                header.display()
+            );
+        }
 
         let archiver_inputs = n2_input_paths_for_command(&lowered, |command| {
             command.first().map(String::as_str) == Some(toolchain.cc().ar_path.as_str())

@@ -232,10 +232,17 @@ External inputs may also describe semantic filesystem observations that n2
 cannot represent as ordinary file edges. Compiler actions using `-std-path`
 carry the selected standard-library interface bundle as a recursive `.mi`
 input. The n2 adapter intentionally omits that semantic directory from its file
-list, while action identity digests it once per calculation. Lowering also
-marks actions with broader, not-yet-modeled observations as cache-ineligible;
-this currently covers proof execution, documentation generation, and arbitrary
-prebuild shell commands.
+list, while action identity digests it once per calculation. Native compilation
+enumerates the selected Moon toolchain include tree once per lowering context,
+then attaches those headers as ordinary file inputs. Lowering also attaches
+Moon-owned runtime objects and archives when command construction selected
+their exact paths.
+
+Lowering marks actions with broader, not-yet-modeled observations as
+cache-ineligible. This covers proof execution, documentation generation,
+arbitrary prebuild shell commands, and actions that execute unstructured custom
+compiler or linker flags. Lowering does not infer file inputs by parsing those
+flags.
 
 Lowering always exposes concrete paths. The cache identity layer hashes those
 paths and all command text exactly; it does not replace path roots or interpret

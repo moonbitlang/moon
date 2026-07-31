@@ -154,11 +154,19 @@ still observe unmodeled directory state, such as proof execution and
 documentation generation, are ineligible, as are arbitrary prebuild shell
 payloads. Their ineligibility propagates to consumers.
 
-Native C actions include their source, package-local headers, resolved compiler
-binary, argv, effective working directory, and environment. Their physical
-source and toolchain paths remain part of the identity. Headers discovered
-implicitly through system include paths remain a documented best-effort
-boundary in the initial model; they are not recursively scanned by Moon.
+Native C compilation actions include their source, package-local headers, the
+selected Moon toolchain include tree, resolved compiler binary, argv, effective
+working directory, and environment. Moon-owned runtime objects and archives
+that command construction selects are also explicit file inputs. Their
+physical source and toolchain paths remain part of the identity. Headers
+discovered implicitly through system or SDK include paths remain a documented
+best-effort boundary in the initial model; they are not recursively scanned by
+Moon.
+
+User-provided compiler and linker flags remain unstructured strings and may
+name additional files with tool-specific syntax. An action that executes with
+such flags is cache-ineligible until those inputs have a structured lowering
+model. Moon does not guess paths by parsing arbitrary command arguments.
 
 The identity deliberately excludes n2-only graph details, diagnostics metadata,
 descriptions, and dirty-output scheduling policy. Those attributes do not
