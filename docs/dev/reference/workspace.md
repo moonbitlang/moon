@@ -284,6 +284,9 @@ This preserves the intended precedence:
 - an unrelated outer `moon.mod.json` must not make Moon skip a nearer workspace
   that should still apply
 
+After selecting a workspace, Moon exposes a selected module to member-scoped
+commands only when that workspace explicitly lists the module.
+
 This matters for layouts like:
 
 ```text

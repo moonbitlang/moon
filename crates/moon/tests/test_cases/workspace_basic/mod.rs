@@ -1275,6 +1275,13 @@ fn test_workspace_root_beats_unrelated_outer_module_boundary() {
         !stdout.contains("alice/outer/outer"),
         "expected workspace-root build to ignore the unrelated outer module, got:\n{stdout}"
     );
+
+    let stderr = get_err_stderr(&dir, ["-C", "outer/ws", "package", "--list"]);
+    assert!(
+        stderr
+            .contains("`moon package` cannot infer a target module in workspace `$ROOT/outer/ws`"),
+        "expected the unrelated outer module not to become the selected member, got:\n{stderr}"
+    );
 }
 
 #[test]

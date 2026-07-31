@@ -194,6 +194,9 @@ explicit workspace root via `moon.work`, following the same discovery precedence
 - An ancestor workspace manifest found after that only applies if it explicitly lists that module.
 - Otherwise, fall back to that `moon.mod.json`.
 
+After selecting a workspace, Moon exposes a selected module to member-scoped
+commands only when that workspace explicitly lists the module.
+
 `MOON_WORK` can override this selection:
 
 - unset, empty, or `auto`: use the discovery rules above

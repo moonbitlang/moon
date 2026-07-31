@@ -528,13 +528,19 @@ impl ProjectQuery {
                     return Ok(ProjectContext::Workspace {
                         root: workspace.root.clone(),
                         manifest_path: workspace.manifest_path.clone(),
-                        selected_module: self.module_dir.as_ref().map(|root| ModuleRef {
-                            root: root.clone(),
-                            manifest_path: self
-                                .module_manifest_path
-                                .clone()
-                                .unwrap_or_else(|| module_manifest_path(root)),
-                        }),
+                        // Only explicit workspace members may become selected modules.
+                        selected_module: match self.module_dir.clone() {
+                            Some(root) if self.workspace_contains_member(&root)? => {
+                                Some(ModuleRef {
+                                    manifest_path: self
+                                        .module_manifest_path
+                                        .clone()
+                                        .unwrap_or_else(|| module_manifest_path(&root)),
+                                    root,
+                                })
+                            }
+                            _ => None,
+                        },
                     });
                 }
 
