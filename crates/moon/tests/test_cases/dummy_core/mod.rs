@@ -4,33 +4,83 @@ use super::*;
 use expect_test::expect_file;
 use moonbuild_debug::graph::ENV_VAR;
 
+fn check_command_source_summary(dir: &std::path::Path, target: &str) -> String {
+    moon_cmd(&dir)
+        .args(["check", "--target", target, "--sort-input"])
+        .assert()
+        .success();
+
+    let packages: moonutil::manifest::ModuleDBJSON =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("_build/packages.json")).unwrap())
+            .unwrap();
+    let mut lines = vec![format!("target: {}", packages.backend)];
+
+    for package in packages.packages {
+        for (kind, command) in [
+            ("check", package.check_command.as_deref()),
+            ("whitebox", package.wbtest_check_command.as_deref()),
+            ("blackbox", package.test_check_command.as_deref()),
+        ] {
+            let Some(command) = command else {
+                continue;
+            };
+            let sources = command
+                .iter()
+                .filter(|argument| argument.ends_with(".mbt"))
+                .map(|source| {
+                    std::path::Path::new(source)
+                        .strip_prefix(&package.root_path)
+                        .expect("check command source should be inside its package")
+                        .to_string_lossy()
+                        .replace('\\', "/")
+                })
+                .collect::<Vec<_>>();
+            if !sources.is_empty() {
+                lines.push(format!(
+                    "package {} {kind}: {}",
+                    package.rel,
+                    sources.join(", ")
+                ));
+            }
+        }
+    }
+
+    lines.join("\n")
+}
+
 #[test]
-fn dummy_core_writes_packages_json_for_selected_target() {
+fn dummy_core_selects_target_sources_for_check_commands() {
     let test_dir = TestDir::new("dummy_core");
     let dir = dunce::canonicalize(test_dir.as_ref()).unwrap();
 
-    moon_cmd(&dir)
-        .args(["check", "--target", "wasm-gc", "--sort-input"])
-        .assert()
-        .success();
-
-    #[cfg(unix)]
-    {
-        let p = dir.join("_build/packages.json");
-        expect_file!["./packages_wasm_gc.json.snap"]
-            .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir))
-    }
-    moon_cmd(&dir)
-        .args(["check", "--target", "js", "--sort-input"])
-        .assert()
-        .success();
-
-    #[cfg(unix)]
-    {
-        let p = dir.join("_build/packages.json");
-        expect_file!["./packages_js.json.snap"]
-            .assert_eq(&replace_dir(&std::fs::read_to_string(p).unwrap(), &dir))
-    };
+    snapbox::assert_data_eq!(
+        check_command_source_summary(&dir, "wasm-gc"),
+        snapbox::str![[r#"
+target: wasm-gc
+package 0 check: lib.mbt, y.wasm-gc.mbt
+package 0 whitebox: lib.mbt, y.wasm-gc.mbt, y_wbtest.mbt, y_wbtest.wasm-gc.mbt
+package 0 blackbox: lib.mbt, y.wasm-gc.mbt
+package 1 check: lib.mbt, x.wasm-gc.mbt
+package 1 whitebox: lib.mbt, x.wasm-gc.mbt, x_wbtest.wasm-gc.mbt
+package 1 blackbox: lib.mbt, x.wasm-gc.mbt
+package 2 check: lib.mbt
+package 2 blackbox: lib.mbt
+"#]],
+    );
+    snapbox::assert_data_eq!(
+        check_command_source_summary(&dir, "js"),
+        snapbox::str![[r#"
+target: js
+package 0 check: lib.mbt, y.js.mbt
+package 0 whitebox: lib.mbt, y.js.mbt, y_wbtest.js.mbt, y_wbtest.mbt
+package 0 blackbox: lib.mbt, y.js.mbt
+package 1 check: lib.mbt, x.js.mbt
+package 1 whitebox: lib.mbt, x.js.mbt
+package 1 blackbox: lib.mbt, x.js.mbt
+package 2 check: lib.mbt
+package 2 blackbox: lib.mbt
+"#]],
+    );
 }
 
 #[test]
