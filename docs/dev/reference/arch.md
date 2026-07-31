@@ -103,15 +103,22 @@ Implementation-wise:
 - Step 4 is handled separately in each individual subcommand.
 
 [^graph]:
-    Unless stated otherwise, "build graph generation" refers to the RR pipeline (`moonbuild-rupes-recta`).
-    The legacy pipeline (`moonbuild`) eagerly determines the packages to build,
-    generates a full Ninja-style command graph for the project
-    and relies on the executor to select the subset of commands to run for a given invocation.
+    Unless stated otherwise, "build graph generation" refers to the RR pipeline
+    (`moonbuild-rupes-recta`). The pre-RR generator used to live in the crate
+    named `moonbuild`, but that generator has been removed.
 
-    The legacy pipeline does not model logical build nodes or user intent:
-    it only materializes concrete commands and manually concatenates paths.
-    The "subset of command" is frequently just all commands within the build graph.
-    These limit the ability for it to precisely (or sometimes, correctly) determine the commands to run.
+    The `moonbuild` crate still exists as a shared support crate for execution,
+    dry-run rendering, build scripts, expect/snapshot support, and several CLI
+    utilities. Do not read the crate name as evidence that a selectable legacy
+    graph-generation backend still exists.
+
+    Historically, the legacy pipeline eagerly determined the packages to build,
+    generated a full Ninja-style command graph for the project, and relied on
+    the executor to select the subset of commands to run for a given invocation.
+    It did not model logical build nodes or user intent: it materialized
+    concrete commands and manually concatenated paths. The "subset of command"
+    was frequently just all commands within the build graph. These limitations
+    motivated the RR model described in this document.
 
 [moon_rr_build]: /crates/moon/src/rr_build/mod.rs
 [rr_home]: /crates/moonbuild-rupes-recta/src/lib.rs
