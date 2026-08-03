@@ -30,8 +30,9 @@ use crate::constants::SUB_PKG_POSTFIX;
 /// Returns whether `metadata` describes a filesystem link rather than a real
 /// file or directory.
 ///
-/// Windows junctions are reparse points but are not consistently reported as
-/// symbolic links, so inspect the file attributes there as well.
+/// On Windows, `FileType::is_symlink` covers name-surrogate reparse points such
+/// as junctions. The attribute check intentionally also rejects other reparse
+/// point types when validating source paths and mapping parents.
 pub fn is_symlink_or_reparse_point(metadata: &fs::Metadata) -> bool {
     if metadata.file_type().is_symlink() {
         return true;

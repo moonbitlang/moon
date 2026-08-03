@@ -411,7 +411,9 @@ Package discovery records the validated `data_dir` declaration verbatim
 together with the executable package root. Once it reads that declaration, it
 skips the complete data-directory subtree during package scanning. A `moon.pkg`,
 `moon.pkg.json`, or MoonBit-shaped file below `data_dir` remains application
-data: it neither declares a nested package nor enters a package file set.
+data: it neither declares a nested package nor enters a Package File Set. One
+package-file discovery component owns that boundary for both direct MoonBit
+sources and recursive inputs such as C-stub headers.
 Command orchestration revalidates `<package-root>/<data_dir>` on demand before
 creating an artifact-side mapping.
 

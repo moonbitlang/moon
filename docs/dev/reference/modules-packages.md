@@ -131,7 +131,9 @@ An executable package's valid, direct `data_dir` is also a recursive
 package-scan boundary. Every declared component must be a real directory, not
 a symbolic link or Windows reparse point. Files named `moon.pkg`,
 `moon.pkg.json`, or like MoonBit source below that directory are application
-data; they do not declare nested packages or enter a package file set.
+data; they do not declare nested packages or enter a Package File Set. This
+boundary applies to every package-local input collector, including recursive C
+stub header discovery.
 
 The followings are examples of folder structure and search result,
 for common folder layouts with root `.` and root `src`:

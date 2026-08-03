@@ -173,9 +173,10 @@ fn reconcile_resource_mapping_for_platform(
                 remove_resource_junction(destination)?;
             }
             // `junction::exists` follows the target and therefore returns false
-            // for a junction whose target was removed. Deleting the reparse point
-            // distinguishes that case from a Windows symbolic link without
-            // following either one.
+            // for a dangling junction. `symlink_metadata` does not follow it,
+            // and Rust classifies the junction's name-surrogate mount-point tag
+            // as a symlink. `junction::delete` then accepts only that tag, leaving
+            // other symbolic links and reparse points untouched.
             Ok(false) if metadata.file_type().is_symlink() => {
                 if junction::delete(destination).is_ok() {
                     std::fs::remove_dir(destination).with_context(|| {
@@ -284,6 +285,8 @@ mod tests {
         std::fs::create_dir(&old_source).unwrap();
 
         reconcile_resource_mapping(temp.path(), "old", &destination).unwrap();
+        // On Windows this leaves a dangling junction and exercises the
+        // non-following `symlink_metadata` classification used by reconciliation.
         std::fs::remove_dir(&old_source).unwrap();
         std::fs::create_dir(&new_source).unwrap();
         std::fs::write(new_source.join("current.txt"), "current").unwrap();
