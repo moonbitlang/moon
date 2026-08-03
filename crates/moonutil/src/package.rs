@@ -16,9 +16,12 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use colored::Colorize;
 use indexmap::{IndexMap, IndexSet};
 use schemars::JsonSchema;
@@ -281,6 +284,14 @@ pub struct MoonPkgJSON {
     #[serde(alias = "bin-target")]
     #[schemars(rename = "bin-target")]
     pub bin_target: Option<String>,
+
+    /// Direct child directory containing data shipped with an executable.
+    ///
+    /// In `moon.pkg`, declare this as `options(data_dir: "assets")`. It is only
+    /// valid for executable packages. The value must name one real directory,
+    /// not a path, symbolic link, or Windows junction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_dir: Option<String>,
 
     /// Supported backend set for this package.
     ///
@@ -724,6 +735,8 @@ pub struct MoonPkg {
     pub bin_name: Option<String>,
     pub bin_target: Option<TargetBackend>,
 
+    pub data_dir: Option<String>,
+
     pub supported_targets: IndexSet<TargetBackend>,
 
     pub native_stub: Option<Vec<String>>,
@@ -1024,6 +1037,17 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         .as_ref()
         .map(|s| TargetBackend::str_to_backend(s))
         .transpose()?;
+    let data_dir = j
+        .data_dir
+        .as_deref()
+        .map(|data_dir| -> anyhow::Result<_> {
+            validate_data_dir_name(data_dir)?;
+            Ok(data_dir.to_owned())
+        })
+        .transpose()?;
+    if data_dir.is_some() && !is_main {
+        bail!("`data_dir` in `moon.pkg` is only valid for an executable package");
+    }
 
     let (supported_backends, supported_targets_decl_kind) =
         resolve_supported_targets(j.supported_targets.as_ref())?;
@@ -1057,6 +1081,7 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         pre_build: j.pre_build,
         bin_name: j.bin_name,
         bin_target,
+        data_dir,
         supported_targets: supported_backends,
         native_stub: j.native_stub,
         virtual_pkg: j.virtual_pkg,
@@ -1067,6 +1092,50 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         local_rules: j.rule,
     };
     Ok((result, supported_targets_decl_kind))
+}
+
+fn validate_data_dir_name(data_dir: &str) -> anyhow::Result<()> {
+    if matches!(data_dir, "" | "." | "..") || data_dir.contains(['/', '\\', ':', '\0']) {
+        bail!("`data_dir` in `moon.pkg` must name a direct child directory");
+    }
+    Ok(())
+}
+
+/// Validates a declared executable data directory without following it.
+pub fn validate_data_directory(package_root: &Path, data_dir: &str) -> anyhow::Result<PathBuf> {
+    validate_data_dir_name(data_dir)?;
+
+    let path = package_root.join(data_dir);
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!(
+                "executable package data directory must not be a symbolic link or junction: '{}'",
+                path.display()
+            );
+        }
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => {
+            bail!(
+                "executable package data directory must be a directory: '{}'",
+                path.display()
+            );
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            bail!(
+                "declared executable package data directory does not exist: '{}'",
+                path.display()
+            );
+        }
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!(
+                    "failed to inspect executable package data directory '{}'",
+                    path.display()
+                )
+            });
+        }
+    }
+    Ok(path)
 }
 
 #[test]

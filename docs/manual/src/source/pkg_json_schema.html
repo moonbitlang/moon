@@ -54,6 +54,13 @@
         "null"
       ]
     },
+    "data_dir": {
+      "description": "Direct child directory containing data shipped with an executable.\n\nIn `moon.pkg`, declare this as `options(data_dir: \"assets\")`. It is only valid for executable packages. The value must name one real directory, not a path, symbolic link, or Windows junction.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "formatter": {
       "anyOf": [
         {
