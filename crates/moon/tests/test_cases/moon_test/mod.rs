@@ -895,10 +895,16 @@ fn test_async_wasm_upstream_process_package() {
 
 #[test]
 fn test_async_wasm_upstream_signal_package() {
+    // The upstream signal tests invoke `moon build` for a helper program and
+    // inherit its stdout. Its build status depends on whether that target
+    // directory is already warm, so it is not part of this test's result.
+    let output = run_upstream_async_wasm_package("moonbitlang/async/signal")
+        .split_inclusive('\n')
+        .filter(|line| !line.starts_with("Finished. moon: "))
+        .collect::<String>();
     check(
-        run_upstream_async_wasm_package("moonbitlang/async/signal"),
+        output,
         expect![[r#"
-            Finished. moon: no work to do
             Total tests: 3, passed: 3, failed: 0.
         "#]],
     );
