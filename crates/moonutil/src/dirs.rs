@@ -18,6 +18,7 @@
 
 use std::{
     ffi::OsString,
+    fmt::Display,
     path::{Path, PathBuf},
 };
 
@@ -29,11 +30,12 @@ use crate::constants::{
     BUILD_DIR, DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK,
     MOON_WORK_ENV,
 };
+use crate::user_log::UserLog;
 use crate::workspace::{
     canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
 };
 
-const COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING: &str = "Warning: `moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.";
+const COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING: &str = "`moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceEnv {
@@ -164,6 +166,7 @@ impl SourceTargetDirs {
         &self,
         selection: WorkRootSelection,
         workspace_env: WorkspaceEnv,
+        user_log: &UserLog,
     ) -> Result<PathBuf, PackageDirsError> {
         let start_dir = Self::current_dir()?;
         let mut query = if selection.prefers_existing_workspace() {
@@ -171,7 +174,7 @@ impl SourceTargetDirs {
         } else {
             self.query_from(&start_dir, WorkspaceEnv::Off)?
         };
-        query.work_root(selection)
+        query.work_root(selection, user_log)
     }
 
     fn current_dir() -> Result<PathBuf, PackageDirsError> {
@@ -359,6 +362,24 @@ struct WorkspaceFacts {
     // Applicability checks already parse and canonicalize members. Retain that
     // work so selecting the member does not read the manifest a second time.
     members: Option<Vec<PathBuf>>,
+    // Discovery stays side-effect free. The command consumes this through its
+    // own UserLog when it uses the selected project.
+    pending_warning: Option<ProjectDiscoveryWarning>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ProjectDiscoveryWarning {
+    ColocatedModuleNotInWorkspace,
+}
+
+impl Display for ProjectDiscoveryWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ColocatedModuleNotInWorkspace => {
+                f.write_str(COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING)
+            }
+        }
+    }
 }
 
 pub struct ProjectQuery {
@@ -387,6 +408,7 @@ impl WorkspaceFacts {
             manifest_path,
             root,
             members: None,
+            pending_warning: None,
         })
     }
 }
@@ -440,15 +462,18 @@ impl ProjectQuery {
         }
     }
 
-    pub fn project(&mut self) -> Result<ProjectContext, PackageDirsError> {
+    pub fn project(&mut self, user_log: &UserLog) -> Result<ProjectContext, PackageDirsError> {
         match self.probe_project()? {
-            ProjectProbe::Found(project) => Ok(project),
+            ProjectProbe::Found(project) => {
+                self.emit_pending_warning(user_log);
+                Ok(project)
+            }
             ProjectProbe::NotFound(not_found) => Err(not_found.into_error()),
         }
     }
 
-    pub fn package_dirs(&mut self) -> Result<PackageDirs, PackageDirsError> {
-        let project = self.project()?;
+    pub fn package_dirs(&mut self, user_log: &UserLog) -> Result<PackageDirs, PackageDirsError> {
+        let project = self.project(user_log)?;
         let target_dir = self.resolve_target_dir(project.root())?;
         let mooncake_bin_dir = target_dir.join(MOON_BIN_DIR);
         let source_dir = project.root().to_path_buf();
@@ -462,14 +487,22 @@ impl ProjectQuery {
         })
     }
 
-    pub fn workspace_ref(&mut self) -> Result<Option<WorkspaceRef>, PackageDirsError> {
-        Ok(self.project()?.workspace_ref())
+    pub fn workspace_ref(
+        &mut self,
+        user_log: &UserLog,
+    ) -> Result<Option<WorkspaceRef>, PackageDirsError> {
+        Ok(self.project(user_log)?.workspace_ref())
     }
 
-    pub fn work_root(&mut self, selection: WorkRootSelection) -> Result<PathBuf, PackageDirsError> {
+    pub fn work_root(
+        &mut self,
+        selection: WorkRootSelection,
+        user_log: &UserLog,
+    ) -> Result<PathBuf, PackageDirsError> {
         if selection.prefers_existing_workspace()
             && let Some(work_root) = self.workspace_root_for_sync()?
         {
+            self.emit_pending_warning(user_log);
             return Ok(work_root);
         }
 
@@ -650,6 +683,16 @@ impl ProjectQuery {
         }))
     }
 
+    fn emit_pending_warning(&mut self, user_log: &UserLog) {
+        if let Some(warning) = self
+            .workspace
+            .as_mut()
+            .and_then(|workspace| workspace.pending_warning.take())
+        {
+            user_log.warn(warning);
+        }
+    }
+
     fn ensure_workspace_members(&mut self) -> Result<Option<&[PathBuf]>, PackageDirsError> {
         let Some(workspace) = &mut self.workspace else {
             return Ok(None);
@@ -697,7 +740,8 @@ fn resolve_project_context_from_start_dir(
     start_dir: PathBuf,
     workspace_env: &WorkspaceEnv,
 ) -> Result<ProjectContext, PackageDirsError> {
-    project_query_from_start_dir(start_dir, workspace_env)?.project()
+    project_query_from_start_dir(start_dir, workspace_env)?
+        .project(&UserLog::new(log::LevelFilter::Error))
 }
 
 pub fn current_workspace_env() -> anyhow::Result<(WorkspaceEnv, Option<&'static str>)> {
@@ -791,6 +835,7 @@ fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<Workspa
                     manifest_path: workspace_path,
                     root: dir.to_path_buf(),
                     members: Some(members),
+                    pending_warning: None,
                 }));
             }
             continue;
@@ -799,13 +844,13 @@ fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<Workspa
         if has_module_manifest(dir) {
             let workspace = read_workspace_file(&workspace_path)?;
             let members = canonical_workspace_module_dirs(dir, &workspace)?;
-            if !members.iter().any(|member_dir| member_dir == dir) {
-                eprintln!("{COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING}");
-            }
+            let module_not_member = !members.iter().any(|member_dir| member_dir == dir);
             return Ok(Some(WorkspaceFacts {
                 manifest_path: workspace_path,
                 root: dir.to_path_buf(),
                 members: Some(members),
+                pending_warning: module_not_member
+                    .then_some(ProjectDiscoveryWarning::ColocatedModuleNotInWorkspace),
             }));
         }
 
@@ -813,6 +858,7 @@ fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<Workspa
             manifest_path: workspace_path,
             root: dir.to_path_buf(),
             members: None,
+            pending_warning: None,
         }));
     }
 

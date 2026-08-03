@@ -318,7 +318,8 @@ If a directory contains both:
   member-scoped commands
 - otherwise, Moon warns that the module is not a workspace member; workspace-wide
   commands still use the workspace, while member-scoped commands cannot infer a
-  target module from that directory
+  target module from that directory; the warning is a User Log and is suppressed
+  by `--quiet`
 - with `MOON_WORK=off`, Moon must select `moon.mod.json` instead
 
 This was the bug shape that motivated the recent cleanup of workspace

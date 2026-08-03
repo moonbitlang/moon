@@ -587,7 +587,7 @@ mod tests {
         }
         .query_from(source_dir, WorkspaceEnv::Auto)
         .unwrap()
-        .package_dirs()
+        .package_dirs(&UserLog::new(LevelFilter::Error))
         .unwrap();
         let synced_env = moonbuild_rupes_recta::sync_dependencies(&cfg, &dirs).unwrap();
         moonbuild_rupes_recta::resolve_synced_project(

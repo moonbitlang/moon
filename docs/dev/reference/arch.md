@@ -204,7 +204,8 @@ commands only when that workspace explicitly lists the module.
 If `moon.work` and a module manifest are colocated, the workspace takes
 precedence. Moon warns when that workspace does not list its colocated module as
 a member; workspace-wide commands still use the workspace, while member-scoped
-commands cannot infer a target module from that directory.
+commands cannot infer a target module from that directory. This warning is a
+User Log and is suppressed by `--quiet`.
 
 `MOON_WORK` can override this selection:
 

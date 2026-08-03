@@ -106,21 +106,17 @@ mod tests {
 
         let resolve_cfg =
             ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
             target_dir: None,
         }
         .query_from(temp_dir.path(), WorkspaceEnv::Auto)
         .unwrap()
-        .package_dirs()
+        .package_dirs(&user_log)
         .unwrap();
         let synced_env = sync_dependencies(&resolve_cfg, &dirs).unwrap();
-        let resolved = resolve_synced_project(
-            &resolve_cfg,
-            synced_env,
-            &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
-        )
-        .unwrap();
+        let resolved = resolve_synced_project(&resolve_cfg, synced_env, &user_log).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         assert!(watch_paths.ignored_paths.is_empty());
@@ -153,21 +149,17 @@ mod tests {
 
         let resolve_cfg =
             ResolveConfig::new_with_load_defaults(false, false, false, WorkspaceEnv::Auto);
+        let user_log = moonutil::user_log::UserLog::new(log::LevelFilter::Error);
         let dirs = SourceTargetDirs {
             cwd: None,
             target_dir: None,
         }
         .query_from(temp_dir.path(), WorkspaceEnv::Auto)
         .unwrap()
-        .package_dirs()
+        .package_dirs(&user_log)
         .unwrap();
         let synced_env = sync_dependencies(&resolve_cfg, &dirs).unwrap();
-        let resolved = resolve_synced_project(
-            &resolve_cfg,
-            synced_env,
-            &moonutil::user_log::UserLog::new(log::LevelFilter::Error),
-        )
-        .unwrap();
+        let resolved = resolve_synced_project(&resolve_cfg, synced_env, &user_log).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
         let root = dunce::canonicalize(temp_dir.path()).unwrap();

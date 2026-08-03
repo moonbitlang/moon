@@ -20,6 +20,7 @@ use std::path::PathBuf;
 
 use anyhow::bail;
 use moonutil::project::{PackageDirs, WorkRootSelection};
+use moonutil::user_log::UserLog;
 
 use super::UniversalFlags;
 
@@ -53,14 +54,18 @@ pub(crate) struct WorkUseSubcommand {
     pub paths: Vec<PathBuf>,
 }
 
-pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn work_cli(
+    cli: UniversalFlags,
+    cmd: WorkSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     match cmd.command {
         WorkSubcommands::Init(cmd) => {
             if cli.dry_run {
                 bail!("dry-run is not supported for work init")
             }
 
-            let workspace_root = work_root(&cli, WorkRootSelection::CreateWorkspace)?;
+            let workspace_root = work_root(&cli, WorkRootSelection::CreateWorkspace, user_log)?;
             mooncake::pkg::init_workspace(&workspace_root, &cmd.paths, cli.quiet)
         }
         WorkSubcommands::Use(cmd) => {
@@ -68,7 +73,8 @@ pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Resu
                 bail!("dry-run is not supported for work use")
             }
 
-            let workspace_root = work_root(&cli, WorkRootSelection::ReuseExistingWorkspace)?;
+            let workspace_root =
+                work_root(&cli, WorkRootSelection::ReuseExistingWorkspace, user_log)?;
             mooncake::pkg::use_workspace(&workspace_root, &cmd.paths, cli.quiet)
         }
         WorkSubcommands::Sync => {
@@ -79,14 +85,18 @@ pub(crate) fn work_cli(cli: UniversalFlags, cmd: WorkSubcommand) -> anyhow::Resu
             let PackageDirs { source_dir, .. } = cli
                 .source_tgt_dir
                 .query(cli.workspace_env.clone())?
-                .package_dirs()?;
+                .package_dirs(user_log)?;
             mooncake::pkg::sync_workspace(&source_dir, cli.quiet)
         }
     }
 }
 
-fn work_root(cli: &UniversalFlags, selection: WorkRootSelection) -> anyhow::Result<PathBuf> {
+fn work_root(
+    cli: &UniversalFlags,
+    selection: WorkRootSelection,
+    user_log: &UserLog,
+) -> anyhow::Result<PathBuf> {
     Ok(cli
         .source_tgt_dir
-        .work_root(selection, cli.workspace_env.clone())?)
+        .work_root(selection, cli.workspace_env.clone(), user_log)?)
 }

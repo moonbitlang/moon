@@ -22,7 +22,7 @@ use std::{ffi::OsStr, io::Write, path::Path};
 
 use anyhow::Context;
 use clap::Parser;
-use moonutil::{command_output::CommandOutput, project::PackageDirs};
+use moonutil::{command_output::CommandOutput, project::PackageDirs, user_log::UserLog};
 use walkdir::WalkDir;
 
 use super::{TestSubcommand, UniversalFlags, run_test};
@@ -83,7 +83,7 @@ pub(crate) fn run_coverage(
     let res = match cmd.cmd {
         CoverageSubcommands::Analyze(args) => run_coverage_analyze(cli, args, output),
         CoverageSubcommands::Report(args) => run_coverage_report(cli, args, output),
-        CoverageSubcommands::Clean => run_coverage_clean(cli),
+        CoverageSubcommands::Clean => run_coverage_clean(cli, output.user_log()),
     };
     res.context("Unable to run coverage command")
 }
@@ -93,7 +93,7 @@ fn run_coverage_analyze(
     args: CoverageAnalyzeSubcommand,
     output: &CommandOutput,
 ) -> anyhow::Result<i32> {
-    run_coverage_clean(cli.clone())?;
+    run_coverage_clean(cli.clone(), output.user_log())?;
 
     let mut test_args = vec!["test".to_owned()];
     test_args.extend(args.test_flag);
@@ -115,7 +115,7 @@ fn run_coverage_analyze(
     run_coverage_report(cli, report_flags, output)
 }
 
-fn run_coverage_clean(cli: UniversalFlags) -> Result<i32, anyhow::Error> {
+fn run_coverage_clean(cli: UniversalFlags, user_log: &UserLog) -> Result<i32, anyhow::Error> {
     let PackageDirs {
         source_dir: src,
         target_dir: tgt,
@@ -123,7 +123,7 @@ fn run_coverage_clean(cli: UniversalFlags) -> Result<i32, anyhow::Error> {
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs()?;
+        .package_dirs(user_log)?;
     clean_coverage_artifacts(&src, &tgt)?;
     Ok(0)
 }
@@ -152,7 +152,7 @@ fn run_coverage_report(
     } = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs()?;
+        .package_dirs(output.user_log())?;
 
     let mut command = coverage_report_command(args.args, &src);
     if cli.dry_run {

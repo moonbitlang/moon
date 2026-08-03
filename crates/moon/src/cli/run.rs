@@ -470,7 +470,7 @@ fn build_package_executable(
     let dirs = cli
         .source_tgt_dir
         .query_from(&run_start_dir, cli.workspace_env.clone())?
-        .package_dirs()?;
+        .package_dirs(user_log)?;
     let PackageDirs {
         source_dir,
         target_dir,

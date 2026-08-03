@@ -1053,12 +1053,20 @@ fn test_same_root_workspace_warns_when_module_is_not_a_member() {
 "#,
     );
 
-    check(
-        get_stderr(&dir, ["build", "--dry-run", "--sort-input"]),
-        expect![[r#"
-            Warning: `moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.
-        "#]],
-    );
+    moon_cmd(&dir)
+        .args(["build", "--dry-run", "--sort-input"])
+        .assert()
+        .success()
+        .stderr_eq(
+            "Warning: `moon.work` takes precedence over the module manifest in the same directory, \
+but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.\n",
+        );
+
+    moon_cmd(&dir)
+        .args(["--quiet", "build", "--dry-run", "--sort-input"])
+        .assert()
+        .success()
+        .stderr_eq("");
 }
 
 #[test]

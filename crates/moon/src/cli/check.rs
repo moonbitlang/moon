@@ -159,7 +159,7 @@ pub(crate) fn run_check(
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let (mut dirs, single_file) = match query.probe_project()? {
         ProjectProbe::Found(_) => {
-            let dirs = query.package_dirs()?;
+            let dirs = query.package_dirs(user_log)?;
             (dirs, None)
         }
         ProjectProbe::NotFound(not_found) => {

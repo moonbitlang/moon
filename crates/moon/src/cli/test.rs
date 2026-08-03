@@ -352,7 +352,7 @@ fn run_test_impl(
     // Check if we're running within a project
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
     let dirs = match query.probe_project()? {
-        ProjectProbe::Found(_) => query.package_dirs()?,
+        ProjectProbe::Found(_) => query.package_dirs(user_log)?,
         ProjectProbe::NotFound(not_found) => {
             // Now we're talking about real single-file scenario.
             match cmd.path.as_slice() {
