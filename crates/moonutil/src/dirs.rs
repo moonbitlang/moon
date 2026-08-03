@@ -957,6 +957,30 @@ version = "0.1.0"
             panic!("expected module context");
         };
         assert_eq!(manifest_path, canonical(project.path().join(MOON_MOD)));
+
+        write_file(
+            &project.path().join("moon.work"),
+            r#"members = [
+  ".",
+]
+"#,
+        );
+        let selection = resolve_project_context_from_start_dir(
+            project.path().to_path_buf(),
+            &WorkspaceEnv::Auto,
+        )
+        .unwrap();
+        let ProjectContext::Workspace {
+            selected_module: Some(selected_module),
+            ..
+        } = selection
+        else {
+            panic!("expected workspace context with selected module");
+        };
+        assert_eq!(
+            selected_module.manifest_path,
+            canonical(project.path().join(MOON_MOD))
+        );
     }
 
     #[test]
