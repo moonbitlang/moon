@@ -268,8 +268,10 @@ This keeps responsibilities separate:
 
 Standalone `.mbt` and `.mbtx` execution starts from one complete `BuildPlan`.
 Package dependencies use the same edges as ordinary project compilation. After
-the plan is normalized once, an action-level projection separates it into two
-disjoint n2 graphs.
+the plan is normalized once, an action-level projection retains dependency
+work as `LoweredAction` values and lowers script work into an n2 graph. Moon
+passes the dependency actions through the current n2 adapter before execution,
+producing the same two disjoint n2 graphs as before.
 
 All actions owned by packages other than the synthesized script package seed
 the dependency projection. Following their producer edges to a fixed point
