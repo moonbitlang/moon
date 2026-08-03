@@ -406,6 +406,14 @@ preferred_target = "wasm-gc"
             Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
         "#]],
     );
+
+    check(
+        get_stderr(&dir, ["-C", "app", "build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+        "#]],
+    );
 }
 
 #[test]
@@ -1032,6 +1040,25 @@ fn test_same_root_module_can_disable_implicit_workspace_mode() {
 
     let stderr = get_err_stderr_with_envs(&dir, ["build", "--dry-run"], [(MOON_WORK_ENV, "off")]);
     assert_registry_resolution_failure(&stderr);
+}
+
+#[test]
+fn test_same_root_workspace_warns_when_module_is_not_a_member() {
+    let dir = same_root_workspace_dir();
+    write_file(
+        &dir.join("moon.work"),
+        r#"members = [
+  "./dep",
+]
+"#,
+    );
+
+    check(
+        get_stderr(&dir, ["build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            Warning: `moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.
+        "#]],
+    );
 }
 
 #[test]

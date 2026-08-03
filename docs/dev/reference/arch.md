@@ -185,7 +185,7 @@ In other words, it is the module represented by the closest ancestor directory (
 that contains a `moon.mod.json` file.
 
 `moon build`, `moon check`, `moon test`, `moon fmt`, and `moon info` additionally support an
-explicit workspace root via `moon.work`, following the same discovery precedence as Go workspaces:
+explicit workspace root via `moon.work`. Moon's discovery is order-sensitive:
 
 - Search the current directory and its ancestors for `moon.work` and `moon.mod.json`.
 - If a `moon.work` is found before any `moon.mod.json`, use it.
@@ -194,8 +194,17 @@ explicit workspace root via `moon.work`, following the same discovery precedence
 - An ancestor workspace manifest found after that only applies if it explicitly lists that module.
 - Otherwise, fall back to that `moon.mod.json`.
 
+Unlike Go, Moon does not unconditionally select the nearest ancestor workspace
+manifest. Once Moon finds a module boundary, an unrelated ancestor workspace
+does not capture that module.
+
 After selecting a workspace, Moon exposes a selected module to member-scoped
 commands only when that workspace explicitly lists the module.
+
+If `moon.work` and a module manifest are colocated, the workspace takes
+precedence. Moon warns when that workspace does not list its colocated module as
+a member; workspace-wide commands still use the workspace, while member-scoped
+commands cannot infer a target module from that directory.
 
 `MOON_WORK` can override this selection:
 

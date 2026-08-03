@@ -284,6 +284,11 @@ This preserves the intended precedence:
 - an unrelated outer `moon.mod.json` must not make Moon skip a nearer workspace
   that should still apply
 
+This differs from Go workspace discovery. Go selects the nearest ancestor
+`go.work` whenever workspace mode is enabled, even when the module containing
+the working directory is not listed. Moon instead lets a module boundary reject
+unrelated ancestor workspaces.
+
 After selecting a workspace, Moon exposes a selected module to member-scoped
 commands only when that workspace explicitly lists the module.
 
@@ -308,7 +313,12 @@ the nearest ancestor module, which is `outer/moon.mod.json`.
 
 If a directory contains both:
 
-- with workspace mode enabled, Moon may select the workspace manifest
+- with workspace mode enabled, Moon selects the workspace manifest
+- if the workspace lists the colocated module, that module is also selected for
+  member-scoped commands
+- otherwise, Moon warns that the module is not a workspace member; workspace-wide
+  commands still use the workspace, while member-scoped commands cannot infer a
+  target module from that directory
 - with `MOON_WORK=off`, Moon must select `moon.mod.json` instead
 
 This was the bug shape that motivated the recent cleanup of workspace

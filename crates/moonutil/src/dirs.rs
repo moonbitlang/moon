@@ -33,6 +33,8 @@ use crate::workspace::{
     canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
 };
 
+const COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING: &str = "Warning: `moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceEnv {
     Auto,
@@ -352,11 +354,11 @@ fn find_enclosing_module_root(source_dir: &Path) -> Option<PathBuf> {
 }
 
 struct WorkspaceFacts {
-    // Keep this as cheap path-level discovery. Parsed `moon.work` content and
-    // member canonicalization are projections, because many commands only need
-    // the workspace root or manifest path.
     manifest_path: PathBuf,
     root: PathBuf,
+    // Applicability checks already parse and canonicalize members. Retain that
+    // work so selecting the member does not read the manifest a second time.
+    members: Option<Vec<PathBuf>>,
 }
 
 pub struct ProjectQuery {
@@ -368,7 +370,6 @@ pub struct ProjectQuery {
     module_dir: Option<PathBuf>,
     module_manifest_path: Option<PathBuf>,
     workspace: Option<WorkspaceFacts>,
-    workspace_members: Option<Vec<PathBuf>>,
 }
 
 fn module_manifest_path(module_dir: &Path) -> PathBuf {
@@ -385,6 +386,7 @@ impl WorkspaceFacts {
         Ok(Self {
             manifest_path,
             root,
+            members: None,
         })
     }
 }
@@ -411,11 +413,7 @@ impl ProjectQuery {
                 let manifest_path = dunce::canonicalize(workspace_path)
                     .context("failed to resolve pinned workspace path")
                     .map_err(PackageDirsError::from)?;
-                let root = manifest_root(&manifest_path).map_err(PackageDirsError::from)?;
-                Some(WorkspaceFacts {
-                    manifest_path,
-                    root,
-                })
+                Some(WorkspaceFacts::from_manifest_path(manifest_path)?)
             }
             WorkspaceEnv::Auto => None,
         };
@@ -427,7 +425,6 @@ impl ProjectQuery {
             module_dir,
             module_manifest_path,
             workspace,
-            workspace_members: None,
         })
     }
 
@@ -644,10 +641,8 @@ impl ProjectQuery {
         source_dir: &Path,
     ) -> Result<Option<WorkspaceRef>, PackageDirsError> {
         if self.workspace.is_none() {
-            self.workspace = find_applicable_workspace_manifest_path(source_dir)
-                .map_err(PackageDirsError::from)?
-                .map(WorkspaceFacts::from_manifest_path)
-                .transpose()?;
+            self.workspace =
+                find_applicable_workspace(source_dir).map_err(PackageDirsError::from)?;
         }
         Ok(self.workspace.as_ref().map(|workspace| WorkspaceRef {
             root: workspace.root.clone(),
@@ -656,17 +651,17 @@ impl ProjectQuery {
     }
 
     fn ensure_workspace_members(&mut self) -> Result<Option<&[PathBuf]>, PackageDirsError> {
-        let Some(workspace) = &self.workspace else {
+        let Some(workspace) = &mut self.workspace else {
             return Ok(None);
         };
-        if self.workspace_members.is_none() {
+        if workspace.members.is_none() {
             let moon_work =
                 read_workspace_file(&workspace.manifest_path).map_err(PackageDirsError::from)?;
             let member_dirs = canonical_workspace_module_dirs(&workspace.root, &moon_work)
                 .map_err(PackageDirsError::from)?;
-            self.workspace_members = Some(member_dirs);
+            workspace.members = Some(member_dirs);
         }
-        Ok(self.workspace_members.as_deref())
+        Ok(workspace.members.as_deref())
     }
 
     fn work_start_dir(&self) -> PathBuf {
@@ -777,7 +772,7 @@ fn canonicalize_workspace_env_path(path: PathBuf) -> anyhow::Result<PathBuf> {
 
     Ok(path)
 }
-fn find_applicable_workspace_manifest_path(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
+fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<WorkspaceFacts>> {
     let mut module_root = None;
 
     for dir in source_dir.ancestors() {
@@ -788,16 +783,37 @@ fn find_applicable_workspace_manifest_path(source_dir: &Path) -> anyhow::Result<
             continue;
         };
 
-        let Some(module_root) = module_root else {
-            return Ok(Some(workspace_path));
-        };
-
-        let workspace = read_workspace_file(&workspace_path)?;
-        for member_dir in canonical_workspace_module_dirs(dir, &workspace)? {
-            if member_dir == module_root {
-                return Ok(Some(workspace_path));
+        if let Some(module_root) = module_root {
+            let workspace = read_workspace_file(&workspace_path)?;
+            let members = canonical_workspace_module_dirs(dir, &workspace)?;
+            if members.iter().any(|member_dir| member_dir == module_root) {
+                return Ok(Some(WorkspaceFacts {
+                    manifest_path: workspace_path,
+                    root: dir.to_path_buf(),
+                    members: Some(members),
+                }));
             }
+            continue;
         }
+
+        if has_module_manifest(dir) {
+            let workspace = read_workspace_file(&workspace_path)?;
+            let members = canonical_workspace_module_dirs(dir, &workspace)?;
+            if !members.iter().any(|member_dir| member_dir == dir) {
+                eprintln!("{COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING}");
+            }
+            return Ok(Some(WorkspaceFacts {
+                manifest_path: workspace_path,
+                root: dir.to_path_buf(),
+                members: Some(members),
+            }));
+        }
+
+        return Ok(Some(WorkspaceFacts {
+            manifest_path: workspace_path,
+            root: dir.to_path_buf(),
+            members: None,
+        }));
     }
 
     Ok(None)
