@@ -175,9 +175,12 @@ child directory of the package: empty, `.`, `..`, path separators, and
 platform-specific path syntax are rejected rather than normalized. That child
 must exist as a real directory, not a symbolic link or Windows junction.
 Without the option, even a source directory named `resources` has no special
-meaning. Package discovery skips the complete declared subtree, so
-manifest-shaped and MoonBit-shaped resource files remain data rather than
-nested packages or compiler inputs.
+meaning. Automatic package discovery skips the complete declared subtree, so
+manifest-shaped files do not declare nested packages and MoonBit-shaped files
+or C-stub headers are not inferred as build inputs merely from their names.
+Explicit configuration remains effective: `native-stub` and pre-build
+inputs or outputs may name files below `data_dir` and retain their ordinary
+build semantics.
 
 This is a command-level post-build action, not a compiler or Rupes Recta build
 action. `moon run` reconciles it while holding the target-directory lock and
@@ -238,7 +241,9 @@ Compiling C stubs of a package involves 3 steps:
    directives. Dot-prefixed directories, ignored generated directories, and
    nested module or package roots are outside the Package File Set. A declared
    executable `data_dir` is also outside that set. Headers under any of these
-   boundaries are not discovered automatically.
+   boundaries are not discovered automatically. This does not prevent an
+   explicitly configured `native-stub` source below `data_dir` from being
+   compiled.
 2. `ArchiveOrLinkCStubs` -- All C stubs in a package is archived using AR.
    If [TCC-run mode](./tcc-run.md) is enabled, this instead links the C stubs.
    This is out of scope of a regular compilation.

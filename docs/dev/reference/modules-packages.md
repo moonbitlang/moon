@@ -130,10 +130,11 @@ the filtering applies to its descendants.
 An executable package's valid `data_dir` child is also a recursive package-scan
 boundary. It must be a real directory, not a symbolic link or Windows
 junction. Files named `moon.pkg`,
-`moon.pkg.json`, or like MoonBit source below that directory are application
-data; they do not declare nested packages or enter a Package File Set. This
-boundary applies to every package-local input collector, including recursive C
-stub header discovery.
+`moon.pkg.json`, or like MoonBit source below that directory do not declare
+nested packages or enter the Package File Set through automatic discovery.
+This boundary also applies to recursive C-stub header discovery. It does not
+override explicit package configuration: pre-build tasks and `native-stub` may
+still name files below `data_dir`.
 
 The followings are examples of folder structure and search result,
 for common folder layouts with root `.` and root `src`:

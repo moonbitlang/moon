@@ -46,6 +46,9 @@ The MVP has the following contract:
   `options(data_dir: "<directory-name>")` in `moon.pkg`.
 - `data_dir` names one direct child of the package. It must exist as a real
   directory, not a symbolic link or Windows junction.
+- `data_dir` controls the runtime layout only. It does not assign an exclusive
+  role to the files below it or override explicit build configuration that
+  names those files.
 - Without `data_dir`, a package has no application resources; a directory
   named `resources` has no implicit meaning.
 - A runtime wrapper accepts one relative resource name and either returns an
@@ -109,9 +112,16 @@ options(
 )
 ```
 
-`app/assets/` is then the source data directory. Its complete subtree is
-application data. The MVP does not add include/exclude patterns, generated
-resource declarations, or per-backend selection.
+`app/assets/` is then the source data directory that Moon maps into the runtime
+layout. The resource feature treats the directory as a unit and does not
+classify or otherwise interpret its contents. It does not add include/exclude
+patterns, generated-resource declarations, or per-backend selection.
+
+Declaring `data_dir` does not make the directory exclusive to runtime data.
+Other explicit package configuration remains authoritative: for example, a
+pre-build task may consume or produce a file below `data_dir`, and
+`native-stub` may name a C source there. Those declarations retain their
+ordinary build-dependency and compilation semantics.
 
 The `data_dir` path remains part of the runtime layout. In this example,
 `@env.resource_path("assets/schema.json")` names the same file in a local build,
@@ -348,8 +358,16 @@ support, or a resource directory on a remote share, produces a clear error;
 the development command does not silently switch to copying.
 
 The mapping is part of the generated development layout, not a compiler output
-and not a resource copy. Changes below the declared data directory become
-visible without rebuilding the executable.
+and not a resource copy. Changes below the declared data directory are visible
+through the mapping without rematerializing it. Whether such a change also
+causes build work is determined independently by explicit build configuration,
+such as pre-build inputs or C stubs.
+
+The integration guarantee is limited to placement in the runtime layout. Once
+`moon run` has successfully built and selected the executable artifact, Moon
+creates the sibling `<data_dir>` mapping before launching the program. Moon
+does not otherwise prescribe what the directory contains or how those files
+participate in the build.
 
 The same source package may produce several applicable artifacts. If they share
 an artifact parent they also share the same mapping; if they use different
@@ -404,11 +422,16 @@ the runtime API or root-selection rules.
 
 Package discovery records the validated `data_dir` declaration verbatim
 together with the executable package root. Once it reads that declaration, it
-skips the complete data-directory subtree during package scanning. A `moon.pkg`,
-`moon.pkg.json`, or MoonBit-shaped file below `data_dir` remains application
-data: it neither declares a nested package nor enters a Package File Set. One
-package-file discovery component owns that boundary for both direct MoonBit
-sources and recursive inputs such as C-stub headers.
+skips the complete data-directory subtree during automatic package-file
+scanning. A `moon.pkg` or `moon.pkg.json` below `data_dir` does not declare a
+nested package, and MoonBit-shaped files and C-stub headers there are not
+inferred as build inputs merely because of their names. One package-file
+discovery component owns that automatic-scanning boundary for both direct
+MoonBit sources and recursive inputs such as C-stub headers.
+
+This scanning boundary does not override explicit package declarations. Files
+below `data_dir` may still enter the build through `native-stub`, pre-build
+inputs or outputs, or other configuration that names them directly.
 Command orchestration revalidates `<package-root>/<data_dir>` on demand before
 creating an artifact-side mapping.
 
@@ -463,8 +486,12 @@ The MVP does not design or implement:
 - transitive or library-owned resources;
 - resource embedding into Wasm, JavaScript, or native binaries;
 - localization or CFBundle-style filename selection;
-- generated resources or manifest-controlled filtering; or
+- resource-specific generation or manifest-controlled resource filtering; or
 - mutable application state, configuration, caches, or user data.
+
+Generic package features are not disabled inside `data_dir`. In particular,
+existing pre-build tasks may generate or consume files there; the resource
+feature adds no separate generation model for them.
 
 The existing `moon bundle` command bundles standard-library compiler artifacts
 and is unrelated to application-resource distribution.
@@ -526,7 +553,8 @@ End-to-end tests should demonstrate:
 
 - a Wasm executable reads the same resource through `moon run` and from its
   built artifact;
-- changing a source resource is visible without recompiling the executable;
+- changing a file below `data_dir` is immediately visible through the sibling
+  mapping;
 - `moon run --build-only` reports an artifact whose sibling mapping is ready;
 - tests and benchmarks in an executable package receive the same mapping while
   library-package tests do not acquire resource ownership;

@@ -34,6 +34,9 @@ Notes:
 - When arrays are used, placeholders expand to space-separated lists in declaration order.
 - All declared outputs are tracked as build outputs.
 - Only `.mbt` and `.mbt.md` outputs are added back to the package's MoonBit source set.
+- An executable package's `data_dir` does not restrict prebuild paths. Inputs
+  and outputs may be below it and retain the same dependency and source-set
+  semantics as paths elsewhere in the package.
 
 ## Path Resolution
 
