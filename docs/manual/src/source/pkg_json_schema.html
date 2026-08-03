@@ -55,7 +55,7 @@
       ]
     },
     "data_dir": {
-      "description": "Direct package-relative directory containing data shipped with an executable.\n\nIn `moon.pkg`, declare this as `options(data_dir: \"assets\")`. It is only valid for executable packages. Each slash-separated component must name a real directory, not a symbolic link or Windows reparse point.",
+      "description": "Direct child directory containing data shipped with an executable.\n\nIn `moon.pkg`, declare this as `options(data_dir: \"assets\")`. It is only valid for executable packages. The value must name one real directory, not a path, symbolic link, or Windows junction.",
       "type": [
         "string",
         "null"

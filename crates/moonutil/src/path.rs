@@ -27,29 +27,6 @@ use std::{
 
 use crate::constants::SUB_PKG_POSTFIX;
 
-/// Returns whether `metadata` describes a filesystem link rather than a real
-/// file or directory.
-///
-/// On Windows, `FileType::is_symlink` covers name-surrogate reparse points such
-/// as junctions. The attribute check intentionally also rejects other reparse
-/// point types when validating source paths and mapping parents.
-pub fn is_symlink_or_reparse_point(metadata: &fs::Metadata) -> bool {
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-    }
-
-    #[cfg(not(windows))]
-    false
-}
-
 #[derive(Clone, Hash)]
 pub struct PathComponent {
     pub components: Vec<String>,

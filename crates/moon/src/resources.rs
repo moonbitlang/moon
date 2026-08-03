@@ -26,7 +26,7 @@ use std::path::Path;
 
 use anyhow::Context;
 use moonbuild_rupes_recta::model::{BuildPlanNode, TargetKind};
-use moonutil::{package::validate_data_directory, path::is_symlink_or_reparse_point};
+use moonutil::package::validate_data_directory;
 
 pub(crate) fn reconcile_resource_mappings(
     build_meta: &crate::rr_build::BuildMeta,
@@ -60,40 +60,7 @@ pub(crate) fn reconcile_resource_mappings(
 
         let source = validate_data_directory(&package.root_path, data_dir)?;
         let destination = artifact_parent.join(data_dir);
-        create_mapping_parent_directories(artifact_parent, data_dir)?;
         reconcile_resource_mapping_for_platform(&source, &destination)?;
-    }
-    Ok(())
-}
-
-fn create_mapping_parent_directories(artifact_parent: &Path, data_dir: &str) -> anyhow::Result<()> {
-    let mut directory = artifact_parent.to_path_buf();
-    let component_count = data_dir.split('/').count();
-    for component in data_dir.split('/').take(component_count.saturating_sub(1)) {
-        directory.push(component);
-        match std::fs::symlink_metadata(&directory) {
-            Ok(metadata) if metadata.is_dir() && !is_symlink_or_reparse_point(&metadata) => {}
-            Ok(_) => anyhow::bail!(
-                "cannot create executable data directory mapping: parent '{}' is not a real directory",
-                directory.display()
-            ),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&directory).with_context(|| {
-                    format!(
-                        "failed to create executable data directory mapping parent '{}'",
-                        directory.display()
-                    )
-                })?;
-            }
-            Err(err) => {
-                return Err(err).with_context(|| {
-                    format!(
-                        "failed to inspect executable data directory mapping parent '{}'",
-                        directory.display()
-                    )
-                });
-            }
-        }
     }
     Ok(())
 }

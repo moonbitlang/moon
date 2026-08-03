@@ -813,7 +813,7 @@ fn expect_max_concurrent_tests() {
 }
 
 #[test]
-fn data_dir_requires_a_direct_package_relative_path() {
+fn data_dir_requires_a_direct_child_directory_name() {
     for data_dir in [
         "",
         ".",
@@ -823,6 +823,7 @@ fn data_dir_requires_a_direct_package_relative_path() {
         "assets/../resources",
         "assets//images",
         "assets/",
+        "assets/images",
         "/assets",
         r"assets\images",
         "C:/assets",
@@ -838,7 +839,7 @@ options(
 "#
         ));
         assert!(
-            actual.contains("`data_dir` in `moon.pkg` must be a direct package-relative directory"),
+            actual.contains("`data_dir` in `moon.pkg` must name a direct child directory"),
             "{data_dir:?} was accepted: {actual}"
         );
     }

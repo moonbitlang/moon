@@ -33,7 +33,6 @@ use crate::{
     cond_expr::{CompileCondition, CondExprs},
     module::MoonModRule,
     moon_pkg,
-    path::is_symlink_or_reparse_point,
     target::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
 };
 
@@ -286,11 +285,11 @@ pub struct MoonPkgJSON {
     #[schemars(rename = "bin-target")]
     pub bin_target: Option<String>,
 
-    /// Direct package-relative directory containing data shipped with an executable.
+    /// Direct child directory containing data shipped with an executable.
     ///
     /// In `moon.pkg`, declare this as `options(data_dir: "assets")`. It is only
-    /// valid for executable packages. Each slash-separated component must name
-    /// a real directory, not a symbolic link or Windows reparse point.
+    /// valid for executable packages. The value must name one real directory,
+    /// not a path, symbolic link, or Windows junction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_dir: Option<String>,
 
@@ -1042,7 +1041,7 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
         .data_dir
         .as_deref()
         .map(|data_dir| -> anyhow::Result<_> {
-            validate_data_dir_path(data_dir)?;
+            validate_data_dir_name(data_dir)?;
             Ok(data_dir.to_owned())
         })
         .transpose()?;
@@ -1095,56 +1094,45 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
     Ok((result, supported_targets_decl_kind))
 }
 
-fn validate_data_dir_path(data_dir: &str) -> anyhow::Result<()> {
-    if data_dir.contains(['\\', ':', '\0'])
-        || data_dir
-            .split('/')
-            .any(|component| matches!(component, "" | "." | ".."))
-    {
-        bail!("`data_dir` in `moon.pkg` must be a direct package-relative directory");
+fn validate_data_dir_name(data_dir: &str) -> anyhow::Result<()> {
+    if matches!(data_dir, "" | "." | "..") || data_dir.contains(['/', '\\', ':', '\0']) {
+        bail!("`data_dir` in `moon.pkg` must name a direct child directory");
     }
     Ok(())
 }
 
-/// Validates a declared executable data directory without following links.
-///
-/// Each component below `package_root` must already exist as a real directory.
-/// This keeps resource discovery and artifact mapping tied to a stable package
-/// location instead of an arbitrary symlink or Windows reparse-point target.
+/// Validates a declared executable data directory without following it.
 pub fn validate_data_directory(package_root: &Path, data_dir: &str) -> anyhow::Result<PathBuf> {
-    validate_data_dir_path(data_dir)?;
+    validate_data_dir_name(data_dir)?;
 
-    let mut path = package_root.to_path_buf();
-    for component in data_dir.split('/') {
-        path.push(component);
-        match std::fs::symlink_metadata(&path) {
-            Ok(metadata) if is_symlink_or_reparse_point(&metadata) => {
-                bail!(
-                    "executable package data directory must not contain symbolic links or junctions: '{}'",
+    let path = package_root.join(data_dir);
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!(
+                "executable package data directory must not be a symbolic link or junction: '{}'",
+                path.display()
+            );
+        }
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => {
+            bail!(
+                "executable package data directory must be a directory: '{}'",
+                path.display()
+            );
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            bail!(
+                "declared executable package data directory does not exist: '{}'",
+                path.display()
+            );
+        }
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!(
+                    "failed to inspect executable package data directory '{}'",
                     path.display()
-                );
-            }
-            Ok(metadata) if metadata.is_dir() => {}
-            Ok(_) => {
-                bail!(
-                    "executable package data directory must be a directory: '{}'",
-                    path.display()
-                );
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                bail!(
-                    "declared executable package data directory does not exist: '{}'",
-                    path.display()
-                );
-            }
-            Err(err) => {
-                return Err(err).with_context(|| {
-                    format!(
-                        "failed to inspect executable package data directory '{}'",
-                        path.display()
-                    )
-                });
-            }
+                )
+            });
         }
     }
     Ok(path)

@@ -43,10 +43,9 @@ The MVP has the following contract:
 
 - Only an executable package owns application resources.
 - It declares its source data directory with
-  `options(data_dir: "<relative-path>")` in `moon.pkg`.
-- `data_dir` is a direct, slash-separated package-relative path. Every
-  declared path component must exist as a real directory, not a symbolic link
-  or Windows reparse point.
+  `options(data_dir: "<directory-name>")` in `moon.pkg`.
+- `data_dir` names one direct child of the package. It must exist as a real
+  directory, not a symbolic link or Windows junction.
 - Without `data_dir`, a package has no application resources; a directory
   named `resources` has no implicit meaning.
 - A runtime wrapper accepts one relative resource name and either returns an
@@ -119,12 +118,11 @@ The `data_dir` path remains part of the runtime layout. In this example,
 an installed prefix, or an application bundle. Distribution changes the
 selected root, not the path below that root.
 
-The path is stored verbatim. It must contain one or more ordinary,
-slash-separated components. Empty components, `.` or `..` components,
-absolute paths, Windows path prefixes or separators, colons, and NUL bytes are
-rejected instead of being normalized. Every component below the package root
-must already exist as a real directory; symbolic links and Windows reparse
-points, including junctions, are rejected.
+The name is stored verbatim. It must be one ordinary directory name directly
+below the package root. Empty names, `.`, `..`, path separators, Windows path
+prefixes, colons, and NUL bytes are rejected instead of being normalized. The
+named child must already exist as a real directory; symbolic links and Windows
+junctions are rejected.
 
 The absence of `data_dir` means that the package has no application resources.
 An undeclared `resources/` directory has no application-resource semantics.
@@ -373,20 +371,17 @@ Reconciliation must be idempotent:
 - a real file or directory at the destination is never recursively removed;
   it causes a clear error.
 
-A declared path that does not exist, contains a non-directory component, or
-passes through a symbolic link or Windows reparse point is a configuration
-error. Moon validates this during package discovery and again before creating
-the mapping, so a directory changed during the build is checked again before
-the post-build step uses it.
+A declared directory that does not exist, is not a directory, or is a symbolic
+link or Windows junction is a configuration error. Moon validates this during
+package discovery and again before creating the mapping, so a directory changed
+during the build is checked again before the post-build step uses it.
 
 The implementation must use link-aware metadata so it does not follow a stale
 or user-controlled destination while deciding what to replace.
 
 Moon does not keep an inventory of development mappings. Removing or changing
-`data_dir` may therefore leave an old mapping or an empty parent directory in
-the disposable target directory. `moon clean` removes that stale build state.
-In particular, changing between nested paths whose current and old
-destinations overlap may require cleaning the target directory first.
+`data_dir` may therefore leave an old mapping in the disposable target
+directory. `moon clean` removes that stale build state.
 
 For `moon run`, reconciliation occurs while Moon still owns the target
 directory lock and before that lock is released for process execution. This
@@ -521,7 +516,7 @@ Filesystem tests should cover:
 - creation and idempotent reuse of a symbolic link on Unix;
 - creation and idempotent reuse of an NTFS junction on Windows;
 - stale mapping replacement;
-- rejection of missing, non-directory, indirect, or linked `data_dir` values;
+- rejection of nested, missing, non-directory, or linked `data_dir` values;
 - refusal to replace a real destination directory; and
 - multiple executable packages receiving independent mappings.
 
@@ -560,9 +555,9 @@ The decisions that previously blocked implementation are:
    `.app/Contents` layout, not the current process's main bundle.
 7. Installed-prefix naming strips one of `.wasm`, `.js`, or `.exe`; unknown
    suffixes remain part of the name.
-8. Executable packages explicitly declare a package-relative source data
-   directory with `options(data_dir: "...")`; there is no implicit
-   `resources/` source convention.
+8. Executable packages explicitly declare one direct child data directory with
+   `options(data_dir: "...")`; there is no implicit `resources/` source
+   convention.
 9. `data_dir` is preserved below every selected application root. Runtime
    resource names include it, so development lookup remains anchored only to
    the program artifact and needs no package-manifest context.

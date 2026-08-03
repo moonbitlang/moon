@@ -156,7 +156,7 @@ containing all compiled MoonBit code for the package to build:
 ### Executable package resource mappings
 
 When an executable source package declares
-`options(data_dir: "<relative-path>")` in `moon.pkg`, a successful `moon build`
+`options(data_dir: "<directory-name>")` in `moon.pkg`, a successful `moon build`
 or `moon run` reconciles a sibling mapping for each applicable executable
 artifact:
 
@@ -167,18 +167,16 @@ artifact:
 Unix uses a symbolic link and Windows uses an NTFS junction. An existing
 mapping to the same source is reused; a stale link or junction is replaced.
 A real file or directory at the destination is never replaced and causes an
-error when a mapping is required. For a nested declaration, Moon creates the
-necessary artifact-side parent directories without following symbolic links
-or junctions. Windows reports an error rather than copying when the filesystem
-cannot create a junction.
+error when a mapping is required. Windows reports an error rather than copying
+when the filesystem cannot create a junction.
 
-`data_dir` is only valid for executable packages. It must be a direct,
-slash-separated package-relative path: empty, `.` and `..` components and
-platform-specific path syntax are rejected rather than normalized. Every
-component must exist as a real directory, not a symbolic link or Windows
-reparse point. Without the option, even a source directory named `resources`
-has no special meaning. Package discovery skips the complete declared subtree,
-so manifest-shaped and MoonBit-shaped resource files remain data rather than
+`data_dir` is only valid for executable packages. It must name one direct
+child directory of the package: empty, `.`, `..`, path separators, and
+platform-specific path syntax are rejected rather than normalized. That child
+must exist as a real directory, not a symbolic link or Windows junction.
+Without the option, even a source directory named `resources` has no special
+meaning. Package discovery skips the complete declared subtree, so
+manifest-shaped and MoonBit-shaped resource files remain data rather than
 nested packages or compiler inputs.
 
 This is a command-level post-build action, not a compiler or Rupes Recta build

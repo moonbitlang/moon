@@ -240,18 +240,8 @@ fn data_directory_must_not_contain_filesystem_links() {
     let data_dir = dir.join("app/assets");
     let actual_data_dir = dir.join("app/actual-assets");
     std::fs::remove_dir_all(&data_dir).unwrap();
-    std::fs::create_dir_all(actual_data_dir.join("nested")).unwrap();
+    std::fs::create_dir(&actual_data_dir).unwrap();
     create_directory_link(&actual_data_dir, &data_dir);
-    std::fs::write(
-        dir.join("app/moon.pkg"),
-        r#"pkgtype(kind: "executable")
-
-options(
-  data_dir: "assets/nested",
-)
-"#,
-    )
-    .unwrap();
 
     let assert = moon_cmd(&dir)
         .args(["build", "--target", "wasm"])
@@ -259,7 +249,7 @@ options(
         .failure();
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
     assert!(
-        stderr.contains("must not contain symbolic links or junctions"),
+        stderr.contains("must not be a symbolic link or junction"),
         "stderr: {stderr}"
     );
 }
@@ -285,7 +275,7 @@ options(
         .failure();
     let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
     assert!(
-        stderr.contains("`data_dir` in `moon.pkg` must be a direct package-relative directory"),
+        stderr.contains("`data_dir` in `moon.pkg` must name a direct child directory"),
         "stderr: {stderr}"
     );
 }
@@ -314,14 +304,9 @@ fn data_directory_is_only_valid_for_an_executable_package() {
 }
 
 #[test]
-fn nested_data_directory_is_mapped_at_the_configured_location() {
+fn data_directory_must_be_a_direct_child_of_the_package() {
     let dir = TestDir::new("executable_resources/executable_resources.in");
     std::fs::create_dir(dir.join("app/assets/nested")).unwrap();
-    std::fs::write(
-        dir.join("app/assets/nested/greeting.txt"),
-        "hello from resources\n",
-    )
-    .unwrap();
     std::fs::write(
         dir.join("app/moon.pkg"),
         r#"pkgtype(kind: "executable")
@@ -333,12 +318,13 @@ options(
     )
     .unwrap();
 
-    moon_cmd(&dir)
+    let assert = moon_cmd(&dir)
         .args(["build", "--target", "wasm"])
         .assert()
-        .success();
-    assert_resource_mapping(
-        &dir.join("_build/wasm/debug/build/app/assets/nested"),
-        &dir.join("app/assets/nested"),
+        .failure();
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr);
+    assert!(
+        stderr.contains("`data_dir` in `moon.pkg` must name a direct child directory"),
+        "stderr: {stderr}"
     );
 }
