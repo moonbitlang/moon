@@ -32,8 +32,8 @@
 0033	text_segment_excceed	Text segment exceed the line or column limits.
 0034	implicit_use_builtin	Implicit use of definitions from `moonbitlang/core/builtin`.
 0035	reserved_keyword	Reserved keyword.
-0036	loop_label_shadowing	Loop label shadows another label.
-0037	unused_loop_label	Unused loop label.
+0036	block_label_shadowing	Block label shadows another label.
+0037	unused_block_label	Unused block label.
 0038	missing_invariant	For-loop is missing an invariant.
 0039	missing_reasoning	For-loop is missing a proof_reasoning.
 0040	multiline_string_escape	Deprecated escape sequence in multiline string.
@@ -77,6 +77,8 @@
 0082	ambiguous_braces	Ambiguous `{}` braces.
 0083	type_param_method	Calling method of type parameter in a deprecated way.
 0084	unqualified_record	Struct literal in a `let` binding without a type prefix.
+0085	unlabelled_break_in_labelled_loop	Unlabelled `break` directly inside a labelled loop.
+0086	unlabelled_continue_in_labelled_loop	Unlabelled `continue` directly inside a labelled loop.
 0087	guard_inexhaustive	`guard` condition is not exhaustive and may panic.
 0088	guard_redundant_bang	Redundant `!` on an exhaustive `guard`.
 0089	guard_redundant_else	Redundant `else` on an exhaustive `guard`.

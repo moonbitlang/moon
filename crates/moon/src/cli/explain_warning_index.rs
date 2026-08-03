@@ -38,7 +38,7 @@ Warning name: `{mnemonic}`
     }
 }
 
-// Snapshot generated from `moonc check -warn-help` on 2026-07-28.
+// Snapshot generated from `moonc check -warn-help` on 2026-08-03.
 // Update this file manually when the compiler's warning table changes.
 const WARNING_ENTRIES: &[WarningEntry] = &[
     WarningEntry {
@@ -212,13 +212,13 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         id: 35,
     },
     WarningEntry {
-        mnemonic: "loop_label_shadowing",
-        description: "Loop label shadows another label.",
+        mnemonic: "block_label_shadowing",
+        description: "Block label shadows another label.",
         id: 36,
     },
     WarningEntry {
-        mnemonic: "unused_loop_label",
-        description: "Unused loop label.",
+        mnemonic: "unused_block_label",
+        description: "Unused block label.",
         id: 37,
     },
     WarningEntry {
@@ -437,6 +437,16 @@ const WARNING_ENTRIES: &[WarningEntry] = &[
         id: 84,
     },
     WarningEntry {
+        mnemonic: "unlabelled_break_in_labelled_loop",
+        description: "Unlabelled `break` directly inside a labelled loop.",
+        id: 85,
+    },
+    WarningEntry {
+        mnemonic: "unlabelled_continue_in_labelled_loop",
+        description: "Unlabelled `continue` directly inside a labelled loop.",
+        id: 86,
+    },
+    WarningEntry {
         mnemonic: "guard_inexhaustive",
         description: "`guard` condition is not exhaustive and may panic.",
         id: 87,
@@ -495,11 +505,10 @@ mod tests {
         let description_start = header
             .find("description")
             .context("missing description column in `moonc check -warn-help`")?;
-        let id_start = header
+        header
             .find(" id ")
-            .map(|index| index + 1)
             .context("missing id column in `moonc check -warn-help`")?;
-        let state_start = header
+        header
             .find("state")
             .context("missing state column in `moonc check -warn-help`")?;
 
@@ -508,16 +517,24 @@ mod tests {
             .skip_while(|line| !line.starts_with("mnemonic"))
             .skip(1)
             .filter_map(|line| {
-                let id = line
-                    .get(id_start..state_start)
-                    .unwrap_or("")
-                    .trim()
-                    .parse::<u16>()
-                    .ok()?;
+                // Long mnemonics overflow their nominal column and shift the
+                // remaining fields, so parse the id and state from the right.
+                let (before_state, _) = line.trim_end().rsplit_once(' ')?;
+                let (entry, id) = before_state.trim_end().rsplit_once(' ')?;
+                let id = id.parse::<u16>().ok()?;
+                let entry = entry.trim_end();
+                let mnemonic_column = entry.get(..description_start)?;
+                let (mnemonic, description) = if mnemonic_column.ends_with(char::is_whitespace) {
+                    (mnemonic_column, entry.get(description_start..)?)
+                } else {
+                    let mnemonic_end = description_start
+                        + entry.get(description_start..)?.find(char::is_whitespace)?;
+                    (entry.get(..mnemonic_end)?, entry.get(mnemonic_end..)?)
+                };
                 Some(format!(
                     "{id:04}\t{}\t{}",
-                    line.get(..description_start).unwrap_or("").trim_end(),
-                    line.get(description_start..id_start).unwrap_or("").trim()
+                    mnemonic.trim_end(),
+                    description.trim()
                 ))
             })
             .collect::<Vec<_>>();
