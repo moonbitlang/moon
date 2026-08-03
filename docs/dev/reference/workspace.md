@@ -54,8 +54,9 @@ The workspace root may or may not also contain a `moon.mod.json`.
 - `project_root`
   - the parent directory of `project_manifest_path`
 - `module_dir`
-  - `Some(member_dir)` when a command selected a module inside a workspace
-  - `None` when a command selected a workspace root directly
+  - `Some(member_dir)` when the selected workspace explicitly lists the module
+    containing the command's start point, including a colocated root module
+  - `None` when a workspace was selected without an applicable member module
 
 The intended interpretation is simple:
 
@@ -145,7 +146,9 @@ But they are not workspace-wide commands.
 At a workspace root, they fail unless Moon can determine a member module from
 context. In practice, that means:
 
-- running them directly at the workspace root is not supported
+- running them directly at the workspace root is supported when that root also
+  contains `moon.mod.json` and `moon.work` explicitly lists `.` as a member
+- running them at any other workspace root is not supported
 - running them from a member directory is supported
 - passing `-C <member>` is supported
 
@@ -181,6 +184,7 @@ The current design supports:
 
 - workspace roots that contain only `moon.work`
 - workspace roots that also contain `moon.mod.json`
+- selecting a colocated root module when `moon.work` explicitly lists `.`
 - selecting a member module from inside the member directory
 - selecting a member module with `-C <member>`
 - whole-workspace `build` / `check` / `test` / `fmt` / `info`
@@ -190,15 +194,17 @@ The current design supports:
 
 The current design does not support:
 
-- an implicit default member at workspace root for member-scoped commands
+- an implicit default member at workspace root for member-scoped commands;
+  selecting a colocated root module requires an explicit `.` member
 - workspace-wide `publish`
 - workspace-wide `package`
 - workspace-wide `doc`
 - workspace-wide `prove`
 - workspace-wide `add` / `remove` / `tree`
 
-Those commands need a selected member and will fail at workspace root with the
-"cannot infer a target module in workspace" error.
+Those commands need a selected member. At a workspace root without a colocated
+module explicitly listed as `.`, they fail with the "cannot infer a target
+module in workspace" error.
 
 ## Selection Inputs
 
@@ -330,7 +336,8 @@ selection.
 | Start point / flags | Result |
 | --- | --- |
 | workspace root + `build` / `check` / `test` / `fmt` / `info` | operate on the whole workspace |
-| workspace root + `add` / `remove` / `tree` / `package` / `publish` / `doc` / `prove` | error: no target member can be inferred |
+| workspace root whose `moon.work` lists `.` + member-scoped command | target the colocated module and keep workspace context |
+| any other workspace root + member-scoped command | error: no target member can be inferred |
 | member directory + member-scoped command | target that member and keep workspace context |
 | `-C app` | start from `app`, then allow workspace promotion |
 | `-C app` + member-scoped command | act on `app`, but keep workspace-local deps/layout if a workspace applies |
