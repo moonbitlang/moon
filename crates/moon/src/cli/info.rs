@@ -281,7 +281,7 @@ pub(crate) fn run_info(
     let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs()?;
+        .package_dirs(output.user_log())?;
     let PackageDirs {
         target_dir,
         mooncake_bin_dir,

@@ -71,7 +71,7 @@ pub(crate) fn run_build_binary_dep(
     let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs()?;
+        .package_dirs(user_log)?;
     let PackageDirs {
         target_dir,
         mooncake_bin_dir,

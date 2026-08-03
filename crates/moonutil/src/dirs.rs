@@ -18,6 +18,7 @@
 
 use std::{
     ffi::OsString,
+    fmt::Display,
     path::{Path, PathBuf},
 };
 
@@ -29,9 +30,12 @@ use crate::constants::{
     BUILD_DIR, DEP_PATH, MOON_BIN_DIR, MOON_MOD, MOON_MOD_JSON, MOON_NO_WORKSPACE, MOON_WORK,
     MOON_WORK_ENV,
 };
+use crate::user_log::UserLog;
 use crate::workspace::{
     canonical_workspace_module_dirs, read_workspace_file, workspace_manifest_path,
 };
+
+const COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING: &str = "`moon.work` takes precedence over the module manifest in the same directory, but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceEnv {
@@ -162,6 +166,7 @@ impl SourceTargetDirs {
         &self,
         selection: WorkRootSelection,
         workspace_env: WorkspaceEnv,
+        user_log: &UserLog,
     ) -> Result<PathBuf, PackageDirsError> {
         let start_dir = Self::current_dir()?;
         let mut query = if selection.prefers_existing_workspace() {
@@ -169,7 +174,7 @@ impl SourceTargetDirs {
         } else {
             self.query_from(&start_dir, WorkspaceEnv::Off)?
         };
-        query.work_root(selection)
+        query.work_root(selection, user_log)
     }
 
     fn current_dir() -> Result<PathBuf, PackageDirsError> {
@@ -352,11 +357,29 @@ fn find_enclosing_module_root(source_dir: &Path) -> Option<PathBuf> {
 }
 
 struct WorkspaceFacts {
-    // Keep this as cheap path-level discovery. Parsed `moon.work` content and
-    // member canonicalization are projections, because many commands only need
-    // the workspace root or manifest path.
     manifest_path: PathBuf,
     root: PathBuf,
+    // Applicability checks already parse and canonicalize members. Retain that
+    // work so selecting the member does not read the manifest a second time.
+    members: Option<Vec<PathBuf>>,
+    // Discovery stays side-effect free. The command consumes this through its
+    // own UserLog when it uses the selected project.
+    pending_warning: Option<ProjectDiscoveryWarning>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ProjectDiscoveryWarning {
+    ColocatedModuleNotInWorkspace,
+}
+
+impl Display for ProjectDiscoveryWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ColocatedModuleNotInWorkspace => {
+                f.write_str(COLOCATED_MODULE_NOT_IN_WORKSPACE_WARNING)
+            }
+        }
+    }
 }
 
 pub struct ProjectQuery {
@@ -368,7 +391,6 @@ pub struct ProjectQuery {
     module_dir: Option<PathBuf>,
     module_manifest_path: Option<PathBuf>,
     workspace: Option<WorkspaceFacts>,
-    workspace_members: Option<Vec<PathBuf>>,
 }
 
 fn module_manifest_path(module_dir: &Path) -> PathBuf {
@@ -385,6 +407,8 @@ impl WorkspaceFacts {
         Ok(Self {
             manifest_path,
             root,
+            members: None,
+            pending_warning: None,
         })
     }
 }
@@ -411,11 +435,7 @@ impl ProjectQuery {
                 let manifest_path = dunce::canonicalize(workspace_path)
                     .context("failed to resolve pinned workspace path")
                     .map_err(PackageDirsError::from)?;
-                let root = manifest_root(&manifest_path).map_err(PackageDirsError::from)?;
-                Some(WorkspaceFacts {
-                    manifest_path,
-                    root,
-                })
+                Some(WorkspaceFacts::from_manifest_path(manifest_path)?)
             }
             WorkspaceEnv::Auto => None,
         };
@@ -427,7 +447,6 @@ impl ProjectQuery {
             module_dir,
             module_manifest_path,
             workspace,
-            workspace_members: None,
         })
     }
 
@@ -443,15 +462,18 @@ impl ProjectQuery {
         }
     }
 
-    pub fn project(&mut self) -> Result<ProjectContext, PackageDirsError> {
+    pub fn project(&mut self, user_log: &UserLog) -> Result<ProjectContext, PackageDirsError> {
         match self.probe_project()? {
-            ProjectProbe::Found(project) => Ok(project),
+            ProjectProbe::Found(project) => {
+                self.emit_pending_warning(user_log);
+                Ok(project)
+            }
             ProjectProbe::NotFound(not_found) => Err(not_found.into_error()),
         }
     }
 
-    pub fn package_dirs(&mut self) -> Result<PackageDirs, PackageDirsError> {
-        let project = self.project()?;
+    pub fn package_dirs(&mut self, user_log: &UserLog) -> Result<PackageDirs, PackageDirsError> {
+        let project = self.project(user_log)?;
         let target_dir = self.resolve_target_dir(project.root())?;
         let mooncake_bin_dir = target_dir.join(MOON_BIN_DIR);
         let source_dir = project.root().to_path_buf();
@@ -465,14 +487,22 @@ impl ProjectQuery {
         })
     }
 
-    pub fn workspace_ref(&mut self) -> Result<Option<WorkspaceRef>, PackageDirsError> {
-        Ok(self.project()?.workspace_ref())
+    pub fn workspace_ref(
+        &mut self,
+        user_log: &UserLog,
+    ) -> Result<Option<WorkspaceRef>, PackageDirsError> {
+        Ok(self.project(user_log)?.workspace_ref())
     }
 
-    pub fn work_root(&mut self, selection: WorkRootSelection) -> Result<PathBuf, PackageDirsError> {
+    pub fn work_root(
+        &mut self,
+        selection: WorkRootSelection,
+        user_log: &UserLog,
+    ) -> Result<PathBuf, PackageDirsError> {
         if selection.prefers_existing_workspace()
             && let Some(work_root) = self.workspace_root_for_sync()?
         {
+            self.emit_pending_warning(user_log);
             return Ok(work_root);
         }
 
@@ -528,13 +558,19 @@ impl ProjectQuery {
                     return Ok(ProjectContext::Workspace {
                         root: workspace.root.clone(),
                         manifest_path: workspace.manifest_path.clone(),
-                        selected_module: self.module_dir.as_ref().map(|root| ModuleRef {
-                            root: root.clone(),
-                            manifest_path: self
-                                .module_manifest_path
-                                .clone()
-                                .unwrap_or_else(|| module_manifest_path(root)),
-                        }),
+                        // Only explicit workspace members may become selected modules.
+                        selected_module: match self.module_dir.clone() {
+                            Some(root) if self.workspace_contains_member(&root)? => {
+                                Some(ModuleRef {
+                                    manifest_path: self
+                                        .module_manifest_path
+                                        .clone()
+                                        .unwrap_or_else(|| module_manifest_path(&root)),
+                                    root,
+                                })
+                            }
+                            _ => None,
+                        },
                     });
                 }
 
@@ -638,10 +674,8 @@ impl ProjectQuery {
         source_dir: &Path,
     ) -> Result<Option<WorkspaceRef>, PackageDirsError> {
         if self.workspace.is_none() {
-            self.workspace = find_applicable_workspace_manifest_path(source_dir)
-                .map_err(PackageDirsError::from)?
-                .map(WorkspaceFacts::from_manifest_path)
-                .transpose()?;
+            self.workspace =
+                find_applicable_workspace(source_dir).map_err(PackageDirsError::from)?;
         }
         Ok(self.workspace.as_ref().map(|workspace| WorkspaceRef {
             root: workspace.root.clone(),
@@ -649,18 +683,28 @@ impl ProjectQuery {
         }))
     }
 
+    fn emit_pending_warning(&mut self, user_log: &UserLog) {
+        if let Some(warning) = self
+            .workspace
+            .as_mut()
+            .and_then(|workspace| workspace.pending_warning.take())
+        {
+            user_log.warn(warning);
+        }
+    }
+
     fn ensure_workspace_members(&mut self) -> Result<Option<&[PathBuf]>, PackageDirsError> {
-        let Some(workspace) = &self.workspace else {
+        let Some(workspace) = &mut self.workspace else {
             return Ok(None);
         };
-        if self.workspace_members.is_none() {
+        if workspace.members.is_none() {
             let moon_work =
                 read_workspace_file(&workspace.manifest_path).map_err(PackageDirsError::from)?;
             let member_dirs = canonical_workspace_module_dirs(&workspace.root, &moon_work)
                 .map_err(PackageDirsError::from)?;
-            self.workspace_members = Some(member_dirs);
+            workspace.members = Some(member_dirs);
         }
-        Ok(self.workspace_members.as_deref())
+        Ok(workspace.members.as_deref())
     }
 
     fn work_start_dir(&self) -> PathBuf {
@@ -696,7 +740,8 @@ fn resolve_project_context_from_start_dir(
     start_dir: PathBuf,
     workspace_env: &WorkspaceEnv,
 ) -> Result<ProjectContext, PackageDirsError> {
-    project_query_from_start_dir(start_dir, workspace_env)?.project()
+    project_query_from_start_dir(start_dir, workspace_env)?
+        .project(&UserLog::new(log::LevelFilter::Error))
 }
 
 pub fn current_workspace_env() -> anyhow::Result<(WorkspaceEnv, Option<&'static str>)> {
@@ -771,7 +816,7 @@ fn canonicalize_workspace_env_path(path: PathBuf) -> anyhow::Result<PathBuf> {
 
     Ok(path)
 }
-fn find_applicable_workspace_manifest_path(source_dir: &Path) -> anyhow::Result<Option<PathBuf>> {
+fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<WorkspaceFacts>> {
     let mut module_root = None;
 
     for dir in source_dir.ancestors() {
@@ -782,16 +827,39 @@ fn find_applicable_workspace_manifest_path(source_dir: &Path) -> anyhow::Result<
             continue;
         };
 
-        let Some(module_root) = module_root else {
-            return Ok(Some(workspace_path));
-        };
-
-        let workspace = read_workspace_file(&workspace_path)?;
-        for member_dir in canonical_workspace_module_dirs(dir, &workspace)? {
-            if member_dir == module_root {
-                return Ok(Some(workspace_path));
+        if let Some(module_root) = module_root {
+            let workspace = read_workspace_file(&workspace_path)?;
+            let members = canonical_workspace_module_dirs(dir, &workspace)?;
+            if members.iter().any(|member_dir| member_dir == module_root) {
+                return Ok(Some(WorkspaceFacts {
+                    manifest_path: workspace_path,
+                    root: dir.to_path_buf(),
+                    members: Some(members),
+                    pending_warning: None,
+                }));
             }
+            continue;
         }
+
+        if has_module_manifest(dir) {
+            let workspace = read_workspace_file(&workspace_path)?;
+            let members = canonical_workspace_module_dirs(dir, &workspace)?;
+            let module_not_member = !members.iter().any(|member_dir| member_dir == dir);
+            return Ok(Some(WorkspaceFacts {
+                manifest_path: workspace_path,
+                root: dir.to_path_buf(),
+                members: Some(members),
+                pending_warning: module_not_member
+                    .then_some(ProjectDiscoveryWarning::ColocatedModuleNotInWorkspace),
+            }));
+        }
+
+        return Ok(Some(WorkspaceFacts {
+            manifest_path: workspace_path,
+            root: dir.to_path_buf(),
+            members: None,
+            pending_warning: None,
+        }));
     }
 
     Ok(None)
@@ -889,6 +957,30 @@ version = "0.1.0"
             panic!("expected module context");
         };
         assert_eq!(manifest_path, canonical(project.path().join(MOON_MOD)));
+
+        write_file(
+            &project.path().join("moon.work"),
+            r#"members = [
+  ".",
+]
+"#,
+        );
+        let selection = resolve_project_context_from_start_dir(
+            project.path().to_path_buf(),
+            &WorkspaceEnv::Auto,
+        )
+        .unwrap();
+        let ProjectContext::Workspace {
+            selected_module: Some(selected_module),
+            ..
+        } = selection
+        else {
+            panic!("expected workspace context with selected module");
+        };
+        assert_eq!(
+            selected_module.manifest_path,
+            canonical(project.path().join(MOON_MOD))
+        );
     }
 
     #[test]

@@ -182,17 +182,32 @@ are described in [Modules and Packages][mod-pkg].
 
 For single-module commands, the input module is the module that contains the working directory.
 In other words, it is the module represented by the closest ancestor directory (including CWD)
-that contains a `moon.mod.json` file.
+that contains a `moon.mod` or `moon.mod.json` file.
 
 `moon build`, `moon check`, `moon test`, `moon fmt`, and `moon info` additionally support an
-explicit workspace root via `moon.work`, following the same discovery precedence as Go workspaces:
+explicit workspace root via `moon.work`. Moon's discovery is order-sensitive:
 
-- Search the current directory and its ancestors for `moon.work` and `moon.mod.json`.
-- If a `moon.work` is found before any `moon.mod.json`, use it.
-- If a `moon.mod.json` is found first, keep it as the current module root and continue searching
-  ancestors for `moon.work`.
+- Search the current directory and its ancestors for `moon.work` and module
+  manifests (`moon.mod` or `moon.mod.json`).
+- If a `moon.work` is found before any module manifest, use it.
+- If a module manifest is found first, keep it as the current module root and
+  continue searching ancestors for `moon.work`.
 - An ancestor workspace manifest found after that only applies if it explicitly lists that module.
-- Otherwise, fall back to that `moon.mod.json`.
+- Otherwise, fall back to that module manifest.
+
+Unlike Go, Moon does not unconditionally select the nearest ancestor workspace
+manifest. Once Moon finds a module boundary, an unrelated ancestor workspace
+does not capture that module.
+
+After selecting a workspace, Moon exposes a selected module to member-scoped
+commands only when that workspace explicitly lists the module.
+
+If `moon.work` and a module manifest are colocated, the workspace takes
+precedence. If the workspace lists `.` as a member, member-scoped commands
+select that colocated module. Otherwise, Moon warns that the workspace does not
+list its colocated module; workspace-wide commands still use the workspace,
+while member-scoped commands cannot infer a target module from that directory.
+This warning is a User Log and is suppressed by `--quiet`.
 
 `MOON_WORK` can override this selection:
 

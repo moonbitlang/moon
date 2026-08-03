@@ -103,7 +103,7 @@ pub(crate) fn run_prove(
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
+    let project = query.project(user_log)?;
     let module_dir = if cmd.path.is_some() {
         project.selected_module().map(|module| module.root.clone())
     } else {
@@ -119,7 +119,7 @@ pub(crate) fn run_prove(
                 })?,
         )
     };
-    let dirs = query.package_dirs()?;
+    let dirs = query.package_dirs(user_log)?;
     let PackageDirs {
         source_dir: project_root,
         target_dir,

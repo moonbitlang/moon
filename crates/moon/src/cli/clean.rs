@@ -17,7 +17,7 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use anyhow::{Context, bail};
-use moonutil::{cli_support::UniversalFlags, locks::FileLock};
+use moonutil::{cli_support::UniversalFlags, locks::FileLock, user_log::UserLog};
 
 /// Remove local build outputs or configured global caches.
 #[derive(Debug, clap::Parser)]
@@ -31,7 +31,11 @@ pub(crate) struct CleanSubcommand {
     build_cache: bool,
 }
 
-pub(crate) fn run_clean(cli: &UniversalFlags, cmd: &CleanSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn run_clean(
+    cli: &UniversalFlags,
+    cmd: &CleanSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     if cli.dry_run {
         bail!("dry-run is not supported for clean");
     }
@@ -49,7 +53,7 @@ pub(crate) fn run_clean(cli: &UniversalFlags, cmd: &CleanSubcommand) -> anyhow::
     let src_tgt = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs()?;
+        .package_dirs(user_log)?;
 
     let _lock = FileLock::lock(&src_tgt.target_dir)?;
 

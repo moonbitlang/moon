@@ -23,6 +23,7 @@ use moonutil::cli_support::{
     LoginSubcommand, MooncakeSubcommands, PackageSubcommand, PublishSubcommand, RegisterSubcommand,
     UniversalFlags,
 };
+use moonutil::user_log::UserLog;
 use serde::Serialize;
 
 use super::process;
@@ -97,8 +98,12 @@ pub(crate) fn register_cli(cli: UniversalFlags, cmd: RegisterSubcommand) -> anyh
     )
 }
 
-pub(crate) fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow::Result<i32> {
-    let cli = single_module_mooncake_cli(cli, "publish")?;
+pub(crate) fn publish_cli(
+    cli: UniversalFlags,
+    cmd: PublishSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let cli = single_module_mooncake_cli(cli, "publish", user_log)?;
     execute_cli(
         cli,
         MooncakeSubcommands::Publish(cmd),
@@ -107,8 +112,12 @@ pub(crate) fn publish_cli(cli: UniversalFlags, cmd: PublishSubcommand) -> anyhow
     )
 }
 
-pub(crate) fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow::Result<i32> {
-    let cli = single_module_mooncake_cli(cli, "package")?;
+pub(crate) fn package_cli(
+    cli: UniversalFlags,
+    cmd: PackageSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
+    let cli = single_module_mooncake_cli(cli, "package", user_log)?;
     execute_cli(
         cli,
         MooncakeSubcommands::Package(cmd),
@@ -120,9 +129,10 @@ pub(crate) fn package_cli(cli: UniversalFlags, cmd: PackageSubcommand) -> anyhow
 fn single_module_mooncake_cli(
     mut cli: UniversalFlags,
     command: &str,
+    user_log: &UserLog,
 ) -> anyhow::Result<UniversalFlags> {
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
+    let project = query.project(user_log)?;
     if project.selected_module().is_none() {
         bail!(
             "`moon {command}` cannot infer a target module in workspace `{}`. Run it from a workspace member or use `moon -C <member> {command} ...`.",

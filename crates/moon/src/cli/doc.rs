@@ -100,7 +100,7 @@ pub(crate) fn run_doc_rr(
 ) -> anyhow::Result<i32> {
     let user_log = output.user_log();
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
+    let project = query.project(user_log)?;
     let selected_module = project
         .selected_module()
         .ok_or_else(|| {
@@ -114,7 +114,7 @@ pub(crate) fn run_doc_rr(
             "`moon doc` does not support the deprecated `moon.mod.json` manifest; run `moon fmt` to migrate it to `moon.mod` first"
         );
     }
-    let dirs = query.package_dirs()?;
+    let dirs = query.package_dirs(user_log)?;
     let PackageDirs {
         source_dir,
         target_dir,

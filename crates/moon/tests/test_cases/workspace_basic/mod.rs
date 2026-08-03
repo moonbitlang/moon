@@ -406,6 +406,14 @@ preferred_target = "wasm-gc"
             Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
         "#]],
     );
+
+    check(
+        get_stderr(&dir, ["-C", "app", "build", "--dry-run", "--sort-input"]),
+        expect![[r#"
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
+        "#]],
+    );
 }
 
 #[test]
@@ -1035,6 +1043,33 @@ fn test_same_root_module_can_disable_implicit_workspace_mode() {
 }
 
 #[test]
+fn test_same_root_workspace_warns_when_module_is_not_a_member() {
+    let dir = same_root_workspace_dir();
+    write_file(
+        &dir.join("moon.work"),
+        r#"members = [
+  "./dep",
+]
+"#,
+    );
+
+    moon_cmd(&dir)
+        .args(["build", "--dry-run", "--sort-input"])
+        .assert()
+        .success()
+        .stderr_eq(
+            "Warning: `moon.work` takes precedence over the module manifest in the same directory, \
+but that module is not listed as a workspace member. Add `.` to `members` to select it from the workspace root.\n",
+        );
+
+    moon_cmd(&dir)
+        .args(["--quiet", "build", "--dry-run", "--sort-input"])
+        .assert()
+        .success()
+        .stderr_eq("");
+}
+
+#[test]
 fn test_pinned_workspace_path_builds_from_outside_workspace() {
     let dir = TestDir::new("workspace_basic.in");
 
@@ -1274,6 +1309,13 @@ fn test_workspace_root_beats_unrelated_outer_module_boundary() {
     assert!(
         !stdout.contains("alice/outer/outer"),
         "expected workspace-root build to ignore the unrelated outer module, got:\n{stdout}"
+    );
+
+    let stderr = get_err_stderr(&dir, ["-C", "outer/ws", "package", "--list"]);
+    assert!(
+        stderr
+            .contains("`moon package` cannot infer a target module in workspace `$ROOT/outer/ws`"),
+        "expected the unrelated outer module not to become the selected member, got:\n{stderr}"
     );
 }
 

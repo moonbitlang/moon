@@ -80,7 +80,7 @@ pub(crate) fn install_cli(
         let dirs = cli
             .source_tgt_dir
             .query(cli.workspace_env.clone())?
-            .package_dirs()?;
+            .package_dirs(user_log)?;
         mooncake::pkg::sync::auto_sync(
             &dirs,
             &AutoSyncFlags { frozen: false },
@@ -174,13 +174,17 @@ pub(crate) fn install_cli(
     install_binary(&cli, &spec, &install_dir, install_all, user_log)
 }
 
-pub(crate) fn remove_cli(cli: UniversalFlags, cmd: RemoveSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn remove_cli(
+    cli: UniversalFlags,
+    cmd: RemoveSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
+    let project = query.project(user_log)?;
     let module_dir = require_selected_module(&project, "remove")?;
     let PackageDirs {
         project_manifest, ..
-    } = query.package_dirs()?;
+    } = query.package_dirs(user_log)?;
     let package_path = cmd.package_path;
     let parts: Vec<&str> = package_path.splitn(2, '/').collect();
     if parts.len() != 2 {
@@ -197,9 +201,9 @@ pub(crate) fn add_cli(
     user_log: &UserLog,
 ) -> anyhow::Result<i32> {
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
+    let project = query.project(user_log)?;
     let module_dir = require_selected_module(&project, "add")?;
-    let dirs = query.package_dirs()?;
+    let dirs = query.package_dirs(user_log)?;
 
     // Update registry index by default (issue #963).
     // - `--no-update` keeps the previous behavior.
@@ -268,13 +272,17 @@ pub(crate) fn add_cli(
     }
 }
 
-pub(crate) fn tree_cli(cli: UniversalFlags, _cmd: TreeSubcommand) -> anyhow::Result<i32> {
+pub(crate) fn tree_cli(
+    cli: UniversalFlags,
+    _cmd: TreeSubcommand,
+    user_log: &UserLog,
+) -> anyhow::Result<i32> {
     let mut query = cli.source_tgt_dir.query(cli.workspace_env.clone())?;
-    let project = query.project()?;
+    let project = query.project(user_log)?;
     let module_dir = require_selected_module(&project, "tree")?;
     let PackageDirs {
         project_manifest, ..
-    } = query.package_dirs()?;
+    } = query.package_dirs(user_log)?;
     mooncake::pkg::tree::tree(&module_dir, &project_manifest)
 }
 

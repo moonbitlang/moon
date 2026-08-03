@@ -74,7 +74,7 @@ pub(crate) fn run_bench(
     let dirs = cli
         .source_tgt_dir
         .query(cli.workspace_env.clone())?
-        .package_dirs()?;
+        .package_dirs(output.user_log())?;
 
     if cmd.build_flags.target.is_empty() {
         return run_bench_internal(&cli, &cmd, &dirs, None, None, output);
