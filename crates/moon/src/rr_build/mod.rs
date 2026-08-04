@@ -1075,8 +1075,11 @@ pub fn execute_build_json(
     target_dir: &Path,
 ) -> anyhow::Result<JsonBuildOutput> {
     let execution = execute_build_capturing(cfg, input, target_dir)?;
-    let collected =
-        collect_json_diagnostics(&[CapturedDiagnosticSource::new(&execution, None)], cfg);
+    let collected = collect_json_diagnostics(
+        &[CapturedDiagnosticSource::new(&execution, None)],
+        cfg,
+        true,
+    );
     Ok(JsonBuildOutput {
         n_tasks_executed: execution.n_tasks_executed,
         n_errors: collected.processed.n_errors,
@@ -1426,6 +1429,7 @@ fn rewrite_captured_diagnostic(
 fn collect_json_diagnostics(
     sources: &[CapturedDiagnosticSource<'_>],
     cfg: &BuildConfig,
+    retain_suppressed_output: bool,
 ) -> CollectedJsonDiagnostics {
     let mut catcher = ResultCatcher::default();
     for source in sources {
@@ -1449,7 +1453,9 @@ fn collect_json_diagnostics(
                         .insert((diagnostic, content));
                 }
                 Err(_) => {
-                    if should_render_non_diagnostic_build_output(cfg, source.build_succeeded) {
+                    if retain_suppressed_output
+                        || should_render_non_diagnostic_build_output(cfg, source.build_succeeded)
+                    {
                         non_diagnostic_output.push(content);
                     }
                 }
@@ -1535,7 +1541,7 @@ fn process_captured_diagnostics(
     cfg: &BuildConfig,
 ) -> ProcessedDiagnostics {
     if cfg.output_style == OutputStyle::Json {
-        let collected = collect_json_diagnostics(sources, cfg);
+        let collected = collect_json_diagnostics(sources, cfg, false);
         for content in &collected.non_diagnostic_output {
             eprintln!("{content}");
         }
@@ -1801,5 +1807,23 @@ mod tests {
         assert_eq!(processed.n_warnings, 0);
         assert_eq!(processed.hidden_errors, 1);
         assert_eq!(processed.hidden_warnings, 0);
+    }
+
+    #[test]
+    fn structured_json_retains_successful_output_when_progress_is_suppressed() {
+        let mut catcher = ResultCatcher::default();
+        catcher.append_content("PREBUILD_SUCCESS", None);
+        let cfg = BuildConfig::default().with_suppressed_progress(true);
+        let sources = [CapturedDiagnosticSource {
+            diagnostics: &catcher,
+            build_succeeded: true,
+            build_meta: None,
+        }];
+
+        let collected = collect_json_diagnostics(&sources, &cfg, true);
+        assert_eq!(collected.non_diagnostic_output, ["PREBUILD_SUCCESS"]);
+
+        let rendered = collect_json_diagnostics(&sources, &cfg, false);
+        assert!(rendered.non_diagnostic_output.is_empty());
     }
 }
