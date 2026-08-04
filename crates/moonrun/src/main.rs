@@ -460,13 +460,8 @@ fn create_script_origin<'s>(scope: &mut v8::HandleScope<'s>, name: &str) -> v8::
     )
 }
 
-enum Source<'a> {
-    File(&'a Path),
-    Bytes(Vec<u8>),
-}
-
 fn wasm_mode(
-    source: Source,
+    file: &Path,
     args: &[String],
     no_stack_trace: bool,
     test_args: Option<String>,
@@ -481,30 +476,11 @@ fn wasm_mode(
         format!(r#"const BUILTIN_SCRIPT_ORIGIN_PREFIX = "{BUILTIN_SCRIPT_ORIGIN_PREFIX}";"#);
 
     let global_proxy = scope.get_current_context().global(scope);
-    let wasm_file_name = match &source {
-        Source::File(file) => file.to_string_lossy().to_string(),
-        Source::Bytes(_) => "<eval>".to_string(),
-    };
-
-    match source {
-        Source::File(file) => {
-            let module_key = scope.string("module_name").into();
-            let module_name = scope.string(file.to_string_lossy().as_ref()).into();
-            global_proxy.set(scope, module_key, module_name);
-            script.push_str("let bytes;");
-        }
-        Source::Bytes(bytes) => {
-            let len = bytes.len();
-
-            let bytes_key = scope.string("bytes").into();
-            let buf = v8::ArrayBuffer::new_backing_store_from_vec(bytes);
-            let buf = v8::ArrayBuffer::with_backing_store(scope, &buf.make_shared());
-            let u8arr = v8::Uint8Array::new(scope, buf, 0, len)
-                .expect("Failed to create buffer for WASM program");
-
-            global_proxy.set(scope, bytes_key, u8arr.cast());
-        }
-    }
+    let wasm_file_name = file.to_string_lossy().to_string();
+    let module_key = scope.string("module_name").into();
+    let module_name = scope.string(file.to_string_lossy().as_ref()).into();
+    global_proxy.set(scope, module_key, module_name);
+    script.push_str("let bytes;");
     let memory_sanitizer = memory_sanitizer_api::MemorySanitizer::default();
 
     let mut dtors = Vec::new();
@@ -568,8 +544,7 @@ pub fn get_moonrun_version() -> String {
 #[command(version = get_moonrun_version())]
 struct Commandline {
     /// The path of the file to run
-    #[clap(required_unless_present = "interactive")]
-    path: Option<PathBuf>,
+    path: PathBuf,
 
     /// Additional arguments
     #[clap(allow_hyphen_values = true)]
@@ -618,38 +593,6 @@ Network connect controls outbound sockets; bind controls local bind/listen addre
 Process spawning is disabled by default. Setting [process] spawn = true grants child processes the host user's ambient filesystem, network, and process access; the other policy sections do not sandbox child processes."#
     )]
     policy: Option<PathBuf>,
-
-    #[clap(short, long)]
-    interactive: bool,
-}
-
-fn run_interactive(async_policy: Arc<async_policy::AsyncPolicy>) -> anyhow::Result<()> {
-    loop {
-        let stdin = io::stdin();
-        let mut handle = stdin.lock();
-
-        // read the length (4 bytes) first
-        let mut len_bytes = [0u8; 4];
-        handle.read_exact(&mut len_bytes)?;
-        let length = i32::from_le_bytes(len_bytes);
-
-        // read the wasm byte sequence
-        let mut input = vec![0u8; length as usize];
-        handle.read_exact(&mut input)?;
-
-        wasm_mode(
-            Source::Bytes(input),
-            &[],
-            false,
-            None,
-            Arc::clone(&async_policy),
-        )?;
-        const END_MARKER: [u8; 4] = [0xFF, 0xFE, 0xFD, 0xFC];
-        io::stdout().write_all(&END_MARKER)?;
-        io::stdout().write_all(b"\n")?;
-
-        io::stdout().flush()?;
-    }
 }
 
 fn initialize_v8() {
@@ -669,32 +612,25 @@ fn main() -> anyhow::Result<()> {
         None => async_policy::AsyncPolicy::allow_all(),
     });
 
-    if matches.interactive {
-        initialize_v8();
-        run_interactive(async_policy)
-    } else {
-        let file = matches.path.as_ref().unwrap();
+    if !matches.path.exists() {
+        anyhow::bail!("no such file");
+    }
 
-        if !file.exists() {
-            anyhow::bail!("no such file");
-        }
+    if let Some(stack_size) = matches.stack_size {
+        set_flags_from_string(&format!("--stack-size={stack_size}"));
+    }
 
-        if let Some(stack_size) = matches.stack_size {
-            set_flags_from_string(&format!("--stack-size={stack_size}"));
+    match matches.path.extension().unwrap().to_str() {
+        Some("wasm") => {
+            initialize_v8();
+            wasm_mode(
+                &matches.path,
+                &matches.args,
+                matches.no_stack_trace,
+                matches.test_args,
+                async_policy,
+            )
         }
-
-        match file.extension().unwrap().to_str() {
-            Some("wasm") => {
-                initialize_v8();
-                wasm_mode(
-                    Source::File(file),
-                    &matches.args,
-                    matches.no_stack_trace,
-                    matches.test_args,
-                    async_policy,
-                )
-            }
-            _ => anyhow::bail!("Unsupported file type"),
-        }
+        _ => anyhow::bail!("Unsupported file type"),
     }
 }
