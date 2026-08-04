@@ -103,6 +103,12 @@ impl UserLog {
         self.level >= level.to_level_filter()
     }
 
+    /// Whether user-facing output is being collected for a command result
+    /// instead of rendered directly to stderr.
+    pub fn is_captured(&self) -> bool {
+        matches!(&self.destination, UserLogDestination::Capture(_))
+    }
+
     pub fn error(&self, message: impl Display) {
         match &self.destination {
             UserLogDestination::Stderr => {
@@ -146,6 +152,30 @@ impl UserLog {
                 self.info_to(&mut stderr, message);
             }
             UserLogDestination::Capture(capture) if self.level >= LevelFilter::Info => capture
+                .entries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(UserLogEntry {
+                    level: UserLogEntryLevel::Info,
+                    message: message.to_string(),
+                }),
+            UserLogDestination::Capture(_) => {}
+        }
+    }
+
+    /// Emit a normal-verbosity informational status line.
+    ///
+    /// Some long-running operations historically showed progress at the
+    /// default verbosity even though the message is informational. Keep that
+    /// visibility without misclassifying the event as a warning.
+    pub fn status(&self, message: impl Display) {
+        match &self.destination {
+            UserLogDestination::Stderr => {
+                if self.level >= LevelFilter::Warn {
+                    let _ = writeln!(anstream::stderr().lock(), "{message}");
+                }
+            }
+            UserLogDestination::Capture(capture) if self.level >= LevelFilter::Warn => capture
                 .entries
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -226,6 +256,22 @@ mod tests {
         assert_eq!(entries[1].message, "be careful");
         assert!(matches!(entries[2].level, UserLogEntryLevel::Error));
         assert_eq!(entries[2].message, "failed");
+    }
+
+    #[test]
+    fn captured_status_is_info_visible_at_normal_verbosity() {
+        let (output, capture) = UserLog::captured(LevelFilter::Warn);
+
+        output.status("Downloading example/pkg@1.0.0");
+
+        let entries = capture.take();
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(entries[0].level, UserLogEntryLevel::Info));
+        assert_eq!(entries[0].message, "Downloading example/pkg@1.0.0");
+
+        let (quiet, capture) = UserLog::captured(LevelFilter::Error);
+        quiet.status("hidden");
+        assert!(capture.take().is_empty());
     }
 
     #[test]

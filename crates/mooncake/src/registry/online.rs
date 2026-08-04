@@ -267,7 +267,7 @@ impl OnlineRegistry {
         let cache_file = self.archive_cache_file_of(name, version);
         match open_verified_archive(&cache_file, expected_checksum) {
             Ok(Some(archive)) => {
-                user_log.info(format!("Using cached {name}@{version}"));
+                user_log.status(format!("Using cached {name}@{version}"));
                 return Ok(archive);
             }
             Ok(None) => {}
@@ -281,7 +281,7 @@ impl OnlineRegistry {
                 });
             }
         }
-        user_log.info(format!("Downloading {name}@{version}"));
+        user_log.status(format!("Downloading {name}@{version}"));
         let filepath = form_urlencoded::Serializer::new(String::new())
             .append_key_only(&format!("{}/{}/{}", name.username, name.unqual, version))
             .finish();
@@ -323,7 +323,7 @@ impl OnlineRegistry {
     ) -> anyhow::Result<()> {
         let checksum = self.read_checksum_from_index_file(name, version)?;
         self.acquire_source_to(name, version, &checksum, pkg_install_dir, user_log)?;
-        execute_postadd_script(pkg_install_dir)?;
+        execute_postadd_script(pkg_install_dir, user_log)?;
         Ok(())
     }
 

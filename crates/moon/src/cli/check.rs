@@ -106,21 +106,37 @@ struct CheckJsonAccumulator {
     diagnostics: Vec<serde_json::Value>,
     messages: Vec<MoonMessage>,
     tasks_executed: Option<usize>,
+    build_failed: bool,
     diagnostic_errors: usize,
     diagnostic_warnings: usize,
 }
 
 impl CheckJsonAccumulator {
-    fn append_build(&mut self, result: rr_build::JsonBuildOutput, user_log: &UserLog) {
+    fn append_build(
+        &mut self,
+        target_backend: TargetBackend,
+        mut result: rr_build::JsonBuildOutput,
+        user_log: &UserLog,
+    ) {
         let successful = result.successful();
+        for diagnostic in &mut result.diagnostics {
+            diagnostic
+                .as_object_mut()
+                .expect("Moonc diagnostic should be a JSON object")
+                .insert(
+                    "target_backend".to_string(),
+                    serde_json::Value::String(target_backend.to_flag().to_string()),
+                );
+        }
         self.diagnostics.extend(result.diagnostics);
         self.diagnostic_errors += result.n_errors;
         self.diagnostic_warnings += result.n_warnings;
-        self.tasks_executed = match (self.tasks_executed, result.n_tasks_executed) {
-            (Some(total), Some(executed)) => Some(total + executed),
-            (None, Some(executed)) if successful => Some(executed),
-            _ => None,
+        self.tasks_executed = if successful && !self.build_failed {
+            Some(self.tasks_executed.unwrap_or_default() + result.n_tasks_executed.unwrap())
+        } else {
+            None
         };
+        self.build_failed |= !successful;
 
         for message in result.non_diagnostic_output {
             if successful {
@@ -566,13 +582,14 @@ fn run_check_for_single_file_rr(
     cfg.explain_errors |= cmd.explain;
 
     if let Some(json) = json {
+        let target_backend = build_meta.target_backend();
         let result = rr_build::execute_build_json(
             &cfg.with_suppressed_progress(true),
             build_graph,
             target_dir,
         )?;
         let successful = result.successful();
-        json.append_build(result, user_log);
+        json.append_build(target_backend, result, user_log);
         return Ok(if successful { 0 } else { 1 });
     }
 
@@ -738,17 +755,15 @@ fn run_check_normal_internal_rr(
             rr_build::generate_metadata(source_dir, target_dir, &build_meta, &build_graph, None)?;
 
             if let Some(json) = json.as_deref_mut() {
+                let target_backend = build_meta.target_backend();
                 let result = rr_build::execute_build_json(
                     &cfg.clone().with_suppressed_progress(true),
                     build_graph,
                     target_dir,
                 )?;
                 let successful = result.successful();
-                json.append_build(result, user_log);
+                json.append_build(target_backend, result, user_log);
                 ok &= successful;
-                if !successful {
-                    break;
-                }
             } else {
                 let result = rr_build::execute_build(&cfg, build_graph, target_dir, user_log)?;
                 result.print_info(cli.quiet, "checking")?;

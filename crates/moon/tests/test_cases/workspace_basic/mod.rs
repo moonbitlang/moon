@@ -411,7 +411,6 @@ preferred_target = "wasm-gc"
         get_stderr(&dir, ["-C", "app", "build", "--dry-run", "--sort-input"]),
         expect![[r#"
             Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
-            Warning: `preferred_target` in `moon.work` is deprecated. Set `preferred_target` in each module manifest instead.
         "#]],
     );
 }

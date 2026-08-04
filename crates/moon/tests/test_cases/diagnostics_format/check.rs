@@ -46,11 +46,52 @@ fn test_moon_check_complete_json_compiler_failure() {
     assert_eq!(report["status"], "failure");
     assert_eq!(report["diagnostics"].as_array().unwrap().len(), 1);
     assert_eq!(report["diagnostics"][0]["level"], "error");
+    assert_eq!(report["diagnostics"][0]["target_backend"], "wasm");
     assert_eq!(report["messages"][0]["$message_type"], "moon");
     assert_eq!(report["messages"][0]["level"], "warning");
     assert_eq!(report["summary"]["moon_warnings"], 1);
     assert_eq!(report["summary"]["diagnostic_errors"], 1);
     assert_eq!(report["summary"]["diagnostic_warnings"], 3);
+}
+
+#[test]
+fn test_moon_check_complete_json_collects_every_planned_backend() {
+    let dir = TestDir::new("workspace_conflicting_preferred_targets.in");
+    std::fs::write(
+        dir.join("js_preferred/src/lib/lib.mbt"),
+        "pub fn broken_js() -> Int { \"js\" }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("native_preferred/src/lib/lib.mbt"),
+        "pub fn broken_native() -> Int { \"native\" }\n",
+    )
+    .unwrap();
+
+    let report = parse_complete_json(
+        moon_cmd(&dir)
+            .args(["check", "--json", "--sort-input", "-j1"])
+            .assert()
+            .failure(),
+    );
+    let diagnostics = report["diagnostics"].as_array().unwrap();
+
+    assert_eq!(report["status"], "failure");
+    assert_eq!(report["summary"]["tasks_executed"], serde_json::Value::Null);
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic["target_backend"] == "js"
+            && diagnostic["path"]
+                .as_str()
+                .unwrap()
+                .contains("js_preferred")
+    }));
+    assert!(diagnostics.iter().any(|diagnostic| {
+        diagnostic["target_backend"] == "native"
+            && diagnostic["path"]
+                .as_str()
+                .unwrap()
+                .contains("native_preferred")
+    }));
 }
 
 #[test]
