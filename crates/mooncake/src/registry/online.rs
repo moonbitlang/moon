@@ -19,12 +19,13 @@
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
-    io::{BufRead, Read, Write},
-    path::{Path, PathBuf},
+    fs::File,
+    io::{BufRead, Read, Seek, Write},
+    path::Path,
     sync::Arc,
 };
 
-use anyhow::{Context, bail};
+use anyhow::bail;
 use indexmap::map::IndexMap;
 use moonutil::{
     dependency::SourceDependencyInfo, registry::RegistryConfig, resolution::ModuleName,
@@ -148,17 +149,13 @@ impl super::Registry for OnlineRegistry {
     }
 }
 
-fn calc_sha2(p: &Path) -> anyhow::Result<String> {
+fn calc_sha2(reader: &mut impl Read) -> anyhow::Result<String> {
     use sha2::{Digest, Sha256};
-    use std::fs::File;
-    use std::io::prelude::*;
-
-    let mut file = File::open(p)?;
 
     let mut hasher = Sha256::new();
     let mut buffer = [0; 1024];
     loop {
-        let bytes_read = file.read(&mut buffer)?;
+        let bytes_read = reader.read(&mut buffer)?;
         if bytes_read == 0 {
             break;
         }
@@ -168,6 +165,17 @@ fn calc_sha2(p: &Path) -> anyhow::Result<String> {
     // read hash digest and consume hasher
     let result = hasher.finalize();
     Ok(format!("{result:x}"))
+}
+
+/// Keep the file that was hashed open so a concurrent cache-path replacement
+/// cannot change the bytes later consumed by extraction.
+fn open_verified_archive(path: &Path, expected_checksum: &str) -> anyhow::Result<Option<File>> {
+    let mut archive = File::open(path)?;
+    if calc_sha2(&mut archive)? != expected_checksum {
+        return Ok(None);
+    }
+    archive.rewind()?;
+    Ok(Some(archive))
 }
 
 impl OnlineRegistry {
@@ -209,24 +217,17 @@ impl OnlineRegistry {
         version: &Version,
         expected_checksum: &str,
         quiet: bool,
-    ) -> anyhow::Result<PathBuf> {
+    ) -> anyhow::Result<File> {
         let pkg_index = self.index_file_of(name);
         if !pkg_index.exists() {
             anyhow::bail!("Module {}@{} not found", name, version);
         }
         let cache_file = cache_of(name, version);
-        let mut checksum_ok = false;
-        if cache_file.exists() {
-            let current_checksum = calc_sha2(&cache_file);
-            if current_checksum.is_ok() && current_checksum.unwrap() == expected_checksum {
-                checksum_ok = true;
-            }
-        }
-        if checksum_ok {
+        if let Ok(Some(archive)) = open_verified_archive(&cache_file, expected_checksum) {
             if !quiet {
                 eprintln!("Using cached {name}@{version}");
             }
-            return Ok(cache_file);
+            return Ok(archive);
         }
         if !quiet {
             eprintln!("Downloading {name}@{version}");
@@ -268,8 +269,9 @@ impl OnlineRegistry {
             );
         }
         archive.flush()?;
-        archive.persist(&cache_file).map_err(|error| error.error)?;
-        Ok(cache_file)
+        let mut archive = archive.persist(&cache_file).map_err(|error| error.error)?;
+        archive.rewind()?;
+        Ok(archive)
     }
 
     pub fn install_to_impl(
@@ -302,13 +304,7 @@ impl OnlineRegistry {
             std::fs::create_dir_all(pkg_install_dir).unwrap();
         }
 
-        let archive_path = self.download_or_use_cache(name, version, expected_checksum, quiet)?;
-        let archive = std::fs::File::open(&archive_path).with_context(|| {
-            format!(
-                "failed to open cached registry archive `{}`",
-                archive_path.display()
-            )
-        })?;
+        let archive = self.download_or_use_cache(name, version, expected_checksum, quiet)?;
         extract_zip_to_dir(pkg_install_dir, archive)?;
         Ok(())
     }
@@ -333,7 +329,10 @@ fn test_urlencode() {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::{
+        io::Read,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use super::*;
     use crate::registry::Registry;
@@ -352,6 +351,28 @@ mod tests {
             registry_download_base("https://registry.example.com/"),
             "https://registry.example.com/user"
         );
+    }
+
+    #[test]
+    fn verified_archive_handle_survives_cache_path_replacement() {
+        let cache = tempfile::TempDir::new().unwrap();
+        let archive_path = cache.path().join("archive.zip");
+        std::fs::write(&archive_path, "verified archive").unwrap();
+
+        let mut archive = open_verified_archive(
+            &archive_path,
+            "040a1170825ade3ff37b189dd280153ecfafb99ee929d1cbebb40fe135afdf26",
+        )
+        .unwrap()
+        .unwrap();
+
+        let mut replacement = tempfile::NamedTempFile::new_in(cache.path()).unwrap();
+        replacement.write_all(b"replacement archive").unwrap();
+        replacement.persist(&archive_path).unwrap();
+
+        let mut contents = String::new();
+        archive.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, "verified archive");
     }
 
     fn temp_index_dir() -> std::path::PathBuf {

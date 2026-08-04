@@ -233,8 +233,10 @@ intended to be immutable, but the checksum remains part of the physical
 identity so a replaced historical archive cannot alias the source tree that
 was originally published under that version. Source acquisition observes the
 checksum once and uses that value for both the physical path and archive
-verification; it does not follow registry-index changes during extraction. A
-miss is extracted in a same-filesystem staging directory and published by
+verification; it does not follow registry-index changes during extraction.
+Verification and extraction consume the same open archive handle, so replacing
+the version-keyed download-cache path cannot change the source being published.
+A miss is extracted in a same-filesystem staging directory and published by
 rename while holding the dependency-cache lock. Existing entries are never
 replaced or pruned during resolution. Package installation uses one
 dependency-source interface to ensure the resolved sources exist and obtain
