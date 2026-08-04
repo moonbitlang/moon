@@ -32,6 +32,7 @@ mod async_sys;
 mod backtrace_api;
 mod demangle_js_template;
 mod fs_api_temp;
+mod host_fs;
 mod memory_sanitizer_api;
 mod sys_api;
 mod util;
