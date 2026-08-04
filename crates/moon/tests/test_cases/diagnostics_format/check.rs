@@ -274,11 +274,35 @@ fn test_moon_check_complete_json_runs_bin_dep_prebuild() {
     let top_dir = TestDir::new("prebuild_config_script/check_skip_bin_dep.in");
     let dir = top_dir.join("user.in");
     let generated_stub = top_dir.join("author.in/src/main/generated_stub.c");
+    std::fs::write(
+        top_dir.join("author.in/moon.work"),
+        "members = [\".\"]\npreferred_target = \"wasm-gc\"\n",
+    )
+    .unwrap();
     assert!(!generated_stub.exists());
 
-    let report = parse_complete_json(moon_cmd(&dir).args(["check", "--json"]).assert().success());
+    let report = parse_complete_json(
+        moon_cmd(&dir)
+            .args(["check", "--json", "--verbose"])
+            .assert()
+            .success(),
+    );
 
     assert_eq!(report["status"], "success");
+    assert_eq!(report["summary"]["moon_warnings"], 0);
+    assert!(
+        report["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| {
+                message["level"] == "info"
+                    && message["message"]
+                        .as_str()
+                        .unwrap()
+                        .contains("preferred_target")
+            })
+    );
     assert!(generated_stub.exists());
 }
 

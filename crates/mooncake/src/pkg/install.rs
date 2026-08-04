@@ -208,7 +208,7 @@ fn install_bin_deps(
                         edge.name
                     );
                     if output.status.success() {
-                        user_log.warn(message);
+                        user_log.status(message);
                     } else {
                         user_log.error(message);
                     }
