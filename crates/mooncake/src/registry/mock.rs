@@ -184,6 +184,7 @@ impl Registry for MockRegistry {
         &self,
         _name: &ModuleName,
         _version: &Version,
+        _expected_checksum: &str,
         _to: &std::path::Path,
         _quiet: bool,
     ) -> anyhow::Result<()> {

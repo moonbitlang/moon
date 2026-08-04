@@ -89,6 +89,8 @@ mod tests {
     struct TestRegistry {
         version: Version,
         checksum: String,
+        checksum_after_first_read: Option<String>,
+        checksum_reads: AtomicUsize,
         postadd: bool,
         installations: AtomicUsize,
     }
@@ -98,6 +100,8 @@ mod tests {
             Self {
                 version: Version::new(1, 2, 3),
                 checksum: "0123456789abcdef".to_string(),
+                checksum_after_first_read: None,
+                checksum_reads: AtomicUsize::new(0),
                 postadd,
                 installations: AtomicUsize::new(0),
             }
@@ -105,6 +109,11 @@ mod tests {
 
         fn with_checksum(mut self, checksum: &str) -> Self {
             self.checksum = checksum.to_string();
+            self
+        }
+
+        fn with_checksum_after_first_read(mut self, checksum: &str) -> Self {
+            self.checksum_after_first_read = Some(checksum.to_string());
             self
         }
 
@@ -156,10 +165,13 @@ mod tests {
             &self,
             name: &ModuleName,
             version: &Version,
+            expected_checksum: &str,
             to: &Path,
             _quiet: bool,
         ) -> anyhow::Result<()> {
-            self.install_source(name, version, to)
+            self.install_source(name, version, to)?;
+            std::fs::write(to.join("archive-checksum"), expected_checksum)?;
+            Ok(())
         }
 
         fn source_checksum(
@@ -167,7 +179,15 @@ mod tests {
             _name: &ModuleName,
             _version: &Version,
         ) -> anyhow::Result<String> {
-            Ok(self.checksum.clone())
+            let read = self.checksum_reads.fetch_add(1, Ordering::SeqCst);
+            Ok(if read == 0 {
+                &self.checksum
+            } else {
+                self.checksum_after_first_read
+                    .as_ref()
+                    .unwrap_or(&self.checksum)
+            }
+            .clone())
         }
     }
 
@@ -327,6 +347,31 @@ mod tests {
         assert_ne!(first[module], second[module]);
         assert!(first[module].join("moon.mod.json").is_file());
         assert!(second[module].join("moon.mod.json").is_file());
+    }
+
+    #[test]
+    fn extraction_uses_the_checksum_selected_for_the_source_path() {
+        let sandbox = tempfile::TempDir::new().unwrap();
+        let cache_dir = sandbox.path().join("cache");
+        let cache = global_cache(&cache_dir);
+        let registry = TestRegistry::new(false).with_checksum_after_first_read("fedcba9876543210");
+        let (resolved, module) = test_env();
+        let source = select(sandbox.path().join(".mooncakes"), &cache, &resolved).unwrap();
+
+        let paths = source
+            .ensure(&registry, &resolved, false, &user_log())
+            .unwrap();
+
+        assert_eq!(
+            paths[module],
+            ImmutableDependencySource::new(&cache_dir)
+                .source_dir(resolved.module_source(module), "0123456789abcdef")
+        );
+        assert_eq!(
+            std::fs::read_to_string(paths[module].join("archive-checksum")).unwrap(),
+            "0123456789abcdef"
+        );
+        assert_eq!(registry.checksum_reads.load(Ordering::SeqCst), 1);
     }
 
     #[test]

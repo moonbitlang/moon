@@ -66,6 +66,7 @@ impl<'a> ImmutableDependencySource<'a> {
         &self,
         registry: &dyn Registry,
         module: &ModuleSource,
+        checksum: &str,
         directory: &Path,
         frozen: bool,
         user_log: &UserLog,
@@ -107,6 +108,7 @@ impl<'a> ImmutableDependencySource<'a> {
                 registry.extract_to(
                     module.name(),
                     module.version(),
+                    checksum,
                     staging.path(),
                     !user_log.is_enabled(log::Level::Info),
                 )?;
@@ -158,7 +160,7 @@ impl DependencySource for ImmutableDependencySource<'_> {
                         );
                     }
                     let directory = self.source_dir(module, &checksum);
-                    self.prepare_source(registry, module, &directory, frozen, user_log)?;
+                    self.prepare_source(registry, module, &checksum, &directory, frozen, user_log)?;
                     directory
                 }
                 ModuleSourceKind::Local(path)

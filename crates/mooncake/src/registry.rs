@@ -78,12 +78,14 @@ pub trait Registry {
         quiet: bool,
     ) -> anyhow::Result<()>;
 
-    /// Extract the published package source without executing
-    /// package-controlled hooks such as `scripts.postadd`.
+    /// Extract the published package source verified against the checksum
+    /// selected by the caller, without executing package-controlled hooks such
+    /// as `scripts.postadd`.
     fn extract_to(
         &self,
         name: &ModuleName,
         version: &Version,
+        expected_checksum: &str,
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()>;
@@ -117,10 +119,11 @@ where
         &self,
         name: &ModuleName,
         version: &Version,
+        expected_checksum: &str,
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        (**self).extract_to(name, version, to, quiet)
+        (**self).extract_to(name, version, expected_checksum, to, quiet)
     }
 
     fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
@@ -161,10 +164,11 @@ where
         &self,
         name: &ModuleName,
         version: &Version,
+        expected_checksum: &str,
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        (**self).extract_to(name, version, to, quiet)
+        (**self).extract_to(name, version, expected_checksum, to, quiet)
     }
 
     fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {

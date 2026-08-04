@@ -136,10 +136,11 @@ impl super::Registry for OnlineRegistry {
         &self,
         name: &ModuleName,
         version: &Version,
+        expected_checksum: &str,
         to: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        OnlineRegistry::extract_to(self, name, version, to, quiet)
+        OnlineRegistry::extract_to(self, name, version, expected_checksum, to, quiet)
     }
 
     fn source_checksum(&self, name: &ModuleName, version: &Version) -> anyhow::Result<String> {
@@ -206,6 +207,7 @@ impl OnlineRegistry {
         &self,
         name: &ModuleName,
         version: &Version,
+        expected_checksum: &str,
         quiet: bool,
     ) -> anyhow::Result<PathBuf> {
         let pkg_index = self.index_file_of(name);
@@ -213,11 +215,10 @@ impl OnlineRegistry {
             anyhow::bail!("Module {}@{} not found", name, version);
         }
         let cache_file = cache_of(name, version);
-        let checksum = self.read_checksum_from_index_file(name, version)?;
         let mut checksum_ok = false;
         if cache_file.exists() {
             let current_checksum = calc_sha2(&cache_file);
-            if current_checksum.is_ok() && current_checksum.unwrap() == checksum {
+            if current_checksum.is_ok() && current_checksum.unwrap() == expected_checksum {
                 checksum_ok = true;
             }
         }
@@ -261,9 +262,9 @@ impl OnlineRegistry {
             archive.write_all(&buffer[..bytes_read])?;
         }
         let actual_checksum = format!("{:x}", hasher.finalize());
-        if actual_checksum != checksum {
+        if actual_checksum != expected_checksum {
             bail!(
-                "Checksum mismatch for {name}@{version}: expected {checksum}, got {actual_checksum}"
+                "Checksum mismatch for {name}@{version}: expected {expected_checksum}, got {actual_checksum}"
             );
         }
         archive.flush()?;
@@ -278,7 +279,8 @@ impl OnlineRegistry {
         pkg_install_dir: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
-        self.extract_to(name, version, pkg_install_dir, quiet)?;
+        let checksum = self.read_checksum_from_index_file(name, version)?;
+        self.extract_to(name, version, &checksum, pkg_install_dir, quiet)?;
         execute_postadd_script(pkg_install_dir)?;
         Ok(())
     }
@@ -288,6 +290,7 @@ impl OnlineRegistry {
         &self,
         name: &ModuleName,
         version: &Version,
+        expected_checksum: &str,
         pkg_install_dir: &Path,
         quiet: bool,
     ) -> anyhow::Result<()> {
@@ -299,7 +302,7 @@ impl OnlineRegistry {
             std::fs::create_dir_all(pkg_install_dir).unwrap();
         }
 
-        let archive_path = self.download_or_use_cache(name, version, quiet)?;
+        let archive_path = self.download_or_use_cache(name, version, expected_checksum, quiet)?;
         let archive = std::fs::File::open(&archive_path).with_context(|| {
             format!(
                 "failed to open cached registry archive `{}`",

@@ -231,12 +231,15 @@ The implemented source-only step resolves each registry package to an entry
 addressed by module, version, and registry checksum. Registry versions are
 intended to be immutable, but the checksum remains part of the physical
 identity so a replaced historical archive cannot alias the source tree that
-was originally published under that version. A miss is extracted in a
-same-filesystem staging directory and published by rename while holding the
-dependency-cache lock. Existing entries are never replaced or pruned during
-resolution. Package installation uses one dependency-source interface to
-ensure the resolved sources exist and obtain their paths; project-local
-`.mooncakes` and the shared immutable cache are internal storage choices.
+was originally published under that version. Source acquisition observes the
+checksum once and uses that value for both the physical path and archive
+verification; it does not follow registry-index changes during extraction. A
+miss is extracted in a same-filesystem staging directory and published by
+rename while holding the dependency-cache lock. Existing entries are never
+replaced or pruned during resolution. Package installation uses one
+dependency-source interface to ensure the resolved sources exist and obtain
+their paths; project-local `.mooncakes` and the shared immutable cache are
+internal storage choices.
 Compiler outputs remain invocation-local and continue through the standalone
 n2 dependency graph.
 
