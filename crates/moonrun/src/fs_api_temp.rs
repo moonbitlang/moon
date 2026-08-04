@@ -23,7 +23,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use crate::async_policy::AsyncPolicy;
-use crate::host_fs::{HostFs, LegacyFsResults};
+use crate::host_fs::{FsOperationResults, HostFs};
 use crate::util::get_ref;
 use crate::v8_builder::{ArgsExt, ObjectExt, ScopeExt};
 
@@ -31,15 +31,15 @@ struct FsImports {
     filesystem: HostFs,
     // V8 invokes these imports synchronously on the isolate thread. Keep the
     // adapter's mutable protocol state local without imposing a threading
-    // model on the engine-neutral LegacyFsResults.
-    legacy_results: RefCell<LegacyFsResults>,
+    // model on the engine-neutral FsOperationResults.
+    operation_results: RefCell<FsOperationResults>,
 }
 
 impl FsImports {
     fn new(policy: Arc<AsyncPolicy>) -> Self {
         Self {
             filesystem: HostFs::new(policy),
-            legacy_results: RefCell::new(LegacyFsResults::default()),
+            operation_results: RefCell::new(FsOperationResults::default()),
         }
     }
 }
@@ -207,7 +207,7 @@ fn write_bytes_to_file_new(
     let imports = fs_imports(&args);
     let path = args.string_lossy(scope, 0);
     let status = imports.filesystem.write_bytes_to_file_new(
-        &mut imports.legacy_results.borrow_mut(),
+        &mut imports.operation_results.borrow_mut(),
         &path,
         || match v8::Local::<v8::Uint8Array>::try_from(args.get(1)) {
             Ok(array) => Ok(copy_uint8_array(array)),
@@ -226,7 +226,7 @@ fn read_file_to_bytes_new(
     let path = args.string_lossy(scope, 0);
     let status = imports
         .filesystem
-        .read_file_to_bytes_new(&mut imports.legacy_results.borrow_mut(), &path);
+        .read_file_to_bytes_new(&mut imports.operation_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -236,7 +236,7 @@ fn get_file_content(
     mut ret: v8::ReturnValue,
 ) {
     let imports = fs_imports(&args);
-    let contents = imports.legacy_results.borrow().file_content().to_vec();
+    let contents = imports.operation_results.borrow().file_content().to_vec();
     let length = contents.len();
     let backing_store = v8::ArrayBuffer::new_backing_store_from_bytes(contents).make_shared();
     let array_buffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store);
@@ -250,7 +250,7 @@ fn get_dir_files(
     mut ret: v8::ReturnValue,
 ) {
     let imports = fs_imports(&args);
-    let files = imports.legacy_results.borrow().dir_files().to_vec();
+    let files = imports.operation_results.borrow().dir_files().to_vec();
     let array = v8::Array::new(scope, 0);
     for (index, file) in files.iter().enumerate() {
         let file = scope.string(file);
@@ -268,7 +268,7 @@ fn create_dir_new(
     let path = args.string_lossy(scope, 0);
     let status = imports
         .filesystem
-        .create_dir_new(&mut imports.legacy_results.borrow_mut(), &path);
+        .create_dir_new(&mut imports.operation_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -281,7 +281,7 @@ fn read_dir_new(
     let path = args.string_lossy(scope, 0);
     let status = imports
         .filesystem
-        .read_dir_new(&mut imports.legacy_results.borrow_mut(), &path);
+        .read_dir_new(&mut imports.operation_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -294,7 +294,7 @@ fn is_file_new(
     let path = args.string_lossy(scope, 0);
     let status = imports
         .filesystem
-        .is_file_new(&mut imports.legacy_results.borrow_mut(), &path);
+        .is_file_new(&mut imports.operation_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -307,7 +307,7 @@ fn is_dir_new(
     let path = args.string_lossy(scope, 0);
     let status = imports
         .filesystem
-        .is_dir_new(&mut imports.legacy_results.borrow_mut(), &path);
+        .is_dir_new(&mut imports.operation_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -320,7 +320,7 @@ fn remove_file_new(
     let path = args.string_lossy(scope, 0);
     let status = imports
         .filesystem
-        .remove_file_new(&mut imports.legacy_results.borrow_mut(), &path);
+        .remove_file_new(&mut imports.operation_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -333,7 +333,7 @@ fn remove_dir_new(
     let path = args.string_lossy(scope, 0);
     let status = imports
         .filesystem
-        .remove_dir_new(&mut imports.legacy_results.borrow_mut(), &path);
+        .remove_dir_new(&mut imports.operation_results.borrow_mut(), &path);
     ret.set_int32(status);
 }
 
@@ -343,7 +343,11 @@ fn get_error_message(
     mut ret: v8::ReturnValue,
 ) {
     let imports = fs_imports(&args);
-    let message = imports.legacy_results.borrow().error_message().to_owned();
+    let message = imports
+        .operation_results
+        .borrow()
+        .error_message()
+        .to_owned();
     ret.set(scope.string(&message).into());
 }
 

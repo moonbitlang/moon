@@ -54,16 +54,15 @@ impl HostFsError {
     }
 }
 
-/// Results retained between an operation and its getter in the legacy
-/// status-then-getter filesystem import protocol.
+/// Results retained between a filesystem operation and its getter.
 #[derive(Default)]
-pub(crate) struct LegacyFsResults {
+pub(crate) struct FsOperationResults {
     file_content: Vec<u8>,
     dir_files: Vec<String>,
     error_message: String,
 }
 
-impl LegacyFsResults {
+impl FsOperationResults {
     pub(crate) fn file_content(&self) -> &[u8] {
         &self.file_content
     }
@@ -163,7 +162,11 @@ impl HostFs {
             .to_owned()
     }
 
-    pub(crate) fn read_file_to_bytes_new(&self, results: &mut LegacyFsResults, path: &str) -> i32 {
+    pub(crate) fn read_file_to_bytes_new(
+        &self,
+        results: &mut FsOperationResults,
+        path: &str,
+    ) -> i32 {
         let result = self.ensure_read(path).and_then(|()| {
             std::fs::read(path).map_err(|error| {
                 HostFsError::operation(format!("Failed to read file {path}: {error}"))
@@ -180,7 +183,7 @@ impl HostFs {
 
     pub(crate) fn write_bytes_to_file_new(
         &self,
-        results: &mut LegacyFsResults,
+        results: &mut FsOperationResults,
         path: &str,
         contents: impl FnOnce() -> Result<Vec<u8>, String>,
     ) -> i32 {
@@ -197,7 +200,7 @@ impl HostFs {
         operation_status(results, result)
     }
 
-    pub(crate) fn create_dir_new(&self, results: &mut LegacyFsResults, path: &str) -> i32 {
+    pub(crate) fn create_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_write(path).and_then(|()| {
             std::fs::create_dir_all(path).map_err(|error| {
                 HostFsError::operation(format!("Failed to create directory {path}: {error}"))
@@ -206,7 +209,7 @@ impl HostFs {
         operation_status(results, result)
     }
 
-    pub(crate) fn read_dir_new(&self, results: &mut LegacyFsResults, path: &str) -> i32 {
+    pub(crate) fn read_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_read(path).and_then(|()| {
             read_dir_entries(path).map_err(|error| {
                 HostFsError::operation(format!("Failed to read directory {path}: {error}"))
@@ -221,15 +224,15 @@ impl HostFs {
         }
     }
 
-    pub(crate) fn is_file_new(&self, results: &mut LegacyFsResults, path: &str) -> i32 {
+    pub(crate) fn is_file_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         self.metadata_kind(results, path, std::fs::Metadata::is_file)
     }
 
-    pub(crate) fn is_dir_new(&self, results: &mut LegacyFsResults, path: &str) -> i32 {
+    pub(crate) fn is_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         self.metadata_kind(results, path, std::fs::Metadata::is_dir)
     }
 
-    pub(crate) fn remove_file_new(&self, results: &mut LegacyFsResults, path: &str) -> i32 {
+    pub(crate) fn remove_file_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_remove(path).and_then(|()| {
             std::fs::remove_file(path).map_err(|error| {
                 HostFsError::operation(format!("Failed to remove file {path}: {error}"))
@@ -238,7 +241,7 @@ impl HostFs {
         operation_status(results, result)
     }
 
-    pub(crate) fn remove_dir_new(&self, results: &mut LegacyFsResults, path: &str) -> i32 {
+    pub(crate) fn remove_dir_new(&self, results: &mut FsOperationResults, path: &str) -> i32 {
         let result = self.ensure_remove(path).and_then(|()| {
             std::fs::remove_dir_all(path).map_err(|error| {
                 HostFsError::operation(format!("Failed to remove directory {path}: {error}"))
@@ -249,7 +252,7 @@ impl HostFs {
 
     fn metadata_kind(
         &self,
-        results: &mut LegacyFsResults,
+        results: &mut FsOperationResults,
         path: &str,
         kind: fn(&std::fs::Metadata) -> bool,
     ) -> i32 {
@@ -306,14 +309,14 @@ fn read_dir_entries(path: &str) -> std::io::Result<Vec<String>> {
         .collect())
 }
 
-fn operation_status(results: &mut LegacyFsResults, result: Result<(), HostFsError>) -> i32 {
+fn operation_status(results: &mut FsOperationResults, result: Result<(), HostFsError>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(error) => set_error(results, error),
     }
 }
 
-fn set_error(results: &mut LegacyFsResults, error: HostFsError) -> i32 {
+fn set_error(results: &mut FsOperationResults, error: HostFsError) -> i32 {
     results.error_message = error.to_string();
     -1
 }
@@ -325,13 +328,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_results_belong_to_one_runtime() {
+    fn operation_results_belong_to_one_runtime() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("input.bin");
         std::fs::write(&path, [1, 2, 3]).unwrap();
         let host = HostFs::new(Arc::new(AsyncPolicy::allow_all()));
-        let mut first = LegacyFsResults::default();
-        let second = LegacyFsResults::default();
+        let mut first = FsOperationResults::default();
+        let second = FsOperationResults::default();
 
         assert_eq!(
             host.read_file_to_bytes_new(&mut first, path.to_str().unwrap()),
@@ -347,7 +350,7 @@ mod tests {
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
         let host = HostFs::new(Arc::new(AsyncPolicy::from_file(&policy_file).unwrap()));
-        let mut results = LegacyFsResults::default();
+        let mut results = FsOperationResults::default();
 
         assert_eq!(host.read_file_to_bytes_new(&mut results, "denied.bin"), -1);
         assert_eq!(results.error_message(), "Permission denied: denied.bin");
@@ -359,7 +362,7 @@ mod tests {
         let policy_file = tmp.path().join("policy.toml");
         std::fs::write(&policy_file, "[fs]\n").unwrap();
         let host = HostFs::new(Arc::new(AsyncPolicy::from_file(&policy_file).unwrap()));
-        let mut results = LegacyFsResults::default();
+        let mut results = FsOperationResults::default();
         let converted = Cell::new(false);
 
         let status = host.write_bytes_to_file_new(&mut results, "denied.bin", || {
