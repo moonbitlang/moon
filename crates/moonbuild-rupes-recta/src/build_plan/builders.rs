@@ -125,12 +125,13 @@ impl<'a> BuildPlanConstructor<'a> {
         debug_assert!(self.build_env.target_backend().is_native());
         if self.build_env.direct_native_target() == Some(NativeTarget::X86_64PcWindowsMsvc) {
             self.warn_incompatible_windows_msvc_env_override();
-            return compiler_flags::windows_msvc_native_toolchain(package_cc);
+            return compiler_flags::windows_msvc_native_toolchain(package_cc, self.user_log);
         }
 
         compiler_flags::effective_native_toolchain(
             package_cc,
             self.build_env.tcc_run().map(|config| config.internal_tcc()),
+            self.user_log,
         )
     }
 
