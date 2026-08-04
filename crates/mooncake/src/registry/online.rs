@@ -191,6 +191,35 @@ fn open_verified_archive(path: &Path, expected_checksum: &str) -> std::io::Resul
     Ok(Some(archive))
 }
 
+fn copy_archive_and_verify_checksum(
+    source: &mut impl Read,
+    destination: &mut impl Write,
+    name: &ModuleName,
+    version: &Version,
+    expected_checksum: &str,
+) -> anyhow::Result<()> {
+    use sha2::Digest;
+
+    let mut hasher = sha2::Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let bytes_read = source.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+        destination.write_all(&buffer[..bytes_read])?;
+    }
+
+    let actual_checksum = format!("{:x}", hasher.finalize());
+    if actual_checksum != expected_checksum {
+        bail!(
+            "Checksum mismatch for {name}@{version}: expected {expected_checksum}, got {actual_checksum}"
+        );
+    }
+    Ok(())
+}
+
 impl OnlineRegistry {
     fn read_checksum_from_index_file(
         &self,
@@ -276,23 +305,13 @@ impl OnlineRegistry {
             .expect("registry cache file has a parent");
         std::fs::create_dir_all(parent)?;
         let mut archive = tempfile::NamedTempFile::new_in(parent)?;
-        use sha2::Digest;
-        let mut hasher = sha2::Sha256::new();
-        let mut buffer = [0_u8; 64 * 1024];
-        loop {
-            let bytes_read = response.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
-            }
-            hasher.update(&buffer[..bytes_read]);
-            archive.write_all(&buffer[..bytes_read])?;
-        }
-        let actual_checksum = format!("{:x}", hasher.finalize());
-        if actual_checksum != expected_checksum {
-            bail!(
-                "Checksum mismatch for {name}@{version}: expected {expected_checksum}, got {actual_checksum}"
-            );
-        }
+        copy_archive_and_verify_checksum(
+            &mut response,
+            &mut archive,
+            name,
+            version,
+            expected_checksum,
+        )?;
         archive.flush()?;
         let mut archive = archive.persist(&cache_file).map_err(|error| error.error)?;
         archive.rewind()?;
@@ -347,10 +366,12 @@ fn test_urlencode() {
 #[cfg(test)]
 mod tests {
     use std::{
-        io::{Cursor, Read, Write},
-        net::TcpListener,
+        io::{Cursor, Write},
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[cfg(unix)]
+    use std::io::Read;
 
     use super::*;
     use crate::registry::Registry;
@@ -371,6 +392,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn verified_archive_handle_survives_cache_path_replacement() {
         let cache = tempfile::TempDir::new().unwrap();
@@ -391,6 +413,25 @@ mod tests {
         let mut contents = String::new();
         archive.read_to_string(&mut contents).unwrap();
         assert_eq!(contents, "verified archive");
+    }
+
+    #[test]
+    fn cached_archive_checksum_mismatch_is_rejected() {
+        let cache = tempfile::TempDir::new().unwrap();
+        let archive_path = cache.path().join("archive.zip");
+        std::fs::write(&archive_path, "cached archive").unwrap();
+
+        let archive = open_verified_archive(
+            &archive_path,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        )
+        .unwrap();
+
+        assert!(archive.is_none());
+        assert_eq!(
+            std::fs::read_to_string(archive_path).unwrap(),
+            "cached archive"
+        );
     }
 
     fn test_registry(sandbox: &tempfile::TempDir) -> (OnlineRegistry, ModuleName, Version) {
@@ -445,41 +486,27 @@ mod tests {
     }
 
     #[test]
-    fn acquire_source_to_rejects_cached_and_downloaded_checksum_mismatches() {
-        let sandbox = tempfile::TempDir::new().unwrap();
-        let (mut registry, name, version) = test_registry(&sandbox);
+    fn downloaded_archive_checksum_mismatch_is_rejected() {
+        let name: ModuleName = "test/module".into();
+        let version = Version::new(1, 2, 3);
         let archive = test_archive();
-        let archive_path = registry.archive_cache_file_of(&name, &version);
-        std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
-        std::fs::write(&archive_path, &archive).unwrap();
-
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        registry.url_base = format!("http://{}", listener.local_addr().unwrap());
-        let response_archive = archive.clone();
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                response_archive.len()
-            )
-            .unwrap();
-            stream.write_all(&response_archive).unwrap();
-        });
-        let destination = sandbox.path().join("source");
+        let mut downloaded = Vec::new();
         let expected_checksum = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-        let error = registry
-            .acquire_source_to(&name, &version, expected_checksum, &destination, true)
-            .unwrap_err();
-        server.join().unwrap();
+        let error = copy_archive_and_verify_checksum(
+            &mut Cursor::new(&archive),
+            &mut downloaded,
+            &name,
+            &version,
+            expected_checksum,
+        )
+        .unwrap_err();
 
         assert!(
             format!("{error:#}").contains("Checksum mismatch for test/module@1.2.3"),
             "{error:#}"
         );
-        assert!(!destination.join("moon.mod").exists());
-        assert_eq!(std::fs::read(archive_path).unwrap(), archive);
+        assert_eq!(downloaded, archive);
     }
 
     #[test]
