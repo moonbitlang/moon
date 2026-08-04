@@ -59,8 +59,38 @@ fn byte_array_read_byte(handle : XByteArrayReadHandle) -> Int = "__moonbit_fs_un
 fn finish_read_byte_array(handle : XByteArrayReadHandle) = "__moonbit_fs_unstable" "finish_read_byte_array"
 
 
+///|
+fn begin_create_byte_array() -> XByteArrayCreateHandle = "__moonbit_fs_unstable" "begin_create_byte_array"
+
+///|
+fn byte_array_append_byte(handle : XByteArrayCreateHandle, byte : Int) = "__moonbit_fs_unstable" "byte_array_append_byte"
+
+///|
+fn finish_create_byte_array(handle : XByteArrayCreateHandle) -> XExternByteArray = "__moonbit_fs_unstable" "finish_create_byte_array"
+
+///|
+fn check_byte_array_round_trip() -> Unit {
+  let builder = begin_create_byte_array()
+  let input = [0, 1, 255, 256, -1]
+  for byte in input {
+    byte_array_append_byte(builder, byte)
+  }
+  let reader = begin_read_byte_array(finish_create_byte_array(builder))
+  let expected = [0, 1, 255, 0, 255]
+  for byte in expected {
+    if byte_array_read_byte(reader) != byte {
+      abort("Extern byte array did not preserve Uint8Array coercion")
+    }
+  }
+  if byte_array_read_byte(reader) != -1 {
+    abort("Extern byte array reader did not stop at the end")
+  }
+  finish_read_byte_array(reader)
+}
+
+///|
 fn main {
+  check_byte_array_round_trip()
   let bytes = read_bytes_from_stdin()
   println(bytes.iter().count())
 }
-
