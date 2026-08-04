@@ -48,6 +48,10 @@ impl UserLog {
         Self { level }
     }
 
+    pub fn is_enabled(&self, level: log::Level) -> bool {
+        self.level >= level.to_level_filter()
+    }
+
     pub fn error(&self, message: impl Display) {
         let mut stderr = anstream::stderr().lock();
         self.error_to(&mut stderr, message);

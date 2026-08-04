@@ -35,6 +35,7 @@ use mooncake::{
     registry::path as registry_path,
 };
 use moonutil::{
+    cache::CacheRoot,
     cli_support::AutoSyncFlags,
     constants::{MBTI_USER_WRITTEN, MOONBITLANG_CORE},
     dependency::SourceDependencyInfo,
@@ -88,6 +89,7 @@ impl ResolveOutput {
 pub struct ResolveConfig {
     sync_flags: AutoSyncFlags,
     sync_output: SyncOutputOptions,
+    dependency_source_cache: CacheRoot,
     no_std: bool,
     /// Whether direct bin-deps of the input modules participate in resolution
     /// and are installed during dependency sync.
@@ -264,6 +266,7 @@ impl ResolveConfig {
         Self {
             sync_flags: AutoSyncFlags { frozen },
             sync_output: SyncOutputOptions::default(),
+            dependency_source_cache: CacheRoot::Disabled,
             no_std,
             include_bin_deps: true,
             enable_coverage,
@@ -281,6 +284,7 @@ impl ResolveConfig {
         Self {
             sync_flags,
             sync_output: SyncOutputOptions::default(),
+            dependency_source_cache: CacheRoot::Disabled,
             no_std,
             include_bin_deps: true,
             enable_coverage,
@@ -295,6 +299,11 @@ impl ResolveConfig {
 
     pub fn with_sync_output(mut self, sync_output: SyncOutputOptions) -> Self {
         self.sync_output = sync_output;
+        self
+    }
+
+    pub fn with_dependency_source_cache(mut self, cache: CacheRoot) -> Self {
+        self.dependency_source_cache = cache;
         self
     }
 
@@ -449,12 +458,12 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         );
     }
 
-    // Sync modules as usual
     let (resolved_env, dir_sync_result) = auto_sync_for_single_file_rr(
         dirs,
         &cfg.sync_flags,
         front_matter_config.deps_to_sync.as_ref(),
         cfg.sync_output,
+        &cfg.dependency_source_cache,
     )
     .map_err(ResolveError::SyncModulesError)?;
     // Discover all packages in resolved modules

@@ -18,7 +18,7 @@
 
 use fs4::fs_std::FileExt;
 
-use crate::constants::MOON_LOCK;
+use crate::{constants::MOON_LOCK, user_log::UserLog};
 
 pub struct FileLock {
     _file: std::fs::File,
@@ -36,17 +36,26 @@ impl FileLock {
     }
 
     pub fn lock_with_verbosity(path: &std::path::Path, verbose: bool) -> std::io::Result<Self> {
+        let user_log = UserLog::new(if verbose {
+            log::LevelFilter::Debug
+        } else {
+            log::LevelFilter::Error
+        });
+        Self::lock_with_user_log(path, &user_log)
+    }
+
+    pub fn lock_with_user_log(path: &std::path::Path, user_log: &UserLog) -> std::io::Result<Self> {
         let file = std::fs::File::create(path.join(MOON_LOCK))?;
         match file.try_lock_exclusive() {
             Ok(_) => Ok(FileLock { _file: file }),
             Err(_) => {
-                if verbose {
-                    #[cfg(not(test))]
-                    eprintln!(
-                        "Blocking waiting for file lock {} ...",
-                        path.join(MOON_LOCK).display()
-                    );
-                }
+                #[cfg(test)]
+                let _ = user_log;
+                #[cfg(not(test))]
+                user_log.debug(format!(
+                    "Blocking waiting for file lock {} ...",
+                    path.join(MOON_LOCK).display()
+                ));
                 file.lock_exclusive()
                     .map_err(|e| std::io::Error::new(e.kind(), "failed to lock target dir"))?;
                 Ok(FileLock { _file: file })

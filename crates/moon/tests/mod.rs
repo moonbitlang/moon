@@ -56,6 +56,7 @@ pub fn moon_cmd(dir: &impl AsRef<Path>) -> snapbox::cmd::Command {
     snapbox::cmd::Command::new(moon_bin())
         .env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .env("MOON_DEP_CACHE", "off")
         .current_dir(dir)
 }
 
@@ -63,6 +64,7 @@ pub fn moon_process_cmd(dir: &impl AsRef<Path>) -> std::process::Command {
     let mut cmd = std::process::Command::new(moon_bin());
     cmd.env("MOON_TOOLCHAIN_ROOT", toolchain_root_for_tests())
         .env("MOONRUN_OVERRIDE", moonrun_bin())
+        .env("MOON_DEP_CACHE", "off")
         .current_dir(dir);
     cmd
 }

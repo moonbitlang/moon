@@ -179,6 +179,25 @@ impl Registry for MockRegistry {
     ) -> anyhow::Result<()> {
         panic!("Mock registry does not support installing")
     }
+
+    fn acquire_source_to(
+        &self,
+        _name: &ModuleName,
+        _version: &Version,
+        _expected_checksum: &str,
+        _to: &std::path::Path,
+        _quiet: bool,
+    ) -> anyhow::Result<()> {
+        panic!("Mock registry does not support extracting sources")
+    }
+
+    fn source_archive_checksum(
+        &self,
+        _name: &ModuleName,
+        _version: &Version,
+    ) -> anyhow::Result<String> {
+        panic!("Mock registry does not provide source checksums")
+    }
 }
 
 #[cfg(test)]

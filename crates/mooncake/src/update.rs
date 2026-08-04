@@ -354,7 +354,7 @@ fn update_symbols(registry_dir: &Path, output: UpdateOutput) -> anyhow::Result<(
         .context("failed to create temp directory for symbols")?;
     std::fs::create_dir_all(&tmp_dir)?;
 
-    if let Err(e) = extract_zip_to_dir(&tmp_dir, data) {
+    if let Err(e) = extract_zip_to_dir(&tmp_dir, std::io::Cursor::new(data)) {
         let _ = std::fs::remove_dir_all(&tmp_dir);
         return Err(e);
     }

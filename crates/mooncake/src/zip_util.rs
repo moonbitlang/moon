@@ -16,11 +16,13 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::path::Path;
+use std::{
+    io::{Read, Seek},
+    path::Path,
+};
 
-pub(crate) fn extract_zip_to_dir(dest: &Path, data: bytes::Bytes) -> anyhow::Result<()> {
-    let cursor = std::io::Cursor::new(data);
-    let mut zip = zip::ZipArchive::new(cursor)?;
+pub(crate) fn extract_zip_to_dir(dest: &Path, archive: impl Read + Seek) -> anyhow::Result<()> {
+    let mut zip = zip::ZipArchive::new(archive)?;
     for i in 0..zip.len() {
         let mut file = zip.by_index(i)?;
         let outpath = dest.join(file.mangled_name());

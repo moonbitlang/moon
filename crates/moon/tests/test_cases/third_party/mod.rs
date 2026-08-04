@@ -8,7 +8,6 @@ use crate::{
 fn test_third_party() {
     let dir = TestDir::new("third_party");
     get_stdout(&dir, ["update"]);
-    get_stdout(&dir, ["install"]);
     get_stdout(&dir, ["build", "--target", "wasm-gc"]);
     get_stdout(&dir, ["clean"]);
 

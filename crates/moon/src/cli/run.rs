@@ -33,6 +33,7 @@ use moonutil::command_output::CommandOutput;
 use moonutil::project::{PackageDirs, ProjectProbe};
 use moonutil::{
     build_options::{RunMode, TestArtifacts},
+    cache::{CacheKind, resolve_cache_root},
     constants::is_moon_pkg_exist,
     locks::FileLock,
     target::TargetBackend,
@@ -669,7 +670,11 @@ fn build_single_file_executable(
         cmd.build_flags.enable_coverage,
         cli.workspace_env.clone(),
     )
-    .with_sync_output(options.output.sync_output());
+    .with_sync_output(options.output.sync_output())
+    .with_dependency_source_cache(
+        resolve_cache_root(CacheKind::DependencySources)
+            .context("Failed to resolve the module dependency graph")?,
+    );
     let (resolved, backend) = moonbuild_rupes_recta::resolve::resolve_single_file_project(
         &resolve_cfg,
         &dirs,

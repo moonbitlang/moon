@@ -61,6 +61,65 @@ fn test_single_file_mbtx_run() {
     let dir = TestDir::new("moon_test_single_file.in");
     let stdout = get_stdout(&dir, ["run", "import_ok.mbtx"]);
     assert!(stdout.contains("hello"));
+    assert!(dir.join(".mooncakes/moonbitlang/x").is_dir());
+}
+
+#[test]
+fn test_standalone_mbt_run_rejects_relative_dependency_cache() {
+    let dir = TestDir::new("moon_test_single_file.in");
+
+    moon_cmd(&dir)
+        .env("MOON_DEP_CACHE", "relative")
+        .args(["run", "with_main.mbt"])
+        .assert()
+        .failure()
+        .stderr_eq(
+            "Error: Failed to resolve the module dependency graph\n\nCaused by:\n    MOON_DEP_CACHE must be an absolute path or `off`\n",
+        );
+}
+
+#[test]
+fn test_single_file_run_inputs_share_immutable_dependency_sources() {
+    let mbtx_dir = TestDir::new("moon_test_single_file.in");
+    let inline_dir = TestDir::new_empty();
+    let stdin_dir = TestDir::new_empty();
+    let dependency_cache = tempfile::TempDir::new().unwrap();
+    let source = fs::read_to_string(mbtx_dir.join("import_ok.mbtx")).unwrap();
+
+    moon_cmd(&mbtx_dir)
+        .env("MOON_DEP_CACHE", dependency_cache.path())
+        .args(["run", "import_ok.mbtx"])
+        .assert()
+        .success()
+        .stdout_eq("hello\n");
+
+    assert!(!mbtx_dir.join(".mooncakes/moonbitlang/x").exists());
+    let cached_source = dependency_cache
+        .path()
+        .join("v1/sources/moonbitlang/x/0.4.38");
+    assert!(
+        cached_source.join("moon.mod").is_file() || cached_source.join("moon.mod.json").is_file()
+    );
+    let checksum = fs::read_to_string(cached_source.join(".moon-source-archive-checksum")).unwrap();
+    assert_eq!(checksum.len(), 64);
+    assert!(checksum.bytes().all(|byte| byte.is_ascii_hexdigit()));
+
+    moon_cmd(&inline_dir)
+        .env("MOON_DEP_CACHE", dependency_cache.path())
+        .args(["run", "--frozen", "-e", &source])
+        .assert()
+        .success()
+        .stdout_eq("hello\n");
+    assert!(!inline_dir.join(".mooncakes/moonbitlang/x").exists());
+
+    moon_cmd(&stdin_dir)
+        .env("MOON_DEP_CACHE", dependency_cache.path())
+        .args(["run", "--frozen", "-"])
+        .stdin(source)
+        .assert()
+        .success()
+        .stdout_eq("hello\n");
+    assert!(!stdin_dir.join(".mooncakes/moonbitlang/x").exists());
 }
 
 #[test]

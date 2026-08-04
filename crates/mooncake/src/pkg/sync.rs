@@ -24,6 +24,7 @@ use anyhow::Context;
 use indexmap::IndexMap;
 use moonutil::{
     build_options::{MoonbuildOpt, MooncOpt},
+    cache::CacheRoot,
     cli_support::AutoSyncFlags,
     front_matter::MbtMdHeader,
     manifest::{MoonMod, read_module_desc_file_in_dir},
@@ -32,6 +33,7 @@ use moonutil::{
         read_workspace_file,
     },
     resolution::{DirSyncResult, ModuleSource, ResolvedEnv, ResolvedModule, ResolvedRootModules},
+    user_log::UserLog,
 };
 use semver::Version;
 
@@ -46,17 +48,22 @@ impl SyncOutputOptions {
         Self { quiet, verbose }
     }
 
-    pub fn quiet(self) -> bool {
-        self.quiet
-    }
-
-    pub fn verbose(self) -> bool {
-        self.verbose
-    }
-
     pub fn with_quiet(mut self, quiet: bool) -> Self {
         self.quiet = quiet;
         self
+    }
+
+    pub(crate) fn user_log(self) -> UserLog {
+        // Preserve the existing sync policy while expressing it as one log
+        // level: acquisition is informational, while lock waits are verbose.
+        let level = if self.quiet {
+            log::LevelFilter::Error
+        } else if self.verbose {
+            log::LevelFilter::Debug
+        } else {
+            log::LevelFilter::Info
+        };
+        UserLog::new(level)
     }
 }
 
@@ -103,8 +110,15 @@ pub fn auto_sync(
     let source = ModuleSource::from_local_module(&module, &dirs.source_dir);
     let (roots, _) = ResolvedModule::only_one_module(source, module);
 
-    let (resolved_env, sync_result) =
-        super::install::install_impl(dirs, roots, output_options, false, cli.dont_sync(), no_std)?;
+    let (resolved_env, sync_result) = super::install::install_impl(
+        dirs,
+        roots,
+        output_options,
+        false,
+        cli.dont_sync(),
+        no_std,
+        &CacheRoot::Disabled,
+    )?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((resolved_env, sync_result, None))
 }
@@ -129,8 +143,15 @@ fn resolve_workspace_sync(
         roots.insert(ResolvedModule::new(source, module));
     }
 
-    let (resolved_env, sync_result) =
-        super::install::install_impl(dirs, roots, output_options, false, cli.dont_sync(), no_std)?;
+    let (resolved_env, sync_result) = super::install::install_impl(
+        dirs,
+        roots,
+        output_options,
+        false,
+        cli.dont_sync(),
+        no_std,
+        &CacheRoot::Disabled,
+    )?;
     log::debug!("Dir sync result: {:?}", sync_result);
     Ok((resolved_env, sync_result, Some(workspace)))
 }
@@ -179,6 +200,7 @@ pub fn auto_sync_for_single_mbt_md(
         moonbuild_opt.verbose,
         dont_sync,
         false,
+        &CacheRoot::Disabled,
     )?;
     log::debug!("Dir sync result: {:?}", dir_sync_result);
     Ok((resolved_env, dir_sync_result, m))
@@ -189,6 +211,7 @@ pub fn auto_sync_for_single_file_rr(
     sync_flags: &AutoSyncFlags,
     front_matter_deps: Option<&IndexMap<String, moonutil::dependency::SourceDependencyInfo>>,
     output_options: SyncOutputOptions,
+    source_cache: &CacheRoot,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let mut synth_deps = IndexMap::new();
     if let Some(deps_map) = front_matter_deps {
@@ -213,8 +236,27 @@ pub fn auto_sync_for_single_file_rr(
         false,
         sync_flags.dont_sync(),
         false,
+        source_cache,
     )?;
 
     log::debug!("Dir sync result: {:?}", dir_sync_result);
     Ok((resolved_env, dir_sync_result))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SyncOutputOptions;
+
+    #[test]
+    fn sync_output_options_configure_user_log() {
+        let normal = SyncOutputOptions::new(false, false).user_log();
+        assert!(normal.is_enabled(log::Level::Info));
+        assert!(!normal.is_enabled(log::Level::Debug));
+
+        let verbose = SyncOutputOptions::new(false, true).user_log();
+        assert!(verbose.is_enabled(log::Level::Debug));
+
+        let quiet = SyncOutputOptions::new(true, true).user_log();
+        assert!(!quiet.is_enabled(log::Level::Info));
+    }
 }

@@ -17,14 +17,14 @@
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
 use crate::{
-    dep_dir::resolve_dep_dirs,
-    registry,
+    dependency_source, registry,
     resolver::{ResolveConfig, resolve_with_default_env_and_resolver},
 };
 
 use super::sync::SyncOutputOptions;
 use anyhow::Context;
 use moonutil::{
+    cache::CacheRoot,
     constants::MOONBITLANG_CORE,
     project::PackageDirs,
     resolution::{
@@ -94,6 +94,7 @@ pub(crate) fn install_impl(
     verbose: bool,
     dont_sync: bool,
     no_std: bool,
+    source_cache: &CacheRoot,
 ) -> anyhow::Result<(ResolvedEnv, DirSyncResult)> {
     let includes_core = roots
         .iter()
@@ -108,35 +109,26 @@ pub(crate) fn install_impl(
     };
 
     let res = resolve_with_default_env_and_resolver(&resolve_config, roots)?;
-    let dep_dir = crate::dep_dir::DepDir::new(dirs.mooncakes_dir.clone());
-
-    crate::dep_dir::sync_deps(
-        &dep_dir,
-        resolve_config.registry.as_ref(),
-        &res,
-        output_options.quiet(),
-        dont_sync,
-        output_options.verbose(),
-    )
-    .context("When installing packages")?;
-
-    let dir_sync_result = resolve_dep_dirs(&dep_dir, &res);
+    let dependency_source = dependency_source::select(&dirs.mooncakes_dir, source_cache, &res)?;
+    let user_log = output_options.user_log();
+    let dependency_paths =
+        dependency_source.ensure(resolve_config.registry.as_ref(), &res, dont_sync, &user_log)?;
 
     install_bin_deps(
         verbose,
         &res,
-        &dir_sync_result,
+        &dependency_paths,
         &dirs.target_dir,
         &dirs.mooncake_bin_dir,
     )?;
 
-    Ok((res, dir_sync_result))
+    Ok((res, dependency_paths))
 }
 
 fn install_bin_deps(
     verbose: bool,
     res: &ResolvedEnv,
-    dep_dir: &DirSyncResult,
+    dependency_paths: &DirSyncResult,
     target_dir: &Path,
     mooncake_bin_dir: &Path,
 ) -> Result<(), anyhow::Error> {
@@ -154,7 +146,9 @@ fn install_bin_deps(
                 .get(&edge.name.to_string()) // inefficient but fine for now
                 .unwrap();
 
-            let path = dep_dir.get(id).expect("Failed to get dep dir");
+            let path = dependency_paths
+                .get(id)
+                .expect("Failed to get dependency source path");
             let module_source = res.module_source(id);
             let prepared =
                 prepare_bin_dep(path, target_dir, mooncake_bin_dir, module_source.source())?;

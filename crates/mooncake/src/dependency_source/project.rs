@@ -16,7 +16,7 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-//! Utilities to handle the local package directory, `.mooncakes`.
+//! Project-local dependency sources stored in `.mooncakes`.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -30,10 +30,13 @@ use moonutil::{
     locks::FileLock,
     resolution::{DirSyncResult, ModuleSource, ModuleSourceKind, ResolvedEnv},
     toolchain,
+    user_log::UserLog,
 };
 use semver::Version;
 
 use crate::registry::Registry;
+
+use super::DependencySource;
 
 type DepDirState = HashMap<ArcStr, HashMap<ArcStr, Option<Version>>>;
 type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
@@ -48,21 +51,21 @@ type NewDepDirState<'a> = HashMap<ArcStr, HashMap<ArcStr, &'a ModuleSource>>;
 /// dependencies directory for ease of scanning. Instead, we replace all slashes
 /// in the `pkgname` part with plus `+` sign. For example, a package
 /// `foo/bar/baz` will be stored in the directory `foo/bar+baz`.
-pub(crate) struct DepDir {
+pub(super) struct ProjectDependencySource {
     path: PathBuf,
 }
 
-impl DepDir {
-    pub(crate) fn new(path: impl Into<PathBuf>) -> Self {
-        DepDir { path: path.into() }
+impl ProjectDependencySource {
+    pub(super) fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
     }
 
-    pub(crate) fn path(&self) -> &Path {
+    fn path(&self) -> &Path {
         &self.path
     }
 
     /// Returns a list of currently installed packages.
-    pub(crate) fn get_current_state(&self) -> std::io::Result<DepDirState> {
+    fn get_current_state(&self) -> std::io::Result<DepDirState> {
         let it = self.path().read_dir()?;
         let mut user_list = HashMap::new();
         for entry in it {
@@ -91,6 +94,19 @@ impl DepDir {
         }
 
         Ok(user_list)
+    }
+}
+
+impl DependencySource for ProjectDependencySource {
+    fn ensure(
+        &self,
+        registry: &dyn Registry,
+        resolved: &ResolvedEnv,
+        frozen: bool,
+        user_log: &UserLog,
+    ) -> anyhow::Result<DirSyncResult> {
+        sync(self, registry, resolved, frozen, user_log).context("When installing packages")?;
+        resolve_paths(self, resolved)
     }
 }
 
@@ -196,13 +212,12 @@ fn diff_dep_dir_state<'a>(
 /// If `frozen` is true, the function will not change anything in the current
 /// dependency directory. If the desired dependency list cannot be created
 /// from the current directory, this function will return an error.
-pub(crate) fn sync_deps(
-    dep_dir: &DepDir,
+fn sync(
+    dep_dir: &ProjectDependencySource,
     registry: &dyn Registry,
     pkg_list: &ResolvedEnv,
-    quiet: bool,
     frozen: bool,
-    verbose: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<()> {
     // If nothing needs to be installed, don't bother
     let target_dep_dir = pkg_list_to_dep_dir_state(pkg_list.all_modules());
@@ -214,7 +229,7 @@ pub(crate) fn sync_deps(
     // Ensure the directory exists.
     std::fs::create_dir_all(dep_dir.path())?;
     // Lock with a file within the directory
-    let _lock = FileLock::lock_with_verbosity(dep_dir.path(), verbose).with_context(|| {
+    let _lock = FileLock::lock_with_user_log(dep_dir.path(), user_log).with_context(|| {
         format!(
             "Unable to lock folder `{}` for downloading dependencies",
             dep_dir.path().display()
@@ -264,7 +279,12 @@ pub(crate) fn sync_deps(
             let ModuleSourceKind::Registry = version.source() else {
                 unreachable!()
             };
-            registry.install_to(version.name(), version.version(), &pkg_path, quiet)?;
+            registry.install_to(
+                version.name(),
+                version.version(),
+                &pkg_path,
+                !user_log.is_enabled(log::Level::Info),
+            )?;
             // TODO: parallelize this
         }
     }
@@ -274,7 +294,7 @@ pub(crate) fn sync_deps(
     Ok(())
 }
 
-fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
+fn pkg_to_dir(dep_dir: &ProjectDependencySource, username: &str, pkgname: &str) -> PathBuf {
     // Special case: core library locates in ~/.moon
     if format!("{username}/{pkgname}") == MOONBITLANG_CORE {
         return toolchain::core();
@@ -284,30 +304,36 @@ fn pkg_to_dir(dep_dir: &DepDir, username: &str, pkgname: &str) -> PathBuf {
 }
 
 /// The result of a directory sync.
-fn map_source_to_dir(dep_dir: &DepDir, module: &ModuleSource) -> PathBuf {
-    match module.source() {
+fn map_source_to_dir(
+    dep_dir: &ProjectDependencySource,
+    module: &ModuleSource,
+) -> anyhow::Result<PathBuf> {
+    Ok(match module.source() {
         ModuleSourceKind::Registry => {
             pkg_to_dir(dep_dir, &module.name().username, &module.name().unqual)
         }
         ModuleSourceKind::Local(path) => path.clone(),
         ModuleSourceKind::Git(url) => {
-            todo!("Git dependency is not yet supported. Got git url: {}", url)
+            anyhow::bail!("Git dependencies are not supported: {url}")
         }
         ModuleSourceKind::Stdlib(path) => path.clone(),
         ModuleSourceKind::SingleFile(path) => path.clone(),
-    }
+    })
 }
 
 /// Resolve the directory for each module in this build.
 ///
-/// Assumes [`sync_deps`] is already called. Otherwise, modules might point to
+/// Assumes [`sync`] is already called. Otherwise, modules might point to
 /// directories that don't exist yet because they are not synced yet.
-pub(crate) fn resolve_dep_dirs(dep_dir: &DepDir, pkg_list: &ResolvedEnv) -> DirSyncResult {
+fn resolve_paths(
+    dep_dir: &ProjectDependencySource,
+    pkg_list: &ResolvedEnv,
+) -> anyhow::Result<DirSyncResult> {
     let mut res = DirSyncResult::default();
     for (id, module) in pkg_list.all_modules_and_id() {
-        res.insert(id, map_source_to_dir(dep_dir, module));
+        res.insert(id, map_source_to_dir(dep_dir, module)?);
     }
-    res
+    Ok(res)
 }
 
 #[cfg(test)]

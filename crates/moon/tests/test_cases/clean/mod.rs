@@ -139,6 +139,33 @@ fn test_clean_refuses_unowned_custom_cache_root() {
 }
 
 #[test]
+fn test_clean_refuses_malformed_ownership_marker() {
+    let dir = TestDir::new_empty();
+    let cache = tempfile::TempDir::new().unwrap();
+    std::fs::write(cache.path().join(".moon-cache"), "user data").unwrap();
+    std::fs::write(cache.path().join("must-survive"), "contents").unwrap();
+
+    moon_cmd(&dir)
+        .env("MOON_DEP_CACHE", cache.path())
+        .args(["clean", "--dep-cache"])
+        .assert()
+        .failure()
+        .stdout_eq("")
+        .stderr_eq(
+            "Error: refusing to use Moon cache root `[..]` with an incompatible ownership marker\n",
+        );
+
+    assert_eq!(
+        std::fs::read_to_string(cache.path().join(".moon-cache")).unwrap(),
+        "user data"
+    );
+    assert_eq!(
+        std::fs::read_to_string(cache.path().join("must-survive")).unwrap(),
+        "contents"
+    );
+}
+
+#[test]
 fn test_clean_uses_default_cache_roots() {
     let dir = TestDir::new_empty();
     let moon_home = tempfile::TempDir::new().unwrap();

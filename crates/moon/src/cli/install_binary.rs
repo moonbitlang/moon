@@ -712,7 +712,9 @@ pub(super) fn build_registry_native_executable_to(
     let source = tempfile::TempDir::new().context("Failed to create temporary directory")?;
     // Moonx needs the sources for its temporary build, but must not run package
     // installation hooks or let acquisition progress precede program stdout.
-    OnlineRegistry::mooncakes_io().extract_to(module_name, version, source.path(), !verbose)?;
+    let registry = OnlineRegistry::mooncakes_io();
+    let checksum = registry.source_archive_checksum(module_name, version)?;
+    registry.acquire_source_to(module_name, version, &checksum, source.path(), !verbose)?;
 
     let cli = UniversalFlags {
         source_tgt_dir: SourceTargetDirs {
