@@ -22,7 +22,6 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use colored::Colorize;
 use indexmap::{IndexMap, IndexSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -34,6 +33,7 @@ use crate::{
     module::MoonModRule,
     moon_pkg,
     target::TargetBackend::{self, Js, LLVM, Native, Wasm, WasmGC},
+    user_log::UserLog,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -778,13 +778,17 @@ impl Import {
 }
 
 /// Convert moon.pkg DSL (with `options` key) to MoonPkg struct
-pub fn convert_pkg_dsl_to_package(dsl: moon_pkg::Dsl) -> anyhow::Result<MoonPkg> {
-    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, true)?.0)
+pub fn convert_pkg_dsl_to_package(
+    dsl: moon_pkg::Dsl,
+    user_log: &UserLog,
+) -> anyhow::Result<MoonPkg> {
+    Ok(convert_pkg_dsl_to_package_with_supported_targets_decl(dsl, true, user_log)?.0)
 }
 
 pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     dsl: moon_pkg::Dsl,
     emit_warnings: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     // It will validate the top-level keys and merge `options` into the root level.
     // Might be removed in the future, after we remove the moon.pkg.json and have an
@@ -847,12 +851,8 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     match (supported_targets, legacy_supported_targets) {
         (Some(supported_targets), Some(_)) => {
             if emit_warnings {
-                eprintln!(
-                    "{}",
-                    "Warning: Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value."
-                        .yellow()
-                        .bold()
-                );
+                let warning = "Both `supported_targets = ...` and `options(\"supported-targets\": ...)` are set in `moon.pkg`. Using `supported_targets` and ignoring the old `options(\"supported-targets\")` value.";
+                user_log.warn(warning);
             }
             map.insert(String::from("supported-targets"), supported_targets);
         }
@@ -861,12 +861,8 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
         }
         (None, Some(legacy_supported_targets)) => {
             if emit_warnings {
-                eprintln!(
-                    "{}",
-                    "Warning: `options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead."
-                        .yellow()
-                        .bold()
-                );
+                let warning = "`options(\"supported-targets\": ...)` in `moon.pkg` is deprecated. Please use `supported_targets = ...` instead.";
+                user_log.warn(warning);
             }
             map.insert(String::from("supported-targets"), legacy_supported_targets);
         }
@@ -881,7 +877,7 @@ pub fn convert_pkg_dsl_to_package_with_supported_targets_decl(
     }
     let json = Value::Object(map);
     let pkg_json: MoonPkgJSON = serde_json_lenient::from_value(json)?;
-    convert_pkg_json_to_package_with_supported_targets_decl(pkg_json, emit_warnings)
+    convert_pkg_json_to_package_with_supported_targets_decl(pkg_json, emit_warnings, user_log)
 }
 
 pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import> {
@@ -942,6 +938,7 @@ pub fn pkg_json_imports_to_imports(source: Option<PkgJSONImport>) -> Vec<Import>
 pub fn convert_pkg_json_to_package_with_supported_targets_decl(
     j: MoonPkgJSON,
     emit_warnings: bool,
+    user_log: &UserLog,
 ) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
     let get_imports =
         |source: Option<PkgJSONImport>| -> Vec<Import> { pkg_json_imports_to_imports(source) };
@@ -965,12 +962,8 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
     {
         legacy_is_main = true;
         if emit_warnings {
-            eprintln!(
-                "{}",
-                "Warning: The `name` field in `moon.pkg` is now deprecated. For the main package, please use `\"is-main\": true` instead. Refer to the latest documentation at https://www.moonbitlang.com/docs/build-system-tutorial for more information."
-                    .yellow()
-                    .bold()
-            );
+            let warning = "The `name` field in `moon.pkg` is now deprecated. For the main package, please use `\"is-main\": true` instead. Refer to the latest documentation at https://www.moonbitlang.com/docs/build-system-tutorial for more information.";
+            user_log.warn(warning);
         }
     }
     // Legacy `force_link` from the boolean `link: true` (a structured
@@ -996,15 +989,11 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
                         is_main_flag
                     );
                 } else if emit_warnings {
-                    eprintln!(
-                        "{}",
-                        format!(
-                            "Warning: `is-main` is redundant with `pkgtype(kind: \"{}\")` in `moon.pkg`. `is-main` is deprecated; please remove it.",
-                            kind.as_str()
-                        )
-                        .yellow()
-                        .bold()
+                    let warning = format!(
+                        "`is-main` is redundant with `pkgtype(kind: \"{}\")` in `moon.pkg`. `is-main` is deprecated; please remove it.",
+                        kind.as_str()
                     );
+                    user_log.warn(warning);
                 }
             }
             if let Some(BoolOrLink::Bool(link_flag)) = &j.link {
@@ -1015,16 +1004,12 @@ pub fn convert_pkg_json_to_package_with_supported_targets_decl(
                         link_flag
                     );
                 } else if emit_warnings {
-                    eprintln!(
-                        "{}",
-                        format!(
-                            "Warning: `link: {}` is redundant with `pkgtype(kind: \"{}\")` in `moon.pkg`. The boolean `link` is deprecated; please remove it.",
-                            link_flag,
-                            kind.as_str()
-                        )
-                        .yellow()
-                        .bold()
+                    let warning = format!(
+                        "`link: {}` is redundant with `pkgtype(kind: \"{}\")` in `moon.pkg`. The boolean `link` is deprecated; please remove it.",
+                        link_flag,
+                        kind.as_str()
                     );
+                    user_log.warn(warning);
                 }
             }
             (want_main, want_force_link)
@@ -1138,11 +1123,34 @@ pub fn validate_data_directory(package_root: &Path, data_dir: &str) -> anyhow::R
     Ok(path)
 }
 
+#[cfg(test)]
+fn convert_test_pkg_dsl(
+    dsl: moon_pkg::Dsl,
+    emit_warnings: bool,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
+    convert_pkg_dsl_to_package_with_supported_targets_decl(
+        dsl,
+        emit_warnings,
+        &UserLog::new(log::LevelFilter::Error),
+    )
+}
+
+#[cfg(test)]
+fn convert_test_pkg_json(
+    json: MoonPkgJSON,
+    emit_warnings: bool,
+) -> anyhow::Result<(MoonPkg, SupportedTargetsDeclKind)> {
+    convert_pkg_json_to_package_with_supported_targets_decl(
+        json,
+        emit_warnings,
+        &UserLog::new(log::LevelFilter::Error),
+    )
+}
+
 #[test]
 fn convert_pkg_dsl_supports_supported_targets_shorthand() {
     let json = crate::moon_pkg::parse(r#"supported_targets = "js""#).unwrap();
-    let (pkg, decl_kind) =
-        convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
+    let (pkg, decl_kind) = convert_test_pkg_dsl(json, true).unwrap();
 
     assert_eq!(
         pkg.supported_targets.iter().copied().collect::<Vec<_>>(),
@@ -1162,8 +1170,7 @@ options(
 "#,
     )
     .unwrap();
-    let (pkg, decl_kind) =
-        convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
+    let (pkg, decl_kind) = convert_test_pkg_dsl(json, true).unwrap();
 
     assert_eq!(
         pkg.supported_targets.iter().copied().collect::<Vec<_>>(),
@@ -1182,7 +1189,7 @@ fn convert_pkgtype_derives_is_main_and_force_link() {
     for (kind, want_is_main, want_force_link) in cases {
         let src = format!(r#"pkgtype(kind: "{kind}")"#);
         let json = crate::moon_pkg::parse(&src).unwrap();
-        let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
+        let (pkg, _) = convert_test_pkg_dsl(json, false).unwrap();
         assert_eq!(pkg.is_main, want_is_main, "is_main for kind {kind}");
         assert_eq!(
             pkg.force_link, want_force_link,
@@ -1194,7 +1201,7 @@ fn convert_pkgtype_derives_is_main_and_force_link() {
 #[test]
 fn convert_pkgtype_defaults_to_library_when_absent() {
     let json = crate::moon_pkg::parse("").unwrap();
-    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(json, false).unwrap();
     assert!(!pkg.is_main);
     assert!(!pkg.force_link);
 }
@@ -1208,7 +1215,7 @@ options("is-main": true)
 "#,
     )
     .unwrap();
-    let err = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap_err();
+    let err = convert_test_pkg_dsl(json, false).unwrap_err();
     assert!(
         err.to_string().contains("conflicts with `is-main"),
         "unexpected error: {err}"
@@ -1224,7 +1231,7 @@ options("link": true)
 "#,
     )
     .unwrap();
-    let err = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap_err();
+    let err = convert_test_pkg_dsl(json, false).unwrap_err();
     assert!(
         err.to_string().contains("conflicts with `link"),
         "unexpected error: {err}"
@@ -1240,7 +1247,7 @@ options("is-main": true)
 "#,
     )
     .unwrap();
-    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(json, false).unwrap();
     assert!(pkg.is_main);
     assert!(!pkg.force_link);
 }
@@ -1256,7 +1263,7 @@ options("link": { "js": { "format": "esm" } })
 "#,
     )
     .unwrap();
-    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, false).unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(json, false).unwrap();
     assert!(!pkg.is_main);
     assert!(pkg.force_link);
     assert!(pkg.link.is_some());
@@ -1272,7 +1279,7 @@ options(
 "#,
     )
     .unwrap();
-    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(json, true).unwrap();
 
     assert!(pkg.proof_enabled);
 }
@@ -1286,7 +1293,7 @@ dev_build(rule: "rule1", input: "abc", output: "def")
     )
     .unwrap();
 
-    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(json, true).unwrap();
     let pre_build = pkg.pre_build.unwrap();
     let MoonPkgGenerate::Rule {
         rule,
@@ -1317,7 +1324,7 @@ dev_build(rule: "rule1", input: "abc", output: "def")
     )
     .unwrap();
 
-    let (pkg, _) = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap();
+    let (pkg, _) = convert_test_pkg_dsl(json, true).unwrap();
     let rules = pkg.local_rules.as_ref().expect("expected local rules");
     assert_eq!(rules.len(), 1);
     assert_eq!(rules[0].name, "rule1");
@@ -1334,7 +1341,7 @@ rule(name: "rule1", command: "exe2")
     )
     .unwrap();
 
-    let err = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap_err();
+    let err = convert_test_pkg_dsl(json, true).unwrap_err();
     assert!(
         err.to_string()
             .contains("Duplicate rule name `rule1` found in moon.pkg.")
@@ -1353,7 +1360,7 @@ options(
     )
     .unwrap();
 
-    let err = convert_pkg_dsl_to_package_with_supported_targets_decl(json, true).unwrap_err();
+    let err = convert_test_pkg_dsl(json, true).unwrap_err();
     assert!(
         err.to_string()
             .contains("`dev_build` cannot be used together with `pre-build`")
@@ -1370,7 +1377,7 @@ fn convert_pkg_json_supports_proof_enabled_hyphenated() {
 "#,
     )
     .unwrap();
-    let (pkg, _) = convert_pkg_json_to_package_with_supported_targets_decl(json, true).unwrap();
+    let (pkg, _) = convert_test_pkg_json(json, true).unwrap();
 
     assert!(pkg.proof_enabled);
 }

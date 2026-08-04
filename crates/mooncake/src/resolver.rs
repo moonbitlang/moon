@@ -23,6 +23,7 @@ use anyhow::Context;
 use moonutil::manifest::read_module_desc_file_in_dir;
 use moonutil::resolution::{ModuleId, ModuleName, ModuleSource, ResolvedEnv, ResolvedRootModules};
 use moonutil::toolchain;
+use moonutil::user_log::UserLog;
 use semver::Version;
 use thiserror::Error;
 
@@ -91,7 +92,8 @@ pub(crate) trait Resolver {
     ///
     /// If the dependencies cannot be resolved, this function should return
     /// `false`. The errors should be emitted in `env`.
-    fn resolve(&mut self, env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool;
+    fn resolve(&mut self, env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog)
+    -> bool;
 }
 
 /// Goes through the resolved environment and checks for any duplicate module names.
@@ -239,6 +241,7 @@ pub(crate) fn resolve_with_default_env(
     config: &ResolveConfig,
     resolver: &mut dyn Resolver,
     root: ResolvedRootModules,
+    user_log: &UserLog,
 ) -> Result<ResolvedEnv, ResolverErrors> {
     let mut env = env::ResolverEnv::new(config.registry.as_ref());
     let mut res = ResolvedEnv::from_root_modules(root);
@@ -248,7 +251,7 @@ pub(crate) fn resolve_with_default_env(
             .map_err(|e| ResolverErrors(vec![ResolverError::CannotInjectCore(e)]))?;
     }
 
-    let status = resolver.resolve(&mut env, &mut res);
+    let status = resolver.resolve(&mut env, &mut res, user_log);
     if env.any_errors() {
         Err(ResolverErrors(env.into_errors()))
     } else {
@@ -276,7 +279,8 @@ fn inject_std(res: &mut ResolvedEnv) -> anyhow::Result<()> {
 pub(crate) fn resolve_with_default_env_and_resolver(
     config: &ResolveConfig,
     root: ResolvedRootModules,
+    user_log: &UserLog,
 ) -> Result<ResolvedEnv, ResolverErrors> {
     let mut resolver = MvsSolver;
-    resolve_with_default_env(config, &mut resolver, root)
+    resolve_with_default_env(config, &mut resolver, root, user_log)
 }

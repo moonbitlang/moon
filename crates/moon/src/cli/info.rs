@@ -295,7 +295,7 @@ pub(crate) fn run_info(
         build_flags.enable_coverage,
         cli.workspace_env.clone(),
     );
-    let synced_env = sync_dependencies(&resolve_cfg, &dirs)?;
+    let synced_env = sync_dependencies(&resolve_cfg, &dirs, output.user_log())?;
     let resolve_output = resolve_synced_project(&resolve_cfg, synced_env, output.user_log())?;
     let selection = PackageSelection::new(&cmd, &resolve_output, output.user_log())?;
 

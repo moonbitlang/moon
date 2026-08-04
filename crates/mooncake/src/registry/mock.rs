@@ -175,7 +175,7 @@ impl Registry for MockRegistry {
         _name: &ModuleName,
         _version: &Version,
         _to: &std::path::Path,
-        _quiet: bool,
+        _user_log: &moonutil::user_log::UserLog,
     ) -> anyhow::Result<()> {
         panic!("Mock registry does not support installing")
     }
@@ -186,7 +186,7 @@ impl Registry for MockRegistry {
         _version: &Version,
         _expected_checksum: &str,
         _to: &std::path::Path,
-        _quiet: bool,
+        _user_log: &moonutil::user_log::UserLog,
     ) -> anyhow::Result<()> {
         panic!("Mock registry does not support extracting sources")
     }

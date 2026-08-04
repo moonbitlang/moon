@@ -60,6 +60,7 @@ use moonutil::{
         warn_if_shadowed_manifest, warn_known_shadowed_manifest,
     },
     package::resolve_supported_targets,
+    user_log::UserLog,
     workspace::{canonical_workspace_module_dirs, read_workspace_file},
 };
 use relative_path::{PathExt, RelativePath};
@@ -79,6 +80,7 @@ use self::package_files::DiscoveredPackageFiles;
 pub fn discover_packages(
     env: &ResolvedEnv,
     dirs: &DirSyncResult,
+    user_log: &UserLog,
 ) -> Result<DiscoverResult, DiscoverError> {
     info!("Starting package discovery across all modules");
     let mut res = DiscoverResult::default();
@@ -94,13 +96,9 @@ pub fn discover_packages(
         };
 
         let dir = dirs.get(id).expect("Bad module ID to get directory");
-        warn_if_shadowed_manifest(
-            dir,
-            MOON_MOD_JSON,
-            MOON_MOD,
-            &format!("at module root '{}'", dir.display()),
-        );
-        discover_packages_for_mod(&mut res, dir, id, env.resolved_module(id))?;
+        let location = format!("at module root '{}'", dir.display());
+        warn_if_shadowed_manifest(dir, MOON_MOD_JSON, MOON_MOD, &location, user_log);
+        discover_packages_for_mod(&mut res, dir, id, env.resolved_module(id), user_log)?;
     }
 
     if let Some(id) = res.get_package_id_by_name(MOONBITLANG_ABORT) {
@@ -124,6 +122,7 @@ pub fn discover_packages(
 pub fn discover_local_project(
     source_dir: &Path,
     project_manifest: &ProjectManifest,
+    user_log: &UserLog,
 ) -> Result<DiscoveredLocalProject, DiscoverError> {
     info!(
         "Starting local project discovery for {}",
@@ -131,7 +130,7 @@ pub fn discover_local_project(
     );
 
     let workspace = if let ProjectManifest::Workspace(workspace_manifest_path) = project_manifest {
-        read_workspace_file(workspace_manifest_path)
+        read_workspace_file(workspace_manifest_path, user_log)
             .map(Some)
             .map_err(|inner| DiscoverError::CantReadLocalWorkspace {
                 path: workspace_manifest_path.to_owned(),
@@ -170,6 +169,7 @@ pub fn discover_local_project(
             MOON_MOD_JSON,
             MOON_MOD,
             &format!("at module root '{}'", module_dir.display()),
+            user_log,
         );
         let module = read_module_desc_file_in_dir(&module_dir).map_err(|inner| {
             DiscoverError::CantReadLocalModuleFile {
@@ -182,7 +182,7 @@ pub fn discover_local_project(
         let id = root_modules.insert(ResolvedModule::new(source, module));
         root_module_ids.push(id);
 
-        discover_packages_for_mod(&mut pkg_dirs, &module_dir, id, &root_modules[id])?;
+        discover_packages_for_mod(&mut pkg_dirs, &module_dir, id, &root_modules[id], user_log)?;
     }
 
     if let Some(id) = pkg_dirs.get_package_id_by_name(MOONBITLANG_ABORT) {
@@ -208,6 +208,7 @@ pub(crate) fn discover_packages_for_mod(
     dir: &Path,
     id: ModuleId,
     module: &ResolvedModule,
+    user_log: &UserLog,
 ) -> Result<(), DiscoverError> {
     // This information is the one we get from the registry. We will read again
     // from the resolved directory
@@ -306,11 +307,13 @@ pub(crate) fn discover_packages_for_mod(
         let moon_pkg_json_path = abs_path.join(MOON_PKG_JSON);
         let pkg_manifest_path = if moon_pkg_path.exists() {
             if moon_pkg_json_path.exists() {
+                let location = format!("at package root '{}'", abs_path.display());
                 warn_known_shadowed_manifest(
                     abs_path,
                     MOON_PKG_JSON,
                     MOON_PKG,
-                    &format!("at package root '{}'", abs_path.display()),
+                    &location,
+                    user_log,
                 );
             }
             moon_pkg_path
@@ -335,6 +338,7 @@ pub(crate) fn discover_packages_for_mod(
             is_stdlib_pkg,
             &module_supported_targets,
             &pkg_manifest_path,
+            user_log,
         )?;
         debug!(
             "Found package: {} with {} source files",
@@ -353,6 +357,7 @@ pub(crate) fn discover_packages_for_mod(
 /// Discover one package and get its basic information. This does *not* create
 /// e.g. subpackages.
 #[instrument(level = Level::DEBUG, skip(m, rel, pkg_manifest_path))]
+#[allow(clippy::too_many_arguments)]
 fn discover_one_package(
     mid: ModuleId,
     m: &ModuleSource,
@@ -361,6 +366,7 @@ fn discover_one_package(
     pkg_is_stdlib: bool, // Whether the package being discovered is inside the stdlib (core) module.
     module_supported_targets: &IndexSet<TargetBackend>,
     pkg_manifest_path: &Path,
+    user_log: &UserLog,
 ) -> Result<(DiscoveredPackage, Option<PathBuf>), DiscoverError> {
     let abs = pkg_manifest_path
         .parent()
@@ -371,14 +377,13 @@ fn discover_one_package(
 
     // Discover the package config
     let (pkg_json, supported_targets_decl) =
-        read_package_desc_file_from_path_with_supported_targets_decl(pkg_manifest_path).map_err(
-            |e| DiscoverError::CantReadPackageFile {
-                module: m.clone(),
-                package: fqn.package().clone(),
-                path: abs.to_path_buf(),
-                inner: e,
-            },
-        )?;
+        read_package_desc_file_from_path_with_supported_targets_decl(pkg_manifest_path, user_log)
+            .map_err(|e| DiscoverError::CantReadPackageFile {
+            module: m.clone(),
+            package: fqn.package().clone(),
+            path: abs.to_path_buf(),
+            inner: e,
+        })?;
     let pkg_json = if is_core {
         add_prelude_as_import_for_core(pkg_json)
     } else {
@@ -501,6 +506,7 @@ mod tests {
     use moonutil::{
         manifest::MoonMod,
         resolution::{DirSyncResult, ModuleSource, ResolvedEnv},
+        user_log::UserLog,
     };
 
     use super::discover_packages;
@@ -548,7 +554,8 @@ mod tests {
         dirs.insert(id, dir.clone());
 
         let discovered =
-            discover_packages(&resolved_env, &dirs).expect("failed to discover test packages");
+            discover_packages(&resolved_env, &dirs, &UserLog::new(log::LevelFilter::Error))
+                .expect("failed to discover test packages");
 
         let module = discovered.module_info(id);
         assert_eq!(
@@ -604,7 +611,8 @@ mod tests {
         dirs.insert(id, dir.clone());
 
         let discovered =
-            discover_packages(&resolved_env, &dirs).expect("failed to discover test packages");
+            discover_packages(&resolved_env, &dirs, &UserLog::new(log::LevelFilter::Error))
+                .expect("failed to discover test packages");
 
         assert!(discovered.get_package_id_by_name("example/pkg").is_some());
         assert!(
@@ -670,7 +678,8 @@ mod tests {
         let mut dirs = DirSyncResult::default();
         dirs.insert(id, dir.clone());
 
-        let discovered = discover_packages(&resolved_env, &dirs)?;
+        let discovered =
+            discover_packages(&resolved_env, &dirs, &UserLog::new(log::LevelFilter::Error))?;
         let package_id = discovered
             .get_package_id_by_name("example/pkg/app")
             .expect("expected executable package");

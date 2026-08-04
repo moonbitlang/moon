@@ -134,7 +134,7 @@ impl RunOutputVerbosity {
     }
 
     fn sync_output(self) -> SyncOutputOptions {
-        SyncOutputOptions::new(!self.verbose, self.verbose)
+        SyncOutputOptions::default()
     }
 
     fn suppress_build_progress(self) -> bool {
@@ -486,7 +486,7 @@ fn build_package_executable(
         cli.workspace_env.clone(),
     )
     .with_sync_output(options.output.sync_output());
-    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs)?;
+    let synced_env = moonbuild_rupes_recta::sync_dependencies(&resolve_cfg, &dirs, user_log)?;
     let resolve_output =
         moonbuild_rupes_recta::resolve_synced_project(&resolve_cfg, synced_env, user_log)?;
     let (build_meta, build_graph) = plan_run_rr_from_resolved(

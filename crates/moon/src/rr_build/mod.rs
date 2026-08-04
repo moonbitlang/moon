@@ -913,6 +913,7 @@ pub fn generate_all_pkgs_json(build_meta: &BuildMeta) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct BuildConfig {
     /// The level of parallelism to use. If `None`, will use the number of
     /// available CPU cores.
@@ -1047,6 +1048,51 @@ pub fn execute_build(
 ) -> anyhow::Result<N2RunStats> {
     let execution = execute_build_capturing(cfg, input, target_dir)?;
     Ok(finish_captured_build(cfg, &execution, None, user_log))
+}
+
+/// Structured output from one build execution for a command-level JSON
+/// renderer. The executor does not write diagnostics or summaries itself.
+pub struct JsonBuildOutput {
+    pub n_tasks_executed: Option<usize>,
+    pub n_errors: usize,
+    pub n_warnings: usize,
+    pub hidden_errors: usize,
+    pub hidden_warnings: usize,
+    pub diagnostics: Vec<serde_json::Value>,
+    pub non_diagnostic_output: Vec<String>,
+}
+
+impl JsonBuildOutput {
+    pub fn successful(&self) -> bool {
+        self.n_tasks_executed.is_some()
+    }
+}
+
+/// Execute a build while returning all Moonc diagnostics to the CLI seam.
+pub fn execute_build_json(
+    cfg: &BuildConfig,
+    input: BuildInput,
+    target_dir: &Path,
+) -> anyhow::Result<JsonBuildOutput> {
+    let execution = execute_build_capturing(cfg, input, target_dir)?;
+    let collected =
+        collect_json_diagnostics(&[CapturedDiagnosticSource::new(&execution, None)], cfg);
+    Ok(JsonBuildOutput {
+        n_tasks_executed: execution.n_tasks_executed,
+        n_errors: collected.processed.n_errors,
+        n_warnings: collected.processed.n_warnings,
+        hidden_errors: collected.processed.hidden_errors,
+        hidden_warnings: collected.processed.hidden_warnings,
+        diagnostics: collected
+            .diagnostics
+            .into_iter()
+            .map(|content| {
+                serde_json::from_str(&content)
+                    .expect("collected Moonc diagnostic should remain valid JSON")
+            })
+            .collect(),
+        non_diagnostic_output: collected.non_diagnostic_output,
+    })
 }
 
 /// Execute standalone dependency-package work before script-package work.
@@ -1303,6 +1349,12 @@ struct ProcessedDiagnostics {
     hidden_warnings: usize,
 }
 
+struct CollectedJsonDiagnostics {
+    processed: ProcessedDiagnostics,
+    diagnostics: Vec<String>,
+    non_diagnostic_output: Vec<String>,
+}
+
 impl ProcessedDiagnostics {
     fn warn_if_limited(&self, user_log: &UserLog) {
         if self.hidden_errors != 0 || self.hidden_warnings != 0 {
@@ -1371,10 +1423,128 @@ fn rewrite_captured_diagnostic(
     format!("{}{}", physical.display(), &content[path_end..])
 }
 
+fn collect_json_diagnostics(
+    sources: &[CapturedDiagnosticSource<'_>],
+    cfg: &BuildConfig,
+) -> CollectedJsonDiagnostics {
+    let mut catcher = ResultCatcher::default();
+    for source in sources {
+        catcher.n_errors += source.diagnostics.n_errors;
+        catcher.n_warnings += source.diagnostics.n_warnings;
+    }
+
+    let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
+    let mut non_diagnostic_output = Vec::new();
+    for source in sources {
+        for content in &source.diagnostics.content_writer {
+            let content = rewrite_captured_diagnostic(content, cfg, source.build_meta);
+            match serde_json::from_str::<MooncDiagnostic>(&content) {
+                Ok(diagnostic) => {
+                    if diagnostic_is_generated_test_driver_warning(&diagnostic) {
+                        continue;
+                    }
+                    by_file
+                        .entry(diagnostic.path.clone())
+                        .or_default()
+                        .insert((diagnostic, content));
+                }
+                Err(_) => {
+                    if should_render_non_diagnostic_build_output(cfg, source.build_succeeded) {
+                        non_diagnostic_output.push(content);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut diagnostics = Vec::new();
+    let (hidden_errors, hidden_warnings) = match cfg.diagnostic_limit {
+        None => {
+            for file_diagnostics in by_file.values() {
+                for (diagnostic, content) in file_diagnostics {
+                    diagnostics.push(content.clone());
+                    catcher.append_diag(diagnostic);
+                }
+            }
+            (0, 0)
+        }
+        Some(limit) => {
+            let mut displayed = 0;
+            let mut hidden_errors = 0;
+            let mut total_warnings = 0;
+            let mut displayed_warnings = 0;
+            let mut non_errors = Vec::new();
+
+            for file_diagnostics in by_file.values() {
+                for (diagnostic, content) in file_diagnostics {
+                    if diagnostic_is_error(diagnostic) {
+                        if displayed < limit {
+                            diagnostics.push(content.clone());
+                            catcher.append_diag(diagnostic);
+                            displayed += 1;
+                        } else {
+                            hidden_errors += 1;
+                        }
+                        continue;
+                    }
+
+                    if diagnostic_is_warning(diagnostic) {
+                        total_warnings += 1;
+                    }
+                    if displayed < limit {
+                        non_errors.push((diagnostic, content));
+                    }
+                }
+            }
+
+            if displayed < limit {
+                for (diagnostic, content) in non_errors {
+                    diagnostics.push(content.clone());
+                    catcher.append_diag(diagnostic);
+                    displayed += 1;
+                    if diagnostic_is_warning(diagnostic) {
+                        displayed_warnings += 1;
+                    }
+                    if displayed == limit {
+                        break;
+                    }
+                }
+            }
+
+            let hidden_warnings = total_warnings - displayed_warnings;
+            catcher.n_errors += hidden_errors;
+            catcher.n_warnings += hidden_warnings;
+            (hidden_errors, hidden_warnings)
+        }
+    };
+
+    CollectedJsonDiagnostics {
+        processed: ProcessedDiagnostics {
+            n_errors: catcher.n_errors,
+            n_warnings: catcher.n_warnings,
+            hidden_errors,
+            hidden_warnings,
+        },
+        diagnostics,
+        non_diagnostic_output,
+    }
+}
+
 fn process_captured_diagnostics(
     sources: &[CapturedDiagnosticSource<'_>],
     cfg: &BuildConfig,
 ) -> ProcessedDiagnostics {
+    if cfg.output_style == OutputStyle::Json {
+        let collected = collect_json_diagnostics(sources, cfg);
+        for content in &collected.non_diagnostic_output {
+            eprintln!("{content}");
+        }
+        for content in &collected.diagnostics {
+            println!("{content}");
+        }
+        return collected.processed;
+    }
+
     let mut catcher = ResultCatcher::default();
     for source in sources {
         catcher.n_errors += source.diagnostics.n_errors;
@@ -1396,88 +1566,7 @@ fn process_captured_diagnostics(
     });
 
     match cfg.output_style {
-        OutputStyle::Json => {
-            let mut by_file = BTreeMap::<String, BTreeSet<(MooncDiagnostic, String)>>::new();
-            for (content, build_succeeded) in captured {
-                match serde_json::from_str::<moonutil::render::MooncDiagnostic>(&content) {
-                    Ok(d) => {
-                        if diagnostic_is_generated_test_driver_warning(&d) {
-                            continue;
-                        }
-                        let file_key = d.path.clone();
-                        by_file.entry(file_key).or_default().insert((d, content));
-                    }
-                    Err(_) => {
-                        // Non-diagnostics output, just print as-is
-                        // This could happen for installing binaries dependencies etc.
-                        if should_render_non_diagnostic_build_output(cfg, build_succeeded) {
-                            eprintln!("{content}");
-                        }
-                    }
-                };
-            }
-
-            // In JSON mode, just print raw content after dedup.
-            match cfg.diagnostic_limit {
-                None => {
-                    for file_diagnostics in by_file.values() {
-                        for (diag, content) in file_diagnostics {
-                            println!("{content}");
-                            catcher.append_diag(diag);
-                        }
-                    }
-                }
-                Some(limit) => {
-                    let mut displayed = 0;
-                    let mut hidden_errors = 0;
-                    let mut total_warnings = 0;
-                    let mut displayed_warnings = 0;
-                    let mut non_errors = Vec::new();
-
-                    for file_diagnostics in by_file.values() {
-                        for (diag, content) in file_diagnostics {
-                            if diagnostic_is_error(diag) {
-                                if displayed < limit {
-                                    println!("{content}");
-                                    catcher.append_diag(diag);
-                                    displayed += 1;
-                                } else {
-                                    hidden_errors += 1;
-                                }
-                                continue;
-                            }
-
-                            if diagnostic_is_warning(diag) {
-                                total_warnings += 1;
-                            }
-                            if displayed < limit {
-                                non_errors.push((diag, content));
-                            }
-                        }
-                    }
-
-                    if displayed < limit {
-                        for (diag, content) in non_errors {
-                            println!("{content}");
-                            catcher.append_diag(diag);
-                            displayed += 1;
-                            if diagnostic_is_warning(diag) {
-                                displayed_warnings += 1;
-                            }
-                            if displayed == limit {
-                                break;
-                            }
-                        }
-                    }
-
-                    let hidden_warnings = total_warnings - displayed_warnings;
-                    hidden_errors_total += hidden_errors;
-                    hidden_warnings_total += hidden_warnings;
-                    catcher.n_errors += hidden_errors;
-                    catcher.n_warnings += hidden_warnings;
-                }
-            }
-        }
+        OutputStyle::Json => unreachable!(),
         OutputStyle::Fancy => {
             let mut by_file = BTreeMap::<String, BTreeSet<MooncDiagnostic>>::new();
             for (content, build_succeeded) in captured {

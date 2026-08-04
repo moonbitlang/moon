@@ -107,7 +107,7 @@ impl<'a> ImmutableDependencySource<'a> {
                     module.version(),
                     checksum,
                     staging.path(),
-                    !user_log.is_enabled(log::Level::Info),
+                    user_log,
                 )?;
                 validate_source(staging.path(), module)?;
                 std::fs::write(staging.path().join(SOURCE_ARCHIVE_CHECKSUM_FILE), checksum)?;

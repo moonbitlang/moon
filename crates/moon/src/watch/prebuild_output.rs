@@ -115,7 +115,7 @@ mod tests {
         .unwrap()
         .package_dirs(&user_log)
         .unwrap();
-        let synced_env = sync_dependencies(&resolve_cfg, &dirs).unwrap();
+        let synced_env = sync_dependencies(&resolve_cfg, &dirs, &user_log).unwrap();
         let resolved = resolve_synced_project(&resolve_cfg, synced_env, &user_log).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);
@@ -158,7 +158,7 @@ mod tests {
         .unwrap()
         .package_dirs(&user_log)
         .unwrap();
-        let synced_env = sync_dependencies(&resolve_cfg, &dirs).unwrap();
+        let synced_env = sync_dependencies(&resolve_cfg, &dirs, &user_log).unwrap();
         let resolved = resolve_synced_project(&resolve_cfg, synced_env, &user_log).unwrap();
 
         let watch_paths = rr_get_prebuild_watch_paths(&resolved);

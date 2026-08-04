@@ -279,12 +279,7 @@ fn sync(
             let ModuleSourceKind::Registry = version.source() else {
                 unreachable!()
             };
-            registry.install_to(
-                version.name(),
-                version.version(),
-                &pkg_path,
-                !user_log.is_enabled(log::Level::Info),
-            )?;
+            registry.install_to(version.name(), version.version(), &pkg_path, user_log)?;
             // TODO: parallelize this
         }
     }

@@ -292,11 +292,6 @@ impl ResolveConfig {
         }
     }
 
-    pub fn with_quiet_sync(mut self, quiet_sync: bool) -> Self {
-        self.sync_output = self.sync_output.with_quiet(quiet_sync);
-        self
-    }
-
     pub fn with_sync_output(mut self, sync_output: SyncOutputOptions) -> Self {
         self.sync_output = sync_output;
         self
@@ -304,6 +299,11 @@ impl ResolveConfig {
 
     pub fn with_dependency_source_cache(mut self, cache: CacheRoot) -> Self {
         self.dependency_source_cache = cache;
+        self
+    }
+
+    pub fn with_captured_sync_child_output(mut self, capture: bool) -> Self {
+        self.sync_output = self.sync_output.with_captured_child_output(capture);
         self
     }
 
@@ -334,6 +334,7 @@ pub enum ResolveError {
 pub fn sync_dependencies(
     cfg: &ResolveConfig,
     dirs: &PackageDirs,
+    user_log: &UserLog,
 ) -> Result<(ResolvedEnv, DirSyncResult), ResolveError> {
     info!(
         "Starting dependency sync for source directory: {}",
@@ -345,6 +346,7 @@ pub fn sync_dependencies(
         dirs,
         &cfg.sync_flags,
         cfg.sync_output,
+        user_log,
         cfg.no_std,
         cfg.workspace_env.clone(),
         cfg.include_bin_deps,
@@ -365,7 +367,7 @@ pub fn resolve_synced_project(
 ) -> Result<ResolveOutput, ResolveError> {
     let (resolved_env, dir_sync_result) = synced_dependencies;
 
-    let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
+    let mut discover_result = discover_packages(&resolved_env, &dir_sync_result, user_log)?;
     let main_is_core = {
         let ids = resolved_env.input_module_ids();
         ids.len() == 1 && *resolved_env.module_source(ids[0]).name() == CORE_MODULE_TUPLE
@@ -464,10 +466,11 @@ Use moonbit.import with 'username/module@version[/package]' entries to opt in to
         front_matter_config.deps_to_sync.as_ref(),
         cfg.sync_output,
         &cfg.dependency_source_cache,
+        user_log,
     )
     .map_err(ResolveError::SyncModulesError)?;
     // Discover all packages in resolved modules
-    let mut discover_result = discover_packages(&resolved_env, &dir_sync_result)?;
+    let mut discover_result = discover_packages(&resolved_env, &dir_sync_result, user_log)?;
     warn_virtual_mbti_deprecations(&discover_result, user_log);
 
     // Synthesize the single-file package that imports everything from discovered modules

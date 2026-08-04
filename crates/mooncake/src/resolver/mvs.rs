@@ -23,7 +23,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-use colored::Colorize;
 use moonutil::{
     constants::{MOON_MOD, MOON_MOD_JSON, is_moon_mod_exist},
     dependency::SourceDependencyInfo,
@@ -31,6 +30,7 @@ use moonutil::{
     resolution::{
         DependencyEdge, DependencyKind, ModuleName, ModuleSource, ModuleSourceKind, ResolvedEnv,
     },
+    user_log::UserLog,
 };
 use semver::Version;
 
@@ -44,8 +44,13 @@ type WorkspaceRoots = HashMap<ModuleName, (ModuleSource, Arc<MoonMod>)>;
 pub(crate) struct MvsSolver;
 
 impl Resolver for MvsSolver {
-    fn resolve(&mut self, env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
-        mvs_resolve(env, res)
+    fn resolve(
+        &mut self,
+        env: &mut ResolverEnv,
+        res: &mut ResolvedEnv,
+        user_log: &UserLog,
+    ) -> bool {
+        mvs_resolve(env, res, user_log)
     }
 }
 
@@ -69,6 +74,7 @@ fn select_min_version_satisfying<'a>(
     dependant: &ModuleName,
     req: &SourceDependencyInfo,
     versions: impl Iterator<Item = &'a Version> + 'a,
+    user_log: &UserLog,
 ) -> Result<Version, ResolverError> {
     let required = req.version().ok_or_else(|| {
         ResolverError::Other(anyhow!(
@@ -85,10 +91,7 @@ fn select_min_version_satisfying<'a>(
         }
     }
 
-    eprintln!(
-        "{}: you may need to run `moon update` to update the registry",
-        "Hint".yellow()
-    );
+    user_log.warn("you may need to run `moon update` to update the registry");
     Err(ResolverError::NoSatisfiedVersion {
         dependency: dependency.clone(),
         dependant: dependant.clone(),
@@ -101,12 +104,10 @@ fn select_min_version_satisfying_in_env(
     dependency: &ModuleName,
     dependant: &ModuleName,
     req: &SourceDependencyInfo,
+    user_log: &UserLog,
 ) -> Result<(Version, Arc<MoonMod>), ResolverError> {
     let all_versions = env.all_versions_of(dependency).ok_or_else(|| {
-        eprintln!(
-            "{}: you may need to run `moon update` to update the registry",
-            "Hint".yellow()
-        );
+        user_log.warn("you may need to run `moon update` to update the registry");
         ResolverError::ModuleMissing {
             dependency: dependency.clone(),
             dependant: dependant.clone(),
@@ -114,7 +115,7 @@ fn select_min_version_satisfying_in_env(
     })?;
 
     let min_version_satisfying =
-        select_min_version_satisfying(dependency, dependant, req, all_versions.keys());
+        select_min_version_satisfying(dependency, dependant, req, all_versions.keys(), user_log);
     match min_version_satisfying {
         Ok(version) => {
             let source = ModuleSource::from_version(dependency.clone(), version.clone());
@@ -201,19 +202,17 @@ impl From<ModuleSourceOrdWrapper> for ModuleSource {
     }
 }
 
-fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource) {
+fn warn_about_skipped_local_or_git_dep(ms: &ModuleSource, user_log: &UserLog) {
     match ms.source() {
         ModuleSourceKind::Local(_) => {
-            log::warn!(
-                "A local dependency was skipped during version resolution: {}",
-                ms
-            );
+            user_log.warn(format!(
+                "A local dependency was skipped during version resolution: {ms}"
+            ));
         }
         ModuleSourceKind::Git(_) => {
-            log::warn!(
-                "A git dependency was skipped during version selection: {}",
-                ms
-            )
+            user_log.warn(format!(
+                "A git dependency was skipped during version selection: {ms}"
+            ));
         }
         _ => (),
     }
@@ -238,7 +237,7 @@ fn workspace_version_override_warning(
     ))
 }
 
-fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
+fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv, user_log: &UserLog) -> bool {
     let workspace_roots = res
         .input_module_ids()
         .iter()
@@ -294,13 +293,14 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
         for (name, req) in all_deps {
             let pkg_name = name.as_str().into();
 
-            let (ms, module) = match resolve_pkg(req, &source, env, &workspace_roots, &pkg_name) {
-                Ok(value) => value,
-                Err(e) => {
-                    env.report_error(e);
-                    continue;
-                }
-            };
+            let (ms, module) =
+                match resolve_pkg(req, &source, env, &workspace_roots, &pkg_name, user_log) {
+                    Ok(value) => value,
+                    Err(e) => {
+                        env.report_error(e);
+                        continue;
+                    }
+                };
 
             // Add module to working list
             if visited.insert(ms.clone()) {
@@ -334,7 +334,7 @@ fn mvs_resolve(env: &mut ResolverEnv, res: &mut ResolvedEnv) -> bool {
             if same_mvs_compatibility_set(curr.version(), v.version()) {
                 // v >= curr, as implied by btreeset
                 // Emit a warning if the skipped dep is local or git, as they are manually specified
-                warn_about_skipped_local_or_git_dep(&curr);
+                warn_about_skipped_local_or_git_dep(&curr, user_log);
                 curr = v;
             } else {
                 log::debug!("---- selected {}", curr);
@@ -465,10 +465,11 @@ fn resolve_pkg(
     env: &mut ResolverEnv,
     workspace_roots: &WorkspaceRoots,
     pkg_name: &ModuleName,
+    user_log: &UserLog,
 ) -> Result<(ModuleSource, Arc<MoonMod>), ResolverError> {
     if let Some((source, module)) = workspace_roots.get(pkg_name) {
         if let Some(warning) = workspace_version_override_warning(req, dependant, source) {
-            log::warn!("{warning}");
+            user_log.warn(warning);
         }
         log::debug!(
             "---- Dependency {} resolved to workspace module {}",
@@ -547,7 +548,7 @@ fn resolve_pkg(
     // didn't specify it at all, or because the repo comes from a registry), we fallback
     // to resolving from a registry.
     let (version, module) =
-        select_min_version_satisfying_in_env(env, pkg_name, dependant.name(), req)?;
+        select_min_version_satisfying_in_env(env, pkg_name, dependant.name(), req, user_log)?;
     log::debug!(
         "---- Dependency {}, required {:?}, selected {}",
         pkg_name,
@@ -594,6 +595,14 @@ mod test {
         Box::new(registry)
     }
 
+    fn resolve_silently(
+        resolver: &mut MvsSolver,
+        env: &mut ResolverEnv,
+        result: &mut ResolvedEnv,
+    ) -> bool {
+        resolver.resolve(env, result, &UserLog::new(log::LevelFilter::Error))
+    }
+
     #[test]
     fn api_walkthrough() {
         let registry = create_mock_registry();
@@ -610,7 +619,7 @@ mod test {
         let (roots, _) = ResolvedModule::only_one_module(root_ms.clone(), root);
         let mut env = ResolverEnv::new(registry.as_ref());
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -815,7 +824,7 @@ mod test {
         let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.1")]);
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
         assert_depends_on(&result, "root/module@0.1.0", "dep/one@0.1.1");
@@ -847,7 +856,7 @@ mod test {
         let root = create_mock_module("root/module", "0.1.0", [("dep/regular", "0.1.0")]);
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -872,7 +881,7 @@ mod test {
         );
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -895,7 +904,7 @@ mod test {
         );
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -919,7 +928,7 @@ mod test {
         );
         let roots = create_mock_root(root);
         let mut res_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut res_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut res_env);
         assert!(!status);
     }
 
@@ -931,7 +940,7 @@ mod test {
         let root = create_mock_module("root/module", "0.1.0", [("dep/three", "0.2.0")]);
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -951,7 +960,7 @@ mod test {
         let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.1")]);
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -975,7 +984,7 @@ mod test {
         );
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -1002,7 +1011,7 @@ mod test {
         );
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -1024,7 +1033,7 @@ mod test {
         let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.0")]);
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -1044,7 +1053,7 @@ mod test {
         let root = create_mock_module("root/module", "0.1.0", [("dep/one", "0.1.0-rc.1")]);
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
 
@@ -1070,7 +1079,7 @@ mod test {
         );
         let roots = create_mock_root(root);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(
             status,
             "Resolve failed unexpectedly, errors: {}",
@@ -1103,7 +1112,7 @@ mod test {
             ("/workspace/shared", Arc::clone(&shared)),
         ]);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
@@ -1132,7 +1141,7 @@ mod test {
             ("/workspace/shared", Arc::clone(&shared)),
         ]);
         let mut result_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut result_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut result_env);
         assert!(status, "Resolve failed");
         let result = result_env;
         let app_src = create_mock_workspace_source(&app, "/workspace/app");
@@ -1184,7 +1193,7 @@ mod test {
         let mut env = ResolverEnv::new(registry);
         let roots = create_mock_root(root);
         let mut res_env = ResolvedEnv::from_root_modules(roots);
-        let status = resolver.resolve(&mut env, &mut res_env);
+        let status = resolve_silently(&mut resolver, &mut env, &mut res_env);
         if status {
             res_env.all_modules().cloned().collect::<Vec<_>>()
         } else {

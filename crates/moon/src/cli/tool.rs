@@ -54,7 +54,7 @@ pub(crate) fn run_tool(
 ) -> anyhow::Result<i32> {
     match cmd.subcommand {
         ToolSubcommands::FormatAndDiff(subcmd) => run_format_and_diff(subcmd),
-        ToolSubcommands::FormatWorkspace(subcmd) => run_format_workspace(subcmd),
+        ToolSubcommands::FormatWorkspace(subcmd) => run_format_workspace(subcmd, user_log),
         ToolSubcommands::Embed(subcmd) => run_embed(subcmd),
         ToolSubcommands::WriteTccRspFile(subcmd) => write_tcc_rsp_file(subcmd),
         ToolSubcommands::BuildBinaryDep(subcmd) => {

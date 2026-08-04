@@ -26,6 +26,7 @@ use std::{collections::BTreeMap, path::Path, sync::Arc};
 use indexmap::IndexMap;
 use moonutil::dependency::SourceDependencyInfo;
 use moonutil::resolution::ModuleName;
+use moonutil::user_log::UserLog;
 pub use online::*;
 use semver::Version;
 
@@ -75,7 +76,7 @@ pub trait Registry {
         name: &ModuleName,
         version: &Version,
         to: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()>;
 
     /// Ensure the published source archive is available, verify it against the
@@ -90,7 +91,7 @@ pub trait Registry {
         version: &Version,
         expected_checksum: &str,
         to: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()>;
 
     /// Return the registry index's SHA-256 checksum for the published source
@@ -118,9 +119,9 @@ where
         name: &ModuleName,
         version: &Version,
         to: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        (**self).install_to(name, version, to, quiet)
+        (**self).install_to(name, version, to, user_log)
     }
 
     fn acquire_source_to(
@@ -129,9 +130,9 @@ where
         version: &Version,
         expected_checksum: &str,
         to: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        (**self).acquire_source_to(name, version, expected_checksum, to, quiet)
+        (**self).acquire_source_to(name, version, expected_checksum, to, user_log)
     }
 
     fn source_archive_checksum(
@@ -167,9 +168,9 @@ where
         name: &ModuleName,
         version: &Version,
         to: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        (**self).install_to(name, version, to, quiet)
+        (**self).install_to(name, version, to, user_log)
     }
 
     fn acquire_source_to(
@@ -178,9 +179,9 @@ where
         version: &Version,
         expected_checksum: &str,
         to: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        (**self).acquire_source_to(name, version, expected_checksum, to, quiet)
+        (**self).acquire_source_to(name, version, expected_checksum, to, user_log)
     }
 
     fn source_archive_checksum(

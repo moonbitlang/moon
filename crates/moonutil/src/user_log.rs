@@ -16,7 +16,11 @@
 //
 // For inquiries, you can contact us via e-mail at jichuruanjian@idea.edu.cn.
 
-use std::{fmt::Display, io::Write};
+use std::{
+    fmt::Display,
+    io::Write,
+    sync::{Arc, Mutex},
+};
 
 use anstyle::{AnsiColor, Style};
 use log::LevelFilter;
@@ -25,9 +29,42 @@ const ERROR_STYLE: Style = AnsiColor::Red.on_default().bold();
 const WARNING_STYLE: Style = AnsiColor::Yellow.on_default().bold();
 const DEBUG_STYLE: Style = AnsiColor::BrightBlack.on_default().bold();
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UserLogEntryLevel {
+    Error,
+    Warning,
+    Info,
+    Debug,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UserLogEntry {
+    pub level: UserLogEntryLevel,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UserLogCapture {
+    entries: Arc<Mutex<Vec<UserLogEntry>>>,
+}
+
+impl UserLogCapture {
+    pub fn take(&self) -> Vec<UserLogEntry> {
+        std::mem::take(&mut *self.entries.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+}
+
+#[derive(Debug, Clone)]
+enum UserLogDestination {
+    Stderr,
+    Capture(UserLogCapture),
+}
+
+#[derive(Debug, Clone)]
 pub struct UserLog {
     level: LevelFilter,
+    destination: UserLogDestination,
 }
 
 /// Maps legacy CLI verbosity flags to the shared user-log level.
@@ -45,7 +82,21 @@ pub fn user_log_level(verbose: bool, quiet: bool) -> LevelFilter {
 
 impl UserLog {
     pub fn new(level: LevelFilter) -> Self {
-        Self { level }
+        Self {
+            level,
+            destination: UserLogDestination::Stderr,
+        }
+    }
+
+    pub fn captured(level: LevelFilter) -> (Self, UserLogCapture) {
+        let capture = UserLogCapture::default();
+        (
+            Self {
+                level,
+                destination: UserLogDestination::Capture(capture.clone()),
+            },
+            capture,
+        )
     }
 
     pub fn is_enabled(&self, level: log::Level) -> bool {
@@ -53,23 +104,75 @@ impl UserLog {
     }
 
     pub fn error(&self, message: impl Display) {
-        let mut stderr = anstream::stderr().lock();
-        self.error_to(&mut stderr, message);
+        match &self.destination {
+            UserLogDestination::Stderr => {
+                let mut stderr = anstream::stderr().lock();
+                self.error_to(&mut stderr, message);
+            }
+            UserLogDestination::Capture(capture) if self.level >= LevelFilter::Error => capture
+                .entries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(UserLogEntry {
+                    level: UserLogEntryLevel::Error,
+                    message: message.to_string(),
+                }),
+            UserLogDestination::Capture(_) => {}
+        }
     }
 
     pub fn warn(&self, message: impl Display) {
-        let mut stderr = anstream::stderr().lock();
-        self.warn_to(&mut stderr, message);
+        match &self.destination {
+            UserLogDestination::Stderr => {
+                let mut stderr = anstream::stderr().lock();
+                self.warn_to(&mut stderr, message);
+            }
+            UserLogDestination::Capture(capture) if self.level >= LevelFilter::Warn => capture
+                .entries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(UserLogEntry {
+                    level: UserLogEntryLevel::Warning,
+                    message: message.to_string(),
+                }),
+            UserLogDestination::Capture(_) => {}
+        }
     }
 
     pub fn info(&self, message: impl Display) {
-        let mut stderr = anstream::stderr().lock();
-        self.info_to(&mut stderr, message);
+        match &self.destination {
+            UserLogDestination::Stderr => {
+                let mut stderr = anstream::stderr().lock();
+                self.info_to(&mut stderr, message);
+            }
+            UserLogDestination::Capture(capture) if self.level >= LevelFilter::Info => capture
+                .entries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(UserLogEntry {
+                    level: UserLogEntryLevel::Info,
+                    message: message.to_string(),
+                }),
+            UserLogDestination::Capture(_) => {}
+        }
     }
 
     pub fn debug(&self, message: impl Display) {
-        let mut stderr = anstream::stderr().lock();
-        self.debug_to(&mut stderr, message);
+        match &self.destination {
+            UserLogDestination::Stderr => {
+                let mut stderr = anstream::stderr().lock();
+                self.debug_to(&mut stderr, message);
+            }
+            UserLogDestination::Capture(capture) if self.level >= LevelFilter::Debug => capture
+                .entries
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(UserLogEntry {
+                    level: UserLogEntryLevel::Debug,
+                    message: message.to_string(),
+                }),
+            UserLogDestination::Capture(_) => {}
+        }
     }
 
     fn error_to(&self, writer: &mut impl Write, message: impl Display) {
@@ -104,7 +207,26 @@ mod tests {
     use anstream::{AutoStream, ColorChoice};
     use log::LevelFilter;
 
-    use super::UserLog;
+    use super::{UserLog, UserLogEntryLevel};
+
+    #[test]
+    fn captured_log_preserves_filtered_levels_and_order() {
+        let (output, capture) = UserLog::captured(LevelFilter::Info);
+
+        output.info("starting");
+        output.warn("be careful");
+        output.debug("hidden");
+        output.error("failed");
+
+        let entries = capture.take();
+        assert_eq!(entries.len(), 3);
+        assert!(matches!(entries[0].level, UserLogEntryLevel::Info));
+        assert_eq!(entries[0].message, "starting");
+        assert!(matches!(entries[1].level, UserLogEntryLevel::Warning));
+        assert_eq!(entries[1].message, "be careful");
+        assert!(matches!(entries[2].level, UserLogEntryLevel::Error));
+        assert_eq!(entries[2].message, "failed");
+    }
 
     #[test]
     fn error_level_renders_error_and_suppresses_other_messages() {

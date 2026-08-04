@@ -698,8 +698,11 @@ impl ProjectQuery {
             return Ok(None);
         };
         if workspace.members.is_none() {
-            let moon_work =
-                read_workspace_file(&workspace.manifest_path).map_err(PackageDirsError::from)?;
+            let moon_work = read_workspace_file(
+                &workspace.manifest_path,
+                &UserLog::new(log::LevelFilter::Error),
+            )
+            .map_err(PackageDirsError::from)?;
             let member_dirs = canonical_workspace_module_dirs(&workspace.root, &moon_work)
                 .map_err(PackageDirsError::from)?;
             workspace.members = Some(member_dirs);
@@ -828,7 +831,8 @@ fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<Workspa
         };
 
         if let Some(module_root) = module_root {
-            let workspace = read_workspace_file(&workspace_path)?;
+            let workspace =
+                read_workspace_file(&workspace_path, &UserLog::new(log::LevelFilter::Error))?;
             let members = canonical_workspace_module_dirs(dir, &workspace)?;
             if members.iter().any(|member_dir| member_dir == module_root) {
                 return Ok(Some(WorkspaceFacts {
@@ -842,7 +846,8 @@ fn find_applicable_workspace(source_dir: &Path) -> anyhow::Result<Option<Workspa
         }
 
         if has_module_manifest(dir) {
-            let workspace = read_workspace_file(&workspace_path)?;
+            let workspace =
+                read_workspace_file(&workspace_path, &UserLog::new(log::LevelFilter::Error))?;
             let members = canonical_workspace_module_dirs(dir, &workspace)?;
             let module_not_member = !members.iter().any(|member_dir| member_dir == dir);
             return Ok(Some(WorkspaceFacts {

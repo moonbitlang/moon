@@ -29,7 +29,7 @@ use anyhow::{Context, bail};
 use indexmap::map::IndexMap;
 use moonutil::{
     dependency::SourceDependencyInfo, registry::RegistryConfig, resolution::ModuleName,
-    scripts::execute_postadd_script,
+    scripts::execute_postadd_script, user_log::UserLog,
 };
 use reqwest::header::USER_AGENT;
 use semver::Version;
@@ -137,9 +137,9 @@ impl super::Registry for OnlineRegistry {
         name: &ModuleName,
         version: &Version,
         to: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        self.install_to_impl(name, version, to, quiet)
+        self.install_to_impl(name, version, to, user_log)
     }
 
     fn acquire_source_to(
@@ -148,9 +148,9 @@ impl super::Registry for OnlineRegistry {
         version: &Version,
         expected_checksum: &str,
         to: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()> {
-        OnlineRegistry::acquire_source_to(self, name, version, expected_checksum, to, quiet)
+        OnlineRegistry::acquire_source_to(self, name, version, expected_checksum, to, user_log)
     }
 
     fn source_archive_checksum(
@@ -258,7 +258,7 @@ impl OnlineRegistry {
         name: &ModuleName,
         version: &Version,
         expected_checksum: &str,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<File> {
         let pkg_index = self.index_file_of(name);
         if !pkg_index.exists() {
@@ -267,9 +267,7 @@ impl OnlineRegistry {
         let cache_file = self.archive_cache_file_of(name, version);
         match open_verified_archive(&cache_file, expected_checksum) {
             Ok(Some(archive)) => {
-                if !quiet {
-                    eprintln!("Using cached {name}@{version}");
-                }
+                user_log.info(format!("Using cached {name}@{version}"));
                 return Ok(archive);
             }
             Ok(None) => {}
@@ -283,9 +281,7 @@ impl OnlineRegistry {
                 });
             }
         }
-        if !quiet {
-            eprintln!("Downloading {name}@{version}");
-        }
+        user_log.info(format!("Downloading {name}@{version}"));
         let filepath = form_urlencoded::Serializer::new(String::new())
             .append_key_only(&format!("{}/{}/{}", name.username, name.unqual, version))
             .finish();
@@ -323,10 +319,10 @@ impl OnlineRegistry {
         name: &ModuleName,
         version: &Version,
         pkg_install_dir: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()> {
         let checksum = self.read_checksum_from_index_file(name, version)?;
-        self.acquire_source_to(name, version, &checksum, pkg_install_dir, quiet)?;
+        self.acquire_source_to(name, version, &checksum, pkg_install_dir, user_log)?;
         execute_postadd_script(pkg_install_dir)?;
         Ok(())
     }
@@ -339,7 +335,7 @@ impl OnlineRegistry {
         version: &Version,
         expected_checksum: &str,
         pkg_install_dir: &Path,
-        quiet: bool,
+        user_log: &UserLog,
     ) -> anyhow::Result<()> {
         // ensure dir exists and is empty
         if !pkg_install_dir.exists() {
@@ -349,7 +345,7 @@ impl OnlineRegistry {
             std::fs::create_dir_all(pkg_install_dir).unwrap();
         }
 
-        let archive = self.download_or_use_cache(name, version, expected_checksum, quiet)?;
+        let archive = self.download_or_use_cache(name, version, expected_checksum, user_log)?;
         extract_zip_to_dir(pkg_install_dir, archive)?;
         Ok(())
     }
@@ -375,6 +371,10 @@ mod tests {
 
     use super::*;
     use crate::registry::Registry;
+
+    fn quiet_user_log() -> UserLog {
+        UserLog::new(log::LevelFilter::Error)
+    }
 
     #[test]
     fn official_registry_uses_download_service() {
@@ -476,7 +476,7 @@ mod tests {
         let destination = sandbox.path().join("source");
 
         registry
-            .acquire_source_to(&name, &version, &checksum, &destination, true)
+            .acquire_source_to(&name, &version, &checksum, &destination, &quiet_user_log())
             .unwrap();
 
         assert_eq!(
@@ -523,7 +523,7 @@ mod tests {
                 &version,
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 &destination,
-                true,
+                &quiet_user_log(),
             )
             .unwrap_err();
 

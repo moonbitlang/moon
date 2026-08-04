@@ -25,7 +25,7 @@ use std::{
 
 use clap::{CommandFactory, Parser};
 use cli::MoonBuildSubcommands;
-use moonutil::{command_output::CommandOutput, user_log::UserLog};
+use moonutil::{command_output::CommandOutput, user_log::UserLogCapture};
 
 mod build_flags;
 mod cli;
@@ -50,15 +50,19 @@ use tracing_subscriber::{Layer, layer::SubscriberExt};
 ///   `--trace` is used together with `MOON_TRACE`, the latter takes precedence.
 ///
 /// Returns a boxed guard that keeps the tracing system alive.
-fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
+fn init_tracing(trace_flag: bool, suppress_terminal_output: bool) -> Box<dyn Any> {
     // usage example: only show debug logs for moonbuild::runtest module
     // env RUST_LOG=moonbuild::runtest=debug cargo run -- -C ./tests/test_cases/moon_new.in test
 
     let log_env_set = std::env::var("RUST_LOG").is_ok();
     let moon_tracing_env = std::env::var("MOON_TRACE").ok();
-    let filter = tracing_subscriber::EnvFilter::builder()
-        .with_default_directive(tracing::Level::WARN.into())
-        .from_env_lossy();
+    let filter = if suppress_terminal_output {
+        tracing_subscriber::EnvFilter::new("off")
+    } else {
+        tracing_subscriber::EnvFilter::builder()
+            .with_default_directive(tracing::Level::WARN.into())
+            .from_env_lossy()
+    };
 
     let fmt = tracing_subscriber::fmt::layer()
         .with_ansi(std::io::stderr().is_terminal())
@@ -109,6 +113,18 @@ fn init_tracing(trace_flag: bool) -> Box<dyn Any> {
     Box::new(chrome_guard)
 }
 
+fn exit_check_json(
+    output: &CommandOutput,
+    capture: &UserLogCapture,
+    outcome: cli::CheckJsonOutcome,
+) -> ! {
+    let exit_code = outcome.exit_code();
+    if cli::write_check_json(output, capture, outcome).is_err() {
+        std::process::exit(-1);
+    }
+    std::process::exit(exit_code)
+}
+
 pub fn main() {
     panic::setup_panic_hook();
 
@@ -146,32 +162,48 @@ pub fn main() {
         let _ = writeln!(stderr);
         std::process::exit(2);
     };
-    let bootstrap_output = UserLog::new(flags.user_log_level());
+    let check_json = matches!(&subcommand, MoonBuildSubcommands::Check(cmd) if cmd.json);
+    let (output, check_json_capture) = if check_json {
+        let (output, capture) = CommandOutput::captured(flags.user_log_level());
+        (output, Some(capture))
+    } else {
+        (CommandOutput::new(flags.user_log_level()), None)
+    };
 
     if let Some(dir) = &flags.source_tgt_dir.cwd {
         // `-C` changes the process working directory early.
         if let Err(err) = std::env::set_current_dir(dir) {
-            bootstrap_output.error(format!(
-                "failed to change directory to {}: {}",
-                dir.display(),
-                err
-            ));
-            std::process::exit(-1);
+            let message = format!("failed to change directory to {}: {}", dir.display(), err);
+            if let Some(capture) = &check_json_capture {
+                exit_check_json(
+                    &output,
+                    capture,
+                    cli::CheckJsonOutcome::from_error(-1, message),
+                );
+            }
+            output.user_log().error(message);
+            std::process::exit(-1)
         }
     }
 
-    let _trace_guard = init_tracing(flags.trace);
+    let _trace_guard = init_tracing(flags.trace, check_json);
 
     let (workspace_env, workspace_env_deprecation_warning) =
         match moonutil::project::current_workspace_env() {
             Ok(result) => result,
             Err(err) => {
-                bootstrap_output.error(format!("{:?}", err));
-                std::process::exit(-1);
+                if let Some(capture) = &check_json_capture {
+                    exit_check_json(
+                        &output,
+                        capture,
+                        cli::CheckJsonOutcome::from_error(-1, format!("{err:#}")),
+                    );
+                }
+                output.user_log().error(format!("{:?}", err));
+                std::process::exit(-1)
             }
         };
     flags.workspace_env = workspace_env;
-    let output = CommandOutput::new(flags.user_log_level());
 
     // Check for deprecated flags and emit warnings (after tracing is initialized)
     for warning in flags.deprecation_warnings() {
@@ -179,6 +211,20 @@ pub fn main() {
     }
     if let Some(warning) = workspace_env_deprecation_warning {
         output.user_log().warn(warning);
+    }
+
+    if let MoonBuildSubcommands::Check(cmd) = &subcommand
+        && cmd.json
+    {
+        let outcome = cli::run_check_json(&flags, cmd, &output);
+        drop(_trace_guard);
+        exit_check_json(
+            &output,
+            check_json_capture
+                .as_ref()
+                .expect("JSON check should have a captured UserLog"),
+            outcome,
+        );
     }
 
     use MoonBuildSubcommands::*;
