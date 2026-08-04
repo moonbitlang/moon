@@ -37,6 +37,28 @@ _Avoid_: Guest UTF-8 path buffer
 Memory owned by moonrun while servicing guest jobs.
 _Avoid_: Native buffer, temporary buffer
 
+**Moonrun Policy**:
+The permission configuration enforced by moonrun-owned host imports, including
+`moonbitlang/async` and `__moonbit_fs_unstable`. It authorizes host paths and
+operations before moonrun performs them. It does not implicitly configure or
+restrict WASI descriptors.
+_Avoid_: WASI sandbox, virtual filesystem
+
+**WASI Capability Surface**:
+The files and directories reachable through WASI descriptors and preopens.
+WASI access is configured separately from Moonrun Policy, even when both
+surfaces ultimately access the same host filesystem. A runtime adapter must
+configure both explicitly instead of treating one as enforcement for the
+other.
+_Avoid_: Moonrun Policy, FFI permissions
+
+**Host Filesystem**:
+The runtime-engine-neutral implementation of moonrun's permission-backed
+filesystem imports. It owns authorization, host filesystem operations, and
+guest-visible error semantics; runtime adapters only convert values and expose
+imports. WASI does not pass through the Host Filesystem.
+_Avoid_: WASI filesystem, V8 filesystem
+
 **Handle**:
 An opaque value held by MoonBit code that names a moonrun object at the Native-Shaped Async Boundary, such as a Resource, Job, Worker, poll instance, Host Buffer, address-info result, or Completion Source.
 _Avoid_: Host Handle, Guest Handle, raw fd, pointer, id
